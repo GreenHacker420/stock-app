@@ -1,4 +1,5 @@
 import { Assets as NavigationAssets } from '@react-navigation/elements';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { ThemeProvider as RneThemeProvider, createTheme } from '@rneui/themed';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Asset } from 'expo-asset';
@@ -23,6 +24,11 @@ SplashScreen.preventAutoHideAsync();
 
 const prefix = createURL('/');
 const queryClient = new QueryClient();
+const paperSettings = {
+  icon: ({ name, color, size, testID }: { name: string; color?: string; size: number; testID?: string }) => (
+    <MaterialCommunityIcons name={name as never} color={color ?? "#4d584f"} size={size} testID={testID} />
+  ),
+};
 const rneTheme = createTheme({
   lightColors: {
     primary: "#246b4b",
@@ -54,7 +60,7 @@ export function App() {
   if (isBootstrapping) {
     return (
       <SafeAreaProvider>
-        <PaperProvider theme={paperTheme}>
+        <PaperProvider theme={paperTheme} settings={paperSettings}>
           <RneThemeProvider theme={rneTheme}>
             <ActivityIndicator style={{ flex: 1 }} />
           </RneThemeProvider>
@@ -67,7 +73,7 @@ export function App() {
     SplashScreen.hideAsync();
     return (
       <SafeAreaProvider>
-        <PaperProvider theme={paperTheme}>
+        <PaperProvider theme={paperTheme} settings={paperSettings}>
           <RneThemeProvider theme={rneTheme}>
             <Login />
           </RneThemeProvider>
@@ -79,7 +85,7 @@ export function App() {
   return (
     <SafeAreaProvider>
       <QueryClientProvider client={queryClient}>
-        <PaperProvider theme={paperTheme}>
+        <PaperProvider theme={paperTheme} settings={paperSettings}>
           <RneThemeProvider theme={rneTheme}>
             <Navigation
               theme={navigationTheme}

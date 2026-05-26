@@ -4,11 +4,16 @@ import {
 } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { IconButton } from 'react-native-paper';
+import { CloseDay } from './screens/CloseDay';
 import { Home } from './screens/Home';
+import { OpenCashSession } from './screens/OpenCashSession';
+import { OrdersToPack } from './screens/OrdersToPack';
 import { Profile } from './screens/Profile';
 import { Settings } from './screens/Settings';
+import { StockEntry } from './screens/StockEntry';
 import { Updates } from './screens/Updates';
 import { NotFound } from './screens/NotFound';
+import { WalkInSale } from './screens/WalkInSale';
 
 const HomeTabs = createBottomTabNavigator({
   screens: {
@@ -59,6 +64,36 @@ const RootStack = createNativeStackNavigator({
       },
       linking: {
         path: '*',
+      },
+    },
+    WalkInSale: {
+      screen: WalkInSale,
+      options: {
+        title: 'Walk-in sale',
+      },
+    },
+    OpenCashSession: {
+      screen: OpenCashSession,
+      options: {
+        title: 'Open cash session',
+      },
+    },
+    StockEntry: {
+      screen: StockEntry,
+      options: {
+        title: 'Stock entry',
+      },
+    },
+    OrdersToPack: {
+      screen: OrdersToPack,
+      options: {
+        title: 'Orders to pack',
+      },
+    },
+    CloseDay: {
+      screen: CloseDay,
+      options: {
+        title: 'Close day',
       },
     },
   },
