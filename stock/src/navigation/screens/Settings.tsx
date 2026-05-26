@@ -1,6 +1,6 @@
 import { View } from "react-native";
 import { Card, List, Text } from "react-native-paper";
-import { Screen } from "@/components/Screen";
+import { Screen } from "../../components/Screen";
 
 export function Settings() {
   return (

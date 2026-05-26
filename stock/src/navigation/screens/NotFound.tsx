@@ -1,6 +1,6 @@
 import { View } from "react-native";
 import { Button, Text } from "react-native-paper";
-import { Screen } from "@/components/Screen";
+import { Screen } from "../../components/Screen";
 
 export function NotFound() {
   return (

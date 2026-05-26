@@ -1,6 +1,6 @@
-import * as SecureStore from "expo-secure-store";
 import { create } from "zustand";
-import { ApiUser, fetchMe, login } from "@/api/client";
+import { ApiUser, fetchMe, login } from "../api/client";
+import { deleteToken, getToken, setToken } from "./token-storage";
 
 const TOKEN_KEY = "shopcontrol_token";
 
@@ -19,12 +19,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   isBootstrapping: true,
   async signIn(identifier, password) {
     const result = await login(identifier, password);
-    await SecureStore.setItemAsync(TOKEN_KEY, result.token);
+    await setToken(TOKEN_KEY, result.token);
     set({ token: result.token, user: result.user });
   },
   async restoreSession() {
     try {
-      const token = await SecureStore.getItemAsync(TOKEN_KEY);
+      const token = await getToken(TOKEN_KEY);
       if (!token) {
         set({ token: null, user: null, isBootstrapping: false });
         return;
@@ -38,7 +38,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
   async signOut() {
-    await SecureStore.deleteItemAsync(TOKEN_KEY);
+    await deleteToken(TOKEN_KEY);
     set({ token: null, user: null, isBootstrapping: false });
   },
 }));

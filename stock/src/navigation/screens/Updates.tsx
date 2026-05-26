@@ -1,9 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
 import { View } from "react-native";
 import { ActivityIndicator, Card, Text } from "react-native-paper";
-import { fetchShops } from "@/api/client";
-import { useAuthStore } from "@/auth/auth-store";
-import { Screen } from "@/components/Screen";
+import { fetchShops } from "../../api/client";
+import { useAuthStore } from "../../auth/auth-store";
+import { Screen } from "../../components/Screen";
 
 export function Updates() {
   const token = useAuthStore((state) => state.token);

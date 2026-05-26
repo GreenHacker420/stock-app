@@ -1,7 +1,7 @@
 import { View } from "react-native";
 import { Button, Card, Text } from "react-native-paper";
-import { useAuthStore } from "@/auth/auth-store";
-import { Screen } from "@/components/Screen";
+import { useAuthStore } from "../../auth/auth-store";
+import { Screen } from "../../components/Screen";
 
 export function Profile() {
   const user = useAuthStore((state) => state.user);

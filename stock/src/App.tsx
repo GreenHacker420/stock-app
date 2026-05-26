@@ -4,14 +4,13 @@ import { Asset } from 'expo-asset';
 import { createURL } from 'expo-linking';
 import * as SplashScreen from 'expo-splash-screen';
 import * as React from 'react';
-import { useColorScheme } from 'react-native';
 import { ActivityIndicator, PaperProvider } from 'react-native-paper';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import "../global.css";
 import { useAuthStore } from './auth/auth-store';
 import { Navigation } from './navigation';
 import { Login } from './navigation/screens/Login';
-import { navigationThemes, paperDarkTheme, paperLightTheme } from './theme/paper';
+import { navigationThemes, paperLightTheme } from './theme/paper';
 
 Asset.loadAsync([
   ...NavigationAssets,
@@ -25,7 +24,6 @@ const prefix = createURL('/');
 const queryClient = new QueryClient();
 
 export function App() {
-  const colorScheme = useColorScheme();
   const restoreSession = useAuthStore((state) => state.restoreSession);
   const isBootstrapping = useAuthStore((state) => state.isBootstrapping);
   const user = useAuthStore((state) => state.user);
@@ -34,11 +32,8 @@ export function App() {
     restoreSession();
   }, [restoreSession]);
 
-  const paperTheme = colorScheme === 'dark' ? paperDarkTheme : paperLightTheme;
-  const navigationTheme =
-    colorScheme === 'dark'
-      ? navigationThemes.DarkTheme
-      : navigationThemes.LightTheme;
+  const paperTheme = paperLightTheme;
+  const navigationTheme = navigationThemes.LightTheme;
 
   if (isBootstrapping) {
     return (
