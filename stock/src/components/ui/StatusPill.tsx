@@ -6,11 +6,11 @@ type StatusPillProps = {
 };
 
 const tones = {
-  green: { bg: "#d8f2e3", fg: "#0b3d28" },
-  amber: { bg: "#ffe2ad", fg: "#3f2800" },
-  blue: { bg: "#dcecff", fg: "#1e4568" },
-  red: { bg: "#ffe1dc", fg: "#7a1b14" },
-  neutral: { bg: "#eef2ea", fg: "#4d584f" },
+  green: { bg: "#d1fae5", fg: "#065f46" },
+  amber: { bg: "#fef3c7", fg: "#92400e" },
+  blue: { bg: "#dbeafe", fg: "#1e40af" },
+  red: { bg: "#fee2e2", fg: "#b91c1c" },
+  neutral: { bg: "#f3f4f6", fg: "#4b5563" },
 };
 
 export function StatusPill({ label, tone = "neutral" }: StatusPillProps) {

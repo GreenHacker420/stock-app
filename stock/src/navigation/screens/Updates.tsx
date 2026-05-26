@@ -52,11 +52,11 @@ export function Updates() {
           ) : null}
 
           {!shopsQuery.isLoading && !shopsQuery.data?.length ? (
-            <View className="rounded-2xl border border-dashed border-[#b9c3b5] bg-white p-8 items-center">
-              <Text variant="titleMedium" style={{ color: "#17211b", fontWeight: "700" }}>
+            <View className="rounded-lg border border-dashed border-gray-200 bg-white p-8 items-center">
+              <Text variant="titleMedium" style={{ color: "#111827", fontWeight: "700" }}>
                 No shops yet
               </Text>
-              <Text variant="bodySmall" style={{ color: "#667064", marginTop: 4, textAlign: "center" }}>
+              <Text variant="bodySmall" style={{ color: "#4b5563", marginTop: 4, textAlign: "center" }}>
                 {isOwner ? "Tap the '+' button below to create your first shop." : "Ask the owner to assign you to a shop."}
               </Text>
             </View>
@@ -77,31 +77,31 @@ export function Updates() {
                       opacity: isOwner && pressed ? 0.8 : 1,
                       transform: [{ scale: isOwner && pressed ? 0.98 : 1 }],
                       shadowColor: "#000",
-                      shadowOffset: { width: 0, height: 4 },
-                      shadowOpacity: 0.03,
-                      shadowRadius: 10,
-                      elevation: 2,
+                      shadowOffset: { width: 0, height: 1 },
+                      shadowOpacity: 0.05,
+                      shadowRadius: 2,
+                      elevation: 1,
                     },
                   ]}
-                  className="rounded-2xl border border-[#e5eadd] bg-white p-4.5"
+                  className="rounded-lg border border-gray-200 bg-white p-4.5"
                 >
                   <View className="flex-row justify-between items-start gap-2">
                     <View className="flex-1 gap-1">
-                      <Text variant="titleMedium" style={{ color: "#17211b", fontWeight: "800", letterSpacing: -0.2 }}>
+                      <Text variant="titleMedium" style={{ color: "#111827", fontWeight: "800", letterSpacing: -0.2 }}>
                         {shop.name}
                       </Text>
-                      <Text variant="bodySmall" style={{ color: "#667064", lineHeight: 16 }}>
+                      <Text variant="bodySmall" style={{ color: "#4b5563", lineHeight: 16 }}>
                         Code: {shop.code} • {shop.city}
                       </Text>
-                      <Text variant="bodySmall" style={{ color: "#667064", lineHeight: 16 }}>
-                        Opening cash: <Text style={{ color: "#17211b", fontWeight: "600" }}>₹{shop.openingCash}</Text>
+                      <Text variant="bodySmall" style={{ color: "#4b5563", lineHeight: 16 }}>
+                        Opening cash: <Text style={{ color: "#111827", fontWeight: "600" }}>₹{shop.openingCash}</Text>
                       </Text>
                       {staffNames ? (
-                        <Text variant="bodySmall" style={{ color: "#2f7d5c", fontWeight: "600", marginTop: 4 }}>
+                        <Text variant="bodySmall" style={{ color: "#059669", fontWeight: "600", marginTop: 4 }}>
                           Staff: {staffNames}
                         </Text>
                       ) : (
-                        <Text variant="bodySmall" style={{ color: "#b7791f", fontWeight: "600", marginTop: 4 }}>
+                        <Text variant="bodySmall" style={{ color: "#d97706", fontWeight: "600", marginTop: 4 }}>
                           No staff assigned
                         </Text>
                       )}
@@ -128,8 +128,8 @@ export function Updates() {
             margin: 16,
             right: 0,
             bottom: 0,
-            backgroundColor: "#246b4b",
-            borderRadius: 16,
+            backgroundColor: "#1e40af",
+            borderRadius: 12,
           }}
           onPress={() => navigate("CreateEditShop")}
         />
@@ -139,40 +139,40 @@ export function Updates() {
         <Dialog
           visible={isActionsOpen}
           onDismiss={() => setIsActionsOpen(false)}
-          style={{ backgroundColor: "white", borderRadius: 20 }}
+          style={{ backgroundColor: "white", borderRadius: 12 }}
         >
-          <Dialog.Title style={{ fontWeight: "800", color: "#17211b" }}>
+          <Dialog.Title style={{ fontWeight: "800", color: "#111827" }}>
             {selectedShop?.name} Setup
           </Dialog.Title>
           <Dialog.Content style={{ paddingHorizontal: 0 }}>
             <List.Item
               title="Edit Shop Details"
               description="Change name, city, or address details."
-              left={(props) => <List.Icon {...props} icon="store-edit-outline" color="#246b4b" />}
+              left={(props) => <List.Icon {...props} icon="store-edit-outline" color="#1e40af" />}
               onPress={() => navigate("CreateEditShop", { shop: selectedShop })}
-              titleStyle={{ fontWeight: "700", color: "#17211b" }}
+              titleStyle={{ fontWeight: "700", color: "#111827" }}
             />
             <List.Item
               title="Assign Staff Operators"
               description="Grant staff access to manage this counter."
-              left={(props) => <List.Icon {...props} icon="account-group-outline" color="#246b4b" />}
+              left={(props) => <List.Icon {...props} icon="account-group-outline" color="#1e40af" />}
               onPress={() => navigate("AssignStaff", { shop: selectedShop })}
-              titleStyle={{ fontWeight: "700", color: "#17211b" }}
+              titleStyle={{ fontWeight: "700", color: "#111827" }}
             />
             {!selectedShop?.openingStockLocked ? (
               <List.Item
                 title="Initialize Opening Stock"
                 description="Set starting quantities before transactions start."
-                left={(props) => <List.Icon {...props} icon="warehouse" color="#246b4b" />}
+                left={(props) => <List.Icon {...props} icon="warehouse" color="#1e40af" />}
                 onPress={() => navigate("SetOpeningStock", { shop: selectedShop })}
-                titleStyle={{ fontWeight: "700", color: "#17211b" }}
+                titleStyle={{ fontWeight: "700", color: "#111827" }}
               />
             ) : (
               <List.Item
                 title="Opening Stock (Locked)"
                 description="Locked after setup/transactions initialized."
-                left={(props) => <List.Icon {...props} icon="lock-outline" color="#7a8578" />}
-                titleStyle={{ fontWeight: "700", color: "#7a8578" }}
+                left={(props) => <List.Icon {...props} icon="lock-outline" color="#6b7280" />}
+                titleStyle={{ fontWeight: "700", color: "#6b7280" }}
               />
             )}
           </Dialog.Content>

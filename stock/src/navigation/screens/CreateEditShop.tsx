@@ -74,7 +74,7 @@ export function CreateEditShop() {
       />
 
       <Section title="Shop credentials">
-        <View className="gap-4 rounded-2xl border border-[#e5eadd] bg-white p-4.5">
+        <View className="gap-4 rounded-2xl border border-[#e5e7eb] bg-white p-4.5">
           <TextInput
             mode="outlined"
             label="Shop name"
@@ -84,8 +84,8 @@ export function CreateEditShop() {
               setError("");
             }}
             placeholder="e.g. Nagpur Branch"
-            outlineStyle={{ borderRadius: 12, borderColor: "#d9dfd2" }}
-            activeOutlineColor="#246b4b"
+            outlineStyle={{ borderRadius: 12, borderColor: "#e5e7eb" }}
+            activeOutlineColor="#1e40af"
           />
 
           <TextInput
@@ -98,8 +98,8 @@ export function CreateEditShop() {
             }}
             disabled={isEditing}
             placeholder="e.g. NGP-01"
-            outlineStyle={{ borderRadius: 12, borderColor: "#d9dfd2" }}
-            activeOutlineColor="#246b4b"
+            outlineStyle={{ borderRadius: 12, borderColor: "#e5e7eb" }}
+            activeOutlineColor="#1e40af"
           />
 
           <TextInput
@@ -111,8 +111,8 @@ export function CreateEditShop() {
               setError("");
             }}
             placeholder="e.g. Nagpur"
-            outlineStyle={{ borderRadius: 12, borderColor: "#d9dfd2" }}
-            activeOutlineColor="#246b4b"
+            outlineStyle={{ borderRadius: 12, borderColor: "#e5e7eb" }}
+            activeOutlineColor="#1e40af"
           />
 
           <TextInput
@@ -123,8 +123,8 @@ export function CreateEditShop() {
             placeholder="e.g. Near Metro Station"
             multiline
             numberOfLines={3}
-            outlineStyle={{ borderRadius: 12, borderColor: "#d9dfd2" }}
-            activeOutlineColor="#246b4b"
+            outlineStyle={{ borderRadius: 12, borderColor: "#e5e7eb" }}
+            activeOutlineColor="#1e40af"
           />
 
           {!isEditing && (
@@ -138,8 +138,8 @@ export function CreateEditShop() {
               }}
               keyboardType="numeric"
               placeholder="0"
-              outlineStyle={{ borderRadius: 12, borderColor: "#d9dfd2" }}
-              activeOutlineColor="#246b4b"
+              outlineStyle={{ borderRadius: 12, borderColor: "#e5e7eb" }}
+              activeOutlineColor="#1e40af"
             />
           )}
 
@@ -151,7 +151,7 @@ export function CreateEditShop() {
             loading={mutation.isPending}
             style={{ borderRadius: 12, marginTop: 8 }}
             contentStyle={{ height: 50 }}
-            buttonColor="#246b4b"
+            buttonColor="#1e40af"
             onPress={() => mutation.mutate()}
           >
             {isEditing ? "Save changes" : "Create shop"}

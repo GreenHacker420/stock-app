@@ -85,8 +85,8 @@ export function SetOpeningStock() {
 
           {!itemsQuery.isLoading && itemsQuery.data?.length === 0 ? (
             <View className="rounded-2xl border border-dashed border-[#b9c3b5] bg-white p-6 items-center">
-              <Text variant="titleMedium" style={{ fontWeight: "700", color: "#17211b" }}>No Items Found</Text>
-              <Text variant="bodySmall" style={{ color: "#667064", marginTop: 4, textAlign: "center" }}>
+              <Text variant="titleMedium" style={{ fontWeight: "700", color: "#111827" }}>No Items Found</Text>
+              <Text variant="bodySmall" style={{ color: "#4b5563", marginTop: 4, textAlign: "center" }}>
                 Add items to this shop before configuring their opening stocks.
               </Text>
             </View>
@@ -96,13 +96,13 @@ export function SetOpeningStock() {
             {itemsQuery.data?.map((item) => (
               <View
                 key={item.id}
-                className="flex-row items-center justify-between gap-4 rounded-2xl border border-[#e5eadd] bg-white p-4"
+                className="flex-row items-center justify-between gap-4 rounded-2xl border border-[#e5e7eb] bg-white p-4"
               >
                 <View className="flex-1 gap-1">
-                  <Text variant="titleMedium" style={{ color: "#17211b", fontWeight: "700" }}>
+                  <Text variant="titleMedium" style={{ color: "#111827", fontWeight: "700" }}>
                     {item.name}
                   </Text>
-                  <Text variant="bodySmall" style={{ color: "#667064" }}>
+                  <Text variant="bodySmall" style={{ color: "#4b5563" }}>
                     SKU: {item.sku || "N/A"} • Unit: {item.unit} • Default Price: ₹{item.defaultSellingPrice}
                   </Text>
                 </View>
@@ -115,8 +115,8 @@ export function SetOpeningStock() {
                     placeholder="0"
                     value={quantities[item.id] || ""}
                     onChangeText={(val) => handleQtyChange(item.id, val)}
-                    outlineStyle={{ borderRadius: 10, borderColor: "#d9dfd2" }}
-                    activeOutlineColor="#246b4b"
+                    outlineStyle={{ borderRadius: 10, borderColor: "#e5e7eb" }}
+                    activeOutlineColor="#1e40af"
                   />
                 </View>
               </View>
@@ -133,8 +133,8 @@ export function SetOpeningStock() {
         </View>
       ) : null}
 
-      <View className="gap-3 p-4 bg-[#f6f7f2] border-t border-[#e5eadd]">
-        <View className="bg-[#ffe2ad] p-3.5 rounded-xl border border-[#ffd280] mb-1">
+      <View className="gap-3 p-4 bg-[#f9fafb] border-t border-[#e5e7eb]">
+        <View className="bg-[#fef3c7] p-3.5 rounded-xl border border-[#ffd280] mb-1">
           <Text style={{ fontSize: 11, color: "#3f2800", fontWeight: "700", lineHeight: 15 }}>
             WARNING: Opening stock can only be set once. It will be locked for editing after you submit.
           </Text>
@@ -151,7 +151,7 @@ export function SetOpeningStock() {
           </Button>
           <Button
             mode="contained"
-            buttonColor="#246b4b"
+            buttonColor="#1e40af"
             style={{ flex: 1, borderRadius: 12 }}
             contentStyle={{ height: 50 }}
             loading={mutation.isPending}

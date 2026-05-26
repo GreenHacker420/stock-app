@@ -64,7 +64,7 @@ export function StockEntry() {
       <ShopPicker shops={shopsQuery.data ?? []} selectedShopId={shopId} onSelect={setShopId} />
 
       <Section title="Movement">
-        <View className="gap-3 rounded-lg border border-[#d9dfd2] bg-white p-4">
+        <View className="gap-3 rounded-lg border border-[#e5e7eb] bg-white p-4">
           <View className="flex-row flex-wrap gap-2">
             {movementTypes.map((type) => (
               <Button
@@ -95,7 +95,7 @@ export function StockEntry() {
             ))}
           </View>
           {!itemsQuery.data?.length ? (
-            <Text variant="bodySmall" style={{ color: "#667064" }}>
+            <Text variant="bodySmall" style={{ color: "#4b5563" }}>
               Add items before recording stock.
             </Text>
           ) : null}

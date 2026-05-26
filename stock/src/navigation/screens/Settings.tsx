@@ -29,7 +29,7 @@ export function Settings() {
           <ActionTile title="Close day" subtitle="Expected cash, actual cash, mismatch reason." icon="cash-check" tone="amber" onPress={() => navigate("CloseDay")} />
         </View>
       </Section>
-      <Text variant="bodySmall" style={{ color: "#667064" }}>
+      <Text variant="bodySmall" style={{ color: "#4b5563" }}>
         Staff can run the counter flow here; owner-only review screens will sit on top of the same records.
       </Text>
     </Screen>

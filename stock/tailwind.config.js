@@ -6,12 +6,14 @@ module.exports = {
   theme: {
     extend: {
       colors: {
-        ink: "#17211b",
-        field: "#f6f7f2",
-        line: "#d9dfd2",
-        mint: "#2f7d5c",
-        amber: "#b7791f",
-        danger: "#b42318",
+        ink: "#111827",
+        field: "#ffffff",
+        line: "#e5e7eb",
+        primary: "#1e40af",
+        background: "#f9fafb",
+        success: "#10b981",
+        warning: "#f59e0b",
+        danger: "#ef4444",
       },
     },
   },

@@ -48,7 +48,7 @@ export function CloseDay() {
         <MetricCard label="Status" value={currentQuery.data?.status ?? "NONE"} icon="cash-check" tone="amber" />
       </View>
       <Section title="Closing details">
-        <View className="gap-3 rounded-lg border border-[#d9dfd2] bg-white p-4">
+        <View className="gap-3 rounded-lg border border-[#e5e7eb] bg-white p-4">
           <TextInput mode="outlined" label="Actual cash" keyboardType="numeric" value={actualCash} onChangeText={setActualCash} />
           <TextInput mode="outlined" label="Cash handover" keyboardType="numeric" value={cashHandover} onChangeText={setCashHandover} />
           <TextInput mode="outlined" label="Difference reason" value={differenceReason} onChangeText={setDifferenceReason} />

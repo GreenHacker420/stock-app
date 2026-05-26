@@ -1,13 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { View } from "react-native";
-import { ListItem } from "@rneui/themed";
+import { ScrollView, View, Pressable } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Text } from "react-native-paper";
+import { Button, Text, SegmentedButtons, Icon, Checkbox, Divider } from "react-native-paper";
 import { fetchOrders, fetchShops, markOrderItemPacked, type Order } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
-import { Section } from "../../components/ui/Section";
 import { ShopPicker } from "../../components/ui/ShopPicker";
 import { StatusPill } from "../../components/ui/StatusPill";
 
@@ -21,6 +19,8 @@ export function OrdersToPack() {
   const token = useAuthStore((state) => state.token);
   const queryClient = useQueryClient();
   const [shopId, setShopId] = useState<string | undefined>();
+  const [tab, setTab] = useState("pending");
+  const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
 
   const shopsQuery = useQuery({ queryKey: ["shops"], queryFn: () => fetchShops(token ?? ""), enabled: !!token });
   const ordersQuery = useQuery({
@@ -33,17 +33,18 @@ export function OrdersToPack() {
     if (!shopId && shopsQuery.data?.[0]) setShopId(shopsQuery.data[0].id);
   }, [shopId, shopsQuery.data]);
 
-  const packableOrders = useMemo(() => {
-    return (ordersQuery.data ?? []).filter((order) => remainingQuantity(order) > 0);
-  }, [ordersQuery.data]);
+  const filteredOrders = useMemo(() => {
+    const all = ordersQuery.data ?? [];
+    if (tab === "pending") return all.filter(o => remainingQuantity(o) > 0);
+    if (tab === "packed") return all.filter(o => remainingQuantity(o) === 0 && o.status !== "DISPATCHED");
+    return all.filter(o => o.status === "DISPATCHED");
+  }, [ordersQuery.data, tab]);
 
   const packMutation = useMutation({
-    mutationFn: (order: Order) => {
-      const nextItem = order.items.find((item) => Number(item.quantityOrdered) > Number(item.quantityPacked));
-      if (!nextItem) throw new Error("No pending item found");
-      return markOrderItemPacked(token ?? "", order.id, {
-        orderItemId: nextItem.id,
-        quantityPacked: Number(nextItem.quantityOrdered) - Number(nextItem.quantityPacked),
+    mutationFn: (data: { orderId: string, orderItemId: string, quantity: number }) => {
+      return markOrderItemPacked(token ?? "", data.orderId, {
+        orderItemId: data.orderItemId,
+        quantityPacked: data.quantity,
       });
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["orders", shopId] }),
@@ -51,58 +52,121 @@ export function OrdersToPack() {
 
   return (
     <Screen>
-      <AppHeader title="Orders to pack" subtitle="Pick the next order and mark packed quantities." />
-      <ShopPicker shops={shopsQuery.data ?? []} selectedShopId={shopId} onSelect={setShopId} />
-      <Section title="Queue">
-        <View className="overflow-hidden rounded-lg border border-[#d9dfd2] bg-white">
-          {packableOrders.length ? (
-            packableOrders.map((order, index) => {
-              const pending = remainingQuantity(order);
-              const firstItem = order.items.find((item) => Number(item.quantityOrdered) > Number(item.quantityPacked));
-              return (
-                <ListItem key={order.id} bottomDivider={index !== packableOrders.length - 1} containerStyle={{ paddingHorizontal: 14 }}>
-                  <ListItem.Content>
-                    <View className="mb-2 flex-row items-center justify-between">
-                      <ListItem.Title style={{ color: "#17211b", fontWeight: "800" }}>
-                        #{order.orderNumber}
-                      </ListItem.Title>
-                      <StatusPill label={order.status} tone="blue" />
-                    </View>
-                    <ListItem.Subtitle style={{ color: "#667064" }}>
-                      {order.customer?.name ?? "Customer"} • Pending {pending.toFixed(3)}
-                    </ListItem.Subtitle>
-                    <Text variant="bodySmall" style={{ color: "#4d584f", marginTop: 6 }}>
-                      Next: {firstItem?.item.name ?? "No pending item"}
-                    </Text>
-                  </ListItem.Content>
-                  <Button
-                    mode="contained-tonal"
-                    compact
-                    loading={packMutation.isPending}
-                    onPress={() => packMutation.mutate(order)}
-                  >
-                    Pack
-                  </Button>
-                </ListItem>
-              );
-            })
+      <AppHeader title="Orders to Pack" subtitle="Manage fulfillment queue" />
+      
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
+        <ShopPicker shops={shopsQuery.data ?? []} selectedShopId={shopId} onSelect={setShopId} />
+
+        <View className="px-4 mb-6">
+          <SegmentedButtons
+            value={tab}
+            onValueChange={setTab}
+            buttons={[
+              { value: "pending", label: "Pending" },
+              { value: "packed", label: "Packed" },
+              { value: "dispatched", label: "Dispatched" },
+            ]}
+            style={{ borderRadius: 8 }}
+          />
+        </View>
+
+        <View className="gap-3 px-4">
+          {filteredOrders.length ? (
+            filteredOrders.map((order) => (
+              <OrderCard 
+                key={order.id} 
+                order={order} 
+                isExpanded={expandedOrderId === order.id}
+                onToggle={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)}
+                onPack={(itemId, qty) => packMutation.mutate({ orderId: order.id, orderItemId: itemId, quantity: qty })}
+                isPacking={packMutation.isPending}
+              />
+            ))
           ) : (
-            <View className="p-4">
-              <Text variant="titleSmall" style={{ color: "#17211b", fontWeight: "800" }}>
-                No packing work
-              </Text>
-              <Text variant="bodySmall" style={{ color: "#667064", marginTop: 4 }}>
-                Confirmed orders with pending quantities will appear here.
+            <View className="bg-white p-8 rounded-lg border border-gray-100 items-center">
+              <Icon source="package-variant" size={48} color="#9ca3af" />
+              <Text variant="titleMedium" className="mt-4" style={{ fontWeight: "700" }}>No orders found</Text>
+              <Text style={{ color: "#6b7280", textAlign: "center", marginTop: 4 }}>
+                Orders in the "{tab}" state will appear here.
               </Text>
             </View>
           )}
         </View>
-        {packMutation.error ? (
-          <Text variant="bodySmall" style={{ color: "#b42318", marginTop: 8 }}>
-            {(packMutation.error as Error).message}
-          </Text>
-        ) : null}
-      </Section>
+      </ScrollView>
     </Screen>
+  );
+}
+
+function OrderCard({ order, isExpanded, onToggle, onPack, isPacking }: { 
+  order: Order; 
+  isExpanded: boolean; 
+  onToggle: () => void;
+  onPack: (itemId: string, qty: number) => void;
+  isPacking: boolean;
+}) {
+  const pendingCount = order.items.filter(i => Number(i.quantityOrdered) > Number(i.quantityPacked)).length;
+
+  return (
+    <View className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
+      <Pressable onPress={onToggle} className="p-4 flex-row justify-between items-center">
+        <View className="flex-1">
+          <View className="flex-row items-center gap-2 mb-1">
+            <Text style={{ fontWeight: "800", color: "#111827" }}>#{order.orderNumber}</Text>
+            {pendingCount > 0 && (
+              <View className="bg-blue-50 px-2 py-0.5 rounded-full">
+                <Text style={{ fontSize: 10, color: "#1e40af", fontWeight: "700" }}>{pendingCount} left</Text>
+              </View>
+            )}
+          </View>
+          <Text variant="bodyMedium" style={{ color: "#4b5563" }}>{order.customer?.name ?? "Regular Customer"}</Text>
+        </View>
+        <Icon source={isExpanded ? "chevron-up" : "chevron-down"} size={24} color="#9ca3af" />
+      </Pressable>
+
+      {isExpanded && (
+        <View className="border-t border-gray-100 p-4 pt-0">
+          <View className="mb-4">
+            {order.items.map((item, idx) => {
+              const isPacked = Number(item.quantityPacked) >= Number(item.quantityOrdered);
+              return (
+                <View key={item.id}>
+                  {idx > 0 && <Divider className="my-2" />}
+                  <View className="flex-row items-center py-2">
+                    <Checkbox.Android 
+                      status={isPacked ? 'checked' : 'unchecked'} 
+                      onPress={() => {
+                        if (!isPacked) onPack(item.id, Number(item.quantityOrdered) - Number(item.quantityPacked));
+                      }}
+                      disabled={isPacked || isPacking}
+                    />
+                    <View className="flex-1 ml-2">
+                      <Text style={{ fontWeight: "700", color: isPacked ? "#9ca3af" : "#111827" }}>
+                        {item.item.name}
+                      </Text>
+                      <Text variant="bodySmall" style={{ color: "#6b7280" }}>
+                        {item.quantityPacked} / {item.quantityOrdered} {item.item.unit}
+                      </Text>
+                    </View>
+                    {!isPacked && (
+                      <Button mode="text" compact textColor="#ef4444" labelStyle={{ fontSize: 11 }}>
+                        Shortage
+                      </Button>
+                    )}
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+          
+          <Button 
+            mode="contained" 
+            onPress={onToggle}
+            style={{ borderRadius: 6 }}
+          >
+            {pendingCount === 0 ? "Done" : "Mark as Packed"}
+          </Button>
+        </View>
+      )}
+    </View>
   );
 }

@@ -11,11 +11,11 @@ type ShopPickerProps = {
 export function ShopPicker({ shops, selectedShopId, onSelect }: ShopPickerProps) {
   if (!shops.length) {
     return (
-      <View className="rounded-lg border border-dashed border-[#b9c3b5] bg-white p-4">
-        <Text variant="titleSmall" style={{ color: "#17211b", fontWeight: "700" }}>
+      <View className="rounded-lg border border-dashed border-gray-200 bg-white p-4">
+        <Text variant="titleSmall" style={{ color: "#111827", fontWeight: "700" }}>
           No shop access
         </Text>
-        <Text variant="bodySmall" style={{ color: "#667064", marginTop: 4 }}>
+        <Text variant="bodySmall" style={{ color: "#4b5563", marginTop: 4 }}>
           Create or assign a shop before using this workflow.
         </Text>
       </View>
@@ -24,7 +24,7 @@ export function ShopPicker({ shops, selectedShopId, onSelect }: ShopPickerProps)
 
   return (
     <View className="gap-2">
-      <Text variant="labelLarge" style={{ color: "#4d584f" }}>
+      <Text variant="labelLarge" style={{ color: "#6b7280" }}>
         Shop
       </Text>
       <View className="flex-row flex-wrap gap-2">
@@ -34,6 +34,7 @@ export function ShopPicker({ shops, selectedShopId, onSelect }: ShopPickerProps)
             mode={selectedShopId === shop.id ? "contained" : "outlined"}
             compact
             onPress={() => onSelect(shop.id)}
+            style={{ borderRadius: 8 }}
           >
             {shop.name}
           </Button>

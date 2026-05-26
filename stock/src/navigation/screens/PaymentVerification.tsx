@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
-import { View, ScrollView } from "react-native";
+import { useEffect, useState, useMemo } from "react";
+import { View, ScrollView, Pressable } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, SegmentedButtons, Text, Card, Icon, TextInput, Portal, Dialog } from "react-native-paper";
+import { Button, Text, Icon, TextInput, Portal, Dialog, Divider } from "react-native-paper";
 import { fetchPayments, verifyPayment, markPaymentMismatch, fetchShops, Payment } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
 import { Screen } from "../../components/Screen";
@@ -15,21 +15,16 @@ export function PaymentVerification() {
   const queryClient = useQueryClient();
 
   const [shopId, setShopId] = useState<string | undefined>();
-  const [filter, setFilter] = useState("pending");
+  const [activeTab, setActiveTab] = useState("pending");
+  const [selectedMode, setSelectedMode] = useState("ALL");
   const [note, setNote] = useState("");
   const [activePaymentId, setActivePaymentId] = useState<string | null>(null);
   const [actionType, setActionType] = useState<"verify" | "mismatch" | null>(null);
 
-  const shopsQuery = useQuery({
-    queryKey: ["shops"],
-    queryFn: () => fetchShops(token ?? ""),
-    enabled: !!token,
-  });
+  const shopsQuery = useQuery({ queryKey: ["shops"], queryFn: () => fetchShops(token ?? ""), enabled: !!token });
 
   useEffect(() => {
-    if (!shopId && shopsQuery.data?.[0]) {
-      setShopId(shopsQuery.data[0].id);
-    }
+    if (!shopId && shopsQuery.data?.[0]) setShopId(shopsQuery.data[0].id);
   }, [shopId, shopsQuery.data]);
 
   const paymentsQuery = useQuery({
@@ -41,11 +36,9 @@ export function PaymentVerification() {
   const mutation = useMutation({
     mutationFn: () => {
       if (!activePaymentId || !actionType) return Promise.reject();
-      if (actionType === "verify") {
-        return verifyPayment(token ?? "", activePaymentId, note);
-      } else {
-        return markPaymentMismatch(token ?? "", activePaymentId, note);
-      }
+      return actionType === "verify" 
+        ? verifyPayment(token ?? "", activePaymentId, note)
+        : markPaymentMismatch(token ?? "", activePaymentId, note);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["payments", shopId] });
@@ -55,184 +48,88 @@ export function PaymentVerification() {
     },
   });
 
-  // Filter payments locally
-  const filteredPayments = paymentsQuery.data?.filter((payment) => {
-    // Only verify non-cash payments
-    if (payment.paymentMode === "CASH") return false;
+  const filteredPayments = useMemo(() => {
+    return (paymentsQuery.data ?? []).filter(p => {
+      if (p.paymentMode === "CASH") return false;
+      const matchesTab = activeTab === "pending" 
+        ? (p.verificationStatus === "RECORDED" || p.verificationStatus === "PENDING_VERIFICATION")
+        : (p.verificationStatus === "VERIFIED" || p.verificationStatus === "MISMATCH");
+      const matchesMode = selectedMode === "ALL" || p.paymentMode === selectedMode;
+      return matchesTab && matchesMode;
+    });
+  }, [paymentsQuery.data, activeTab, selectedMode]);
 
-    if (filter === "pending") {
-      return payment.verificationStatus === "RECORDED" || payment.verificationStatus === "PENDING_VERIFICATION";
-    } else {
-      return payment.verificationStatus === "VERIFIED" || payment.verificationStatus === "MISMATCH";
-    }
-  }) ?? [];
-
-  const handleAction = (paymentId: string, type: "verify" | "mismatch") => {
-    setActivePaymentId(paymentId);
-    setActionType(type);
-  };
-
-  const getTone = (status: string) => {
-    if (status === "VERIFIED") return "green";
-    if (status === "MISMATCH") return "red";
-    if (status === "PENDING_VERIFICATION" || status === "RECORDED") return "amber";
-    return "blue";
-  };
+  const pendingCount = (paymentsQuery.data ?? []).filter(p => 
+    p.paymentMode !== "CASH" && (p.verificationStatus === "RECORDED" || p.verificationStatus === "PENDING_VERIFICATION")
+  ).length;
 
   return (
     <Screen scroll={false}>
-      <AppHeader
-        title="Verify Payments"
-        subtitle="Approve UPI, card, and bank transactions."
-      />
+      <AppHeader title="Payment Verification" subtitle={`${pendingCount} entries pending review`} />
 
-      <ShopPicker shops={shopsQuery.data ?? []} selectedShopId={shopId} onSelect={setShopId} />
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} className="bg-white border-b border-gray-100 px-4 py-3 max-h-16">
+        {["ALL", "UPI", "CARD", "BANK_TRANSFER", "CHEQUE"].map(mode => (
+          <Pressable 
+            key={mode} 
+            onPress={() => setSelectedMode(mode)}
+            className={`mr-2 px-4 py-1.5 rounded-full border ${selectedMode === mode ? 'bg-blue-600 border-blue-600' : 'bg-white border-gray-200'}`}
+          >
+            <Text style={{ fontWeight: "700", color: selectedMode === mode ? 'white' : '#4b5563', fontSize: 12 }}>
+              {mode.replace('_', ' ')}
+            </Text>
+          </Pressable>
+        ))}
+      </ScrollView>
 
-      <SegmentedButtons
-        value={filter}
-        onValueChange={setFilter}
-        buttons={[
-          { value: "pending", label: "Pending Check" },
-          { value: "reviewed", label: "Verified & Mismatches" },
-        ]}
-        style={{ marginVertical: 8 }}
-        theme={{ colors: { primary: "#246b4b" } }}
-      />
+      <View className="px-4 py-2 bg-gray-50 flex-row gap-4">
+        <Pressable onPress={() => setActiveTab("pending")} className="pb-2 flex-1 items-center border-b-2" style={{ borderBottomColor: activeTab === "pending" ? "#1e40af" : "transparent" }}>
+          <Text style={{ fontWeight: "700", color: activeTab === "pending" ? "#1e40af" : "#9ca3af" }}>Pending</Text>
+        </Pressable>
+        <Pressable onPress={() => setActiveTab("history")} className="pb-2 flex-1 items-center border-b-2" style={{ borderBottomColor: activeTab === "history" ? "#1e40af" : "transparent" }}>
+          <Text style={{ fontWeight: "700", color: activeTab === "history" ? "#1e40af" : "#9ca3af" }}>History</Text>
+        </Pressable>
+      </View>
 
-      <ScrollView className="flex-1 mt-2">
-        <Section title={`${filter === "pending" ? "Pending" : "Reviewed"} Transactions (${filteredPayments.length})`}>
-          {paymentsQuery.isLoading ? (
-            <Text style={{ color: "#667064", textAlign: "center", marginVertical: 20 }}>Loading payments...</Text>
-          ) : null}
-
-          {!paymentsQuery.isLoading && filteredPayments.length === 0 ? (
-            <View className="rounded-2xl border border-dashed border-[#b9c3b5] bg-white p-8 items-center justify-center">
-              <Text variant="titleMedium" style={{ fontWeight: "700", color: "#17211b" }}>All Clear</Text>
-              <Text variant="bodySmall" style={{ color: "#667064", marginTop: 4, textAlign: "center" }}>
-                No payments fit this category for the selected shop.
-              </Text>
+      <ScrollView className="flex-1 p-4 bg-gray-50" showsVerticalScrollIndicator={false}>
+        <ShopPicker shops={shopsQuery.data ?? []} selectedShopId={shopId} onSelect={setShopId} />
+        
+        <View className="gap-3 pb-8">
+          {filteredPayments.map(payment => (
+            <PaymentCard 
+              key={payment.id} 
+              payment={payment} 
+              onVerify={() => { setActivePaymentId(payment.id); setActionType("verify"); }}
+              onMismatch={() => { setActivePaymentId(payment.id); setActionType("mismatch"); }}
+            />
+          ))}
+          
+          {filteredPayments.length === 0 && !paymentsQuery.isLoading && (
+            <View className="p-12 items-center opacity-40">
+              <Icon source="check-circle-outline" size={64} color="#9ca3af" />
+              <Text className="mt-4" variant="titleMedium">No transactions found</Text>
             </View>
-          ) : null}
-
-          <View className="gap-4">
-            {filteredPayments.map((payment) => (
-              <Card
-                key={payment.id}
-                style={{
-                  backgroundColor: "white",
-                  borderRadius: 16,
-                  borderWidth: 1,
-                  borderColor: "#e5eadd",
-                  elevation: 2,
-                }}
-              >
-                <Card.Content style={{ gap: 12 }}>
-                  <View className="flex-row justify-between items-center">
-                    <View className="flex-row items-center gap-2">
-                      <View className="h-8 w-8 items-center justify-center rounded-lg bg-emerald-50">
-                        <Icon
-                          source={payment.paymentMode === "CHEQUE" ? "bank-transfer" : "cellphone-nfc"}
-                          size={18}
-                          color="#246b4b"
-                        />
-                      </View>
-                      <Text variant="titleMedium" style={{ fontWeight: "800", color: "#17211b" }}>
-                        {payment.paymentMode} • ₹{payment.amount}
-                      </Text>
-                    </View>
-                    <StatusPill label={payment.verificationStatus} tone={getTone(payment.verificationStatus)} />
-                  </View>
-
-                  <View className="gap-1.5 border-t border-[#f4f6f1] pt-3">
-                    <Text variant="bodySmall" style={{ color: "#667064" }}>
-                      Collected by: <Text style={{ color: "#17211b", fontWeight: "600" }}>{payment.receivedBy?.name}</Text>
-                    </Text>
-                    {payment.referenceNumber ? (
-                      <Text variant="bodySmall" style={{ color: "#667064" }}>
-                        Ref / UTR: <Text style={{ color: "#17211b", fontWeight: "600" }}>{payment.referenceNumber}</Text>
-                      </Text>
-                    ) : null}
-                    {payment.sale ? (
-                      <Text variant="bodySmall" style={{ color: "#667064" }}>
-                        Linked Bill: <Text style={{ color: "#17211b", fontWeight: "600" }}>{payment.sale.saleNumber}</Text>
-                      </Text>
-                    ) : null}
-                    <Text variant="bodySmall" style={{ color: "#667064" }}>
-                      Date: {new Date(payment.receivedAt).toLocaleString()}
-                    </Text>
-                  </View>
-
-                  {filter === "pending" && (
-                    <View className="flex-row gap-3 border-t border-[#f4f6f1] pt-3">
-                      <Button
-                        mode="outlined"
-                        textColor="#b42318"
-                        style={{ flex: 1, borderRadius: 10, borderColor: "#ffe1dc" }}
-                        contentStyle={{ height: 40 }}
-                        onPress={() => handleAction(payment.id, "mismatch")}
-                      >
-                        Mismatch
-                      </Button>
-                      <Button
-                        mode="contained"
-                        buttonColor="#246b4b"
-                        style={{ flex: 1, borderRadius: 10 }}
-                        contentStyle={{ height: 40 }}
-                        onPress={() => handleAction(payment.id, "verify")}
-                      >
-                        Verify
-                      </Button>
-                    </View>
-                  )}
-                </Card.Content>
-              </Card>
-            ))}
-          </View>
-        </Section>
+          )}
+        </View>
       </ScrollView>
 
       <Portal>
-        <Dialog
-          visible={activePaymentId !== null}
-          onDismiss={() => {
-            setActivePaymentId(null);
-            setActionType(null);
-            setNote("");
-          }}
-          style={{ backgroundColor: "white", borderRadius: 20 }}
-        >
-          <Dialog.Title style={{ fontWeight: "800", color: "#17211b" }}>
-            {actionType === "verify" ? "Verify Payment" : "Report Payment Mismatch"}
-          </Dialog.Title>
+        <Dialog visible={activePaymentId !== null} onDismiss={() => setActivePaymentId(null)} style={{ backgroundColor: "white", borderRadius: 12 }}>
+          <Dialog.Title style={{ fontWeight: "800" }}>{actionType === "verify" ? "Confirm Verification" : "Flag Mismatch"}</Dialog.Title>
           <Dialog.Content>
-            <Text style={{ color: "#667064", marginBottom: 12 }}>
-              Add an optional comment or note for verification records.
-            </Text>
             <TextInput
               mode="outlined"
-              label="Verification Note"
+              label="Add a note (optional)"
               value={note}
               onChangeText={setNote}
-              outlineStyle={{ borderRadius: 12, borderColor: "#d9dfd2" }}
-              activeOutlineColor="#246b4b"
-              placeholder="e.g. Received in HDFC Account"
+              style={{ backgroundColor: "white" }}
             />
           </Dialog.Content>
           <Dialog.Actions>
-            <Button
-              onPress={() => {
-                setActivePaymentId(null);
-                setActionType(null);
-                setNote("");
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              loading={mutation.isPending}
-              disabled={mutation.isPending}
-              textColor={actionType === "verify" ? "#246b4b" : "#b42318"}
+            <Button onPress={() => setActivePaymentId(null)}>Cancel</Button>
+            <Button 
+              loading={mutation.isPending} 
               onPress={() => mutation.mutate()}
+              textColor={actionType === "verify" ? "#1e40af" : "#ef4444"}
             >
               Confirm
             </Button>
@@ -240,5 +137,57 @@ export function PaymentVerification() {
         </Dialog>
       </Portal>
     </Screen>
+  );
+}
+
+function PaymentCard({ payment, onVerify, onMismatch }: { 
+  payment: Payment; 
+  onVerify: () => void; 
+  onMismatch: () => void;
+}) {
+  const isPending = payment.verificationStatus === "RECORDED" || payment.verificationStatus === "PENDING_VERIFICATION";
+
+  return (
+    <View className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
+      <View className="p-4">
+        <View className="flex-row justify-between items-start mb-3">
+          <View>
+            <Text style={{ fontWeight: "800", color: "#111827", fontSize: 18 }}>₹{payment.amount}</Text>
+            <View className="flex-row items-center gap-1 mt-1">
+              <Icon source={payment.paymentMode === "UPI" ? "qrcode-scan" : "credit-card-outline"} size={14} color="#6b7280" />
+              <Text variant="labelSmall" style={{ color: "#6b7280", fontWeight: "700" }}>{payment.paymentMode}</Text>
+            </View>
+          </View>
+          <StatusPill label={payment.verificationStatus} tone={payment.verificationStatus === "VERIFIED" ? "green" : "amber"} />
+        </View>
+
+        <View className="gap-1 mb-4">
+          <DetailRow label="Customer" value={payment.customer?.name ?? "Counter Sale"} />
+          <DetailRow label="Staff" value={payment.receivedBy.name} />
+          {payment.referenceNumber && <DetailRow label="Ref/UTR" value={payment.referenceNumber} />}
+          <DetailRow label="Date" value={new Date(payment.receivedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} />
+        </View>
+
+        {isPending && (
+          <View className="flex-row gap-3 pt-3 border-t border-gray-50">
+            <Button mode="outlined" onPress={onMismatch} className="flex-1" textColor="#ef4444" style={{ borderColor: "#fee2e2" }}>
+              Mismatch
+            </Button>
+            <Button mode="contained" onPress={onVerify} className="flex-1" style={{ backgroundColor: "#1e40af" }}>
+              Verify
+            </Button>
+          </View>
+        )}
+      </View>
+    </View>
+  );
+}
+
+function DetailRow({ label, value }: { label: string, value: string }) {
+  return (
+    <View className="flex-row justify-between items-center">
+      <Text variant="bodySmall" style={{ color: "#9ca3af" }}>{label}</Text>
+      <Text variant="bodySmall" style={{ color: "#111827", fontWeight: "600" }}>{value}</Text>
+    </View>
   );
 }

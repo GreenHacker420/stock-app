@@ -79,10 +79,10 @@ export function AssignStaff() {
 
       <ScrollView className="flex-1 mt-2">
         <Section title="Active Staff Members">
-          <View className="overflow-hidden rounded-2xl border border-[#e5eadd] bg-white">
+          <View className="overflow-hidden rounded-2xl border border-[#e5e7eb] bg-white">
             {staffQuery.data?.length === 0 ? (
               <View className="p-5 items-center">
-                <Text style={{ color: "#667064" }}>No staff registered yet.</Text>
+                <Text style={{ color: "#4b5563" }}>No staff registered yet.</Text>
               </View>
             ) : null}
 
@@ -95,12 +95,12 @@ export function AssignStaff() {
                   key={member.id}
                   title={member.name}
                   description={`${member.mobile} ${member.email ? `• ${member.email}` : ""}`}
-                  titleStyle={{ fontWeight: "700", color: "#17211b" }}
-                  descriptionStyle={{ color: "#667064" }}
+                  titleStyle={{ fontWeight: "700", color: "#111827" }}
+                  descriptionStyle={{ color: "#4b5563" }}
                   right={() => (
                     <IconButton
                       icon={assigned ? "check-circle" : "plus-circle-outline"}
-                      iconColor={assigned ? "#246b4b" : "#7a8578"}
+                      iconColor={assigned ? "#1e40af" : "#7a8578"}
                       size={24}
                       disabled={isAssigning}
                       onPress={() => {
@@ -112,7 +112,7 @@ export function AssignStaff() {
                   )}
                   style={{
                     borderBottomWidth: index === (staffQuery.data?.length ?? 0) - 1 ? 0 : 1,
-                    borderBottomColor: "#f4f6f1",
+                    borderBottomColor: "#f9fafb",
                     paddingVertical: 10,
                   }}
                 />
@@ -126,7 +126,7 @@ export function AssignStaff() {
         <Button
           mode="contained"
           icon="account-plus"
-          buttonColor="#246b4b"
+          buttonColor="#1e40af"
           style={{ borderRadius: 12 }}
           contentStyle={{ height: 50 }}
           onPress={() => setIsModalOpen(true)}
@@ -153,10 +153,10 @@ export function AssignStaff() {
             margin: 20,
             borderRadius: 20,
             borderWidth: 1,
-            borderColor: "#e5eadd",
+            borderColor: "#e5e7eb",
           }}
         >
-          <Text variant="headlineSmall" style={{ color: "#17211b", fontWeight: "800", marginBottom: 16 }}>
+          <Text variant="headlineSmall" style={{ color: "#111827", fontWeight: "800", marginBottom: 16 }}>
             Create Staff Account
           </Text>
 
@@ -169,8 +169,8 @@ export function AssignStaff() {
                 setName(text);
                 setError("");
               }}
-              outlineStyle={{ borderRadius: 12, borderColor: "#d9dfd2" }}
-              activeOutlineColor="#246b4b"
+              outlineStyle={{ borderRadius: 12, borderColor: "#e5e7eb" }}
+              activeOutlineColor="#1e40af"
             />
             <TextInput
               mode="outlined"
@@ -181,8 +181,8 @@ export function AssignStaff() {
                 setMobile(text);
                 setError("");
               }}
-              outlineStyle={{ borderRadius: 12, borderColor: "#d9dfd2" }}
-              activeOutlineColor="#246b4b"
+              outlineStyle={{ borderRadius: 12, borderColor: "#e5e7eb" }}
+              activeOutlineColor="#1e40af"
             />
             <TextInput
               mode="outlined"
@@ -190,8 +190,8 @@ export function AssignStaff() {
               keyboardType="email-address"
               value={email}
               onChangeText={setEmail}
-              outlineStyle={{ borderRadius: 12, borderColor: "#d9dfd2" }}
-              activeOutlineColor="#246b4b"
+              outlineStyle={{ borderRadius: 12, borderColor: "#e5e7eb" }}
+              activeOutlineColor="#1e40af"
             />
             <TextInput
               mode="outlined"
@@ -199,8 +199,8 @@ export function AssignStaff() {
               secureTextEntry
               value={password}
               onChangeText={setPassword}
-              outlineStyle={{ borderRadius: 12, borderColor: "#d9dfd2" }}
-              activeOutlineColor="#246b4b"
+              outlineStyle={{ borderRadius: 12, borderColor: "#e5e7eb" }}
+              activeOutlineColor="#1e40af"
             />
 
             {error ? <HelperText type="error">{error}</HelperText> : null}
@@ -216,7 +216,7 @@ export function AssignStaff() {
               </Button>
               <Button
                 mode="contained"
-                buttonColor="#246b4b"
+                buttonColor="#1e40af"
                 style={{ flex: 1, borderRadius: 12 }}
                 contentStyle={{ height: 48 }}
                 loading={createStaffMutation.isPending}

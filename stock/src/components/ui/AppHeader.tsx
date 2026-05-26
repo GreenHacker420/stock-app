@@ -13,11 +13,11 @@ export function AppHeader({ title, subtitle, role, initials = "SC" }: AppHeaderP
   return (
     <View className="flex-row items-center justify-between gap-4 pb-1">
       <View className="flex-1 gap-0.5">
-        <Text variant="headlineMedium" style={{ color: "#17211b", fontWeight: "800", letterSpacing: -0.6 }}>
+        <Text variant="headlineMedium" style={{ color: "#111827", fontWeight: "800", letterSpacing: -0.6 }}>
           {title}
         </Text>
         {subtitle ? (
-          <Text variant="bodyMedium" style={{ color: "#667064", lineHeight: 18, fontSize: 13, fontWeight: "500" }}>
+          <Text variant="bodyMedium" style={{ color: "#4b5563", lineHeight: 18, fontSize: 13, fontWeight: "500" }}>
             {subtitle}
           </Text>
         ) : null}
@@ -34,7 +34,7 @@ export function AppHeader({ title, subtitle, role, initials = "SC" }: AppHeaderP
           <Avatar
             rounded
             title={initials}
-            containerStyle={{ backgroundColor: "#246b4b", width: 44, height: 44, borderWidth: 1.5, borderColor: "#ffffff" }}
+            containerStyle={{ backgroundColor: "#1e40af", width: 44, height: 44, borderWidth: 1.5, borderColor: "#ffffff" }}
             titleStyle={{ fontSize: 14, fontWeight: "800", color: "#ffffff" }}
           />
         </View>
@@ -42,14 +42,14 @@ export function AppHeader({ title, subtitle, role, initials = "SC" }: AppHeaderP
           <Badge
             value={role}
             badgeStyle={{
-              backgroundColor: role === "OWNER" ? "#d8f2e3" : "#ffe2ad",
+              backgroundColor: role === "OWNER" ? "#dbeafe" : "#f1f5f9",
               borderColor: "transparent",
               minHeight: 18,
               borderRadius: 6,
               paddingHorizontal: 6,
             }}
             textStyle={{
-              color: role === "OWNER" ? "#0b3d28" : "#3f2800",
+              color: role === "OWNER" ? "#1e3a8a" : "#475569",
               fontWeight: "800",
               fontSize: 9,
               letterSpacing: 0.5,

@@ -49,14 +49,14 @@ export function OpenCashSession() {
       </View>
       <Section title="Action">
         {currentQuery.data ? (
-          <View className="rounded-lg border border-[#d9dfd2] bg-white p-4">
+          <View className="rounded-lg border border-[#e5e7eb] bg-white p-4">
             <View className="flex-row items-center justify-between">
-              <Text variant="titleMedium" style={{ fontWeight: "800", color: "#17211b" }}>
+              <Text variant="titleMedium" style={{ fontWeight: "800", color: "#111827" }}>
                 Session already open
               </Text>
               <StatusPill label="OPEN" tone="green" />
             </View>
-            <Text variant="bodySmall" style={{ color: "#667064", marginTop: 6 }}>
+            <Text variant="bodySmall" style={{ color: "#4b5563", marginTop: 6 }}>
               Cash payments will be linked to this session automatically.
             </Text>
           </View>

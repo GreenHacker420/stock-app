@@ -32,7 +32,7 @@ export function Login() {
       <View className="flex-1 items-center justify-center px-5 py-8">
         <View className="w-full max-w-[430px] gap-5">
           <View className="gap-4">
-            <View className="h-14 w-14 items-center justify-center rounded-2xl bg-[#246b4b]">
+            <View className="h-14 w-14 items-center justify-center rounded-2xl bg-[#1e40af]">
               <Text variant="headlineSmall" style={{ color: "#ffffff", fontWeight: "700" }}>
                 SC
               </Text>
@@ -40,11 +40,11 @@ export function Login() {
             <View className="gap-2">
               <Text
                 variant="headlineLarge"
-                style={{ color: "#17211b", fontWeight: "800", letterSpacing: 0 }}
+                style={{ color: "#111827", fontWeight: "800", letterSpacing: 0 }}
               >
                 ShopControl
               </Text>
-              <Text variant="bodyLarge" style={{ color: "#4d584f", lineHeight: 24 }}>
+              <Text variant="bodyLarge" style={{ color: "#6b7280", lineHeight: 24 }}>
                 Daily shop control for orders, stock, payments, and counter cash.
               </Text>
             </View>
@@ -53,13 +53,13 @@ export function Login() {
           <Surface
             mode="flat"
             elevation={0}
-            className="gap-4 rounded-lg border border-[#d9dfd2] bg-white p-5"
+            className="gap-4 rounded-lg border border-[#e5e7eb] bg-white p-5"
           >
             <View className="gap-1">
-              <Text variant="titleMedium" style={{ color: "#17211b", fontWeight: "700" }}>
+              <Text variant="titleMedium" style={{ color: "#111827", fontWeight: "700" }}>
                 Sign in
               </Text>
-              <Text variant="bodyMedium" style={{ color: "#667064" }}>
+              <Text variant="bodyMedium" style={{ color: "#4b5563" }}>
                 Use your owner or staff login.
               </Text>
             </View>
@@ -75,7 +75,7 @@ export function Login() {
                 onChangeText={setIdentifier}
                 outlineColor="#b9c3b5"
                 activeOutlineColor={theme.colors.primary}
-                textColor="#17211b"
+                textColor="#111827"
                 style={{ backgroundColor: "#fbfcf8" }}
               />
               <TextInput
@@ -93,7 +93,7 @@ export function Login() {
                 }
                 outlineColor="#b9c3b5"
                 activeOutlineColor={theme.colors.primary}
-                textColor="#17211b"
+                textColor="#111827"
                 style={{ backgroundColor: "#fbfcf8" }}
               />
               <HelperText type="error" visible={!!error}>
@@ -115,10 +115,10 @@ export function Login() {
 
           <View className="flex-row gap-2">
             <View className="flex-1 rounded-lg bg-white/70 p-3">
-              <Text variant="labelLarge" style={{ color: "#246b4b", fontWeight: "700" }}>
+              <Text variant="labelLarge" style={{ color: "#1e40af", fontWeight: "700" }}>
                 Owner
               </Text>
-              <Text variant="bodySmall" style={{ color: "#667064" }}>
+              <Text variant="bodySmall" style={{ color: "#4b5563" }}>
                 Dashboard, verification, daily summary.
               </Text>
             </View>
@@ -126,7 +126,7 @@ export function Login() {
               <Text variant="labelLarge" style={{ color: "#8a5a12", fontWeight: "700" }}>
                 Staff
               </Text>
-              <Text variant="bodySmall" style={{ color: "#667064" }}>
+              <Text variant="bodySmall" style={{ color: "#4b5563" }}>
                 Sales, DM, stock, cash closing.
               </Text>
             </View>

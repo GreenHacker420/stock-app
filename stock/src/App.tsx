@@ -26,22 +26,22 @@ const prefix = createURL('/');
 const queryClient = new QueryClient();
 const paperSettings = {
   icon: ({ name, color, size, testID }: any) => (
-    <MaterialCommunityIcons name={name as never} color={color ?? "#4d584f"} size={size} testID={testID} />
+    <MaterialCommunityIcons name={name as never} color={color ?? "#6b7280"} size={size} testID={testID} />
   ),
 };
 const rneTheme = createTheme({
   lightColors: {
-    primary: "#246b4b",
+    primary: "#1e40af",
     secondary: "#8a5a12",
-    background: "#f4f6f1",
+    background: "#f9fafb",
     white: "#ffffff",
-    black: "#17211b",
-    grey0: "#f4f6f1",
+    black: "#111827",
+    grey0: "#f9fafb",
     grey1: "#eef2ea",
-    grey2: "#d9dfd2",
+    grey2: "#e5e7eb",
     grey3: "#b9c3b5",
     grey4: "#7a8578",
-    grey5: "#4d584f",
+    grey5: "#6b7280",
   },
 });
 
