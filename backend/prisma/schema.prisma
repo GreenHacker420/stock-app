@@ -492,7 +492,7 @@ model PackingTask {
 
 model Dispatch {
   id             String         @id @default(cuid())
-  orderId        String
+  orderId        String?
   dmId           String?
   saleId         String?
   customerId     String
@@ -504,7 +504,7 @@ model Dispatch {
   notes          String?
   createdAt      DateTime       @default(now())
 
-  order        Order          @relation(fields: [orderId], references: [id])
+  order        Order?         @relation(fields: [orderId], references: [id])
   deliveryMemo DeliveryMemo?  @relation(fields: [dmId], references: [id])
   sale         Sale?          @relation(fields: [saleId], references: [id])
   customer     Customer       @relation(fields: [customerId], references: [id])
@@ -613,6 +613,7 @@ model DeliveryMemo {
 
   @@unique([shopId, dmNumber])
   @@index([shopId, status])
+  @@index([shopId, expectedPaymentDate])
   @@index([customerId])
 }
 
@@ -649,6 +650,8 @@ model Payment {
   referenceNumber    String?
   proofImageUrl      String?
   notes              String?
+  cancelledAt        DateTime?
+  cancelReason       String?
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
 
@@ -664,6 +667,7 @@ model Payment {
 
   @@index([shopId, receivedAt])
   @@index([paymentMode, verificationStatus])
+  @@index([customerId])
   @@index([saleId])
   @@index([dmId])
   @@index([orderId])
@@ -767,6 +771,7 @@ model RateChangeRequest {
   requestedBy User      @relation("RateRequestedBy", fields: [requestedById], references: [id])
   approvedBy  User?     @relation("RateApprovedBy", fields: [approvedById], references: [id])
 
+  @@index([orderItemId])
   @@index([status])
 }
 
@@ -882,4 +887,6 @@ model DailySummaryExport {
 
   dailySummary DailySummary @relation(fields: [dailySummaryId], references: [id], onDelete: Cascade)
   exportedBy   User         @relation(fields: [exportedById], references: [id])
+
+  @@index([dailySummaryId])
 }
