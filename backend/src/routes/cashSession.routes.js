@@ -37,8 +37,18 @@ const closeSchema = z.object({
   query: z.object({}).optional(),
 });
 
+const listSchema = z.object({
+  query: z.object({
+    shopId: z.string().min(1),
+    status: z.enum(["OPEN", "CLOSED", "REVIEWED", "LOCKED"]).optional(),
+  }),
+  params: z.object({}).optional(),
+  body: z.object({}).optional(),
+});
+
 router.use(requireAuth);
 
+router.get("/", requirePermission(PERMISSIONS.CASH_SESSION_REVIEW), validate(listSchema), cashSessionController.listSessions);
 router.post("/open", requirePermission(PERMISSIONS.CASH_SESSION_OPEN), validate(shopBodySchema), cashSessionController.openSession);
 router.get("/current", requirePermission(PERMISSIONS.CASH_SESSION_OPEN), validate(currentSchema), cashSessionController.getCurrentSession);
 router.post("/:id/close", requirePermission(PERMISSIONS.CASH_SESSION_CLOSE), validate(closeSchema), cashSessionController.closeSession);

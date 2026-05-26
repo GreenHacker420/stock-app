@@ -175,3 +175,19 @@ export async function reviewSession(user, sessionId) {
 
   return session;
 }
+
+export async function listSessions(user, { shopId, status }) {
+  await assertShopAccess(user, shopId);
+  return prisma.cashSession.findMany({
+    where: {
+      shopId,
+      status: status || undefined,
+    },
+    include: {
+      staff: {
+        select: { id: true, name: true, mobile: true }
+      }
+    },
+    orderBy: { openedAt: "desc" },
+  });
+}

@@ -55,3 +55,69 @@ export async function login({ identifier, password }) {
 export function getCurrentUser(user) {
   return user;
 }
+
+export async function listStaff(currentUser) {
+  const staffRole = await prisma.role.findUnique({
+    where: { name: "STAFF" },
+  });
+  if (!staffRole) {
+    return [];
+  }
+  return prisma.user.findMany({
+    where: {
+      roleId: staffRole.id,
+      status: "ACTIVE",
+    },
+    select: {
+      id: true,
+      name: true,
+      mobile: true,
+      email: true,
+    },
+    orderBy: {
+      name: "asc",
+    },
+  });
+}
+
+export async function createStaff(currentUser, data) {
+  const staffRole = await prisma.role.findUnique({
+    where: { name: "STAFF" },
+  });
+  if (!staffRole) {
+    throw new ApiError(500, "Staff role not found in system");
+  }
+
+  const existing = await prisma.user.findFirst({
+    where: {
+      OR: [
+        { mobile: data.mobile },
+        data.email ? { email: data.email } : undefined
+      ].filter(Boolean),
+    },
+  });
+  if (existing) {
+    throw new ApiError(400, "A user with this mobile or email already exists");
+  }
+
+  const passwordHash = await bcrypt.hash(data.password || "staff123", 10);
+
+  const staff = await prisma.user.create({
+    data: {
+      name: data.name,
+      mobile: data.mobile,
+      email: data.email,
+      passwordHash,
+      roleId: staffRole.id,
+      status: "ACTIVE",
+    },
+    select: {
+      id: true,
+      name: true,
+      mobile: true,
+      email: true,
+    },
+  });
+
+  return staff;
+}

@@ -24,3 +24,8 @@ export const reviewSession = asyncHandler(async (req, res) => {
   const session = await cashSessionService.reviewSession(req.user, req.validated.params.id);
   res.json({ success: true, data: session });
 });
+
+export const listSessions = asyncHandler(async (req, res) => {
+  const sessions = await cashSessionService.listSessions(req.user, req.validated.query);
+  res.json({ success: true, data: sessions });
+});

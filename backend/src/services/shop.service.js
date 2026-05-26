@@ -3,16 +3,36 @@ import { ApiError } from "../utils/ApiError.js";
 import { writeAuditLog } from "../utils/auditLog.js";
 
 export async function listShops(user) {
+  const includeStaff = {
+    staffAccesses: {
+      include: {
+        staff: {
+          select: {
+            id: true,
+            name: true,
+            mobile: true,
+            email: true,
+          },
+        },
+      },
+    },
+  };
+
   if (user.role === "OWNER") {
     return prisma.shop.findMany({
       where: { ownerId: user.id },
+      include: includeStaff,
       orderBy: { createdAt: "desc" },
     });
   }
 
   const accesses = await prisma.staffShopAccess.findMany({
     where: { staffId: user.id },
-    include: { shop: true },
+    include: {
+      shop: {
+        include: includeStaff,
+      },
+    },
     orderBy: { createdAt: "desc" },
   });
 
