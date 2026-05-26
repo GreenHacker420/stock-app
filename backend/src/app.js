@@ -9,6 +9,10 @@ import customerRoutes from "./routes/customer.routes.js";
 import itemRoutes from "./routes/item.routes.js";
 import stockRoutes from "./routes/stock.routes.js";
 import cashSessionRoutes from "./routes/cashSession.routes.js";
+import orderRoutes from "./routes/order.routes.js";
+import saleRoutes from "./routes/sale.routes.js";
+import deliveryMemoRoutes from "./routes/deliveryMemo.routes.js";
+import paymentRoutes from "./routes/payment.routes.js";
 import { errorHandler, notFoundHandler } from "./middleware/error.middleware.js";
 
 export function createApp() {
@@ -45,6 +49,10 @@ export function createApp() {
   app.use("/items", itemRoutes);
   app.use("/stock", stockRoutes);
   app.use("/cash-sessions", cashSessionRoutes);
+  app.use("/orders", orderRoutes);
+  app.use("/sales", saleRoutes);
+  app.use("/delivery-memos", deliveryMemoRoutes);
+  app.use("/payments", paymentRoutes);
 
   app.use(notFoundHandler);
   app.use(errorHandler);
