@@ -181,6 +181,12 @@ enum ExportFormat {
   CSV
 }
 
+enum ExportStatus {
+  PENDING
+  DONE
+  FAILED
+}
+
 model User {
   id           String     @id @default(cuid())
   name         String
@@ -197,6 +203,7 @@ model User {
   staffShopAccesses      StaffShopAccess[]
   customersCreated       Customer[]           @relation("CustomerCreatedBy")
   stockMovementsCreated  StockLedger[]        @relation("StockCreatedBy")
+  stockMovementsApproved StockLedger[]        @relation("StockApprovedBy")
   ordersCreated          Order[]              @relation("OrderCreatedBy")
   ordersAssigned         Order[]              @relation("OrderAssignedStaff")
   orderEvents            OrderEvent[]
@@ -365,11 +372,13 @@ model StockLedger {
   referenceId   String?
   reason        String?
   createdById   String
+  approvedById  String?
   createdAt     DateTime          @default(now())
 
-  shop      Shop @relation(fields: [shopId], references: [id])
-  item      Item @relation(fields: [itemId], references: [id])
-  createdBy User @relation("StockCreatedBy", fields: [createdById], references: [id])
+  shop       Shop  @relation(fields: [shopId], references: [id])
+  item       Item  @relation(fields: [itemId], references: [id])
+  createdBy  User  @relation("StockCreatedBy", fields: [createdById], references: [id])
+  approvedBy User? @relation("StockApprovedBy", fields: [approvedById], references: [id])
 
   @@index([shopId, itemId])
   @@index([referenceType, referenceId])
@@ -476,6 +485,7 @@ model PackingTask {
   shop  Shop  @relation(fields: [shopId], references: [id])
   staff User  @relation(fields: [staffId], references: [id])
 
+  @@index([orderId])
   @@index([shopId, status])
   @@index([staffId])
 }
@@ -584,6 +594,7 @@ model DeliveryMemo {
   paidAmount          Decimal            @default(0) @db.Decimal(12, 2)
   balanceAmount       Decimal            @default(0) @db.Decimal(12, 2)
   status              DeliveryMemoStatus @default(CREATED)
+  paymentStatus       BillPaymentStatus  @default(UNPAID)
   expectedPaymentDate DateTime?
   reason              String?
   createdAt           DateTime           @default(now())
@@ -629,7 +640,6 @@ model Payment {
   customerId         String?
   paymentMode        PaymentMode
   amount             Decimal       @db.Decimal(12, 2)
-  status             PaymentStatus @default(RECORDED)
   verificationStatus PaymentStatus @default(RECORDED)
   cashSessionId      String?
   receivedById       String
@@ -685,6 +695,7 @@ model CashSession {
   id                    String            @id @default(cuid())
   shopId                String
   staffId               String
+  previousSessionId     String?
   openingCash           Decimal           @default(0) @db.Decimal(12, 2)
   expectedCash          Decimal           @default(0) @db.Decimal(12, 2)
   actualCash            Decimal?          @db.Decimal(12, 2)
@@ -699,12 +710,15 @@ model CashSession {
   reviewedById          String?
   reviewedAt            DateTime?
 
-  shop       Shop      @relation(fields: [shopId], references: [id])
-  staff      User      @relation("CashSessionStaff", fields: [staffId], references: [id])
-  reviewedBy User?     @relation("CashSessionReviewedBy", fields: [reviewedById], references: [id])
-  payments   Payment[]
+  shop            Shop          @relation(fields: [shopId], references: [id])
+  staff           User          @relation("CashSessionStaff", fields: [staffId], references: [id])
+  reviewedBy      User?         @relation("CashSessionReviewedBy", fields: [reviewedById], references: [id])
+  payments        Payment[]
+  previousSession CashSession?  @relation("SessionChain", fields: [previousSessionId], references: [id])
+  nextSessions    CashSession[] @relation("SessionChain")
 
   @@index([shopId, openedAt])
+  @@index([previousSessionId])
   @@index([staffId, status])
 }
 
@@ -732,7 +746,7 @@ model CreditOutstanding {
 
   @@index([shopId, status])
   @@index([customerId])
-  @@index([dueDate])
+  @@index([shopId, dueDate])
 }
 
 model RateChangeRequest {
@@ -780,7 +794,7 @@ model CorrectionRequest {
 model Notification {
   id           String   @id @default(cuid())
   userId       String
-  shopId       String?
+  shopId       String
   triggerEvent String
   entityType   String
   entityId     String?
@@ -788,8 +802,8 @@ model Notification {
   isRead       Boolean  @default(false)
   createdAt    DateTime @default(now())
 
-  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  shop Shop? @relation(fields: [shopId], references: [id])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  shop Shop @relation(fields: [shopId], references: [id])
 
   @@index([userId, isRead])
   @@index([shopId])
@@ -797,6 +811,7 @@ model Notification {
 
 model AuditLog {
   id           String    @id @default(cuid())
+  /// Nullable only for system-generated audit entries. Human-triggered actions must set userId in the service layer.
   userId       String?
   role         RoleName?
   shopId       String?
@@ -818,7 +833,7 @@ model AuditLog {
 model DailySummary {
   id                     String        @id @default(cuid())
   shopId                 String
-  summaryDate            DateTime
+  summaryDate            DateTime      @db.Date
   status                 SummaryStatus @default(DRAFT)
   openingCash            Decimal       @default(0) @db.Decimal(12, 2)
   expectedCash           Decimal       @default(0) @db.Decimal(12, 2)
@@ -859,7 +874,9 @@ model DailySummaryExport {
   id             String       @id @default(cuid())
   dailySummaryId String
   format         ExportFormat
+  status         ExportStatus @default(PENDING)
   fileUrl        String?
+  errorMsg       String?
   exportedById   String
   exportedAt     DateTime     @default(now())
 
