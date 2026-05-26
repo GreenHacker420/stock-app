@@ -1,20 +1,17 @@
-import { Text, Button } from '@react-navigation/elements';
-import { StyleSheet, View } from 'react-native';
+import { View } from "react-native";
+import { Button, Text } from "react-native-paper";
+import { Screen } from "@/components/Screen";
 
 export function NotFound() {
   return (
-    <View style={styles.container}>
-      <Text>404</Text>
-      <Button screen="HomeTabs">Go to Home</Button>
-    </View>
+    <Screen>
+      <View className="flex-1 justify-center gap-3">
+        <Text variant="headlineMedium">404</Text>
+        <Text>Screen not found.</Text>
+        <Button mode="contained" icon="home">
+          Go home
+        </Button>
+      </View>
+    </Screen>
   );
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    gap: 10,
-  },
-});
