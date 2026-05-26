@@ -1,4 +1,4 @@
-import { create } from "zustand";
+import { create, type StoreApi, type UseBoundStore } from "zustand";
 import { ApiUser, fetchMe, login } from "../api/client";
 import { deleteToken, getToken, setToken } from "./token-storage";
 
@@ -13,14 +13,21 @@ type AuthState = {
   signOut: () => Promise<void>;
 };
 
-export const useAuthStore = create<AuthState>((set, get) => ({
+type AuthStore = UseBoundStore<StoreApi<AuthState>>;
+
+const globalAuthStore = globalThis as typeof globalThis & {
+  __shopControlAuthStore?: AuthStore;
+};
+
+function createAuthStore() {
+  return create<AuthState>((set, get) => ({
   token: null,
   user: null,
   isBootstrapping: true,
   async signIn(identifier, password) {
     const result = await login(identifier, password);
     await setToken(TOKEN_KEY, result.token);
-    set({ token: result.token, user: result.user });
+    set({ token: result.token, user: result.user, isBootstrapping: false });
   },
   async restoreSession() {
     try {
@@ -42,3 +49,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({ token: null, user: null, isBootstrapping: false });
   },
 }));
+}
+
+export const useAuthStore = globalAuthStore.__shopControlAuthStore ?? createAuthStore();
+
+globalAuthStore.__shopControlAuthStore = useAuthStore;

@@ -9,7 +9,6 @@ import { Profile } from './screens/Profile';
 import { Settings } from './screens/Settings';
 import { Updates } from './screens/Updates';
 import { NotFound } from './screens/NotFound';
-import { Login } from './screens/Login';
 
 const HomeTabs = createBottomTabNavigator({
   screens: {
@@ -44,13 +43,8 @@ const HomeTabs = createBottomTabNavigator({
 });
 
 const RootStack = createNativeStackNavigator({
+  initialRouteName: 'HomeTabs',
   screens: {
-    Login: {
-      screen: Login,
-      options: {
-        headerShown: false,
-      },
-    },
     HomeTabs: {
       screen: HomeTabs,
       options: {
