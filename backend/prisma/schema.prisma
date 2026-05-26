@@ -495,7 +495,7 @@ model Dispatch {
   orderId        String?
   dmId           String?
   saleId         String?
-  customerId     String
+  customerId     String?
   shopId         String
   dispatchedById String
   dispatchDate   DateTime       @default(now())
@@ -507,7 +507,7 @@ model Dispatch {
   order        Order?         @relation(fields: [orderId], references: [id])
   deliveryMemo DeliveryMemo?  @relation(fields: [dmId], references: [id])
   sale         Sale?          @relation(fields: [saleId], references: [id])
-  customer     Customer       @relation(fields: [customerId], references: [id])
+  customer     Customer?      @relation(fields: [customerId], references: [id])
   shop         Shop           @relation(fields: [shopId], references: [id])
   dispatchedBy User           @relation("DispatchBy", fields: [dispatchedById], references: [id])
   items        DispatchItem[]
