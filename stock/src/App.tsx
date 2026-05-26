@@ -1,4 +1,5 @@
 import { Assets as NavigationAssets } from '@react-navigation/elements';
+import { ThemeProvider as RneThemeProvider, createTheme } from '@rneui/themed';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Asset } from 'expo-asset';
 import { createURL } from 'expo-linking';
@@ -22,6 +23,21 @@ SplashScreen.preventAutoHideAsync();
 
 const prefix = createURL('/');
 const queryClient = new QueryClient();
+const rneTheme = createTheme({
+  lightColors: {
+    primary: "#246b4b",
+    secondary: "#8a5a12",
+    background: "#f4f6f1",
+    white: "#ffffff",
+    black: "#17211b",
+    grey0: "#f4f6f1",
+    grey1: "#eef2ea",
+    grey2: "#d9dfd2",
+    grey3: "#b9c3b5",
+    grey4: "#7a8578",
+    grey5: "#4d584f",
+  },
+});
 
 export function App() {
   const restoreSession = useAuthStore((state) => state.restoreSession);
@@ -39,7 +55,9 @@ export function App() {
     return (
       <SafeAreaProvider>
         <PaperProvider theme={paperTheme}>
-          <ActivityIndicator style={{ flex: 1 }} />
+          <RneThemeProvider theme={rneTheme}>
+            <ActivityIndicator style={{ flex: 1 }} />
+          </RneThemeProvider>
         </PaperProvider>
       </SafeAreaProvider>
     );
@@ -50,7 +68,9 @@ export function App() {
     return (
       <SafeAreaProvider>
         <PaperProvider theme={paperTheme}>
-          <Login />
+          <RneThemeProvider theme={rneTheme}>
+            <Login />
+          </RneThemeProvider>
         </PaperProvider>
       </SafeAreaProvider>
     );
@@ -60,16 +80,18 @@ export function App() {
     <SafeAreaProvider>
       <QueryClientProvider client={queryClient}>
         <PaperProvider theme={paperTheme}>
-          <Navigation
-            theme={navigationTheme}
-            linking={{
-              enabled: 'auto',
-              prefixes: [prefix],
-            }}
-            onReady={() => {
-              SplashScreen.hideAsync();
-            }}
-          />
+          <RneThemeProvider theme={rneTheme}>
+            <Navigation
+              theme={navigationTheme}
+              linking={{
+                enabled: 'auto',
+                prefixes: [prefix],
+              }}
+              onReady={() => {
+                SplashScreen.hideAsync();
+              }}
+            />
+          </RneThemeProvider>
         </PaperProvider>
       </QueryClientProvider>
     </SafeAreaProvider>
