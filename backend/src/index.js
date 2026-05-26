@@ -1,23 +1,16 @@
-import express from 'express';
-import cors from 'cors';
-import { createServer } from 'http';
-import { Server } from 'socket.io';
+import "dotenv/config";
+import { createServer } from "http";
+import { Server } from "socket.io";
+import { createApp } from "./app.js";
 
-const app = express();
-
-app.use(cors());
-app.use(express.json());
-
-app.get('/', (req, res) => {
-  res.send('Server is running');
-});
+const app = createApp();
 
 const httpServer = createServer(app);
 
 const io = new Server(httpServer, {
   cors: {
-    origin: '*',
-    methods: ['GET', 'POST'],
+    origin: process.env.CORS_ORIGIN || "*",
+    methods: ["GET", "POST"],
   },
 });
 
@@ -28,6 +21,8 @@ io.on('connection', (socket) => {
     console.log(`User disconnected: ${socket.id}`);
   });
 });
+
+app.set("io", io);
 
 const PORT = process.env.PORT || 6600;
 
