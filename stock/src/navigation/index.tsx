@@ -3,7 +3,7 @@ import {
   createStaticNavigation,
 } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { IconButton } from 'react-native-paper';
+import { Icon } from 'react-native-paper';
 import { CloseDay } from './screens/CloseDay';
 import { Home } from './screens/Home';
 import { OpenCashSession } from './screens/OpenCashSession';
@@ -14,6 +14,12 @@ import { StockEntry } from './screens/StockEntry';
 import { Updates } from './screens/Updates';
 import { NotFound } from './screens/NotFound';
 import { WalkInSale } from './screens/WalkInSale';
+import { CreateEditShop } from './screens/CreateEditShop';
+import { AssignStaff } from './screens/AssignStaff';
+import { SetOpeningStock } from './screens/SetOpeningStock';
+import { PaymentVerification } from './screens/PaymentVerification';
+import { CashClosingReview } from './screens/CashClosingReview';
+import { DailySummary } from './screens/DailySummary';
 
 const HomeTabs = createBottomTabNavigator({
   screens: {
@@ -21,27 +27,27 @@ const HomeTabs = createBottomTabNavigator({
       screen: Home,
       options: {
         title: 'Today',
-        tabBarIcon: ({ color, size }) => <IconButton icon="view-dashboard-outline" iconColor={color} size={size} />,
+        tabBarIcon: ({ color, size }) => <Icon source="view-dashboard-outline" color={color} size={size} />,
       },
     },
     Updates: {
       screen: Updates,
       options: {
         title: 'Shops',
-        tabBarIcon: ({ color, size }) => <IconButton icon="storefront-outline" iconColor={color} size={size} />,
+        tabBarIcon: ({ color, size }) => <Icon source="storefront-outline" color={color} size={size} />,
       },
     },
     Settings: {
       screen: Settings,
       options: {
         title: 'Work',
-        tabBarIcon: ({ color, size }) => <IconButton icon="clipboard-list-outline" iconColor={color} size={size} />,
+        tabBarIcon: ({ color, size }) => <Icon source="clipboard-list-outline" color={color} size={size} />,
       },
     },
     Profile: {
       screen: Profile,
       options: {
-        tabBarIcon: ({ color, size }) => <IconButton icon="account-circle-outline" iconColor={color} size={size} />,
+        tabBarIcon: ({ color, size }) => <Icon source="account-circle-outline" color={color} size={size} />,
       },
     },
   },
@@ -94,6 +100,42 @@ const RootStack = createNativeStackNavigator({
       screen: CloseDay,
       options: {
         title: 'Close day',
+      },
+    },
+    CreateEditShop: {
+      screen: CreateEditShop,
+      options: {
+        title: 'Manage shop',
+      },
+    },
+    AssignStaff: {
+      screen: AssignStaff,
+      options: {
+        title: 'Assign staff',
+      },
+    },
+    SetOpeningStock: {
+      screen: SetOpeningStock,
+      options: {
+        title: 'Set opening stock',
+      },
+    },
+    PaymentVerification: {
+      screen: PaymentVerification,
+      options: {
+        title: 'Verify payments',
+      },
+    },
+    CashClosingReview: {
+      screen: CashClosingReview,
+      options: {
+        title: 'Cash closing review',
+      },
+    },
+    DailySummary: {
+      screen: DailySummary,
+      options: {
+        title: 'Daily summary',
       },
     },
   },

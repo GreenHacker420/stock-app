@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { View } from "react-native";
+import { useNavigation } from "@react-navigation/native";
 import { Text } from "react-native-paper";
 import { fetchShops } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
@@ -18,6 +19,11 @@ export function Home() {
     queryFn: () => fetchShops(token ?? ""),
     enabled: !!token,
   });
+
+  const navigation = useNavigation();
+  const navigate = (screen: string) => {
+    (navigation as { navigate: (screenName: string) => void }).navigate(screen);
+  };
 
   const shopCount = shopsQuery.data?.length ?? 0;
   const initials = user?.name
@@ -54,18 +60,21 @@ export function Home() {
               subtitle="UPI, card, bank, and cheque entries pending owner check."
               icon="check-decagram-outline"
               tone="green"
+              onPress={() => navigate("PaymentVerification")}
             />
             <ActionTile
               title="Daily summary"
               subtitle="Review today, lock entries, and export reports."
               icon="file-chart-outline"
               tone="blue"
+              onPress={() => navigate("DailySummary")}
             />
             <ActionTile
               title="Cash closing review"
               subtitle="See counter mismatch and staff closing notes."
               icon="cash-check"
               tone="amber"
+              onPress={() => navigate("CashClosingReview")}
             />
           </View>
         ) : (
@@ -75,18 +84,21 @@ export function Home() {
               subtitle="Fast counter sale with full payment."
               icon="cart-plus"
               tone="green"
+              onPress={() => navigate("WalkInSale")}
             />
             <ActionTile
               title="Orders to pack"
               subtitle="Pack assigned orders and report shortages."
               icon="package-variant"
               tone="blue"
+              onPress={() => navigate("OrdersToPack")}
             />
             <ActionTile
               title="Close day"
               subtitle="Enter actual cash and handover amount."
               icon="cash-check"
               tone="amber"
+              onPress={() => navigate("CloseDay")}
             />
           </View>
         )}

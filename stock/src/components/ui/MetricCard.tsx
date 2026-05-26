@@ -10,10 +10,10 @@ type MetricCardProps = {
 };
 
 const tones = {
-  green: { bg: "#ffffff", iconBg: "#d8f2e3", color: "#246b4b" },
-  amber: { bg: "#ffffff", iconBg: "#ffe2ad", color: "#8a5a12" },
-  blue: { bg: "#ffffff", iconBg: "#dcecff", color: "#2c5d89" },
-  red: { bg: "#ffffff", iconBg: "#ffe1dc", color: "#b42318" },
+  green: { bg: "#ffffff", iconBg: "rgba(36, 107, 75, 0.08)", color: "#1c5138" },
+  amber: { bg: "#ffffff", iconBg: "rgba(138, 90, 18, 0.08)", color: "#744b0e" },
+  blue: { bg: "#ffffff", iconBg: "rgba(44, 93, 137, 0.08)", color: "#214668" },
+  red: { bg: "#ffffff", iconBg: "rgba(180, 35, 24, 0.08)", color: "#8c1c13" },
 };
 
 export function MetricCard({ label, value, icon, tone = "green", helper }: MetricCardProps) {
@@ -21,27 +21,39 @@ export function MetricCard({ label, value, icon, tone = "green", helper }: Metri
 
   return (
     <View
-      className="flex-1 gap-3 rounded-lg border border-[#d9dfd2] p-4"
-      style={{ backgroundColor: palette.bg, minHeight: 124 }}
+      className="flex-1 gap-3 rounded-2xl border border-[#e5eadd] p-4"
+      style={{
+        backgroundColor: palette.bg,
+        minHeight: 124,
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.03,
+        shadowRadius: 12,
+        elevation: 2,
+      }}
     >
-      <View
-        className="h-10 w-10 items-center justify-center rounded-lg"
-        style={{ backgroundColor: palette.iconBg }}
-      >
-        <Icon source={icon} size={21} color={palette.color} />
+      <View className="flex-row justify-between items-start">
+        <View
+          className="h-10 w-10 items-center justify-center rounded-xl"
+          style={{ backgroundColor: palette.iconBg }}
+        >
+          <Icon source={icon} size={20} color={palette.color} />
+        </View>
+        {helper ? (
+          <View className="rounded-full bg-[#f4f6f1] px-2 py-0.5 border border-[#eef2ea]">
+            <Text style={{ color: "#667064", fontSize: 10, fontWeight: "700" }}>
+              {helper}
+            </Text>
+          </View>
+        ) : null}
       </View>
-      <View className="gap-1">
-        <Text variant="headlineSmall" style={{ color: "#17211b", fontWeight: "800" }}>
+      <View className="gap-0.5">
+        <Text variant="headlineSmall" style={{ color: "#17211b", fontWeight: "800", letterSpacing: -0.5 }}>
           {value}
         </Text>
-        <Text variant="labelLarge" style={{ color: "#4d584f" }}>
+        <Text variant="labelLarge" style={{ color: "#4d584f", fontWeight: "600" }}>
           {label}
         </Text>
-        {helper ? (
-          <Text variant="bodySmall" style={{ color: "#667064" }}>
-            {helper}
-          </Text>
-        ) : null}
       </View>
     </View>
   );

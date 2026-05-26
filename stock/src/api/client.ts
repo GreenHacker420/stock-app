@@ -48,6 +48,7 @@ export type Order = {
   orderNumber: string;
   status: string;
   totalAmount: string;
+  createdAt: string;
   customer?: Customer;
   items: Array<{
     id: string;
@@ -204,4 +205,144 @@ export async function markOrderItemPacked(
     token,
     body: JSON.stringify(data),
   });
+}
+
+export async function createShop(
+  token: string,
+  data: { name: string; code: string; city: string; address?: string; openingCash?: number }
+) {
+  return apiRequest<Shop>("/shops", {
+    method: "POST",
+    token,
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateShop(
+  token: string,
+  id: string,
+  data: { name?: string; city?: string; address?: string; openingCash?: number; status?: "ACTIVE" | "INACTIVE" }
+) {
+  return apiRequest<Shop>(`/shops/${id}`, {
+    method: "PATCH",
+    token,
+    body: JSON.stringify(data),
+  });
+}
+
+export async function fetchStaff(token: string) {
+  return apiRequest<ApiUser[]>("/auth/staff", { token });
+}
+
+export async function createStaff(
+  token: string,
+  data: { name: string; mobile: string; email?: string | null; password?: string }
+) {
+  return apiRequest<ApiUser>("/auth/staff", {
+    method: "POST",
+    token,
+    body: JSON.stringify(data),
+  });
+}
+
+export async function assignStaffToShop(token: string, shopId: string, staffId: string) {
+  return apiRequest(`/shops/${shopId}/assign-staff`, {
+    method: "POST",
+    token,
+    body: JSON.stringify({ staffId }),
+  });
+}
+
+export async function setOpeningStock(
+  token: string,
+  shopId: string,
+  entries: Array<{ itemId: string; quantity: number; reason?: string }>
+) {
+  return apiRequest(`/shops/${shopId}/set-opening-stock`, {
+    method: "POST",
+    token,
+    body: JSON.stringify({ entries }),
+  });
+}
+
+export type Payment = {
+  id: string;
+  shopId: string;
+  paymentMode: string;
+  amount: string;
+  verificationStatus: "RECORDED" | "PENDING_VERIFICATION" | "VERIFIED" | "MISMATCH" | "CANCELLED" | "REFUNDED";
+  receivedAt: string;
+  referenceNumber?: string | null;
+  notes?: string | null;
+  sale?: { saleNumber: string } | null;
+  deliveryMemo?: { dmNumber: string } | null;
+  order?: { orderNumber: string } | null;
+  customer?: { name: string } | null;
+  receivedBy: { name: string };
+};
+
+export async function fetchPayments(
+  token: string,
+  shopId: string,
+  options: { paymentMode?: string; verificationStatus?: string } = {}
+) {
+  let url = `/payments?shopId=${encodeURIComponent(shopId)}`;
+  if (options.paymentMode) url += `&paymentMode=${encodeURIComponent(options.paymentMode)}`;
+  if (options.verificationStatus) url += `&verificationStatus=${encodeURIComponent(options.verificationStatus)}`;
+  return apiRequest<Payment[]>(url, { token });
+}
+
+export async function verifyPayment(token: string, paymentId: string, note?: string) {
+  return apiRequest(`/payments/${paymentId}/verify`, {
+    method: "POST",
+    token,
+    body: JSON.stringify({ note }),
+  });
+}
+
+export async function markPaymentMismatch(token: string, paymentId: string, note?: string) {
+  return apiRequest(`/payments/${paymentId}/mark-mismatch`, {
+    method: "POST",
+    token,
+    body: JSON.stringify({ note }),
+  });
+}
+
+export type DetailedCashSession = CashSession & {
+  staff: { id: string; name: string; mobile: string };
+  difference?: string | null;
+  differenceReason?: string | null;
+  cashHandover?: string | null;
+  otherDeductionsAmount?: string | null;
+  otherDeductionsReason?: string | null;
+  openedAt: string;
+  closedAt?: string | null;
+};
+
+export async function fetchCashSessions(token: string, shopId: string, status?: string) {
+  let url = `/cash-sessions?shopId=${encodeURIComponent(shopId)}`;
+  if (status) url += `&status=${encodeURIComponent(status)}`;
+  return apiRequest<DetailedCashSession[]>(url, { token });
+}
+
+export async function reviewCashSession(token: string, sessionId: string) {
+  return apiRequest<CashSession>(`/cash-sessions/${sessionId}/review`, {
+    method: "POST",
+    token,
+  });
+}
+
+export type Sale = {
+  id: string;
+  saleNumber: string;
+  shopId: string;
+  isWalkin: boolean;
+  totalAmount: string;
+  paidAmount: string;
+  balanceAmount: string;
+  createdAt: string;
+};
+
+export async function fetchSales(token: string, shopId: string) {
+  return apiRequest<Sale[]>(`/sales?shopId=${encodeURIComponent(shopId)}`, { token });
 }

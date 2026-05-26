@@ -10,10 +10,10 @@ type ActionTileProps = {
 };
 
 const tones = {
-  green: { bg: "#d8f2e3", color: "#246b4b" },
-  amber: { bg: "#ffe2ad", color: "#8a5a12" },
-  blue: { bg: "#dcecff", color: "#2c5d89" },
-  red: { bg: "#ffe1dc", color: "#b42318" },
+  green: { bg: "rgba(36, 107, 75, 0.08)", color: "#1c5138" },
+  amber: { bg: "rgba(138, 90, 18, 0.08)", color: "#744b0e" },
+  blue: { bg: "rgba(44, 93, 137, 0.08)", color: "#214668" },
+  red: { bg: "rgba(180, 35, 24, 0.08)", color: "#8c1c13" },
 };
 
 export function ActionTile({ title, subtitle, icon, tone = "green", onPress }: ActionTileProps) {
@@ -22,23 +22,34 @@ export function ActionTile({ title, subtitle, icon, tone = "green", onPress }: A
   return (
     <Pressable
       onPress={onPress}
-      className="flex-row items-center gap-3 rounded-lg border border-[#d9dfd2] bg-white p-4"
+      style={({ pressed }) => [
+        {
+          opacity: pressed ? 0.8 : 1,
+          transform: [{ scale: pressed ? 0.98 : 1 }],
+          shadowColor: "#000",
+          shadowOffset: { width: 0, height: 3 },
+          shadowOpacity: 0.04,
+          shadowRadius: 12,
+          elevation: 2,
+        }
+      ]}
+      className="flex-row items-center gap-4 rounded-2xl border border-[#e5eadd] bg-white p-4"
     >
       <View
-        className="h-11 w-11 items-center justify-center rounded-lg"
+        className="h-11 w-11 items-center justify-center rounded-xl"
         style={{ backgroundColor: palette.bg }}
       >
         <Icon source={icon} size={22} color={palette.color} />
       </View>
-      <View className="flex-1 gap-1">
-        <Text variant="titleMedium" style={{ color: "#17211b", fontWeight: "700" }}>
+      <View className="flex-1 gap-0.5">
+        <Text variant="titleMedium" style={{ color: "#17211b", fontWeight: "700", letterSpacing: -0.1 }}>
           {title}
         </Text>
-        <Text variant="bodySmall" style={{ color: "#667064", lineHeight: 18 }}>
+        <Text variant="bodySmall" style={{ color: "#667064", lineHeight: 16 }}>
           {subtitle}
         </Text>
       </View>
-      <Icon source="chevron-right" size={22} color="#7a8578" />
+      <Icon source="chevron-right" size={22} color="#909b8f" />
     </Pressable>
   );
 }

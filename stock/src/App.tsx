@@ -25,7 +25,7 @@ SplashScreen.preventAutoHideAsync();
 const prefix = createURL('/');
 const queryClient = new QueryClient();
 const paperSettings = {
-  icon: ({ name, color, size, testID }: { name: string; color?: string; size: number; testID?: string }) => (
+  icon: ({ name, color, size, testID }: any) => (
     <MaterialCommunityIcons name={name as never} color={color ?? "#4d584f"} size={size} testID={testID} />
   ),
 };
