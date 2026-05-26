@@ -18,6 +18,11 @@ export type Shop = {
   openingStockLocked: boolean;
 };
 
+export type ItemCategory = {
+  id: string;
+  name: string;
+};
+
 export type Item = {
   id: string;
   name: string;
@@ -25,6 +30,15 @@ export type Item = {
   unit: string;
   defaultSellingPrice: string;
   minimumStock: string;
+  category?: ItemCategory | null;
+};
+
+export type StockLevel = {
+  item: Item;
+  quantityIn: number;
+  quantityOut: number;
+  currentQuantity: number;
+  isLowStock: boolean;
 };
 
 export type Customer = {
@@ -152,6 +166,12 @@ export async function closeCashSession(
     token,
     body: JSON.stringify(data),
   });
+}
+
+export async function fetchCurrentStock(token: string, shopId: string, itemId?: string) {
+  let url = `/stock/current?shopId=${encodeURIComponent(shopId)}`;
+  if (itemId) url += `&itemId=${encodeURIComponent(itemId)}`;
+  return apiRequest<StockLevel[]>(url, { token });
 }
 
 export async function createStockMovement(

@@ -22,6 +22,9 @@ import { CashClosingReview } from './screens/CashClosingReview';
 import { DailySummary } from './screens/DailySummary';
 
 const HomeTabs = createBottomTabNavigator({
+  screenOptions: {
+    headerShown: false,
+  },
   screens: {
     Home: {
       screen: Home,
@@ -55,6 +58,9 @@ const HomeTabs = createBottomTabNavigator({
 
 const RootStack = createNativeStackNavigator({
   initialRouteName: 'HomeTabs',
+  screenOptions: {
+    headerShown: false,
+  },
   screens: {
     HomeTabs: {
       screen: HomeTabs,

@@ -81,7 +81,7 @@ export function WalkInSale() {
             placeholder="Search name or SKU..."
             onChangeText={setSearchQuery}
             value={searchQuery}
-            style={{ backgroundColor: "white", borderRadius: 8, elevation: 0, borderWeight: 1, borderColor: "#e5e7eb" } as any}
+            style={{ backgroundColor: "white", borderRadius: 8, elevation: 0, borderWidth: 1, borderColor: "#e5e7eb" } as any}
           />
           
           <View className="mt-3 gap-2">

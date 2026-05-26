@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { KeyboardAvoidingView, Platform, View } from "react-native";
-import { Button, HelperText, Surface, Text, TextInput, useTheme } from "react-native-paper";
+import { KeyboardAvoidingView, Platform, View, Pressable, ScrollView } from "react-native";
+import { Button, HelperText, Surface, Text, TextInput, useTheme, Icon } from "react-native-paper";
 import { useAuthStore } from "../../auth/auth-store";
 
 export function Login() {
@@ -26,113 +26,127 @@ export function Login() {
 
   return (
     <KeyboardAvoidingView
-      className="flex-1 bg-[#eef2ea]"
+      className="flex-1 bg-background"
       behavior={Platform.select({ ios: "padding", default: undefined })}
     >
-      <View className="flex-1 items-center justify-center px-5 py-8">
-        <View className="w-full max-w-[430px] gap-5">
-          <View className="gap-4">
-            <View className="h-14 w-14 items-center justify-center rounded-2xl bg-[#1e40af]">
-              <Text variant="headlineSmall" style={{ color: "#ffffff", fontWeight: "700" }}>
-                SC
-              </Text>
-            </View>
-            <View className="gap-2">
-              <Text
-                variant="headlineLarge"
-                style={{ color: "#111827", fontWeight: "800", letterSpacing: 0 }}
-              >
-                ShopControl
-              </Text>
-              <Text variant="bodyLarge" style={{ color: "#6b7280", lineHeight: 24 }}>
-                Daily shop control for orders, stock, payments, and counter cash.
-              </Text>
-            </View>
-          </View>
-
-          <Surface
-            mode="flat"
-            elevation={0}
-            className="gap-4 rounded-lg border border-[#e5e7eb] bg-white p-5"
-          >
-            <View className="gap-1">
-              <Text variant="titleMedium" style={{ color: "#111827", fontWeight: "700" }}>
-                Sign in
-              </Text>
-              <Text variant="bodyMedium" style={{ color: "#4b5563" }}>
-                Use your owner or staff login.
-              </Text>
+      <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
+        <View className="flex-1 items-center justify-center px-6 py-12">
+          <View className="w-full max-w-[400px] gap-8">
+            
+            {/* Branding Section */}
+            <View className="items-center gap-4">
+              <View className="h-20 w-20 items-center justify-center rounded-[24px] bg-[#1e40af] shadow-2xl shadow-blue-500/40">
+                <Text variant="displaySmall" style={{ color: "#ffffff", fontWeight: "900" }}>SC</Text>
+              </View>
+              <View className="items-center gap-1">
+                <Text variant="headlineLarge" style={{ color: "#111827", fontWeight: "900", letterSpacing: -0.5 }}>ShopControl</Text>
+                <Text variant="bodyMedium" style={{ color: "#64748b", textAlign: "center", maxWidth: 280, lineHeight: 22 }}>
+                  Empowering your retail operations with executive oversight.
+                </Text>
+              </View>
             </View>
 
-            <View className="gap-3">
-              <TextInput
-                mode="outlined"
-                label="Mobile or email"
-                value={identifier}
-                keyboardType="phone-pad"
-                autoCapitalize="none"
-                left={<TextInput.Icon icon="cellphone" />}
-                onChangeText={setIdentifier}
-                outlineColor="#b9c3b5"
-                activeOutlineColor={theme.colors.primary}
-                textColor="#111827"
-                style={{ backgroundColor: "#fbfcf8" }}
-              />
-              <TextInput
-                mode="outlined"
-                label="Password"
-                value={password}
-                secureTextEntry={secureText}
-                onChangeText={setPassword}
-                left={<TextInput.Icon icon="lock-outline" />}
-                right={
-                  <TextInput.Icon
-                    icon={secureText ? "eye" : "eye-off"}
-                    onPress={() => setSecureText((value) => !value)}
+            {/* Login Card */}
+            <Surface
+              elevation={2}
+              className="gap-6 rounded-[20px] bg-white p-6 shadow-xl"
+              style={{
+                shadowColor: "#000",
+                shadowOffset: { width: 0, height: 10 },
+                shadowOpacity: 0.08,
+                shadowRadius: 20,
+              }}
+            >
+              <View className="gap-2">
+                <Text variant="titleLarge" style={{ color: "#111827", fontWeight: "800" }}>Sign In</Text>
+                <Text variant="bodySmall" style={{ color: "#64748b" }}>Please enter your credentials to continue.</Text>
+              </View>
+
+              <View className="gap-4">
+                <View>
+                  <Text variant="labelMedium" style={{ color: "#475569", marginBottom: 6, fontWeight: "700" }}>MOBILE OR EMAIL</Text>
+                  <TextInput
+                    mode="outlined"
+                    placeholder="e.g. 9988776655"
+                    value={identifier}
+                    keyboardType="phone-pad"
+                    autoCapitalize="none"
+                    left={<TextInput.Icon icon="account-outline" color="#94a3b8" />}
+                    onChangeText={setIdentifier}
+                    outlineStyle={{ borderRadius: 12, borderColor: "#e2e8f0" }}
+                    activeOutlineColor="#1e40af"
+                    textColor="#111827"
+                    style={{ backgroundColor: "white" }}
                   />
-                }
-                outlineColor="#b9c3b5"
-                activeOutlineColor={theme.colors.primary}
-                textColor="#111827"
-                style={{ backgroundColor: "#fbfcf8" }}
-              />
-              <HelperText type="error" visible={!!error}>
-                {error}
-              </HelperText>
-              <Button
-                mode="contained"
-                icon="login"
-                loading={isSubmitting}
-                disabled={isSubmitting}
-                contentStyle={{ height: 50 }}
-                labelStyle={{ fontSize: 16, fontWeight: "700" }}
-                onPress={handleSubmit}
-              >
-                Sign in
-              </Button>
-            </View>
-          </Surface>
+                </View>
 
-          <View className="flex-row gap-2">
-            <View className="flex-1 rounded-lg bg-white/70 p-3">
-              <Text variant="labelLarge" style={{ color: "#1e40af", fontWeight: "700" }}>
-                Owner
-              </Text>
-              <Text variant="bodySmall" style={{ color: "#4b5563" }}>
-                Dashboard, verification, daily summary.
-              </Text>
+                <View>
+                  <View className="flex-row justify-between items-center mb-1.5">
+                    <Text variant="labelMedium" style={{ color: "#475569", fontWeight: "700" }}>PASSWORD / PIN</Text>
+                    <Pressable>
+                       <Text variant="labelSmall" style={{ color: "#1e40af", fontWeight: "800" }}>FORGOT?</Text>
+                    </Pressable>
+                  </View>
+                  <TextInput
+                    mode="outlined"
+                    placeholder="••••••••"
+                    value={password}
+                    secureTextEntry={secureText}
+                    onChangeText={setPassword}
+                    left={<TextInput.Icon icon="lock-outline" color="#94a3b8" />}
+                    right={
+                      <TextInput.Icon
+                        icon={secureText ? "eye-outline" : "eye-off-outline"}
+                        color="#94a3b8"
+                        onPress={() => setSecureText((value) => !value)}
+                      />
+                    }
+                    outlineStyle={{ borderRadius: 12, borderColor: "#e2e8f0" }}
+                    activeOutlineColor="#1e40af"
+                    textColor="#111827"
+                    style={{ backgroundColor: "white" }}
+                  />
+                </View>
+
+                {error ? (
+                  <View className="bg-red-50 p-3 rounded-lg flex-row items-center gap-2">
+                    <Icon source="alert-circle" size={16} color="#ef4444" />
+                    <Text variant="bodySmall" style={{ color: "#b91c1c", fontWeight: "600" }}>{error}</Text>
+                  </View>
+                ) : null}
+
+                <Button
+                  mode="contained"
+                  loading={isSubmitting}
+                  disabled={isSubmitting}
+                  style={{ borderRadius: 12, marginTop: 4, backgroundColor: "#1e40af" }}
+                  contentStyle={{ height: 54 }}
+                  labelStyle={{ fontSize: 16, fontWeight: "800", letterSpacing: 0.5 }}
+                  onPress={handleSubmit}
+                >
+                  Sign In to Control
+                </Button>
+              </View>
+
+              <Divider className="my-2" />
+
+              <Pressable className="flex-row items-center justify-center gap-2 py-2">
+                <Icon source="fingerprint" size={20} color="#64748b" />
+                <Text style={{ color: "#64748b", fontWeight: "600" }}>Enable Biometric Login</Text>
+              </Pressable>
+            </Surface>
+
+            {/* Support Footer */}
+            <View className="items-center gap-2">
+               <Text variant="bodySmall" style={{ color: "#94a3b8" }}>New to ShopControl?</Text>
+               <Pressable className="bg-white px-4 py-2 rounded-full border border-gray-200">
+                  <Text style={{ color: "#1e40af", fontWeight: "800", fontSize: 12 }}>Contact Administration</Text>
+               </Pressable>
             </View>
-            <View className="flex-1 rounded-lg bg-white/70 p-3">
-              <Text variant="labelLarge" style={{ color: "#8a5a12", fontWeight: "700" }}>
-                Staff
-              </Text>
-              <Text variant="bodySmall" style={{ color: "#4b5563" }}>
-                Sales, DM, stock, cash closing.
-              </Text>
-            </View>
+
           </View>
         </View>
-      </View>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
