@@ -37,9 +37,6 @@ export async function getPayment(user, id) {
 export async function addPayment(user, data) {
   await assertShopAccess(user, data.shopId);
 
-  const linkCount = [data.saleId, data.dmId, data.orderId, data.customerId].filter(Boolean).length;
-  if (linkCount === 0) throw new ApiError(400, "Payment must be linked to sale, DM, order, or customer");
-
   return prisma.$transaction(async (tx) => {
     let totalAmount = Number(data.amount);
     let existingPaidAmount = 0;
