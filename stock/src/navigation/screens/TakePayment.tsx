@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { ScrollView, View, Pressable } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Text, TextInput, SegmentedButtons, Icon, Searchbar, List, Divider } from "react-native-paper";
+import { Button, Text, TextInput, SegmentedButtons, Icon, Searchbar, List, Divider, HelperText } from "react-native-paper";
+import { useRoute } from "@react-navigation/native";
 import { addPayment, fetchCustomers, fetchShops } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
@@ -21,13 +22,16 @@ export function TakePayment() {
   const token = useAuthStore((state) => state.token);
   const { activeShopId } = useShopStore();
   const queryClient = useQueryClient();
+  const route = useRoute<any>();
 
-  const [customerId, setCustomerId] = useState<string | undefined>();
+  const [customerId, setCustomerId] = useState<string | undefined>(route.params?.customerId);
+  const [orderId, setOrderId] = useState<string | undefined>(route.params?.orderId);
   const [searchQuery, setSearchQuery] = useState("");
-  const [amount, setAmount] = useState("");
+  const [amount, setAmount] = useState(route.params?.amount?.toString() || "");
   const [paymentMode, setPaymentMode] = useState<typeof paymentModes[number]["value"]>("CASH");
   const [reference, setReference] = useState("");
   const [notes, setNote] = useState("");
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const customersQuery = useQuery({
     queryKey: ["customers", activeShopId],
@@ -50,6 +54,7 @@ export function TakePayment() {
       addPayment(token ?? "", {
         shopId: activeShopId ?? "",
         customerId,
+        orderId,
         paymentMode,
         amount: Number(amount),
         referenceNumber: reference || undefined,
@@ -57,11 +62,18 @@ export function TakePayment() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["payments", activeShopId] });
+      if (orderId) queryClient.invalidateQueries({ queryKey: ["orders", activeShopId] });
       setAmount("");
       setReference("");
       setNote("");
+      setCustomerId(undefined);
+      setOrderId(undefined);
+      setErrorMsg(null);
       alert("Payment recorded successfully!");
     },
+    onError: (err: any) => {
+      setErrorMsg(err.message || "Failed to record payment");
+    }
   });
 
   return (
@@ -70,12 +82,14 @@ export function TakePayment() {
       
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
         <Section title="Customer Selection">
-          <Searchbar
-            placeholder="Search customer name or phone..."
-            onChangeText={setSearchQuery}
-            value={searchQuery}
-            style={{ backgroundColor: "white", borderRadius: 12, elevation: 2, borderWidth: 1, borderColor: "#e5e7eb" } as any}
-          />
+          {!selectedCustomer && (
+            <Searchbar
+              placeholder="Search customer name or phone..."
+              onChangeText={setSearchQuery}
+              value={searchQuery}
+              style={{ backgroundColor: "white", borderRadius: 12, elevation: 2, borderWidth: 1, borderColor: "#e5e7eb" } as any}
+            />
+          )}
           {searchQuery ? (
             <View className="mt-2 bg-white rounded-lg border border-gray-100 shadow-lg z-50">
               {filteredCustomers.map(customer => (
@@ -86,6 +100,7 @@ export function TakePayment() {
                   onPress={() => {
                     setCustomerId(customer.id);
                     setSearchQuery("");
+                    setErrorMsg(null);
                   }}
                   right={props => <List.Icon {...props} icon="account-check-outline" color="#1e40af" />}
                 />
@@ -97,10 +112,13 @@ export function TakePayment() {
             <View className="mt-3 p-4 bg-blue-50 rounded-xl border border-blue-100 flex-row justify-between items-center">
                <View>
                   <Text style={{ fontWeight: "800", color: "#1e3a8a" }}>{selectedCustomer.name}</Text>
-                  <Text variant="bodySmall" style={{ color: "#1e40af" }}>{selectedCustomer.phone}</Text>
+                  <Text variant="bodySmall" style={{ color: "#1e40af" }}>{selectedCustomer.phone}{orderId ? ` • Linked to Order` : ""}</Text>
                </View>
-               <Button compact mode="text" onPress={() => setCustomerId(undefined)}>Clear</Button>
+               <Button compact mode="text" onPress={() => { setCustomerId(undefined); setOrderId(undefined); }}>Change</Button>
             </View>
+          )}
+          {!selectedCustomer && !searchQuery && (
+             <HelperText type="error" visible={true}>Customer selection is mandatory</HelperText>
           )}
         </Section>
 
@@ -126,7 +144,7 @@ export function TakePayment() {
                     {paymentModes.map(mode => (
                       <Pressable 
                         key={mode.value} 
-                        onPress={() => setPaymentMode(mode.value)}
+                        onPress={() => { setPaymentMode(mode.value); setErrorMsg(null); }}
                         className={`flex-row items-center gap-2 px-4 py-2.5 rounded-full border ${paymentMode === mode.value ? 'bg-blue-600 border-blue-600' : 'bg-white border-gray-200'}`}
                       >
                         <Icon source={mode.icon} size={18} color={paymentMode === mode.value ? 'white' : '#4b5563'} />
@@ -157,6 +175,13 @@ export function TakePayment() {
                  style={{ backgroundColor: "white" }}
                  outlineStyle={{ borderRadius: 12 }}
               />
+
+              {errorMsg && (
+                <View className="bg-red-50 p-3 rounded-lg flex-row items-center gap-2">
+                   <Icon source="alert-circle" size={16} color="#ef4444" />
+                   <Text variant="bodySmall" style={{ color: "#b91c1c", fontWeight: "600", flex: 1 }}>{errorMsg}</Text>
+                </View>
+              )}
            </View>
         </Section>
       </ScrollView>
@@ -164,7 +189,7 @@ export function TakePayment() {
       <View className="absolute bottom-0 left-0 right-0 p-4 bg-white/90 border-t border-gray-100 shadow-xl" style={{ backdropFilter: 'blur(10px)' } as any}>
         <Button
           mode="contained"
-          disabled={!amount || Number(amount) <= 0}
+          disabled={!selectedCustomer || !amount || Number(amount) <= 0}
           loading={paymentMutation.isPending}
           onPress={() => paymentMutation.mutate()}
           style={{ borderRadius: 12, backgroundColor: "#1e40af" }}

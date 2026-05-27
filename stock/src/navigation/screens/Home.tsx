@@ -111,6 +111,13 @@ function OwnerHome({ shopCount, navigate }: { shopCount: number; navigate: (s: s
       <Section title="Quick actions">
         <View className="gap-3">
           <ActionTile
+            title="Take Payment"
+            subtitle="Record a collection from a customer."
+            icon="cash-register"
+            tone="blue"
+            onPress={() => navigate("TakePayment")}
+          />
+          <ActionTile
             title="Verify Payments"
             subtitle="Review pending UPI and cheque entries."
             icon="check-decagram-outline"

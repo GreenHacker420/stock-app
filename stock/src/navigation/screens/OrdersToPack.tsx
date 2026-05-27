@@ -2,12 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import { ScrollView, View, Pressable } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Text, SegmentedButtons, Icon, Checkbox, Divider } from "react-native-paper";
+import { useNavigation } from "@react-navigation/native";
 import { fetchOrders, fetchShops, markOrderItemPacked, type Order } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
+import { useShopStore } from "../../auth/shop-store";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
-import { ShopPicker } from "../../components/ui/ShopPicker";
-import { StatusPill } from "../../components/ui/StatusPill";
+import { Section } from "../../components/ui/Section";
 
 function remainingQuantity(order: Order) {
   return order.items.reduce((total, orderItem) => {
@@ -17,21 +18,17 @@ function remainingQuantity(order: Order) {
 
 export function OrdersToPack() {
   const token = useAuthStore((state) => state.token);
+  const { activeShopId } = useShopStore();
   const queryClient = useQueryClient();
-  const [shopId, setShopId] = useState<string | undefined>();
   const [tab, setTab] = useState("pending");
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
 
   const shopsQuery = useQuery({ queryKey: ["shops"], queryFn: () => fetchShops(token ?? ""), enabled: !!token });
   const ordersQuery = useQuery({
-    queryKey: ["orders", shopId],
-    queryFn: () => fetchOrders(token ?? "", shopId ?? ""),
-    enabled: !!token && !!shopId,
+    queryKey: ["orders", activeShopId],
+    queryFn: () => fetchOrders(token ?? "", activeShopId ?? ""),
+    enabled: !!token && !!activeShopId,
   });
-
-  useEffect(() => {
-    if (!shopId && shopsQuery.data?.[0]) setShopId(shopsQuery.data[0].id);
-  }, [shopId, shopsQuery.data]);
 
   const filteredOrders = useMemo(() => {
     const all = ordersQuery.data ?? [];
@@ -47,7 +44,7 @@ export function OrdersToPack() {
         quantityPacked: data.quantity,
       });
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["orders", shopId] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["orders", activeShopId] }),
   });
 
   return (
@@ -55,8 +52,6 @@ export function OrdersToPack() {
       <AppHeader title="Orders to Pack" subtitle="Manage fulfillment queue" />
       
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
-        <ShopPicker shops={shopsQuery.data ?? []} selectedShopId={shopId} onSelect={setShopId} />
-
         <View className="px-4 mb-6">
           <SegmentedButtons
             value={tab}
@@ -104,7 +99,9 @@ function OrderCard({ order, isExpanded, onToggle, onPack, isPacking }: {
   onPack: (itemId: string, qty: number) => void;
   isPacking: boolean;
 }) {
+  const navigation = useNavigation();
   const pendingCount = order.items.filter(i => Number(i.quantityOrdered) > Number(i.quantityPacked)).length;
+  const balance = Number(order.totalAmount) - Number(order.paidAmount);
 
   return (
     <View className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
@@ -112,20 +109,28 @@ function OrderCard({ order, isExpanded, onToggle, onPack, isPacking }: {
         <View className="flex-1">
           <View className="flex-row items-center gap-2 mb-1">
             <Text style={{ fontWeight: "800", color: "#111827" }}>#{order.orderNumber}</Text>
-            {pendingCount > 0 && (
+            {pendingCount > 0 ? (
               <View className="bg-blue-50 px-2 py-0.5 rounded-full">
                 <Text style={{ fontSize: 10, color: "#1e40af", fontWeight: "700" }}>{pendingCount} left</Text>
+              </View>
+            ) : (
+              <View className="bg-green-50 px-2 py-0.5 rounded-full">
+                <Text style={{ fontSize: 10, color: "#059669", fontWeight: "700" }}>Packed</Text>
               </View>
             )}
           </View>
           <Text variant="bodyMedium" style={{ color: "#4b5563" }}>{order.customer?.name ?? "Regular Customer"}</Text>
         </View>
+        <View className="items-end gap-1 mr-2">
+           <Text style={{ fontWeight: "800", color: "#111827", fontSize: 13 }}>₹{order.totalAmount}</Text>
+           {balance > 0 && <Text style={{ fontSize: 10, color: "#ef4444", fontWeight: "700" }}>₹{balance} due</Text>}
+        </View>
         <Icon source={isExpanded ? "chevron-up" : "chevron-down"} size={24} color="#9ca3af" />
       </Pressable>
 
       {isExpanded && (
-        <View className="border-t border-gray-100 p-4 pt-0">
-          <View className="mb-4">
+        <View className="border-t border-gray-100 p-4">
+          <View className="mb-6">
             {order.items.map((item, idx) => {
               const isPacked = Number(item.quantityPacked) >= Number(item.quantityOrdered);
               return (
@@ -158,13 +163,24 @@ function OrderCard({ order, isExpanded, onToggle, onPack, isPacking }: {
             })}
           </View>
           
-          <Button 
-            mode="contained" 
-            onPress={onToggle}
-            style={{ borderRadius: 6 }}
-          >
-            {pendingCount === 0 ? "Done" : "Mark as Packed"}
-          </Button>
+          <View className="flex-row gap-3">
+             <Button 
+                mode="outlined" 
+                onPress={() => (navigation as any).navigate("TakePayment", { customerId: order.customer?.id, orderId: order.id, amount: balance })}
+                style={{ flex: 1, borderRadius: 8, borderColor: '#e5e7eb' }}
+                textColor="#1e40af"
+                icon="cash-plus"
+             >
+                Collect
+             </Button>
+             <Button 
+                mode="contained" 
+                onPress={onToggle}
+                style={{ flex: 2, borderRadius: 8 }}
+             >
+                {pendingCount === 0 ? "Done" : "Mark as Packed"}
+             </Button>
+          </View>
         </View>
       )}
     </View>
