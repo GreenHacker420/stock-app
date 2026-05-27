@@ -3,20 +3,23 @@ import { View, ScrollView } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Button, TextInput, List, Text, HelperText } from "react-native-paper";
-import { fetchItems, setOpeningStock, Shop } from "../../api/client";
+import { fetchItems, fetchShops, setOpeningStock, Shop } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
+import { useShopStore } from "../../auth/shop-store";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { Section } from "../../components/ui/Section";
 
 export function SetOpeningStock() {
   const token = useAuthStore((state) => state.token);
+  const activeShopId = useShopStore((state) => state.activeShopId);
   const queryClient = useQueryClient();
   const navigation = useNavigation();
   const route = useRoute();
 
-  const params = route.params as { shop: Shop } | undefined;
-  const shop = params?.shop;
+  const params = route.params as { shop?: Shop } | undefined;
+  const shopsQuery = useQuery({ queryKey: ["shops"], queryFn: () => fetchShops(token ?? ""), enabled: !!token });
+  const shop = params?.shop ?? shopsQuery.data?.find((row) => row.id === activeShopId) ?? shopsQuery.data?.[0];
 
   const [quantities, setQuantities] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
@@ -60,10 +63,19 @@ export function SetOpeningStock() {
     setError("");
   };
 
+  if (!shop && shopsQuery.isLoading) {
+    return (
+      <Screen>
+        <Text>Loading shop...</Text>
+      </Screen>
+    );
+  }
+
   if (!shop) {
     return (
       <Screen>
-        <Text>Invalid Shop Parameter</Text>
+        <AppHeader title="Opening Stock" subtitle="Pick or create a shop first." />
+        <Text style={{ color: "#991b1b" }}>No active shop found. Go to Dashboard and choose a shop.</Text>
       </Screen>
     );
   }

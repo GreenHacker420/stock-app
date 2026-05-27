@@ -111,18 +111,11 @@ function ConfiguredScreen({ config }: { config: ScreenConfig }) {
 
           {config.rows?.length ? (
             <Section title="Records">
-              <View className="overflow-hidden rounded-lg border border-[#e5e7eb] bg-white">
-                {config.rows.map((row, index) => (
-                  <View key={row}>
-                    {index > 0 ? <Divider /> : null}
-                    <View className="p-4">
-                      <Text style={{ color: "#111827", fontWeight: "800" }}>{row}</Text>
-                      <Text variant="bodySmall" style={{ color: "#64748b", marginTop: 4 }}>
-                        Tap to open detail, verify status, or continue the workflow.
-                      </Text>
-                    </View>
-                  </View>
-                ))}
+              <View className="rounded-lg border border-dashed border-[#cbd5e1] bg-white p-5">
+                <Text style={{ color: "#475569", fontWeight: "800" }}>No records loaded</Text>
+                <Text variant="bodySmall" style={{ color: "#64748b", marginTop: 4 }}>
+                  This screen needs its list API connected before it can show live records.
+                </Text>
               </View>
             </Section>
           ) : null}

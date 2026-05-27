@@ -31,7 +31,11 @@ export type Item = {
   sku?: string | null;
   unit: string;
   defaultSellingPrice: string;
+  minimumAllowedPrice?: string | null;
+  purchasePrice?: string | null;
+  mrp?: string | null;
   minimumStock: string;
+  status?: "ACTIVE" | "INACTIVE";
   category?: ItemCategory | null;
 };
 
@@ -47,7 +51,13 @@ export type Customer = {
   id: string;
   name: string;
   phone?: string | null;
+  address?: string | null;
   city?: string | null;
+  gstin?: string | null;
+  creditLimit?: string | null;
+  outstandingAmount?: string;
+  notes?: string | null;
+  status?: "ACTIVE" | "INACTIVE";
 };
 
 export type CashSession = {
@@ -181,11 +191,20 @@ export type Sale = {
   id: string;
   saleNumber: string;
   shopId: string;
+  customerId?: string | null;
   isWalkin: boolean;
+  subtotal?: string;
+  discountAmount?: string;
   totalAmount: string;
   paidAmount: string;
   balanceAmount: string;
+  paymentStatus?: string;
+  saleStatus?: string;
+  dueDate?: string | null;
   createdAt: string;
+  customer?: Customer | null;
+  items?: Array<{ id: string; quantity: string; rate: string; discountAmount?: string; totalAmount: string; item: Item }>;
+  payments?: Payment[];
 };
 
 type ApiResponse<T> = {
@@ -287,6 +306,14 @@ export async function fetchItems(token: string, shopId: string) {
   return apiRequest<Item[]>(`/items?shopId=${encodeURIComponent(shopId)}`, { token });
 }
 
+export async function createItem(token: string, data: any) {
+  return apiRequest<Item>("/items", { method: "POST", token, body: JSON.stringify(data) });
+}
+
+export async function updateItem(token: string, id: string, data: any) {
+  return apiRequest<Item>(`/items/${id}`, { method: "PATCH", token, body: JSON.stringify(data) });
+}
+
 export async function fetchCurrentStock(token: string, shopId: string, itemId?: string) {
   let url = `/stock/current?shopId=${encodeURIComponent(shopId)}`;
   if (itemId) url += `&itemId=${encodeURIComponent(itemId)}`;
@@ -300,6 +327,10 @@ export async function createStockMovement(token: string, data: any) {
 // SALES
 export async function fetchSales(token: string, shopId: string) {
   return apiRequest<Sale[]>(`/sales?shopId=${encodeURIComponent(shopId)}`, { token });
+}
+
+export async function fetchSale(token: string, id: string) {
+  return apiRequest<Sale>(`/sales/${id}`, { token });
 }
 
 export async function createSale(token: string, data: {
@@ -338,6 +369,18 @@ export async function markOrderItemPacked(token: string, orderId: string, data: 
 // CUSTOMERS
 export async function fetchCustomers(token: string, shopId: string) {
   return apiRequest<Customer[]>(`/customers?shopId=${encodeURIComponent(shopId)}`, { token });
+}
+
+export async function fetchCustomer(token: string, id: string) {
+  return apiRequest<Customer>(`/customers/${id}`, { token });
+}
+
+export async function createCustomer(token: string, data: any) {
+  return apiRequest<Customer>("/customers", { method: "POST", token, body: JSON.stringify(data) });
+}
+
+export async function updateCustomer(token: string, id: string, data: any) {
+  return apiRequest<Customer>(`/customers/${id}`, { method: "PATCH", token, body: JSON.stringify(data) });
 }
 
 export async function fetchCustomerOutstanding(token: string, customerId: string) {

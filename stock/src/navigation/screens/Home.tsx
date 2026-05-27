@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { ScrollView, View, Pressable } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { Text, Icon, Button } from "react-native-paper";
-import { fetchShops, fetchCurrentCashSession } from "../../api/client";
+import { fetchShops, fetchCurrentCashSession, fetchOwnerDashboard } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
 import { Screen } from "../../components/Screen";
@@ -95,21 +95,35 @@ export function Home() {
 }
 
 function OwnerHome({ shopCount, navigate }: { shopCount: number; navigate: (s: string) => void }) {
+  const token = useAuthStore((state) => state.token);
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  const dashboardQuery = useQuery({
+    queryKey: ["owner-dashboard", activeShopId],
+    queryFn: () => fetchOwnerDashboard(token ?? "", { shopId: activeShopId ?? undefined }),
+    enabled: !!token,
+  });
+  const dashboard = dashboardQuery.data as any;
+  const money = (value: any) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
+
   return (
     <View className="gap-6">
       <View className="gap-3">
         <View className="flex-row gap-3">
-          <MetricCard label="Today Sales" value="₹45,000" icon="trending-up" tone="blue" />
-          <MetricCard label="Cash Collected" value="₹12,000" icon="cash-multiple" tone="green" />
+          <MetricCard label="Today Sales" value={money(dashboard?.todaySales)} icon="trending-up" tone="blue" />
+          <MetricCard label="Cash Collected" value={money(dashboard?.cashCollected)} icon="cash-multiple" tone="green" />
         </View>
         <View className="flex-row gap-3">
-          <MetricCard label="Pending Payments" value="₹8,500" icon="clock-outline" tone="amber" />
-          <MetricCard label="Orders to Pack" value="12" icon="package-variant" tone="blue" />
+          <MetricCard label="Pending DM" value={money(dashboard?.pendingDmAmount)} icon="clock-outline" tone="amber" />
+          <MetricCard label="Orders to Pack" value={String(dashboard?.ordersToPack ?? 0)} icon="package-variant" tone="blue" />
         </View>
       </View>
 
       <Section title="Quick actions">
         <View className="gap-3">
+          <ActionTile title="Inventory Management" subtitle="Items, stock, price history, low stock." icon="warehouse" tone="green" onPress={() => navigate("ItemList")} />
+          <ActionTile title="Sales Management" subtitle="All sales and detailed sale records." icon="receipt" tone="blue" onPress={() => navigate("SalesList")} />
+          <ActionTile title="Customer Management" subtitle="Customers, outstanding, price history." icon="account-group-outline" tone="blue" onPress={() => navigate("CustomerList")} />
+          <ActionTile title="Staff Management" subtitle="Add and update staff accounts." icon="account-tie-outline" tone="amber" onPress={() => navigate("StaffManagement")} />
           <ActionTile
             title="Take Payment"
             subtitle="Record a collection from a customer."

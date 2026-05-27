@@ -12,6 +12,10 @@ import { NotFound } from "./screens/NotFound";
 import { OpenCashSession } from "./screens/OpenCashSession";
 import { OrdersToPack } from "./screens/OrdersToPack";
 import { PaymentVerification } from "./screens/PaymentVerification";
+import { AddEditCustomer, CustomerDetail, CustomerList } from "./screens/OwnerCustomers";
+import { AddEditItem, ItemDetail, ItemList } from "./screens/OwnerItems";
+import { SaleDetail, SalesList } from "./screens/OwnerSales";
+import { AddEditStaff, StaffManagement } from "./screens/OwnerStaff";
 import {
   GenericPlannedScreen,
   NewSaleType,
@@ -253,11 +257,11 @@ const sharedStackScreens = {
     options: { title: "Price history" },
   },
   SalesList: {
-    screen: GenericPlannedScreen,
+    screen: SalesList,
     options: { title: "Sales" },
   },
   SaleDetail: {
-    screen: GenericPlannedScreen,
+    screen: SaleDetail,
     options: { title: "Sale detail" },
   },
   ChequeList: {
@@ -269,15 +273,15 @@ const sharedStackScreens = {
     options: { title: "Cheque detail" },
   },
   CustomerList: {
-    screen: GenericPlannedScreen,
+    screen: CustomerList,
     options: { title: "Customers" },
   },
   AddEditCustomer: {
-    screen: GenericPlannedScreen,
+    screen: AddEditCustomer,
     options: { title: "Add/edit customer" },
   },
   CustomerDetail: {
-    screen: GenericPlannedScreen,
+    screen: CustomerDetail,
     options: { title: "Customer detail" },
   },
   CustomerOutstandingList: {
@@ -285,15 +289,15 @@ const sharedStackScreens = {
     options: { title: "Customer outstanding" },
   },
   ItemList: {
-    screen: GenericPlannedScreen,
+    screen: ItemList,
     options: { title: "Items" },
   },
   AddEditItem: {
-    screen: GenericPlannedScreen,
+    screen: AddEditItem,
     options: { title: "Add/edit item" },
   },
   ItemDetail: {
-    screen: GenericPlannedScreen,
+    screen: ItemDetail,
     options: { title: "Item detail" },
   },
   StockDashboard: {
@@ -313,11 +317,11 @@ const sharedStackScreens = {
     options: { title: "Daily summaries" },
   },
   StaffManagement: {
-    screen: GenericPlannedScreen,
+    screen: StaffManagement,
     options: { title: "Staff management" },
   },
   AddEditStaff: {
-    screen: GenericPlannedScreen,
+    screen: AddEditStaff,
     options: { title: "Add/edit staff" },
   },
   AuditLog: {
