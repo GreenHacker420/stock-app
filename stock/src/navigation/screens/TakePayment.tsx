@@ -144,9 +144,6 @@ export function TakePayment() {
                     <Button compact mode="text" onPress={() => { setCustomerId(undefined); setOrderId(undefined); }}>Change</Button>
                  </View>
                )}
-               {!selectedCustomer && !searchQuery && (
-                  <HelperText type="error" visible={true}>Customer selection is mandatory for non-walk-in</HelperText>
-               )}
              </>
            )}
         </Section>
@@ -287,9 +284,8 @@ export function TakePayment() {
         <View className="absolute bottom-0 left-0 right-0 p-4 bg-white/90 border-t border-gray-100 shadow-xl" style={{ backdropFilter: 'blur(10px)' } as any}>
           <Button
             mode="contained"
-            disabled={(!isWalkin && !selectedCustomer) || !amount || Number(amount) <= 0}
-            loading={paymentMutation.isPending}
-            onPress={() => paymentMutation.mutate()}
+            disabled={!amount || Number(amount) <= 0}
+            loading={paymentMutation.isPending}            onPress={() => paymentMutation.mutate()}
             style={{ borderRadius: 12, backgroundColor: "#1e40af" }}
             contentStyle={{ height: 56 }}
             labelStyle={{ fontSize: 16, fontWeight: "800" }}
