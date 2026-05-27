@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { ScrollView, View, Pressable } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Text, TextInput, SegmentedButtons, Icon, Searchbar, List, Divider, HelperText, Switch, Card } from "react-native-paper";
-import { useRoute } from "@react-navigation/native";
+import { useRoute, useNavigation } from "@react-navigation/native";
 import QRCode from "react-native-qrcode-svg";
 import { addPayment, fetchCustomers, fetchShops } from "../../api/client";
+import { SuccessModal } from "../../components/ui/SuccessModal";
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
 import { Screen } from "../../components/Screen";
@@ -24,6 +25,7 @@ export function TakePayment() {
   const { activeShopId } = useShopStore();
   const queryClient = useQueryClient();
   const route = useRoute<any>();
+  const navigation = useNavigation();
 
   const [isWalkin, setIsWalkin] = useState(!route.params?.customerId);
   const [customerId, setCustomerId] = useState<string | undefined>(route.params?.customerId);
@@ -35,6 +37,7 @@ export function TakePayment() {
   const [reference, setReference] = useState("");
   const [notes, setNote] = useState("");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [successVisible, setSuccessVisible] = useState(false);
 
   const shopsQuery = useQuery({ queryKey: ["shops"], queryFn: () => fetchShops(token ?? ""), enabled: !!token });
   const activeShop = shopsQuery.data?.find(s => s.id === activeShopId);
@@ -78,7 +81,7 @@ export function TakePayment() {
         setOrderId(undefined);
       }
       setErrorMsg(null);
-      alert("Payment recorded successfully!");
+      setSuccessVisible(true);
     },
     onError: (err: any) => {
       setErrorMsg(err.message || "Failed to record payment");
@@ -294,6 +297,16 @@ export function TakePayment() {
           </Button>
         </View>
       )}
+
+      <SuccessModal
+        visible={successVisible}
+        title="Payment Recorded"
+        message="The customer payment collection has been recorded successfully."
+        onClose={() => {
+          setSuccessVisible(false);
+          navigation.goBack();
+        }}
+      />
     </Screen>
   );
 }

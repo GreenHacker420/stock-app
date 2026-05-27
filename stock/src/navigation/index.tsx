@@ -34,6 +34,7 @@ import { TakePayment } from "./screens/TakePayment";
 import { Updates } from "./screens/Updates";
 import { UpiConfig } from "./screens/UpiConfig";
 import { WalkInSale } from "./screens/WalkInSale";
+import { CreateOrder } from "./screens/CreateOrder";
 
 const tabIcon = (source: string) => ({ color, size, focused }: { color: string; size: number; focused: boolean }) => (
   <View
@@ -278,7 +279,7 @@ const sharedStackScreens = {
     options: { title: "Shops" },
   },
   CreateOrder: {
-    screen: GenericPlannedScreen,
+    screen: CreateOrder,
     options: { title: "Create order" },
   },
   OrderList: {

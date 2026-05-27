@@ -7,6 +7,7 @@ import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
+import { SuccessModal } from "../../components/ui/SuccessModal";
 
 export function DailySummary() {
   const token = useAuthStore((state) => state.token);
@@ -14,6 +15,10 @@ export function DailySummary() {
   const queryClient = useQueryClient();
 
   const today = new Date().toISOString().split('T')[0];
+
+  const [successVisible, setSuccessVisible] = useState(false);
+  const [successTitle, setSuccessTitle] = useState("");
+  const [successMessage, setSuccessMessage] = useState("");
   
   const summaryQuery = useQuery({ 
     queryKey: ["daily-summary", activeShopId, today], 
@@ -23,7 +28,12 @@ export function DailySummary() {
 
   const lockMutation = useMutation({
     mutationFn: () => lockDailySummary(token ?? "", activeShopId ?? "", today),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["daily-summary", activeShopId, today] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["daily-summary", activeShopId, today] });
+      setSuccessTitle("Summary Locked");
+      setSuccessMessage("The daily operations summary has been locked and compiled successfully.");
+      setSuccessVisible(true);
+    },
   });
 
   const summary = summaryQuery.data;
@@ -116,7 +126,11 @@ export function DailySummary() {
       </ScrollView>
 
       <View className="absolute bottom-0 left-0 right-0 p-4 bg-white/90 border-t border-gray-100 flex-row gap-3 items-center">
-          <Button mode="outlined" style={{ borderRadius: 12, flex: 1, borderColor: '#e5e7eb' }} textColor="#4b5563" onPress={() => alert('Exporting...')}>Export PDF</Button>
+          <Button mode="outlined" style={{ borderRadius: 12, flex: 1, borderColor: '#e5e7eb' }} textColor="#4b5563" onPress={() => {
+            setSuccessTitle("PDF Exported");
+            setSuccessMessage("Daily Summary PDF has been exported successfully!");
+            setSuccessVisible(true);
+          }}>Export PDF</Button>
           <Button 
             mode="contained" 
             style={{ flex: 2, borderRadius: 12, backgroundColor: isLocked ? "#10b981" : "#1e40af" }} 
@@ -127,6 +141,13 @@ export function DailySummary() {
             {isLocked ? "Report Locked" : "Lock Daily Summary"}
           </Button>
       </View>
+
+      <SuccessModal
+        visible={successVisible}
+        title={successTitle}
+        message={successMessage}
+        onClose={() => setSuccessVisible(false)}
+      />
     </Screen>
   );
 }

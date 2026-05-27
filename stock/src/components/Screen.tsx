@@ -1,6 +1,7 @@
 import { PropsWithChildren } from "react";
-import { ScrollView, View } from "react-native";
+import { ScrollView, View, useWindowDimensions } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useRoute } from "@react-navigation/native";
 
 type ScreenProps = PropsWithChildren<{
   scroll?: boolean;
@@ -9,27 +10,58 @@ type ScreenProps = PropsWithChildren<{
 
 export function Screen({ children, scroll = true, hasTab = false }: ScreenProps) {
   const insets = useSafeAreaInsets();
-  const paddingBottom = hasTab ? 104 : Math.max(insets.bottom, 24);
-
-  const content = (
-    <View
-      className="min-h-full gap-4 bg-background px-4"
-      style={{
-        paddingTop: Math.max(insets.top, 12),
-        paddingBottom: paddingBottom,
-      }}
-    >
-      {children}
-    </View>
-  );
-
-  if (!scroll) {
-    return <View className="flex-1 bg-background">{content}</View>;
+  const { height: vh, width: vw } = useWindowDimensions();
+  let route: any = null;
+  try {
+    route = useRoute();
+  } catch (e) {
+    // fallback if outside navigation context
   }
 
+  const isTabScreen = hasTab || (route && [
+    "StaffHome",
+    "StaffWork",
+    "StaffPayments",
+    "Notifications",
+    "Profile",
+    "OwnerDashboard",
+    "OwnerRecords",
+    "OwnerStock",
+    "OwnerAlerts"
+  ].includes(route.name));
+
+  const tabBarHeight = 72;
+  const tabBarBottom = Math.max(insets.bottom, 12);
+  const spacing = 12;
+  const paddingBottom = isTabScreen ? (tabBarHeight + tabBarBottom + spacing) : Math.max(insets.bottom, 16);
+
   return (
-    <ScrollView className="flex-1 bg-background" contentContainerStyle={{ flexGrow: 1 }} showsVerticalScrollIndicator={false}>
-      {content}
-    </ScrollView>
+    <View className="flex-1 bg-background">
+      {scroll ? (
+        <ScrollView
+          className="flex-1"
+          contentContainerStyle={{
+            flexGrow: 1,
+            paddingTop: Math.max(insets.top, 12),
+            paddingBottom: paddingBottom,
+          }}
+          showsVerticalScrollIndicator={false}
+        >
+          <View className="gap-4 px-4 flex-1">
+            {children}
+          </View>
+        </ScrollView>
+      ) : (
+        <View
+          className="flex-1 gap-4 px-4"
+          style={{
+            paddingTop: Math.max(insets.top, 12),
+            paddingBottom: paddingBottom,
+          }}
+        >
+          {children}
+        </View>
+      )}
+    </View>
   );
 }

@@ -3,7 +3,7 @@ import { Pressable, ScrollView, View } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Button, Divider, Icon, Searchbar, SegmentedButtons, Text, TextInput } from "react-native-paper";
-import { createItem, fetchCurrentStock, fetchItemPriceHistory, fetchItemStock, fetchItems, Item, updateItem } from "../../api/client";
+import { createItem, fetchCurrentStock, fetchItemPriceHistory, fetchItemStock, fetchItems, Item, updateItem, fetchStockMovements } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
 import { AppHeader } from "../../components/ui/AppHeader";
@@ -130,6 +130,13 @@ export function AddEditItem() {
     },
   });
 
+  const stockQuery = useQuery({
+    queryKey: ["item-stock", item?.id],
+    queryFn: () => fetchItemStock(token ?? "", item?.id ?? ""),
+    enabled: !!token && !!item?.id,
+  });
+  const currentQuantity = (stockQuery.data as any)?.currentQuantity ?? 0;
+
   const set = (key: keyof typeof form, value: string) => setForm((prev) => ({ ...prev, [key]: value }));
 
   return (
@@ -137,6 +144,16 @@ export function AddEditItem() {
       <AppHeader title={item ? "Edit Item" : "Add Item"} subtitle="Maintain item catalog, prices, and stock threshold." />
       <Section title="Item details">
         <View className="gap-3 rounded-lg border border-[#e5e7eb] bg-white p-4">
+          {item && (
+            <TextInput
+              mode="outlined"
+              label="Current Stock"
+              value={`${currentQuantity} ${item.unit}`}
+              disabled
+              style={{ backgroundColor: "#f8fafc" }}
+              outlineStyle={{ borderRadius: 10 }}
+            />
+          )}
           <TextInput mode="outlined" label="Name" value={form.name} onChangeText={(v) => set("name", v)} />
           <TextInput mode="outlined" label="SKU" value={form.sku ?? ""} onChangeText={(v) => set("sku", v)} />
           <TextInput mode="outlined" label="Unit" value={form.unit} onChangeText={(v) => set("unit", v)} />
@@ -159,8 +176,27 @@ export function ItemDetail() {
   const activeShopId = useShopStore((state) => state.activeShopId);
   const navigation = useNavigation();
   const itemId = (useRoute().params as { itemId?: string } | undefined)?.itemId;
-  const stockQuery = useQuery({ queryKey: ["item-stock", itemId], queryFn: () => fetchItemStock(token ?? "", itemId ?? ""), enabled: !!token && !!itemId });
-  const historyQuery = useQuery({ queryKey: ["item-price-history", itemId], queryFn: () => fetchItemPriceHistory(token ?? "", itemId ?? ""), enabled: !!token && !!itemId });
+
+  const stockQuery = useQuery({
+    queryKey: ["item-stock", itemId],
+    queryFn: () => fetchItemStock(token ?? "", itemId ?? ""),
+    enabled: !!token && !!itemId,
+  });
+
+  const historyQuery = useQuery({
+    queryKey: ["item-price-history", itemId],
+    queryFn: () => fetchItemPriceHistory(token ?? "", itemId ?? ""),
+    enabled: !!token && !!itemId,
+  });
+
+  const movementsQuery = useQuery({
+    queryKey: ["item-movements", activeShopId, itemId],
+    queryFn: () => fetchStockMovements(token ?? "", activeShopId ?? "", itemId),
+    enabled: !!token && !!activeShopId && !!itemId,
+  });
+
+  const [activeTab, setActiveTab] = useState("PRICE");
+
   const item = (stockQuery.data as any)?.item;
 
   return (
@@ -169,24 +205,45 @@ export function ItemDetail() {
       {!itemId ? <Text style={{ color: "#991b1b" }}>Missing item id.</Text> : null}
       {item ? (
         <>
-          <View className="rounded-lg border border-[#e5e7eb] bg-white p-4">
-            <View className="flex-row justify-between">
-              <Text style={{ color: "#64748b" }}>Current stock</Text>
-              <Text variant="headlineSmall" style={{ fontWeight: "900" }}>{(stockQuery.data as any)?.currentQuantity ?? 0} {item.unit}</Text>
+          <View className="rounded-[24px] border border-slate-100 bg-white p-5 shadow-sm gap-3">
+            <View className="flex-row justify-between items-center">
+              <Text style={{ color: "#64748b", fontWeight: "700" }}>Current stock</Text>
+              <Text variant="headlineSmall" style={{ fontWeight: "900", color: "#0f172a" }}>
+                {(stockQuery.data as any)?.currentQuantity ?? 0} {item.unit}
+              </Text>
             </View>
-            <Divider style={{ marginVertical: 12 }} />
-            <Text>SKU: {item.sku || "Not set"}</Text>
-            <Text>Default price: {money(item.defaultSellingPrice)}</Text>
-            <Text>Minimum price: {money(item.minimumAllowedPrice)}</Text>
-            <Text>MRP: {money(item.mrp)}</Text>
-            <Text>Minimum stock: {item.minimumStock}</Text>
+            <Divider style={{ backgroundColor: "#f1f5f9" }} />
+            <View className="gap-2.5 mt-1">
+              <View className="flex-row justify-between">
+                <Text style={{ color: "#64748b", fontWeight: "600", fontSize: 13 }}>SKU</Text>
+                <Text style={{ color: "#0f172a", fontWeight: "700", fontSize: 13 }}>{item.sku || "Not set"}</Text>
+              </View>
+              <View className="flex-row justify-between">
+                <Text style={{ color: "#64748b", fontWeight: "600", fontSize: 13 }}>Default Selling Price</Text>
+                <Text style={{ color: "#0f172a", fontWeight: "700", fontSize: 13 }}>{money(item.defaultSellingPrice)}</Text>
+              </View>
+              <View className="flex-row justify-between">
+                <Text style={{ color: "#64748b", fontWeight: "600", fontSize: 13 }}>Minimum Price limit</Text>
+                <Text style={{ color: "#0f172a", fontWeight: "700", fontSize: 13 }}>{money(item.minimumAllowedPrice)}</Text>
+              </View>
+              <View className="flex-row justify-between">
+                <Text style={{ color: "#64748b", fontWeight: "600", fontSize: 13 }}>MRP</Text>
+                <Text style={{ color: "#0f172a", fontWeight: "700", fontSize: 13 }}>{money(item.mrp)}</Text>
+              </View>
+              <View className="flex-row justify-between">
+                <Text style={{ color: "#64748b", fontWeight: "600", fontSize: 13 }}>Min Stock alert threshold</Text>
+                <Text style={{ color: "#0f172a", fontWeight: "700", fontSize: 13 }}>{item.minimumStock} {item.unit}</Text>
+              </View>
+            </View>
           </View>
+
           <View className="flex-row gap-3">
             <Button
               mode="contained-tonal"
               icon="pencil"
               onPress={() => (navigation as any).navigate("AddEditItem", { item })}
               style={{ flex: 1, borderRadius: 12 }}
+              contentStyle={{ height: 46 }}
             >
               Edit Item
             </Button>
@@ -195,22 +252,106 @@ export function ItemDetail() {
               icon="warehouse"
               onPress={() => (navigation as any).navigate("StockEntry", { shopId: activeShopId, itemId: item.id })}
               style={{ flex: 1, borderRadius: 12, backgroundColor: "#1e40af" }}
-              labelStyle={{ color: "#ffffff" }}
+              textColor="#ffffff"
+              contentStyle={{ height: 46 }}
             >
               Manage Stock
             </Button>
           </View>
-          <Section title="Recent price history">
-            <View className="rounded-lg border border-[#e5e7eb] bg-white">
-              {((historyQuery.data as any)?.rows ?? []).slice(0, 12).map((row: any, index: number) => (
-                <View key={`${row.type}-${row.recordNumber}-${index}`} className="p-4">
-                  {index > 0 ? <Divider style={{ marginBottom: 12 }} /> : null}
-                  <Text style={{ fontWeight: "800" }}>{row.recordNumber} • {row.type}</Text>
-                  <Text style={{ color: "#64748b" }}>{row.customer?.name ?? "Walk-in"} • Qty {row.quantity} • {money(row.rate)}</Text>
-                </View>
-              ))}
-            </View>
-          </Section>
+
+          <SegmentedButtons
+            value={activeTab}
+            onValueChange={setActiveTab}
+            buttons={[
+              { value: "PRICE", label: "Price History", icon: "trending-up" },
+              { value: "MOVEMENT", label: "Stock Ledger", icon: "history" },
+            ]}
+            style={{ marginTop: 8 }}
+            theme={{ colors: { primary: "#1e40af" } }}
+          />
+
+          {activeTab === "PRICE" ? (
+            <Section title="Recent price history">
+              <View className="rounded-[24px] border border-slate-100 bg-white overflow-hidden shadow-sm">
+                {((historyQuery.data as any)?.rows ?? []).length > 0 ? (
+                  ((historyQuery.data as any)?.rows ?? []).slice(0, 12).map((row: any, index: number) => (
+                    <View key={`${row.type}-${row.recordNumber}-${index}`}>
+                      {index > 0 && <Divider style={{ backgroundColor: "#f1f5f9" }} />}
+                      <View className="p-4 flex-row justify-between items-center">
+                        <View className="flex-1 pr-2">
+                          <Text style={{ fontWeight: "800", color: "#0f172a", fontSize: 14 }}>
+                            {row.recordNumber}
+                          </Text>
+                          <Text variant="bodySmall" style={{ color: "#64748b", marginTop: 2 }}>
+                            {row.customer?.name ?? "Walk-in Customer"} • Qty: {row.quantity}
+                          </Text>
+                        </View>
+                        <View className="items-end">
+                          <Text style={{ fontWeight: "900", color: "#1e40af", fontSize: 15 }}>
+                            {money(row.rate)}
+                          </Text>
+                          <Text style={{ color: "#94a3b8", fontSize: 10, marginTop: 2 }}>
+                            {new Date(row.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+                  ))
+                ) : (
+                  <View className="p-8 items-center">
+                    <Icon source="tag-outline" size={32} color="#94a3b8" />
+                    <Text style={{ color: "#64748b", textAlign: "center", marginTop: 8, fontWeight: "600", fontSize: 13 }}>
+                      No pricing or sale records found.
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </Section>
+          ) : (
+            <Section title="Stock movement log">
+              <View className="rounded-[24px] border border-slate-100 bg-white overflow-hidden shadow-sm">
+                {(movementsQuery.data ?? []).length > 0 ? (
+                  (movementsQuery.data ?? []).slice(0, 15).map((movement: any, index: number) => {
+                    const isIn = Number(movement.quantityIn) > 0;
+                    const qty = isIn ? Number(movement.quantityIn) : Number(movement.quantityOut);
+                    const prefix = isIn ? "+" : "-";
+                    const color = isIn ? "#10b981" : "#ef4444";
+                    
+                    return (
+                      <View key={`${movement.id}-${index}`}>
+                        {index > 0 && <Divider style={{ backgroundColor: "#f1f5f9" }} />}
+                        <View className="p-4 flex-row justify-between items-center">
+                          <View className="flex-1 pr-2">
+                            <Text style={{ fontWeight: "800", color: "#0f172a", fontSize: 13.5 }}>
+                              {movement.reason || movement.movementType}
+                            </Text>
+                            <Text variant="bodySmall" style={{ color: "#64748b", marginTop: 3 }}>
+                              By {movement.createdBy?.name || "System"} • {movement.movementType}
+                            </Text>
+                          </View>
+                          <View className="items-end">
+                            <Text style={{ fontWeight: "900", color: color, fontSize: 15 }}>
+                              {prefix}{qty} {item.unit}
+                            </Text>
+                            <Text style={{ color: "#94a3b8", fontSize: 10, marginTop: 3 }}>
+                              {new Date(movement.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+                    );
+                  })
+                ) : (
+                  <View className="p-8 items-center">
+                    <Icon source="history" size={32} color="#94a3b8" />
+                    <Text style={{ color: "#64748b", textAlign: "center", marginTop: 8, fontWeight: "600", fontSize: 13 }}>
+                      No stock movement entries found.
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </Section>
+          )}
         </>
       ) : null}
     </Screen>

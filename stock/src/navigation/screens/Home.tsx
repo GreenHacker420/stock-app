@@ -120,6 +120,8 @@ function OwnerHome({ shopCount, navigate }: { shopCount: number; navigate: (s: s
 
       <Section title="Quick actions">
         <View className="gap-3">
+          <ActionTile title="New Counter Sale" subtitle="Start a direct customer checkout." icon="cart-plus" tone="green" onPress={() => navigate("WalkInSale")} />
+          <ActionTile title="Create Order" subtitle="Book a new order for staff fulfillment." icon="package-variant" tone="blue" onPress={() => navigate("CreateOrder")} />
           <ActionTile title="Inventory Management" subtitle="Items, stock, price history, low stock." icon="warehouse" tone="green" onPress={() => navigate("ItemList")} />
           <ActionTile title="Sales Management" subtitle="All sales and detailed sale records." icon="receipt" tone="blue" onPress={() => navigate("SalesList")} />
           <ActionTile title="Customer Management" subtitle="Customers, outstanding, price history." icon="account-group-outline" tone="blue" onPress={() => navigate("CustomerList")} />

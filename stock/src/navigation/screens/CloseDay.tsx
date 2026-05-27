@@ -2,16 +2,19 @@ import { useEffect, useState, useMemo } from "react";
 import { View, ScrollView } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, TextInput, Text, Icon, Divider, Checkbox } from "react-native-paper";
+import { useNavigation } from "@react-navigation/native";
 import { closeCashSession, fetchCurrentCashSession, fetchShops } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { ShopPicker } from "../../components/ui/ShopPicker";
 import { Section } from "../../components/ui/Section";
+import { SuccessModal } from "../../components/ui/SuccessModal";
 
 export function CloseDay() {
   const token = useAuthStore((state) => state.token);
   const queryClient = useQueryClient();
+  const navigation = useNavigation();
   const [shopId, setShopId] = useState<string | undefined>();
   const [actualCash, setActualCash] = useState("");
   const [cashHandover, setCashHandover] = useState("");
@@ -19,6 +22,7 @@ export function CloseDay() {
   const [otherReason, setOtherReason] = useState("");
   const [differenceReason, setDifferenceReason] = useState("");
   const [confirmed, setConfirmed] = useState(false);
+  const [successVisible, setSuccessVisible] = useState(false);
 
   const shopsQuery = useQuery({ queryKey: ["shops"], queryFn: () => fetchShops(token ?? ""), enabled: !!token });
   useEffect(() => {
@@ -49,7 +53,7 @@ export function CloseDay() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["cash-session", shopId] });
-      alert("Day closed successfully.");
+      setSuccessVisible(true);
     },
   });
 
@@ -191,6 +195,16 @@ export function CloseDay() {
             {isMismatched ? "Submit with Mismatch" : "Submit Closing Report"}
          </Button>
       </View>
+
+      <SuccessModal
+        visible={successVisible}
+        title="Day Closed"
+        message="The cash session has been closed successfully."
+        onClose={() => {
+          setSuccessVisible(false);
+          navigation.goBack();
+        }}
+      />
     </Screen>
   );
 }

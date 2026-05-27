@@ -324,6 +324,13 @@ export async function createStockMovement(token: string, data: any) {
   return apiRequest("/stock/movements", { method: "POST", token, body: JSON.stringify(data) });
 }
 
+export async function fetchStockMovements(token: string, shopId: string, itemId?: string, movementType?: string) {
+  let url = `/stock/movements?shopId=${encodeURIComponent(shopId)}`;
+  if (itemId) url += `&itemId=${encodeURIComponent(itemId)}`;
+  if (movementType) url += `&movementType=${encodeURIComponent(movementType)}`;
+  return apiRequest<any[]>(url, { token });
+}
+
 // SALES
 export async function fetchSales(token: string, shopId: string) {
   return apiRequest<Sale[]>(`/sales?shopId=${encodeURIComponent(shopId)}`, { token });
@@ -362,8 +369,52 @@ export async function fetchOrders(token: string, shopId: string) {
   return apiRequest<Order[]>(`/orders?shopId=${encodeURIComponent(shopId)}`, { token });
 }
 
+export async function fetchOrder(token: string, id: string) {
+  return apiRequest<Order>(`/orders/${id}`, { token });
+}
+
+export async function createOrder(token: string, data: any) {
+  return apiRequest<Order>("/orders", { method: "POST", token, body: JSON.stringify(data) });
+}
+
+export async function assignStaffToOrder(token: string, orderId: string, staffId: string) {
+  return apiRequest(`/orders/${orderId}/assign-staff`, {
+    method: "POST",
+    token,
+    body: JSON.stringify({ staffId }),
+  });
+}
+
+export async function startOrderPacking(token: string, orderId: string) {
+  return apiRequest(`/orders/${orderId}/start-packing`, { method: "POST", token });
+}
+
 export async function markOrderItemPacked(token: string, orderId: string, data: any) {
   return apiRequest(`/orders/${orderId}/mark-item-packed`, { method: "POST", token, body: JSON.stringify(data) });
+}
+
+export async function reportOrderShortage(token: string, orderId: string, data: any) {
+  return apiRequest(`/orders/${orderId}/report-shortage`, {
+    method: "POST",
+    token,
+    body: JSON.stringify(data),
+  });
+}
+
+export async function createDmFromOrder(token: string, orderId: string, data: any) {
+  return apiRequest(`/orders/${orderId}/create-dm`, {
+    method: "POST",
+    token,
+    body: JSON.stringify(data),
+  });
+}
+
+export async function convertOrderToSale(token: string, orderId: string, data: any) {
+  return apiRequest(`/orders/${orderId}/convert-to-sale`, {
+    method: "POST",
+    token,
+    body: JSON.stringify(data),
+  });
 }
 
 // CUSTOMERS
