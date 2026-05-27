@@ -4,7 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigation } from "@react-navigation/native";
 import { FAB, Text, Portal, Dialog, List, Icon, ActivityIndicator, Button, Card } from "react-native-paper";
 import { Avatar } from "@rneui/themed";
-import { fetchShops, Shop } from "../../api/client";
+import { fetchShops, Shop, fetchOwnerDashboard, fetchCurrentCashSession } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
@@ -25,6 +25,22 @@ export function Updates() {
   });
 
   const isOwner = user?.role === "OWNER";
+
+  const dashboardQuery = useQuery({
+    queryKey: ["ownerDashboard", "portfolio"],
+    queryFn: () => fetchOwnerDashboard(token ?? ""),
+    enabled: !!token && isOwner,
+  });
+
+  const uniqueStaffIds = new Set<string>();
+  shopsQuery.data?.forEach((shop) => {
+    (shop as any).staffAccesses?.forEach((access: any) => {
+      if (access.staff?.id) {
+        uniqueStaffIds.add(access.staff.id);
+      }
+    });
+  });
+  const activeStaffCount = uniqueStaffIds.size;
 
   const handleShopPress = (shop: Shop) => {
     if (isOwner) {
@@ -51,11 +67,13 @@ export function Updates() {
           <View className="mx-4 mb-6 bg-gray-900 rounded-xl p-4 flex-row justify-between items-center shadow-lg">
              <View>
                 <Text style={{ color: "#9ca3af", fontSize: 10, fontWeight: "700", letterSpacing: 1 }}>TOTAL PORTFOLIO REVENUE</Text>
-                <Text variant="headlineSmall" style={{ color: "white", fontWeight: "900" }}>₹12.4L</Text>
+                <Text variant="headlineSmall" style={{ color: "white", fontWeight: "900" }}>
+                  ₹{Number(dashboardQuery.data?.todaySales ?? 0).toLocaleString("en-IN")}
+                </Text>
              </View>
              <View className="items-end">
                 <Text style={{ color: "#9ca3af", fontSize: 10, fontWeight: "700", letterSpacing: 1 }}>ACTIVE STAFF</Text>
-                <Text variant="headlineSmall" style={{ color: "white", fontWeight: "900" }}>18</Text>
+                <Text variant="headlineSmall" style={{ color: "white", fontWeight: "900" }}>{activeStaffCount}</Text>
              </View>
           </View>
         )}
@@ -69,6 +87,7 @@ export function Updates() {
               shop={shop} 
               onManage={() => handleShopPress(shop)} 
               isOwner={isOwner}
+              token={token ?? ""}
             />
           ))}
 
@@ -161,9 +180,26 @@ export function Updates() {
   );
 }
 
-function ShopPortfolioCard({ shop, onManage, isOwner }: { shop: Shop, onManage: () => void, isOwner: boolean }) {
-  // Mock avatars for high-end look
-  const staffAvatars = ["JD", "AS", "MK"];
+function ShopPortfolioCard({ shop, onManage, isOwner, token }: { shop: Shop, onManage: () => void, isOwner: boolean, token: string }) {
+  const shopDashboardQuery = useQuery({
+    queryKey: ["ownerDashboard", shop.id],
+    queryFn: () => fetchOwnerDashboard(token, { shopId: shop.id }),
+    enabled: !!token && isOwner,
+  });
+
+  const currentSessionQuery = useQuery({
+    queryKey: ["currentCashSession", shop.id],
+    queryFn: () => fetchCurrentCashSession(token, shop.id),
+    enabled: !!token,
+  });
+
+  const todaySales = shopDashboardQuery.data?.todaySales ?? 0;
+  const cashOnHand = currentSessionQuery.data ? currentSessionQuery.data.expectedCash : shop.openingCash;
+
+  const staffList = (shop as any).staffAccesses?.map((access: any) => access.staff).filter(Boolean) || [];
+  const staffAvatars = staffList.map((s: any) => {
+    return s.name.split(/\s+/).map((w: any) => w[0]).join("").toUpperCase().slice(0, 2);
+  }).slice(0, 4);
 
   return (
     <Card 
@@ -192,17 +228,17 @@ function ShopPortfolioCard({ shop, onManage, isOwner }: { shop: Shop, onManage: 
         <View className="flex-row justify-between bg-gray-50 rounded-xl p-4 mb-5 border border-gray-100">
            <View>
              <Text variant="labelSmall" style={{ color: "#9ca3af", fontWeight: "700" }}>TODAY'S SALES</Text>
-             <Text variant="titleLarge" style={{ fontWeight: "800", color: "#111827" }}>₹42,390</Text>
+             <Text variant="titleLarge" style={{ fontWeight: "800", color: "#111827" }}>₹{Number(todaySales).toLocaleString("en-IN")}</Text>
            </View>
            <View className="items-end">
              <Text variant="labelSmall" style={{ color: "#9ca3af", fontWeight: "700" }}>CASH ON HAND</Text>
-             <Text variant="titleLarge" style={{ fontWeight: "800", color: "#111827" }}>₹{shop.openingCash}</Text>
+             <Text variant="titleLarge" style={{ fontWeight: "800", color: "#111827" }}>₹{Number(cashOnHand).toLocaleString("en-IN")}</Text>
            </View>
         </View>
 
         <View className="flex-row justify-between items-center">
            <View className="flex-row">
-             {staffAvatars.map((init, i) => (
+             {staffAvatars.map((init: string, i: number) => (
                <Avatar
                  key={i}
                  rounded

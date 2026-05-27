@@ -4,14 +4,20 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 type ScreenProps = PropsWithChildren<{
   scroll?: boolean;
+  hasTab?: boolean;
 }>;
 
-export function Screen({ children, scroll = true }: ScreenProps) {
+export function Screen({ children, scroll = true, hasTab = false }: ScreenProps) {
   const insets = useSafeAreaInsets();
+  const paddingBottom = hasTab ? 104 : Math.max(insets.bottom, 24);
+
   const content = (
     <View
-      className="min-h-full gap-4 bg-background px-4 pb-6"
-      style={{ paddingTop: Math.max(insets.top, 12) }}
+      className="min-h-full gap-4 bg-background px-4"
+      style={{
+        paddingTop: Math.max(insets.top, 12),
+        paddingBottom: paddingBottom,
+      }}
     >
       {children}
     </View>
@@ -22,7 +28,7 @@ export function Screen({ children, scroll = true }: ScreenProps) {
   }
 
   return (
-    <ScrollView className="flex-1 bg-background" contentContainerStyle={{ flexGrow: 1 }}>
+    <ScrollView className="flex-1 bg-background" contentContainerStyle={{ flexGrow: 1 }} showsVerticalScrollIndicator={false}>
       {content}
     </ScrollView>
   );

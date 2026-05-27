@@ -593,17 +593,55 @@ export async function markChequeReturned(token: string, id: string, reason?: str
   return apiRequest<ChequePayment>(`/cheques/${id}/mark-returned`, { method: "POST", token, body: JSON.stringify({ reason }) });
 }
 
+export type OwnerDashboardData = {
+  date: string;
+  todaySales: number;
+  walkinSales: number;
+  salesCount: number;
+  ordersCreated: number;
+  ordersToPack: number;
+  ordersDispatched: number;
+  pendingDmAmount: number;
+  cashCollected: number;
+  upiCollected: number;
+  cardCollected: number;
+  bankCollected: number;
+  chequeReceived: number;
+  paymentVerificationPending: number;
+  cashMismatch: number;
+  rateChangeRequests: number;
+  correctionRequests: number;
+  lowStockAlerts: number;
+};
+
+export type StaffTodaySummaryData = {
+  date: string;
+  salesCount: number;
+  salesTotal: number;
+  walkinSalesCount: number;
+  walkinSalesTotal: number;
+  dmsCreated: number;
+  dmTotal: number;
+  cashCollected: number;
+  upiRecorded: number;
+  chequesReceived: number;
+  ordersPacked: number;
+  ordersDispatched: number;
+  stockEntries: number;
+  dayCloseStatus: string;
+};
+
 // DASHBOARDS
-export async function fetchOwnerDashboard(token: string, options: { shopId?: string; date?: string } = {}) {
+export async function fetchOwnerDashboard(token: string, options: { shopId?: string; date?: string } = {}): Promise<OwnerDashboardData> {
   const params = new URLSearchParams();
   if (options.shopId) params.set("shopId", options.shopId);
   if (options.date) params.set("date", options.date);
   const query = params.toString();
-  return apiRequest(`/dashboard/owner${query ? `?${query}` : ""}`, { token });
+  return apiRequest<OwnerDashboardData>(`/dashboard/owner${query ? `?${query}` : ""}`, { token });
 }
 
-export async function fetchStaffTodaySummary(token: string, shopId: string, date?: string) {
+export async function fetchStaffTodaySummary(token: string, shopId: string, date?: string): Promise<StaffTodaySummaryData> {
   const params = new URLSearchParams({ shopId });
   if (date) params.set("date", date);
-  return apiRequest(`/dashboard/staff/today?${params.toString()}`, { token });
+  return apiRequest<StaffTodaySummaryData>(`/dashboard/staff/today?${params.toString()}`, { token });
 }

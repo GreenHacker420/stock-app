@@ -26,7 +26,7 @@ export function Profile() {
   });
 
   return (
-    <Screen>
+    <Screen hasTab={true}>
       <AppHeader title="Profile" subtitle="Signed-in user and permissions." role={user?.role} />
       <View className="rounded-lg border border-gray-200 bg-white p-5">
         <View className="flex-row items-center gap-4">

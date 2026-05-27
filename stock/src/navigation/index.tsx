@@ -1,6 +1,7 @@
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { createStaticNavigation } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import { View } from "react-native";
 import { Icon } from "react-native-paper";
 import { AssignStaff } from "./screens/AssignStaff";
 import { CashClosingReview } from "./screens/CashClosingReview";
@@ -34,14 +35,52 @@ import { Updates } from "./screens/Updates";
 import { UpiConfig } from "./screens/UpiConfig";
 import { WalkInSale } from "./screens/WalkInSale";
 
-const tabIcon = (source: string) => ({ color, size }: { color: string; size: number }) => (
-  <Icon source={source} color={color} size={size} />
+const tabIcon = (source: string) => ({ color, size, focused }: { color: string; size: number; focused: boolean }) => (
+  <View
+    style={{
+      width: 48,
+      height: 36,
+      borderRadius: 20,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: focused ? "#dbeafe" : "transparent",
+    }}
+  >
+    <Icon source={source} color={focused ? "#1e40af" : color} size={size} />
+  </View>
 );
 
-const StaffTabs = createBottomTabNavigator({
-  screenOptions: {
-    headerShown: false,
+const floatingTabOptions = {
+  headerShown: false,
+  tabBarActiveTintColor: "#1e40af",
+  tabBarInactiveTintColor: "#6b7280",
+  tabBarLabelStyle: {
+    fontSize: 10,
+    fontWeight: "700" as const,
+    marginTop: 0,
+    paddingBottom: 2,
   },
+  tabBarStyle: {
+    position: "absolute" as const,
+    left: 24,
+    right: 24,
+    bottom: 18,
+    height: 72,
+    paddingTop: 8,
+    paddingBottom: 10,
+    borderRadius: 34,
+    backgroundColor: "#ffffff",
+    borderTopWidth: 0,
+    shadowColor: "#0f172a",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.14,
+    shadowRadius: 18,
+    elevation: 12,
+  },
+};
+
+const StaffTabs = createBottomTabNavigator({
+  screenOptions: floatingTabOptions,
   screens: {
     StaffHome: {
       screen: Home,
@@ -81,9 +120,7 @@ const StaffTabs = createBottomTabNavigator({
 });
 
 const OwnerTabs = createBottomTabNavigator({
-  screenOptions: {
-    headerShown: false,
-  },
+  screenOptions: floatingTabOptions,
   screens: {
     OwnerDashboard: {
       screen: Home,

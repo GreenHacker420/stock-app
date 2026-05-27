@@ -1,6 +1,8 @@
+import { useMemo } from "react";
 import { View } from "react-native";
 import { Avatar, Badge } from "@rneui/themed";
 import { Text } from "react-native-paper";
+import { useAuthStore } from "../../auth/auth-store";
 
 type AppHeaderProps = {
   title: string;
@@ -9,7 +11,24 @@ type AppHeaderProps = {
   initials?: string;
 };
 
-export function AppHeader({ title, subtitle, role, initials = "SC" }: AppHeaderProps) {
+export function AppHeader({ title, subtitle, role, initials }: AppHeaderProps) {
+  const user = useAuthStore((state) => state.user);
+
+  const displayInitials = useMemo(() => {
+    if (initials) return initials;
+    if (user?.name) {
+      return user.name
+        .split(/\s+/)
+        .map((part) => part[0])
+        .join("")
+        .slice(0, 2)
+        .toUpperCase();
+    }
+    return "SC";
+  }, [initials, user?.name]);
+
+  const displayRole = role ?? user?.role;
+
   return (
     <View className="flex-row items-center justify-between gap-4 pb-1">
       <View className="flex-1 gap-0.5">
@@ -33,23 +52,23 @@ export function AppHeader({ title, subtitle, role, initials = "SC" }: AppHeaderP
         }}>
           <Avatar
             rounded
-            title={initials}
+            title={displayInitials}
             containerStyle={{ backgroundColor: "#1e40af", width: 44, height: 44, borderWidth: 1.5, borderColor: "#ffffff" }}
             titleStyle={{ fontSize: 14, fontWeight: "800", color: "#ffffff" }}
           />
         </View>
-        {role ? (
+        {displayRole ? (
           <Badge
-            value={role}
+            value={displayRole}
             badgeStyle={{
-              backgroundColor: role === "OWNER" ? "#dbeafe" : "#f1f5f9",
+              backgroundColor: displayRole === "OWNER" ? "#dbeafe" : "#f1f5f9",
               borderColor: "transparent",
               minHeight: 18,
               borderRadius: 6,
               paddingHorizontal: 6,
             }}
             textStyle={{
-              color: role === "OWNER" ? "#1e3a8a" : "#475569",
+              color: displayRole === "OWNER" ? "#1e3a8a" : "#475569",
               fontWeight: "800",
               fontSize: 9,
               letterSpacing: 0.5,

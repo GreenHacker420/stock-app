@@ -1,6 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
 import { View, ScrollView, Pressable } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useRoute } from "@react-navigation/native";
 import { Button, Text, TextInput, SegmentedButtons, Icon, Searchbar, Divider } from "react-native-paper";
 import { createStockMovement, fetchItems, fetchShops, fetchCurrentStock } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
@@ -14,9 +15,11 @@ const reasons = ["Regular Restock", "Customer Return", "Correction", "Damage", "
 export function StockEntry() {
   const token = useAuthStore((state) => state.token);
   const queryClient = useQueryClient();
+  const route = useRoute();
+  const params = route.params as { shopId?: string; itemId?: string } | undefined;
   
-  const [shopId, setShopId] = useState<string | undefined>();
-  const [itemId, setItemId] = useState<string | undefined>();
+  const [shopId, setShopId] = useState<string | undefined>(params?.shopId);
+  const [itemId, setItemId] = useState<string | undefined>(params?.itemId);
   const [movementType, setMovementType] = useState<"STOCK_IN" | "STOCK_OUT">("STOCK_IN");
   const [searchQuery, setSearchQuery] = useState("");
   const [quantity, setQuantity] = useState("");
@@ -35,6 +38,11 @@ export function StockEntry() {
     queryFn: () => fetchCurrentStock(token ?? "", shopId ?? "", itemId),
     enabled: !!token && !!shopId && !!itemId,
   });
+
+  useEffect(() => {
+    if (params?.shopId) setShopId(params.shopId);
+    if (params?.itemId) setItemId(params.itemId);
+  }, [params]);
 
   useEffect(() => {
     if (!shopId && shopsQuery.data?.[0]) setShopId(shopsQuery.data[0].id);

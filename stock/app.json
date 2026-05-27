@@ -31,7 +31,13 @@
           "image": "./assets/splash-icon.png"
         }
       ],
-      "expo-font"
+      "expo-font",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow ShopControl to use Face ID for quick login."
+        }
+      ]
     ]
   }
 }

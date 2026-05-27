@@ -44,7 +44,7 @@ export function Home() {
     .toUpperCase();
 
   return (
-    <Screen>
+    <Screen hasTab={true}>
       <AppHeader
         title={user?.role === "OWNER" ? "Owner Dashboard" : (selectedShop?.name ?? "Shop Hub")}
         subtitle={user?.role === "OWNER" ? "Live operations overview" : "Ready for today's tasks"}

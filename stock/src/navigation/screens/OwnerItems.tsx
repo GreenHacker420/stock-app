@@ -156,6 +156,7 @@ export function AddEditItem() {
 
 export function ItemDetail() {
   const token = useAuthStore((state) => state.token);
+  const activeShopId = useShopStore((state) => state.activeShopId);
   const navigation = useNavigation();
   const itemId = (useRoute().params as { itemId?: string } | undefined)?.itemId;
   const stockQuery = useQuery({ queryKey: ["item-stock", itemId], queryFn: () => fetchItemStock(token ?? "", itemId ?? ""), enabled: !!token && !!itemId });
@@ -180,7 +181,25 @@ export function ItemDetail() {
             <Text>MRP: {money(item.mrp)}</Text>
             <Text>Minimum stock: {item.minimumStock}</Text>
           </View>
-          <Button mode="contained-tonal" icon="pencil" onPress={() => (navigation as any).navigate("AddEditItem", { item })}>Edit Item</Button>
+          <View className="flex-row gap-3">
+            <Button
+              mode="contained-tonal"
+              icon="pencil"
+              onPress={() => (navigation as any).navigate("AddEditItem", { item })}
+              style={{ flex: 1, borderRadius: 12 }}
+            >
+              Edit Item
+            </Button>
+            <Button
+              mode="contained"
+              icon="warehouse"
+              onPress={() => (navigation as any).navigate("StockEntry", { shopId: activeShopId, itemId: item.id })}
+              style={{ flex: 1, borderRadius: 12, backgroundColor: "#1e40af" }}
+              labelStyle={{ color: "#ffffff" }}
+            >
+              Manage Stock
+            </Button>
+          </View>
           <Section title="Recent price history">
             <View className="rounded-lg border border-[#e5e7eb] bg-white">
               {((historyQuery.data as any)?.rows ?? []).slice(0, 12).map((row: any, index: number) => (
