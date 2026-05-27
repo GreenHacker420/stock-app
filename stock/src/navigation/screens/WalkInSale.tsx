@@ -56,13 +56,14 @@ export function WalkInSale() {
         payments: payments.filter(p => Number(p.amount) > 0).map(p => ({ 
           paymentMode: p.mode, 
           amount: Number(p.amount),
-          notes: p.mode === 'UPI' && upiOption === 'GENERATE' ? 'Paid via Dynamic QR' : undefined
+          notes: p.mode === 'UPI' && upiOption === 'GENERATE' ? 'Paid via Dynamic QR (Human Verified)' : undefined
         })),
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["items", activeShopId] });
       setCart([]);
       setPayments([{ mode: "CASH", amount: "" }]);
+      setUpiOption("REGISTER");
       alert("Sale completed successfully!");
     },
   });
@@ -85,6 +86,7 @@ export function WalkInSale() {
   };
 
   const hasUpi = payments.some(p => p.mode === 'UPI');
+  const isQrVisible = hasUpi && upiOption === 'GENERATE' && upiPayload;
 
   return (
     <Screen>
@@ -182,14 +184,33 @@ export function WalkInSale() {
                 onValueChange={v => setUpiOption(v as any)}
                 buttons={[
                   { value: "REGISTER", label: "Shop QR", icon: "qrcode" },
-                  { value: "GENERATE", label: "Dynamic QR", icon: "plus-box-outline", disabled: !activeShop?.upiId },
+                  { value: "GENERATE", label: "Dynamic QR", icon: "plus-box-outline" },
                 ]}
                 theme={{ colors: { primary: "#1e40af" } }}
               />
-              {upiOption === 'GENERATE' && upiPayload && (
-                <View className="items-center py-4 bg-gray-50 rounded-lg">
+
+              {upiOption === 'GENERATE' && !activeShop?.upiId && (
+                <View className="p-4 bg-amber-50 rounded-lg border border-amber-100 flex-row gap-3 items-center">
+                   <Icon source="alert-circle-outline" size={20} color="#b45309" />
+                   <Text style={{ color: "#92400e", fontSize: 11, flex: 1, fontWeight: "600" }}>
+                      UPI ID missing. Owner must configure it in "QR Management".
+                   </Text>
+                </View>
+              )}
+
+              {upiOption === 'GENERATE' && upiPayload && activeShop?.upiId && (
+                <View className="items-center py-4 bg-gray-50 rounded-lg gap-4">
                    <QRCode value={upiPayload} size={180} />
-                   <Text variant="labelSmall" style={{ color: "#64748b", marginTop: 12 }}>Pay directly to {activeShop?.upiName || activeShop?.name}</Text>
+                   <View className="items-center">
+                      <Text variant="labelSmall" style={{ color: "#64748b" }}>Pay to: {activeShop?.upiName || activeShop?.name}</Text>
+                      <View className="bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-100 mt-2">
+                         <Text style={{ color: "#92400e", fontSize: 10, fontWeight: "700" }}>VERIFY ON YOUR PHONE BEFORE DONE</Text>
+                      </View>
+                   </View>
+                   <View className="flex-row gap-3 w-full px-4">
+                      <Button mode="outlined" style={{ flex: 1, borderColor: "#e5e7eb" }} textColor="#4b5563" onPress={() => setUpiOption("REGISTER")}>Cancel QR</Button>
+                      <Button mode="contained" style={{ flex: 1, backgroundColor: "#10b981" }} icon="check-circle" onPress={() => saleMutation.mutate()} loading={saleMutation.isPending} disabled={balance > 0}>Done</Button>
+                   </View>
                 </View>
               )}
            </View>
@@ -209,19 +230,21 @@ export function WalkInSale() {
         )}
       </ScrollView>
 
-      <View className="absolute bottom-0 left-0 right-0 p-4 bg-white border-t border-gray-100 shadow-xl">
-        <Button
-          mode="contained"
-          disabled={cart.length === 0 || balance > 0}
-          loading={saleMutation.isPending}
-          onPress={() => saleMutation.mutate()}
-          style={{ borderRadius: 12 }}
-          contentStyle={{ height: 56 }}
-          labelStyle={{ fontSize: 18, fontWeight: "700" }}
-        >
-          Complete Sale (₹{subtotal.toFixed(2)})
-        </Button>
-      </View>
+      {!isQrVisible && (
+        <View className="absolute bottom-0 left-0 right-0 p-4 bg-white border-t border-gray-100 shadow-xl">
+          <Button
+            mode="contained"
+            disabled={cart.length === 0 || balance > 0}
+            loading={saleMutation.isPending}
+            onPress={() => saleMutation.mutate()}
+            style={{ borderRadius: 12 }}
+            contentStyle={{ height: 56 }}
+            labelStyle={{ fontSize: 18, fontWeight: "700" }}
+          >
+            Complete Sale (₹{subtotal.toFixed(2)})
+          </Button>
+        </View>
+      )}
     </Screen>
   );
 }

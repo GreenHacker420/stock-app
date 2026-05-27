@@ -17,6 +17,8 @@ const createShopSchema = z.object({
     city: z.string().min(1),
     address: z.string().optional(),
     openingCash: z.coerce.number().nonnegative().optional(),
+    upiId: z.string().optional(),
+    upiName: z.string().optional(),
   }),
   params: z.object({}).optional(),
   query: z.object({}).optional(),
@@ -30,6 +32,8 @@ const updateShopSchema = z.object({
     address: z.string().nullable().optional(),
     openingCash: z.coerce.number().nonnegative().optional(),
     status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
+    upiId: z.string().nullable().optional(),
+    upiName: z.string().nullable().optional(),
   }),
   query: z.object({}).optional(),
 });
