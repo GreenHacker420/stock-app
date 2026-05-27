@@ -1,8 +1,12 @@
 import { asyncHandler } from "../utils/asyncHandler.js";
 import * as saleService from "../services/sale.service.js";
+import { emitShopEvent, REALTIME_EVENTS } from "../utils/realtime.js";
 
 export const createSale = asyncHandler(async (req, res) => {
   const sale = await saleService.createSale(req.user, req.validated.body);
+  emitShopEvent(req, sale.shopId, REALTIME_EVENTS.SALE_UPDATED, { saleId: sale.id, action: "created" });
+  emitShopEvent(req, sale.shopId, REALTIME_EVENTS.PAYMENT_UPDATED, { saleId: sale.id, action: "created" });
+  emitShopEvent(req, sale.shopId, REALTIME_EVENTS.STOCK_UPDATED, { saleId: sale.id, action: "sale_created" });
   res.status(201).json({ success: true, data: sale });
 });
 

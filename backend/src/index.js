@@ -2,6 +2,7 @@ import "dotenv/config";
 import { createServer } from "http";
 import { Server } from "socket.io";
 import { createApp } from "./app.js";
+import { configureRealtime } from "./utils/realtime.js";
 
 const app = createApp();
 
@@ -14,13 +15,7 @@ const io = new Server(httpServer, {
   },
 });
 
-io.on('connection', (socket) => {
-  console.log(`User connected: ${socket.id}`);
-
-  socket.on('disconnect', () => {
-    console.log(`User disconnected: ${socket.id}`);
-  });
-});
+configureRealtime(io);
 
 app.set("io", io);
 

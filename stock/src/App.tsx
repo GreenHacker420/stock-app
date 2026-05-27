@@ -14,6 +14,7 @@ import { useShopStore } from './auth/shop-store';
 import { OwnerNavigation, StaffNavigation } from './navigation';
 import { Login } from './navigation/screens/Login';
 import { SelectShop } from './navigation/screens/SelectShop';
+import { RealtimeProvider } from './realtime/RealtimeProvider';
 import { navigationThemes, paperLightTheme } from './theme/paper';
 
 Asset.loadAsync([
@@ -89,7 +90,9 @@ export function App() {
       <QueryClientProvider client={queryClient}>
         <PaperProvider theme={paperTheme} settings={paperSettings}>
           <RneThemeProvider theme={rneTheme}>
-            <AuthenticatedApp theme={navigationTheme} prefix={prefix} />
+            <RealtimeProvider>
+              <AuthenticatedApp theme={navigationTheme} prefix={prefix} />
+            </RealtimeProvider>
           </RneThemeProvider>
         </PaperProvider>
       </QueryClientProvider>
