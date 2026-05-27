@@ -33,7 +33,7 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
       "stock:updated": [["items", activeShopId], ["stock", activeShopId], ["stock-movements", activeShopId]],
       "daily-summary:updated": [["daily-summary", activeShopId]],
       "shop:updated": [["shops"]],
-      "notification:created": [["notifications", activeShopId]],
+      "notification:created": [["notifications", activeShopId], ["rate-change-requests", activeShopId], ["correction-requests", activeShopId]],
     }),
     [activeShopId],
   );

@@ -121,6 +121,49 @@ export type Payment = {
   receivedBy: { name: string };
 };
 
+export type Notification = {
+  id: string;
+  shopId: string;
+  triggerEvent: string;
+  entityType: string;
+  entityId?: string | null;
+  message: string;
+  isRead: boolean;
+  createdAt: string;
+  shop?: { id: string; name: string; city: string };
+};
+
+export type RateChangeRequest = {
+  id: string;
+  orderItemId: string;
+  currentRate: string;
+  suggestedRate: string;
+  reason: string;
+  status: string;
+  createdAt: string;
+};
+
+export type CorrectionRequest = {
+  id: string;
+  entityType: string;
+  entityId: string;
+  requestedChangeJson: Record<string, unknown>;
+  reason: string;
+  status: string;
+  createdAt: string;
+};
+
+export type AuditLog = {
+  id: string;
+  userId?: string | null;
+  shopId?: string | null;
+  action: string;
+  entityType: string;
+  entityId?: string | null;
+  reason?: string | null;
+  createdAt: string;
+};
+
 export type Sale = {
   id: string;
   saleNumber: string;
@@ -329,4 +372,95 @@ export async function fetchDailySummary(token: string, shopId: string, date: str
 
 export async function lockDailySummary(token: string, shopId: string, date: string) {
   return apiRequest(`/daily-summary/lock`, { method: "POST", token, body: JSON.stringify({ shopId, date }) });
+}
+
+export async function generateDailySummary(token: string, shopId: string, date: string) {
+  return apiRequest<DailySummary>("/daily-summaries/generate", { method: "POST", token, body: JSON.stringify({ shopId, date }) });
+}
+
+export async function fetchDailySummaries(token: string, options: { shopId?: string; dateFrom?: string; dateTo?: string; status?: string } = {}) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(options)) {
+    if (value) params.set(key, value);
+  }
+  const query = params.toString();
+  return apiRequest<DailySummary[]>(`/daily-summaries/list${query ? `?${query}` : ""}`, { token });
+}
+
+export async function fetchDailySummaryById(token: string, id: string) {
+  return apiRequest<DailySummary>(`/daily-summaries/${id}`, { token });
+}
+
+export async function lockDailySummaryById(token: string, id: string) {
+  return apiRequest<DailySummary>(`/daily-summaries/${id}/lock`, { method: "POST", token });
+}
+
+// NOTIFICATIONS
+export async function fetchNotifications(token: string, options: { shopId?: string; unread?: boolean } = {}) {
+  const params = new URLSearchParams();
+  if (options.shopId) params.set("shopId", options.shopId);
+  if (options.unread !== undefined) params.set("unread", String(options.unread));
+  const query = params.toString();
+  return apiRequest<Notification[]>(`/notifications${query ? `?${query}` : ""}`, { token });
+}
+
+export async function markNotificationRead(token: string, id: string) {
+  return apiRequest<Notification>(`/notifications/${id}/mark-read`, { method: "POST", token });
+}
+
+export async function markAllNotificationsRead(token: string, shopId?: string) {
+  return apiRequest("/notifications/mark-all-read", { method: "POST", token, body: JSON.stringify({ shopId }) });
+}
+
+// RATE CHANGE REQUESTS
+export async function createRateChangeRequest(token: string, data: { orderItemId: string; suggestedRate: number; reason: string }) {
+  return apiRequest<RateChangeRequest>("/rate-change-requests", { method: "POST", token, body: JSON.stringify(data) });
+}
+
+export async function fetchRateChangeRequests(token: string, options: { shopId?: string; status?: string } = {}) {
+  const params = new URLSearchParams();
+  if (options.shopId) params.set("shopId", options.shopId);
+  if (options.status) params.set("status", options.status);
+  const query = params.toString();
+  return apiRequest<RateChangeRequest[]>(`/rate-change-requests${query ? `?${query}` : ""}`, { token });
+}
+
+export async function approveRateChangeRequest(token: string, id: string) {
+  return apiRequest<RateChangeRequest>(`/rate-change-requests/${id}/approve`, { method: "POST", token });
+}
+
+export async function rejectRateChangeRequest(token: string, id: string, reason: string) {
+  return apiRequest<RateChangeRequest>(`/rate-change-requests/${id}/reject`, { method: "POST", token, body: JSON.stringify({ reason }) });
+}
+
+// CORRECTION REQUESTS
+export async function createCorrectionRequest(token: string, data: { entityType: "SALE" | "DM" | "ORDER" | "STOCK" | "PAYMENT"; entityId: string; requestedChangeJson: Record<string, unknown>; reason: string }) {
+  return apiRequest<CorrectionRequest>("/correction-requests", { method: "POST", token, body: JSON.stringify(data) });
+}
+
+export async function fetchCorrectionRequests(token: string, options: { shopId?: string; status?: string; entityType?: string } = {}) {
+  const params = new URLSearchParams();
+  if (options.shopId) params.set("shopId", options.shopId);
+  if (options.status) params.set("status", options.status);
+  if (options.entityType) params.set("entityType", options.entityType);
+  const query = params.toString();
+  return apiRequest<CorrectionRequest[]>(`/correction-requests${query ? `?${query}` : ""}`, { token });
+}
+
+export async function approveCorrectionRequest(token: string, id: string) {
+  return apiRequest<CorrectionRequest>(`/correction-requests/${id}/approve`, { method: "POST", token });
+}
+
+export async function rejectCorrectionRequest(token: string, id: string, reason: string) {
+  return apiRequest<CorrectionRequest>(`/correction-requests/${id}/reject`, { method: "POST", token, body: JSON.stringify({ reason }) });
+}
+
+// AUDIT LOGS
+export async function fetchAuditLogs(token: string, options: { shopId?: string; entityType?: string; action?: string; userId?: string; dateFrom?: string; dateTo?: string } = {}) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(options)) {
+    if (value) params.set(key, value);
+  }
+  const query = params.toString();
+  return apiRequest<AuditLog[]>(`/audit-logs${query ? `?${query}` : ""}`, { token });
 }

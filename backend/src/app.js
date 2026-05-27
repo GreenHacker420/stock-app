@@ -14,6 +14,10 @@ import saleRoutes from "./routes/sale.routes.js";
 import deliveryMemoRoutes from "./routes/deliveryMemo.routes.js";
 import paymentRoutes from "./routes/payment.routes.js";
 import dailySummaryRoutes from "./routes/dailySummary.routes.js";
+import notificationRoutes from "./routes/notification.routes.js";
+import rateChangeRequestRoutes from "./routes/rateChangeRequest.routes.js";
+import correctionRequestRoutes from "./routes/correctionRequest.routes.js";
+import auditLogRoutes from "./routes/auditLog.routes.js";
 import { errorHandler, notFoundHandler } from "./middleware/error.middleware.js";
 
 export function createApp() {
@@ -55,6 +59,11 @@ export function createApp() {
   app.use("/delivery-memos", deliveryMemoRoutes);
   app.use("/payments", paymentRoutes);
   app.use("/daily-summary", dailySummaryRoutes);
+  app.use("/daily-summaries", dailySummaryRoutes);
+  app.use("/notifications", notificationRoutes);
+  app.use("/rate-change-requests", rateChangeRequestRoutes);
+  app.use("/correction-requests", correctionRequestRoutes);
+  app.use("/audit-logs", auditLogRoutes);
 
   app.use(notFoundHandler);
   app.use(errorHandler);
