@@ -16,6 +16,8 @@ export type Shop = {
   city: string;
   openingCash: string;
   openingStockLocked: boolean;
+  upiId?: string | null;
+  upiName?: string | null;
 };
 
 export type ItemCategory = {

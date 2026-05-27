@@ -21,6 +21,7 @@ import { PaymentVerification } from './screens/PaymentVerification';
 import { CashClosingReview } from './screens/CashClosingReview';
 import { DailySummary } from './screens/DailySummary';
 import { TakePayment } from './screens/TakePayment';
+import { UpiConfig } from './screens/UpiConfig';
 
 const HomeTabs = createBottomTabNavigator({
   screenOptions: {
@@ -149,6 +150,12 @@ const RootStack = createNativeStackNavigator({
       screen: TakePayment,
       options: {
         title: 'Take payment',
+      },
+    },
+    UpiConfig: {
+      screen: UpiConfig,
+      options: {
+        title: 'UPI Configuration',
       },
     },
   },

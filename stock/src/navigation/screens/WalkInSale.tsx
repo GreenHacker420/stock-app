@@ -1,7 +1,8 @@
-import { useEffect, useState, useMemo } from "react";
-import { View, ScrollView, Pressable } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { ScrollView, View, Pressable } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Text, TextInput, SegmentedButtons, Icon, Searchbar, Divider, List } from "react-native-paper";
+import { Button, Text, TextInput, SegmentedButtons, Icon, Searchbar, Divider, List, Card } from "react-native-paper";
+import QRCode from "react-native-qrcode-svg";
 import { createSale, fetchItems, fetchShops } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
@@ -24,8 +25,10 @@ export function WalkInSale() {
   const [cart, setCart] = useState<Array<{ id: string, name: string, quantity: number, rate: number, unit: string }>>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [payments, setPayments] = useState<Array<{ mode: string, amount: string }>>([{ mode: "CASH", amount: "" }]);
+  const [upiOption, setUpiOption] = useState<"GENERATE" | "REGISTER">("REGISTER");
 
   const shopsQuery = useQuery({ queryKey: ["shops"], queryFn: () => fetchShops(token ?? ""), enabled: !!token });
+  const activeShop = shopsQuery.data?.find(s => s.id === activeShopId);
   const itemsQuery = useQuery({
     queryKey: ["items", activeShopId],
     queryFn: () => fetchItems(token ?? "", activeShopId ?? ""),
@@ -50,7 +53,11 @@ export function WalkInSale() {
         shopId: activeShopId ?? "",
         isWalkin: true,
         items: cart.map(i => ({ itemId: i.id, quantity: i.quantity, rate: i.rate })),
-        payments: payments.filter(p => Number(p.amount) > 0).map(p => ({ paymentMode: p.mode, amount: Number(p.amount) })),
+        payments: payments.filter(p => Number(p.amount) > 0).map(p => ({ 
+          paymentMode: p.mode, 
+          amount: Number(p.amount),
+          notes: p.mode === 'UPI' && upiOption === 'GENERATE' ? 'Paid via Dynamic QR' : undefined
+        })),
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["items", activeShopId] });
@@ -59,6 +66,13 @@ export function WalkInSale() {
       alert("Sale completed successfully!");
     },
   });
+
+  const upiPayload = useMemo(() => {
+    const upiPayment = payments.find(p => p.mode === 'UPI');
+    if (!activeShop?.upiId || !upiPayment || !upiPayment.amount) return "";
+    const name = encodeURIComponent(activeShop.upiName || activeShop.name);
+    return `upi://pay?pa=${activeShop.upiId}&pn=${name}&am=${upiPayment.amount}&cu=INR`;
+  }, [activeShop, payments]);
 
   const addToCart = (item: any) => {
     const existing = cart.find(c => c.id === item.id);
@@ -69,6 +83,8 @@ export function WalkInSale() {
     }
     setSearchQuery("");
   };
+
+  const hasUpi = payments.some(p => p.mode === 'UPI');
 
   return (
     <Screen>
@@ -156,6 +172,27 @@ export function WalkInSale() {
                 <Button mode="text" icon="plus" onPress={() => setPayments([...payments, { mode: "UPI", amount: "" }])}>Add Split Payment</Button>
              </View>
           </Section>
+        )}
+
+        {hasUpi && (
+           <View className="mx-4 mt-2 mb-4 p-4 bg-white rounded-xl border border-blue-100 gap-3 shadow-sm">
+              <Text variant="labelSmall" style={{ color: "#1e40af", fontWeight: "800" }}>UPI QR OPTIONS</Text>
+              <SegmentedButtons
+                value={upiOption}
+                onValueChange={v => setUpiOption(v as any)}
+                buttons={[
+                  { value: "REGISTER", label: "Shop QR", icon: "qrcode" },
+                  { value: "GENERATE", label: "Dynamic QR", icon: "plus-box-outline", disabled: !activeShop?.upiId },
+                ]}
+                theme={{ colors: { primary: "#1e40af" } }}
+              />
+              {upiOption === 'GENERATE' && upiPayload && (
+                <View className="items-center py-4 bg-gray-50 rounded-lg">
+                   <QRCode value={upiPayload} size={180} />
+                   <Text variant="labelSmall" style={{ color: "#64748b", marginTop: 12 }}>Pay directly to {activeShop?.upiName || activeShop?.name}</Text>
+                </View>
+              )}
+           </View>
         )}
 
         {cart.length > 0 && (

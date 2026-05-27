@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { ScrollView, View, Pressable } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Text, TextInput, SegmentedButtons, Icon, Searchbar, List, Divider, HelperText } from "react-native-paper";
+import { Button, Text, TextInput, SegmentedButtons, Icon, Searchbar, List, Divider, HelperText, Switch, Card } from "react-native-paper";
 import { useRoute } from "@react-navigation/native";
+import QRCode from "react-native-qrcode-svg";
 import { addPayment, fetchCustomers, fetchShops } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
@@ -24,14 +25,19 @@ export function TakePayment() {
   const queryClient = useQueryClient();
   const route = useRoute<any>();
 
+  const [isWalkin, setIsWalkin] = useState(!route.params?.customerId);
   const [customerId, setCustomerId] = useState<string | undefined>(route.params?.customerId);
   const [orderId, setOrderId] = useState<string | undefined>(route.params?.orderId);
   const [searchQuery, setSearchQuery] = useState("");
   const [amount, setAmount] = useState(route.params?.amount?.toString() || "");
   const [paymentMode, setPaymentMode] = useState<typeof paymentModes[number]["value"]>("CASH");
+  const [upiOption, setUpiOption] = useState<"GENERATE" | "REGISTER">("REGISTER");
   const [reference, setReference] = useState("");
   const [notes, setNote] = useState("");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  const shopsQuery = useQuery({ queryKey: ["shops"], queryFn: () => fetchShops(token ?? ""), enabled: !!token });
+  const activeShop = shopsQuery.data?.find(s => s.id === activeShopId);
 
   const customersQuery = useQuery({
     queryKey: ["customers", activeShopId],
@@ -53,12 +59,12 @@ export function TakePayment() {
     mutationFn: () =>
       addPayment(token ?? "", {
         shopId: activeShopId ?? "",
-        customerId,
+        customerId: isWalkin ? undefined : customerId,
         orderId,
         paymentMode,
         amount: Number(amount),
         referenceNumber: reference || undefined,
-        notes: notes || undefined,
+        notes: notes || (upiOption === 'GENERATE' ? 'Paid via generated QR' : undefined),
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["payments", activeShopId] });
@@ -66,8 +72,10 @@ export function TakePayment() {
       setAmount("");
       setReference("");
       setNote("");
-      setCustomerId(undefined);
-      setOrderId(undefined);
+      if (!route.params?.customerId) {
+        setCustomerId(undefined);
+        setOrderId(undefined);
+      }
       setErrorMsg(null);
       alert("Payment recorded successfully!");
     },
@@ -76,50 +84,68 @@ export function TakePayment() {
     }
   });
 
+  const upiPayload = useMemo(() => {
+    if (!activeShop?.upiId || !amount) return "";
+    const name = encodeURIComponent(activeShop.upiName || activeShop.name);
+    return `upi://pay?pa=${activeShop.upiId}&pn=${name}&am=${amount}&cu=INR`;
+  }, [activeShop, amount]);
+
   return (
     <Screen>
       <AppHeader title="Take Payment" subtitle="Record collections from customers" />
       
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
-        <Section title="Customer Selection">
-          {!selectedCustomer && (
-            <Searchbar
-              placeholder="Search customer name or phone..."
-              onChangeText={setSearchQuery}
-              value={searchQuery}
-              style={{ backgroundColor: "white", borderRadius: 12, elevation: 2, borderWidth: 1, borderColor: "#e5e7eb" } as any}
-            />
-          )}
-          {searchQuery ? (
-            <View className="mt-2 bg-white rounded-lg border border-gray-100 shadow-lg z-50">
-              {filteredCustomers.map(customer => (
-                <List.Item
-                  key={customer.id}
-                  title={customer.name}
-                  description={customer.phone}
-                  onPress={() => {
-                    setCustomerId(customer.id);
-                    setSearchQuery("");
-                    setErrorMsg(null);
-                  }}
-                  right={props => <List.Icon {...props} icon="account-check-outline" color="#1e40af" />}
-                />
-              ))}
-            </View>
-          ) : null}
+        <Section title="Customer Information">
+           <View className="flex-row items-center justify-between bg-white p-4 rounded-xl border border-gray-100 mb-2">
+              <View>
+                 <Text style={{ fontWeight: "700", color: "#111827" }}>Walk-in Customer</Text>
+                 <Text variant="bodySmall" style={{ color: "#6b7280" }}>Payment without linking profile</Text>
+              </View>
+              <Switch value={isWalkin} onValueChange={(v) => { setIsWalkin(v); if(v) setCustomerId(undefined); }} color="#1e40af" />
+           </View>
 
-          {selectedCustomer && (
-            <View className="mt-3 p-4 bg-blue-50 rounded-xl border border-blue-100 flex-row justify-between items-center">
-               <View>
-                  <Text style={{ fontWeight: "800", color: "#1e3a8a" }}>{selectedCustomer.name}</Text>
-                  <Text variant="bodySmall" style={{ color: "#1e40af" }}>{selectedCustomer.phone}{orderId ? ` • Linked to Order` : ""}</Text>
-               </View>
-               <Button compact mode="text" onPress={() => { setCustomerId(undefined); setOrderId(undefined); }}>Change</Button>
-            </View>
-          )}
-          {!selectedCustomer && !searchQuery && (
-             <HelperText type="error" visible={true}>Customer selection is mandatory</HelperText>
-          )}
+           {!isWalkin && (
+             <>
+               {!selectedCustomer && (
+                 <Searchbar
+                   placeholder="Search customer name or phone..."
+                   onChangeText={setSearchQuery}
+                   value={searchQuery}
+                   style={{ backgroundColor: "white", borderRadius: 12, elevation: 2, borderWidth: 1, borderColor: "#e5e7eb" } as any}
+                 />
+               )}
+               {searchQuery ? (
+                 <View className="mt-2 bg-white rounded-lg border border-gray-100 shadow-lg z-50">
+                   {filteredCustomers.map(customer => (
+                     <List.Item
+                       key={customer.id}
+                       title={customer.name}
+                       description={customer.phone}
+                       onPress={() => {
+                         setCustomerId(customer.id);
+                         setSearchQuery("");
+                         setErrorMsg(null);
+                       }}
+                       right={props => <List.Icon {...props} icon="account-check-outline" color="#1e40af" />}
+                     />
+                   ))}
+                 </View>
+               ) : null}
+
+               {selectedCustomer && (
+                 <View className="mt-3 p-4 bg-blue-50 rounded-xl border border-blue-100 flex-row justify-between items-center">
+                    <View>
+                       <Text style={{ fontWeight: "800", color: "#1e3a8a" }}>{selectedCustomer.name}</Text>
+                       <Text variant="bodySmall" style={{ color: "#1e40af" }}>{selectedCustomer.phone}{orderId ? ` • Linked to Order` : ""}</Text>
+                    </View>
+                    <Button compact mode="text" onPress={() => { setCustomerId(undefined); setOrderId(undefined); }}>Change</Button>
+                 </View>
+               )}
+               {!selectedCustomer && !searchQuery && (
+                  <HelperText type="error" visible={true}>Customer selection is mandatory for non-walk-in</HelperText>
+               )}
+             </>
+           )}
         </Section>
 
         <Section title="Payment Details">
@@ -154,10 +180,42 @@ export function TakePayment() {
                  </View>
               </View>
 
-              {paymentMode !== 'CASH' && (
+              {paymentMode === 'UPI' && (
+                <View className="gap-3 border-t border-gray-50 pt-4 mt-2">
+                   <Text variant="labelSmall" style={{ color: "#6b7280", fontWeight: "700" }}>UPI OPTIONS</Text>
+                   <SegmentedButtons
+                      value={upiOption}
+                      onValueChange={v => setUpiOption(v as any)}
+                      buttons={[
+                        { value: "REGISTER", label: "Register Physical QR", icon: "qrcode" },
+                        { value: "GENERATE", label: "Generate Dynamic QR", icon: "plus-box-outline", disabled: !activeShop?.upiId },
+                      ]}
+                      theme={{ colors: { primary: "#1e40af" } }}
+                   />
+                   
+                   {upiOption === 'GENERATE' && upiPayload && (
+                      <Card className="bg-white items-center p-6 border border-blue-100 shadow-sm" mode="outlined">
+                         <QRCode value={upiPayload} size={200} />
+                         <View className="mt-4 items-center">
+                            <Text variant="titleMedium" style={{ fontWeight: "800" }}>₹{amount}</Text>
+                            <Text variant="bodySmall" style={{ color: "#6b7280" }}>Scan using any UPI App</Text>
+                            <Text variant="labelSmall" style={{ color: "#1e40af", marginTop: 4 }}>Pay to: {activeShop?.upiName || activeShop?.name}</Text>
+                         </View>
+                      </Card>
+                   )}
+
+                   {!activeShop?.upiId && upiOption === 'GENERATE' && (
+                     <View className="p-4 bg-amber-50 rounded-lg border border-amber-100">
+                        <Text style={{ color: "#92400e", fontSize: 12 }}>Owner has not configured a UPI ID for this shop. Please use "Register Physical QR" instead.</Text>
+                     </View>
+                   )}
+                </View>
+              )}
+
+              {paymentMode !== 'CASH' && (upiOption === 'REGISTER' || paymentMode !== 'UPI') && (
                 <TextInput
                    mode="outlined"
-                   label="Reference / UTR / Cheque Number"
+                   label={paymentMode === 'CHEQUE' ? "Cheque Number" : "Reference / UTR Number"}
                    value={reference}
                    onChangeText={setReference}
                    style={{ backgroundColor: "white" }}
@@ -189,14 +247,14 @@ export function TakePayment() {
       <View className="absolute bottom-0 left-0 right-0 p-4 bg-white/90 border-t border-gray-100 shadow-xl" style={{ backdropFilter: 'blur(10px)' } as any}>
         <Button
           mode="contained"
-          disabled={!selectedCustomer || !amount || Number(amount) <= 0}
+          disabled={(!isWalkin && !selectedCustomer) || !amount || Number(amount) <= 0}
           loading={paymentMutation.isPending}
           onPress={() => paymentMutation.mutate()}
           style={{ borderRadius: 12, backgroundColor: "#1e40af" }}
           contentStyle={{ height: 56 }}
           labelStyle={{ fontSize: 16, fontWeight: "800" }}
         >
-          Record Payment
+          {upiOption === 'GENERATE' && paymentMode === 'UPI' ? 'Register Generated Payment' : 'Record Payment'}
         </Button>
       </View>
     </Screen>

@@ -137,6 +137,13 @@ export function Updates() {
               titleStyle={{ fontWeight: "700", color: "#111827" }}
             />
             <List.Item
+              title="QR Management"
+              description="Configure UPI ID for dynamic QR codes."
+              left={(props) => <List.Icon {...props} icon="qrcode-scan" color="#1e40af" />}
+              onPress={() => navigate("UpiConfig", { shop: selectedShop })}
+              titleStyle={{ fontWeight: "700", color: "#111827" }}
+            />
+            <List.Item
               title="Inventory Initialization"
               description="Configure opening stock levels."
               left={(props) => <List.Icon {...props} icon="warehouse" color="#1e40af" />}

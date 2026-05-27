@@ -252,6 +252,8 @@ model Shop {
   ownerId            String
   openingCash        Decimal      @default(0) @db.Decimal(12, 2)
   openingStockLocked Boolean      @default(false)
+  upiId              String?
+  upiName            String?
   status             RecordStatus @default(ACTIVE)
   createdAt          DateTime     @default(now())
   updatedAt          DateTime     @updatedAt
