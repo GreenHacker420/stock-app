@@ -1,13 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
-import { ScrollView, View, Pressable } from "react-native";
+import { useEffect, useState, useMemo } from "react";
+import { View, ScrollView, Pressable } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Text, TextInput, Searchbar, Icon } from "react-native-paper";
-import { createWalkInSale, fetchItems, fetchShops } from "../../api/client";
+import { Button, Text, TextInput, SegmentedButtons, Icon, Searchbar, Divider, List } from "react-native-paper";
+import { createSale, fetchItems, fetchShops } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
+import { useShopStore } from "../../auth/shop-store";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { Section } from "../../components/ui/Section";
-import { ShopPicker } from "../../components/ui/ShopPicker";
 
 const paymentModes = [
   { label: "Cash", value: "CASH", icon: "cash" },
@@ -18,166 +18,181 @@ const paymentModes = [
 
 export function WalkInSale() {
   const token = useAuthStore((state) => state.token);
+  const { activeShopId } = useShopStore();
   const queryClient = useQueryClient();
-  const [shopId, setShopId] = useState<string | undefined>();
-  const [itemId, setItemId] = useState<string | undefined>();
+  
+  const [cart, setCart] = useState<Array<{ id: string, name: string, quantity: number, rate: number, unit: string }>>([]);
   const [searchQuery, setSearchQuery] = useState("");
-  const [quantity, setQuantity] = useState("1");
-  const [rate, setRate] = useState("");
-  const [paymentMode, setPaymentMode] = useState<(typeof paymentModes)[number]["value"]>("CASH");
+  const [payments, setPayments] = useState<Array<{ mode: string, amount: string }>>([{ mode: "CASH", amount: "" }]);
 
   const shopsQuery = useQuery({ queryKey: ["shops"], queryFn: () => fetchShops(token ?? ""), enabled: !!token });
   const itemsQuery = useQuery({
-    queryKey: ["items", shopId],
-    queryFn: () => fetchItems(token ?? "", shopId ?? ""),
-    enabled: !!token && !!shopId,
+    queryKey: ["items", activeShopId],
+    queryFn: () => fetchItems(token ?? "", activeShopId ?? ""),
+    enabled: !!token && !!activeShopId,
   });
 
-  useEffect(() => {
-    if (!shopId && shopsQuery.data?.[0]) setShopId(shopsQuery.data[0].id);
-  }, [shopId, shopsQuery.data]);
-
   const filteredItems = useMemo(() => {
-    if (!searchQuery) return (itemsQuery.data ?? []).slice(0, 5);
+    if (!searchQuery) return [];
     return (itemsQuery.data ?? []).filter(item => 
       item.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
       item.sku?.toLowerCase().includes(searchQuery.toLowerCase())
     ).slice(0, 5);
   }, [itemsQuery.data, searchQuery]);
 
-  const selectedItem = itemsQuery.data?.find((item) => item.id === itemId);
-  const total = useMemo(() => Number(quantity || 0) * Number(rate || 0), [quantity, rate]);
+  const subtotal = cart.reduce((sum, item) => sum + (item.quantity * item.rate), 0);
+  const totalPaid = payments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+  const balance = subtotal - totalPaid;
 
   const saleMutation = useMutation({
     mutationFn: () =>
-      createWalkInSale(token ?? "", {
-        shopId: shopId ?? "",
-        itemId: itemId ?? "",
-        quantity: Number(quantity),
-        rate: Number(rate),
-        paymentMode,
+      createSale(token ?? "", {
+        shopId: activeShopId ?? "",
+        isWalkin: true,
+        items: cart.map(i => ({ itemId: i.id, quantity: i.quantity, rate: i.rate })),
+        payments: payments.filter(p => Number(p.amount) > 0).map(p => ({ paymentMode: p.mode, amount: Number(p.amount) })),
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["items", shopId] });
-      setItemId(undefined);
-      setQuantity("1");
-      setSearchQuery("");
+      queryClient.invalidateQueries({ queryKey: ["items", activeShopId] });
+      setCart([]);
+      setPayments([{ mode: "CASH", amount: "" }]);
       alert("Sale completed successfully!");
     },
   });
 
-  const increment = () => setQuantity(q => String(Math.max(1, Number(q) + 1)));
-  const decrement = () => setQuantity(q => String(Math.max(1, Number(q) - 1)));
+  const addToCart = (item: any) => {
+    const existing = cart.find(c => c.id === item.id);
+    if (existing) {
+      setCart(cart.map(c => c.id === item.id ? { ...c, quantity: c.quantity + 1 } : c));
+    } else {
+      setCart([...cart, { id: item.id, name: item.name, quantity: 1, rate: Number(item.defaultSellingPrice), unit: item.unit }]);
+    }
+    setSearchQuery("");
+  };
 
   return (
     <Screen>
       <AppHeader title="Walk-in Sale" subtitle="Fast counter checkout" />
       
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 100 }}>
-        <ShopPicker shops={shopsQuery.data ?? []} selectedShopId={shopId} onSelect={setShopId} />
-
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
         <Section title="Item Search">
           <Searchbar
             placeholder="Search name or SKU..."
             onChangeText={setSearchQuery}
             value={searchQuery}
-            style={{ backgroundColor: "white", borderRadius: 8, elevation: 0, borderWidth: 1, borderColor: "#e5e7eb" } as any}
+            style={{ backgroundColor: "white", borderRadius: 12, elevation: 2, borderWidth: 1, borderColor: "#e5e7eb" } as any}
           />
-          
-          <View className="mt-3 gap-2">
-            {filteredItems.map(item => (
-              <Pressable 
-                key={item.id} 
-                onPress={() => {
-                  setItemId(item.id);
-                  setRate(item.defaultSellingPrice);
-                  setSearchQuery("");
-                }}
-                className={`p-3 rounded-lg border ${itemId === item.id ? 'border-blue-600 bg-blue-50' : 'border-gray-200 bg-white'}`}
-              >
-                <View className="flex-row justify-between items-center">
-                  <View>
-                    <Text style={{ fontWeight: "700" }}>{item.name}</Text>
-                    {item.sku ? <Text variant="bodySmall" style={{ color: "#6b7280" }}>SKU: {item.sku}</Text> : null}
-                  </View>
-                  <Text style={{ fontWeight: "700", color: "#111827" }}>₹{item.defaultSellingPrice}</Text>
-                </View>
-              </Pressable>
-            ))}
-          </View>
+          {searchQuery ? (
+            <View className="mt-2 bg-white rounded-lg border border-gray-100 shadow-lg z-50">
+              {filteredItems.map(item => (
+                <List.Item
+                  key={item.id}
+                  title={item.name}
+                  description={`₹${item.defaultSellingPrice} / ${item.unit}`}
+                  onPress={() => addToCart(item)}
+                  right={props => <List.Icon {...props} icon="plus-circle" color="#1e40af" />}
+                />
+              ))}
+            </View>
+          ) : null}
         </Section>
 
-        {selectedItem && (
-          <Section title="Quantity & Rate">
-            <View className="bg-white p-4 rounded-lg border border-gray-200 gap-4">
-              <View className="flex-row items-center justify-between">
-                <Text variant="titleMedium" style={{ fontWeight: "700" }}>{selectedItem.name}</Text>
-                <View className="flex-row items-center gap-4 bg-gray-50 rounded-lg px-2 py-1">
-                  <Pressable onPress={decrement} className="p-2">
-                    <Icon source="minus" size={20} color="#1e40af" />
-                  </Pressable>
-                  <Text variant="titleMedium" style={{ fontWeight: "800", minWidth: 24, textAlign: "center" }}>{quantity}</Text>
-                  <Pressable onPress={increment} className="p-2">
-                    <Icon source="plus" size={20} color="#1e40af" />
-                  </Pressable>
-                </View>
-              </View>
-              <TextInput
-                mode="outlined"
-                label="Custom Rate (₹)"
-                keyboardType="numeric"
-                value={rate}
-                onChangeText={setRate}
-                style={{ backgroundColor: "white" }}
-              />
+        {cart.length > 0 && (
+          <Section title="Cart">
+            <View className="bg-white rounded-xl border border-gray-100 overflow-hidden">
+               {cart.map((item, idx) => (
+                 <View key={item.id}>
+                    {idx > 0 && <Divider />}
+                    <View className="p-4 flex-row justify-between items-center">
+                       <View className="flex-1">
+                          <Text style={{ fontWeight: "700" }}>{item.name}</Text>
+                          <Text variant="bodySmall" style={{ color: "#6b7280" }}>₹{item.rate} x {item.quantity} {item.unit}</Text>
+                       </View>
+                       <View className="flex-row items-center gap-3">
+                          <Pressable onPress={() => setCart(cart.map(c => c.id === item.id ? { ...c, quantity: Math.max(0, c.quantity - 1) } : c).filter(c => c.quantity > 0))}>
+                             <Icon source="minus-circle-outline" size={24} color="#ef4444" />
+                          </Pressable>
+                          <Text style={{ fontWeight: "800", minWidth: 20, textAlign: 'center' }}>{item.quantity}</Text>
+                          <Pressable onPress={() => setCart(cart.map(c => c.id === item.id ? { ...c, quantity: c.quantity + 1 } : c))}>
+                             <Icon source="plus-circle-outline" size={24} color="#1e40af" />
+                          </Pressable>
+                       </View>
+                    </View>
+                 </View>
+               ))}
+               <View className="bg-gray-50 p-4 flex-row justify-between">
+                  <Text style={{ fontWeight: "700" }}>Subtotal</Text>
+                  <Text style={{ fontWeight: "900", color: "#111827" }}>₹{subtotal.toFixed(2)}</Text>
+               </View>
             </View>
           </Section>
         )}
 
-        <Section title="Payment Mode">
-          <View className="flex-row flex-wrap gap-2">
-            {paymentModes.map((mode) => (
-              <Pressable
-                key={mode.value}
-                onPress={() => setPaymentMode(mode.value)}
-                className={`flex-1 min-w-[45%] p-3 rounded-lg border flex-row items-center gap-3 ${
-                  paymentMode === mode.value ? "bg-blue-600 border-blue-600" : "bg-white border-gray-200"
-                }`}
-              >
-                <Icon source={mode.icon} size={20} color={paymentMode === mode.value ? "white" : "#4b5563"} />
-                <Text style={{ fontWeight: "700", color: paymentMode === mode.value ? "white" : "#111827" }}>
-                  {mode.label}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
-        </Section>
+        {cart.length > 0 && (
+          <Section title="Payments">
+             <View className="gap-3">
+                {payments.map((p, idx) => (
+                  <View key={idx} className="flex-row gap-2 items-center">
+                     <View className="flex-1">
+                        <TextInput
+                          mode="outlined"
+                          label={p.mode}
+                          keyboardType="numeric"
+                          value={p.amount}
+                          onChangeText={(v) => setPayments(payments.map((pay, i) => i === idx ? { ...pay, amount: v } : pay))}
+                          style={{ backgroundColor: "white" }}
+                          outlineStyle={{ borderRadius: 12 }}
+                        />
+                     </View>
+                     <Button mode="outlined" compact onPress={() => {
+                        const nextMode = paymentModes[(paymentModes.findIndex(m => m.value === p.mode) + 1) % paymentModes.length].value;
+                        setPayments(payments.map((pay, i) => i === idx ? { ...pay, mode: nextMode } : pay));
+                     }}>Mode</Button>
+                     {payments.length > 1 && (
+                       <IconButton icon="delete-outline" iconColor="#ef4444" onPress={() => setPayments(payments.filter((_, i) => i !== idx))} />
+                     )}
+                  </View>
+                ))}
+                <Button mode="text" icon="plus" onPress={() => setPayments([...payments, { mode: "UPI", amount: "" }])}>Add Split Payment</Button>
+             </View>
+          </Section>
+        )}
 
-        <View className="mt-4 p-4 rounded-xl bg-gray-900 gap-1">
-          <View className="flex-row justify-between">
-            <Text style={{ color: "#9ca3af" }}>Subtotal</Text>
-            <Text style={{ color: "white" }}>₹{total.toFixed(2)}</Text>
+        {cart.length > 0 && (
+          <View className={`mt-4 p-4 rounded-xl gap-1 ${balance === 0 ? 'bg-emerald-900' : 'bg-slate-900'}`}>
+            <View className="flex-row justify-between">
+              <Text style={{ color: "#9ca3af" }}>Paid So Far</Text>
+              <Text style={{ color: "white" }}>₹{totalPaid.toFixed(2)}</Text>
+            </View>
+            <View className="flex-row justify-between items-center mt-2 pt-2 border-t border-white/10">
+              <Text variant="titleMedium" style={{ color: "white", fontWeight: "700" }}>{balance > 0 ? 'Remaining' : 'Change'}</Text>
+              <Text variant="headlineSmall" style={{ color: "white", fontWeight: "900" }}>₹{Math.abs(balance).toFixed(2)}</Text>
+            </View>
           </View>
-          <View className="flex-row justify-between items-center mt-2 pt-2 border-t border-gray-800">
-            <Text variant="titleMedium" style={{ color: "white", fontWeight: "700" }}>Total Amount</Text>
-            <Text variant="headlineSmall" style={{ color: "white", fontWeight: "900" }}>₹{total.toFixed(2)}</Text>
-          </View>
-        </View>
+        )}
       </ScrollView>
 
-      <View className="absolute bottom-0 left-0 right-0 p-4 bg-white border-t border-gray-100">
+      <View className="absolute bottom-0 left-0 right-0 p-4 bg-white border-t border-gray-100 shadow-xl">
         <Button
           mode="contained"
-          disabled={!itemId || Number(quantity) <= 0 || Number(rate) < 0}
+          disabled={cart.length === 0 || balance > 0}
           loading={saleMutation.isPending}
           onPress={() => saleMutation.mutate()}
-          style={{ borderRadius: 8 }}
+          style={{ borderRadius: 12 }}
           contentStyle={{ height: 56 }}
           labelStyle={{ fontSize: 18, fontWeight: "700" }}
         >
-          Complete Sale (₹{total.toFixed(2)})
+          Complete Sale (₹{subtotal.toFixed(2)})
         </Button>
       </View>
     </Screen>
   );
+}
+
+function IconButton({ icon, iconColor, onPress }: { icon: string, iconColor: string, onPress: () => void }) {
+   return (
+      <Pressable onPress={onPress} className="p-2">
+         <Icon source={icon} size={24} color={iconColor} />
+      </Pressable>
+   )
 }

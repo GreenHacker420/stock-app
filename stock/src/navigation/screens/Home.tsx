@@ -2,8 +2,9 @@ import { useQuery } from "@tanstack/react-query";
 import { ScrollView, View, Pressable } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { Text, Icon, Button } from "react-native-paper";
-import { fetchShops } from "../../api/client";
+import { fetchShops, fetchCurrentCashSession } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
+import { useShopStore } from "../../auth/shop-store";
 import { Screen } from "../../components/Screen";
 import { ActionTile } from "../../components/ui/ActionTile";
 import { AppHeader } from "../../components/ui/AppHeader";
@@ -14,10 +15,18 @@ import { StatusPill } from "../../components/ui/StatusPill";
 export function Home() {
   const user = useAuthStore((state) => state.user);
   const token = useAuthStore((state) => state.token);
+  const { activeShopId, setActiveShopId } = useShopStore();
+
   const shopsQuery = useQuery({
     queryKey: ["shops"],
     queryFn: () => fetchShops(token ?? ""),
     enabled: !!token,
+  });
+
+  const sessionQuery = useQuery({
+    queryKey: ["cash-session", activeShopId],
+    queryFn: () => fetchCurrentCashSession(token ?? "", activeShopId ?? ""),
+    enabled: !!token && !!activeShopId,
   });
 
   const navigation = useNavigation();
@@ -25,6 +34,7 @@ export function Home() {
     (navigation as any).navigate(screen);
   };
 
+  const selectedShop = shopsQuery.data?.find(s => s.id === activeShopId);
   const shopCount = shopsQuery.data?.length ?? 0;
   const initials = user?.name
     ?.split(" ")
@@ -36,23 +46,47 @@ export function Home() {
   return (
     <Screen>
       <AppHeader
-        title={user?.role === "OWNER" ? "Owner Dashboard" : "Nagpur Shop Hub"}
+        title={user?.role === "OWNER" ? "Owner Dashboard" : (selectedShop?.name ?? "Shop Hub")}
         subtitle={user?.role === "OWNER" ? "Live operations overview" : "Ready for today's tasks"}
         role={user?.role}
         initials={initials}
       />
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
-        {user?.role === "OWNER" ? (
-          <OwnerHome shopCount={shopCount} navigate={navigate} />
+        {!activeShopId ? (
+          <Section title="Select Shop">
+            <View className="gap-3">
+              {shopsQuery.data?.map(shop => (
+                <ActionTile
+                  key={shop.id}
+                  title={shop.name}
+                  subtitle={`${shop.city} • Code: ${shop.code}`}
+                  icon="storefront-outline"
+                  tone="blue"
+                  onPress={() => setActiveShopId(shop.id)}
+                />
+              ))}
+            </View>
+          </Section>
         ) : (
-          <StaffHome navigate={navigate} />
+          <>
+            <View className="mb-4 flex-row justify-between items-center bg-blue-50 px-4 py-2 rounded-lg">
+              <Text style={{ fontWeight: "700", color: "#1e40af" }}>{selectedShop?.name}</Text>
+              <Button compact mode="text" onPress={() => setActiveShopId(null)}>Change</Button>
+            </View>
+
+            {user?.role === "OWNER" ? (
+              <OwnerHome shopCount={shopCount} navigate={navigate} />
+            ) : (
+              <StaffHome navigate={navigate} session={sessionQuery.data} />
+            )}
+          </>
         )}
 
         <Section title="System status">
           <View className="flex-row flex-wrap gap-2">
-            <StatusPill label="API connected" tone="green" />
-            <StatusPill label="Design system applied" tone="blue" />
+            <StatusPill label={token ? "API connected" : "Offline"} tone={token ? "green" : "red"} />
+            <StatusPill label={activeShopId ? "Shop active" : "No shop picked"} tone={activeShopId ? "blue" : "amber"} />
           </View>
         </Section>
       </ScrollView>
@@ -78,7 +112,7 @@ function OwnerHome({ shopCount, navigate }: { shopCount: number; navigate: (s: s
         <View className="gap-3">
           <ActionTile
             title="Verify Payments"
-            subtitle="Review 12 pending UPI and cheque entries."
+            subtitle="Review pending UPI and cheque entries."
             icon="check-decagram-outline"
             tone="blue"
             onPress={() => navigate("PaymentVerification")}
@@ -95,7 +129,7 @@ function OwnerHome({ shopCount, navigate }: { shopCount: number; navigate: (s: s
             subtitle={`${shopCount} active shops in your account.`}
             icon="storefront-outline"
             tone="amber"
-            onPress={() => navigate("Settings")}
+            onPress={() => navigate("Updates")}
           />
         </View>
       </Section>
@@ -103,19 +137,34 @@ function OwnerHome({ shopCount, navigate }: { shopCount: number; navigate: (s: s
   );
 }
 
-function StaffHome({ navigate }: { navigate: (s: string) => void }) {
+function StaffHome({ navigate, session }: { navigate: (s: string) => void; session?: any }) {
+  const isOpen = session?.status === "OPEN";
+
   return (
     <View className="gap-6">
-      <Button
-        mode="contained"
-        onPress={() => navigate("WalkInSale")}
-        style={{ height: 64, justifyContent: "center", borderRadius: 8 }}
-        contentStyle={{ height: 64 }}
-        labelStyle={{ fontSize: 18, fontWeight: "700" }}
-        icon="cart-plus"
-      >
-        New Sale
-      </Button>
+      {!isOpen ? (
+        <Button
+          mode="contained"
+          onPress={() => navigate("OpenCashSession")}
+          style={{ height: 64, justifyContent: "center", borderRadius: 8, backgroundColor: "#1e40af" }}
+          contentStyle={{ height: 64 }}
+          labelStyle={{ fontSize: 18, fontWeight: "700" }}
+          icon="play-circle-outline"
+        >
+          Open Cash Session
+        </Button>
+      ) : (
+        <Button
+          mode="contained"
+          onPress={() => navigate("WalkInSale")}
+          style={{ height: 64, justifyContent: "center", borderRadius: 8 }}
+          contentStyle={{ height: 64 }}
+          labelStyle={{ fontSize: 18, fontWeight: "700" }}
+          icon="cart-plus"
+        >
+          New Sale
+        </Button>
+      )}
 
       <View className="gap-3">
         <View className="flex-row gap-3">
@@ -125,9 +174,6 @@ function StaffHome({ navigate }: { navigate: (s: string) => void }) {
                 <Icon source="package-variant" size={24} color="#1e40af" />
               </View>
               <Text variant="titleSmall" style={{ fontWeight: "700" }}>Orders</Text>
-              <View className="bg-red-100 px-2 py-0.5 rounded-full">
-                <Text style={{ fontSize: 10, color: "#b91c1c", fontWeight: "700" }}>5 pending</Text>
-              </View>
             </View>
           </Pressable>
           <Pressable onPress={() => {}} className="flex-1">
@@ -141,7 +187,7 @@ function StaffHome({ navigate }: { navigate: (s: string) => void }) {
         </View>
 
         <View className="flex-row gap-3">
-          <Pressable onPress={() => {}} className="flex-1">
+          <Pressable onPress={() => navigate("TakePayment")} className="flex-1">
             <View className="bg-white p-4 rounded-lg border border-[#e5e7eb] items-center gap-2">
               <View className="h-12 w-12 bg-amber-50 rounded-full items-center justify-center">
                 <Icon source="cash-register" size={24} color="#92400e" />
@@ -169,14 +215,16 @@ function StaffHome({ navigate }: { navigate: (s: string) => void }) {
         >
           Today's Summary
         </Button>
-        <Button
-          mode="outlined"
-          onPress={() => navigate("CloseDay")}
-          style={{ borderRadius: 8, borderColor: "#ef4444" }}
-          textColor="#ef4444"
-        >
-          Close Day
-        </Button>
+        {isOpen && (
+          <Button
+            mode="outlined"
+            onPress={() => navigate("CloseDay")}
+            style={{ borderRadius: 8, borderColor: "#ef4444" }}
+            textColor="#ef4444"
+          >
+            Close Day
+          </Button>
+        )}
       </View>
     </View>
   );

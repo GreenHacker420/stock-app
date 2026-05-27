@@ -13,6 +13,7 @@ import orderRoutes from "./routes/order.routes.js";
 import saleRoutes from "./routes/sale.routes.js";
 import deliveryMemoRoutes from "./routes/deliveryMemo.routes.js";
 import paymentRoutes from "./routes/payment.routes.js";
+import dailySummaryRoutes from "./routes/dailySummary.routes.js";
 import { errorHandler, notFoundHandler } from "./middleware/error.middleware.js";
 
 export function createApp() {
@@ -53,6 +54,7 @@ export function createApp() {
   app.use("/sales", saleRoutes);
   app.use("/delivery-memos", deliveryMemoRoutes);
   app.use("/payments", paymentRoutes);
+  app.use("/daily-summary", dailySummaryRoutes);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

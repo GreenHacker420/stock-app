@@ -20,6 +20,7 @@ import { SetOpeningStock } from './screens/SetOpeningStock';
 import { PaymentVerification } from './screens/PaymentVerification';
 import { CashClosingReview } from './screens/CashClosingReview';
 import { DailySummary } from './screens/DailySummary';
+import { TakePayment } from './screens/TakePayment';
 
 const HomeTabs = createBottomTabNavigator({
   screenOptions: {
@@ -142,6 +143,12 @@ const RootStack = createNativeStackNavigator({
       screen: DailySummary,
       options: {
         title: 'Daily summary',
+      },
+    },
+    TakePayment: {
+      screen: TakePayment,
+      options: {
+        title: 'Take payment',
       },
     },
   },

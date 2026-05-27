@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { KeyboardAvoidingView, Platform, View, Pressable, ScrollView } from "react-native";
-import { Button, HelperText, Surface, Text, TextInput, useTheme, Icon } from "react-native-paper";
+import { Button, HelperText, Surface, Text, TextInput, useTheme, Icon, Divider } from "react-native-paper";
 import { useAuthStore } from "../../auth/auth-store";
 
 export function Login() {
