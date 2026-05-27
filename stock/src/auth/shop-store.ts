@@ -4,6 +4,7 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 interface ShopState {
   activeShopId: string | null;
+  lastUsedShopId: string | null;
   setActiveShopId: (id: string | null) => void;
 }
 
@@ -11,7 +12,8 @@ export const useShopStore = create<ShopState>()(
   persist(
     (set) => ({
       activeShopId: null,
-      setActiveShopId: (id) => set({ activeShopId: id }),
+      lastUsedShopId: null,
+      setActiveShopId: (id) => set((state) => ({ activeShopId: id, lastUsedShopId: id ?? state.lastUsedShopId })),
     }),
     {
       name: "shop-storage",

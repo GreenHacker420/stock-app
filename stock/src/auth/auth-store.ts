@@ -1,5 +1,6 @@
 import { create, type StoreApi, type UseBoundStore } from "zustand";
 import { ApiUser, fetchMe, login } from "../api/client";
+import { useShopStore } from "./shop-store";
 import { deleteToken, getToken, setToken } from "./token-storage";
 
 const TOKEN_KEY = "shopcontrol_token";
@@ -46,6 +47,7 @@ function createAuthStore() {
   },
   async signOut() {
     await deleteToken(TOKEN_KEY);
+    useShopStore.getState().setActiveShopId(null);
     set({ token: null, user: null, isBootstrapping: false });
   },
 }));

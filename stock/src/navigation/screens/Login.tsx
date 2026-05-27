@@ -6,19 +6,29 @@ import { useAuthStore } from "../../auth/auth-store";
 export function Login() {
   const theme = useTheme();
   const signIn = useAuthStore((state) => state.signIn);
-  const [identifier, setIdentifier] = useState("9999999999");
-  const [password, setPassword] = useState("owner123");
+  const [identifier, setIdentifier] = useState("");
+  const [password, setPassword] = useState("");
   const [secureText, setSecureText] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   async function handleSubmit() {
     setError(null);
+    const mobile = identifier.trim();
+    if (!/^\d{10}$/.test(mobile)) {
+      setError("Mobile must be 10 digits");
+      return;
+    }
+    if (password.length < 4) {
+      setError("Password must be at least 4 characters");
+      return;
+    }
+
     setIsSubmitting(true);
     try {
-      await signIn(identifier.trim(), password);
+      await signIn(mobile, password);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Login failed");
+      setError(err instanceof Error ? err.message || "Invalid mobile or password" : "Invalid mobile or password");
     } finally {
       setIsSubmitting(false);
     }
@@ -67,7 +77,7 @@ export function Login() {
                   <Text variant="labelMedium" style={{ color: "#475569", marginBottom: 6, fontWeight: "700" }}>MOBILE OR EMAIL</Text>
                   <TextInput
                     mode="outlined"
-                    placeholder="e.g. 9988776655"
+                    placeholder="10 digit mobile number"
                     value={identifier}
                     keyboardType="phone-pad"
                     autoCapitalize="none"

@@ -10,8 +10,10 @@ import { ActivityIndicator, PaperProvider } from 'react-native-paper';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import "../global.css";
 import { useAuthStore } from './auth/auth-store';
-import { Navigation } from './navigation';
+import { useShopStore } from './auth/shop-store';
+import { OwnerNavigation, StaffNavigation } from './navigation';
 import { Login } from './navigation/screens/Login';
+import { SelectShop } from './navigation/screens/SelectShop';
 import { navigationThemes, paperLightTheme } from './theme/paper';
 
 Asset.loadAsync([
@@ -87,19 +89,40 @@ export function App() {
       <QueryClientProvider client={queryClient}>
         <PaperProvider theme={paperTheme} settings={paperSettings}>
           <RneThemeProvider theme={rneTheme}>
-            <Navigation
-              theme={navigationTheme}
-              linking={{
-                enabled: 'auto',
-                prefixes: [prefix],
-              }}
-              onReady={() => {
-                SplashScreen.hideAsync();
-              }}
-            />
+            <AuthenticatedApp theme={navigationTheme} prefix={prefix} />
           </RneThemeProvider>
         </PaperProvider>
       </QueryClientProvider>
     </SafeAreaProvider>
+  );
+}
+
+function AuthenticatedApp({ theme, prefix }: { theme: typeof navigationThemes.LightTheme; prefix: string }) {
+  const user = useAuthStore((state) => state.user);
+  const activeShopId = useShopStore((state) => state.activeShopId);
+
+  React.useEffect(() => {
+    if (!activeShopId) {
+      SplashScreen.hideAsync();
+    }
+  }, [activeShopId]);
+
+  if (!activeShopId) {
+    return <SelectShop />;
+  }
+
+  const Navigation = user?.role === "OWNER" ? OwnerNavigation : StaffNavigation;
+
+  return (
+    <Navigation
+      theme={theme}
+      linking={{
+        enabled: "auto",
+        prefixes: [prefix],
+      }}
+      onReady={() => {
+        SplashScreen.hideAsync();
+      }}
+    />
   );
 }
