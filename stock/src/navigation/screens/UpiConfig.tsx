@@ -8,6 +8,7 @@ import { useAuthStore } from "../../auth/auth-store";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { Section } from "../../components/ui/Section";
+import { SuccessModal } from "../../components/ui/SuccessModal";
 
 export function UpiConfig() {
   const token = useAuthStore((state) => state.token);
@@ -18,13 +19,13 @@ export function UpiConfig() {
 
   const [upiId, setUpiId] = useState(shop?.upiId || "");
   const [upiName, setUpiName] = useState(shop?.upiName || "");
+  const [successVisible, setSuccessVisible] = useState(false);
 
   const mutation = useMutation({
     mutationFn: () => updateShop(token ?? "", shop.id, { upiId, upiName }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["shops"] });
-      alert("UPI Configuration updated successfully.");
-      navigation.goBack();
+      setSuccessVisible(true);
     },
   });
 
@@ -107,6 +108,16 @@ export function UpiConfig() {
             Save Configuration
          </Button>
       </View>
+
+      <SuccessModal
+        visible={successVisible}
+        title="UPI Configured"
+        message="UPI Configuration updated successfully."
+        onClose={() => {
+          setSuccessVisible(false);
+          navigation.goBack();
+        }}
+      />
     </Screen>
   );
 }

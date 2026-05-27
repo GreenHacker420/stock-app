@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ScrollView, View, Pressable } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigation } from "@react-navigation/native";
 import { Button, Text, TextInput, SegmentedButtons, Icon, Searchbar, Divider, List, Card } from "react-native-paper";
 import QRCode from "react-native-qrcode-svg";
 import { createSale, fetchItems, fetchShops } from "../../api/client";
@@ -9,6 +10,7 @@ import { useShopStore } from "../../auth/shop-store";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { Section } from "../../components/ui/Section";
+import { SuccessModal } from "../../components/ui/SuccessModal";
 
 const paymentModes = [
   { label: "Cash", value: "CASH", icon: "cash" },
@@ -21,11 +23,13 @@ export function WalkInSale() {
   const token = useAuthStore((state) => state.token);
   const { activeShopId } = useShopStore();
   const queryClient = useQueryClient();
+  const navigation = useNavigation();
   
   const [cart, setCart] = useState<Array<{ id: string, name: string, quantity: number, rate: number, unit: string }>>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [payments, setPayments] = useState<Array<{ mode: string, amount: string }>>([{ mode: "CASH", amount: "" }]);
   const [upiOption, setUpiOption] = useState<"GENERATE" | "REGISTER">("REGISTER");
+  const [successVisible, setSuccessVisible] = useState(false);
 
   const shopsQuery = useQuery({ queryKey: ["shops"], queryFn: () => fetchShops(token ?? ""), enabled: !!token });
   const activeShop = shopsQuery.data?.find(s => s.id === activeShopId);
@@ -64,7 +68,7 @@ export function WalkInSale() {
       setCart([]);
       setPayments([{ mode: "CASH", amount: "" }]);
       setUpiOption("REGISTER");
-      alert("Sale completed successfully!");
+      setSuccessVisible(true);
     },
   });
 
@@ -245,6 +249,16 @@ export function WalkInSale() {
           </Button>
         </View>
       )}
+
+      <SuccessModal
+        visible={successVisible}
+        title="Sale Completed"
+        message="Walk-in sale completed successfully!"
+        onClose={() => {
+          setSuccessVisible(false);
+          navigation.goBack();
+        }}
+      />
     </Screen>
   );
 }
