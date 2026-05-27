@@ -3,6 +3,11 @@ import * as summaryService from "../services/dailySummary.service.js";
 import { emitShopEvent, REALTIME_EVENTS } from "../utils/realtime.js";
 
 export const getSummary = asyncHandler(async (req, res) => {
+  if (!req.validated.query.date) {
+    const summaries = await summaryService.listSummaries(req.user, req.validated.query);
+    res.json({ success: true, data: summaries });
+    return;
+  }
   const summary = await summaryService.getSummary(req.user, req.validated.query);
   res.json({ success: true, data: summary });
 });

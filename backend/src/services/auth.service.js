@@ -14,6 +14,20 @@ function signToken(user) {
   );
 }
 
+export function refreshToken(user) {
+  return {
+    token: jwt.sign(
+      {
+        sub: user.id,
+        role: user.role,
+      },
+      process.env.JWT_SECRET || "dev-secret",
+      { expiresIn: process.env.JWT_EXPIRES_IN || "7d" },
+    ),
+    user,
+  };
+}
+
 export async function login({ identifier, password }) {
   const user = await prisma.user.findFirst({
     where: {
@@ -54,6 +68,28 @@ export async function login({ identifier, password }) {
 
 export function getCurrentUser(user) {
   return user;
+}
+
+export async function updateMe(currentUser, data) {
+  const update = {};
+  if (data.name) update.name = data.name;
+  if (data.email !== undefined) update.email = data.email;
+  if (data.password) update.passwordHash = await bcrypt.hash(data.password, 10);
+
+  const user = await prisma.user.update({
+    where: { id: currentUser.id },
+    data: update,
+    include: { role: { include: { permissions: true } } },
+  });
+
+  return {
+    id: user.id,
+    name: user.name,
+    mobile: user.mobile,
+    email: user.email,
+    role: user.role.name,
+    permissions: user.role.permissions.map((permission) => permission.action),
+  };
 }
 
 export async function listStaff(currentUser) {
@@ -120,4 +156,31 @@ export async function createStaff(currentUser, data) {
   });
 
   return staff;
+}
+
+export async function updateStaff(currentUser, staffId, data) {
+  const staffRole = await prisma.role.findUnique({ where: { name: "STAFF" } });
+  const existing = await prisma.user.findUnique({ where: { id: staffId } });
+  if (!existing || existing.roleId !== staffRole?.id) {
+    throw new ApiError(404, "Staff not found");
+  }
+
+  const update = {};
+  if (data.name) update.name = data.name;
+  if (data.mobile) update.mobile = data.mobile;
+  if (data.email !== undefined) update.email = data.email;
+  if (data.status) update.status = data.status;
+  if (data.password) update.passwordHash = await bcrypt.hash(data.password, 10);
+
+  return prisma.user.update({
+    where: { id: staffId },
+    data: update,
+    select: {
+      id: true,
+      name: true,
+      mobile: true,
+      email: true,
+      status: true,
+    },
+  });
 }

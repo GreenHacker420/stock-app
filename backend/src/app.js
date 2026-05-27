@@ -18,6 +18,8 @@ import notificationRoutes from "./routes/notification.routes.js";
 import rateChangeRequestRoutes from "./routes/rateChangeRequest.routes.js";
 import correctionRequestRoutes from "./routes/correctionRequest.routes.js";
 import auditLogRoutes from "./routes/auditLog.routes.js";
+import chequeRoutes from "./routes/cheque.routes.js";
+import dashboardRoutes from "./routes/dashboard.routes.js";
 import { errorHandler, notFoundHandler } from "./middleware/error.middleware.js";
 
 export function createApp() {
@@ -64,6 +66,8 @@ export function createApp() {
   app.use("/rate-change-requests", rateChangeRequestRoutes);
   app.use("/correction-requests", correctionRequestRoutes);
   app.use("/audit-logs", auditLogRoutes);
+  app.use("/cheques", chequeRoutes);
+  app.use("/dashboard", dashboardRoutes);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

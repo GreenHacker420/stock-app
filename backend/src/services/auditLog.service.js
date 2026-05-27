@@ -3,6 +3,7 @@ import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 
 export async function listAuditLogs(user, { shopId, entityType, action, userId, dateFrom, dateTo }) {
   if (shopId) await assertShopAccess(user, shopId);
+  const shopIds = shopId ? [shopId] : await accessibleShopIds(user);
 
   const createdAt = {};
   if (dateFrom) createdAt.gte = new Date(dateFrom);
@@ -10,7 +11,7 @@ export async function listAuditLogs(user, { shopId, entityType, action, userId, 
 
   return prisma.auditLog.findMany({
     where: {
-      shopId: shopId || undefined,
+      shopId: { in: shopIds },
       entityType: entityType || undefined,
       action: action || undefined,
       userId: userId || undefined,
@@ -22,6 +23,15 @@ export async function listAuditLogs(user, { shopId, entityType, action, userId, 
     orderBy: { createdAt: "desc" },
     take: 500,
   });
+}
+
+async function accessibleShopIds(user) {
+  if (user.role === "OWNER") {
+    const shops = await prisma.shop.findMany({ where: { ownerId: user.id }, select: { id: true } });
+    return shops.map((shop) => shop.id);
+  }
+  const accesses = await prisma.staffShopAccess.findMany({ where: { staffId: user.id }, select: { shopId: true } });
+  return accesses.map((access) => access.shopId);
 }
 
 export function toCsv(rows) {

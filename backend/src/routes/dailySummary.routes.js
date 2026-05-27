@@ -10,8 +10,11 @@ const router = Router();
 
 const querySchema = z.object({
   query: z.object({
-    shopId: z.string().min(1),
-    date: z.string().min(1),
+    shopId: z.string().optional(),
+    date: z.string().optional(),
+    dateFrom: z.string().optional(),
+    dateTo: z.string().optional(),
+    status: z.enum(["DRAFT", "GENERATED", "REVIEWED", "LOCKED", "EXPORTED"]).optional(),
   }),
 });
 

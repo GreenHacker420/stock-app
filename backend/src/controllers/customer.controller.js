@@ -24,3 +24,13 @@ export const updateCustomer = asyncHandler(async (req, res) => {
   );
   res.json({ success: true, data: customer });
 });
+
+export const getOutstanding = asyncHandler(async (req, res) => {
+  const outstanding = await customerService.getOutstanding(req.user, req.validated.params.id);
+  res.json({ success: true, data: outstanding });
+});
+
+export const getPriceHistory = asyncHandler(async (req, res) => {
+  const history = await customerService.getPriceHistory(req.user, req.validated.params.id, req.validated.query);
+  res.json({ success: true, data: history });
+});

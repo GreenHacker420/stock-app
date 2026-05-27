@@ -65,6 +65,7 @@ export async function generateSummary(user, { shopId, date }) {
 
 export async function listSummaries(user, { shopId, dateFrom, dateTo, status }) {
   if (shopId) await assertShopAccess(user, shopId);
+  const shopIds = shopId ? [shopId] : await accessibleShopIds(user);
 
   const summaryDate = {};
   if (dateFrom) summaryDate.gte = new Date(dateFrom);
@@ -72,13 +73,22 @@ export async function listSummaries(user, { shopId, dateFrom, dateTo, status }) 
 
   return prisma.dailySummary.findMany({
     where: {
-      shopId: shopId || undefined,
+      shopId: { in: shopIds },
       status: status || undefined,
       summaryDate: Object.keys(summaryDate).length ? summaryDate : undefined,
     },
     include: { shop: { select: { id: true, name: true, city: true } } },
     orderBy: { summaryDate: "desc" },
   });
+}
+
+async function accessibleShopIds(user) {
+  if (user.role === "OWNER") {
+    const shops = await prisma.shop.findMany({ where: { ownerId: user.id }, select: { id: true } });
+    return shops.map((shop) => shop.id);
+  }
+  const accesses = await prisma.staffShopAccess.findMany({ where: { staffId: user.id }, select: { shopId: true } });
+  return accesses.map((access) => access.shopId);
 }
 
 export async function getSummaryById(user, id) {

@@ -51,6 +51,13 @@ const updateSchema = z.object({
 router.use(requireAuth);
 
 router.get("/", requirePermission(PERMISSIONS.CUSTOMER_VIEW), validate(listSchema), customerController.listCustomers);
+router.get("/:id/outstanding", requirePermission(PERMISSIONS.CUSTOMER_VIEW), validate(z.object({ params: idParams })), customerController.getOutstanding);
+router.get(
+  "/:id/price-history",
+  requirePermission(PERMISSIONS.CUSTOMER_VIEW),
+  validate(z.object({ params: idParams, query: z.object({ itemId: z.string().optional() }), body: z.object({}).optional() })),
+  customerController.getPriceHistory,
+);
 router.get("/:id", requirePermission(PERMISSIONS.CUSTOMER_VIEW), validate(z.object({ params: idParams })), customerController.getCustomer);
 router.post("/", requirePermission(PERMISSIONS.CUSTOMER_CREATE), validate(createSchema), customerController.createCustomer);
 router.patch("/:id", requirePermission(PERMISSIONS.CUSTOMER_UPDATE), validate(updateSchema), customerController.updateCustomer);

@@ -164,6 +164,19 @@ export type AuditLog = {
   createdAt: string;
 };
 
+export type ChequePayment = Payment & {
+  details?: {
+    chequeNumber?: string | null;
+    chequeBankName?: string | null;
+    chequeBranch?: string | null;
+    chequeDate?: string | null;
+    chequeDepositDate?: string | null;
+    chequeClearDate?: string | null;
+    chequeStatus?: string | null;
+  } | null;
+  customer?: Customer | null;
+};
+
 export type Sale = {
   id: string;
   saleNumber: string;
@@ -220,8 +233,20 @@ export async function login(identifier: string, password: string) {
   });
 }
 
+export async function logout(token: string) {
+  return apiRequest("/auth/logout", { method: "POST", token });
+}
+
+export async function refreshToken(token: string) {
+  return apiRequest<{ token: string; user: ApiUser }>("/auth/refresh", { method: "POST", token });
+}
+
 export async function fetchMe(token: string) {
   return apiRequest<ApiUser>("/auth/me", { token });
+}
+
+export async function updateMe(token: string, data: { name?: string; email?: string | null; password?: string }) {
+  return apiRequest<ApiUser>("/auth/me", { method: "PATCH", token, body: JSON.stringify(data) });
 }
 
 export async function fetchStaff(token: string) {
@@ -230,6 +255,10 @@ export async function fetchStaff(token: string) {
 
 export async function createStaff(token: string, data: any) {
   return apiRequest<ApiUser>("/auth/staff", { method: "POST", token, body: JSON.stringify(data) });
+}
+
+export async function updateStaff(token: string, id: string, data: any) {
+  return apiRequest<ApiUser>(`/auth/staff/${id}`, { method: "PATCH", token, body: JSON.stringify(data) });
 }
 
 // SHOPS
@@ -311,6 +340,33 @@ export async function fetchCustomers(token: string, shopId: string) {
   return apiRequest<Customer[]>(`/customers?shopId=${encodeURIComponent(shopId)}`, { token });
 }
 
+export async function fetchCustomerOutstanding(token: string, customerId: string) {
+  return apiRequest(`/customers/${customerId}/outstanding`, { token });
+}
+
+export async function fetchCustomerPriceHistory(token: string, customerId: string, itemId?: string) {
+  const query = itemId ? `?itemId=${encodeURIComponent(itemId)}` : "";
+  return apiRequest(`/customers/${customerId}/price-history${query}`, { token });
+}
+
+export async function fetchItemStock(token: string, itemId: string) {
+  return apiRequest(`/items/${itemId}/stock`, { token });
+}
+
+export async function fetchItemPriceHistory(token: string, itemId: string, customerId?: string) {
+  const query = customerId ? `?customerId=${encodeURIComponent(customerId)}` : "";
+  return apiRequest(`/items/${itemId}/price-history${query}`, { token });
+}
+
+export async function fetchItemRecentRates(token: string, itemId: string, customerId?: string) {
+  const query = customerId ? `?customerId=${encodeURIComponent(customerId)}` : "";
+  return apiRequest(`/items/${itemId}/recent-rates${query}`, { token });
+}
+
+export async function fetchItemRateSuggestion(token: string, itemId: string, customerId: string) {
+  return apiRequest(`/items/${itemId}/customer-rate-suggestion?customerId=${encodeURIComponent(customerId)}`, { token });
+}
+
 // PAYMENTS & VERIFICATION
 export async function fetchPayments(token: string, shopId: string, options: any = {}) {
   let url = `/payments?shopId=${encodeURIComponent(shopId)}`;
@@ -384,7 +440,7 @@ export async function fetchDailySummaries(token: string, options: { shopId?: str
     if (value) params.set(key, value);
   }
   const query = params.toString();
-  return apiRequest<DailySummary[]>(`/daily-summaries/list${query ? `?${query}` : ""}`, { token });
+  return apiRequest<DailySummary[]>(`/daily-summaries${query ? `?${query}` : ""}`, { token });
 }
 
 export async function fetchDailySummaryById(token: string, id: string) {
@@ -463,4 +519,48 @@ export async function fetchAuditLogs(token: string, options: { shopId?: string; 
   }
   const query = params.toString();
   return apiRequest<AuditLog[]>(`/audit-logs${query ? `?${query}` : ""}`, { token });
+}
+
+// CHEQUES
+export async function fetchCheques(token: string, options: { shopId?: string; status?: string } = {}) {
+  const params = new URLSearchParams();
+  if (options.shopId) params.set("shopId", options.shopId);
+  if (options.status) params.set("status", options.status);
+  const query = params.toString();
+  return apiRequest<ChequePayment[]>(`/cheques${query ? `?${query}` : ""}`, { token });
+}
+
+export async function fetchCheque(token: string, id: string) {
+  return apiRequest<ChequePayment>(`/cheques/${id}`, { token });
+}
+
+export async function markChequeDeposited(token: string, id: string, reason?: string) {
+  return apiRequest<ChequePayment>(`/cheques/${id}/mark-deposited`, { method: "POST", token, body: JSON.stringify({ reason }) });
+}
+
+export async function markChequeCleared(token: string, id: string, reason?: string) {
+  return apiRequest<ChequePayment>(`/cheques/${id}/mark-cleared`, { method: "POST", token, body: JSON.stringify({ reason }) });
+}
+
+export async function markChequeBounced(token: string, id: string, reason?: string) {
+  return apiRequest<ChequePayment>(`/cheques/${id}/mark-bounced`, { method: "POST", token, body: JSON.stringify({ reason }) });
+}
+
+export async function markChequeReturned(token: string, id: string, reason?: string) {
+  return apiRequest<ChequePayment>(`/cheques/${id}/mark-returned`, { method: "POST", token, body: JSON.stringify({ reason }) });
+}
+
+// DASHBOARDS
+export async function fetchOwnerDashboard(token: string, options: { shopId?: string; date?: string } = {}) {
+  const params = new URLSearchParams();
+  if (options.shopId) params.set("shopId", options.shopId);
+  if (options.date) params.set("date", options.date);
+  const query = params.toString();
+  return apiRequest(`/dashboard/owner${query ? `?${query}` : ""}`, { token });
+}
+
+export async function fetchStaffTodaySummary(token: string, shopId: string, date?: string) {
+  const params = new URLSearchParams({ shopId });
+  if (date) params.set("date", date);
+  return apiRequest(`/dashboard/staff/today?${params.toString()}`, { token });
 }

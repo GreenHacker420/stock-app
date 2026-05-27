@@ -82,3 +82,59 @@ export async function updateCustomer(user, id, data) {
 
   return customer;
 }
+
+export async function getOutstanding(user, id) {
+  const customer = await getCustomer(user, id);
+  const records = await prisma.creditOutstanding.findMany({
+    where: { customerId: id, status: { in: ["PENDING", "PARTIALLY_PAID", "OVERDUE"] } },
+    include: { sale: true, deliveryMemo: true, order: true },
+    orderBy: [{ dueDate: "asc" }, { createdAt: "desc" }],
+  });
+
+  const totalPending = records.reduce((sum, record) => sum + Number(record.pendingAmount), 0);
+  return { customer, totalPending, records };
+}
+
+export async function getPriceHistory(user, id, { itemId }) {
+  const customer = await getCustomer(user, id);
+
+  const [sales, dms, orders] = await Promise.all([
+    prisma.saleItem.findMany({
+      where: { itemId: itemId || undefined, sale: { customerId: id } },
+      include: { item: true, sale: true },
+      orderBy: { sale: { createdAt: "desc" } },
+      take: 100,
+    }),
+    prisma.deliveryMemoItem.findMany({
+      where: { itemId: itemId || undefined, deliveryMemo: { customerId: id } },
+      include: { item: true, deliveryMemo: true },
+      orderBy: { deliveryMemo: { createdAt: "desc" } },
+      take: 100,
+    }),
+    prisma.orderItem.findMany({
+      where: { itemId: itemId || undefined, order: { customerId: id } },
+      include: { item: true, order: true },
+      orderBy: { order: { createdAt: "desc" } },
+      take: 100,
+    }),
+  ]);
+
+  const rows = [
+    ...sales.map((row) => ({ type: "SALE", date: row.sale.createdAt, item: row.item, quantity: row.quantity, rate: row.rate, recordNumber: row.sale.saleNumber })),
+    ...dms.map((row) => ({ type: "DM", date: row.deliveryMemo.createdAt, item: row.item, quantity: row.quantity, rate: row.rate, recordNumber: row.deliveryMemo.dmNumber })),
+    ...orders.map((row) => ({ type: "ORDER", date: row.order.createdAt, item: row.item, quantity: row.quantityOrdered, rate: row.rate, recordNumber: row.order.orderNumber })),
+  ].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  const rates = rows.map((row) => Number(row.rate));
+  return {
+    customer,
+    rows,
+    summary: {
+      count: rows.length,
+      lastRate: rates[0] ?? null,
+      averageRate: rates.length ? rates.reduce((sum, rate) => sum + rate, 0) / rates.length : null,
+      minRate: rates.length ? Math.min(...rates) : null,
+      maxRate: rates.length ? Math.max(...rates) : null,
+    },
+  };
+}

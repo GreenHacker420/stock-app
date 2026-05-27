@@ -56,6 +56,25 @@ router.use(requireAuth);
 router.get("/", requirePermission(PERMISSIONS.ITEM_VIEW), validate(listSchema), itemController.listItems);
 router.post("/categories", requirePermission(PERMISSIONS.ITEM_CREATE), validate(categorySchema), itemController.createCategory);
 router.post("/", requirePermission(PERMISSIONS.ITEM_CREATE), validate(createItemSchema), itemController.createItem);
+router.get("/:id/stock", requirePermission(PERMISSIONS.ITEM_VIEW), validate(z.object({ params: idParams })), itemController.getItemStock);
+router.get(
+  "/:id/price-history",
+  requirePermission(PERMISSIONS.ITEM_VIEW),
+  validate(z.object({ params: idParams, query: z.object({ customerId: z.string().optional() }), body: z.object({}).optional() })),
+  itemController.getPriceHistory,
+);
+router.get(
+  "/:id/recent-rates",
+  requirePermission(PERMISSIONS.ITEM_VIEW),
+  validate(z.object({ params: idParams, query: z.object({ customerId: z.string().optional() }), body: z.object({}).optional() })),
+  itemController.getRecentRates,
+);
+router.get(
+  "/:id/customer-rate-suggestion",
+  requirePermission(PERMISSIONS.ITEM_VIEW),
+  validate(z.object({ params: idParams, query: z.object({ customerId: z.string().min(1) }), body: z.object({}).optional() })),
+  itemController.getRateSuggestion,
+);
 router.patch("/:id", requirePermission(PERMISSIONS.ITEM_UPDATE), validate(updateItemSchema), itemController.updateItem);
 
 export default router;
