@@ -1,13 +1,14 @@
 name: Production Deploy
 
-on:
+'on':
   push:
-    branches: [master]
+    branches:
+      - master
     paths:
-      - 'backend/**'
-      - '.github/workflows/deploy.yml'
-      - 'docker-compose.yml'
-      - 'Caddyfile'
+      - backend/**
+      - .github/workflows/deploy.yml
+      - docker-compose.yml
+      - Caddyfile
 
 env:
   REGISTRY: ghcr.io
@@ -57,8 +58,8 @@ jobs:
           host: ${{ secrets.LIGHTSAIL_HOST }}
           username: ${{ secrets.LIGHTSAIL_USER }}
           key: ${{ secrets.LIGHTSAIL_SSH_KEY }}
-          source: "docker-compose.yml,Caddyfile"
-          target: "/home/ubuntu/shop-app"
+          source: docker-compose.yml,Caddyfile
+          target: /home/ubuntu/shop-app
 
       - name: SSH Deploy
         uses: appleboy/ssh-action@v1.2.0
@@ -88,7 +89,7 @@ jobs:
             EOF
 
             echo "📥 Pull latest images..."
-            docker compose pull backend
+            docker compose pull shop-backend
 
             echo "🚀 Start services (zero-downtime rolling update)..."
             docker compose up -d --remove-orphans
@@ -96,7 +97,7 @@ jobs:
             echo "🧱 Run Prisma migrations..."
             # Wait a bit for the container to be ready
             sleep 5
-            docker compose exec -T backend npx prisma migrate deploy
+            docker compose exec -T shop-backend npx prisma migrate deploy
 
             echo "🌐 Updating main Caddy configuration..."
             if ! grep -q "shop-api.evergreenclassic.in" /home/ubuntu/backend/Caddyfile; then
@@ -112,7 +113,7 @@ jobs:
             echo "📜 Status Check:"
             cd /home/ubuntu/shop-app
             docker compose ps
-            docker compose logs --tail 50 backend || true
+            docker compose logs --tail 50 shop-backend || true
 
             echo "🧹 Cleanup old images..."
             docker image prune -f

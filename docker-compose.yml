@@ -1,5 +1,5 @@
 services:
-  backend:
+  shop-backend:
     image: ${IMAGE_NAME}:${IMAGE_TAG:-latest}
     container_name: shop-backend
     restart: always
