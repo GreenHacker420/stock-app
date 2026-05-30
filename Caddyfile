@@ -1,6 +1,14 @@
 shop-api.evergreenclassic.in {
     encode gzip
 
+    # Block sensitive files and scanner fingerprinting probes
+    @sensitive_probes {
+        path *.env* *.git* *.sql* *.bak* *.tgz* *.zip* *.old* *.backup* *.tar.gz* *.sqlite*
+        path /wp-* /xmlrpc.php /info.php /phpinfo* /test.php /php.php /php_info.php /i.php /pi.php /pinfo.php /php_version.php /admin/phpinfo.php
+        path /.aws/* /actuator/* /trace.axd /telescope/* /_profiler/*
+    }
+    respond @sensitive_probes "Not Found" 404
+
     # Handle CORS OPTIONS Preflight
     @cors_preflight method OPTIONS
     handle @cors_preflight {

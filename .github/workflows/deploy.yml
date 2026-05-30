@@ -10,6 +10,10 @@ name: Production Deploy
       - docker-compose.yml
       - Caddyfile
 
+concurrency:
+  group: production
+  cancel-in-progress: true
+
 env:
   REGISTRY: ghcr.io
   IMAGE_NAME: greenhacker420/shop-backend
@@ -43,7 +47,7 @@ jobs:
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
             ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
           cache-from: type=gha
-          cache-to: type=inline
+          cache-to: type=gha,mode=max
 
   deploy:
     needs: build
@@ -77,7 +81,7 @@ jobs:
             echo "📝 Create .env file..."
             cat << EOF > .env
             IMAGE_NAME=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-            IMAGE_TAG=latest
+            IMAGE_TAG=${{ github.sha }}
             DATABASE_URL=${{ secrets.DATABASE_URL }}
             JWT_SECRET=${{ secrets.JWT_SECRET }}
             CORS_ORIGIN=${{ secrets.CORS_ORIGIN }}
@@ -87,24 +91,40 @@ jobs:
             DB_PASSWORD=${{ secrets.DB_PASSWORD }}
             DB_NAME=${{ secrets.DB_NAME }}
             EOF
+            chmod 600 .env
 
-            echo "📥 Pull latest images..."
+            echo "📥 Pulling image version ${{ github.sha }}..."
             docker compose pull shop-backend
 
-            echo "🚀 Start services (zero-downtime rolling update)..."
+            echo "🧱 Running Prisma migrations..."
+            docker compose run --rm shop-backend npx prisma migrate deploy
+
+            echo "🚀 Updating services..."
             docker compose up -d --remove-orphans
 
-            echo "🧱 Run Prisma migrations..."
-            # Wait a bit for the container to be ready
-            sleep 5
-            docker compose exec -T shop-backend npx prisma migrate deploy
+            echo "⏳ Waiting for container to be healthy..."
+            timeout 60 bash -c '
+            until [ "$(docker inspect -f "{{.State.Health.Status}}" shop-backend)" = "healthy" ]
+            do
+              sleep 2
+            done
+            '
 
             echo "🌐 Updating main Caddy configuration..."
-            if ! grep -q "shop-api.evergreenclassic.in" /home/ubuntu/backend/Caddyfile; then
-              echo "" >> /home/ubuntu/backend/Caddyfile
-              cat /home/ubuntu/shop-app/Caddyfile >> /home/ubuntu/backend/Caddyfile
-              echo "✅ Added shop-api block to main Caddyfile"
+            # Clean up legacy block without markers if it exists (one-time migration)
+            if grep -q "shop-api.evergreenclassic.in" /home/ubuntu/backend/Caddyfile && ! grep -q "# BEGIN shop-api" /home/ubuntu/backend/Caddyfile; then
+              sed -i '/shop-api.evergreenclassic.in {/,$d' /home/ubuntu/backend/Caddyfile
             fi
+
+            # Remove existing marker block if present
+            sed -i '/# BEGIN shop-api/,/# END shop-api/d' /home/ubuntu/backend/Caddyfile
+
+            # Append new block with markers
+            echo "" >> /home/ubuntu/backend/Caddyfile
+            echo "# BEGIN shop-api" >> /home/ubuntu/backend/Caddyfile
+            cat /home/ubuntu/shop-app/Caddyfile >> /home/ubuntu/backend/Caddyfile
+            echo "# END shop-api" >> /home/ubuntu/backend/Caddyfile
+            echo "✅ Main Caddyfile updated with latest shop-api config"
 
             echo "🔄 Reloading Caddy..."
             cd /home/ubuntu/backend
@@ -113,6 +133,8 @@ jobs:
             echo "📜 Status Check:"
             cd /home/ubuntu/shop-app
             docker compose ps
+            echo "✅ Deployed Image ID:"
+            docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} --format '{{.Id}}'
             docker compose logs --tail 50 shop-backend || true
 
             echo "🧹 Cleanup old images..."
