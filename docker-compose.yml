@@ -1,23 +1,4 @@
 services:
-  caddy:
-    image: caddy:latest
-    container_name: caddy
-    restart: always
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile
-      - caddy_data:/data
-      - caddy_config:/config
-    networks:
-      - app
-    healthcheck:
-      test: ["CMD", "caddy", "version"]
-      interval: 1m
-      timeout: 10s
-      retries: 3
-
   backend:
     image: ${IMAGE_NAME}:${IMAGE_TAG:-latest}
     container_name: shop-backend
@@ -38,38 +19,9 @@ services:
       - CORS_ORIGIN=${CORS_ORIGIN}
       - NODE_ENV=production
       - PORT=6600
-    depends_on:
-      postgres:
-        condition: service_healthy
     networks:
-      - app
       - backend_app
 
-  postgres:
-    image: postgres:18-alpine
-    container_name: shop_db
-    restart: always
-    environment:
-      POSTGRES_USER: ${DB_USER:-postgres}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-password}
-      POSTGRES_DB: ${DB_NAME:-shop_app}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    networks:
-      - app
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-
-volumes:
-  postgres_data:
-  caddy_data:
-  caddy_config:
-
 networks:
-  app:
-    driver: bridge
   backend_app:
     external: true
