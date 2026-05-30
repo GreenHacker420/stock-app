@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { KeyboardAvoidingView, Platform, Pressable, ScrollView, View } from "react-native";
 import * as LocalAuthentication from "expo-local-authentication";
 import { Button, Divider, Icon, Surface, Text, TextInput } from "react-native-paper";
+import { z } from "zod";
 import { getToken } from "../../auth/token-storage";
 import { useAuthStore } from "../../auth/auth-store";
 
@@ -46,12 +47,21 @@ export function Login() {
       return;
     }
 
-    const mobile = identifier.trim();
-    if (!/^\d{10}$/.test(mobile)) {
-      setError("Enter a valid 10 digit mobile number.");
+    const trimmedIdentifier = identifier.trim();
+    const identifierSchema = z.union([
+      z.email(),
+      z.string().regex(/^\d{10}$/)
+    ]);
+
+    const idResult = identifierSchema.safeParse(trimmedIdentifier);
+    if (!idResult.success) {
+      setError("Enter a valid 10-digit mobile number or email address.");
       return;
     }
-    if (password.length < 4) {
+
+    const passwordSchema = z.string().min(4);
+    const passResult = passwordSchema.safeParse(password);
+    if (!passResult.success) {
       setError(mode === "PIN" ? "Enter your 4+ digit PIN." : "Password must be at least 4 characters.");
       return;
     }
@@ -61,7 +71,7 @@ export function Login() {
       if (mode === "PIN" && hasSavedLogin) {
         await signInWithSavedToken(password);
       } else {
-        await signIn(mobile, password);
+        await signIn(trimmedIdentifier, password);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message || "Invalid login credentials" : "Invalid login credentials");
@@ -74,7 +84,7 @@ export function Login() {
     setError(null);
     setInfo(null);
     if (!hasSavedLogin) {
-      setError("Sign in once with mobile and PIN before using biometric login.");
+      setError("Sign in once with mobile/email and PIN before using biometric login.");
       return;
     }
     if (!biometricAvailable) {
@@ -147,19 +157,19 @@ export function Login() {
                   {isForgot ? "Forgot PIN" : mode === "PIN" ? "Quick Login" : "Sign In"}
                 </Text>
                 <Text variant="bodyMedium" style={{ color: "#64748b", fontWeight: "500" }}>
-                  {isForgot ? "PIN reset is handled by an owner/admin." : mode === "PIN" ? "Use your saved mobile and PIN." : "Enter your mobile and password."}
+                  {isForgot ? "PIN reset is handled by an owner/admin." : mode === "PIN" ? "Use your saved mobile and PIN." : "Enter your mobile or email and password."}
                 </Text>
               </View>
 
               {!isForgot ? (
                 <>
                   <View>
-                    <Text style={{ color: "#475569", marginBottom: 8, fontSize: 11, fontWeight: "700", letterSpacing: 0.8 }}>MOBILE</Text>
+                    <Text style={{ color: "#475569", marginBottom: 8, fontSize: 11, fontWeight: "700", letterSpacing: 0.8 }}>MOBILE / EMAIL</Text>
                     <TextInput
                       mode="outlined"
-                      placeholder="10 digit mobile number"
+                      placeholder="Enter mobile or email"
                       value={identifier}
-                      keyboardType="phone-pad"
+                      keyboardType="email-address"
                       autoCapitalize="none"
                       left={<TextInput.Icon icon="account-outline" color="#94a3b8" />}
                       onChangeText={setIdentifier}
