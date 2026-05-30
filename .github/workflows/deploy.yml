@@ -62,7 +62,7 @@ jobs:
           host: ${{ secrets.LIGHTSAIL_HOST }}
           username: ${{ secrets.LIGHTSAIL_USER }}
           key: ${{ secrets.LIGHTSAIL_SSH_KEY }}
-          source: docker-compose.yml,Caddyfile
+          source: docker-compose.yml
           target: /home/ubuntu/shop-app
 
       - name: SSH Deploy
@@ -109,26 +109,6 @@ jobs:
               sleep 2
             done
             '
-
-            echo "🌐 Updating main Caddy configuration..."
-            # Clean up legacy block without markers if it exists (one-time migration)
-            if grep -q "shop-api.evergreenclassic.in" /home/ubuntu/backend/Caddyfile && ! grep -q "# BEGIN shop-api" /home/ubuntu/backend/Caddyfile; then
-              sed -i '/shop-api.evergreenclassic.in {/,$d' /home/ubuntu/backend/Caddyfile
-            fi
-
-            # Remove existing marker block if present
-            sed -i '/# BEGIN shop-api/,/# END shop-api/d' /home/ubuntu/backend/Caddyfile
-
-            # Append new block with markers
-            echo "" >> /home/ubuntu/backend/Caddyfile
-            echo "# BEGIN shop-api" >> /home/ubuntu/backend/Caddyfile
-            cat /home/ubuntu/shop-app/Caddyfile >> /home/ubuntu/backend/Caddyfile
-            echo "# END shop-api" >> /home/ubuntu/backend/Caddyfile
-            echo "✅ Main Caddyfile updated with latest shop-api config"
-
-            echo "🔄 Reloading Caddy..."
-            cd /home/ubuntu/backend
-            docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile || true
 
             echo "📜 Status Check:"
             cd /home/ubuntu/shop-app
