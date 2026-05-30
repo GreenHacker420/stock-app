@@ -1,0 +1,22 @@
+shop-api.evergreenclassic.in {
+    encode gzip
+
+    # Handle CORS OPTIONS Preflight
+    @cors_preflight method OPTIONS
+    handle @cors_preflight {
+        header {
+            Access-Control-Allow-Origin "{header.Origin}"
+            Access-Control-Allow-Methods "GET, POST, PUT, DELETE, PATCH, OPTIONS"
+            Access-Control-Allow-Headers "{header.Access-Control-Request-Headers}"
+            Access-Control-Allow-Credentials "true"
+            Access-Control-Max-Age "86400"
+            Vary "Origin, Access-Control-Request-Headers"
+        }
+        respond "" 204
+    }
+
+    reverse_proxy shop-backend:6600 {
+        header_up X-Forwarded-Host {host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+}
