@@ -78,29 +78,14 @@ jobs:
             echo "🔑 Login to GHCR..."
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
-            echo "📝 Create .env file..."
-            cat << EOF > .env
-            IMAGE_NAME=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-            IMAGE_TAG=${{ github.sha }}
-            DATABASE_URL=${{ secrets.DATABASE_URL }}
-            JWT_SECRET=${{ secrets.JWT_SECRET }}
-            CORS_ORIGIN=${{ secrets.CORS_ORIGIN }}
-            NODE_ENV=production
-            PORT=6600
-            DB_USER=${{ secrets.DB_USER }}
-            DB_PASSWORD=${{ secrets.DB_PASSWORD }}
-            DB_NAME=${{ secrets.DB_NAME }}
-            EOF
-            chmod 600 .env
-
             echo "📥 Pulling image version ${{ github.sha }}..."
-            docker compose pull shop-backend
+            IMAGE_TAG=${{ github.sha }} docker compose pull shop-backend
 
             echo "🧱 Running Prisma migrations..."
-            docker compose run --rm shop-backend npx prisma migrate deploy
+            IMAGE_TAG=${{ github.sha }} docker compose run --rm shop-backend npx prisma migrate deploy
 
             echo "🚀 Updating services..."
-            docker compose up -d --remove-orphans
+            IMAGE_TAG=${{ github.sha }} docker compose up -d --remove-orphans
 
             echo "⏳ Waiting for container to be healthy..."
             timeout 60 bash -c '
@@ -112,10 +97,10 @@ jobs:
 
             echo "📜 Status Check:"
             cd /home/ubuntu/shop-app
-            docker compose ps
+            IMAGE_TAG=${{ github.sha }} docker compose ps
             echo "✅ Deployed Image ID:"
             docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} --format '{{.Id}}'
-            docker compose logs --tail 50 shop-backend || true
+            IMAGE_TAG=${{ github.sha }} docker compose logs --tail 50 shop-backend || true
 
             echo "🧹 Cleanup old images..."
             docker image prune -f
