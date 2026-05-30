@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   caddy:
     image: caddy:latest
@@ -48,7 +46,7 @@ services:
       - backend_app
 
   postgres:
-    image: postgres:19-alpine
+    image: postgres:18-alpine
     container_name: shop_db
     restart: always
     environment:
