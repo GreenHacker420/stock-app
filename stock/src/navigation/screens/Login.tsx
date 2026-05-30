@@ -172,14 +172,14 @@ export function Login() {
 
                   <View>
                     <View className="mb-2 flex-row items-center justify-between">
-                      <Text style={{ color: "#475569", fontSize: 11, fontWeight: "700", letterSpacing: 0.8 }}>{mode === "PIN" ? "PIN" : "PASSWORD / PIN"}</Text>
+                      <Text style={{ color: "#475569", fontSize: 11, fontWeight: "700", letterSpacing: 0.8 }}>{mode === "PIN" ? "PIN" : "PASSWORD"}</Text>
                       <Pressable onPress={() => { setMode("FORGOT"); setError(null); setInfo(null); }}>
                         <Text style={{ color: "#1e40af", fontSize: 11, fontWeight: "800", letterSpacing: 0.5 }}>FORGOT?</Text>
                       </Pressable>
                     </View>
                     <TextInput
                       mode="outlined"
-                      placeholder="••••"
+                      placeholder={mode === "PIN" ? "••••" : "Enter password"}
                       value={password}
                       secureTextEntry={secureText}
                       keyboardType={mode === "PIN" ? "number-pad" : "default"}
