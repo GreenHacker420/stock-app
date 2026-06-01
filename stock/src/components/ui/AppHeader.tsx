@@ -1,18 +1,27 @@
-import { useMemo } from "react";
-import { View } from "react-native";
+import React, { useMemo } from "react";
+import { View, StyleSheet, Pressable } from "react-native";
 import { Avatar, Badge } from "@rneui/themed";
-import { Text } from "react-native-paper";
+import { Text, Icon } from "react-native-paper";
+import { useNavigation } from "@react-navigation/native";
+
 import { useAuthStore } from "../../auth/auth-store";
+import { useShopStore } from "../../auth/shop-store";
+import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 
 type AppHeaderProps = {
   title: string;
   subtitle?: string;
   role?: "OWNER" | "STAFF";
   initials?: string;
+  showBack?: boolean;
 };
 
-export function AppHeader({ title, subtitle, role, initials }: AppHeaderProps) {
+export function AppHeader({ title, subtitle, role, initials, showBack }: AppHeaderProps) {
   const user = useAuthStore((state) => state.user);
+  const { activeShopId } = useShopStore();
+  const navigation = useNavigation();
+
+  const canGoBack = showBack ?? navigation.canGoBack();
 
   const displayInitials = useMemo(() => {
     if (initials) return initials;
@@ -30,52 +39,123 @@ export function AppHeader({ title, subtitle, role, initials }: AppHeaderProps) {
   const displayRole = role ?? user?.role;
 
   return (
-    <View className="flex-row items-center justify-between gap-4 pb-1">
-      <View className="flex-1 gap-0.5">
-        <Text variant="headlineMedium" style={{ color: "#111827", fontWeight: "800", letterSpacing: -0.6 }}>
-          {title}
-        </Text>
-        {subtitle ? (
-          <Text variant="bodyMedium" style={{ color: "#4b5563", lineHeight: 18, fontSize: 13, fontWeight: "500" }}>
-            {subtitle}
-          </Text>
-        ) : null}
+    <View style={styles.headerContainer}>
+      <View style={styles.leftSection}>
+        {canGoBack && (
+          <Pressable 
+            onPress={() => navigation.goBack()}
+            style={({ pressed }) => [
+              styles.backButton,
+              pressed && styles.pressed
+            ]}
+          >
+            <Icon source="arrow-left" size={24} color={colors.textPrimary} />
+          </Pressable>
+        )}
+        <View style={styles.titleContainer}>
+          <Text style={styles.title} numberOfLines={1}>{title}</Text>
+          {subtitle ? (
+            <Text style={styles.subtitle} numberOfLines={1}>
+              {subtitle}
+            </Text>
+          ) : null}
+        </View>
       </View>
-      <View className="items-end gap-1.5">
-        <View style={{
-          shadowColor: "#000",
-          shadowOffset: { width: 0, height: 2 },
-          shadowOpacity: 0.1,
-          shadowRadius: 4,
-          elevation: 2,
-          borderRadius: 22,
-        }}>
+
+      <View style={styles.rightSection}>
+        <View style={styles.avatarContainer}>
           <Avatar
             rounded
             title={displayInitials}
-            containerStyle={{ backgroundColor: "#1e40af", width: 44, height: 44, borderWidth: 1.5, borderColor: "#ffffff" }}
-            titleStyle={{ fontSize: 14, fontWeight: "800", color: "#ffffff" }}
+            containerStyle={styles.avatar}
+            titleStyle={styles.avatarText}
           />
         </View>
-        {displayRole ? (
-          <Badge
-            value={displayRole}
-            badgeStyle={{
-              backgroundColor: displayRole === "OWNER" ? "#dbeafe" : "#f1f5f9",
-              borderColor: "transparent",
-              minHeight: 18,
-              borderRadius: 6,
-              paddingHorizontal: 6,
-            }}
-            textStyle={{
-              color: displayRole === "OWNER" ? "#1e3a8a" : "#475569",
-              fontWeight: "800",
-              fontSize: 9,
-              letterSpacing: 0.5,
-            }}
-          />
-        ) : null}
+        {displayRole && (
+          <View style={[
+            styles.roleBadge,
+            { backgroundColor: displayRole === 'OWNER' ? colors.primaryLight : colors.surfaceOffset }
+          ]}>
+            <Text style={[
+              styles.roleText,
+              { color: displayRole === 'OWNER' ? colors.primaryDark : colors.textSecondary }
+            ]}>
+              {displayRole}
+            </Text>
+          </View>
+        )}
       </View>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  headerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    minHeight: 64,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    backgroundColor: colors.bg,
+  },
+  leftSection: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  backButton: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: -spacing.sm,
+  },
+  titleContainer: {
+    flex: 1,
+  },
+  title: {
+    fontSize: fontSize.xl,
+    fontWeight: fontWeight.extrabold,
+    color: colors.primary,
+    letterSpacing: -0.5,
+  },
+  subtitle: {
+    fontSize: fontSize.sm,
+    color: colors.textSecondary,
+    fontWeight: fontWeight.medium,
+  },
+  rightSection: {
+    alignItems: 'flex-end',
+    gap: 4,
+  },
+  avatarContainer: {
+    ...shadow.sm,
+  },
+  avatar: {
+    backgroundColor: colors.primary,
+    width: 40,
+    height: 40,
+    borderWidth: 1.5,
+    borderColor: colors.surface,
+  },
+  avatarText: {
+    fontSize: 14,
+    fontWeight: fontWeight.bold,
+    color: colors.textInverse,
+  },
+  roleBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: radius.sm,
+  },
+  roleText: {
+    fontSize: 9,
+    fontWeight: fontWeight.black,
+    letterSpacing: 0.5,
+  },
+  pressed: {
+    opacity: 0.7,
+  }
+});

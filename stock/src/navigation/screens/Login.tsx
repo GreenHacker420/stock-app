@@ -1,10 +1,21 @@
-import { useEffect, useState } from "react";
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, View } from "react-native";
+import React, { useEffect, useState } from "react";
+import { 
+  KeyboardAvoidingView, 
+  Platform, 
+  Pressable, 
+  ScrollView, 
+  View, 
+  StyleSheet 
+} from "react-native";
 import * as LocalAuthentication from "expo-local-authentication";
-import { Button, Divider, Icon, Surface, Text, TextInput } from "react-native-paper";
+import { Divider, Icon, Text, TextInput as PaperInput } from "react-native-paper";
 import { z } from "zod";
+
 import { getToken } from "../../auth/token-storage";
 import { useAuthStore } from "../../auth/auth-store";
+import { Screen } from "../../components/Screen";
+import { Button } from "../../components/ui/Button";
+import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 
 const LAST_IDENTIFIER_KEY = "shopcontrol_last_identifier";
 
@@ -13,6 +24,7 @@ type LoginMode = "PASSWORD" | "PIN" | "FORGOT";
 export function Login() {
   const signIn = useAuthStore((state) => state.signIn);
   const signInWithSavedToken = useAuthStore((state) => state.signInWithSavedToken);
+  
   const [mode, setMode] = useState<LoginMode>("PASSWORD");
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
@@ -43,7 +55,7 @@ export function Login() {
     setInfo(null);
 
     if (mode === "FORGOT") {
-      setInfo("Ask the owner/admin to reset your PIN from Staff Management. Owner can update their password from Profile after login.");
+      setInfo("Ask the owner/admin to reset your PIN from Staff Management.");
       return;
     }
 
@@ -55,14 +67,14 @@ export function Login() {
 
     const idResult = identifierSchema.safeParse(trimmedIdentifier);
     if (!idResult.success) {
-      setError("Enter a valid 10-digit mobile number or email address.");
+      setError("Enter a valid mobile or email.");
       return;
     }
 
     const passwordSchema = z.string().min(4);
     const passResult = passwordSchema.safeParse(password);
     if (!passResult.success) {
-      setError(mode === "PIN" ? "Enter your 4+ digit PIN." : "Password must be at least 4 characters.");
+      setError(mode === "PIN" ? "Enter your 4+ digit PIN." : "Password too short.");
       return;
     }
 
@@ -74,7 +86,7 @@ export function Login() {
         await signIn(trimmedIdentifier, password);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message || "Invalid login credentials" : "Invalid login credentials");
+      setError(err instanceof Error ? err.message : "Invalid credentials");
     } finally {
       setIsSubmitting(false);
     }
@@ -83,209 +95,304 @@ export function Login() {
   async function handleBiometricLogin() {
     setError(null);
     setInfo(null);
-    if (!hasSavedLogin) {
-      setError("Sign in once with mobile/email and PIN before using biometric login.");
-      return;
-    }
-    if (!biometricAvailable) {
-      setError("Biometric login is not available on this device.");
-      return;
-    }
+    if (!hasSavedLogin || !biometricAvailable) return;
 
     const result = await LocalAuthentication.authenticateAsync({
       promptMessage: "Unlock ShopControl",
       fallbackLabel: "Use PIN",
-      disableDeviceFallback: false,
     });
-    if (!result.success) {
-      setError("Biometric authentication cancelled.");
-      return;
-    }
-
-    setIsSubmitting(true);
-    try {
-      await signInWithSavedToken();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Saved login expired. Sign in again.");
-    } finally {
-      setIsSubmitting(false);
+    
+    if (result.success) {
+      setIsSubmitting(true);
+      try {
+        await signInWithSavedToken();
+      } catch (err) {
+        setError("Saved login expired. Sign in again.");
+      } finally {
+        setIsSubmitting(false);
+      }
     }
   }
 
   const isForgot = mode === "FORGOT";
 
   return (
-    <KeyboardAvoidingView className="flex-1 bg-[#f8fafc]" behavior={Platform.select({ ios: "padding", default: undefined })}>
-      <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
-        <View className="flex-1 items-center justify-center px-6 py-12">
-          <View className="w-full max-w-[400px] gap-8">
-            {/* Brand Header */}
-            <View className="items-center gap-5">
-              <View 
-                style={{ 
-                  shadowColor: "#1e40af", 
-                  shadowOffset: { width: 0, height: 12 }, 
-                  shadowOpacity: 0.15, 
-                  shadowRadius: 20,
-                  elevation: 6,
-                }} 
-                className="h-20 w-20 items-center justify-center rounded-[24px] bg-[#1e40af]"
-              >
-                <Text variant="displaySmall" style={{ color: "#ffffff", fontWeight: "900", letterSpacing: -1 }}>SC</Text>
-              </View>
-              <View className="items-center gap-1.5">
-                <Text variant="headlineMedium" style={{ color: "#0f172a", fontWeight: "900", letterSpacing: -0.5 }}>ShopControl</Text>
-                <Text variant="bodyMedium" style={{ color: "#64748b", textAlign: "center", maxWidth: 280, lineHeight: 20, fontWeight: "500" }}>
-                  Empowering your retail operations with executive oversight.
-                </Text>
-              </View>
+    <Screen edges={['top', 'bottom', 'left', 'right']} bg={colors.bg}>
+      <KeyboardAvoidingView 
+        style={styles.container} 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <ScrollView 
+          contentContainerStyle={styles.scrollContent} 
+          keyboardShouldPersistTaps="handled" 
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.header}>
+            <View style={styles.logoBox}>
+              <Text style={styles.logoText}>SC</Text>
             </View>
-
-            {/* Login Card */}
-            <View 
-              style={{
-                shadowColor: "#0f172a",
-                shadowOffset: { width: 0, height: 16 },
-                shadowOpacity: 0.06,
-                shadowRadius: 24,
-                elevation: 4,
-              }}
-              className="gap-6 rounded-[28px] border border-slate-100 bg-white p-6"
-            >
-              <View className="gap-1.5">
-                <Text variant="titleLarge" style={{ color: "#0f172a", fontWeight: "800" }}>
-                  {isForgot ? "Forgot PIN" : mode === "PIN" ? "Quick Login" : "Sign In"}
-                </Text>
-                <Text variant="bodyMedium" style={{ color: "#64748b", fontWeight: "500" }}>
-                  {isForgot ? "PIN reset is handled by an owner/admin." : mode === "PIN" ? "Use your saved mobile and PIN." : "Enter your mobile or email and password."}
-                </Text>
-              </View>
-
-              {!isForgot ? (
-                <>
-                  <View>
-                    <Text style={{ color: "#475569", marginBottom: 8, fontSize: 11, fontWeight: "700", letterSpacing: 0.8 }}>MOBILE / EMAIL</Text>
-                    <TextInput
-                      mode="outlined"
-                      placeholder="Enter mobile or email"
-                      value={identifier}
-                      keyboardType="email-address"
-                      autoCapitalize="none"
-                      left={<TextInput.Icon icon="account-outline" color="#94a3b8" />}
-                      onChangeText={setIdentifier}
-                      disabled={mode === "PIN" && hasSavedLogin}
-                      outlineStyle={{ borderRadius: 16, borderColor: "#e2e8f0", borderWidth: 1.5 }}
-                      activeOutlineColor="#1e40af"
-                      style={{ backgroundColor: "white", height: 50 }}
-                    />
-                  </View>
-
-                  <View>
-                    <View className="mb-2 flex-row items-center justify-between">
-                      <Text style={{ color: "#475569", fontSize: 11, fontWeight: "700", letterSpacing: 0.8 }}>{mode === "PIN" ? "PIN" : "PASSWORD"}</Text>
-                      <Pressable onPress={() => { setMode("FORGOT"); setError(null); setInfo(null); }}>
-                        <Text style={{ color: "#1e40af", fontSize: 11, fontWeight: "800", letterSpacing: 0.5 }}>FORGOT?</Text>
-                      </Pressable>
-                    </View>
-                    <TextInput
-                      mode="outlined"
-                      placeholder={mode === "PIN" ? "••••" : "Enter password"}
-                      value={password}
-                      secureTextEntry={secureText}
-                      keyboardType={mode === "PIN" ? "number-pad" : "default"}
-                      onChangeText={setPassword}
-                      left={<TextInput.Icon icon="lock-outline" color="#94a3b8" />}
-                      right={<TextInput.Icon icon={secureText ? "eye-off-outline" : "eye-outline"} color="#94a3b8" onPress={() => setSecureText((value) => !value)} />}
-                      outlineStyle={{ borderRadius: 16, borderColor: "#e2e8f0", borderWidth: 1.5 }}
-                      activeOutlineColor="#1e40af"
-                      style={{ backgroundColor: "white", height: 50 }}
-                    />
-                  </View>
-                </>
-              ) : (
-                <View className="rounded-2xl border border-amber-200 bg-amber-50/50 p-4">
-                  <Text style={{ color: "#78350f", lineHeight: 20, fontSize: 13, fontWeight: "500" }}>
-                    Staff PIN reset must be done by the owner from Staff Management. If you are the owner, sign in with your password or ask the system administrator to reset it.
-                  </Text>
-                </View>
-              )}
-
-              {error ? (
-                <View className="flex-row items-center gap-2.5 rounded-2xl bg-red-50 p-3.5">
-                  <Icon source="alert-circle" size={18} color="#dc2626" />
-                  <Text style={{ color: "#b91c1c", fontWeight: "700", fontSize: 13, flex: 1 }}>{error}</Text>
-                </View>
-              ) : null}
-              {info ? (
-                <View className="rounded-2xl bg-blue-50 p-3.5">
-                  <Text style={{ color: "#1e3a8a", fontWeight: "700", fontSize: 13 }}>{info}</Text>
-                </View>
-              ) : null}
-
-              <Button 
-                mode="contained" 
-                loading={isSubmitting} 
-                disabled={isSubmitting} 
-                onPress={handleSubmit} 
-                style={{ borderRadius: 16, backgroundColor: "#1e40af", marginTop: 4 }} 
-                contentStyle={{ height: 52 }} 
-                labelStyle={{ fontSize: 15, fontWeight: "800", color: "#ffffff" }}
-              >
-                {isForgot ? "Show Reset Instructions" : "Sign In to Control"}
-              </Button>
-
-              <Divider style={{ marginVertical: 4, backgroundColor: "#f1f5f9" }} />
-
-              <View className="gap-3">
-                {hasSavedLogin ? (
-                  <Button 
-                    mode="text" 
-                    icon={mode === "PIN" ? "account-outline" : "key-variant"} 
-                    onPress={() => { setMode(mode === "PIN" ? "PASSWORD" : "PIN"); setPassword(""); setError(null); }}
-                    textColor="#4b5563"
-                    labelStyle={{ fontWeight: "700", fontSize: 13 }}
-                  >
-                    {mode === "PIN" ? "Use different mobile/password" : "Use saved mobile PIN"}
-                  </Button>
-                ) : null}
-                
-                {biometricAvailable && hasSavedLogin && (
-                  <Button 
-                    mode="outlined" 
-                    icon="fingerprint" 
-                    disabled={isSubmitting} 
-                    onPress={handleBiometricLogin}
-                    style={{ borderRadius: 16, borderColor: "#e2e8f0" }}
-                    textColor="#475569"
-                    contentStyle={{ height: 48 }}
-                    labelStyle={{ fontWeight: "700", fontSize: 13 }}
-                  >
-                    Biometric Login
-                  </Button>
-                )}
-
-                {isForgot ? (
-                  <Button 
-                    mode="text" 
-                    onPress={() => setMode(hasSavedLogin ? "PIN" : "PASSWORD")}
-                    textColor="#4b5563"
-                    labelStyle={{ fontWeight: "700", fontSize: 13 }}
-                  >
-                    Back to Login
-                  </Button>
-                ) : null}
-              </View>
-            </View>
-
-            <View className="items-center gap-3">
-              <Text style={{ color: "#94a3b8", fontWeight: "600", fontSize: 13 }}>New to ShopControl?</Text>
-              <Pressable className="rounded-full border border-slate-200 bg-white px-6 py-2.5 shadow-sm active:bg-slate-50">
-                <Text style={{ color: "#1e40af", fontWeight: "800", fontSize: 13 }}>Contact Administration</Text>
-              </Pressable>
+            <View style={styles.titleBox}>
+              <Text style={styles.appName}>ShopControl</Text>
+              <Text style={styles.tagline}>Executive retail operations</Text>
             </View>
           </View>
-        </View>
-      </ScrollView>
-    </KeyboardAvoidingView>
+
+          <View style={styles.card}>
+            <View style={styles.cardHeader}>
+              <Text style={styles.cardTitle}>
+                {isForgot ? "Forgot PIN" : mode === "PIN" ? "Quick Login" : "Sign In"}
+              </Text>
+              <Text style={styles.cardSubtitle}>
+                {isForgot ? "Reset is handled by admin." : mode === "PIN" ? "Use your saved mobile and PIN." : "Enter your mobile/email and password."}
+              </Text>
+            </View>
+
+            {!isForgot ? (
+              <View style={styles.form}>
+                <View style={styles.inputGroup}>
+                  <Text style={styles.label}>MOBILE / EMAIL</Text>
+                  <PaperInput
+                    mode="outlined"
+                    placeholder="Enter mobile or email"
+                    value={identifier}
+                    keyboardType="email-address"
+                    autoCapitalize="none"
+                    left={<PaperInput.Icon icon="account-outline" color={colors.textMuted} />}
+                    onChangeText={setIdentifier}
+                    disabled={mode === "PIN" && hasSavedLogin}
+                    outlineStyle={styles.inputOutline}
+                    activeOutlineColor={colors.primary}
+                    style={styles.input}
+                  />
+                </View>
+
+                <View style={styles.inputGroup}>
+                  <View style={styles.labelRow}>
+                    <Text style={styles.label}>{mode === "PIN" ? "PIN" : "PASSWORD"}</Text>
+                    <Pressable onPress={() => { setMode("FORGOT"); setError(null); setInfo(null); }}>
+                      <Text style={styles.forgotBtn}>FORGOT?</Text>
+                    </Pressable>
+                  </View>
+                  <PaperInput
+                    mode="outlined"
+                    placeholder={mode === "PIN" ? "••••" : "Enter password"}
+                    value={password}
+                    secureTextEntry={secureText}
+                    keyboardType={mode === "PIN" ? "number-pad" : "default"}
+                    onChangeText={setPassword}
+                    left={<PaperInput.Icon icon="lock-outline" color={colors.textMuted} />}
+                    right={<PaperInput.Icon icon={secureText ? "eye-off-outline" : "eye-outline"} color={colors.textMuted} onPress={() => setSecureText(!secureText)} />}
+                    outlineStyle={styles.inputOutline}
+                    activeOutlineColor={colors.primary}
+                    style={styles.input}
+                  />
+                </View>
+              </View>
+            ) : (
+              <View style={styles.infoBox}>
+                <Text style={styles.infoText}>
+                  Staff PIN reset must be done by the owner. Owners can update their password from Profile.
+                </Text>
+              </View>
+            )}
+
+            {error && (
+              <View style={styles.errorBox}>
+                <Icon source="alert-circle" size={18} color={colors.danger} />
+                <Text style={styles.errorText}>{error}</Text>
+              </View>
+            )}
+            
+            {info && (
+              <View style={styles.blueInfoBox}>
+                <Text style={styles.blueInfoText}>{info}</Text>
+              </View>
+            )}
+
+            <Button 
+              label={isForgot ? "BACK TO LOGIN" : "SIGN IN TO CONTROL"} 
+              onPress={isForgot ? () => setMode(hasSavedLogin ? "PIN" : "PASSWORD") : handleSubmit} 
+              loading={isSubmitting} 
+              size="lg"
+              fullWidth
+              style={styles.submitBtn}
+            />
+
+            {!isForgot && (
+              <>
+                <Divider style={styles.divider} />
+                <View style={styles.extraActions}>
+                  {hasSavedLogin && (
+                    <Button 
+                      variant="ghost" 
+                      label={mode === "PIN" ? "Use password instead" : "Use quick PIN login"} 
+                      onPress={() => { setMode(mode === "PIN" ? "PASSWORD" : "PIN"); setPassword(""); setError(null); }}
+                      fullWidth
+                    />
+                  )}
+                  
+                  {biometricAvailable && hasSavedLogin && (
+                    <Button 
+                      variant="secondary" 
+                      icon={<Icon source="fingerprint" size={20} color={colors.primary} />} 
+                      label="Biometric Login" 
+                      onPress={handleBiometricLogin}
+                      fullWidth
+                    />
+                  )}
+                </View>
+              </>
+            )}
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.huge,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  header: {
+    alignItems: 'center',
+    marginBottom: spacing.xxxl,
+    gap: spacing.lg,
+  },
+  logoBox: {
+    width: 80,
+    height: 80,
+    backgroundColor: colors.primary,
+    borderRadius: radius.xl,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...shadow.lg,
+  },
+  logoText: {
+    color: colors.textInverse,
+    fontSize: fontSize.xxxl,
+    fontWeight: fontWeight.black,
+  },
+  titleBox: {
+    alignItems: 'center',
+    gap: 4,
+  },
+  appName: {
+    fontSize: fontSize.xxl,
+    fontWeight: fontWeight.black,
+    color: colors.textPrimary,
+  },
+  tagline: {
+    fontSize: fontSize.sm,
+    color: colors.textSecondary,
+    fontWeight: fontWeight.medium,
+  },
+  card: {
+    width: '100%',
+    maxWidth: 400,
+    backgroundColor: colors.surface,
+    borderRadius: radius.xxl,
+    padding: spacing.xl,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: spacing.xl,
+    ...shadow.md,
+  },
+  cardHeader: {
+    gap: 4,
+  },
+  cardTitle: {
+    fontSize: fontSize.xl,
+    fontWeight: fontWeight.black,
+    color: colors.textPrimary,
+  },
+  cardSubtitle: {
+    fontSize: fontSize.sm,
+    color: colors.textSecondary,
+    fontWeight: fontWeight.medium,
+  },
+  form: {
+    gap: spacing.lg,
+  },
+  inputGroup: {
+    gap: spacing.xs,
+  },
+  labelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  label: {
+    fontSize: 10,
+    fontWeight: fontWeight.black,
+    color: colors.textMuted,
+    letterSpacing: 1,
+  },
+  input: {
+    backgroundColor: colors.surface,
+    height: 56,
+    fontSize: fontSize.lg,
+  },
+  inputOutline: {
+    borderRadius: radius.lg,
+    borderWidth: 1.5,
+  },
+  forgotBtn: {
+    color: colors.primary,
+    fontSize: 10,
+    fontWeight: fontWeight.black,
+  },
+  infoBox: {
+    backgroundColor: colors.warningLight,
+    padding: spacing.lg,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(217, 119, 6, 0.1)',
+  },
+  infoText: {
+    fontSize: fontSize.sm,
+    color: colors.warning,
+    fontWeight: fontWeight.semibold,
+    lineHeight: 20,
+  },
+  errorBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.dangerLight,
+    padding: spacing.md,
+    borderRadius: radius.lg,
+  },
+  errorText: {
+    color: colors.danger,
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    flex: 1,
+  },
+  blueInfoBox: {
+    backgroundColor: colors.infoLight,
+    padding: spacing.md,
+    borderRadius: radius.lg,
+  },
+  blueInfoText: {
+    color: colors.info,
+    fontWeight: fontWeight.bold,
+    fontSize: fontSize.sm,
+  },
+  submitBtn: {
+    minHeight: 56,
+  },
+  divider: {
+    backgroundColor: colors.surfaceOffset,
+  },
+  extraActions: {
+    gap: spacing.md,
+  }
+});

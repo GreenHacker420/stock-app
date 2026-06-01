@@ -1,5 +1,6 @@
-import { Pressable, View } from "react-native";
+import { Pressable, View, StyleSheet } from "react-native";
 import { Icon, Text } from "react-native-paper";
+import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 
 type ActionTileProps = {
   title: string;
@@ -10,10 +11,10 @@ type ActionTileProps = {
 };
 
 const tones = {
-  green: { bg: "rgba(16, 185, 129, 0.08)", color: "#065f46" },
-  amber: { bg: "rgba(245, 158, 11, 0.08)", color: "#92400e" },
-  blue: { bg: "rgba(30, 64, 175, 0.08)", color: "#1e3a8a" },
-  red: { bg: "rgba(239, 68, 68, 0.08)", color: "#991b1b" },
+  green: { bg: 'rgba(5, 150, 105, 0.08)', color: colors.success },
+  amber: { bg: 'rgba(217, 119, 6, 0.08)', color: colors.warning },
+  blue: { bg: 'rgba(30, 64, 175, 0.08)', color: colors.primary },
+  red: { bg: 'rgba(220, 38, 38, 0.08)', color: colors.danger },
 };
 
 export function ActionTile({ title, subtitle, icon, tone = "green", onPress }: ActionTileProps) {
@@ -23,33 +24,58 @@ export function ActionTile({ title, subtitle, icon, tone = "green", onPress }: A
     <Pressable
       onPress={onPress}
       style={({ pressed }) => [
-        {
-          opacity: pressed ? 0.8 : 1,
-          transform: [{ scale: pressed ? 0.98 : 1 }],
-          shadowColor: "#000",
-          shadowOffset: { width: 0, height: 1 },
-          shadowOpacity: 0.05,
-          shadowRadius: 2,
-          elevation: 1,
-        }
+        styles.container,
+        pressed && styles.pressed
       ]}
-      className="flex-row items-center gap-4 rounded-lg border border-[#e5e7eb] bg-white p-4"
     >
-      <View
-        className="h-11 w-11 items-center justify-center rounded-lg"
-        style={{ backgroundColor: palette.bg }}
-      >
-        <Icon source={icon} size={22} color={palette.color} />
+      <View style={[styles.iconContainer, { backgroundColor: palette.bg }]}>
+        <Icon source={icon} size={24} color={palette.color} />
       </View>
-      <View className="flex-1 gap-0.5">
-        <Text variant="titleMedium" style={{ color: "#111827", fontWeight: "700", letterSpacing: -0.1 }}>
-          {title}
-        </Text>
-        <Text variant="bodySmall" style={{ color: "#4b5563", lineHeight: 16 }}>
-          {subtitle}
-        </Text>
+      <View style={styles.content}>
+        <Text style={styles.title}>{title}</Text>
+        <Text style={styles.subtitle}>{subtitle}</Text>
       </View>
-      <Icon source="chevron-right" size={22} color="#9ca3af" />
+      <Icon source="chevron-right" size={24} color={colors.textMuted} />
     </Pressable>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.lg,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    minHeight: 80,
+    ...shadow.sm,
+  },
+  iconContainer: {
+    height: 48,
+    width: 48,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.lg,
+  },
+  content: {
+    flex: 1,
+    gap: 2,
+  },
+  title: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  subtitle: {
+    fontSize: fontSize.sm,
+    color: colors.textSecondary,
+    lineHeight: 18,
+  },
+  pressed: {
+    opacity: 0.72,
+    transform: [{ scale: 0.98 }],
+  },
+});

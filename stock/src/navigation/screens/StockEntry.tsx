@@ -1,234 +1,173 @@
-import { useEffect, useState, useMemo } from "react";
-import { View, ScrollView, Pressable } from "react-native";
+import React, { useMemo, useState, memo, useCallback } from "react";
+import { 
+  View, 
+  StyleSheet, 
+  KeyboardAvoidingView, 
+  Platform, 
+  Pressable, 
+  TextInput 
+} from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useRoute, useNavigation } from "@react-navigation/native";
-import { Button, Text, TextInput, SegmentedButtons, Icon, Searchbar, Divider } from "react-native-paper";
-import { createStockMovement, fetchItems, fetchShops, fetchCurrentStock } from "../../api/client";
+import { useNavigation } from "@react-navigation/native";
+import { Searchbar, Text, Icon } from "react-native-paper";
+import { FlashList } from "@shopify/flash-list";
+import { useDebounce } from "use-debounce";
+
+import { fetchItems, addStock, Item, StockEntryPayload } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
+import { useShopStore } from "../../auth/shop-store";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
-import { ShopPicker } from "../../components/ui/ShopPicker";
-import { Section } from "../../components/ui/Section";
+import { SkeletonList } from "../../components/ui/SkeletonCard";
+import { EmptyState } from "../../components/ui/EmptyState";
+import { Button } from "../../components/ui/Button";
+import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { SuccessModal } from "../../components/ui/SuccessModal";
 
-const reasons = ["Regular Restock", "Customer Return", "Correction", "Damage", "Other"];
+const StockEntryRow = memo(({ 
+  item, 
+  quantity, 
+  onChange 
+}: { 
+  item: Item, 
+  quantity: string, 
+  onChange: (val: string) => void 
+}) => {
+  return (
+    <View style={styles.row}>
+      <View style={styles.rowInfo}>
+        <Text style={styles.itemName}>{item.name}</Text>
+        <View style={styles.stockBadge}>
+          <Text style={styles.stockBadgeText}>Unit: {item.unit}</Text>
+        </View>
+      </View>
+      
+      <View style={styles.inputContainer}>
+        <TextInput
+          style={styles.qtyInput}
+          value={quantity}
+          onChangeText={onChange}
+          keyboardType="numeric"
+          placeholder="0"
+          placeholderTextColor={colors.textMuted}
+          selectTextOnFocus
+          returnKeyType="done"
+        />
+      </View>
+    </View>
+  );
+}, (p, n) => p.item.id === n.item.id && p.quantity === n.quantity);
 
 export function StockEntry() {
   const token = useAuthStore((state) => state.token);
+  const { activeShopId } = useShopStore();
   const queryClient = useQueryClient();
-  const route = useRoute();
   const navigation = useNavigation();
-  const params = route.params as { shopId?: string; itemId?: string } | undefined;
-  
-  const [shopId, setShopId] = useState<string | undefined>(params?.shopId);
-  const [itemId, setItemId] = useState<string | undefined>(params?.itemId);
-  const [movementType, setMovementType] = useState<"STOCK_IN" | "STOCK_OUT">("STOCK_IN");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [quantity, setQuantity] = useState("");
-  const [reason, setReason] = useState(reasons[0]);
-  const [note, setNote] = useState("");
-  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  // Success modal states
+  const [search, setSearch] = useState("");
+  const [debouncedSearch] = useDebounce(search, 300);
+  const [entries, setEntries] = useState<Record<string, string>>({});
   const [successVisible, setSuccessVisible] = useState(false);
 
-  const shopsQuery = useQuery({ queryKey: ["shops"], queryFn: () => fetchShops(token ?? ""), enabled: !!token });
   const itemsQuery = useQuery({
-    queryKey: ["items", shopId],
-    queryFn: () => fetchItems(token ?? "", shopId ?? ""),
-    enabled: !!token && !!shopId,
+    queryKey: ["items", activeShopId, debouncedSearch],
+    queryFn: () => fetchItems(token ?? "", activeShopId ?? "", { search: debouncedSearch, limit: 50 }),
+    enabled: !!token && !!activeShopId,
   });
 
-  const stockQuery = useQuery({
-    queryKey: ["stock", shopId, itemId],
-    queryFn: () => fetchCurrentStock(token ?? "", shopId ?? "", itemId),
-    enabled: !!token && !!shopId && !!itemId,
-  });
+  const entryItems = useMemo(() => {
+    return Object.entries(entries)
+      .filter(([_, qty]) => Number(qty) > 0)
+      .map(([id, qty]) => ({ itemId: id, quantity: Number(qty) }));
+  }, [entries]);
 
-  useEffect(() => {
-    if (params?.shopId) setShopId(params.shopId);
-    if (params?.itemId) setItemId(params.itemId);
-  }, [params]);
+  const entryCount = entryItems.length;
 
-  useEffect(() => {
-    if (!shopId && shopsQuery.data?.[0]) setShopId(shopsQuery.data[0].id);
-  }, [shopId, shopsQuery.data]);
-
-  const filteredItems = useMemo(() => {
-    const all = itemsQuery.data ?? [];
-    if (!searchQuery) return all.slice(0, 4);
-    return all.filter(i => 
-      i.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-      i.sku?.toLowerCase().includes(searchQuery.toLowerCase())
-    ).slice(0, 4);
-  }, [itemsQuery.data, searchQuery]);
-
-  const selectedItem = itemsQuery.data?.find(i => i.id === itemId);
+  const updateEntry = useCallback((id: string, val: string) => {
+    setEntries(prev => ({ ...prev, [id]: val }));
+  }, []);
 
   const stockMutation = useMutation({
-    mutationFn: () =>
-      createStockMovement(token ?? "", {
-        shopId: shopId ?? "",
-        itemId: itemId ?? "",
-        movementType,
-        quantity: Number(quantity),
-        reason: `${reason}${note ? ': ' + note : ''}`,
-      }),
+    mutationFn: () => {
+      const payload: StockEntryPayload = {
+        shopId: activeShopId ?? "",
+        entries: entryItems,
+        notes: "Bulk stock entry via app",
+      };
+      return addStock(token ?? "", payload);
+    },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["items", shopId] });
-      queryClient.invalidateQueries({ queryKey: ["item-stock", itemId] });
-      queryClient.invalidateQueries({ queryKey: ["stock", shopId, itemId] });
-      queryClient.invalidateQueries({ queryKey: ["item-movements", shopId, itemId] });
-      setQuantity("");
-      setNote("");
-      setErrorMsg(null);
+      queryClient.invalidateQueries({ queryKey: ["items", activeShopId] });
+      setEntries({});
       setSuccessVisible(true);
     },
-    onError: (err: any) => {
-      setErrorMsg(err.message || "Failed to record stock movement");
-    }
   });
 
   return (
-    <Screen>
-      <AppHeader title="Stock Movement" subtitle="Record inventory adjustments." />
-      
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
-        <View className="gap-5">
-          <ShopPicker shops={shopsQuery.data ?? []} selectedShopId={shopId} onSelect={setShopId} />
-
-          <View className="gap-2.5">
-            <Text variant="labelSmall" style={{ color: "#64748b", fontWeight: "700" }}>MOVEMENT DIRECTION</Text>
-            <SegmentedButtons
-              value={movementType}
-              onValueChange={v => setMovementType(v as any)}
-              buttons={[
-                { value: "STOCK_IN", label: "Stock In (Add)", icon: "plus-circle" },
-                { value: "STOCK_OUT", label: "Stock Out (Reduce)", icon: "minus-circle" },
-              ]}
-              theme={{ colors: { primary: movementType === 'STOCK_IN' ? "#1e40af" : "#ef4444" } }}
-            />
-          </View>
-
-          {/* Item Search Section */}
-          <Section title="Item Search">
-            <Searchbar
-              placeholder="Search item or SKU..."
-              onChangeText={setSearchQuery}
-              value={searchQuery}
-              style={{ backgroundColor: "white", borderRadius: 12, elevation: 1, borderWidth: 1, borderColor: "#e2e8f0" } as any}
-            />
-            
-            <View className="mt-3 gap-2.5">
-              {filteredItems.map(item => (
-                <Pressable 
-                  key={item.id} 
-                  onPress={() => { setItemId(item.id); setSearchQuery(""); }}
-                  className={`p-4 rounded-2xl border ${itemId === item.id ? 'border-blue-600 bg-blue-50/50' : 'border-slate-100 bg-white'} flex-row justify-between items-center shadow-sm`}
-                >
-                  <View className="flex-1 pr-2">
-                    <Text style={{ fontWeight: "800", color: "#0f172a" }}>{item.name}</Text>
-                    <Text variant="bodySmall" style={{ color: "#64748b", marginTop: 2 }}>{item.sku || "No SKU"} • {item.category?.name ?? "General"}</Text>
-                  </View>
-                  <View className="items-end">
-                    <Text style={{ fontWeight: "700", color: "#475569" }}>{item.unit}</Text>
-                    <Text variant="labelSmall" style={{ color: "#94a3b8", fontSize: 9 }}>DEFAULT UNIT</Text>
-                  </View>
-                </Pressable>
-              ))}
-            </View>
-          </Section>
-
-          {/* Current Inventory Hero Card */}
-          {selectedItem && (
-            <View className="bg-slate-900 rounded-[24px] p-5 flex-row justify-between items-center shadow-lg relative overflow-hidden">
-               <View className="z-10">
-                 <Text variant="labelSmall" style={{ color: "#94a3b8", fontWeight: "700", letterSpacing: 0.5 }}>CURRENT INVENTORY</Text>
-                 <Text variant="headlineSmall" style={{ color: "white", fontWeight: "900", marginTop: 4 }}>
-                   {stockQuery.data?.[0]?.currentQuantity ?? 0} {selectedItem.unit}
-                 </Text>
-               </View>
-               <View className="opacity-10 absolute right-4 bottom-2 z-0">
-                 <Icon source="warehouse" size={80} color="white" />
-               </View>
-            </View>
-          )}
-
-          {/* Movement detail inputs */}
-          <Section title="Movement Details">
-            <View className="bg-white rounded-[24px] border border-slate-100 p-5 gap-4 shadow-sm">
-               <View>
-                 <Text variant="labelSmall" style={{ color: "#64748b", marginBottom: 6, fontWeight: "700" }}>
-                   QUANTITY TO {movementType === 'STOCK_IN' ? 'ADD' : 'REMOVE'}
-                 </Text>
-                 <TextInput
-                   mode="outlined"
-                   placeholder="0.00"
-                   keyboardType="numeric"
-                   value={quantity}
-                   onChangeText={setQuantity}
-                   style={{ backgroundColor: "white" }}
-                   outlineStyle={{ borderRadius: 12 }}
-                   right={<TextInput.Affix text={selectedItem?.unit ?? "units"} />}
-                 />
-               </View>
-
-               <View>
-                 <Text variant="labelSmall" style={{ color: "#64748b", marginBottom: 6, fontWeight: "700" }}>REASON FOR ADJUSTMENT</Text>
-                 <View className="flex-row flex-wrap gap-2">
-                    {reasons.map(r => (
-                      <Pressable 
-                        key={r} 
-                        onPress={() => setReason(r)}
-                        className={`px-3.5 py-1.5 rounded-full border ${reason === r ? 'bg-blue-600 border-blue-600' : 'bg-white border-slate-200'}`}
-                      >
-                        <Text style={{ fontSize: 12, fontWeight: "700", color: reason === r ? 'white' : '#475569' }}>{r}</Text>
-                      </Pressable>
-                    ))}
-                 </View>
-               </View>
-
-               <TextInput
-                 mode="outlined"
-                 label="Additional Notes (Optional)"
-                 value={note}
-                 onChangeText={setNote}
-                 multiline
-                 numberOfLines={2}
-                 style={{ backgroundColor: "white" }}
-                 outlineStyle={{ borderRadius: 12 }}
-               />
-            </View>
-          </Section>
+    <Screen edges={['top', 'left', 'right']}>
+      <KeyboardAvoidingView 
+        style={styles.keyboardView} 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+      >
+        <AppHeader title="Stock Entry" subtitle="Update inventory levels" />
+        
+        <View style={styles.searchContainer}>
+          <Searchbar
+            placeholder="Search items to restock..."
+            onChangeText={setSearch}
+            value={search}
+            style={styles.searchBar}
+            inputStyle={styles.searchInput}
+          />
         </View>
 
-        {errorMsg && (
-          <View className="bg-red-50 p-4 rounded-xl flex-row items-center gap-2.5 mt-4">
-            <Icon source="alert-circle" size={18} color="#ef4444" />
-            <Text variant="bodySmall" style={{ color: "#b91c1c", fontWeight: "700", flex: 1 }}>{errorMsg}</Text>
-          </View>
-        )}
-      </ScrollView>
+        <View style={styles.listContainer}>
+          <FlashList
+            data={itemsQuery.data?.items ?? []}
+            estimatedItemSize={80}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => (
+              <StockEntryRow 
+                item={item} 
+                quantity={entries[item.id] || ""}
+                onChange={(val) => updateEntry(item.id, val)}
+              />
+            )}
+            ListEmptyComponent={
+              itemsQuery.isLoading ? (
+                <SkeletonList count={8} itemHeight={80} />
+              ) : (
+                <EmptyState 
+                  icon="📦" 
+                  title="No items found" 
+                  subtitle="Try searching for a different item name" 
+                />
+              )
+            }
+            contentContainerStyle={styles.listContent}
+          />
+        </View>
 
-      {/* Checkout button */}
-      <View className="absolute bottom-0 left-0 right-0 p-4 bg-white/95 border-t border-slate-100 shadow-xl">
-        <Button
-          mode="contained"
-          disabled={!itemId || !quantity || Number(quantity) <= 0 || stockMutation.isPending}
-          loading={stockMutation.isPending}
-          onPress={() => stockMutation.mutate()}
-          style={{ borderRadius: 12, backgroundColor: movementType === 'STOCK_IN' ? "#1e40af" : "#ef4444" }}
-          contentStyle={{ height: 56 }}
-          labelStyle={{ fontSize: 16, fontWeight: "800", color: "#ffffff" }}
-        >
-          Confirm {movementType === 'STOCK_IN' ? 'Addition' : 'Removal'}
-        </Button>
-      </View>
+        <View style={styles.footer}>
+          <View style={styles.footerInfo}>
+            <Text style={styles.footerText}>{entryCount} items being updated</Text>
+          </View>
+          <Button 
+            label="SUBMIT STOCK ENTRY" 
+            onPress={() => stockMutation.mutate()} 
+            loading={stockMutation.isPending}
+            disabled={entryCount === 0}
+            fullWidth
+            size="lg"
+          />
+        </View>
+      </KeyboardAvoidingView>
 
       <SuccessModal
         visible={successVisible}
         title="Stock Updated"
-        message="The inventory adjustment has been recorded successfully!"
+        message={`Successfully updated stock for ${entryCount} items.`}
         onClose={() => {
           setSuccessVisible(false);
           navigation.goBack();
@@ -237,3 +176,96 @@ export function StockEntry() {
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  keyboardView: {
+    flex: 1,
+  },
+  searchContainer: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.md,
+    backgroundColor: colors.bg,
+  },
+  searchBar: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    elevation: 0,
+  },
+  searchInput: {
+    fontSize: fontSize.md,
+  },
+  listContainer: {
+    flex: 1,
+  },
+  listContent: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: 120,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: spacing.lg,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.surfaceOffset,
+    backgroundColor: colors.bg,
+  },
+  rowInfo: {
+    flex: 1,
+    paddingRight: spacing.md,
+  },
+  itemName: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  stockBadge: {
+    backgroundColor: colors.surfaceOffset,
+    alignSelf: 'flex-start',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radius.sm,
+    marginTop: spacing.xs,
+  },
+  stockBadgeText: {
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+    fontWeight: fontWeight.medium,
+  },
+  inputContainer: {
+    width: 100,
+  },
+  qtyInput: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
+    borderRadius: radius.md,
+    height: 48,
+    textAlign: 'center',
+    fontSize: fontSize.xl,
+    fontWeight: fontWeight.black,
+    color: colors.primary,
+  },
+  footer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: colors.surface,
+    padding: spacing.lg,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    ...shadow.lg,
+  },
+  footerInfo: {
+    marginBottom: spacing.md,
+    alignItems: 'center',
+  },
+  footerText: {
+    fontSize: fontSize.sm,
+    color: colors.textSecondary,
+    fontWeight: fontWeight.bold,
+  }
+});

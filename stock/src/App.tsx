@@ -26,7 +26,19 @@ Asset.loadAsync([
 SplashScreen.preventAutoHideAsync();
 
 const prefix = createURL('/');
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime:            5 * 60 * 1000,  // 5 minutes — shared cache across all screens
+      gcTime:               10 * 60 * 1000, // 10 minutes garbage collection
+      retry:                2,
+      refetchOnWindowFocus: false,
+    },
+    mutations: {
+      retry: 1,
+    },
+  },
+});
 const paperSettings = {
   icon: ({ name, color, size, testID }: any) => (
     <MaterialCommunityIcons name={name as never} color={color ?? "#6b7280"} size={size} testID={testID} />

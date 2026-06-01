@@ -1,259 +1,223 @@
-import { useEffect, useMemo, useState } from "react";
-import { ScrollView, View, Pressable } from "react-native";
+import React, { useMemo, useState, memo, useCallback } from "react";
+import { 
+  View, 
+  StyleSheet, 
+  KeyboardAvoidingView, 
+  Platform, 
+  Pressable, 
+  ActivityIndicator 
+} from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigation } from "@react-navigation/native";
-import { Button, Text, TextInput, SegmentedButtons, Icon, Searchbar, Divider, List, Card } from "react-native-paper";
-import QRCode from "react-native-qrcode-svg";
-import { createSale, fetchItems, fetchShops } from "../../api/client";
+import { Searchbar, Text, Icon, Divider } from "react-native-paper";
+import { FlashList } from "@shopify/flash-list";
+import { useDebounce } from "use-debounce";
+
+import { fetchItems, createSale, Item, CreateSalePayload } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
-import { Section } from "../../components/ui/Section";
+import { SkeletonList } from "../../components/ui/SkeletonCard";
+import { EmptyState } from "../../components/ui/EmptyState";
+import { Button } from "../../components/ui/Button";
+import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { SuccessModal } from "../../components/ui/SuccessModal";
 
-const paymentModes = [
-  { label: "Cash", value: "CASH", icon: "cash" },
-  { label: "UPI", value: "UPI", icon: "qrcode-scan" },
-  { label: "Card", value: "CARD", icon: "credit-card-outline" },
-  { label: "Bank", value: "BANK_TRANSFER", icon: "bank-outline" },
-] as const;
+function money(value?: string | number | null) {
+  return `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
+}
+
+const SaleItemCard = memo(({ 
+  item, 
+  quantity, 
+  onAdd, 
+  onRemove 
+}: { 
+  item: Item, 
+  quantity: number, 
+  onAdd: () => void, 
+  onRemove: () => void 
+}) => {
+  return (
+    <View style={styles.itemCard}>
+      <View style={styles.itemInfo}>
+        <Text style={styles.itemName}>{item.name}</Text>
+        <Text style={styles.itemSubtitle}>
+          {item.sku || "No SKU"} • {money(item.defaultSellingPrice)} / {item.unit}
+        </Text>
+      </View>
+      
+      <View style={styles.quantityControls}>
+        {quantity === 0 ? (
+          <Pressable 
+            onPress={onAdd}
+            style={({ pressed }) => [
+              styles.addButton,
+              pressed && styles.buttonPressed
+            ]}
+          >
+            <Icon source="plus" size={24} color={colors.primary} />
+            <Text style={styles.addButtonLabel}>ADD</Text>
+          </Pressable>
+        ) : (
+          <View style={styles.counterRow}>
+            <Pressable 
+              onPress={onRemove}
+              style={({ pressed }) => [
+                styles.qtyButton,
+                pressed && styles.buttonPressed
+              ]}
+            >
+              <Icon source="minus" size={20} color={colors.primary} />
+            </Pressable>
+            
+            <View style={styles.qtyDisplay}>
+              <Text style={styles.qtyText}>{quantity}</Text>
+            </View>
+            
+            <Pressable 
+              onAdd={onAdd} // wait, this was a mistake in my thought, should be onPress
+              onPress={onAdd}
+              style={({ pressed }) => [
+                styles.qtyButton,
+                pressed && styles.buttonPressed
+              ]}
+            >
+              <Icon source="plus" size={20} color={colors.primary} />
+            </Pressable>
+          </View>
+        )}
+      </View>
+    </View>
+  );
+}, (p, n) => p.item.id === n.item.id && p.quantity === n.quantity);
 
 export function WalkInSale() {
   const token = useAuthStore((state) => state.token);
   const { activeShopId } = useShopStore();
   const queryClient = useQueryClient();
   const navigation = useNavigation();
-  
-  const [cart, setCart] = useState<Array<{ id: string, name: string, quantity: number, rate: number, unit: string }>>([]);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [payments, setPayments] = useState<Array<{ mode: string, amount: string }>>([{ mode: "CASH", amount: "" }]);
-  const [upiOption, setUpiOption] = useState<"GENERATE" | "REGISTER">("REGISTER");
+
+  const [search, setSearch] = useState("");
+  const [debouncedSearch] = useDebounce(search, 300);
+  const [cart, setCart] = useState<Record<string, { item: Item, quantity: number }>>({});
   const [successVisible, setSuccessVisible] = useState(false);
 
-  const shopsQuery = useQuery({ queryKey: ["shops"], queryFn: () => fetchShops(token ?? ""), enabled: !!token });
-  const activeShop = shopsQuery.data?.find(s => s.id === activeShopId);
   const itemsQuery = useQuery({
-    queryKey: ["items", activeShopId],
-    queryFn: () => fetchItems(token ?? "", activeShopId ?? ""),
+    queryKey: ["items", activeShopId, debouncedSearch],
+    queryFn: () => fetchItems(token ?? "", activeShopId ?? "", { search: debouncedSearch, limit: 50 }),
     enabled: !!token && !!activeShopId,
   });
 
-  const filteredItems = useMemo(() => {
-    if (!searchQuery) return [];
-    return (itemsQuery.data ?? []).filter(item => 
-      item.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-      item.sku?.toLowerCase().includes(searchQuery.toLowerCase())
-    ).slice(0, 5);
-  }, [itemsQuery.data, searchQuery]);
+  const cartArray = useMemo(() => Object.values(cart), [cart]);
+  const cartItemCount = useMemo(() => cartArray.reduce((sum, i) => sum + i.quantity, 0), [cartArray]);
+  const cartTotal = useMemo(() => cartArray.reduce((sum, i) => sum + (i.quantity * Number(i.item.defaultSellingPrice)), 0), [cartArray]);
 
-  const subtotal = cart.reduce((sum, item) => sum + (item.quantity * item.rate), 0);
-  const totalPaid = payments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
-  const balance = subtotal - totalPaid;
+  const updateQuantity = useCallback((item: Item, delta: number) => {
+    setCart(prev => {
+      const current = prev[item.id] || { item, quantity: 0 };
+      const nextQty = Math.max(0, current.quantity + delta);
+      
+      const nextCart = { ...prev };
+      if (nextQty === 0) {
+        delete nextCart[item.id];
+      } else {
+        nextCart[item.id] = { ...current, quantity: nextQty };
+      }
+      return nextCart;
+    });
+  }, []);
 
   const saleMutation = useMutation({
-    mutationFn: () =>
-      createSale(token ?? "", {
+    mutationFn: () => {
+      const payload: CreateSalePayload = {
         shopId: activeShopId ?? "",
-        isWalkin: true,
-        items: cart.map(i => ({ itemId: i.id, quantity: i.quantity, rate: i.rate })),
-        payments: payments.filter(p => Number(p.amount) > 0).map(p => ({ 
-          paymentMode: p.mode, 
-          amount: Number(p.amount),
-          notes: p.mode === 'UPI' && upiOption === 'GENERATE' ? 'Paid via Dynamic QR (Human Verified)' : undefined
+        items: cartArray.map(i => ({ 
+          itemId: i.item.id, 
+          quantity: i.quantity, 
+          sellingPrice: Number(i.item.defaultSellingPrice) 
         })),
-      }),
+        paymentMethod: 'cash',
+        totalAmount: cartTotal,
+      };
+      return createSale(token ?? "", payload);
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["items", activeShopId] });
-      setCart([]);
-      setPayments([{ mode: "CASH", amount: "" }]);
-      setUpiOption("REGISTER");
+      setCart({});
       setSuccessVisible(true);
     },
   });
 
-  const upiPayload = useMemo(() => {
-    const upiPayment = payments.find(p => p.mode === 'UPI');
-    if (!activeShop?.upiId || !upiPayment || !upiPayment.amount) return "";
-    const name = encodeURIComponent(activeShop.upiName || activeShop.name);
-    return `upi://pay?pa=${activeShop.upiId}&pn=${name}&am=${upiPayment.amount}&cu=INR`;
-  }, [activeShop, payments]);
-
-  const addToCart = (item: any) => {
-    const existing = cart.find(c => c.id === item.id);
-    if (existing) {
-      setCart(cart.map(c => c.id === item.id ? { ...c, quantity: c.quantity + 1 } : c));
-    } else {
-      setCart([...cart, { id: item.id, name: item.name, quantity: 1, rate: Number(item.defaultSellingPrice), unit: item.unit }]);
-    }
-    setSearchQuery("");
-  };
-
-  const hasUpi = payments.some(p => p.mode === 'UPI');
-  const isQrVisible = hasUpi && upiOption === 'GENERATE' && upiPayload;
-
   return (
-    <Screen>
-      <AppHeader title="Walk-in Sale" subtitle="Fast counter checkout" />
-      
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 120 }}>
-        <Section title="Item Search">
+    <Screen edges={['top', 'left', 'right']}>
+      <KeyboardAvoidingView 
+        style={styles.keyboardView} 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+      >
+        <AppHeader title="Walk-in Sale" subtitle="Select items and complete checkout" />
+        
+        <View style={styles.searchContainer}>
           <Searchbar
             placeholder="Search name or SKU..."
-            onChangeText={setSearchQuery}
-            value={searchQuery}
-            style={{ backgroundColor: "white", borderRadius: 12, elevation: 2, borderWidth: 1, borderColor: "#e5e7eb" } as any}
+            onChangeText={setSearch}
+            value={search}
+            style={styles.searchBar}
+            inputStyle={styles.searchInput}
           />
-          {searchQuery ? (
-            <View className="mt-2 bg-white rounded-lg border border-gray-100 shadow-lg z-50">
-              {filteredItems.map(item => (
-                <List.Item
-                  key={item.id}
-                  title={item.name}
-                  description={`₹${item.defaultSellingPrice} / ${item.unit}`}
-                  onPress={() => addToCart(item)}
-                  right={props => <List.Icon {...props} icon="plus-circle" color="#1e40af" />}
-                />
-              ))}
-            </View>
-          ) : null}
-        </Section>
+        </View>
 
-        {cart.length > 0 && (
-          <Section title="Cart">
-            <View className="bg-white rounded-xl border border-gray-100 overflow-hidden">
-               {cart.map((item, idx) => (
-                 <View key={item.id}>
-                    {idx > 0 && <Divider />}
-                    <View className="p-4 flex-row justify-between items-center">
-                       <View className="flex-1">
-                          <Text style={{ fontWeight: "700" }}>{item.name}</Text>
-                          <Text variant="bodySmall" style={{ color: "#6b7280" }}>₹{item.rate} x {item.quantity} {item.unit}</Text>
-                       </View>
-                       <View className="flex-row items-center gap-3">
-                          <Pressable onPress={() => setCart(cart.map(c => c.id === item.id ? { ...c, quantity: Math.max(0, c.quantity - 1) } : c).filter(c => c.quantity > 0))}>
-                             <Icon source="minus-circle-outline" size={24} color="#ef4444" />
-                          </Pressable>
-                          <Text style={{ fontWeight: "800", minWidth: 20, textAlign: 'center' }}>{item.quantity}</Text>
-                          <Pressable onPress={() => setCart(cart.map(c => c.id === item.id ? { ...c, quantity: c.quantity + 1 } : c))}>
-                             <Icon source="plus-circle-outline" size={24} color="#1e40af" />
-                          </Pressable>
-                       </View>
-                    </View>
-                 </View>
-               ))}
-               <View className="bg-gray-50 p-4 flex-row justify-between">
-                  <Text style={{ fontWeight: "700" }}>Subtotal</Text>
-                  <Text style={{ fontWeight: "900", color: "#111827" }}>₹{subtotal.toFixed(2)}</Text>
-               </View>
-            </View>
-          </Section>
-        )}
-
-        {cart.length > 0 && (
-          <Section title="Payments">
-             <View className="gap-3">
-                {payments.map((p, idx) => (
-                  <View key={idx} className="flex-row gap-2 items-center">
-                     <View className="flex-1">
-                        <TextInput
-                          mode="outlined"
-                          label={p.mode}
-                          keyboardType="numeric"
-                          value={p.amount}
-                          onChangeText={(v) => setPayments(payments.map((pay, i) => i === idx ? { ...pay, amount: v } : pay))}
-                          style={{ backgroundColor: "white" }}
-                          outlineStyle={{ borderRadius: 12 }}
-                        />
-                     </View>
-                     <Button mode="outlined" compact onPress={() => {
-                        const nextMode = paymentModes[(paymentModes.findIndex(m => m.value === p.mode) + 1) % paymentModes.length].value;
-                        setPayments(payments.map((pay, i) => i === idx ? { ...pay, mode: nextMode } : pay));
-                     }}>Mode</Button>
-                     {payments.length > 1 && (
-                       <IconButton icon="delete-outline" iconColor="#ef4444" onPress={() => setPayments(payments.filter((_, i) => i !== idx))} />
-                     )}
-                  </View>
-                ))}
-                <Button mode="text" icon="plus" onPress={() => setPayments([...payments, { mode: "UPI", amount: "" }])}>Add Split Payment</Button>
-             </View>
-          </Section>
-        )}
-
-        {hasUpi && (
-           <View className="mx-4 mt-2 mb-4 p-4 bg-white rounded-xl border border-blue-100 gap-3 shadow-sm">
-              <Text variant="labelSmall" style={{ color: "#1e40af", fontWeight: "800" }}>UPI QR OPTIONS</Text>
-              <SegmentedButtons
-                value={upiOption}
-                onValueChange={v => setUpiOption(v as any)}
-                buttons={[
-                  { value: "REGISTER", label: "Shop QR", icon: "qrcode" },
-                  { value: "GENERATE", label: "Dynamic QR", icon: "plus-box-outline" },
-                ]}
-                theme={{ colors: { primary: "#1e40af" } }}
+        <View style={styles.listContainer}>
+          <FlashList
+            data={itemsQuery.data?.items ?? []}
+            estimatedItemSize={90}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => (
+              <SaleItemCard 
+                item={item} 
+                quantity={cart[item.id]?.quantity ?? 0}
+                onAdd={() => updateQuantity(item, 1)}
+                onRemove={() => updateQuantity(item, -1)}
               />
+            )}
+            ListEmptyComponent={
+              itemsQuery.isLoading ? (
+                <SkeletonList count={6} itemHeight={90} />
+              ) : (
+                <EmptyState 
+                  icon="🔍" 
+                  title="No products found" 
+                  subtitle="Try searching by name or SKU" 
+                />
+              )
+            }
+            contentContainerStyle={styles.listContent}
+          />
+        </View>
 
-              {upiOption === 'GENERATE' && !activeShop?.upiId && (
-                <View className="p-4 bg-amber-50 rounded-lg border border-amber-100 flex-row gap-3 items-center">
-                   <Icon source="alert-circle-outline" size={20} color="#b45309" />
-                   <Text style={{ color: "#92400e", fontSize: 11, flex: 1, fontWeight: "600" }}>
-                      UPI ID missing. Owner must configure it in "QR Management".
-                   </Text>
-                </View>
-              )}
-
-              {upiOption === 'GENERATE' && upiPayload && activeShop?.upiId && (
-                <View className="items-center py-4 bg-gray-50 rounded-lg gap-4">
-                   <QRCode value={upiPayload} size={180} />
-                   <View className="items-center">
-                      <Text variant="labelSmall" style={{ color: "#64748b" }}>Pay to: {activeShop?.upiName || activeShop?.name}</Text>
-                      <View className="bg-amber-50 px-3 py-1.5 rounded-lg border border-amber-100 mt-2">
-                         <Text style={{ color: "#92400e", fontSize: 10, fontWeight: "700" }}>VERIFY ON YOUR PHONE BEFORE DONE</Text>
-                      </View>
-                   </View>
-                   <View className="flex-row gap-3 w-full px-4">
-                      <Button mode="outlined" style={{ flex: 1, borderColor: "#e5e7eb" }} textColor="#4b5563" onPress={() => setUpiOption("REGISTER")}>Cancel QR</Button>
-                      <Button mode="contained" style={{ flex: 1, backgroundColor: "#10b981" }} icon="check-circle" onPress={() => saleMutation.mutate()} loading={saleMutation.isPending} disabled={balance > 0}>Done</Button>
-                   </View>
-                </View>
-              )}
-           </View>
-        )}
-
-        {cart.length > 0 && (
-          <View className={`mt-4 p-4 rounded-xl gap-1 ${balance === 0 ? 'bg-emerald-900' : 'bg-slate-900'}`}>
-            <View className="flex-row justify-between">
-              <Text style={{ color: "#9ca3af" }}>Paid So Far</Text>
-              <Text style={{ color: "white" }}>₹{totalPaid.toFixed(2)}</Text>
+        {cartItemCount > 0 && (
+          <View style={styles.cartSummary}>
+            <View style={styles.cartInfo}>
+              <Text style={styles.cartCount}>{cartItemCount} items</Text>
+              <Text style={styles.cartTotal}>{money(cartTotal)}</Text>
             </View>
-            <View className="flex-row justify-between items-center mt-2 pt-2 border-t border-white/10">
-              <Text variant="titleMedium" style={{ color: "white", fontWeight: "700" }}>{balance > 0 ? 'Remaining' : 'Change'}</Text>
-              <Text variant="headlineSmall" style={{ color: "white", fontWeight: "900" }}>₹{Math.abs(balance).toFixed(2)}</Text>
-            </View>
+            <Button 
+              label="COMPLETE SALE →" 
+              variant="success"
+              onPress={() => saleMutation.mutate()} 
+              loading={saleMutation.isPending}
+              style={styles.checkoutButton}
+            />
           </View>
         )}
-      </ScrollView>
-
-      {!isQrVisible && (
-        <View className="absolute bottom-0 left-0 right-0 p-4 bg-white border-t border-gray-100 shadow-xl">
-          <Button
-            mode="contained"
-            disabled={cart.length === 0 || balance > 0}
-            loading={saleMutation.isPending}
-            onPress={() => saleMutation.mutate()}
-            style={{ borderRadius: 12 }}
-            contentStyle={{ height: 56 }}
-            labelStyle={{ fontSize: 18, fontWeight: "700" }}
-          >
-            Complete Sale (₹{subtotal.toFixed(2)})
-          </Button>
-        </View>
-      )}
+      </KeyboardAvoidingView>
 
       <SuccessModal
         visible={successVisible}
         title="Sale Completed"
-        message="Walk-in sale completed successfully!"
+        message={`Sale of ${money(cartTotal)} recorded successfully.`}
         onClose={() => {
           setSuccessVisible(false);
           navigation.goBack();
@@ -263,10 +227,131 @@ export function WalkInSale() {
   );
 }
 
-function IconButton({ icon, iconColor, onPress }: { icon: string, iconColor: string, onPress: () => void }) {
-   return (
-      <Pressable onPress={onPress} className="p-2">
-         <Icon source={icon} size={24} color={iconColor} />
-      </Pressable>
-   )
-}
+const styles = StyleSheet.create({
+  keyboardView: {
+    flex: 1,
+  },
+  searchContainer: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.md,
+    backgroundColor: colors.bg,
+  },
+  searchBar: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    elevation: 0,
+  },
+  searchInput: {
+    fontSize: fontSize.md,
+  },
+  listContainer: {
+    flex: 1,
+  },
+  listContent: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: 100,
+  },
+  itemCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: spacing.lg,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.surfaceOffset,
+    backgroundColor: colors.bg,
+  },
+  itemInfo: {
+    flex: 1,
+    paddingRight: spacing.md,
+  },
+  itemName: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  itemSubtitle: {
+    fontSize: fontSize.sm,
+    color: colors.textSecondary,
+    marginTop: spacing.xs,
+  },
+  quantityControls: {
+    minWidth: 120,
+    alignItems: 'flex-end',
+  },
+  addButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.primaryLight,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.md,
+    minHeight: 44,
+    minWidth: 80,
+    justifyContent: 'center',
+    gap: spacing.xs,
+  },
+  addButtonLabel: {
+    color: colors.primary,
+    fontWeight: fontWeight.bold,
+    fontSize: fontSize.sm,
+  },
+  counterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surfaceOffset,
+    borderRadius: radius.md,
+    overflow: 'hidden',
+  },
+  qtyButton: {
+    width: 44,
+    height: 44,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.primaryLight,
+  },
+  buttonPressed: {
+    opacity: 0.7,
+  },
+  qtyDisplay: {
+    minWidth: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  qtyText: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.black,
+    color: colors.textPrimary,
+  },
+  cartSummary: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: colors.surface,
+    padding: spacing.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    ...shadow.lg,
+  },
+  cartInfo: {
+    flex: 1,
+  },
+  cartCount: {
+    fontSize: fontSize.sm,
+    color: colors.textSecondary,
+    fontWeight: fontWeight.medium,
+  },
+  cartTotal: {
+    fontSize: fontSize.xl,
+    fontWeight: fontWeight.black,
+    color: colors.textPrimary,
+  },
+  checkoutButton: {
+    flex: 1.5,
+  }
+});

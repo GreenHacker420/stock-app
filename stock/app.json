@@ -26,6 +26,9 @@
       "bundler": "metro",
       "favicon": "./assets/favicon.png"
     },
+    "experiments": {
+      "reactCompiler": true
+    },
     "plugins": [
       "expo-asset",
       [

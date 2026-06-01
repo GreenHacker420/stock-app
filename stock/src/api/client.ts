@@ -207,6 +207,35 @@ export type Sale = {
   payments?: Payment[];
 };
 
+export interface CreateItemPayload {
+  shopId: string;
+  name: string;
+  sku?: string;
+  unit: string;
+  defaultSellingPrice: number;
+  minimumStock: number;
+  purchasePrice?: number;
+  mrp?: number;
+  categoryId?: string;
+}
+
+export interface UpdateItemPayload extends Partial<CreateItemPayload> {}
+
+export interface CreateSalePayload {
+  shopId: string;
+  customerId?: string;
+  items: Array<{ itemId: string; quantity: number; sellingPrice: number }>;
+  paymentMethod: 'cash' | 'upi' | 'credit';
+  totalAmount: number;
+  notes?: string;
+}
+
+export interface StockEntryPayload {
+  shopId: string;
+  entries: Array<{ itemId: string; quantity: number; purchasePrice?: number }>;
+  notes?: string;
+}
+
 type ApiResponse<T> = {
   success: boolean;
   data: T;
@@ -302,15 +331,26 @@ export async function setOpeningStock(token: string, shopId: string, entries: an
 }
 
 // ITEMS & STOCK
-export async function fetchItems(token: string, shopId: string) {
-  return apiRequest<Item[]>(`/items?shopId=${encodeURIComponent(shopId)}`, { token });
+export async function fetchItems(
+  token: string,
+  shopId: string,
+  opts: { search?: string; page?: number; limit?: number } = {}
+) {
+  const q = new URLSearchParams({ shopId });
+  if (opts.search && opts.search.trim()) q.set('search', opts.search.trim());
+  if (opts.page)  q.set('page',  String(opts.page));
+  if (opts.limit) q.set('limit', String(opts.limit));
+  return apiRequest<{ items: Item[]; total: number; hasMore: boolean; page: number }>(
+    `/items?${q.toString()}`,
+    { token }
+  );
 }
 
-export async function createItem(token: string, data: any) {
+export async function createItem(token: string, data: CreateItemPayload) {
   return apiRequest<Item>("/items", { method: "POST", token, body: JSON.stringify(data) });
 }
 
-export async function updateItem(token: string, id: string, data: any) {
+export async function updateItem(token: string, id: string, data: UpdateItemPayload) {
   return apiRequest<Item>(`/items/${id}`, { method: "PATCH", token, body: JSON.stringify(data) });
 }
 
@@ -340,13 +380,7 @@ export async function fetchSale(token: string, id: string) {
   return apiRequest<Sale>(`/sales/${id}`, { token });
 }
 
-export async function createSale(token: string, data: {
-  shopId: string;
-  customerId?: string;
-  isWalkin: boolean;
-  items: Array<{ itemId: string; quantity: number; rate: number }>;
-  payments: Array<{ paymentMode: string; amount: number; referenceNumber?: string }>;
-}) {
+export async function createSale(token: string, data: CreateSalePayload) {
   return apiRequest("/sales", {
     method: "POST",
     token,
@@ -358,9 +392,9 @@ export async function createSale(token: string, data: {
 export async function createWalkInSale(token: string, data: any) {
   return createSale(token, {
     shopId: data.shopId,
-    isWalkin: true,
-    items: [{ itemId: data.itemId, quantity: data.quantity, rate: data.rate }],
-    payments: [{ paymentMode: data.paymentMode, amount: data.quantity * data.rate }],
+    items: [{ itemId: data.itemId, quantity: data.quantity, sellingPrice: data.rate }],
+    paymentMethod: 'cash',
+    totalAmount: data.quantity * data.rate
   });
 }
 
@@ -695,4 +729,8 @@ export async function fetchStaffTodaySummary(token: string, shopId: string, date
   const params = new URLSearchParams({ shopId });
   if (date) params.set("date", date);
   return apiRequest<StaffTodaySummaryData>(`/dashboard/staff/today?${params.toString()}`, { token });
+}
+
+export async function addStock(token: string, data: StockEntryPayload) {
+  return apiRequest("/stock/entry", { method: "POST", token, body: JSON.stringify(data) });
 }

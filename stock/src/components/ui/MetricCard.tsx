@@ -1,5 +1,6 @@
-import { View } from "react-native";
+import { View, StyleSheet } from "react-native";
 import { Icon, Text } from "react-native-paper";
+import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 
 type MetricCardProps = {
   label: string;
@@ -10,51 +11,90 @@ type MetricCardProps = {
 };
 
 const tones = {
-  green: { bg: "#ffffff", iconBg: "rgba(16, 185, 129, 0.08)", color: "#065f46" },
-  amber: { bg: "#ffffff", iconBg: "rgba(245, 158, 11, 0.08)", color: "#92400e" },
-  blue: { bg: "#ffffff", iconBg: "rgba(30, 64, 175, 0.08)", color: "#1e3a8a" },
-  red: { bg: "#ffffff", iconBg: "rgba(239, 68, 68, 0.08)", color: "#991b1b" },
+  green: { bg: colors.surface, iconBg: 'rgba(5, 150, 105, 0.08)', color: colors.success },
+  amber: { bg: colors.surface, iconBg: 'rgba(217, 119, 6, 0.08)', color: colors.warning },
+  blue: { bg: colors.surface, iconBg: 'rgba(30, 64, 175, 0.08)', color: colors.primary },
+  red: { bg: colors.surface, iconBg: 'rgba(220, 38, 38, 0.08)', color: colors.danger },
 };
 
 export function MetricCard({ label, value, icon, tone = "green", helper }: MetricCardProps) {
   const palette = tones[tone];
 
   return (
-    <View
-      className="flex-1 gap-3 rounded-lg border border-[#e5e7eb] p-4"
-      style={{
-        backgroundColor: palette.bg,
-        minHeight: 124,
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 1 },
-        shadowOpacity: 0.05,
-        shadowRadius: 2,
-        elevation: 1,
-      }}
-    >
-      <View className="flex-row justify-between items-start">
-        <View
-          className="h-10 w-10 items-center justify-center rounded-lg"
-          style={{ backgroundColor: palette.iconBg }}
-        >
+    <View style={[styles.container, { backgroundColor: palette.bg }]}>
+      <View style={styles.header}>
+        <View style={[styles.iconContainer, { backgroundColor: palette.iconBg }]}>
           <Icon source={icon} size={20} color={palette.color} />
         </View>
         {helper ? (
-          <View className="rounded-full bg-[#f3f4f6] px-2 py-0.5 border border-[#e5e7eb]">
-            <Text style={{ color: "#4b5563", fontSize: 10, fontWeight: "700" }}>
-              {helper}
-            </Text>
+          <View style={styles.helperContainer}>
+            <Text style={styles.helperText}>{helper}</Text>
           </View>
         ) : null}
       </View>
-      <View className="gap-0.5">
-        <Text variant="headlineSmall" style={{ color: "#111827", fontWeight: "800", letterSpacing: -0.5 }}>
+      <View style={styles.content}>
+        <Text style={styles.value} numberOfLines={1} adjustsFontSizeToFit>
           {value}
         </Text>
-        <Text variant="labelLarge" style={{ color: "#4b5563", fontWeight: "600" }}>
+        <Text style={styles.label} numberOfLines={1}>
           {label}
         </Text>
       </View>
     </View>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    padding: spacing.lg,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    minHeight: 124,
+    ...shadow.sm,
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: spacing.md,
+  },
+  iconContainer: {
+    height: 40,
+    width: 40,
+    itemsCenter: 'center', // error in my thought, should be alignItems
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.md,
+  },
+  helperContainer: {
+    backgroundColor: colors.surfaceOffset,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radius.full,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  helperText: {
+    color: colors.textSecondary,
+    fontSize: 10,
+    fontWeight: fontWeight.bold,
+  },
+  content: {
+    gap: 2,
+  },
+  value: {
+    fontSize: fontSize.xl,
+    fontWeight: fontWeight.black,
+    color: colors.textPrimary,
+    letterSpacing: -0.5,
+  },
+  label: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.3,
+  },
+});

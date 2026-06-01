@@ -1,49 +1,147 @@
-import { useMemo, useState } from "react";
-import { Pressable, ScrollView, View } from "react-native";
+import React, { useMemo, useState, memo } from "react";
+import { Pressable, View, StyleSheet, ActivityIndicator } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigation, useRoute } from "@react-navigation/native";
-import { Button, Divider, Searchbar, Text, TextInput } from "react-native-paper";
-import { createCustomer, Customer, fetchCustomer, fetchCustomerOutstanding, fetchCustomerPriceHistory, fetchCustomers, updateCustomer } from "../../api/client";
+import { Divider, Icon, Searchbar, Text, TextInput } from "react-native-paper";
+import { FlashList } from "@shopify/flash-list";
+import { useDebounce } from "use-debounce";
+
+import { 
+  createCustomer, 
+  Customer, 
+  fetchCustomer, 
+  fetchCustomerOutstanding, 
+  fetchCustomerPriceHistory, 
+  fetchCustomers, 
+  updateCustomer 
+} from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { Section } from "../../components/ui/Section";
 import { StatusPill } from "../../components/ui/StatusPill";
+import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
+import { SkeletonList } from "../../components/ui/SkeletonCard";
+import { EmptyState } from "../../components/ui/EmptyState";
+import { Button } from "../../components/ui/Button";
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
+
+const CustomerCard = memo(({ 
+  customer, 
+  onPress 
+}: { 
+  customer: Customer, 
+  onPress: () => void 
+}) => {
+  const isPending = Number(customer.outstandingAmount ?? 0) > 0;
+  
+  return (
+    <Pressable 
+      onPress={onPress} 
+      style={({ pressed }) => [
+        styles.customerCard,
+        pressed && styles.pressed
+      ]}
+    >
+      <View style={styles.customerHeader}>
+        <View style={styles.customerMain}>
+          <Text style={styles.customerName}>{customer.name}</Text>
+          <Text style={styles.customerSubtitle}>
+            {customer.phone || "No phone"} • {customer.city || "No city"}
+          </Text>
+        </View>
+        <StatusPill 
+          label={isPending ? "PENDING" : "CLEAR"} 
+          tone={isPending ? "red" : "green"} 
+        />
+      </View>
+      <View style={styles.customerFooter}>
+        <Text style={styles.outstandingLabel}>
+          Outstanding: <Text style={styles.outstandingValue}>{money(customer.outstandingAmount)}</Text>
+        </Text>
+        <Text style={styles.limitLabel}>
+          Limit: {money(customer.creditLimit)}
+        </Text>
+      </View>
+    </Pressable>
+  );
+});
 
 export function CustomerList() {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
   const navigation = useNavigation();
+  
   const [search, setSearch] = useState("");
-  const customersQuery = useQuery({ queryKey: ["customers", activeShopId], queryFn: () => fetchCustomers(token ?? "", activeShopId ?? ""), enabled: !!token && !!activeShopId });
-  const rows = useMemo(() => (customersQuery.data ?? []).filter((c) => `${c.name} ${c.phone ?? ""} ${c.city ?? ""}`.toLowerCase().includes(search.toLowerCase())), [customersQuery.data, search]);
+  const [debouncedSearch] = useDebounce(search, 300);
+
+  const customersQuery = useQuery({ 
+    queryKey: ["customers", activeShopId], 
+    queryFn: () => fetchCustomers(token ?? "", activeShopId ?? ""), 
+    enabled: !!token && !!activeShopId 
+  });
+
+  const filteredData = useMemo(() => {
+    const data = customersQuery.data ?? [];
+    if (!debouncedSearch) return data;
+    const s = debouncedSearch.toLowerCase();
+    return data.filter(c => 
+      c.name.toLowerCase().includes(s) || 
+      (c.phone && c.phone.includes(s)) ||
+      (c.city && c.city.toLowerCase().includes(s))
+    );
+  }, [customersQuery.data, debouncedSearch]);
 
   return (
-    <Screen scroll={false}>
-      <AppHeader title="Customer Management" subtitle="Customers, credit limits, outstanding, and price history." />
-      <Searchbar value={search} onChangeText={setSearch} placeholder="Search customer or phone" style={{ backgroundColor: "white", borderRadius: 10 }} />
-      <Button mode="contained" icon="account-plus" onPress={() => (navigation as any).navigate("AddEditCustomer")} style={{ borderRadius: 10 }}>Add Customer</Button>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
-        <View className="gap-3">
-          {rows.map((customer) => (
-            <Pressable key={customer.id} onPress={() => (navigation as any).navigate("CustomerDetail", { customerId: customer.id })}>
-              <View className="rounded-lg border border-[#e5e7eb] bg-white p-4">
-                <View className="flex-row justify-between gap-3">
-                  <View className="flex-1">
-                    <Text variant="titleMedium" style={{ fontWeight: "900" }}>{customer.name}</Text>
-                    <Text style={{ color: "#64748b" }}>{customer.phone || "No phone"} • {customer.city || "No city"}</Text>
-                  </View>
-                  <StatusPill label={Number(customer.outstandingAmount ?? 0) > 0 ? "PENDING" : "CLEAR"} tone={Number(customer.outstandingAmount ?? 0) > 0 ? "red" : "green"} />
-                </View>
-                <Text style={{ marginTop: 10 }}>Outstanding: <Text style={{ fontWeight: "900" }}>{money(customer.outstandingAmount)}</Text> • Limit: {money(customer.creditLimit)}</Text>
-              </View>
-            </Pressable>
-          ))}
+    <Screen edges={['top', 'left', 'right']}>
+      <View style={styles.container}>
+        <AppHeader title="Customer Management" subtitle="View and manage customer accounts" />
+        
+        <View style={styles.headerControls}>
+          <Searchbar 
+            value={search} 
+            onChangeText={setSearch} 
+            placeholder="Search customer or phone" 
+            style={styles.searchBar}
+            inputStyle={styles.searchInput}
+          />
         </View>
-      </ScrollView>
+
+        <View style={styles.listWrapper}>
+          <FlashList
+            data={filteredData}
+            estimatedItemSize={80}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => (
+              <CustomerCard 
+                customer={item} 
+                onPress={() => (navigation as any).navigate("CustomerDetail", { customerId: item.id })}
+              />
+            )}
+            ListEmptyComponent={
+              customersQuery.isLoading ? (
+                <SkeletonList count={8} itemHeight={80} />
+              ) : (
+                <EmptyState 
+                  icon="👥" 
+                  title="No customers yet" 
+                  subtitle="Add your first customer to get started" 
+                />
+              )
+            }
+            contentContainerStyle={styles.listContent}
+          />
+        </View>
+
+        <Pressable 
+          style={styles.fab} 
+          onPress={() => (navigation as any).navigate("AddEditCustomer")}
+        >
+          <Icon source="account-plus" size={28} color={colors.textInverse} />
+        </Pressable>
+      </View>
     </Screen>
   );
 }
@@ -55,6 +153,7 @@ export function AddEditCustomer() {
   const navigation = useNavigation();
   const queryClient = useQueryClient();
   const customer = (route.params as { customer?: Customer } | undefined)?.customer;
+  
   const [form, setForm] = useState({
     name: customer?.name ?? "",
     phone: customer?.phone ?? "",
@@ -64,10 +163,16 @@ export function AddEditCustomer() {
     creditLimit: String(customer?.creditLimit ?? ""),
     notes: customer?.notes ?? "",
   });
+
   const set = (key: keyof typeof form, value: string) => setForm((prev) => ({ ...prev, [key]: value }));
+
   const mutation = useMutation({
     mutationFn: () => {
-      const payload = { shopId: activeShopId, ...form, creditLimit: form.creditLimit ? Number(form.creditLimit) : undefined };
+      const payload = { 
+        shopId: activeShopId, 
+        ...form, 
+        creditLimit: form.creditLimit ? Number(form.creditLimit) : undefined 
+      };
       return customer ? updateCustomer(token ?? "", customer.id, payload) : createCustomer(token ?? "", payload);
     },
     onSuccess: () => {
@@ -77,20 +182,31 @@ export function AddEditCustomer() {
   });
 
   return (
-    <Screen>
-      <AppHeader title={customer ? "Edit Customer" : "Add Customer"} subtitle="Maintain customer profile and credit settings." />
-      <Section title="Customer details">
-        <View className="gap-3 rounded-lg border border-[#e5e7eb] bg-white p-4">
-          <TextInput mode="outlined" label="Name" value={form.name} onChangeText={(v) => set("name", v)} />
-          <TextInput mode="outlined" label="Phone" value={form.phone ?? ""} onChangeText={(v) => set("phone", v)} />
-          <TextInput mode="outlined" label="Address" value={form.address ?? ""} onChangeText={(v) => set("address", v)} />
-          <TextInput mode="outlined" label="City" value={form.city ?? ""} onChangeText={(v) => set("city", v)} />
-          <TextInput mode="outlined" label="GSTIN" value={form.gstin ?? ""} onChangeText={(v) => set("gstin", v)} />
-          <TextInput mode="outlined" label="Credit limit" keyboardType="numeric" value={form.creditLimit} onChangeText={(v) => set("creditLimit", v)} />
-          <TextInput mode="outlined" label="Notes" multiline value={form.notes ?? ""} onChangeText={(v) => set("notes", v)} />
+    <Screen edges={['top', 'left', 'right']}>
+      <AppHeader title={customer ? "Edit Customer" : "Add Customer"} subtitle="Maintain customer profile settings" />
+      <View style={styles.formContainer}>
+        <Section title="Customer details">
+          <View style={styles.formCard}>
+            <TextInput mode="outlined" label="Name" value={form.name} onChangeText={(v) => set("name", v)} outlineStyle={styles.inputOutline} style={styles.input} />
+            <TextInput mode="outlined" label="Phone" value={form.phone ?? ""} onChangeText={(v) => set("phone", v)} outlineStyle={styles.inputOutline} style={styles.input} />
+            <TextInput mode="outlined" label="Address" value={form.address ?? ""} onChangeText={(v) => set("address", v)} outlineStyle={styles.inputOutline} style={styles.input} />
+            <TextInput mode="outlined" label="City" value={form.city ?? ""} onChangeText={(v) => set("city", v)} outlineStyle={styles.inputOutline} style={styles.input} />
+            <TextInput mode="outlined" label="GSTIN" value={form.gstin ?? ""} onChangeText={(v) => set("gstin", v)} outlineStyle={styles.inputOutline} style={styles.input} />
+            <TextInput mode="outlined" label="Credit limit" keyboardType="numeric" value={form.creditLimit} onChangeText={(v) => set("creditLimit", v)} outlineStyle={styles.inputOutline} style={styles.input} />
+            <TextInput mode="outlined" label="Notes" multiline value={form.notes ?? ""} onChangeText={(v) => set("notes", v)} outlineStyle={styles.inputOutline} style={styles.input} />
+          </View>
+        </Section>
+        <View style={styles.formFooter}>
+          <Button 
+            label="Save Customer" 
+            onPress={() => mutation.mutate()} 
+            loading={mutation.isPending} 
+            disabled={!form.name.trim()}
+            fullWidth
+            size="lg"
+          />
         </View>
-      </Section>
-      <Button mode="contained" loading={mutation.isPending} disabled={!form.name.trim()} onPress={() => mutation.mutate()} style={{ borderRadius: 10 }}>Save Customer</Button>
+      </View>
     </Screen>
   );
 }
@@ -99,47 +215,306 @@ export function CustomerDetail() {
   const token = useAuthStore((state) => state.token);
   const navigation = useNavigation();
   const customerId = (useRoute().params as { customerId?: string } | undefined)?.customerId;
-  const customerQuery = useQuery({ queryKey: ["customer", customerId], queryFn: () => fetchCustomer(token ?? "", customerId ?? ""), enabled: !!token && !!customerId });
-  const outstandingQuery = useQuery({ queryKey: ["customer-outstanding", customerId], queryFn: () => fetchCustomerOutstanding(token ?? "", customerId ?? ""), enabled: !!token && !!customerId });
-  const historyQuery = useQuery({ queryKey: ["customer-price-history", customerId], queryFn: () => fetchCustomerPriceHistory(token ?? "", customerId ?? ""), enabled: !!token && !!customerId });
+  
+  const customerQuery = useQuery({ 
+    queryKey: ["customer", customerId], 
+    queryFn: () => fetchCustomer(token ?? "", customerId ?? ""), 
+    enabled: !!token && !!customerId 
+  });
+  
+  const outstandingQuery = useQuery({ 
+    queryKey: ["customer-outstanding", customerId], 
+    queryFn: () => fetchCustomerOutstanding(token ?? "", customerId ?? ""), 
+    enabled: !!token && !!customerId 
+  });
+  
+  const historyQuery = useQuery({ 
+    queryKey: ["customer-price-history", customerId], 
+    queryFn: () => fetchCustomerPriceHistory(token ?? "", customerId ?? ""), 
+    enabled: !!token && !!customerId 
+  });
+
   const customer = customerQuery.data;
 
   return (
-    <Screen>
-      <AppHeader title={customer?.name ?? "Customer Detail"} subtitle="Profile, outstanding, payments, and price history." />
-      {customer ? (
-        <>
-          <View className="rounded-lg border border-[#e5e7eb] bg-white p-4">
-            <Text variant="titleMedium" style={{ fontWeight: "900" }}>{customer.name}</Text>
-            <Text>{customer.phone || "No phone"} • {customer.city || "No city"}</Text>
-            <Text>Outstanding: {money((outstandingQuery.data as any)?.totalPending ?? customer.outstandingAmount)}</Text>
-            <Text>Credit limit: {money(customer.creditLimit)}</Text>
-          </View>
-          <Button mode="contained-tonal" icon="pencil" onPress={() => (navigation as any).navigate("AddEditCustomer", { customer })}>Edit Customer</Button>
-          <Section title="Outstanding records">
-            <View className="rounded-lg border border-[#e5e7eb] bg-white">
-              {((outstandingQuery.data as any)?.records ?? []).map((row: any, index: number) => (
-                <View key={row.id} className="p-4">
-                  {index > 0 ? <Divider style={{ marginBottom: 12 }} /> : null}
-                  <Text style={{ fontWeight: "900" }}>{row.sale?.saleNumber ?? row.deliveryMemo?.dmNumber ?? row.order?.orderNumber ?? "Outstanding"}</Text>
-                  <Text style={{ color: "#64748b" }}>{money(row.pendingAmount)} • {row.status}</Text>
+    <Screen edges={['top', 'left', 'right']}>
+      <View style={styles.container}>
+        <AppHeader title={customer?.name ?? "Customer Detail"} subtitle="Profile and transaction history" />
+        
+        {customer ? (
+          <ScrollView contentContainerStyle={styles.detailContent} showsVerticalScrollIndicator={false}>
+            <View style={styles.detailCard}>
+              <Text style={styles.detailName}>{customer.name}</Text>
+              <Text style={styles.detailSubtitle}>{customer.phone || "No phone"} • {customer.city || "No city"}</Text>
+              <Divider style={styles.divider} />
+              <View style={styles.detailStats}>
+                <View style={styles.detailStatItem}>
+                  <Text style={styles.statLabel}>Outstanding</Text>
+                  <Text style={[styles.statValue, { color: colors.danger }]}>
+                    {money((outstandingQuery.data as any)?.totalPending ?? customer.outstandingAmount)}
+                  </Text>
                 </View>
-              ))}
-            </View>
-          </Section>
-          <Section title="Price history">
-            <View className="rounded-lg border border-[#e5e7eb] bg-white">
-              {((historyQuery.data as any)?.rows ?? []).slice(0, 10).map((row: any, index: number) => (
-                <View key={`${row.type}-${row.recordNumber}-${index}`} className="p-4">
-                  {index > 0 ? <Divider style={{ marginBottom: 12 }} /> : null}
-                  <Text style={{ fontWeight: "900" }}>{row.item?.name} • {money(row.rate)}</Text>
-                  <Text style={{ color: "#64748b" }}>{row.type} {row.recordNumber} • Qty {row.quantity}</Text>
+                <View style={styles.detailStatItem}>
+                  <Text style={styles.statLabel}>Credit Limit</Text>
+                  <Text style={styles.statValue}>{money(customer.creditLimit)}</Text>
                 </View>
-              ))}
+              </View>
             </View>
-          </Section>
-        </>
-      ) : null}
+
+            <Button 
+              variant="secondary" 
+              label="Edit Profile" 
+              icon={<Icon source="pencil" size={20} color={colors.primary} />} 
+              onPress={() => (navigation as any).navigate("AddEditCustomer", { customer })}
+              style={styles.editButton}
+            />
+
+            <Section title="Outstanding records">
+              <View style={styles.recordsCard}>
+                {((outstandingQuery.data as any)?.records ?? []).length > 0 ? (
+                  ((outstandingQuery.data as any)?.records ?? []).map((row: any, index: number) => (
+                    <View key={row.id}>
+                      {index > 0 && <Divider style={styles.rowDivider} />}
+                      <View style={styles.recordRow}>
+                        <View>
+                          <Text style={styles.recordTitle}>
+                            {row.sale?.saleNumber ?? row.deliveryMemo?.dmNumber ?? row.order?.orderNumber ?? "Outstanding"}
+                          </Text>
+                          <Text style={styles.recordSubtitle}>{row.status}</Text>
+                        </View>
+                        <Text style={styles.recordAmount}>{money(row.pendingAmount)}</Text>
+                      </View>
+                    </View>
+                  ))
+                ) : (
+                  <Text style={styles.emptyText}>No outstanding records found.</Text>
+                )}
+              </View>
+            </Section>
+
+            <Section title="Price history">
+              <View style={styles.recordsCard}>
+                {((historyQuery.data as any)?.rows ?? []).length > 0 ? (
+                  ((historyQuery.data as any)?.rows ?? []).slice(0, 10).map((row: any, index: number) => (
+                    <View key={`${row.type}-${row.recordNumber}-${index}`}>
+                      {index > 0 && <Divider style={styles.rowDivider} />}
+                      <View style={styles.recordRow}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.recordTitle}>{row.item?.name}</Text>
+                          <Text style={styles.recordSubtitle}>{row.type} {row.recordNumber} • Qty {row.quantity}</Text>
+                        </View>
+                        <Text style={styles.recordAmount}>{money(row.rate)}</Text>
+                      </View>
+                    </View>
+                  ))
+                ) : (
+                  <Text style={styles.emptyText}>No price history found.</Text>
+                )}
+              </View>
+            </Section>
+          </ScrollView>
+        ) : (
+          <SkeletonList count={5} />
+        )}
+      </View>
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  headerControls: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.md,
+  },
+  searchBar: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    elevation: 0,
+  },
+  searchInput: {
+    fontSize: fontSize.md,
+  },
+  listWrapper: {
+    flex: 1,
+  },
+  listContent: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: 100,
+  },
+  customerCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    marginBottom: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    minHeight: 72,
+    ...shadow.sm,
+  },
+  customerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    gap: spacing.md,
+  },
+  customerMain: {
+    flex: 1,
+  },
+  customerName: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  customerSubtitle: {
+    fontSize: fontSize.sm,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  customerFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: spacing.md,
+    paddingTop: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.surfaceOffset,
+  },
+  outstandingLabel: {
+    fontSize: fontSize.sm,
+    color: colors.textSecondary,
+  },
+  outstandingValue: {
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  limitLabel: {
+    fontSize: fontSize.sm,
+    color: colors.textMuted,
+  },
+  fab: {
+    position: 'absolute',
+    bottom: 24,
+    right: 24,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...shadow.lg,
+  },
+  pressed: {
+    opacity: 0.7,
+    transform: [{ scale: 0.98 }],
+  },
+  formContainer: {
+    flex: 1,
+    paddingHorizontal: spacing.lg,
+  },
+  formCard: {
+    backgroundColor: colors.surface,
+    padding: spacing.lg,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: spacing.md,
+  },
+  input: {
+    backgroundColor: colors.surface,
+  },
+  inputOutline: {
+    borderRadius: radius.md,
+  },
+  formFooter: {
+    paddingVertical: spacing.xl,
+  },
+  detailContent: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: 40,
+  },
+  detailCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
+    padding: spacing.xl,
+    borderWidth: 1,
+    borderColor: colors.border,
+    ...shadow.md,
+    marginBottom: spacing.lg,
+  },
+  detailName: {
+    fontSize: fontSize.xxl,
+    fontWeight: fontWeight.black,
+    color: colors.textPrimary,
+  },
+  detailSubtitle: {
+    fontSize: fontSize.md,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  divider: {
+    marginVertical: spacing.lg,
+    backgroundColor: colors.border,
+  },
+  detailStats: {
+    gap: spacing.md,
+  },
+  detailStatItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  statLabel: {
+    fontSize: fontSize.md,
+    color: colors.textSecondary,
+    fontWeight: fontWeight.medium,
+  },
+  statValue: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  editButton: {
+    marginBottom: spacing.xl,
+  },
+  recordsCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: 'hidden',
+  },
+  recordRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: spacing.lg,
+  },
+  recordTitle: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  recordSubtitle: {
+    fontSize: fontSize.xs,
+    color: colors.textMuted,
+    marginTop: 2,
+  },
+  recordAmount: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.black,
+    color: colors.primary,
+  },
+  rowDivider: {
+    backgroundColor: colors.surfaceOffset,
+  },
+  emptyText: {
+    padding: spacing.xxl,
+    textAlign: 'center',
+    color: colors.textMuted,
+    fontSize: fontSize.sm,
+  }
+});
