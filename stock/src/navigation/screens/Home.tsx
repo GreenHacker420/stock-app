@@ -1,12 +1,13 @@
 import React, { useMemo } from "react";
 import { ScrollView, View, Pressable, StyleSheet, ActivityIndicator } from "react-native";
-import { useQuery } from "@tanstack/react-query";
 import { useNavigation } from "@react-navigation/native";
 import { Text, Icon, Button } from "react-native-paper";
 
-import { fetchShops, fetchCurrentCashSession, fetchOwnerDashboard } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
+import { useShopsQuery } from "../../hooks/useShops";
+import { useCurrentCashSessionQuery } from "../../hooks/useCashSessions";
+import { useOwnerDashboardQuery } from "../../hooks/useDashboard";
 import { Screen } from "../../components/Screen";
 import { ActionTile } from "../../components/ui/ActionTile";
 import { AppHeader } from "../../components/ui/AppHeader";
@@ -15,41 +16,77 @@ import { Section } from "../../components/ui/Section";
 import { StatusPill } from "../../components/ui/StatusPill";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 
+type DashboardActionProps = {
+  icon: string;
+  title: string;
+  subtitle: string;
+  tone: "green" | "blue" | "amber" | "red";
+  onPress: () => void;
+  isLast?: boolean;
+};
+
+function DashboardAction({ icon, title, subtitle, tone, onPress, isLast }: DashboardActionProps) {
+  const tones = {
+    green: { bg: 'rgba(5, 150, 105, 0.08)', color: colors.success },
+    amber: { bg: 'rgba(217, 119, 6, 0.08)', color: colors.warning },
+    blue: { bg: 'rgba(30, 64, 175, 0.08)', color: colors.primary },
+    red: { bg: 'rgba(220, 38, 38, 0.08)', color: colors.danger },
+  };
+  const palette = tones[tone];
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        isLast ? styles.actionRowLast : styles.actionRow,
+        pressed && styles.pressed
+      ]}
+    >
+      <View style={styles.actionRowLeft}>
+        <View style={[styles.actionIconBg, { backgroundColor: palette.bg }]}>
+          <Icon source={icon} size={20} color={palette.color} />
+        </View>
+        <View style={styles.flex1}>
+          <Text style={styles.actionTitle}>{title}</Text>
+          <Text style={styles.actionSubtitle}>{subtitle}</Text>
+        </View>
+      </View>
+      <Icon source="chevron-right" size={20} color={colors.textSecondary} />
+    </Pressable>
+  );
+}
+
 export function Home() {
   const user = useAuthStore((state) => state.user);
-  const token = useAuthStore((state) => state.token);
   const { activeShopId, setActiveShopId } = useShopStore();
-
-  const shopsQuery = useQuery({
-    queryKey: ["shops"],
-    queryFn: () => fetchShops(token ?? ""),
-    enabled: !!token,
-  });
-
-  const sessionQuery = useQuery({
-    queryKey: ["cash-session", activeShopId],
-    queryFn: () => fetchCurrentCashSession(token ?? "", activeShopId ?? ""),
-    enabled: !!token && !!activeShopId,
-  });
+  const shopsQuery = useShopsQuery();
+  const sessionQuery = useCurrentCashSessionQuery();
 
   const navigation = useNavigation();
   const navigate = (screen: string) => {
     (navigation as any).navigate(screen);
   };
 
-  const selectedShop = useMemo(() => shopsQuery.data?.find(s => s.id === activeShopId), [shopsQuery.data, activeShopId]);
-  const shopCount = shopsQuery.data?.length ?? 0;
-  const initials = user?.name
-    ?.split(" ")
-    .map((part) => part[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
+  const selectedShop = useMemo(() => 
+    shopsQuery.data?.find(s => s.id === activeShopId), 
+    [shopsQuery.data, activeShopId]
+  );
+
+  const initials = useMemo(() => {
+    if (user?.name) {
+      return user.name
+        .split(/\s+/)
+        .map((part) => part[0])
+        .join("")
+        .slice(0, 2)
+        .toUpperCase();
+    }
+    return "SC";
+  }, [user?.name]);
 
   return (
     <Screen edges={['top', 'left', 'right']}>
       <AppHeader
-        title={user?.role === "OWNER" ? "Owner Dashboard" : (selectedShop?.name ?? "Shop Hub")}
+        title={user?.role === "OWNER" ? "Dashboard" : (selectedShop?.name ?? "Shop Hub")}
         subtitle={user?.role === "OWNER" ? "Live operations overview" : "Ready for today's tasks"}
         role={user?.role}
         initials={initials}
@@ -60,7 +97,9 @@ export function Home() {
           <Section title="Select Shop">
             <View style={styles.sectionGap}>
               {shopsQuery.isLoading ? (
-                <ActivityIndicator color={colors.primary} />
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator color={colors.primary} />
+                </View>
               ) : (
                 shopsQuery.data?.map(shop => (
                   <ActionTile
@@ -77,25 +116,10 @@ export function Home() {
           </Section>
         ) : (
           <>
-            <View style={styles.shopBranding}>
-              <View>
-                <Text style={styles.shopNameLabel}>Active Shop</Text>
-                <Text style={styles.shopNameValue}>{selectedShop?.name}</Text>
-              </View>
-              <Button 
-                mode="text" 
-                onPress={() => setActiveShopId(null)}
-                textColor={colors.primaryMid}
-                labelStyle={styles.changeShopLabel}
-              >
-                Switch Shop
-              </Button>
-            </View>
-
             {user?.role === "OWNER" ? (
-              <OwnerHome shopCount={shopCount} navigate={navigate} />
+              <OwnerHome navigate={navigate} />
             ) : (
-              <StaffHome navigate={navigate} session={sessionQuery.data} />
+              <StaffHome navigate={navigate} session={sessionQuery.data} sessionLoading={sessionQuery.isLoading} />
             )}
           </>
         )}
@@ -104,11 +128,11 @@ export function Home() {
           <Text style={styles.statusTitle}>SYSTEM STATUS</Text>
           <View style={styles.statusPills}>
             <StatusPill 
-              label={token ? "API connected" : "Offline"} 
-              tone={token ? "green" : "red"} 
+              label="API Connected" 
+              tone="green" 
             />
             <StatusPill 
-              label={activeShopId ? "Shop active" : "No shop picked"} 
+              label={activeShopId ? "Shop Active" : "No Shop Selected"} 
               tone={activeShopId ? "blue" : "amber"} 
             />
           </View>
@@ -118,16 +142,8 @@ export function Home() {
   );
 }
 
-function OwnerHome({ shopCount, navigate }: { shopCount: number; navigate: (s: string) => void }) {
-  const token = useAuthStore((state) => state.token);
-  const activeShopId = useShopStore((state) => state.activeShopId);
-  
-  const dashboardQuery = useQuery({
-    queryKey: ["owner-dashboard", activeShopId],
-    queryFn: () => fetchOwnerDashboard(token ?? "", { shopId: activeShopId ?? undefined }),
-    enabled: !!token,
-  });
-
+function OwnerHome({ navigate }: { navigate: (s: string) => void }) {
+  const dashboardQuery = useOwnerDashboardQuery();
   const dashboard = dashboardQuery.data as any;
   const money = (value: any) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 
@@ -155,52 +171,157 @@ function OwnerHome({ shopCount, navigate }: { shopCount: number; navigate: (s: s
 
       <Section title="Quick actions">
         <View style={styles.sectionGap}>
-          <ActionTile title="New Counter Sale" subtitle="Start a direct customer checkout." icon="cart-plus" tone="green" onPress={() => navigate("WalkInSale")} />
-          <ActionTile title="Create Order" subtitle="Book a new order for staff fulfillment." icon="package-variant" tone="blue" onPress={() => navigate("CreateOrder")} />
-          <ActionTile title="Inventory Management" subtitle="Items, stock, prices, low stock." icon="warehouse" tone="green" onPress={() => navigate("ItemList")} />
-          <ActionTile title="Sales Management" subtitle="All sales and detailed sale records." icon="receipt" tone="blue" onPress={() => navigate("SalesList")} />
-          <ActionTile title="Customer Management" subtitle="Customers, outstanding, pricing." icon="account-group-outline" tone="blue" onPress={() => navigate("CustomerList")} />
-          <ActionTile title="Staff Management" subtitle="Add and update staff accounts." icon="account-tie-outline" tone="amber" onPress={() => navigate("StaffManagement")} />
-          <ActionTile title="Take Payment" subtitle="Record a collection from a customer." icon="cash-register" tone="blue" onPress={() => navigate("TakePayment")} />
-          <ActionTile title="Verify Payments" subtitle="Review pending UPI and cheque entries." icon="check-decagram-outline" tone="blue" onPress={() => navigate("PaymentVerification")} />
-          <ActionTile title="Daily Summary" subtitle="Review, lock, and export operations." icon="file-chart-outline" tone="green" onPress={() => navigate("DailySummary")} />
-          <ActionTile title="Manage Shops" subtitle={`${shopCount} active shops in your account.`} icon="storefront-outline" tone="amber" onPress={() => navigate("Updates")} />
+          
+          <View style={styles.actionCard}>
+            <DashboardAction 
+              icon="cart-plus" 
+              title="New Counter Sale" 
+              subtitle="Start a direct walk-in checkout" 
+              tone="green" 
+              onPress={() => navigate("WalkInSale")} 
+            />
+            <DashboardAction 
+              icon="package-variant" 
+              title="Create Order" 
+              subtitle="Book a new order for staff fulfillment" 
+              tone="blue" 
+              onPress={() => navigate("CreateOrder")} 
+            />
+            <DashboardAction 
+              icon="cash-register" 
+              title="Take Payment" 
+              subtitle="Record a collection from a customer" 
+              tone="blue" 
+              onPress={() => navigate("TakePayment")} 
+            />
+            <DashboardAction 
+              icon="check-decagram-outline" 
+              title="Verify Payments" 
+              subtitle="Review pending UPI and cheque entries" 
+              tone="blue" 
+              onPress={() => navigate("PaymentVerification")} 
+              isLast={true}
+            />
+          </View>
+
+          <View style={styles.actionCard}>
+            <DashboardAction 
+              icon="warehouse" 
+              title="Inventory Catalog" 
+              subtitle="Manage items, pricing, and stock levels" 
+              tone="green" 
+              onPress={() => navigate("ItemList")} 
+            />
+            <DashboardAction 
+              icon="account-group-outline" 
+              title="Customer Accounts" 
+              subtitle="Manage outstanding balances and pricing" 
+              tone="blue" 
+              onPress={() => navigate("CustomerList")} 
+            />
+            <DashboardAction 
+              icon="account-tie-outline" 
+              title="Staff Management" 
+              subtitle="Add and update staff accounts" 
+              tone="amber" 
+              onPress={() => navigate("StaffManagement")} 
+              isLast={true}
+            />
+          </View>
+
+          <View style={styles.actionCard}>
+            <DashboardAction 
+              icon="receipt" 
+              title="Sales History" 
+              subtitle="View all sales and detailed records" 
+              tone="blue" 
+              onPress={() => navigate("SalesList")} 
+            />
+            <DashboardAction 
+              icon="file-chart-outline" 
+              title="Daily Summary" 
+              subtitle="Review, lock, and export operational reports" 
+              tone="green" 
+              onPress={() => navigate("DailySummary")} 
+            />
+            <DashboardAction 
+              icon="storefront-outline" 
+              title="Manage Shops" 
+              subtitle="Overview of all locations in this account" 
+              tone="amber" 
+              onPress={() => navigate("Updates")} 
+              isLast={true}
+            />
+          </View>
+
         </View>
       </Section>
     </View>
   );
 }
 
-function StaffHome({ navigate, session }: { navigate: (s: string) => void; session?: any }) {
+function StaffHome({ navigate, session, sessionLoading }: { navigate: (s: string) => void; session?: any; sessionLoading: boolean }) {
+  if (sessionLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={colors.primary} />
+        <Text style={styles.loadingText}>Loading session status...</Text>
+      </View>
+    );
+  }
+
   const isOpen = session?.status === "OPEN";
 
   return (
     <View style={styles.dashboardContainer}>
-      <View style={styles.staffMainAction}>
-        {!isOpen ? (
-          <Pressable 
-            onPress={() => navigate("OpenCashSession")}
-            style={({ pressed }) => [
-              styles.primaryActionButton,
-              pressed && styles.pressed
-            ]}
-          >
-            <Icon source="play-circle-outline" size={28} color={colors.textInverse} />
-            <Text style={styles.primaryActionLabel}>OPEN CASH SESSION</Text>
-          </Pressable>
-        ) : (
-          <Pressable 
-            onPress={() => navigate("WalkInSale")}
-            style={({ pressed }) => [
-              styles.primaryActionButton,
-              pressed && styles.pressed,
-              { backgroundColor: colors.success }
-            ]}
-          >
-            <Icon source="cart-plus" size={28} color={colors.textInverse} />
-            <Text style={styles.primaryActionLabel}>NEW COUNTER SALE</Text>
-          </Pressable>
-        )}
+      
+      {/* Session Status Banner */}
+      <View style={[
+        styles.staffBanner, 
+        { 
+          backgroundColor: isOpen ? 'rgba(5, 150, 105, 0.05)' : 'rgba(217, 119, 6, 0.05)',
+          borderColor: isOpen ? colors.success : colors.warning 
+        }
+      ]}>
+        <View style={styles.staffBannerHeader}>
+          <View style={[
+            styles.staffBannerIconBg, 
+            { backgroundColor: isOpen ? colors.successLight : colors.warningLight }
+          ]}>
+            <Icon 
+              source={isOpen ? "check-circle" : "alert-circle"} 
+              size={24} 
+              color={isOpen ? colors.success : colors.warning} 
+            />
+          </View>
+          <View style={styles.flex1}>
+            <Text style={[
+              styles.staffBannerTitle, 
+              { color: isOpen ? colors.success : colors.warning }
+            ]}>
+              {isOpen ? "Cash Session Active" : "Cash Session Closed"}
+            </Text>
+            <Text style={[styles.staffBannerDesc, { color: colors.textSecondary }]} numberOfLines={2}>
+              {isOpen 
+                ? "Counter cash tracking is active. Ready to process sales." 
+                : "You must open a cash session to start registering sales."
+              }
+            </Text>
+          </View>
+        </View>
+        <Button
+          mode="contained"
+          onPress={() => navigate(isOpen ? "WalkInSale" : "OpenCashSession")}
+          style={[
+            styles.staffBannerButton,
+            { backgroundColor: isOpen ? colors.success : colors.primary }
+          ]}
+          contentStyle={styles.staffBannerButtonContent}
+          labelStyle={{ fontWeight: fontWeight.bold, fontSize: fontSize.sm }}
+          icon={isOpen ? "cart-plus" : "play"}
+        >
+          {isOpen ? "New Counter Sale" : "Open Cash Session"}
+        </Button>
       </View>
 
       <View style={styles.gridContainer}>
@@ -277,40 +398,13 @@ function StaffHome({ navigate, session }: { navigate: (s: string) => void; sessi
 const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: spacing.huge,
+    paddingTop: spacing.md,
   },
   sectionGap: {
     gap: spacing.md,
   },
-  shopBranding: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: colors.primaryLight,
-    marginHorizontal: spacing.lg,
-    marginBottom: spacing.lg,
-    padding: spacing.lg,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: 'rgba(30, 64, 175, 0.1)',
-  },
-  shopNameLabel: {
-    fontSize: 10,
-    fontWeight: fontWeight.bold,
-    color: colors.primary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  shopNameValue: {
-    fontSize: fontSize.xl,
-    fontWeight: fontWeight.extrabold,
-    color: colors.primary,
-  },
-  changeShopLabel: {
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.bold,
-  },
   dashboardContainer: {
-    gap: spacing.xxl,
+    gap: spacing.xl,
   },
   metricsGrid: {
     paddingHorizontal: spacing.lg,
@@ -332,7 +426,7 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.medium,
   },
   statusSection: {
-    marginTop: spacing.xxxl,
+    marginTop: spacing.xxl,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.xl,
     borderTopWidth: 1,
@@ -350,23 +444,94 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: spacing.sm,
   },
-  staffMainAction: {
-    paddingHorizontal: spacing.lg,
+  actionCard: {
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    overflow: "hidden",
+    ...shadow.sm,
   },
-  primaryActionButton: {
-    height: 80,
-    backgroundColor: colors.primary,
-    borderRadius: radius.lg,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+  actionRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: spacing.lg,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.surfaceOffset,
+  },
+  actionRowLast: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: spacing.lg,
+  },
+  actionRowLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.lg,
+    flex: 1,
+  },
+  actionIconBg: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  actionTitle: {
+    color: colors.textPrimary,
+    fontWeight: fontWeight.bold,
+    fontSize: fontSize.sm,
+  },
+  actionSubtitle: {
+    color: colors.textSecondary,
+    fontSize: fontSize.xs,
+    marginTop: 1,
+  },
+  pressed: {
+    opacity: 0.72,
+    transform: [{ scale: 0.98 }],
+  },
+  flex1: {
+    flex: 1,
+  },
+  staffBanner: {
+    marginHorizontal: spacing.lg,
+    padding: spacing.xl,
+    borderRadius: 24,
+    borderWidth: 1,
+    ...shadow.sm,
     gap: spacing.md,
-    ...shadow.md,
   },
-  primaryActionLabel: {
-    color: colors.textInverse,
-    fontSize: fontSize.lg,
+  staffBannerHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+  },
+  staffBannerIconBg: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  staffBannerTitle: {
+    fontSize: fontSize.md,
     fontWeight: fontWeight.black,
+  },
+  staffBannerDesc: {
+    fontSize: fontSize.xs,
+    lineHeight: 18,
+    marginTop: 2,
+    paddingRight: 10,
+  },
+  staffBannerButton: {
+    borderRadius: radius.lg,
+    marginTop: 4,
+  },
+  staffBannerButtonContent: {
+    height: 48,
   },
   gridContainer: {
     paddingHorizontal: spacing.lg,
@@ -376,7 +541,7 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: colors.surface,
     padding: spacing.xl,
-    borderRadius: radius.lg,
+    borderRadius: 24,
     borderWidth: 1,
     borderColor: colors.border,
     alignItems: 'center',
@@ -391,30 +556,28 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   gridLabel: {
-    fontSize: fontSize.md,
+    fontSize: fontSize.sm,
     fontWeight: fontWeight.bold,
     color: colors.textPrimary,
+    marginTop: 2,
   },
   staffFooterActions: {
     paddingHorizontal: spacing.lg,
     gap: spacing.md,
-    marginTop: spacing.md,
+    marginTop: spacing.sm,
   },
   secondaryActionButton: {
-    height: 56,
+    height: 48,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.lg,
     alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: colors.surface,
   },
   secondaryActionLabel: {
-    fontSize: fontSize.md,
+    fontSize: fontSize.sm,
     fontWeight: fontWeight.bold,
     color: colors.textPrimary,
   },
-  pressed: {
-    opacity: 0.72,
-    transform: [{ scale: 0.97 }],
-  }
 });
