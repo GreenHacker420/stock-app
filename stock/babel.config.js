@@ -6,7 +6,7 @@ module.exports = function (api) {
       'nativewind/babel',
     ],
     plugins: [
-      ['babel-plugin-react-compiler', { target: '18' }],
+      ['babel-plugin-react-compiler', { target: '19' }],
     ],
   };
 };

@@ -2,7 +2,7 @@ import React, { useMemo } from "react";
 import { View, StyleSheet, Pressable } from "react-native";
 import { Avatar, Badge } from "@rneui/themed";
 import { Text, Icon } from "react-native-paper";
-import { useNavigation } from "@react-navigation/native";
+import { NavigationContext } from "@react-navigation/native";
 
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
@@ -19,9 +19,9 @@ type AppHeaderProps = {
 export function AppHeader({ title, subtitle, role, initials, showBack }: AppHeaderProps) {
   const user = useAuthStore((state) => state.user);
   const { activeShopId } = useShopStore();
-  const navigation = useNavigation();
+  const navigation = React.useContext(NavigationContext);
 
-  const canGoBack = showBack ?? navigation.canGoBack();
+  const canGoBack = showBack ?? (navigation ? navigation.canGoBack() : false);
 
   const displayInitials = useMemo(() => {
     if (initials) return initials;
@@ -43,7 +43,7 @@ export function AppHeader({ title, subtitle, role, initials, showBack }: AppHead
       <View style={styles.leftSection}>
         {canGoBack && (
           <Pressable 
-            onPress={() => navigation.goBack()}
+            onPress={() => navigation?.goBack()}
             style={({ pressed }) => [
               styles.backButton,
               pressed && styles.pressed
