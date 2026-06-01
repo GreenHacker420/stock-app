@@ -46,19 +46,21 @@ const paperSettings = {
     <MaterialCommunityIcons name={name as never} color={color ?? "#6b7280"} size={size} testID={testID} />
   ),
 };
+import { colors } from './theme';
+
 const rneTheme = createTheme({
   lightColors: {
-    primary: "#1e40af",
+    primary: colors.primary,
     secondary: "#8a5a12",
-    background: "#f9fafb",
-    white: "#ffffff",
-    black: "#111827",
-    grey0: "#f9fafb",
-    grey1: "#eef2ea",
-    grey2: "#e5e7eb",
-    grey3: "#b9c3b5",
-    grey4: "#7a8578",
-    grey5: "#6b7280",
+    background: colors.bg,
+    white: colors.surface,
+    black: colors.textPrimary,
+    grey0: colors.bg,
+    grey1: colors.surfaceOffset,
+    grey2: colors.border,
+    grey3: colors.borderStrong,
+    grey4: colors.textMuted,
+    grey5: colors.textSecondary,
   },
 });
 

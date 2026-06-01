@@ -36,47 +36,34 @@ import { UpiConfig } from "./screens/UpiConfig";
 import { WalkInSale } from "./screens/WalkInSale";
 import { CreateOrder } from "./screens/CreateOrder";
 
+import { colors } from "../theme";
+
 const tabIcon = (source: string) => ({ color, size, focused }: { color: string; size: number; focused: boolean }) => (
-  <View
-    style={{
-      width: 48,
-      height: 36,
-      borderRadius: 20,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: focused ? "#dbeafe" : "transparent",
-    }}
-  >
-    <Icon source={source} color={focused ? "#1e40af" : color} size={size} />
+  <View style={{ alignItems: "center", justifyContent: "center" }}>
+    <Icon source={source} color={focused ? colors.primary : color} size={size + 2} />
   </View>
 );
 
 const floatingTabOptions = {
   headerShown: false,
-  tabBarActiveTintColor: "#1e40af",
-  tabBarInactiveTintColor: "#6b7280",
+  tabBarActiveTintColor: colors.primary,
+  tabBarInactiveTintColor: "#9ca3af",
   tabBarLabelStyle: {
     fontSize: 10,
-    fontWeight: "700" as const,
-    marginTop: 0,
-    paddingBottom: 2,
+    fontWeight: "800" as const,
+    marginTop: 2,
+    letterSpacing: 0.5,
+    textTransform: "uppercase" as const,
   },
   tabBarStyle: {
-    position: "absolute" as const,
-    left: 24,
-    right: 24,
-    bottom: 18,
-    height: 72,
-    paddingTop: 8,
-    paddingBottom: 10,
-    borderRadius: 34,
     backgroundColor: "#ffffff",
-    borderTopWidth: 0,
-    shadowColor: "#0f172a",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.14,
-    shadowRadius: 18,
-    elevation: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#e5e7eb",
+    height: 64,
+    paddingTop: 8,
+    paddingBottom: 8,
+    shadowColor: "transparent",
+    elevation: 0,
   },
 };
 

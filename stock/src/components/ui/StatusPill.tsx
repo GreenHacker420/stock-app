@@ -8,7 +8,7 @@ type StatusPillProps = {
 const tones = {
   green: { bg: "#d1fae5", fg: "#065f46" },
   amber: { bg: "#fef3c7", fg: "#92400e" },
-  blue: { bg: "#dbeafe", fg: "#1e40af" },
+  blue: { bg: "#dcfce7", fg: "#15803d" },
   red: { bg: "#fee2e2", fg: "#b91c1c" },
   neutral: { bg: "#f3f4f6", fg: "#4b5563" },
 };

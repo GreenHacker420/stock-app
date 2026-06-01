@@ -10,27 +10,29 @@ const fontConfig = {
   fontFamily: "System",
 };
 
+import { colors } from "./index";
+
 export const paperLightTheme = {
   ...MD3LightTheme,
   roundness: 2,
   fonts: configureFonts({ config: fontConfig }),
   colors: {
     ...MD3LightTheme.colors,
-    primary: "#1e40af",
-    onPrimary: "#ffffff",
-    primaryContainer: "#dbeafe",
-    onPrimaryContainer: "#1e3a8a",
-    secondary: "#64748b",
-    secondaryContainer: "#f1f5f9",
-    onSecondaryContainer: "#0f172a",
-    tertiary: "#0ea5e9",
-    surface: "#ffffff",
-    surfaceVariant: "#f3f4f6",
-    background: "#f9fafb",
-    outline: "#e5e7eb",
-    onSurface: "#111827",
-    onSurfaceVariant: "#4b5563",
-    error: "#ef4444",
+    primary: colors.primary,
+    onPrimary: colors.textInverse,
+    primaryContainer: colors.primaryLight,
+    onPrimaryContainer: colors.primaryDark,
+    secondary: colors.textSecondary,
+    secondaryContainer: colors.surfaceOffset,
+    onSecondaryContainer: colors.textPrimary,
+    tertiary: colors.primaryMid,
+    surface: colors.surface,
+    surfaceVariant: colors.surfaceOffset,
+    background: colors.bg,
+    outline: colors.border,
+    onSurface: colors.textPrimary,
+    onSurfaceVariant: colors.textSecondary,
+    error: colors.danger,
   },
 };
 

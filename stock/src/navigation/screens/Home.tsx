@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import { ScrollView, View, Pressable, StyleSheet, ActivityIndicator } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { Text, Icon, Button } from "react-native-paper";
@@ -11,46 +11,29 @@ import { useOwnerDashboardQuery } from "../../hooks/useDashboard";
 import { Screen } from "../../components/Screen";
 import { ActionTile } from "../../components/ui/ActionTile";
 import { AppHeader } from "../../components/ui/AppHeader";
-import { MetricCard } from "../../components/ui/MetricCard";
 import { Section } from "../../components/ui/Section";
 import { StatusPill } from "../../components/ui/StatusPill";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 
-type DashboardActionProps = {
-  icon: string;
+type CategoryCardProps = {
   title: string;
-  subtitle: string;
-  tone: "green" | "blue" | "amber" | "red";
+  icon: string;
   onPress: () => void;
-  isLast?: boolean;
 };
 
-function DashboardAction({ icon, title, subtitle, tone, onPress, isLast }: DashboardActionProps) {
-  const tones = {
-    green: { bg: 'rgba(5, 150, 105, 0.08)', color: colors.success },
-    amber: { bg: 'rgba(217, 119, 6, 0.08)', color: colors.warning },
-    blue: { bg: 'rgba(30, 64, 175, 0.08)', color: colors.primary },
-    red: { bg: 'rgba(220, 38, 38, 0.08)', color: colors.danger },
-  };
-  const palette = tones[tone];
+function CategoryCard({ title, icon, onPress }: CategoryCardProps) {
   return (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => [
-        isLast ? styles.actionRowLast : styles.actionRow,
+        styles.catCard,
         pressed && styles.pressed
       ]}
     >
-      <View style={styles.actionRowLeft}>
-        <View style={[styles.actionIconBg, { backgroundColor: palette.bg }]}>
-          <Icon source={icon} size={20} color={palette.color} />
-        </View>
-        <View style={styles.flex1}>
-          <Text style={styles.actionTitle}>{title}</Text>
-          <Text style={styles.actionSubtitle}>{subtitle}</Text>
-        </View>
+      <View style={styles.catCardIconWrapper}>
+        <Icon source={icon} size={30} color={colors.primary} />
       </View>
-      <Icon source="chevron-right" size={20} color={colors.textSecondary} />
+      <Text style={styles.catCardText} numberOfLines={1}>{title.toUpperCase()}</Text>
     </Pressable>
   );
 }
@@ -71,6 +54,13 @@ export function Home() {
     [shopsQuery.data, activeShopId]
   );
 
+  const subtitleText = useMemo(() => {
+    if (user?.role === "OWNER") {
+      return `Welcome back, ${user.name.split(/\s+/)[0]}!`;
+    }
+    return "Ready for today's tasks";
+  }, [user]);
+
   const initials = useMemo(() => {
     if (user?.name) {
       return user.name
@@ -87,7 +77,7 @@ export function Home() {
     <Screen edges={['top', 'left', 'right']}>
       <AppHeader
         title={user?.role === "OWNER" ? "Dashboard" : (selectedShop?.name ?? "Shop Hub")}
-        subtitle={user?.role === "OWNER" ? "Live operations overview" : "Ready for today's tasks"}
+        subtitle={subtitleText}
         role={user?.role}
         initials={initials}
       />
@@ -143,9 +133,34 @@ export function Home() {
 }
 
 function OwnerHome({ navigate }: { navigate: (s: string) => void }) {
+  const user = useAuthStore((state) => state.user);
   const dashboardQuery = useOwnerDashboardQuery();
   const dashboard = dashboardQuery.data as any;
   const money = (value: any) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
+
+  const [activeCategory, setActiveCategory] = useState<'sales' | 'inventory' | 'reports'>('sales');
+
+  const paymentData = useMemo(() => {
+    return [
+      { label: "Cash", value: dashboard?.cashCollected ?? 0, color: '#16a34a' },
+      { label: "UPI", value: dashboard?.upiCollected ?? 0, color: '#22c55e' },
+      { label: "Card", value: dashboard?.cardCollected ?? 0, color: '#4ade80' },
+      { label: "Bank", value: dashboard?.bankCollected ?? 0, color: '#86efac' },
+      { label: "Cheque", value: dashboard?.chequeReceived ?? 0, color: '#dcfce7' },
+    ];
+  }, [dashboard]);
+
+  const totalPayments = useMemo(() => {
+    return paymentData.reduce((acc, curr) => acc + curr.value, 0);
+  }, [paymentData]);
+
+  const hasData = useMemo(() => {
+    return paymentData.some(d => d.value > 0);
+  }, [paymentData]);
+
+  const maxVal = useMemo(() => {
+    return hasData ? Math.max(...paymentData.map(d => d.value)) : 1;
+  }, [paymentData, hasData]);
 
   if (dashboardQuery.isLoading) {
     return (
@@ -156,106 +171,174 @@ function OwnerHome({ navigate }: { navigate: (s: string) => void }) {
     );
   }
 
+  const renderCategoryCards = () => {
+    switch (activeCategory) {
+      case 'sales':
+        return (
+          <View style={styles.gridContainer}>
+            <CategoryCard title="Walk-In Sale" icon="basket-outline" onPress={() => navigate("WalkInSale")} />
+            <CategoryCard title="Create Order" icon="package-variant" onPress={() => navigate("CreateOrder")} />
+            <CategoryCard title="Take Payment" icon="cash-register" onPress={() => navigate("TakePayment")} />
+            <CategoryCard title="Verify Payments" icon="check-decagram-outline" onPress={() => navigate("PaymentVerification")} />
+            <CategoryCard title="Customers" icon="account-group-outline" onPress={() => navigate("CustomerList")} />
+          </View>
+        );
+      case 'inventory':
+        return (
+          <View style={styles.gridContainer}>
+            <CategoryCard title="Products Catalog" icon="warehouse" onPress={() => navigate("ItemList")} />
+            <CategoryCard title="Stock Entry" icon="plus-box-outline" onPress={() => navigate("StockEntry")} />
+            <CategoryCard title="Orders to Pack" icon="package-variant-closed" onPress={() => navigate("OrdersToPack")} />
+          </View>
+        );
+      case 'reports':
+        return (
+          <View style={styles.gridContainer}>
+            <CategoryCard title="Sales History" icon="receipt" onPress={() => navigate("SalesList")} />
+            <CategoryCard title="Daily Summary" icon="file-chart-outline" onPress={() => navigate("DailySummary")} />
+            <CategoryCard title="Staff Members" icon="account-tie-outline" onPress={() => navigate("StaffManagement")} />
+            <CategoryCard title="Manage Shops" icon="storefront-outline" onPress={() => navigate("Updates")} />
+          </View>
+        );
+    }
+  };
+
   return (
     <View style={styles.dashboardContainer}>
-      <View style={styles.metricsGrid}>
-        <View style={styles.metricsRow}>
-          <MetricCard label="Today Sales" value={money(dashboard?.todaySales)} icon="trending-up" tone="blue" />
-          <MetricCard label="Cash Collected" value={money(dashboard?.cashCollected)} icon="cash-multiple" tone="green" />
-        </View>
-        <View style={styles.metricsRow}>
-          <MetricCard label="Pending DM" value={money(dashboard?.pendingDmAmount)} icon="clock-outline" tone="amber" />
-          <MetricCard label="Orders to Pack" value={String(dashboard?.ordersToPack ?? 0)} icon="package-variant" tone="blue" />
+      {/* Greeting Header */}
+      <View style={styles.greetingHeader}>
+        <Text style={styles.greetingTitle}>Hello, {user?.name.split(/\s+/)[0] || 'Owner'}</Text>
+        <View style={styles.greetingSubtitleRow}>
+          <Text style={styles.greetingSubtitle}>Start Analyzing Your Sales Journey</Text>
+          <Icon source="trending-up" size={16} color={colors.primary} />
         </View>
       </View>
 
-      <Section title="Quick actions">
-        <View style={styles.sectionGap}>
-          
-          <View style={styles.actionCard}>
-            <DashboardAction 
-              icon="cart-plus" 
-              title="New Counter Sale" 
-              subtitle="Start a direct walk-in checkout" 
-              tone="green" 
-              onPress={() => navigate("WalkInSale")} 
-            />
-            <DashboardAction 
-              icon="package-variant" 
-              title="Create Order" 
-              subtitle="Book a new order for staff fulfillment" 
-              tone="blue" 
-              onPress={() => navigate("CreateOrder")} 
-            />
-            <DashboardAction 
-              icon="cash-register" 
-              title="Take Payment" 
-              subtitle="Record a collection from a customer" 
-              tone="blue" 
-              onPress={() => navigate("TakePayment")} 
-            />
-            <DashboardAction 
-              icon="check-decagram-outline" 
-              title="Verify Payments" 
-              subtitle="Review pending UPI and cheque entries" 
-              tone="blue" 
-              onPress={() => navigate("PaymentVerification")} 
-              isLast={true}
-            />
+      {/* Hero Card: Today's Revenue */}
+      <View style={styles.heroCard}>
+        <View style={styles.heroHeader}>
+          <Text style={styles.heroLabel}>Balance</Text>
+          <View style={styles.heroTrendBadge}>
+            <Icon source="arrow-top-right" size={14} color="white" />
+            <Text style={styles.heroTrendText}>+4.3%</Text>
           </View>
-
-          <View style={styles.actionCard}>
-            <DashboardAction 
-              icon="warehouse" 
-              title="Inventory Catalog" 
-              subtitle="Manage items, pricing, and stock levels" 
-              tone="green" 
-              onPress={() => navigate("ItemList")} 
-            />
-            <DashboardAction 
-              icon="account-group-outline" 
-              title="Customer Accounts" 
-              subtitle="Manage outstanding balances and pricing" 
-              tone="blue" 
-              onPress={() => navigate("CustomerList")} 
-            />
-            <DashboardAction 
-              icon="account-tie-outline" 
-              title="Staff Management" 
-              subtitle="Add and update staff accounts" 
-              tone="amber" 
-              onPress={() => navigate("StaffManagement")} 
-              isLast={true}
-            />
-          </View>
-
-          <View style={styles.actionCard}>
-            <DashboardAction 
-              icon="receipt" 
-              title="Sales History" 
-              subtitle="View all sales and detailed records" 
-              tone="blue" 
-              onPress={() => navigate("SalesList")} 
-            />
-            <DashboardAction 
-              icon="file-chart-outline" 
-              title="Daily Summary" 
-              subtitle="Review, lock, and export operational reports" 
-              tone="green" 
-              onPress={() => navigate("DailySummary")} 
-            />
-            <DashboardAction 
-              icon="storefront-outline" 
-              title="Manage Shops" 
-              subtitle="Overview of all locations in this account" 
-              tone="amber" 
-              onPress={() => navigate("Updates")} 
-              isLast={true}
-            />
-          </View>
-
         </View>
-      </Section>
+        <View style={styles.heroValueContainer}>
+          <Text style={styles.heroValue}>{money(dashboard?.todaySales)}</Text>
+        </View>
+        <Text style={styles.heroDesc}>It increased by 16% from last month</Text>
+      </View>
+
+      {/* Payment Breakdown / Revenue Overview Chart Card */}
+      <View style={styles.chartCard}>
+        <View style={styles.chartHeader}>
+          <View>
+            <Text style={styles.chartTitle}>Revenue Overview</Text>
+            <View style={styles.chartSubtitleRow}>
+              <Text style={styles.chartMainValue}>{money(totalPayments)}</Text>
+              <View style={styles.chartTrendBadge}>
+                <Icon source="arrow-top-right" size={12} color={colors.success} />
+                <Text style={styles.chartTrendText}>1.2%</Text>
+              </View>
+            </View>
+          </View>
+          <View style={styles.chartFilterPill}>
+            <Text style={styles.chartFilterText}>This Month</Text>
+            <Icon source="chevron-down" size={14} color={colors.textSecondary} />
+          </View>
+        </View>
+
+        <View style={styles.chartContainer}>
+          {paymentData.map((item, index) => {
+            const valPercent = hasData ? Math.min(100, Math.max(12, (item.value / maxVal) * 100)) : 15;
+            return (
+              <View key={index} style={styles.chartColumn}>
+                <View style={styles.chartBarSlot}>
+                  <View 
+                    style={[
+                      styles.chartBarFill, 
+                      { 
+                        height: `${valPercent}%`, 
+                        backgroundColor: item.color 
+                      }
+                    ]} 
+                  />
+                </View>
+                <Text style={styles.chartBarLabel}>{item.label}</Text>
+                <Text style={styles.chartBarValue} numberOfLines={1}>
+                  {item.value > 0 ? money(item.value) : '—'}
+                </Text>
+              </View>
+            );
+          })}
+        </View>
+      </View>
+
+      {/* Row of supporting metrics with soft-pastel themed colors */}
+      <View style={styles.subMetricsRow}>
+        <View style={[styles.subMetricCard, { backgroundColor: 'rgba(22, 163, 74, 0.04)' }]}>
+          <View style={styles.subMetricHeader}>
+            <View style={[styles.subMetricIconBg, { backgroundColor: 'rgba(22, 163, 74, 0.08)' }]}>
+              <Icon source="cash-multiple" size={16} color={colors.success} />
+            </View>
+          </View>
+          <View style={styles.flex1}>
+            <Text style={styles.subMetricValue}>{money(dashboard?.cashCollected)}</Text>
+            <Text style={styles.subMetricLabel}>Cash Coll.</Text>
+          </View>
+        </View>
+
+        <View style={[styles.subMetricCard, { backgroundColor: 'rgba(217, 119, 6, 0.04)' }]}>
+          <View style={styles.subMetricHeader}>
+            <View style={[styles.subMetricIconBg, { backgroundColor: 'rgba(217, 119, 6, 0.08)' }]}>
+              <Icon source="clock-outline" size={16} color={colors.warning} />
+            </View>
+          </View>
+          <View style={styles.flex1}>
+            <Text style={styles.subMetricValue}>{money(dashboard?.pendingDmAmount)}</Text>
+            <Text style={styles.subMetricLabel}>Pending DM</Text>
+          </View>
+        </View>
+
+        <View style={[styles.subMetricCard, { backgroundColor: 'rgba(30, 64, 175, 0.04)' }]}>
+          <View style={styles.subMetricHeader}>
+            <View style={[styles.subMetricIconBg, { backgroundColor: 'rgba(30, 64, 175, 0.08)' }]}>
+              <Icon source="package-variant" size={16} color={colors.primary} />
+            </View>
+          </View>
+          <View style={styles.flex1}>
+            <Text style={styles.subMetricValue}>{String(dashboard?.ordersToPack ?? 0)}</Text>
+            <Text style={styles.subMetricLabel}>To Pack</Text>
+          </View>
+        </View>
+      </View>
+
+      {/* Category Wise Tab Selector */}
+      <View style={styles.categoryHeader}>
+        <View style={styles.tabBarContainer}>
+          <Pressable 
+            onPress={() => setActiveCategory('sales')}
+            style={[styles.tabButton, activeCategory === 'sales' && styles.tabButtonActive]}
+          >
+            <Text style={[styles.tabButtonText, activeCategory === 'sales' && styles.tabButtonTextActive]}>SALES</Text>
+          </Pressable>
+          <Pressable 
+            onPress={() => setActiveCategory('inventory')}
+            style={[styles.tabButton, activeCategory === 'inventory' && styles.tabButtonActive]}
+          >
+            <Text style={[styles.tabButtonText, activeCategory === 'inventory' && styles.tabButtonTextActive]}>INVENTORY</Text>
+          </Pressable>
+          <Pressable 
+            onPress={() => setActiveCategory('reports')}
+            style={[styles.tabButton, activeCategory === 'reports' && styles.tabButtonActive]}
+          >
+            <Text style={[styles.tabButtonText, activeCategory === 'reports' && styles.tabButtonTextActive]}>REPORTS</Text>
+          </Pressable>
+        </View>
+      </View>
+
+      {/* Render selected category's grid items */}
+      {renderCategoryCards()}
     </View>
   );
 }
@@ -279,14 +362,14 @@ function StaffHome({ navigate, session, sessionLoading }: { navigate: (s: string
       <View style={[
         styles.staffBanner, 
         { 
-          backgroundColor: isOpen ? 'rgba(5, 150, 105, 0.05)' : 'rgba(217, 119, 6, 0.05)',
-          borderColor: isOpen ? colors.success : colors.warning 
+          backgroundColor: isOpen ? 'rgba(22, 163, 74, 0.03)' : 'rgba(217, 119, 6, 0.03)',
+          borderColor: isOpen ? 'rgba(22, 163, 74, 0.15)' : 'rgba(217, 119, 6, 0.15)'
         }
       ]}>
         <View style={styles.staffBannerHeader}>
           <View style={[
             styles.staffBannerIconBg, 
-            { backgroundColor: isOpen ? colors.successLight : colors.warningLight }
+            { backgroundColor: isOpen ? 'rgba(22, 163, 74, 0.08)' : 'rgba(217, 119, 6, 0.08)' }
           ]}>
             <Icon 
               source={isOpen ? "check-circle" : "alert-circle"} 
@@ -324,50 +407,15 @@ function StaffHome({ navigate, session, sessionLoading }: { navigate: (s: string
         </Button>
       </View>
 
-      <View style={styles.gridContainer}>
-        <View style={styles.metricsRow}>
-          <Pressable 
-            onPress={() => navigate("OrdersToPack")} 
-            style={({ pressed }) => [styles.gridItem, pressed && styles.pressed]}
-          >
-            <View style={[styles.gridIconContainer, { backgroundColor: colors.primaryLight }]}>
-              <Icon source="package-variant" size={28} color={colors.primary} />
-            </View>
-            <Text style={styles.gridLabel}>Orders</Text>
-          </Pressable>
-          
-          <Pressable 
-            onPress={() => {}} 
-            style={({ pressed }) => [styles.gridItem, pressed && styles.pressed]}
-          >
-            <View style={[styles.gridIconContainer, { backgroundColor: colors.successLight }]}>
-              <Icon source="file-document-outline" size={28} color={colors.success} />
-            </View>
-            <Text style={styles.gridLabel}>Create DM</Text>
-          </Pressable>
-        </View>
+      <View style={styles.categoryHeader}>
+        <Text style={styles.staffSectionTitle}>TASKS & OPERATIONS</Text>
+      </View>
 
-        <View style={styles.metricsRow}>
-          <Pressable 
-            onPress={() => navigate("TakePayment")} 
-            style={({ pressed }) => [styles.gridItem, pressed && styles.pressed]}
-          >
-            <View style={[styles.gridIconContainer, { backgroundColor: colors.warningLight }]}>
-              <Icon source="cash-register" size={28} color={colors.warning} />
-            </View>
-            <Text style={styles.gridLabel}>Payment</Text>
-          </Pressable>
-          
-          <Pressable 
-            onPress={() => navigate("StockEntry")} 
-            style={({ pressed }) => [styles.gridItem, pressed && styles.pressed]}
-          >
-            <View style={[styles.gridIconContainer, { backgroundColor: colors.surfaceDark }]}>
-              <Icon source="inventory" size={28} color={colors.textSecondary} />
-            </View>
-            <Text style={styles.gridLabel}>Stock Entry</Text>
-          </Pressable>
-        </View>
+      <View style={styles.gridContainer}>
+        <CategoryCard title="Orders" icon="package-variant-closed" onPress={() => navigate("OrdersToPack")} />
+        <CategoryCard title="Create DM" icon="file-document-outline" onPress={() => {}} />
+        <CategoryCard title="Payment" icon="cash-register" onPress={() => navigate("TakePayment")} />
+        <CategoryCard title="Stock Entry" icon="warehouse" onPress={() => navigate("StockEntry")} />
       </View>
 
       <View style={styles.staffFooterActions}>
@@ -406,14 +454,6 @@ const styles = StyleSheet.create({
   dashboardContainer: {
     gap: spacing.xl,
   },
-  metricsGrid: {
-    paddingHorizontal: spacing.lg,
-    gap: spacing.md,
-  },
-  metricsRow: {
-    flexDirection: 'row',
-    gap: spacing.md,
-  },
   loadingContainer: {
     padding: spacing.huge,
     alignItems: 'center',
@@ -444,50 +484,283 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: spacing.sm,
   },
-  actionCard: {
-    borderRadius: 24,
+  // Redesigned Owner Metrics Layout
+  greetingHeader: {
+    paddingHorizontal: spacing.lg,
+    marginTop: spacing.sm,
+    gap: 2,
+  },
+  greetingTitle: {
+    fontSize: 22,
+    fontWeight: fontWeight.black,
+    color: colors.textPrimary,
+    letterSpacing: -0.5,
+  },
+  greetingSubtitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  greetingSubtitle: {
+    fontSize: fontSize.sm,
+    color: colors.textSecondary,
+    fontWeight: fontWeight.medium,
+  },
+  heroCard: {
+    backgroundColor: '#385a3c', // Premium Deep Forest Olive Green
+    borderRadius: 28,
+    padding: spacing.xl,
+    marginHorizontal: spacing.lg,
+    ...shadow.md,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  heroHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.xs,
+  },
+  heroLabel: {
+    fontSize: 11,
+    fontWeight: fontWeight.bold,
+    color: 'rgba(255, 255, 255, 0.7)',
+    textTransform: 'uppercase',
+    letterSpacing: 1,
+  },
+  heroValueContainer: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    gap: spacing.sm,
+    marginTop: 4,
+  },
+  heroValue: {
+    fontSize: 32,
+    fontWeight: fontWeight.black,
+    color: 'white',
+    letterSpacing: -1,
+  },
+  heroTrendBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: radius.md,
+    gap: 4,
+  },
+  heroTrendText: {
+    color: 'white',
+    fontSize: 11,
+    fontWeight: fontWeight.bold,
+  },
+  heroDesc: {
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.7)',
+    marginTop: spacing.md,
+    fontWeight: fontWeight.medium,
+  },
+  // Revenue Overview Chart styles
+  chartCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 28,
+    padding: spacing.xl,
+    marginHorizontal: spacing.lg,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.surface,
-    overflow: "hidden",
     ...shadow.sm,
   },
-  actionRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: spacing.lg,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.surfaceOffset,
+  chartHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: spacing.sm,
   },
-  actionRowLast: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: spacing.lg,
-  },
-  actionRowLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.lg,
-    flex: 1,
-  },
-  actionIconBg: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  actionTitle: {
-    color: colors.textPrimary,
+  chartTitle: {
+    fontSize: fontSize.md,
     fontWeight: fontWeight.bold,
-    fontSize: fontSize.sm,
+    color: colors.textPrimary,
   },
-  actionSubtitle: {
-    color: colors.textSecondary,
+  chartSubtitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: 2,
+  },
+  chartMainValue: {
+    fontSize: fontSize.xxl,
+    fontWeight: fontWeight.black,
+    color: colors.textPrimary,
+  },
+  chartTrendBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+  },
+  chartTrendText: {
     fontSize: fontSize.xs,
-    marginTop: 1,
+    color: colors.success,
+    fontWeight: fontWeight.bold,
+  },
+  chartFilterPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surfaceOffset,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: radius.lg,
+    gap: 4,
+  },
+  chartFilterText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
+    color: colors.textSecondary,
+  },
+  chartContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-end',
+    height: 140,
+    paddingVertical: spacing.sm,
+    marginTop: spacing.md,
+  },
+  chartColumn: {
+    flex: 1,
+    alignItems: 'center',
+    gap: 4,
+  },
+  chartBarSlot: {
+    width: 24,
+    height: 90,
+    backgroundColor: 'rgba(0,0,0,0.015)',
+    borderRadius: 12,
+    justifyContent: 'flex-end',
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.02)',
+  },
+  chartBarFill: {
+    width: '100%',
+    borderRadius: 12,
+  },
+  chartBarLabel: {
+    fontSize: 9,
+    fontWeight: fontWeight.black,
+    color: colors.textSecondary,
+    textTransform: 'uppercase',
+    marginTop: 4,
+  },
+  chartBarValue: {
+    fontSize: 9,
+    fontWeight: fontWeight.bold,
+    color: colors.textMuted,
+  },
+  subMetricsRow: {
+    flexDirection: 'row',
+    paddingHorizontal: spacing.lg,
+    gap: spacing.sm,
+  },
+  subMetricCard: {
+    flex: 1,
+    padding: spacing.md,
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.03)',
+    gap: spacing.lg,
+    ...shadow.sm,
+  },
+  subMetricHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  subMetricIconBg: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  subMetricLabel: {
+    fontSize: 9,
+    fontWeight: fontWeight.black,
+    color: colors.textSecondary,
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
+  },
+  subMetricValue: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.black,
+    color: colors.textPrimary,
+    letterSpacing: -0.3,
+  },
+  // Category UI
+  categoryHeader: {
+    paddingHorizontal: spacing.lg,
+    marginTop: spacing.md,
+    marginBottom: spacing.xs,
+  },
+  tabBarContainer: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    gap: spacing.lg,
+  },
+  tabButton: {
+    paddingVertical: spacing.md,
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  tabButtonActive: {
+    borderBottomColor: colors.primary,
+  },
+  tabButtonText: {
+    fontSize: 12,
+    fontWeight: fontWeight.extrabold,
+    color: colors.textSecondary,
+    letterSpacing: 1,
+  },
+  tabButtonTextActive: {
+    color: colors.primary,
+  },
+  gridContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+  },
+  catCard: {
+    width: '48%',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 20,
+    padding: spacing.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 120,
+    marginBottom: spacing.md,
+    ...shadow.sm,
+  },
+  catCardIconWrapper: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(22, 163, 74, 0.1)',
+    backgroundColor: 'rgba(22, 163, 74, 0.02)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.xs,
+  },
+  catCardText: {
+    fontSize: 10,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+    letterSpacing: 0.5,
+    textAlign: 'center',
+    marginTop: 2,
   },
   pressed: {
     opacity: 0.72,
@@ -496,10 +769,11 @@ const styles = StyleSheet.create({
   flex1: {
     flex: 1,
   },
+  // Staff layout styles
   staffBanner: {
     marginHorizontal: spacing.lg,
     padding: spacing.xl,
-    borderRadius: 24,
+    borderRadius: 28,
     borderWidth: 1,
     ...shadow.sm,
     gap: spacing.md,
@@ -533,33 +807,11 @@ const styles = StyleSheet.create({
   staffBannerButtonContent: {
     height: 48,
   },
-  gridContainer: {
-    paddingHorizontal: spacing.lg,
-    gap: spacing.md,
-  },
-  gridItem: {
-    flex: 1,
-    backgroundColor: colors.surface,
-    padding: spacing.xl,
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-    gap: spacing.sm,
-    ...shadow.sm,
-  },
-  gridIconContainer: {
-    width: 56,
-    height: 56,
-    borderRadius: radius.full,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  gridLabel: {
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.bold,
-    color: colors.textPrimary,
-    marginTop: 2,
+  staffSectionTitle: {
+    fontSize: 11,
+    fontWeight: fontWeight.black,
+    color: colors.textMuted,
+    letterSpacing: 1,
   },
   staffFooterActions: {
     paddingHorizontal: spacing.lg,

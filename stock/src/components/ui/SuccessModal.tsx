@@ -1,5 +1,6 @@
 import { View } from "react-native";
 import { Button, Dialog, Icon, Portal, Text } from "react-native-paper";
+import { colors } from "../../theme";
 
 type SuccessModalProps = {
   visible: boolean;
@@ -53,7 +54,7 @@ export function SuccessModal({ visible, title, message, onClose }: SuccessModalP
           <Button 
             mode="contained" 
             onPress={onClose} 
-            style={{ borderRadius: 14, backgroundColor: "#1e40af", width: 180, marginTop: 10 }}
+            style={{ borderRadius: 14, backgroundColor: colors.primary, width: 180, marginTop: 10 }}
             contentStyle={{ height: 48 }}
             labelStyle={{ fontSize: 14, fontWeight: "800", color: "#ffffff" }}
           >

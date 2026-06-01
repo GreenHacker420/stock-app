@@ -1,11 +1,11 @@
 export const colors = {
-  primary:        '#1e40af',
-  primaryLight:   '#dbeafe',
-  primaryDark:    '#1e3a8a',
-  primaryMid:     '#3b82f6',
+  primary:        '#16a34a', // Elegant Emerald Green
+  primaryLight:   '#dcfce7', // Soft green highlight tint
+  primaryDark:    '#14532d', // Deep forest green
+  primaryMid:     '#22c55e', // Vibrant mid green
 
-  success:        '#059669',
-  successLight:   '#d1fae5',
+  success:        '#16a34a',
+  successLight:   '#dcfce7',
   danger:         '#dc2626',
   dangerLight:    '#fee2e2',
   warning:        '#d97706',
@@ -13,15 +13,15 @@ export const colors = {
   info:           '#0284c7',
   infoLight:      '#e0f2fe',
 
-  textPrimary:    '#111827',
-  textSecondary:  '#6b7280',
-  textMuted:      '#9ca3af',
+  textPrimary:    '#111827', // Charcoal black
+  textSecondary:  '#6b7280', // Cool gray
+  textMuted:      '#9ca3af', // Light gray
   textInverse:    '#ffffff',
   textDisabled:   '#d1d5db',
 
-  bg:             '#f9fafb',
+  bg:             '#fbfcfb', // Off-white background
   surface:        '#ffffff',
-  surfaceOffset:  '#f3f4f6',
+  surfaceOffset:  '#f4f5f4', // Slightly offset clean gray-green
   surfaceDark:    '#e5e7eb',
   border:         '#e5e7eb',
   borderStrong:   '#d1d5db',
@@ -73,22 +73,22 @@ export const shadow = {
   sm: {
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06,
-    shadowRadius: 3,
-    elevation: 2,
+    shadowOpacity: 0.04,
+    shadowRadius: 2,
+    elevation: 1,
   },
   md: {
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.10,
-    shadowRadius: 8,
-    elevation: 5,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 3,
   },
   lg: {
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.14,
-    shadowRadius: 16,
-    elevation: 10,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 6,
   },
 } as const;
