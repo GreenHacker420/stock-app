@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
-import AsyncStorage from "@react-native-async-storage/async-storage";
+import { mmkvStorage } from "./mmkv-storage";
 
 interface ShopState {
   activeShopId: string | null;
@@ -17,7 +17,7 @@ export const useShopStore = create<ShopState>()(
     }),
     {
       name: "shop-storage",
-      storage: createJSONStorage(() => AsyncStorage),
+      storage: createJSONStorage(() => mmkvStorage),
     }
   )
 );

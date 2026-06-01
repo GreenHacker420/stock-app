@@ -1,0 +1,63 @@
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useAuthStore } from "../auth/auth-store";
+import { queryKeys } from "./query-keys";
+import { fetchShops, createShop, updateShop, assignStaffToShop, setOpeningStock } from "../api/client";
+
+export function useShopsQuery() {
+  const token = useAuthStore((state) => state.token);
+  return useQuery({
+    queryKey: queryKeys.shops(),
+    queryFn: () => fetchShops(token ?? ""),
+    enabled: !!token,
+    staleTime: 15 * 60 * 1000, // 15 mins
+  });
+}
+
+export function useCreateShopMutation() {
+  const token = useAuthStore((state) => state.token);
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: any) => createShop(token ?? "", data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.shops() });
+    },
+  });
+}
+
+export function useUpdateShopMutation() {
+  const token = useAuthStore((state) => state.token);
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: any }) =>
+      updateShop(token ?? "", id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.shops() });
+    },
+  });
+}
+
+export function useAssignStaffToShopMutation() {
+  const token = useAuthStore((state) => state.token);
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ shopId, staffId }: { shopId: string; staffId: string }) =>
+      assignStaffToShop(token ?? "", shopId, staffId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.shops() });
+    },
+  });
+}
+
+export function useSetOpeningStockMutation() {
+  const token = useAuthStore((state) => state.token);
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ shopId, entries }: { shopId: string; entries: any }) =>
+      setOpeningStock(token ?? "", shopId, entries),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.shops() });
+      queryClient.invalidateQueries({ queryKey: ["items", variables.shopId] });
+      queryClient.invalidateQueries({ queryKey: ["current-stock", variables.shopId] });
+    },
+  });
+}
