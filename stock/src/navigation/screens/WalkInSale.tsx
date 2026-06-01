@@ -7,15 +7,14 @@ import {
   Pressable, 
   ActivityIndicator 
 } from "react-native";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigation } from "@react-navigation/native";
 import { Searchbar, Text, Icon, Divider } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
 
-import { fetchItems, createSale, Item, CreateSalePayload } from "../../api/client";
-import { useAuthStore } from "../../auth/auth-store";
-import { useShopStore } from "../../auth/shop-store";
+import { Item } from "../../api/client";
+import { useItemsQuery } from "../../hooks/useItems";
+import { useCreateSaleMutation } from "../../hooks/useSales";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { SkeletonList } from "../../components/ui/SkeletonCard";
@@ -93,9 +92,6 @@ const SaleItemCard = memo(({
 }, (p, n) => p.item.id === n.item.id && p.quantity === n.quantity);
 
 export function WalkInSale() {
-  const token = useAuthStore((state) => state.token);
-  const { activeShopId } = useShopStore();
-  const queryClient = useQueryClient();
   const navigation = useNavigation();
 
   const [search, setSearch] = useState("");
@@ -103,11 +99,7 @@ export function WalkInSale() {
   const [cart, setCart] = useState<Record<string, { item: Item, quantity: number }>>({});
   const [successVisible, setSuccessVisible] = useState(false);
 
-  const itemsQuery = useQuery({
-    queryKey: ["items", activeShopId, debouncedSearch],
-    queryFn: () => fetchItems(token ?? "", activeShopId ?? "", { search: debouncedSearch, limit: 50 }),
-    enabled: !!token && !!activeShopId,
-  });
+  const itemsQuery = useItemsQuery({ search: debouncedSearch, limit: 50 });
 
   const cartArray = useMemo(() => Object.values(cart), [cart]);
   const cartItemCount = useMemo(() => cartArray.reduce((sum, i) => sum + i.quantity, 0), [cartArray]);
@@ -128,26 +120,24 @@ export function WalkInSale() {
     });
   }, []);
 
-  const saleMutation = useMutation({
-    mutationFn: () => {
-      const payload: CreateSalePayload = {
-        shopId: activeShopId ?? "",
-        items: cartArray.map(i => ({ 
-          itemId: i.item.id, 
-          quantity: i.quantity, 
-          sellingPrice: Number(i.item.defaultSellingPrice) 
-        })),
-        paymentMethod: 'cash',
-        totalAmount: cartTotal,
-      };
-      return createSale(token ?? "", payload);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["items", activeShopId] });
-      setCart({});
-      setSuccessVisible(true);
-    },
-  });
+  const saleMutation = useCreateSaleMutation();
+
+  const handleCompleteSale = () => {
+    saleMutation.mutate({
+      items: cartArray.map(i => ({ 
+        itemId: i.item.id, 
+        quantity: i.quantity, 
+        sellingPrice: Number(i.item.defaultSellingPrice) 
+      })),
+      paymentMethod: 'cash',
+      totalAmount: cartTotal,
+    }, {
+      onSuccess: () => {
+        setCart({});
+        setSuccessVisible(true);
+      }
+    });
+  };
 
   return (
     <Screen edges={['top', 'left', 'right']}>
@@ -204,7 +194,7 @@ export function WalkInSale() {
             <Button 
               label="COMPLETE SALE →" 
               variant="success"
-              onPress={() => saleMutation.mutate()} 
+              onPress={handleCompleteSale} 
               loading={saleMutation.isPending}
               style={styles.checkoutButton}
             />
