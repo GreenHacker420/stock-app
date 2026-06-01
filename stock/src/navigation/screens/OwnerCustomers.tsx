@@ -1,5 +1,5 @@
 import React, { useMemo, useState, memo } from "react";
-import { Pressable, View, StyleSheet, ActivityIndicator } from "react-native";
+import { Pressable, View, StyleSheet, ActivityIndicator, ScrollView } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Divider, Icon, Searchbar, Text, TextInput } from "react-native-paper";
@@ -112,7 +112,6 @@ export function CustomerList() {
         <View style={styles.listWrapper}>
           <FlashList
             data={filteredData}
-            estimatedItemSize={80}
             keyExtractor={(item) => item.id}
             renderItem={({ item }) => (
               <CustomerCard 

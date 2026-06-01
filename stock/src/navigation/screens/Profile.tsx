@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { View, Switch } from "react-native";
+import { View, Switch, StyleSheet } from "react-native";
 import { useMutation } from "@tanstack/react-query";
 import { useNavigation } from "@react-navigation/native";
 import { Button, Text, TextInput, Divider, Icon } from "react-native-paper";
@@ -14,6 +14,7 @@ import { Section } from "../../components/ui/Section";
 import { StatusPill } from "../../components/ui/StatusPill";
 import { SuccessModal } from "../../components/ui/SuccessModal";
 import { getToken, setToken } from "../../auth/token-storage";
+import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 
 async function hashQuickPin(mobile: string, pin: string) {
   return Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, `${mobile.trim()}:${pin}`);
@@ -125,71 +126,62 @@ export function Profile() {
   });
 
   return (
-    <Screen hasTab={true}>
+    <Screen>
       <AppHeader title="Profile" subtitle="Signed-in user and permissions." role={user?.role} />
       
       {/* Profile Card */}
-      <View 
-        style={{ 
-          shadowColor: "#000", 
-          shadowOffset: { width: 0, height: 4 }, 
-          shadowOpacity: 0.04, 
-          shadowRadius: 12, 
-          elevation: 2 
-        }} 
-        className="bg-white rounded-[24px] p-5 border border-slate-100 flex-row items-center gap-4"
-      >
-        <View className="h-14 w-14 rounded-2xl bg-blue-600 items-center justify-center shadow-lg shadow-blue-200">
-          <Text style={{ color: "white", fontSize: 24, fontWeight: "900" }}>
+      <View style={styles.profileCard}>
+        <View style={styles.avatar}>
+          <Text style={styles.avatarText}>
             {user?.name?.[0]?.toUpperCase() ?? "O"}
           </Text>
         </View>
-        <View className="flex-1">
-          <Text variant="titleMedium" style={{ color: "#0f172a", fontWeight: "900" }}>{user?.name}</Text>
-          <Text variant="bodySmall" style={{ color: "#64748b", fontWeight: "600", marginTop: 2 }}>{user?.mobile}</Text>
+        <View style={styles.flex1}>
+          <Text variant="titleMedium" style={styles.userName}>{user?.name}</Text>
+          <Text variant="bodySmall" style={styles.userMobile}>{user?.mobile}</Text>
         </View>
         <StatusPill label={user?.role ?? "USER"} tone={user?.role === "OWNER" ? "blue" : "amber"} />
       </View>
 
       {/* Account Info */}
       <Section title="Account details">
-        <View className="rounded-[24px] border border-slate-100 bg-white overflow-hidden shadow-sm">
-          <View className="p-4 flex-row justify-between items-center border-b border-slate-50">
-            <Text style={{ color: "#64748b", fontWeight: "600", fontSize: 13 }}>Email</Text>
-            <Text style={{ color: "#0f172a", fontWeight: "700", fontSize: 14 }}>{user?.email || "Not set"}</Text>
+        <View style={styles.detailsCard}>
+          <View style={styles.detailRow}>
+            <Text style={styles.detailLabel}>Email</Text>
+            <Text style={styles.detailValue}>{user?.email || "Not set"}</Text>
           </View>
-          <View className="p-4 flex-row justify-between items-center">
-            <Text style={{ color: "#64748b", fontWeight: "600", fontSize: 13 }}>Permissions</Text>
-            <Text style={{ color: "#0f172a", fontWeight: "700", fontSize: 14 }}>{user?.permissions.length ?? 0} active controls</Text>
+          <View style={styles.detailRowNoBorder}>
+            <Text style={styles.detailLabel}>Permissions</Text>
+            <Text style={styles.detailValue}>{user?.permissions.length ?? 0} active controls</Text>
           </View>
         </View>
       </Section>
 
       {/* Security settings */}
       <Section title="Security & quick login">
-        <View className="rounded-[24px] border border-slate-100 bg-white p-5 gap-5 shadow-sm">
+        <View style={styles.securityCard}>
           {/* Biometrics Toggle */}
-          <View className="flex-row justify-between items-center">
-            <View className="flex-1 pr-4">
-              <Text style={{ color: "#0f172a", fontWeight: "700", fontSize: 14 }}>Biometric Login</Text>
-              <Text style={{ color: "#64748b", fontSize: 12, marginTop: 2, lineHeight: 16 }}>Use fingerprint or face recognition for quick access.</Text>
+          <View style={styles.toggleRow}>
+            <View style={styles.flex1Pr4}>
+              <Text style={styles.securityTitle}>Biometric Login</Text>
+              <Text style={styles.securitySubtitle}>Use fingerprint or face recognition for quick access.</Text>
             </View>
             <Switch
               value={biometricEnabled}
               disabled={!biometricAvailable}
               onValueChange={handleBiometricToggle}
               trackColor={{ false: "#e2e8f0", true: "#dbeafe" }}
-              thumbColor={biometricEnabled ? "#1e40af" : "#94a3b8"}
+              thumbColor={biometricEnabled ? colors.primary : "#94a3b8"}
             />
           </View>
 
-          <Divider style={{ backgroundColor: "#f1f5f9" }} />
+          <Divider style={styles.divider} />
 
           {/* Quick PIN Setup */}
-          <View className="gap-3">
-            <Text style={{ color: "#0f172a", fontWeight: "700", fontSize: 14 }}>Quick Login PIN</Text>
-            <Text style={{ color: "#64748b", fontSize: 12, lineHeight: 16 }}>Configure a 4-digit PIN for fast sign-in without typing your full password.</Text>
-            <View className="flex-row gap-3 mt-2">
+          <View style={styles.gap3}>
+            <Text style={styles.securityTitle}>Quick Login PIN</Text>
+            <Text style={styles.securitySubtitle}>Configure a 4-digit PIN for fast sign-in without typing your full password.</Text>
+            <View style={styles.pinInputs}>
               <TextInput
                 mode="outlined"
                 placeholder="New PIN (4 digits)"
@@ -198,9 +190,9 @@ export function Profile() {
                 keyboardType="numeric"
                 maxLength={4}
                 secureTextEntry
-                style={{ flex: 1, backgroundColor: "white", height: 46 }}
-                outlineStyle={{ borderRadius: 12, borderColor: "#e2e8f0" }}
-                activeOutlineColor="#1e40af"
+                style={styles.pinInput}
+                outlineStyle={styles.inputOutline}
+                activeOutlineColor={colors.primary}
               />
               <TextInput
                 mode="outlined"
@@ -210,18 +202,18 @@ export function Profile() {
                 keyboardType="numeric"
                 maxLength={4}
                 secureTextEntry
-                style={{ flex: 1, backgroundColor: "white", height: 46 }}
-                outlineStyle={{ borderRadius: 12, borderColor: "#e2e8f0" }}
-                activeOutlineColor="#1e40af"
+                style={styles.pinInput}
+                outlineStyle={styles.inputOutline}
+                activeOutlineColor={colors.primary}
               />
             </View>
             <Button
               mode="contained-tonal"
               onPress={handleSavePin}
               disabled={pin.length !== 4 || pinConfirm.length !== 4}
-              style={{ borderRadius: 12, marginTop: 4 }}
-              contentStyle={{ height: 44 }}
-              labelStyle={{ fontWeight: "800", fontSize: 13 }}
+              style={styles.pinButton}
+              contentStyle={styles.buttonContent44}
+              labelStyle={styles.pinButtonLabel}
             >
               Update PIN
             </Button>
@@ -231,24 +223,24 @@ export function Profile() {
 
       {/* Profile info update */}
       <Section title="Update profile">
-        <View className="gap-4 rounded-[24px] border border-slate-100 bg-white p-5 shadow-sm">
+        <View style={styles.updateCard}>
           <TextInput 
             mode="outlined" 
             label="Name" 
             value={name} 
             onChangeText={setName} 
-            outlineStyle={{ borderRadius: 12, borderColor: "#e2e8f0" }}
-            activeOutlineColor="#1e40af"
-            style={{ backgroundColor: "white" }}
+            outlineStyle={styles.inputOutline}
+            activeOutlineColor={colors.primary}
+            style={styles.inputBackground}
           />
           <TextInput 
             mode="outlined" 
             label="Email" 
             value={email ?? ""} 
             onChangeText={setEmail} 
-            outlineStyle={{ borderRadius: 12, borderColor: "#e2e8f0" }}
-            activeOutlineColor="#1e40af"
-            style={{ backgroundColor: "white" }}
+            outlineStyle={styles.inputOutline}
+            activeOutlineColor={colors.primary}
+            style={styles.inputBackground}
           />
           <TextInput 
             mode="outlined" 
@@ -256,17 +248,17 @@ export function Profile() {
             secureTextEntry 
             value={password} 
             onChangeText={setPassword} 
-            outlineStyle={{ borderRadius: 12, borderColor: "#e2e8f0" }}
-            activeOutlineColor="#1e40af"
-            style={{ backgroundColor: "white" }}
+            outlineStyle={styles.inputOutline}
+            activeOutlineColor={colors.primary}
+            style={styles.inputBackground}
           />
           <Button 
             mode="contained" 
             loading={mutation.isPending} 
             onPress={() => mutation.mutate()} 
-            style={{ borderRadius: 12, backgroundColor: "#1e40af", marginTop: 4 }}
-            contentStyle={{ height: 48 }}
-            labelStyle={{ fontWeight: "800", fontSize: 14, color: "#ffffff" }}
+            style={styles.saveProfileButton}
+            contentStyle={styles.buttonContent48}
+            labelStyle={styles.saveProfileLabel}
           >
             Save Profile
           </Button>
@@ -274,20 +266,20 @@ export function Profile() {
       </Section>
 
       {error ? (
-        <View className="flex-row items-center gap-2.5 rounded-2xl bg-red-50 p-3.5 mx-1">
-          <Icon source="alert-circle" size={18} color="#dc2626" />
-          <Text style={{ color: "#b91c1c", fontWeight: "700", fontSize: 13, flex: 1 }}>{error}</Text>
+        <View style={styles.errorContainer}>
+          <Icon source="alert-circle" size={18} color={colors.danger} />
+          <Text style={styles.errorText}>{error}</Text>
         </View>
       ) : null}
 
       {/* Owner controls */}
       {user?.role === "OWNER" ? (
         <Section title="Owner tools">
-          <View className="gap-3">
-            <Button mode="contained-tonal" icon="storefront-outline" onPress={() => setActiveShopId(null)} style={{ borderRadius: 12 }} contentStyle={{ height: 48 }}>Change Active Shop</Button>
-            <Button mode="contained-tonal" icon="account-plus" onPress={() => (navigation as any).navigate("AddEditStaff")} style={{ borderRadius: 12 }} contentStyle={{ height: 48 }}>Add Staff Member</Button>
-            <Button mode="contained-tonal" icon="account-group-outline" onPress={() => (navigation as any).navigate("StaffManagement")} style={{ borderRadius: 12 }} contentStyle={{ height: 48 }}>Staff Accounts</Button>
-            <Button mode="contained-tonal" icon="warehouse" onPress={() => (navigation as any).navigate("ItemList")} style={{ borderRadius: 12 }} contentStyle={{ height: 48 }}>Inventory Catalog</Button>
+          <View style={styles.gap3}>
+            <Button mode="contained-tonal" icon="storefront-outline" onPress={() => setActiveShopId(null)} style={styles.ownerButton} contentStyle={styles.buttonContent48}>Change Active Shop</Button>
+            <Button mode="contained-tonal" icon="account-plus" onPress={() => (navigation as any).navigate("AddEditStaff")} style={styles.ownerButton} contentStyle={styles.buttonContent48}>Add Staff Member</Button>
+            <Button mode="contained-tonal" icon="account-group-outline" onPress={() => (navigation as any).navigate("StaffManagement")} style={styles.ownerButton} contentStyle={styles.buttonContent48}>Staff Accounts</Button>
+            <Button mode="contained-tonal" icon="warehouse" onPress={() => (navigation as any).navigate("ItemList")} style={styles.ownerButton} contentStyle={styles.buttonContent48}>Inventory Catalog</Button>
           </View>
         </Section>
       ) : null}
@@ -296,14 +288,13 @@ export function Profile() {
         mode="outlined" 
         icon="logout" 
         onPress={signOut} 
-        contentStyle={{ height: 48 }} 
-        style={{ borderRadius: 12, borderColor: "#e2e8f0", marginVertical: 8 }} 
-        textColor="#dc2626"
+        contentStyle={styles.buttonContent48} 
+        style={styles.signOutButton} 
+        textColor={colors.danger}
       >
         Sign out
       </Button>
 
-      {/* Reusable success modal */}
       <SuccessModal
         visible={successVisible}
         title={successTitle}
@@ -313,3 +304,183 @@ export function Profile() {
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  profileCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 24,
+    padding: spacing.xl,
+    borderWidth: 1,
+    borderColor: '#f1f5f9', // slate-100
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.lg,
+    ...shadow.sm,
+  },
+  avatar: {
+    height: 56,
+    width: 56,
+    borderRadius: radius.xl,
+    backgroundColor: colors.primaryMid,
+    alignItems: "center",
+    justifyContent: "center",
+    ...shadow.md,
+  },
+  avatarText: {
+    color: "white",
+    fontSize: fontSize.xxl,
+    fontWeight: fontWeight.black,
+  },
+  flex1: {
+    flex: 1,
+  },
+  userName: {
+    color: "#0f172a", // slate-900
+    fontWeight: fontWeight.black,
+  },
+  userMobile: {
+    color: colors.textSecondary,
+    fontWeight: fontWeight.semibold,
+    marginTop: 2,
+  },
+  detailsCard: {
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+    backgroundColor: colors.surface,
+    overflow: "hidden",
+    ...shadow.sm,
+  },
+  detailRow: {
+    padding: spacing.lg,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    borderBottomWidth: 1,
+    borderBottomColor: '#f8fafc', // slate-50
+  },
+  detailRowNoBorder: {
+    padding: spacing.lg,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  detailLabel: {
+    color: colors.textSecondary,
+    fontWeight: fontWeight.semibold,
+    fontSize: 13,
+  },
+  detailValue: {
+    color: "#0f172a",
+    fontWeight: fontWeight.bold,
+    fontSize: 14,
+  },
+  securityCard: {
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+    backgroundColor: colors.surface,
+    padding: spacing.xl,
+    gap: spacing.xl,
+    ...shadow.sm,
+  },
+  toggleRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  flex1Pr4: {
+    flex: 1,
+    paddingRight: spacing.lg,
+  },
+  securityTitle: {
+    color: "#0f172a",
+    fontWeight: fontWeight.bold,
+    fontSize: 14,
+  },
+  securitySubtitle: {
+    color: colors.textSecondary,
+    fontSize: 12,
+    marginTop: 2,
+    lineHeight: 16,
+  },
+  divider: {
+    backgroundColor: '#f1f5f9',
+  },
+  gap3: {
+    gap: spacing.md,
+  },
+  pinInputs: {
+    flexDirection: "row",
+    gap: spacing.md,
+    marginTop: spacing.sm,
+  },
+  pinInput: {
+    flex: 1,
+    backgroundColor: colors.surface,
+    height: 46,
+  },
+  inputOutline: {
+    borderRadius: radius.lg,
+    borderColor: '#e2e8f0', // slate-200
+  },
+  pinButton: {
+    borderRadius: radius.lg,
+    marginTop: 4,
+  },
+  buttonContent44: {
+    height: 44,
+  },
+  pinButtonLabel: {
+    fontWeight: fontWeight.extrabold,
+    fontSize: 13,
+  },
+  updateCard: {
+    gap: spacing.lg,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+    backgroundColor: colors.surface,
+    padding: spacing.xl,
+    ...shadow.sm,
+  },
+  inputBackground: {
+    backgroundColor: colors.surface,
+  },
+  saveProfileButton: {
+    borderRadius: radius.lg,
+    backgroundColor: colors.primary,
+    marginTop: 4,
+  },
+  buttonContent48: {
+    height: 48,
+  },
+  saveProfileLabel: {
+    fontWeight: fontWeight.extrabold,
+    fontSize: 14,
+    color: colors.surface,
+  },
+  errorContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    borderRadius: radius.xl,
+    backgroundColor: colors.dangerLight,
+    padding: 14,
+    marginHorizontal: 4,
+  },
+  errorText: {
+    color: "#b91c1c",
+    fontWeight: fontWeight.bold,
+    fontSize: 13,
+    flex: 1,
+  },
+  ownerButton: {
+    borderRadius: radius.lg,
+  },
+  signOutButton: {
+    borderRadius: radius.lg,
+    borderColor: '#e2e8f0',
+    marginVertical: spacing.sm,
+  },
+});

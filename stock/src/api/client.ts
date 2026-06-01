@@ -129,6 +129,10 @@ export type Payment = {
   referenceNumber?: string | null;
   customer?: { name: string } | null;
   receivedBy: { name: string };
+  saleId?: string | null;
+  sale?: { saleNumber: string } | null;
+  orderId?: string | null;
+  order?: { orderNumber: string } | null;
 };
 
 export type Notification = {

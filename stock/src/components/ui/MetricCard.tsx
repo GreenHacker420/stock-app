@@ -63,7 +63,6 @@ const styles = StyleSheet.create({
   iconContainer: {
     height: 40,
     width: 40,
-    itemsCenter: 'center', // error in my thought, should be alignItems
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: radius.md,

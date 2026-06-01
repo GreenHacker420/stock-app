@@ -117,8 +117,7 @@ export function ItemList() {
         <View style={styles.listWrapper}>
           <FlashList
             data={filteredData}
-            estimatedItemSize={96}
-            keyExtractor={(item) => item.id}
+            keyExtractor={(item: Item) => item.id}
             onRefresh={() => itemsQuery.refetch()}
             refreshing={itemsQuery.isFetching}
             ListHeaderComponent={
@@ -153,7 +152,7 @@ export function ItemList() {
                 />
               </View>
             }
-            renderItem={({ item }) => (
+            renderItem={({ item }: { item: Item }) => (
               <ItemCard 
                 item={item} 
                 stock={stockByItem.get(item.id) ?? 0} 
@@ -312,7 +311,6 @@ export function ItemDetail() {
         {item ? (
           <FlashList
             data={activeTab === "PRICE" ? ((historyQuery.data as any)?.rows ?? []) : (movementsQuery.data ?? [])}
-            estimatedItemSize={72}
             ListHeaderComponent={
               <>
                 <View style={styles.detailCard}>
@@ -375,7 +373,8 @@ export function ItemDetail() {
                 />
               </>
             }
-            renderItem={({ item: row, index }) => {
+            renderItem={({ item, index }: any) => {
+              const row = item as any;
               if (activeTab === "PRICE") {
                 return (
                   <View style={styles.historyRow}>

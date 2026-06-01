@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { View, ScrollView } from "react-native";
+import { View, ScrollView, StyleSheet } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Button, TextInput, List, HelperText, Portal, Modal, IconButton, Text } from "react-native-paper";
@@ -8,6 +8,7 @@ import { useAuthStore } from "../../auth/auth-store";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { Section } from "../../components/ui/Section";
+import { colors, spacing, radius, fontSize, fontWeight } from '../../theme';
 
 export function AssignStaff() {
   const token = useAuthStore((state) => state.token);
@@ -35,7 +36,6 @@ export function AssignStaff() {
     mutationFn: (staffId: string) => assignStaffToShop(token ?? "", shop?.id ?? "", staffId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["shops"] });
-      // Invalidate specific query
     },
   });
 
@@ -48,7 +48,6 @@ export function AssignStaff() {
       setMobile("");
       setEmail("");
       setPassword("");
-      // Automatically assign new staff to the current shop
       if (newStaff?.id) {
         assignMutation.mutate(newStaff.id);
       }
@@ -66,9 +65,7 @@ export function AssignStaff() {
     );
   }
 
-  // Find if staff is already assigned to this shop
   const isAssigned = (staffId: string) => {
-    // shop has staffAccesses
     const accesses = (shop as any).staffAccesses || [];
     return accesses.some((access: any) => access.staffId === staffId);
   };
@@ -79,10 +76,10 @@ export function AssignStaff() {
 
       <ScrollView className="flex-1 mt-2">
         <Section title="Active Staff Members">
-          <View className="overflow-hidden rounded-2xl border border-[#e5e7eb] bg-white">
+          <View style={styles.staffContainer}>
             {staffQuery.data?.length === 0 ? (
-              <View className="p-5 items-center">
-                <Text style={{ color: "#4b5563" }}>No staff registered yet.</Text>
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyText}>No staff registered yet.</Text>
               </View>
             ) : null}
 
@@ -95,12 +92,12 @@ export function AssignStaff() {
                   key={member.id}
                   title={member.name}
                   description={`${member.mobile} ${member.email ? `• ${member.email}` : ""}`}
-                  titleStyle={{ fontWeight: "700", color: "#111827" }}
-                  descriptionStyle={{ color: "#4b5563" }}
+                  titleStyle={styles.memberTitle}
+                  descriptionStyle={styles.memberDescription}
                   right={() => (
                     <IconButton
                       icon={assigned ? "check-circle" : "plus-circle-outline"}
-                      iconColor={assigned ? "#1e40af" : "#7a8578"}
+                      iconColor={assigned ? colors.primary : "#7a8578"}
                       size={24}
                       disabled={isAssigning}
                       onPress={() => {
@@ -110,11 +107,10 @@ export function AssignStaff() {
                       }}
                     />
                   )}
-                  style={{
-                    borderBottomWidth: index === (staffQuery.data?.length ?? 0) - 1 ? 0 : 1,
-                    borderBottomColor: "#f9fafb",
-                    paddingVertical: 10,
-                  }}
+                  style={[
+                    styles.listItem,
+                    index === (staffQuery.data?.length ?? 0) - 1 && styles.lastItem
+                  ]}
                 />
               );
             })}
@@ -122,21 +118,21 @@ export function AssignStaff() {
         </Section>
       </ScrollView>
 
-      <View className="gap-3 p-2 bg-[#f6f7f2]">
+      <View style={styles.footer}>
         <Button
           mode="contained"
           icon="account-plus"
-          buttonColor="#1e40af"
-          style={{ borderRadius: 12 }}
-          contentStyle={{ height: 50 }}
+          buttonColor={colors.primary}
+          style={styles.footerButton}
+          contentStyle={styles.buttonContent}
           onPress={() => setIsModalOpen(true)}
         >
           Add new staff member
         </Button>
         <Button
           mode="outlined"
-          style={{ borderRadius: 12 }}
-          contentStyle={{ height: 50 }}
+          style={styles.footerButton}
+          contentStyle={styles.buttonContent}
           onPress={() => navigation.goBack()}
         >
           Close
@@ -147,20 +143,13 @@ export function AssignStaff() {
         <Modal
           visible={isModalOpen}
           onDismiss={() => setIsModalOpen(false)}
-          contentContainerStyle={{
-            backgroundColor: "white",
-            padding: 24,
-            margin: 20,
-            borderRadius: 20,
-            borderWidth: 1,
-            borderColor: "#e5e7eb",
-          }}
+          contentContainerStyle={styles.modalContent}
         >
-          <Text variant="headlineSmall" style={{ color: "#111827", fontWeight: "800", marginBottom: 16 }}>
+          <Text variant="headlineSmall" style={styles.modalTitle}>
             Create Staff Account
           </Text>
 
-          <View className="gap-4">
+          <View style={styles.formGap}>
             <TextInput
               mode="outlined"
               label="Full name"
@@ -169,8 +158,8 @@ export function AssignStaff() {
                 setName(text);
                 setError("");
               }}
-              outlineStyle={{ borderRadius: 12, borderColor: "#e5e7eb" }}
-              activeOutlineColor="#1e40af"
+              outlineStyle={styles.inputOutline}
+              activeOutlineColor={colors.primary}
             />
             <TextInput
               mode="outlined"
@@ -181,8 +170,8 @@ export function AssignStaff() {
                 setMobile(text);
                 setError("");
               }}
-              outlineStyle={{ borderRadius: 12, borderColor: "#e5e7eb" }}
-              activeOutlineColor="#1e40af"
+              outlineStyle={styles.inputOutline}
+              activeOutlineColor={colors.primary}
             />
             <TextInput
               mode="outlined"
@@ -190,8 +179,8 @@ export function AssignStaff() {
               keyboardType="email-address"
               value={email}
               onChangeText={setEmail}
-              outlineStyle={{ borderRadius: 12, borderColor: "#e5e7eb" }}
-              activeOutlineColor="#1e40af"
+              outlineStyle={styles.inputOutline}
+              activeOutlineColor={colors.primary}
             />
             <TextInput
               mode="outlined"
@@ -199,26 +188,26 @@ export function AssignStaff() {
               secureTextEntry
               value={password}
               onChangeText={setPassword}
-              outlineStyle={{ borderRadius: 12, borderColor: "#e5e7eb" }}
-              activeOutlineColor="#1e40af"
+              outlineStyle={styles.inputOutline}
+              activeOutlineColor={colors.primary}
             />
 
             {error ? <HelperText type="error">{error}</HelperText> : null}
 
-            <View className="flex-row gap-3 mt-2">
+            <View style={styles.modalActions}>
               <Button
                 mode="outlined"
-                style={{ flex: 1, borderRadius: 12 }}
-                contentStyle={{ height: 48 }}
+                style={styles.modalButton}
+                contentStyle={styles.modalButtonContent}
                 onPress={() => setIsModalOpen(false)}
               >
                 Cancel
               </Button>
               <Button
                 mode="contained"
-                buttonColor="#1e40af"
-                style={{ flex: 1, borderRadius: 12 }}
-                contentStyle={{ height: 48 }}
+                buttonColor={colors.primary}
+                style={styles.modalButton}
+                contentStyle={styles.modalButtonContent}
                 loading={createStaffMutation.isPending}
                 disabled={!name || !mobile || createStaffMutation.isPending}
                 onPress={() => createStaffMutation.mutate()}
@@ -232,3 +221,78 @@ export function AssignStaff() {
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  staffContainer: {
+    overflow: "hidden",
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  emptyState: {
+    padding: spacing.xl,
+    alignItems: "center",
+  },
+  emptyText: {
+    color: colors.textSecondary,
+  },
+  memberTitle: {
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  memberDescription: {
+    color: colors.textSecondary,
+  },
+  listItem: {
+    borderBottomWidth: 1,
+    borderBottomColor: colors.bg,
+    paddingVertical: spacing.sm,
+  },
+  lastItem: {
+    borderBottomWidth: 0,
+  },
+  footer: {
+    gap: spacing.md,
+    padding: spacing.sm,
+    backgroundColor: "#f6f7f2", // Specific background for footer
+  },
+  footerButton: {
+    borderRadius: radius.md,
+  },
+  buttonContent: {
+    height: 50,
+  },
+  modalContent: {
+    backgroundColor: colors.surface,
+    padding: spacing.xxl,
+    margin: spacing.xl,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  modalTitle: {
+    color: colors.textPrimary,
+    fontWeight: fontWeight.extrabold,
+    marginBottom: spacing.lg,
+  },
+  formGap: {
+    gap: spacing.lg,
+  },
+  inputOutline: {
+    borderRadius: radius.md,
+    borderColor: colors.border,
+  },
+  modalActions: {
+    flexDirection: "row",
+    gap: spacing.md,
+    marginTop: spacing.sm,
+  },
+  modalButton: {
+    flex: 1,
+    borderRadius: radius.md,
+  },
+  modalButtonContent: {
+    height: 48,
+  },
+});

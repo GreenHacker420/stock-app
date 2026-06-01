@@ -269,9 +269,8 @@ export function OrdersToPack() {
       <View style={styles.listWrapper}>
         <FlashList
           data={filteredOrders}
-          estimatedItemSize={130}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => (
+          keyExtractor={(item: Order) => item.id}
+          renderItem={({ item }: { item: Order }) => (
             <OrderCard
               order={item}
               isExpanded={expandedOrderId === item.id}

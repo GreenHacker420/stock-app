@@ -77,7 +77,6 @@ const SaleItemCard = memo(({
             </View>
             
             <Pressable 
-              onAdd={onAdd} // wait, this was a mistake in my thought, should be onPress
               onPress={onAdd}
               style={({ pressed }) => [
                 styles.qtyButton,
@@ -172,9 +171,8 @@ export function WalkInSale() {
         <View style={styles.listContainer}>
           <FlashList
             data={itemsQuery.data?.items ?? []}
-            estimatedItemSize={90}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
+            keyExtractor={(item: Item) => item.id}
+            renderItem={({ item }: { item: Item }) => (
               <SaleItemCard 
                 item={item} 
                 quantity={cart[item.id]?.quantity ?? 0}

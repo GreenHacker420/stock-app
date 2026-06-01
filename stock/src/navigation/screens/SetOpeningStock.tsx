@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { View, ScrollView } from "react-native";
+import { View, ScrollView, StyleSheet } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Button, TextInput, List, Text, HelperText } from "react-native-paper";
@@ -9,6 +9,7 @@ import { useShopStore } from "../../auth/shop-store";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { Section } from "../../components/ui/Section";
+import { colors, spacing, radius, fontWeight } from "../../theme";
 
 export function SetOpeningStock() {
   const token = useAuthStore((state) => state.token);
@@ -75,7 +76,7 @@ export function SetOpeningStock() {
     return (
       <Screen>
         <AppHeader title="Opening Stock" subtitle="Pick or create a shop first." />
-        <Text style={{ color: "#991b1b" }}>No active shop found. Go to Dashboard and choose a shop.</Text>
+        <Text style={styles.errorText}>No active shop found. Go to Dashboard and choose a shop.</Text>
       </Screen>
     );
   }
@@ -90,35 +91,35 @@ export function SetOpeningStock() {
       <ScrollView className="flex-1 mt-2">
         <Section title="Inventory Items">
           {itemsQuery.isLoading ? (
-            <View className="p-5 items-center">
+            <View style={styles.loadingItems}>
               <Text>Loading items...</Text>
             </View>
           ) : null}
 
-          {!itemsQuery.isLoading && itemsQuery.data?.length === 0 ? (
-            <View className="rounded-2xl border border-dashed border-[#b9c3b5] bg-white p-6 items-center">
-              <Text variant="titleMedium" style={{ fontWeight: "700", color: "#111827" }}>No Items Found</Text>
-              <Text variant="bodySmall" style={{ color: "#4b5563", marginTop: 4, textAlign: "center" }}>
+          {!itemsQuery.isLoading && itemsQuery.data?.items?.length === 0 ? (
+            <View style={styles.emptyItemsBox}>
+              <Text variant="titleMedium" style={styles.emptyItemsTitle}>No Items Found</Text>
+              <Text variant="bodySmall" style={styles.emptyItemsSubtitle}>
                 Add items to this shop before configuring their opening stocks.
               </Text>
             </View>
           ) : null}
 
-          <View className="gap-3">
-            {itemsQuery.data?.map((item) => (
+          <View style={styles.listGap}>
+            {itemsQuery.data?.items?.map((item) => (
               <View
                 key={item.id}
-                className="flex-row items-center justify-between gap-4 rounded-2xl border border-[#e5e7eb] bg-white p-4"
+                style={styles.itemCard}
               >
-                <View className="flex-1 gap-1">
-                  <Text variant="titleMedium" style={{ color: "#111827", fontWeight: "700" }}>
+                <View style={styles.itemInfo}>
+                  <Text variant="titleMedium" style={styles.itemTitle}>
                     {item.name}
                   </Text>
-                  <Text variant="bodySmall" style={{ color: "#4b5563" }}>
+                  <Text variant="bodySmall" style={styles.itemSubtitle}>
                     SKU: {item.sku || "N/A"} • Unit: {item.unit} • Default Price: ₹{item.defaultSellingPrice}
                   </Text>
                 </View>
-                <View style={{ width: 100 }}>
+                <View style={styles.qtyInputBox}>
                   <TextInput
                     mode="outlined"
                     dense
@@ -127,8 +128,8 @@ export function SetOpeningStock() {
                     placeholder="0"
                     value={quantities[item.id] || ""}
                     onChangeText={(val) => handleQtyChange(item.id, val)}
-                    outlineStyle={{ borderRadius: 10, borderColor: "#e5e7eb" }}
-                    activeOutlineColor="#1e40af"
+                    outlineStyle={styles.inputOutline}
+                    activeOutlineColor={colors.primary}
                   />
                 </View>
               </View>
@@ -138,36 +139,36 @@ export function SetOpeningStock() {
       </ScrollView>
 
       {error ? (
-        <View className="p-4">
+        <View style={styles.errorPadding}>
           <HelperText type="error" visible={!!error}>
             {error}
           </HelperText>
         </View>
       ) : null}
 
-      <View className="gap-3 p-4 bg-[#f9fafb] border-t border-[#e5e7eb]">
-        <View className="bg-[#fef3c7] p-3.5 rounded-xl border border-[#ffd280] mb-1">
-          <Text style={{ fontSize: 11, color: "#3f2800", fontWeight: "700", lineHeight: 15 }}>
+      <View style={styles.footer}>
+        <View style={styles.warningBox}>
+          <Text style={styles.warningText}>
             WARNING: Opening stock can only be set once. It will be locked for editing after you submit.
           </Text>
         </View>
 
-        <View className="flex-row gap-3">
+        <View style={styles.footerActions}>
           <Button
             mode="outlined"
-            style={{ flex: 1, borderRadius: 12 }}
-            contentStyle={{ height: 50 }}
+            style={styles.footerButton}
+            contentStyle={styles.buttonContent}
             onPress={() => navigation.goBack()}
           >
             Cancel
           </Button>
           <Button
             mode="contained"
-            buttonColor="#1e40af"
-            style={{ flex: 1, borderRadius: 12 }}
-            contentStyle={{ height: 50 }}
+            buttonColor={colors.primary}
+            style={styles.footerButton}
+            contentStyle={styles.buttonContent}
             loading={mutation.isPending}
-            disabled={mutation.isPending || itemsQuery.data?.length === 0}
+            disabled={mutation.isPending || itemsQuery.data?.items?.length === 0}
             onPress={() => mutation.mutate()}
           >
             Save & Lock
@@ -177,3 +178,99 @@ export function SetOpeningStock() {
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  errorText: {
+    color: colors.danger,
+    padding: spacing.lg,
+  },
+  loadingItems: {
+    padding: spacing.xxl,
+    alignItems: "center",
+  },
+  emptyItemsBox: {
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: '#b9c3b5',
+    backgroundColor: colors.surface,
+    padding: spacing.xxl,
+    alignItems: "center",
+  },
+  emptyItemsTitle: {
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  emptyItemsSubtitle: {
+    color: colors.textSecondary,
+    marginTop: spacing.xs,
+    textAlign: "center",
+  },
+  listGap: {
+    gap: spacing.md,
+  },
+  itemCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.lg,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    padding: spacing.lg,
+  },
+  itemInfo: {
+    flex: 1,
+    gap: 4,
+  },
+  itemTitle: {
+    color: colors.textPrimary,
+    fontWeight: fontWeight.bold,
+  },
+  itemSubtitle: {
+    color: colors.textSecondary,
+  },
+  qtyInputBox: {
+    width: 100,
+  },
+  inputOutline: {
+    borderRadius: 10,
+    borderColor: colors.border,
+  },
+  errorPadding: {
+    padding: spacing.lg,
+  },
+  footer: {
+    gap: spacing.md,
+    padding: spacing.lg,
+    backgroundColor: colors.bg,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  warningBox: {
+    backgroundColor: colors.warningLight,
+    padding: 14,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: '#ffd280',
+    marginBottom: spacing.xs,
+  },
+  warningText: {
+    fontSize: 11,
+    color: "#3f2800",
+    fontWeight: fontWeight.bold,
+    lineHeight: 15,
+  },
+  footerActions: {
+    flexDirection: "row",
+    gap: spacing.md,
+  },
+  footerButton: {
+    flex: 1,
+    borderRadius: radius.md,
+  },
+  buttonContent: {
+    height: 50,
+  },
+});

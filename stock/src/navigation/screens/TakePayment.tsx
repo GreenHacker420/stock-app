@@ -43,6 +43,8 @@ const paymentModes = [
   { label: "Cheque", value: "CHEQUE", emoji: "📝", icon: "book-outline" },
 ] as const;
 
+const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
+
 export function TakePayment() {
   const token = useAuthStore((state) => state.token);
   const { activeShopId } = useShopStore();

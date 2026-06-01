@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Pressable, ScrollView, View } from "react-native";
+import { Pressable, ScrollView, View, StyleSheet } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Divider, Searchbar, SegmentedButtons, Text } from "react-native-paper";
@@ -10,6 +10,7 @@ import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { Section } from "../../components/ui/Section";
 import { StatusPill } from "../../components/ui/StatusPill";
+import { colors, spacing, radius, fontSize, fontWeight } from "../../theme";
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 
@@ -42,26 +43,26 @@ export function SalesList() {
   return (
     <Screen scroll={false}>
       <AppHeader title="Sales Management" subtitle="All walk-in, regular, paid, and pending sales." />
-      <View className="flex-row gap-3">
-        <View className="flex-1 rounded-lg border border-[#e5e7eb] bg-white p-4"><Text>Sales</Text><Text variant="headlineSmall" style={{ fontWeight: "900" }}>{rows.length}</Text></View>
-        <View className="flex-1 rounded-lg border border-[#e5e7eb] bg-white p-4"><Text>Total</Text><Text variant="headlineSmall" style={{ fontWeight: "900" }}>{money(total)}</Text></View>
+      <View style={styles.statsRow}>
+        <View style={styles.statCard}><Text>Sales</Text><Text variant="headlineSmall" style={styles.statValue}>{rows.length}</Text></View>
+        <View style={styles.statCard}><Text>Total</Text><Text variant="headlineSmall" style={styles.statValue}>{money(total)}</Text></View>
       </View>
-      <Searchbar value={search} onChangeText={setSearch} placeholder="Search sale number or customer" style={{ backgroundColor: "white", borderRadius: 10 }} />
+      <Searchbar value={search} onChangeText={setSearch} placeholder="Search sale number or customer" style={styles.searchBar} />
       <SegmentedButtons value={filter} onValueChange={setFilter} buttons={[{ value: "ALL", label: "All" }, { value: "WALKIN", label: "Walk-in" }, { value: "REGULAR", label: "Regular" }, { value: "CREDIT", label: "Credit" }]} />
-      <Text style={{ color: "#64748b" }}>Outstanding in filter: <Text style={{ fontWeight: "900", color: "#111827" }}>{money(balance)}</Text></Text>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
-        <View className="gap-3">
+      <Text style={styles.outstandingText}>Outstanding in filter: <Text style={styles.boldText}>{money(balance)}</Text></Text>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+        <View style={styles.listGap}>
           {rows.map((sale) => (
             <Pressable key={sale.id} onPress={() => (navigation as any).navigate("SaleDetail", { saleId: sale.id })}>
-              <View className="rounded-lg border border-[#e5e7eb] bg-white p-4">
-                <View className="flex-row justify-between gap-3">
-                  <View className="flex-1">
-                    <Text variant="titleMedium" style={{ fontWeight: "900" }}>{sale.saleNumber}</Text>
-                    <Text style={{ color: "#64748b" }}>{sale.isWalkin ? "Walk-in customer" : sale.customer?.name ?? "Regular sale"}</Text>
+              <View style={styles.saleCard}>
+                <View style={styles.cardHeader}>
+                  <View style={styles.flex1}>
+                    <Text variant="titleMedium" style={styles.boldText}>{sale.saleNumber}</Text>
+                    <Text style={styles.secondaryText}>{sale.isWalkin ? "Walk-in customer" : sale.customer?.name ?? "Regular sale"}</Text>
                   </View>
                   <StatusPill label={sale.paymentStatus ?? (Number(sale.balanceAmount) > 0 ? "PENDING" : "PAID")} tone={Number(sale.balanceAmount) > 0 ? "amber" : "green"} />
                 </View>
-                <View className="mt-3 flex-row justify-between">
+                <View style={styles.cardFooter}>
                   <Text>Total {money(sale.totalAmount)}</Text>
                   <Text>Paid {money(sale.paidAmount)}</Text>
                   <Text>Balance {money(sale.balanceAmount)}</Text>
@@ -69,7 +70,7 @@ export function SalesList() {
               </View>
             </Pressable>
           ))}
-          {!salesQuery.isLoading && rows.length === 0 ? <Text style={{ textAlign: "center", color: "#64748b", padding: 24 }}>No sales found.</Text> : null}
+          {!salesQuery.isLoading && rows.length === 0 ? <Text style={styles.emptyText}>No sales found.</Text> : null}
         </View>
       </ScrollView>
     </Screen>
@@ -85,38 +86,38 @@ export function SaleDetail() {
   return (
     <Screen>
       <AppHeader title={sale?.saleNumber ?? "Sale Detail"} subtitle="Items, payments, customer, and status." />
-      {!saleId ? <Text style={{ color: "#991b1b" }}>Missing sale id.</Text> : null}
+      {!saleId ? <Text style={styles.errorText}>Missing sale id.</Text> : null}
       {sale ? (
         <>
-          <View className="rounded-lg border border-[#e5e7eb] bg-white p-4">
-            <View className="flex-row justify-between">
-              <Text variant="titleMedium" style={{ fontWeight: "900" }}>{sale.isWalkin ? "Walk-in Customer" : sale.customer?.name ?? "Customer not linked"}</Text>
+          <View style={styles.saleCard}>
+            <View style={styles.cardHeader}>
+              <Text variant="titleMedium" style={styles.boldText}>{sale.isWalkin ? "Walk-in Customer" : sale.customer?.name ?? "Customer not linked"}</Text>
               <StatusPill label={sale.saleStatus ?? "SALE"} tone="blue" />
             </View>
-            <Divider style={{ marginVertical: 12 }} />
+            <Divider style={styles.divider} />
             <Text>Total: {money(sale.totalAmount)}</Text>
             <Text>Paid: {money(sale.paidAmount)}</Text>
             <Text>Balance: {money(sale.balanceAmount)}</Text>
             <Text>Created: {new Date(sale.createdAt).toLocaleString()}</Text>
           </View>
           <Section title="Items">
-            <View className="rounded-lg border border-[#e5e7eb] bg-white">
+            <View style={styles.listContainer}>
               {(sale.items ?? []).map((row, index) => (
-                <View key={row.id} className="p-4">
-                  {index > 0 ? <Divider style={{ marginBottom: 12 }} /> : null}
-                  <Text style={{ fontWeight: "900" }}>{row.item.name}</Text>
-                  <Text style={{ color: "#64748b" }}>Qty {row.quantity} • Rate {money(row.rate)} • Total {money(row.totalAmount)}</Text>
+                <View key={row.id} style={styles.itemPadding}>
+                  {index > 0 ? <Divider style={styles.itemDivider} /> : null}
+                  <Text style={styles.boldText}>{row.item.name}</Text>
+                  <Text style={styles.secondaryText}>Qty {row.quantity} • Rate {money(row.rate)} • Total {money(row.totalAmount)}</Text>
                 </View>
               ))}
             </View>
           </Section>
           <Section title="Payments">
-            <View className="rounded-lg border border-[#e5e7eb] bg-white">
+            <View style={styles.listContainer}>
               {(sale.payments ?? []).map((payment, index) => (
-                <View key={payment.id} className="p-4">
-                  {index > 0 ? <Divider style={{ marginBottom: 12 }} /> : null}
-                  <Text style={{ fontWeight: "900" }}>{payment.paymentMode} • {money(payment.amount)}</Text>
-                  <Text style={{ color: "#64748b" }}>{payment.verificationStatus} • {payment.referenceNumber ?? "No reference"}</Text>
+                <View key={payment.id} style={styles.itemPadding}>
+                  {index > 0 ? <Divider style={styles.itemDivider} /> : null}
+                  <Text style={styles.boldText}>{payment.paymentMode} • {money(payment.amount)}</Text>
+                  <Text style={styles.secondaryText}>{payment.verificationStatus} • {payment.referenceNumber ?? "No reference"}</Text>
                 </View>
               ))}
             </View>
@@ -126,3 +127,84 @@ export function SaleDetail() {
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  statsRow: {
+    flexDirection: "row",
+    gap: spacing.md,
+  },
+  statCard: {
+    flex: 1,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    padding: spacing.lg,
+  },
+  statValue: {
+    fontWeight: fontWeight.black,
+  },
+  searchBar: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+  },
+  outstandingText: {
+    color: colors.textSecondary,
+  },
+  boldText: {
+    fontWeight: fontWeight.black,
+    color: colors.textPrimary,
+  },
+  scrollContent: {
+    paddingBottom: spacing.xxl,
+  },
+  listGap: {
+    gap: spacing.md,
+  },
+  saleCard: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    padding: spacing.lg,
+  },
+  cardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    gap: spacing.md,
+  },
+  flex1: {
+    flex: 1,
+  },
+  secondaryText: {
+    color: colors.textSecondary,
+  },
+  cardFooter: {
+    marginTop: spacing.md,
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  emptyText: {
+    textAlign: "center",
+    color: colors.textSecondary,
+    padding: spacing.xxl,
+  },
+  errorText: {
+    color: colors.danger,
+  },
+  divider: {
+    marginVertical: spacing.md,
+  },
+  listContainer: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  itemPadding: {
+    padding: spacing.lg,
+  },
+  itemDivider: {
+    marginBottom: spacing.md,
+  },
+});

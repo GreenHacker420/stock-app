@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { View } from "react-native";
+import { View, StyleSheet } from "react-native";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Button, TextInput, HelperText } from "react-native-paper";
@@ -8,6 +8,7 @@ import { useAuthStore } from "../../auth/auth-store";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { Section } from "../../components/ui/Section";
+import { colors, spacing, radius, fontSize, fontWeight } from '../../theme';
 
 export function CreateEditShop() {
   const token = useAuthStore((state) => state.token);
@@ -15,7 +16,6 @@ export function CreateEditShop() {
   const navigation = useNavigation();
   const route = useRoute();
 
-  // Get shop details if editing
   const params = route.params as { shop?: Shop } | undefined;
   const shop = params?.shop;
   const isEditing = !!shop;
@@ -32,7 +32,7 @@ export function CreateEditShop() {
       setName(shop.name);
       setCode(shop.code);
       setCity(shop.city);
-      setAddress(""); // address is not returned by default list but editable
+      setAddress(""); 
       setOpeningCash(String(shop.openingCash || "0"));
     }
   }, [shop]);
@@ -74,7 +74,7 @@ export function CreateEditShop() {
       />
 
       <Section title="Shop credentials">
-        <View className="gap-4 rounded-2xl border border-[#e5e7eb] bg-white p-4.5">
+        <View style={styles.formContainer}>
           <TextInput
             mode="outlined"
             label="Shop name"
@@ -84,8 +84,8 @@ export function CreateEditShop() {
               setError("");
             }}
             placeholder="e.g. Nagpur Branch"
-            outlineStyle={{ borderRadius: 12, borderColor: "#e5e7eb" }}
-            activeOutlineColor="#1e40af"
+            outlineStyle={styles.inputOutline}
+            activeOutlineColor={colors.primary}
           />
 
           <TextInput
@@ -98,8 +98,8 @@ export function CreateEditShop() {
             }}
             disabled={isEditing}
             placeholder="e.g. NGP-01"
-            outlineStyle={{ borderRadius: 12, borderColor: "#e5e7eb" }}
-            activeOutlineColor="#1e40af"
+            outlineStyle={styles.inputOutline}
+            activeOutlineColor={colors.primary}
           />
 
           <TextInput
@@ -111,8 +111,8 @@ export function CreateEditShop() {
               setError("");
             }}
             placeholder="e.g. Nagpur"
-            outlineStyle={{ borderRadius: 12, borderColor: "#e5e7eb" }}
-            activeOutlineColor="#1e40af"
+            outlineStyle={styles.inputOutline}
+            activeOutlineColor={colors.primary}
           />
 
           <TextInput
@@ -123,8 +123,8 @@ export function CreateEditShop() {
             placeholder="e.g. Near Metro Station"
             multiline
             numberOfLines={3}
-            outlineStyle={{ borderRadius: 12, borderColor: "#e5e7eb" }}
-            activeOutlineColor="#1e40af"
+            outlineStyle={styles.inputOutline}
+            activeOutlineColor={colors.primary}
           />
 
           {!isEditing && (
@@ -138,8 +138,8 @@ export function CreateEditShop() {
               }}
               keyboardType="numeric"
               placeholder="0"
-              outlineStyle={{ borderRadius: 12, borderColor: "#e5e7eb" }}
-              activeOutlineColor="#1e40af"
+              outlineStyle={styles.inputOutline}
+              activeOutlineColor={colors.primary}
             />
           )}
 
@@ -149,9 +149,9 @@ export function CreateEditShop() {
             mode="contained"
             disabled={!isValid || mutation.isPending}
             loading={mutation.isPending}
-            style={{ borderRadius: 12, marginTop: 8 }}
-            contentStyle={{ height: 50 }}
-            buttonColor="#1e40af"
+            style={styles.submitButton}
+            contentStyle={styles.buttonContent}
+            buttonColor={colors.primary}
             onPress={() => mutation.mutate()}
           >
             {isEditing ? "Save changes" : "Create shop"}
@@ -161,3 +161,25 @@ export function CreateEditShop() {
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  formContainer: {
+    gap: spacing.lg,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    padding: spacing.lg,
+  },
+  inputOutline: {
+    borderRadius: radius.md,
+    borderColor: colors.border,
+  },
+  submitButton: {
+    borderRadius: radius.md,
+    marginTop: spacing.sm,
+  },
+  buttonContent: {
+    height: 50,
+  },
+});

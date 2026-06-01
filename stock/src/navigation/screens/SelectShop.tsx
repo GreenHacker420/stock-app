@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { View } from "react-native";
+import { View, StyleSheet } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { ActivityIndicator, Text } from "react-native-paper";
 import { fetchShops } from "../../api/client";
@@ -10,6 +10,7 @@ import { ActionTile } from "../../components/ui/ActionTile";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { Section } from "../../components/ui/Section";
 import { StatusPill } from "../../components/ui/StatusPill";
+import { colors, spacing } from "../../theme";
 
 export function SelectShop() {
   const token = useAuthStore((state) => state.token);
@@ -39,29 +40,29 @@ export function SelectShop() {
       <AppHeader title="Select your shop" subtitle="Choose the shop you want to work in." />
 
       {shopsQuery.isLoading ? (
-        <View className="flex-1 items-center justify-center gap-3 py-20">
+        <View style={styles.loadingContainer}>
           <ActivityIndicator />
-          <Text style={{ color: "#64748b" }}>Loading shops...</Text>
+          <Text style={styles.secondaryText}>Loading shops...</Text>
         </View>
       ) : null}
 
       {shopsQuery.isError ? (
         <Section title="Unable to load shops">
-          <Text style={{ color: "#991b1b" }}>Check your connection and try again.</Text>
+          <Text style={styles.errorText}>Check your connection and try again.</Text>
         </Section>
       ) : null}
 
       {shopsQuery.data?.length === 0 ? (
         <Section title="No shops assigned">
-          <Text style={{ color: "#4b5563" }}>Ask the owner to assign a shop to this account.</Text>
+          <Text style={styles.mutedText}>Ask the owner to assign a shop to this account.</Text>
         </Section>
       ) : null}
 
       {shopsQuery.data && shopsQuery.data.length > 1 ? (
         <Section title="Available shops">
-          <View className="gap-3">
+          <View style={styles.listGap}>
             {shopsQuery.data.map((shop) => (
-              <View key={shop.id} className="gap-2">
+              <View key={shop.id} style={styles.itemGap}>
                 <ActionTile
                   title={shop.name}
                   subtitle={`${shop.city} • Code: ${shop.code}`}
@@ -69,7 +70,7 @@ export function SelectShop() {
                   tone={shop.id === lastUsedShopId ? "blue" : "green"}
                   onPress={() => setActiveShopId(shop.id)}
                 />
-                <View className="flex-row gap-2 pl-1">
+                <View style={styles.pillRow}>
                   <StatusPill label="Active" tone="green" />
                   {shop.id === lastUsedShopId ? <StatusPill label="Last used" tone="blue" /> : null}
                 </View>
@@ -81,3 +82,33 @@ export function SelectShop() {
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  loadingContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.md,
+    paddingVertical: 80,
+  },
+  secondaryText: {
+    color: colors.textSecondary,
+  },
+  errorText: {
+    color: "#991b1b",
+  },
+  mutedText: {
+    color: colors.textSecondary,
+  },
+  listGap: {
+    gap: spacing.md,
+  },
+  itemGap: {
+    gap: spacing.sm,
+  },
+  pillRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    paddingLeft: spacing.xs,
+  },
+});

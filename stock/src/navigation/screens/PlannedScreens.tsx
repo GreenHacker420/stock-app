@@ -36,7 +36,7 @@ function ConfiguredScreen({ config }: { config: ScreenConfig }) {
   const isTab = ["StaffWork", "OwnerRecords", "OwnerStock", "OwnerAlerts", "Notifications"].includes(route.name);
 
   return (
-    <Screen scroll={false} hasTab={isTab}>
+    <Screen scroll={false}>
       <AppHeader title={config.title} subtitle={config.subtitle} />
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 28 }}>
         <View className="gap-4">

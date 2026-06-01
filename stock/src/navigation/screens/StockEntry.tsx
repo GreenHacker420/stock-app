@@ -125,9 +125,8 @@ export function StockEntry() {
         <View style={styles.listContainer}>
           <FlashList
             data={itemsQuery.data?.items ?? []}
-            estimatedItemSize={80}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
+            keyExtractor={(item: Item) => item.id}
+            renderItem={({ item }: { item: Item }) => (
               <StockEntryRow 
                 item={item} 
                 quantity={entries[item.id] || ""}
