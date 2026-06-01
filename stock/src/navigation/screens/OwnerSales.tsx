@@ -1,11 +1,8 @@
 import { useMemo, useState } from "react";
 import { Pressable, ScrollView, View, StyleSheet } from "react-native";
-import { useQuery } from "@tanstack/react-query";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Divider, Searchbar, SegmentedButtons, Text } from "react-native-paper";
-import { fetchSale, fetchSales } from "../../api/client";
-import { useAuthStore } from "../../auth/auth-store";
-import { useShopStore } from "../../auth/shop-store";
+import { useSalesQuery, useSaleDetailQuery } from "../../hooks/useSales";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { Section } from "../../components/ui/Section";
@@ -15,16 +12,10 @@ import { colors, spacing, radius, fontSize, fontWeight } from "../../theme";
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 
 export function SalesList() {
-  const token = useAuthStore((state) => state.token);
-  const activeShopId = useShopStore((state) => state.activeShopId);
   const navigation = useNavigation();
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("ALL");
-  const salesQuery = useQuery({
-    queryKey: ["sales", activeShopId],
-    queryFn: () => fetchSales(token ?? "", activeShopId ?? ""),
-    enabled: !!token && !!activeShopId,
-  });
+  const salesQuery = useSalesQuery();
 
   const rows = useMemo(() => {
     return (salesQuery.data ?? []).filter((sale) => {
@@ -78,9 +69,8 @@ export function SalesList() {
 }
 
 export function SaleDetail() {
-  const token = useAuthStore((state) => state.token);
   const saleId = (useRoute().params as { saleId?: string } | undefined)?.saleId;
-  const saleQuery = useQuery({ queryKey: ["sale", saleId], queryFn: () => fetchSale(token ?? "", saleId ?? ""), enabled: !!token && !!saleId });
+  const saleQuery = useSaleDetailQuery(saleId ?? "");
   const sale = saleQuery.data;
 
   return (

@@ -1,10 +1,8 @@
 import { useEffect } from "react";
 import { View, StyleSheet } from "react-native";
-import { useQuery } from "@tanstack/react-query";
 import { ActivityIndicator, Text } from "react-native-paper";
-import { fetchShops } from "../../api/client";
-import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
+import { useShopsQuery } from "../../hooks/useShops";
 import { Screen } from "../../components/Screen";
 import { ActionTile } from "../../components/ui/ActionTile";
 import { AppHeader } from "../../components/ui/AppHeader";
@@ -13,13 +11,8 @@ import { StatusPill } from "../../components/ui/StatusPill";
 import { colors, spacing } from "../../theme";
 
 export function SelectShop() {
-  const token = useAuthStore((state) => state.token);
   const { activeShopId, lastUsedShopId, setActiveShopId } = useShopStore();
-  const shopsQuery = useQuery({
-    queryKey: ["shops"],
-    queryFn: () => fetchShops(token ?? ""),
-    enabled: !!token,
-  });
+  const shopsQuery = useShopsQuery();
 
   useEffect(() => {
     if (!shopsQuery.data?.length || activeShopId) return;

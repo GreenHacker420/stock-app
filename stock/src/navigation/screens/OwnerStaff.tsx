@@ -1,10 +1,9 @@
 import { useState } from "react";
 import { Pressable, ScrollView, View, StyleSheet } from "react-native";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Button, Text, TextInput } from "react-native-paper";
-import { ApiUser, createStaff, fetchStaff, updateStaff } from "../../api/client";
-import { useAuthStore } from "../../auth/auth-store";
+import { ApiUser } from "../../api/client";
+import { useStaffQuery, useCreateStaffMutation, useUpdateStaffMutation } from "../../hooks/useAuth";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { Section } from "../../components/ui/Section";
@@ -12,9 +11,8 @@ import { StatusPill } from "../../components/ui/StatusPill";
 import { colors, spacing, radius, fontWeight } from "../../theme";
 
 export function StaffManagement() {
-  const token = useAuthStore((state) => state.token);
   const navigation = useNavigation();
-  const staffQuery = useQuery({ queryKey: ["staff"], queryFn: () => fetchStaff(token ?? ""), enabled: !!token });
+  const staffQuery = useStaffQuery();
 
   return (
     <Screen scroll={false}>
@@ -42,23 +40,29 @@ export function StaffManagement() {
 }
 
 export function AddEditStaff() {
-  const token = useAuthStore((state) => state.token);
   const route = useRoute();
   const navigation = useNavigation();
-  const queryClient = useQueryClient();
   const staff = (route.params as { staff?: ApiUser } | undefined)?.staff;
   const [form, setForm] = useState({ name: staff?.name ?? "", mobile: staff?.mobile ?? "", email: staff?.email ?? "", password: "", status: "ACTIVE" });
   const set = (key: keyof typeof form, value: string) => setForm((prev) => ({ ...prev, [key]: value }));
-  const mutation = useMutation({
-    mutationFn: () => {
-      const payload = { ...form, email: form.email || null, password: form.password || undefined };
-      return staff ? updateStaff(token ?? "", staff.id, payload) : createStaff(token ?? "", payload);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["staff"] });
-      navigation.goBack();
-    },
-  });
+  
+  const createMutation = useCreateStaffMutation();
+  const updateMutation = useUpdateStaffMutation();
+
+  const handleSave = () => {
+    const payload = { ...form, email: form.email || null, password: form.password || undefined };
+    if (staff) {
+      updateMutation.mutate({ id: staff.id, data: payload }, {
+        onSuccess: () => navigation.goBack()
+      });
+    } else {
+      createMutation.mutate(payload, {
+        onSuccess: () => navigation.goBack()
+      });
+    }
+  };
+
+  const isPending = createMutation.isPending || updateMutation.isPending;
 
   return (
     <Screen>
@@ -71,7 +75,7 @@ export function AddEditStaff() {
           <TextInput mode="outlined" label={staff ? "New password (optional)" : "Password"} secureTextEntry value={form.password} onChangeText={(v) => set("password", v)} outlineStyle={styles.inputOutline} />
         </View>
       </Section>
-      <Button mode="contained" loading={mutation.isPending} disabled={!form.name || !form.mobile || (!staff && form.password.length < 4)} onPress={() => mutation.mutate()} style={styles.addButton} contentStyle={styles.buttonContent}>
+      <Button mode="contained" loading={isPending} disabled={!form.name || !form.mobile || (!staff && form.password.length < 4)} onPress={handleSave} style={styles.addButton} contentStyle={styles.buttonContent}>
         Save Staff
       </Button>
     </Screen>

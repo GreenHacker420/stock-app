@@ -1,7 +1,8 @@
 import { Assets as NavigationAssets } from '@react-navigation/elements';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { ThemeProvider as RneThemeProvider, createTheme } from '@rneui/themed';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient } from '@tanstack/react-query';
+import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { Asset } from 'expo-asset';
 import { createURL } from 'expo-linking';
 import * as SplashScreen from 'expo-splash-screen';
@@ -11,6 +12,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import "../global.css";
 import { useAuthStore } from './auth/auth-store';
 import { useShopStore } from './auth/shop-store';
+import { clientPersister } from './auth/mmkv-storage';
 import { OwnerNavigation, StaffNavigation } from './navigation';
 import { Login } from './navigation/screens/Login';
 import { SelectShop } from './navigation/screens/SelectShop';
@@ -99,7 +101,10 @@ export function App() {
 
   return (
     <SafeAreaProvider>
-      <QueryClientProvider client={queryClient}>
+      <PersistQueryClientProvider
+        client={queryClient}
+        persistOptions={{ persister: clientPersister }}
+      >
         <PaperProvider theme={paperTheme} settings={paperSettings}>
           <RneThemeProvider theme={rneTheme}>
             <RealtimeProvider>
@@ -107,7 +112,7 @@ export function App() {
             </RealtimeProvider>
           </RneThemeProvider>
         </PaperProvider>
-      </QueryClientProvider>
+      </PersistQueryClientProvider>
     </SafeAreaProvider>
   );
 }

@@ -1,9 +1,8 @@
 import { useEffect, useState, useMemo } from "react";
 import { View, ScrollView, Pressable, StyleSheet } from "react-native";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Text, Icon, TextInput, Portal, Dialog, Divider } from "react-native-paper";
-import { fetchPayments, verifyPayment, markPaymentMismatch, fetchShops, Payment } from "../../api/client";
-import { useAuthStore } from "../../auth/auth-store";
+import { useShopsQuery } from "../../hooks/useShops";
+import { usePaymentsQuery, useVerifyPaymentMutation, useMarkPaymentMismatchMutation } from "../../hooks/usePayments";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { ShopPicker } from "../../components/ui/ShopPicker";
@@ -12,9 +11,6 @@ import { StatusPill } from "../../components/ui/StatusPill";
 import { colors, spacing, radius, fontWeight } from "../../theme";
 
 export function PaymentVerification() {
-  const token = useAuthStore((state) => state.token);
-  const queryClient = useQueryClient();
-
   const [shopId, setShopId] = useState<string | undefined>();
   const [activeTab, setActiveTab] = useState("pending");
   const [selectedMode, setSelectedMode] = useState("ALL");
@@ -22,32 +18,30 @@ export function PaymentVerification() {
   const [activePaymentId, setActivePaymentId] = useState<string | null>(null);
   const [actionType, setActionType] = useState<"verify" | "mismatch" | null>(null);
 
-  const shopsQuery = useQuery({ queryKey: ["shops"], queryFn: () => fetchShops(token ?? ""), enabled: !!token });
+  const shopsQuery = useShopsQuery();
 
   useEffect(() => {
     if (!shopId && shopsQuery.data?.[0]) setShopId(shopsQuery.data[0].id);
   }, [shopId, shopsQuery.data]);
 
-  const paymentsQuery = useQuery({
-    queryKey: ["payments", shopId],
-    queryFn: () => fetchPayments(token ?? "", shopId ?? ""),
-    enabled: !!token && !!shopId,
-  });
+  const paymentsQuery = usePaymentsQuery(shopId);
 
-  const mutation = useMutation({
-    mutationFn: () => {
-      if (!activePaymentId || !actionType) return Promise.reject();
-      return actionType === "verify" 
-        ? verifyPayment(token ?? "", activePaymentId, note)
-        : markPaymentMismatch(token ?? "", activePaymentId, note);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["payments", shopId] });
-      setActivePaymentId(null);
-      setActionType(null);
-      setNote("");
-    },
-  });
+  const verifyMutation = useVerifyPaymentMutation(shopId);
+  const mismatchMutation = useMarkPaymentMismatchMutation(shopId);
+
+  const handleConfirm = () => {
+    if (!activePaymentId || !actionType) return;
+    const mut = actionType === "verify" ? verifyMutation : mismatchMutation;
+    mut.mutate({ paymentId: activePaymentId, note }, {
+      onSuccess: () => {
+        setActivePaymentId(null);
+        setActionType(null);
+        setNote("");
+      }
+    });
+  };
+
+  const isPending = verifyMutation.isPending || mismatchMutation.isPending;
 
   const filteredPayments = useMemo(() => {
     return (paymentsQuery.data ?? []).filter(p => {
@@ -183,8 +177,8 @@ export function PaymentVerification() {
           <Dialog.Actions>
             <Button onPress={() => setActionType(null)}>Cancel</Button>
             <Button 
-              loading={mutation.isPending} 
-              onPress={() => mutation.mutate()}
+              loading={isPending} 
+              onPress={handleConfirm}
               textColor={actionType === 'verify' ? colors.success : colors.danger}
             >
               Confirm
