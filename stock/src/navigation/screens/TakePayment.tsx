@@ -8,7 +8,6 @@ import {
   Platform,
   ActivityIndicator
 } from "react-native";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { 
   Text, 
   TextInput, 
@@ -25,9 +24,10 @@ import {
 import { useRoute, useNavigation } from "@react-navigation/native";
 import QRCode from "react-native-qrcode-svg";
 
-import { addPayment, fetchCustomers, fetchShops } from "../../api/client";
+import { useShopsQuery } from "../../hooks/useShops";
+import { useCustomersQuery } from "../../hooks/useCustomers";
+import { useAddPaymentMutation } from "../../hooks/usePayments";
 import { SuccessModal } from "../../components/ui/SuccessModal";
-import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
@@ -46,9 +46,7 @@ const paymentModes = [
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 
 export function TakePayment() {
-  const token = useAuthStore((state) => state.token);
   const { activeShopId } = useShopStore();
-  const queryClient = useQueryClient();
   const route = useRoute<any>();
   const navigation = useNavigation();
 
@@ -64,14 +62,10 @@ export function TakePayment() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successVisible, setSuccessVisible] = useState(false);
 
-  const shopsQuery = useQuery({ queryKey: ["shops"], queryFn: () => fetchShops(token ?? ""), enabled: !!token });
+  const shopsQuery = useShopsQuery();
   const activeShop = shopsQuery.data?.find(s => s.id === activeShopId);
 
-  const customersQuery = useQuery({
-    queryKey: ["customers", activeShopId],
-    queryFn: () => fetchCustomers(token ?? "", activeShopId ?? ""),
-    enabled: !!token && !!activeShopId,
-  });
+  const customersQuery = useCustomersQuery();
 
   const filteredCustomers = useMemo(() => {
     if (!searchQuery) return [];
@@ -83,30 +77,29 @@ export function TakePayment() {
 
   const selectedCustomer = useMemo(() => customersQuery.data?.find(c => c.id === customerId), [customersQuery.data, customerId]);
 
-  const paymentMutation = useMutation({
-    mutationFn: () =>
-      addPayment(token ?? "", {
-        shopId: activeShopId ?? "",
-        customerId: isWalkin ? undefined : customerId,
-        orderId,
-        paymentMode,
-        amount: Number(amount),
-        referenceNumber: reference || undefined,
-        notes: notes || (upiOption === 'GENERATE' ? 'Paid via generated QR' : undefined),
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["payments", activeShopId] });
-      if (orderId) queryClient.invalidateQueries({ queryKey: ["orders", activeShopId] });
-      setAmount("");
-      setReference("");
-      setNote("");
-      setUpiOption("REGISTER");
-      setSuccessVisible(true);
-    },
-    onError: (err: any) => {
-      setErrorMsg(err.message || "Failed to record payment");
-    }
-  });
+  const paymentMutation = useAddPaymentMutation();
+
+  const handleConfirmPayment = () => {
+    paymentMutation.mutate({
+      customerId: isWalkin ? undefined : customerId,
+      orderId,
+      paymentMode,
+      amount: Number(amount),
+      referenceNumber: reference || undefined,
+      notes: notes || (upiOption === 'GENERATE' ? 'Paid via generated QR' : undefined),
+    }, {
+      onSuccess: () => {
+        setAmount("");
+        setReference("");
+        setNote("");
+        setUpiOption("REGISTER");
+        setSuccessVisible(true);
+      },
+      onError: (err: any) => {
+        setErrorMsg(err.message || "Failed to record payment");
+      }
+    });
+  };
 
   const upiPayload = useMemo(() => {
     if (!activeShop?.upiId || !amount) return "";
@@ -259,7 +252,7 @@ export function TakePayment() {
                               <Button 
                                  variant="success" 
                                  label="Done" 
-                                 onPress={() => paymentMutation.mutate()}
+                                 onPress={handleConfirmPayment}
                                  loading={paymentMutation.isPending}
                                  style={{ flex: 1 }}
                                  icon={<Icon source="check-circle" size={18} color={colors.textInverse} />}
@@ -313,7 +306,7 @@ export function TakePayment() {
               variant="success"
               disabled={!amount || Number(amount) <= 0}
               loading={paymentMutation.isPending}
-              onPress={() => paymentMutation.mutate()}
+              onPress={handleConfirmPayment}
               fullWidth
               size="lg"
             />

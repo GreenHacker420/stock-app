@@ -1,60 +1,58 @@
 import { useEffect, useState } from "react";
 import { View, ScrollView, StyleSheet } from "react-native";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Button, TextInput, List, Text, HelperText } from "react-native-paper";
-import { fetchItems, fetchShops, setOpeningStock, Shop } from "../../api/client";
-import { useAuthStore } from "../../auth/auth-store";
+import { Shop } from "../../api/client";
 import { useShopStore } from "../../auth/shop-store";
+import { useShopsQuery, useSetOpeningStockMutation } from "../../hooks/useShops";
+import { useItemsQuery } from "../../hooks/useItems";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { Section } from "../../components/ui/Section";
 import { colors, spacing, radius, fontWeight } from "../../theme";
 
 export function SetOpeningStock() {
-  const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
-  const queryClient = useQueryClient();
   const navigation = useNavigation();
   const route = useRoute();
 
   const params = route.params as { shop?: Shop } | undefined;
-  const shopsQuery = useQuery({ queryKey: ["shops"], queryFn: () => fetchShops(token ?? ""), enabled: !!token });
+  const shopsQuery = useShopsQuery();
   const shop = params?.shop ?? shopsQuery.data?.find((row) => row.id === activeShopId) ?? shopsQuery.data?.[0];
 
   const [quantities, setQuantities] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
 
-  const itemsQuery = useQuery({
-    queryKey: ["items", shop?.id],
-    queryFn: () => fetchItems(token ?? "", shop?.id ?? ""),
-    enabled: !!token && !!shop?.id,
-  });
+  const itemsQuery = useItemsQuery({ page: 1, limit: 100 });
 
-  const mutation = useMutation({
-    mutationFn: () => {
-      const entries = Object.entries(quantities)
-        .filter(([_, qty]) => qty.trim() !== "" && Number(qty) > 0)
-        .map(([itemId, qty]) => ({
-          itemId,
-          quantity: Number(qty),
-          reason: "Opening stock initialization",
-        }));
+  const setOpeningStockMutation = useSetOpeningStockMutation();
 
-      if (entries.length === 0) {
-        throw new Error("Please enter opening stock quantity for at least one item.");
+  const handleSave = () => {
+    const entries = Object.entries(quantities)
+      .filter(([_, qty]) => qty.trim() !== "" && Number(qty) > 0)
+      .map(([itemId, qty]) => ({
+        itemId,
+        quantity: Number(qty),
+        reason: "Opening stock initialization",
+      }));
+
+    if (entries.length === 0) {
+      setError("Please enter opening stock quantity for at least one item.");
+      return;
+    }
+
+    setOpeningStockMutation.mutate(
+      { shopId: shop?.id ?? "", entries },
+      {
+        onSuccess: () => {
+          navigation.goBack();
+        },
+        onError: (err: any) => {
+          setError(err?.message || "Failed to initialize opening stock. Please try again.");
+        },
       }
-
-      return setOpeningStock(token ?? "", shop?.id ?? "", entries);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["shops"] });
-      navigation.goBack();
-    },
-    onError: (err: any) => {
-      setError(err?.message || "Failed to initialize opening stock. Please try again.");
-    },
-  });
+    );
+  };
 
   const handleQtyChange = (itemId: string, val: string) => {
     setQuantities((prev) => ({
@@ -167,9 +165,9 @@ export function SetOpeningStock() {
             buttonColor={colors.primary}
             style={styles.footerButton}
             contentStyle={styles.buttonContent}
-            loading={mutation.isPending}
-            disabled={mutation.isPending || itemsQuery.data?.items?.length === 0}
-            onPress={() => mutation.mutate()}
+            loading={setOpeningStockMutation.isPending}
+            disabled={setOpeningStockMutation.isPending || itemsQuery.data?.items?.length === 0}
+            onPress={handleSave}
           >
             Save & Lock
           </Button>

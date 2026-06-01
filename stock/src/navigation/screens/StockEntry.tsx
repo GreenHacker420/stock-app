@@ -7,15 +7,13 @@ import {
   Pressable, 
   TextInput 
 } from "react-native";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigation } from "@react-navigation/native";
 import { Searchbar, Text, Icon } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
 
-import { fetchItems, addStock, Item, StockEntryPayload } from "../../api/client";
-import { useAuthStore } from "../../auth/auth-store";
-import { useShopStore } from "../../auth/shop-store";
+import { Item } from "../../api/client";
+import { useItemsQuery, useAddStockMutation } from "../../hooks/useItems";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { SkeletonList } from "../../components/ui/SkeletonCard";
@@ -59,9 +57,6 @@ const StockEntryRow = memo(({
 }, (p, n) => p.item.id === n.item.id && p.quantity === n.quantity);
 
 export function StockEntry() {
-  const token = useAuthStore((state) => state.token);
-  const { activeShopId } = useShopStore();
-  const queryClient = useQueryClient();
   const navigation = useNavigation();
 
   const [search, setSearch] = useState("");
@@ -69,11 +64,7 @@ export function StockEntry() {
   const [entries, setEntries] = useState<Record<string, string>>({});
   const [successVisible, setSuccessVisible] = useState(false);
 
-  const itemsQuery = useQuery({
-    queryKey: ["items", activeShopId, debouncedSearch],
-    queryFn: () => fetchItems(token ?? "", activeShopId ?? "", { search: debouncedSearch, limit: 50 }),
-    enabled: !!token && !!activeShopId,
-  });
+  const itemsQuery = useItemsQuery({ search: debouncedSearch, limit: 50 });
 
   const entryItems = useMemo(() => {
     return Object.entries(entries)
@@ -87,21 +78,19 @@ export function StockEntry() {
     setEntries(prev => ({ ...prev, [id]: val }));
   }, []);
 
-  const stockMutation = useMutation({
-    mutationFn: () => {
-      const payload: StockEntryPayload = {
-        shopId: activeShopId ?? "",
-        entries: entryItems,
-        notes: "Bulk stock entry via app",
-      };
-      return addStock(token ?? "", payload);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["items", activeShopId] });
-      setEntries({});
-      setSuccessVisible(true);
-    },
-  });
+  const stockMutation = useAddStockMutation();
+
+  const handleSubmit = () => {
+    stockMutation.mutate({
+      entries: entryItems,
+      notes: "Bulk stock entry via app",
+    }, {
+      onSuccess: () => {
+        setEntries({});
+        setSuccessVisible(true);
+      }
+    });
+  };
 
   return (
     <Screen edges={['top', 'left', 'right']}>
@@ -154,7 +143,7 @@ export function StockEntry() {
           </View>
           <Button 
             label="SUBMIT STOCK ENTRY" 
-            onPress={() => stockMutation.mutate()} 
+            onPress={handleSubmit} 
             loading={stockMutation.isPending}
             disabled={entryCount === 0}
             fullWidth

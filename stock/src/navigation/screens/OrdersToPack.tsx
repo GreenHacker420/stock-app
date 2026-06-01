@@ -6,21 +6,11 @@ import {
   ScrollView, 
   ActivityIndicator 
 } from "react-native";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigation } from "@react-navigation/native";
 import { Text, Icon, Checkbox, Divider, Portal, Modal, TextInput } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
-
-import { 
-  fetchOrders, 
-  markOrderItemPacked, 
-  createDmFromOrder, 
-  convertOrderToSale, 
-  reportOrderShortage, 
-  type Order 
-} from "../../api/client";
-import { useAuthStore } from "../../auth/auth-store";
-import { useShopStore } from "../../auth/shop-store";
+import { useOrdersQuery, useMarkOrderItemPackedMutation, useCreateDmFromOrderMutation, useConvertOrderToSaleMutation } from "../../hooks/useOrders";
+import { type Order } from "../../api/client";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { SkeletonList } from "../../components/ui/SkeletonCard";
@@ -159,9 +149,6 @@ const OrderCard = memo(({
 });
 
 export function OrdersToPack() {
-  const token = useAuthStore((state) => state.token);
-  const { activeShopId } = useShopStore();
-  const queryClient = useQueryClient();
   const navigation = useNavigation();
 
   const [tab, setTab] = useState("pending");
@@ -181,11 +168,7 @@ export function OrdersToPack() {
   const [shortageItem, setShortageItem] = useState<any | null>(null);
   const [shortageAvailable, setShortageAvailable] = useState("");
 
-  const ordersQuery = useQuery({
-    queryKey: ["orders", activeShopId],
-    queryFn: () => fetchOrders(token ?? "", activeShopId ?? ""),
-    enabled: !!token && !!activeShopId,
-  });
+  const ordersQuery = useOrdersQuery();
 
   const filteredOrders = useMemo(() => {
     const all = ordersQuery.data ?? [];
@@ -194,32 +177,9 @@ export function OrdersToPack() {
     return all.filter(o => ["DISPATCHED", "DM_CREATED", "CONVERTED_TO_SALE"].includes(o.status));
   }, [ordersQuery.data, tab]);
 
-  const packMutation = useMutation({
-    mutationFn: (data: { orderId: string, orderItemId: string, quantity: number }) => {
-      return markOrderItemPacked(token ?? "", data.orderId, {
-        orderItemId: data.orderItemId,
-        quantityPacked: data.quantity,
-      });
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["orders", activeShopId] }),
-  });
-
-  const disburseMutation = useMutation({
-    mutationFn: (payload: { type: "DM" | "SALE", orderId: string, data: any }) => {
-      if (payload.type === "DM") {
-        return createDmFromOrder(token ?? "", payload.orderId, payload.data);
-      } else {
-        return convertOrderToSale(token ?? "", payload.orderId, payload.data);
-      }
-    },
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["orders", activeShopId] });
-      setDisburseOrder(null);
-      setSuccessTitle(variables.type === "DM" ? "Disbursed via Memo" : "Converted to Sale");
-      setSuccessMessage(variables.type === "DM" ? "Order dispatched with delivery memo." : "Order successfully converted to invoice sale.");
-      setSuccessVisible(true);
-    },
-  });
+  const packMutation = useMarkOrderItemPackedMutation();
+  const createDmMutation = useCreateDmFromOrderMutation();
+  const convertToSaleMutation = useConvertOrderToSaleMutation();
 
   const handleOpenDisburse = (order: Order) => {
     setDisburseOrder(order);
@@ -232,19 +192,33 @@ export function OrdersToPack() {
     const dispatchDate = new Date(Date.now() + offset * 86400000);
 
     if (disburseType === "DM") {
-      disburseMutation.mutate({
-        type: "DM",
+      createDmMutation.mutate({
         orderId: disburseOrder.id,
         data: { expectedPaymentDate: dispatchDate.toISOString() }
+      }, {
+        onSuccess: () => {
+          setDisburseOrder(null);
+          setSuccessTitle("Disbursed via Memo");
+          setSuccessMessage("Order dispatched with delivery memo.");
+          setSuccessVisible(true);
+        }
       });
     } else {
-      disburseMutation.mutate({
-        type: "SALE",
+      convertToSaleMutation.mutate({
         orderId: disburseOrder.id,
         data: { dueDate: dispatchDate.toISOString(), payments: payments.filter(p => Number(p.amount) > 0).map(p => ({ paymentMode: p.mode, amount: Number(p.amount) })) }
+      }, {
+        onSuccess: () => {
+          setDisburseOrder(null);
+          setSuccessTitle("Converted to Sale");
+          setSuccessMessage("Order successfully converted to invoice sale.");
+          setSuccessVisible(true);
+        }
       });
     }
   };
+
+  const isDisbursing = createDmMutation.isPending || convertToSaleMutation.isPending;
 
   return (
     <Screen edges={['top', 'left', 'right']}>
@@ -275,7 +249,7 @@ export function OrdersToPack() {
               order={item}
               isExpanded={expandedOrderId === item.id}
               onToggle={() => setExpandedOrderId(expandedOrderId === item.id ? null : item.id)}
-              onPack={(itemId, qty) => packMutation.mutate({ orderId: item.id, orderItemId: itemId, quantity: qty })}
+              onPack={(itemId, qty) => packMutation.mutate({ orderId: item.id, data: { orderItemId: itemId, quantityPacked: qty } })}
               onShortage={(orderItem) => setShortageItem({ ...orderItem, orderId: item.id })}
               onDisburse={() => handleOpenDisburse(item)}
               isPacking={packMutation.isPending}
@@ -323,7 +297,7 @@ export function OrdersToPack() {
             <Button 
               label="Confirm" 
               onPress={handleConfirmDisburse} 
-              loading={disburseMutation.isPending} 
+              loading={isDisbursing} 
               style={{ flex: 2 }} 
             />
           </View>

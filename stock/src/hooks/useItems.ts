@@ -10,6 +10,8 @@ import {
   createStockMovement,
   fetchStockMovements,
   addStock,
+  fetchItemStock,
+  fetchItemPriceHistory,
   CreateItemPayload,
   UpdateItemPayload,
   StockEntryPayload,
@@ -129,5 +131,25 @@ export function useAddStockMutation() {
         queryClient.invalidateQueries({ queryKey: ["stock-movements", activeShopId] });
       }
     },
+  });
+}
+
+export function useItemStockQuery(itemId?: string) {
+  const token = useAuthStore((state) => state.token);
+  return useQuery({
+    queryKey: ["item-stock", itemId],
+    queryFn: () => fetchItemStock(token ?? "", itemId ?? ""),
+    enabled: !!token && !!itemId,
+    staleTime: 2 * 60 * 1000, // 2 mins
+  });
+}
+
+export function useItemPriceHistoryQuery(itemId?: string) {
+  const token = useAuthStore((state) => state.token);
+  return useQuery({
+    queryKey: ["item-price-history", itemId],
+    queryFn: () => fetchItemPriceHistory(token ?? "", itemId ?? ""),
+    enabled: !!token && !!itemId,
+    staleTime: 5 * 60 * 1000, // 5 mins
   });
 }

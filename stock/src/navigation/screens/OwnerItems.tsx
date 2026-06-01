@@ -1,24 +1,20 @@
 import React, { useMemo, useState, memo } from "react";
 import { Pressable, View, StyleSheet, ActivityIndicator } from "react-native";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { Divider, Icon, Searchbar, SegmentedButtons, Text, TextInput } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
 
+import { Item, CreateItemPayload, UpdateItemPayload } from "../../api/client";
 import { 
-  createItem, 
-  fetchCurrentStock, 
-  fetchItemPriceHistory, 
-  fetchItemStock, 
-  fetchItems, 
-  Item, 
-  updateItem, 
-  fetchStockMovements,
-  CreateItemPayload,
-  UpdateItemPayload
-} from "../../api/client";
-import { useAuthStore } from "../../auth/auth-store";
+  useInfiniteItemsQuery,
+  useCurrentStockQuery,
+  useCreateItemMutation,
+  useUpdateItemMutation,
+  useItemStockQuery,
+  useItemPriceHistoryQuery,
+  useStockMovementsQuery 
+} from "../../hooks/useItems";
 import { useShopStore } from "../../auth/shop-store";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { Section } from "../../components/ui/Section";
@@ -62,38 +58,39 @@ const ItemCard = memo(({ item, stock, onPress }: { item: Item, stock: number, on
 }, (prev, next) => prev.item.id === next.item.id && prev.stock === next.stock && prev.item.name === next.item.name && prev.item.defaultSellingPrice === next.item.defaultSellingPrice);
 
 export function ItemList() {
-  const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
   const navigation = useNavigation();
   const [search, setSearch] = useState("");
   const [debouncedSearch] = useDebounce(search, 300);
   const [filter, setFilter] = useState("ALL");
 
-  const itemsQuery = useQuery({
-    queryKey: ["items", activeShopId, debouncedSearch],
-    queryFn: () => fetchItems(token ?? "", activeShopId ?? "", { search: debouncedSearch }),
-    enabled: !!token && !!activeShopId,
-  });
-
-  const stockQuery = useQuery({
-    queryKey: ["stock", activeShopId],
-    queryFn: () => fetchCurrentStock(token ?? "", activeShopId ?? ""),
-    enabled: !!token && !!activeShopId,
-  });
+  const itemsQuery = useInfiniteItemsQuery({ search: debouncedSearch });
+  const stockQuery = useCurrentStockQuery();
 
   const stockByItem = useMemo(() => new Map((stockQuery.data ?? []).map((row) => [row.item.id, row.currentQuantity])), [stockQuery.data]);
+
+  const allItems = useMemo(() => {
+    return itemsQuery.data?.pages.flatMap((page) => page.items) ?? [];
+  }, [itemsQuery.data]);
   
   const filteredData = useMemo(() => {
-    const data = itemsQuery.data?.items ?? [];
     if (filter === "LOW") {
-      return data.filter(item => (stockByItem.get(item.id) ?? 0) <= Number(item.minimumStock ?? 0));
+      return allItems.filter(item => (stockByItem.get(item.id) ?? 0) <= Number(item.minimumStock ?? 0));
     }
-    return data;
-  }, [itemsQuery.data, filter, stockByItem]);
+    return allItems;
+  }, [allItems, filter, stockByItem]);
 
   const lowStockCount = useMemo(() => {
-    return (itemsQuery.data?.items ?? []).filter((item) => (stockByItem.get(item.id) ?? 0) <= Number(item.minimumStock ?? 0)).length;
-  }, [itemsQuery.data, stockByItem]);
+    return allItems.filter((item) => (stockByItem.get(item.id) ?? 0) <= Number(item.minimumStock ?? 0)).length;
+  }, [allItems, stockByItem]);
+
+  const totalCount = itemsQuery.data?.pages[0]?.total ?? 0;
+
+  const handleLoadMore = () => {
+    if (itemsQuery.hasNextPage && !itemsQuery.isFetchingNextPage) {
+      itemsQuery.fetchNextPage();
+    }
+  };
 
   if (itemsQuery.isError) {
     return (
@@ -119,13 +116,15 @@ export function ItemList() {
             data={filteredData}
             keyExtractor={(item: Item) => item.id}
             onRefresh={() => itemsQuery.refetch()}
-            refreshing={itemsQuery.isFetching}
+            refreshing={itemsQuery.isFetching && !itemsQuery.isFetchingNextPage}
+            onEndReached={handleLoadMore}
+            onEndReachedThreshold={0.5}
             ListHeaderComponent={
               <View style={styles.headerComponent}>
                 <View style={styles.statsRow}>
                   <View style={styles.statCard}>
                     <Text style={styles.statLabel}>Items</Text>
-                    <Text style={styles.statValue}>{itemsQuery.data?.total ?? 0}</Text>
+                    <Text style={styles.statValue}>{totalCount}</Text>
                   </View>
                   <View style={styles.statCard}>
                     <Text style={[styles.statLabel, { color: colors.danger }]}>Low Stock</Text>
@@ -186,11 +185,8 @@ export function ItemList() {
 }
 
 export function AddEditItem() {
-  const token = useAuthStore((state) => state.token);
-  const activeShopId = useShopStore((state) => state.activeShopId);
   const route = useRoute();
   const navigation = useNavigation();
-  const queryClient = useQueryClient();
   const item = (route.params as { item?: Item } | undefined)?.item;
   
   const [form, setForm] = useState({
@@ -204,31 +200,34 @@ export function AddEditItem() {
     minimumStock: String(item?.minimumStock ?? "0"),
   });
 
-  const mutation = useMutation({
-    mutationFn: () => {
-      const payload: CreateItemPayload = {
-        shopId: activeShopId ?? "",
-        name: form.name.trim(),
-        sku: form.sku.trim() || undefined,
-        unit: form.unit.trim(),
-        defaultSellingPrice: Number(form.defaultSellingPrice || 0),
-        minimumStock: Number(form.minimumStock || 0),
-        purchasePrice: form.purchasePrice ? Number(form.purchasePrice) : undefined,
-        mrp: form.mrp ? Number(form.mrp) : undefined,
-      };
-      return item ? updateItem(token ?? "", item.id, payload as UpdateItemPayload) : createItem(token ?? "", payload);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["items", activeShopId] });
-      navigation.goBack();
-    },
-  });
+  const createMutation = useCreateItemMutation();
+  const updateMutation = useUpdateItemMutation();
 
-  const stockQuery = useQuery({
-    queryKey: ["item-stock", item?.id],
-    queryFn: () => fetchItemStock(token ?? "", item?.id ?? ""),
-    enabled: !!token && !!item?.id,
-  });
+  const handleSave = () => {
+    const payload = {
+      name: form.name.trim(),
+      sku: form.sku.trim() || undefined,
+      unit: form.unit.trim(),
+      defaultSellingPrice: Number(form.defaultSellingPrice || 0),
+      minimumStock: Number(form.minimumStock || 0),
+      purchasePrice: form.purchasePrice ? Number(form.purchasePrice) : undefined,
+      mrp: form.mrp ? Number(form.mrp) : undefined,
+    };
+
+    if (item) {
+      updateMutation.mutate({ id: item.id, data: payload }, {
+        onSuccess: () => navigation.goBack()
+      });
+    } else {
+      createMutation.mutate(payload, {
+        onSuccess: () => navigation.goBack()
+      });
+    }
+  };
+
+  const isPending = createMutation.isPending || updateMutation.isPending;
+
+  const stockQuery = useItemStockQuery(item?.id);
   const currentQuantity = (stockQuery.data as any)?.currentQuantity ?? 0;
 
   const set = (key: keyof typeof form, value: string) => setForm((prev) => ({ ...prev, [key]: value }));
@@ -262,8 +261,8 @@ export function AddEditItem() {
         <View style={styles.formFooter}>
           <Button 
             label="Save Item" 
-            onPress={() => mutation.mutate()} 
-            loading={mutation.isPending} 
+            onPress={handleSave} 
+            loading={isPending} 
             disabled={!form.name.trim() || !form.unit.trim()}
             fullWidth
             size="lg"
@@ -275,28 +274,13 @@ export function AddEditItem() {
 }
 
 export function ItemDetail() {
-  const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
   const navigation = useNavigation();
   const itemId = (useRoute().params as { itemId?: string } | undefined)?.itemId;
 
-  const stockQuery = useQuery({
-    queryKey: ["item-stock", itemId],
-    queryFn: () => fetchItemStock(token ?? "", itemId ?? ""),
-    enabled: !!token && !!itemId,
-  });
-
-  const historyQuery = useQuery({
-    queryKey: ["item-price-history", itemId],
-    queryFn: () => fetchItemPriceHistory(token ?? "", itemId ?? ""),
-    enabled: !!token && !!itemId,
-  });
-
-  const movementsQuery = useQuery({
-    queryKey: ["item-movements", activeShopId, itemId],
-    queryFn: () => fetchStockMovements(token ?? "", activeShopId ?? "", itemId),
-    enabled: !!token && !!activeShopId && !!itemId,
-  });
+  const stockQuery = useItemStockQuery(itemId);
+  const historyQuery = useItemPriceHistoryQuery(itemId);
+  const movementsQuery = useStockMovementsQuery(itemId);
 
   const [activeTab, setActiveTab] = useState("PRICE");
 
