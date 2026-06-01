@@ -14,9 +14,10 @@ type AppHeaderProps = {
   role?: "OWNER" | "STAFF";
   initials?: string;
   showBack?: boolean;
+  hideAvatar?: boolean;
 };
 
-export function AppHeader({ title, subtitle, role, initials, showBack }: AppHeaderProps) {
+export function AppHeader({ title, subtitle, role, initials, showBack, hideAvatar }: AppHeaderProps) {
   const user = useAuthStore((state) => state.user);
   const { activeShopId } = useShopStore();
   const navigation = React.useContext(NavigationContext);
@@ -62,29 +63,31 @@ export function AppHeader({ title, subtitle, role, initials, showBack }: AppHead
         </View>
       </View>
 
-      <View style={styles.rightSection}>
-        <View style={styles.avatarContainer}>
-          <Avatar
-            rounded
-            title={displayInitials}
-            containerStyle={styles.avatar}
-            titleStyle={styles.avatarText}
-          />
-        </View>
-        {displayRole && (
-          <View style={[
-            styles.roleBadge,
-            { backgroundColor: displayRole === 'OWNER' ? colors.primaryLight : colors.surfaceOffset }
-          ]}>
-            <Text style={[
-              styles.roleText,
-              { color: displayRole === 'OWNER' ? colors.primaryDark : colors.textSecondary }
-            ]}>
-              {displayRole}
-            </Text>
+      {!hideAvatar && (
+        <View style={styles.rightSection}>
+          <View style={styles.avatarContainer}>
+            <Avatar
+              rounded
+              title={displayInitials}
+              containerStyle={styles.avatar}
+              titleStyle={styles.avatarText}
+            />
           </View>
-        )}
-      </View>
+          {displayRole && (
+            <View style={[
+              styles.roleBadge,
+              { backgroundColor: displayRole === 'OWNER' ? colors.primaryLight : colors.surfaceOffset }
+            ]}>
+              <Text style={[
+                styles.roleText,
+                { color: displayRole === 'OWNER' ? colors.primaryDark : colors.textSecondary }
+              ]}>
+                {displayRole}
+              </Text>
+            </View>
+          )}
+        </View>
+      )}
     </View>
   );
 }

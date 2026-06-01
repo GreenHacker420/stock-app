@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { View, Switch, StyleSheet } from "react-native";
+import { useEffect, useState, useMemo } from "react";
+import { View, Switch, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Pressable } from "react-native";
 import { useMutation } from "@tanstack/react-query";
 import { useNavigation } from "@react-navigation/native";
 import { Button, Text, TextInput, Divider, Icon } from "react-native-paper";
@@ -18,6 +18,37 @@ import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../the
 
 async function hashQuickPin(mobile: string, pin: string) {
   return Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, `${mobile.trim()}:${pin}`);
+}
+
+type SettingItemProps = {
+  icon: string;
+  title: string;
+  subtitle: string;
+  onPress: () => void;
+  isLast?: boolean;
+};
+
+function SettingItem({ icon, title, subtitle, onPress, isLast }: SettingItemProps) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        isLast ? styles.settingItemLast : styles.settingItem,
+        pressed && styles.pressed
+      ]}
+    >
+      <View style={styles.settingItemLeft}>
+        <View style={styles.settingItemIconBg}>
+          <Icon source={icon} size={20} color={colors.primary} />
+        </View>
+        <View style={styles.flex1}>
+          <Text style={styles.settingItemTitle}>{title}</Text>
+          <Text style={styles.settingItemSubtitle}>{subtitle}</Text>
+        </View>
+      </View>
+      <Icon source="chevron-right" size={20} color={colors.textSecondary} />
+    </Pressable>
+  );
 }
 
 export function Profile() {
@@ -125,175 +156,227 @@ export function Profile() {
     }
   });
 
+  const displayInitials = useMemo(() => {
+    if (user?.name) {
+      return user.name
+        .split(/\s+/)
+        .map((part) => part[0])
+        .join("")
+        .slice(0, 2)
+        .toUpperCase();
+    }
+    return "SC";
+  }, [user?.name]);
+
   return (
     <Screen>
-      <AppHeader title="Profile" subtitle="Signed-in user and permissions." role={user?.role} />
+      <AppHeader title="Profile" subtitle="Signed-in user and permissions." hideAvatar={true} />
       
-      {/* Profile Card */}
-      <View style={styles.profileCard}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>
-            {user?.name?.[0]?.toUpperCase() ?? "O"}
-          </Text>
-        </View>
-        <View style={styles.flex1}>
-          <Text variant="titleMedium" style={styles.userName}>{user?.name}</Text>
-          <Text variant="bodySmall" style={styles.userMobile}>{user?.mobile}</Text>
-        </View>
-        <StatusPill label={user?.role ?? "USER"} tone={user?.role === "OWNER" ? "blue" : "amber"} />
-      </View>
-
-      {/* Account Info */}
-      <Section title="Account details">
-        <View style={styles.detailsCard}>
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Email</Text>
-            <Text style={styles.detailValue}>{user?.email || "Not set"}</Text>
-          </View>
-          <View style={styles.detailRowNoBorder}>
-            <Text style={styles.detailLabel}>Permissions</Text>
-            <Text style={styles.detailValue}>{user?.permissions.length ?? 0} active controls</Text>
-          </View>
-        </View>
-      </Section>
-
-      {/* Security settings */}
-      <Section title="Security & quick login">
-        <View style={styles.securityCard}>
-          {/* Biometrics Toggle */}
-          <View style={styles.toggleRow}>
-            <View style={styles.flex1Pr4}>
-              <Text style={styles.securityTitle}>Biometric Login</Text>
-              <Text style={styles.securitySubtitle}>Use fingerprint or face recognition for quick access.</Text>
-            </View>
-            <Switch
-              value={biometricEnabled}
-              disabled={!biometricAvailable}
-              onValueChange={handleBiometricToggle}
-              trackColor={{ false: "#e2e8f0", true: "#dbeafe" }}
-              thumbColor={biometricEnabled ? colors.primary : "#94a3b8"}
-            />
-          </View>
-
-          <Divider style={styles.divider} />
-
-          {/* Quick PIN Setup */}
-          <View style={styles.gap3}>
-            <Text style={styles.securityTitle}>Quick Login PIN</Text>
-            <Text style={styles.securitySubtitle}>Configure a 4-digit PIN for fast sign-in without typing your full password.</Text>
-            <View style={styles.pinInputs}>
-              <TextInput
-                mode="outlined"
-                placeholder="New PIN (4 digits)"
-                value={pin}
-                onChangeText={setPin}
-                keyboardType="numeric"
-                maxLength={4}
-                secureTextEntry
-                style={styles.pinInput}
-                outlineStyle={styles.inputOutline}
-                activeOutlineColor={colors.primary}
-              />
-              <TextInput
-                mode="outlined"
-                placeholder="Confirm PIN"
-                value={pinConfirm}
-                onChangeText={setPinConfirm}
-                keyboardType="numeric"
-                maxLength={4}
-                secureTextEntry
-                style={styles.pinInput}
-                outlineStyle={styles.inputOutline}
-                activeOutlineColor={colors.primary}
-              />
-            </View>
-            <Button
-              mode="contained-tonal"
-              onPress={handleSavePin}
-              disabled={pin.length !== 4 || pinConfirm.length !== 4}
-              style={styles.pinButton}
-              contentStyle={styles.buttonContent44}
-              labelStyle={styles.pinButtonLabel}
-            >
-              Update PIN
-            </Button>
-          </View>
-        </View>
-      </Section>
-
-      {/* Profile info update */}
-      <Section title="Update profile">
-        <View style={styles.updateCard}>
-          <TextInput 
-            mode="outlined" 
-            label="Name" 
-            value={name} 
-            onChangeText={setName} 
-            outlineStyle={styles.inputOutline}
-            activeOutlineColor={colors.primary}
-            style={styles.inputBackground}
-          />
-          <TextInput 
-            mode="outlined" 
-            label="Email" 
-            value={email ?? ""} 
-            onChangeText={setEmail} 
-            outlineStyle={styles.inputOutline}
-            activeOutlineColor={colors.primary}
-            style={styles.inputBackground}
-          />
-          <TextInput 
-            mode="outlined" 
-            label="New password" 
-            secureTextEntry 
-            value={password} 
-            onChangeText={setPassword} 
-            outlineStyle={styles.inputOutline}
-            activeOutlineColor={colors.primary}
-            style={styles.inputBackground}
-          />
-          <Button 
-            mode="contained" 
-            loading={mutation.isPending} 
-            onPress={() => mutation.mutate()} 
-            style={styles.saveProfileButton}
-            contentStyle={styles.buttonContent48}
-            labelStyle={styles.saveProfileLabel}
-          >
-            Save Profile
-          </Button>
-        </View>
-      </Section>
-
-      {error ? (
-        <View style={styles.errorContainer}>
-          <Icon source="alert-circle" size={18} color={colors.danger} />
-          <Text style={styles.errorText}>{error}</Text>
-        </View>
-      ) : null}
-
-      {/* Owner controls */}
-      {user?.role === "OWNER" ? (
-        <Section title="Owner tools">
-          <View style={styles.gap3}>
-            <Button mode="contained-tonal" icon="storefront-outline" onPress={() => setActiveShopId(null)} style={styles.ownerButton} contentStyle={styles.buttonContent48}>Change Active Shop</Button>
-            <Button mode="contained-tonal" icon="account-plus" onPress={() => (navigation as any).navigate("AddEditStaff")} style={styles.ownerButton} contentStyle={styles.buttonContent48}>Add Staff Member</Button>
-            <Button mode="contained-tonal" icon="account-group-outline" onPress={() => (navigation as any).navigate("StaffManagement")} style={styles.ownerButton} contentStyle={styles.buttonContent48}>Staff Accounts</Button>
-            <Button mode="contained-tonal" icon="warehouse" onPress={() => (navigation as any).navigate("ItemList")} style={styles.ownerButton} contentStyle={styles.buttonContent48}>Inventory Catalog</Button>
-          </View>
-        </Section>
-      ) : null}
-
-      <Button 
-        mode="outlined" 
-        icon="logout" 
-        onPress={signOut} 
-        contentStyle={styles.buttonContent48} 
-        style={styles.signOutButton} 
-        textColor={colors.danger}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={styles.flex1}
       >
-        Sign out
-      </Button>
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          {/* Profile Card */}
+          <View style={styles.profileCard}>
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>{displayInitials}</Text>
+            </View>
+            <View style={styles.flex1}>
+              <Text style={styles.userName}>{user?.name}</Text>
+              <View style={styles.userMobileContainer}>
+                <Icon source="phone-outline" size={16} color="rgba(255, 255, 255, 0.7)" />
+                <Text style={styles.userMobile}>{user?.mobile}</Text>
+              </View>
+            </View>
+            <View style={styles.roleBadge}>
+              <Text style={styles.roleText}>{user?.role ?? "USER"}</Text>
+            </View>
+          </View>
+
+          {/* Account Info */}
+          <Section title="Account details">
+            <View style={styles.detailsCard}>
+              <View style={styles.detailRow}>
+                <View style={styles.detailLeft}>
+                  <Icon source="email-outline" size={20} color={colors.textSecondary} />
+                  <Text style={styles.detailLabel}>Email</Text>
+                </View>
+                <Text style={styles.detailValue}>{user?.email || "Not set"}</Text>
+              </View>
+              <View style={styles.detailRowNoBorder}>
+                <View style={styles.detailLeft}>
+                  <Icon source="shield-check-outline" size={20} color={colors.textSecondary} />
+                  <Text style={styles.detailLabel}>Permissions</Text>
+                </View>
+                <Text style={styles.detailValue}>{user?.permissions.length ?? 0} active controls</Text>
+              </View>
+            </View>
+          </Section>
+
+          {/* Security settings */}
+          <Section title="Security & quick login">
+            <View style={styles.securityCard}>
+              {/* Biometrics Toggle */}
+              <View style={styles.toggleRow}>
+                <View style={styles.flex1Pr4}>
+                  <Text style={styles.securityTitle}>Biometric Login</Text>
+                  <Text style={styles.securitySubtitle}>Use fingerprint or face recognition for quick access.</Text>
+                </View>
+                <Switch
+                  value={biometricEnabled}
+                  disabled={!biometricAvailable}
+                  onValueChange={handleBiometricToggle}
+                  trackColor={{ false: "#e2e8f0", true: "#dbeafe" }}
+                  thumbColor={biometricEnabled ? colors.primary : "#94a3b8"}
+                />
+              </View>
+
+              <Divider style={styles.divider} />
+
+              {/* Quick PIN Setup */}
+              <View style={styles.gap3}>
+                <Text style={styles.securityTitle}>Quick Login PIN</Text>
+                <Text style={styles.securitySubtitle}>Configure a 4-digit PIN for fast sign-in without typing your full password.</Text>
+                <View style={styles.pinInputs}>
+                  <TextInput
+                    mode="outlined"
+                    placeholder="New PIN (4 digits)"
+                    value={pin}
+                    onChangeText={setPin}
+                    keyboardType="numeric"
+                    maxLength={4}
+                    secureTextEntry
+                    style={styles.pinInput}
+                    outlineStyle={styles.inputOutline}
+                    activeOutlineColor={colors.primary}
+                  />
+                  <TextInput
+                    mode="outlined"
+                    placeholder="Confirm PIN"
+                    value={pinConfirm}
+                    onChangeText={setPinConfirm}
+                    keyboardType="numeric"
+                    maxLength={4}
+                    secureTextEntry
+                    style={styles.pinInput}
+                    outlineStyle={styles.inputOutline}
+                    activeOutlineColor={colors.primary}
+                  />
+                </View>
+                <Button
+                  mode="contained-tonal"
+                  onPress={handleSavePin}
+                  disabled={pin.length !== 4 || pinConfirm.length !== 4}
+                  style={styles.pinButton}
+                  contentStyle={styles.buttonContent44}
+                  labelStyle={styles.pinButtonLabel}
+                >
+                  Update PIN
+                </Button>
+              </View>
+            </View>
+          </Section>
+
+          {/* Profile info update */}
+          <Section title="Update profile">
+            <View style={styles.updateCard}>
+              <TextInput 
+                mode="outlined" 
+                label="Name" 
+                value={name} 
+                onChangeText={setName} 
+                outlineStyle={styles.inputOutline}
+                activeOutlineColor={colors.primary}
+                style={styles.inputBackground}
+              />
+              <TextInput 
+                mode="outlined" 
+                label="Email" 
+                value={email ?? ""} 
+                onChangeText={setEmail} 
+                outlineStyle={styles.inputOutline}
+                activeOutlineColor={colors.primary}
+                style={styles.inputBackground}
+              />
+              <TextInput 
+                mode="outlined" 
+                label="New password" 
+                secureTextEntry 
+                value={password} 
+                onChangeText={setPassword} 
+                outlineStyle={styles.inputOutline}
+                activeOutlineColor={colors.primary}
+                style={styles.inputBackground}
+              />
+              <Button 
+                mode="contained" 
+                loading={mutation.isPending} 
+                onPress={() => mutation.mutate()} 
+                style={styles.saveProfileButton}
+                contentStyle={styles.buttonContent48}
+                labelStyle={styles.saveProfileLabel}
+              >
+                Save Profile
+              </Button>
+            </View>
+          </Section>
+
+          {error ? (
+            <View style={styles.errorContainer}>
+              <Icon source="alert-circle" size={18} color={colors.danger} />
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+          ) : null}
+
+          {/* Owner controls */}
+          {user?.role === "OWNER" ? (
+            <Section title="Owner tools">
+              <View style={styles.settingCard}>
+                <SettingItem
+                  icon="storefront-outline"
+                  title="Change Active Shop"
+                  subtitle="Switch or select a different retail outlet"
+                  onPress={() => setActiveShopId(null)}
+                />
+                <SettingItem
+                  icon="account-plus-outline"
+                  title="Add Staff Member"
+                  subtitle="Create a new operator account with permissions"
+                  onPress={() => (navigation as any).navigate("AddEditStaff")}
+                />
+                <SettingItem
+                  icon="account-group-outline"
+                  title="Staff Accounts"
+                  subtitle="Manage access and roles for existing staff"
+                  onPress={() => (navigation as any).navigate("StaffManagement")}
+                />
+                <SettingItem
+                  icon="warehouse"
+                  title="Inventory Catalog"
+                  subtitle="Add, edit, or adjust items and prices"
+                  onPress={() => (navigation as any).navigate("ItemList")}
+                  isLast={true}
+                />
+              </View>
+            </Section>
+          ) : null}
+
+          <Button 
+            mode="outlined" 
+            icon="logout" 
+            onPress={signOut} 
+            contentStyle={styles.buttonContent48} 
+            style={styles.signOutButton} 
+            textColor={colors.danger}
+          >
+            Sign out
+          </Button>
+        </ScrollView>
+      </KeyboardAvoidingView>
 
       <SuccessModal
         visible={successVisible}
@@ -306,47 +389,67 @@ export function Profile() {
 }
 
 const styles = StyleSheet.create({
+  scrollContent: {
+    padding: spacing.lg,
+    paddingBottom: 120,
+    gap: spacing.xl,
+  },
   profileCard: {
-    backgroundColor: colors.surface,
-    borderRadius: 24,
+    backgroundColor: colors.primary,
+    borderRadius: 28,
     padding: spacing.xl,
-    borderWidth: 1,
-    borderColor: '#f1f5f9', // slate-100
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.lg,
-    ...shadow.sm,
+    ...shadow.md,
   },
   avatar: {
-    height: 56,
-    width: 56,
-    borderRadius: radius.xl,
-    backgroundColor: colors.primaryMid,
+    height: 64,
+    width: 64,
+    borderRadius: 32,
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
     alignItems: "center",
     justifyContent: "center",
-    ...shadow.md,
+    borderWidth: 2,
+    borderColor: "rgba(255, 255, 255, 0.4)",
   },
   avatarText: {
     color: "white",
-    fontSize: fontSize.xxl,
+    fontSize: fontSize.xl,
     fontWeight: fontWeight.black,
-  },
-  flex1: {
-    flex: 1,
   },
   userName: {
-    color: "#0f172a", // slate-900
-    fontWeight: fontWeight.black,
+    color: "white",
+    fontWeight: fontWeight.extrabold,
+    fontSize: fontSize.lg,
+  },
+  userMobileContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 4,
   },
   userMobile: {
-    color: colors.textSecondary,
+    color: "rgba(255, 255, 255, 0.8)",
     fontWeight: fontWeight.semibold,
-    marginTop: 2,
+    fontSize: fontSize.sm,
+  },
+  roleBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: radius.md,
+    backgroundColor: "rgba(255, 255, 255, 0.25)",
+  },
+  roleText: {
+    color: "white",
+    fontWeight: fontWeight.black,
+    fontSize: fontSize.xs,
+    letterSpacing: 0.5,
   },
   detailsCard: {
     borderRadius: 24,
     borderWidth: 1,
-    borderColor: '#f1f5f9',
+    borderColor: colors.border,
     backgroundColor: colors.surface,
     overflow: "hidden",
     ...shadow.sm,
@@ -357,7 +460,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     borderBottomWidth: 1,
-    borderBottomColor: '#f8fafc', // slate-50
+    borderBottomColor: colors.surfaceOffset,
   },
   detailRowNoBorder: {
     padding: spacing.lg,
@@ -365,20 +468,25 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
   },
+  detailLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+  },
   detailLabel: {
     color: colors.textSecondary,
     fontWeight: fontWeight.semibold,
-    fontSize: 13,
+    fontSize: fontSize.sm,
   },
   detailValue: {
-    color: "#0f172a",
+    color: colors.textPrimary,
     fontWeight: fontWeight.bold,
-    fontSize: 14,
+    fontSize: fontSize.sm,
   },
   securityCard: {
     borderRadius: 24,
     borderWidth: 1,
-    borderColor: '#f1f5f9',
+    borderColor: colors.border,
     backgroundColor: colors.surface,
     padding: spacing.xl,
     gap: spacing.xl,
@@ -394,18 +502,18 @@ const styles = StyleSheet.create({
     paddingRight: spacing.lg,
   },
   securityTitle: {
-    color: "#0f172a",
+    color: colors.textPrimary,
     fontWeight: fontWeight.bold,
-    fontSize: 14,
+    fontSize: fontSize.md,
   },
   securitySubtitle: {
     color: colors.textSecondary,
-    fontSize: 12,
+    fontSize: fontSize.xs,
     marginTop: 2,
     lineHeight: 16,
   },
   divider: {
-    backgroundColor: '#f1f5f9',
+    backgroundColor: colors.border,
   },
   gap3: {
     gap: spacing.md,
@@ -418,11 +526,11 @@ const styles = StyleSheet.create({
   pinInput: {
     flex: 1,
     backgroundColor: colors.surface,
-    height: 46,
+    height: 48,
   },
   inputOutline: {
     borderRadius: radius.lg,
-    borderColor: '#e2e8f0', // slate-200
+    borderColor: colors.border,
   },
   pinButton: {
     borderRadius: radius.lg,
@@ -433,13 +541,13 @@ const styles = StyleSheet.create({
   },
   pinButtonLabel: {
     fontWeight: fontWeight.extrabold,
-    fontSize: 13,
+    fontSize: fontSize.sm,
   },
   updateCard: {
     gap: spacing.lg,
     borderRadius: 24,
     borderWidth: 1,
-    borderColor: '#f1f5f9',
+    borderColor: colors.border,
     backgroundColor: colors.surface,
     padding: spacing.xl,
     ...shadow.sm,
@@ -457,7 +565,7 @@ const styles = StyleSheet.create({
   },
   saveProfileLabel: {
     fontWeight: fontWeight.extrabold,
-    fontSize: 14,
+    fontSize: fontSize.md,
     color: colors.surface,
   },
   errorContainer: {
@@ -470,17 +578,67 @@ const styles = StyleSheet.create({
     marginHorizontal: 4,
   },
   errorText: {
-    color: "#b91c1c",
+    color: colors.danger,
     fontWeight: fontWeight.bold,
-    fontSize: 13,
+    fontSize: fontSize.sm,
     flex: 1,
   },
-  ownerButton: {
-    borderRadius: radius.lg,
+  settingCard: {
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    overflow: "hidden",
+    ...shadow.sm,
+  },
+  settingItem: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: spacing.lg,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.surfaceOffset,
+  },
+  settingItemLast: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: spacing.lg,
+  },
+  settingItemLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.lg,
+    flex: 1,
+  },
+  settingItemIconBg: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.primaryLight,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  settingItemTitle: {
+    color: colors.textPrimary,
+    fontWeight: fontWeight.bold,
+    fontSize: fontSize.sm,
+  },
+  settingItemSubtitle: {
+    color: colors.textSecondary,
+    fontSize: fontSize.xs,
+    marginTop: 1,
   },
   signOutButton: {
     borderRadius: radius.lg,
-    borderColor: '#e2e8f0',
+    borderColor: colors.border,
     marginVertical: spacing.sm,
+  },
+  pressed: {
+    opacity: 0.7,
+    backgroundColor: colors.surfaceOffset,
+  },
+  flex1: {
+    flex: 1,
   },
 });
