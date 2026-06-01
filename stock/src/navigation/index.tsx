@@ -41,6 +41,18 @@ import { colors } from "../theme";
 const tabIcon = (source: string) => ({ color, size, focused }: { color: string; size: number; focused: boolean }) => (
   <View style={{ alignItems: "center", justifyContent: "center" }}>
     <Icon source={source} color={focused ? colors.primary : color} size={size + 2} />
+    {focused && (
+      <View 
+        style={{
+          width: 4,
+          height: 4,
+          borderRadius: 2,
+          backgroundColor: colors.primary,
+          marginTop: 2,
+          marginBottom: -6,
+        }} 
+      />
+    )}
   </View>
 );
 
@@ -49,21 +61,29 @@ const floatingTabOptions = {
   tabBarActiveTintColor: colors.primary,
   tabBarInactiveTintColor: "#9ca3af",
   tabBarLabelStyle: {
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: "800" as const,
-    marginTop: 2,
+    marginTop: 4,
     letterSpacing: 0.5,
     textTransform: "uppercase" as const,
   },
   tabBarStyle: {
-    backgroundColor: "#ffffff",
-    borderTopWidth: 1,
-    borderTopColor: "#e5e7eb",
-    height: 64,
+    position: "absolute" as const,
+    bottom: 20,
+    left: 18,
+    right: 18,
+    height: 68,
     paddingTop: 8,
-    paddingBottom: 8,
-    shadowColor: "transparent",
-    elevation: 0,
+    paddingBottom: 10,
+    borderRadius: 24,
+    backgroundColor: "rgba(255, 255, 255, 0.90)", // Glassmorphic translucent background
+    borderWidth: 1,
+    borderColor: "rgba(22, 163, 74, 0.08)", // Subtle emerald outline border
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.06,
+    shadowRadius: 12,
+    elevation: 6,
   },
 };
 

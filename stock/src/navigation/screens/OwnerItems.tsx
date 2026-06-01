@@ -1,11 +1,11 @@
 import React, { useMemo, useState, memo } from "react";
-import { Pressable, View, StyleSheet, ActivityIndicator } from "react-native";
+import { Pressable, View, StyleSheet, ScrollView, ActivityIndicator } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
-import { Divider, Icon, Searchbar, SegmentedButtons, Text, TextInput } from "react-native-paper";
+import { Divider, Icon, Searchbar, Text, TextInput } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
 
-import { Item, CreateItemPayload, UpdateItemPayload } from "../../api/client";
+import { Item } from "../../api/client";
 import { 
   useInfiniteItemsQuery,
   useCurrentStockQuery,
@@ -18,7 +18,6 @@ import {
 import { useShopStore } from "../../auth/shop-store";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { Section } from "../../components/ui/Section";
-import { StatusPill } from "../../components/ui/StatusPill";
 import { Screen } from "../../components/Screen";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { SkeletonList } from "../../components/ui/SkeletonCard";
@@ -29,9 +28,26 @@ function money(value?: string | number | null) {
   return `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 }
 
-const ItemCard = memo(({ item, stock, onPress }: { item: Item, stock: number, onPress: () => void }) => {
-  const isLow = stock <= Number(item.minimumStock ?? 0);
-  
+const ItemCard = memo(({ item, stock, onEdit, onManageStock, onPress }: { 
+  item: Item; 
+  stock: number; 
+  onEdit: () => void;
+  onManageStock: () => void;
+  onPress: () => void;
+}) => {
+  const isLow = stock <= Number(item.minimumStock ?? 0) && stock > 0;
+  const isOut = stock === 0;
+
+  const initials = useMemo(() => {
+    return item.name.slice(0, 2).toUpperCase();
+  }, [item.name]);
+
+  const pillInfo = useMemo(() => {
+    if (isOut) return { label: "OUT OF STOCK", bg: 'rgba(220, 38, 38, 0.08)', color: colors.danger };
+    if (isLow) return { label: `${stock} LOW STOCK`, bg: 'rgba(217, 119, 6, 0.08)', color: colors.warning };
+    return { label: `${stock} IN STOCK`, bg: 'rgba(22, 163, 74, 0.08)', color: colors.primary };
+  }, [stock, isLow, isOut]);
+
   return (
     <Pressable 
       onPress={onPress} 
@@ -40,22 +56,51 @@ const ItemCard = memo(({ item, stock, onPress }: { item: Item, stock: number, on
         pressed && styles.itemCardPressed
       ]}
     >
-      <View style={styles.itemHeader}>
-        <View style={styles.itemTitleContainer}>
-          <Text style={styles.itemName}>{item.name}</Text>
-          <Text style={styles.itemSubtitle}>
-            {item.sku || "No SKU"} • {item.unit} • {item.category?.name ?? "Uncategorised"}
-          </Text>
+      <View style={styles.itemCardRow}>
+        {/* Left Side: Thumbnail Initial */}
+        <View style={styles.itemAvatar}>
+          <Text style={styles.itemAvatarText}>{initials}</Text>
         </View>
-        <StatusPill label={isLow ? "LOW" : "OK"} tone={isLow ? "red" : "green"} />
+
+        {/* Middle Side: Details */}
+        <View style={styles.itemDetails}>
+          <Text style={styles.itemName} numberOfLines={1}>{item.name}</Text>
+          <Text style={styles.itemSubtitle}>
+            {item.sku || "No SKU"} • {item.unit}
+          </Text>
+          <View style={[styles.stockPill, { backgroundColor: pillInfo.bg }]}>
+            <Text style={[styles.stockPillText, { color: pillInfo.color }]}>{pillInfo.label}</Text>
+          </View>
+        </View>
+
+        {/* Right Side: Quick Action Icon Buttons */}
+        <View style={styles.itemActions}>
+          <Pressable onPress={onEdit} style={({ pressed }) => [styles.actionButton, pressed && styles.pressed]}>
+            <Icon source="pencil-outline" size={18} color={colors.textSecondary} />
+          </Pressable>
+          <Pressable onPress={onManageStock} style={({ pressed }) => [styles.actionButton, pressed && styles.pressed]}>
+            <Icon source="warehouse" size={18} color={colors.primary} />
+          </Pressable>
+        </View>
       </View>
+
+      <Divider style={styles.cardDivider} />
+
       <View style={styles.itemFooter}>
-        <Text style={styles.stockLabel}>Stock: <Text style={styles.stockValue}>{stock}</Text></Text>
-        <Text style={styles.priceLabel}>Default: <Text style={styles.priceValue}>{money(item.defaultSellingPrice)}</Text></Text>
+        <Text style={styles.priceLabel}>Selling Price: <Text style={styles.priceValue}>{money(item.defaultSellingPrice)}</Text></Text>
+        {item.mrp && (
+          <Text style={styles.priceLabel}>MRP: <Text style={styles.priceValueMrp}>{money(item.mrp)}</Text></Text>
+        )}
       </View>
     </Pressable>
   );
-}, (prev, next) => prev.item.id === next.item.id && prev.stock === next.stock && prev.item.name === next.item.name && prev.item.defaultSellingPrice === next.item.defaultSellingPrice);
+}, (prev, next) => (
+  prev.item.id === next.item.id && 
+  prev.stock === next.stock && 
+  prev.item.name === next.item.name && 
+  prev.item.defaultSellingPrice === next.item.defaultSellingPrice &&
+  prev.item.mrp === next.item.mrp
+));
 
 export function ItemList() {
   const activeShopId = useShopStore((state) => state.activeShopId);
@@ -70,18 +115,41 @@ export function ItemList() {
   const stockByItem = useMemo(() => new Map((stockQuery.data ?? []).map((row) => [row.item.id, row.currentQuantity])), [stockQuery.data]);
 
   const allItems = useMemo(() => {
-    return itemsQuery.data?.pages.flatMap((page) => page.items) ?? [];
+    if (!itemsQuery.data?.pages) return [];
+    return itemsQuery.data.pages
+      .flatMap((page) => page?.items || [])
+      .filter((item): item is Item => !!item && typeof item.id === "string");
   }, [itemsQuery.data]);
   
   const filteredData = useMemo(() => {
     if (filter === "LOW") {
-      return allItems.filter(item => (stockByItem.get(item.id) ?? 0) <= Number(item.minimumStock ?? 0));
+      return allItems.filter(item => {
+        const stock = stockByItem.get(item.id) ?? 0;
+        return stock <= Number(item.minimumStock ?? 0) && stock > 0;
+      });
+    }
+    if (filter === "OUT") {
+      return allItems.filter(item => (stockByItem.get(item.id) ?? 0) === 0);
     }
     return allItems;
   }, [allItems, filter, stockByItem]);
 
   const lowStockCount = useMemo(() => {
-    return allItems.filter((item) => (stockByItem.get(item.id) ?? 0) <= Number(item.minimumStock ?? 0)).length;
+    return allItems.filter(item => {
+      const stock = stockByItem.get(item.id) ?? 0;
+      return stock <= Number(item.minimumStock ?? 0) && stock > 0;
+    }).length;
+  }, [allItems, stockByItem]);
+
+  const outOfStockCount = useMemo(() => {
+    return allItems.filter(item => (stockByItem.get(item.id) ?? 0) === 0).length;
+  }, [allItems, stockByItem]);
+
+  const totalStockValue = useMemo(() => {
+    return allItems.reduce((sum, item) => {
+      const stock = stockByItem.get(item.id) ?? 0;
+      return sum + stock * Number(item.defaultSellingPrice ?? 0);
+    }, 0);
   }, [allItems, stockByItem]);
 
   const totalCount = itemsQuery.data?.pages[0]?.total ?? 0;
@@ -121,16 +189,32 @@ export function ItemList() {
             onEndReachedThreshold={0.5}
             ListHeaderComponent={
               <View style={styles.headerComponent}>
-                <View style={styles.statsRow}>
-                  <View style={styles.statCard}>
-                    <Text style={styles.statLabel}>Items</Text>
-                    <Text style={styles.statValue}>{totalCount}</Text>
+                {/* Visual Top Summary Metrics scrolling bar */}
+                <ScrollView 
+                  horizontal 
+                  showsHorizontalScrollIndicator={false} 
+                  contentContainerStyle={styles.statsScroll}
+                >
+                  <View style={[styles.statCard, { backgroundColor: 'rgba(22, 163, 74, 0.03)', borderColor: 'rgba(22, 163, 74, 0.1)' }]}>
+                    <Text style={styles.statLabel}>STOCK VALUE</Text>
+                    <Text style={[styles.statValue, { color: colors.primary }]}>{money(totalStockValue)}</Text>
                   </View>
+
                   <View style={styles.statCard}>
-                    <Text style={[styles.statLabel, { color: colors.danger }]}>Low Stock</Text>
-                    <Text style={[styles.statValue, { color: colors.danger }]}>{lowStockCount}</Text>
+                    <Text style={styles.statLabel}>CATALOG SIZE</Text>
+                    <Text style={styles.statValue}>{totalCount} Items</Text>
                   </View>
-                </View>
+
+                  <View style={[styles.statCard, outOfStockCount > 0 && { borderColor: 'rgba(220, 38, 38, 0.25)', backgroundColor: 'rgba(220, 38, 38, 0.02)' }]}>
+                    <Text style={[styles.statLabel, outOfStockCount > 0 && { color: colors.danger }]}>OUT OF STOCK</Text>
+                    <Text style={[styles.statValue, outOfStockCount > 0 && { color: colors.danger }]}>{outOfStockCount}</Text>
+                  </View>
+
+                  <View style={[styles.statCard, lowStockCount > 0 && { borderColor: 'rgba(217, 119, 6, 0.25)', backgroundColor: 'rgba(217, 119, 6, 0.02)' }]}>
+                    <Text style={[styles.statLabel, lowStockCount > 0 && { color: colors.warning }]}>LOW STOCK</Text>
+                    <Text style={[styles.statValue, lowStockCount > 0 && { color: colors.warning }]}>{lowStockCount}</Text>
+                  </View>
+                </ScrollView>
 
                 <Searchbar 
                   value={search} 
@@ -138,23 +222,44 @@ export function ItemList() {
                   placeholder="Search item or SKU" 
                   style={styles.searchBar} 
                   inputStyle={styles.searchInput}
+                  iconColor={colors.textSecondary}
                 />
                 
-                <SegmentedButtons 
-                  value={filter} 
-                  onValueChange={setFilter} 
-                  buttons={[
-                    { value: "ALL", label: "All Items" }, 
-                    { value: "LOW", label: "Low Stock" }
-                  ]} 
-                  style={styles.segmentedButtons}
-                />
+                {/* Custom scrolling Filter Chips */}
+                <ScrollView 
+                  horizontal 
+                  showsHorizontalScrollIndicator={false} 
+                  contentContainerStyle={styles.filterChipsRow}
+                >
+                  <Pressable 
+                    onPress={() => setFilter("ALL")} 
+                    style={[styles.filterChip, filter === "ALL" && styles.filterChipActive]}
+                  >
+                    <Text style={[styles.filterChipText, filter === "ALL" && styles.filterChipTextActive]}>All Items</Text>
+                  </Pressable>
+
+                  <Pressable 
+                    onPress={() => setFilter("LOW")} 
+                    style={[styles.filterChip, filter === "LOW" && styles.filterChipActive]}
+                  >
+                    <Text style={[styles.filterChipText, filter === "LOW" && styles.filterChipTextActive]}>Low Stock</Text>
+                  </Pressable>
+
+                  <Pressable 
+                    onPress={() => setFilter("OUT")} 
+                    style={[styles.filterChip, filter === "OUT" && styles.filterChipActive]}
+                  >
+                    <Text style={[styles.filterChipText, filter === "OUT" && styles.filterChipTextActive]}>Out of Stock</Text>
+                  </Pressable>
+                </ScrollView>
               </View>
             }
             renderItem={({ item }: { item: Item }) => (
               <ItemCard 
                 item={item} 
                 stock={stockByItem.get(item.id) ?? 0} 
+                onEdit={() => (navigation as any).navigate("AddEditItem", { item })}
+                onManageStock={() => (navigation as any).navigate("StockEntry", { shopId: activeShopId, itemId: item.id })}
                 onPress={() => (navigation as any).navigate("ItemDetail", { itemId: item.id })}
               />
             )}
@@ -173,6 +278,7 @@ export function ItemList() {
           />
         </View>
 
+        {/* Floating Action Button (FAB) adjusted to sit safely above the glassmorphic tab bar */}
         <Pressable 
           style={styles.fab} 
           onPress={() => (navigation as any).navigate("AddEditItem")}
@@ -345,16 +451,22 @@ export function ItemDetail() {
                   />
                 </View>
 
-                <SegmentedButtons
-                  value={activeTab}
-                  onValueChange={setActiveTab}
-                  buttons={[
-                    { value: "PRICE", label: "Price History", icon: "trending-up" },
-                    { value: "MOVEMENT", label: "Stock Ledger", icon: "history" },
-                  ]}
-                  style={styles.detailTabs}
-                  theme={{ colors: { primary: colors.primary } }}
-                />
+                <View style={{ marginHorizontal: spacing.lg, marginBottom: spacing.md }}>
+                  <View style={styles.tabBarContainer}>
+                    <Pressable 
+                      onPress={() => setActiveTab('PRICE')}
+                      style={[styles.tabButton, activeTab === 'PRICE' && styles.tabButtonActive]}
+                    >
+                      <Text style={[styles.tabButtonText, activeTab === 'PRICE' && styles.tabButtonTextActive]}>PRICE HISTORY</Text>
+                    </Pressable>
+                    <Pressable 
+                      onPress={() => setActiveTab('MOVEMENT')}
+                      style={[styles.tabButton, activeTab === 'MOVEMENT' && styles.tabButtonActive]}
+                    >
+                      <Text style={[styles.tabButtonText, activeTab === 'MOVEMENT' && styles.tabButtonTextActive]}>STOCK LEDGER</Text>
+                    </Pressable>
+                  </View>
+                </View>
               </>
             }
             renderItem={({ item, index }: any) => {
@@ -419,6 +531,7 @@ export function ItemDetail() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: colors.bg,
   },
   listWrapper: {
     flex: 1,
@@ -428,29 +541,31 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
     gap: spacing.md,
   },
-  statsRow: {
-    flexDirection: 'row',
+  statsScroll: {
     gap: spacing.md,
+    paddingVertical: 4,
+    paddingRight: spacing.lg,
   },
   statCard: {
-    flex: 1,
+    width: 140,
     backgroundColor: colors.surface,
-    padding: spacing.lg,
-    borderRadius: radius.lg,
+    padding: spacing.md,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: colors.border,
     ...shadow.sm,
   },
   statLabel: {
     color: colors.textSecondary,
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.medium,
+    fontSize: 10,
+    fontWeight: fontWeight.black,
+    letterSpacing: 0.5,
   },
   statValue: {
-    fontSize: fontSize.xxl,
+    fontSize: 16,
     fontWeight: fontWeight.black,
     color: colors.textPrimary,
-    marginTop: spacing.xs,
+    marginTop: 4,
   },
   searchBar: {
     backgroundColor: colors.surface,
@@ -458,74 +573,137 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     elevation: 0,
+    height: 44,
+    justifyContent: 'center',
   },
   searchInput: {
-    fontSize: fontSize.md,
+    fontSize: 14,
   },
-  segmentedButtons: {
-    marginBottom: spacing.sm,
+  filterChipsRow: {
+    paddingVertical: 4,
+    paddingRight: spacing.lg,
+  },
+  filterChip: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    marginRight: spacing.sm,
+  },
+  filterChipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  filterChipText: {
+    fontSize: 12,
+    fontWeight: fontWeight.bold,
+    color: colors.textSecondary,
+  },
+  filterChipTextActive: {
+    color: colors.textInverse,
   },
   listContent: {
-    paddingBottom: 100,
+    paddingBottom: 130, // Clears the floating bottom tab bar and the FAB safely
     paddingHorizontal: spacing.lg,
   },
   itemCard: {
     backgroundColor: colors.surface,
-    borderRadius: radius.lg,
+    borderRadius: 22,
     padding: spacing.lg,
     marginBottom: spacing.md,
     borderWidth: 1,
     borderColor: colors.border,
-    minHeight: 96,
+    ...shadow.sm,
   },
   itemCardPressed: {
-    opacity: 0.7,
+    opacity: 0.72,
     transform: [{ scale: 0.98 }],
   },
-  itemHeader: {
+  itemCardRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     gap: spacing.md,
   },
-  itemTitleContainer: {
+  itemAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 16,
+    backgroundColor: 'rgba(22, 163, 74, 0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(22, 163, 74, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  itemAvatarText: {
+    fontSize: 16,
+    fontWeight: fontWeight.extrabold,
+    color: colors.primary,
+  },
+  itemDetails: {
     flex: 1,
+    gap: 2,
   },
   itemName: {
-    fontSize: fontSize.lg,
-    fontWeight: fontWeight.extrabold,
+    fontSize: 16,
+    fontWeight: fontWeight.bold,
     color: colors.textPrimary,
   },
   itemSubtitle: {
-    fontSize: fontSize.sm,
+    fontSize: 11,
     color: colors.textSecondary,
-    marginTop: spacing.xs,
+  },
+  stockPill: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+    marginTop: 4,
+  },
+  stockPillText: {
+    fontSize: 9,
+    fontWeight: fontWeight.extrabold,
+  },
+  itemActions: {
+    flexDirection: 'row',
+    gap: spacing.xs,
+  },
+  actionButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.surface,
+  },
+  cardDivider: {
+    marginVertical: spacing.md,
+    backgroundColor: colors.border,
   },
   itemFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: spacing.lg,
     alignItems: 'center',
   },
-  stockLabel: {
-    color: colors.textSecondary,
-    fontSize: fontSize.sm,
-  },
-  stockValue: {
-    fontWeight: fontWeight.bold,
-    color: colors.textPrimary,
-  },
   priceLabel: {
+    fontSize: 11,
     color: colors.textSecondary,
-    fontSize: fontSize.sm,
   },
   priceValue: {
     fontWeight: fontWeight.bold,
-    color: colors.primary,
+    color: colors.textPrimary,
+  },
+  priceValueMrp: {
+    fontWeight: fontWeight.bold,
+    color: colors.textMuted,
+    textDecorationLine: 'line-through',
   },
   fab: {
     position: 'absolute',
-    bottom: 24,
+    bottom: 104, // Hover safely above floating bottom tab capsule (68 height + 20 bottom offset)
     right: 24,
     width: 56,
     height: 56,
@@ -534,6 +712,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     ...shadow.lg,
+    zIndex: 10,
   },
   formContainer: {
     flex: 1,
@@ -617,10 +796,6 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     marginBottom: spacing.lg,
   },
-  detailTabs: {
-    marginHorizontal: spacing.lg,
-    marginBottom: spacing.md,
-  },
   historyRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -658,5 +833,33 @@ const styles = StyleSheet.create({
   },
   detailListContent: {
     paddingBottom: 40,
-  }
+  },
+  // Tab headers for ItemDetail
+  tabBarContainer: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    gap: spacing.lg,
+  },
+  tabButton: {
+    paddingVertical: spacing.md,
+    borderBottomWidth: 2,
+    borderBottomColor: 'transparent',
+  },
+  tabButtonActive: {
+    borderBottomColor: colors.primary,
+  },
+  tabButtonText: {
+    fontSize: 12,
+    fontWeight: fontWeight.extrabold,
+    color: colors.textSecondary,
+    letterSpacing: 1,
+  },
+  tabButtonTextActive: {
+    color: colors.primary,
+  },
+  pressed: {
+    opacity: 0.72,
+    transform: [{ scale: 0.96 }],
+  },
 });
