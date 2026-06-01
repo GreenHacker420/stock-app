@@ -38,7 +38,10 @@ function ConfiguredScreen({ config }: { config: ScreenConfig }) {
   return (
     <Screen scroll={false}>
       <AppHeader title={config.title} subtitle={config.subtitle} />
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 28 }}>
+      <ScrollView 
+        showsVerticalScrollIndicator={false} 
+        contentContainerClassName={isTab ? "pb-24" : "pb-7"}
+      >
         <View className="gap-4">
           <View className="flex-row flex-wrap gap-2">
             {[...baseBadges, ...(config.badges ?? [])].map((badge) => (
