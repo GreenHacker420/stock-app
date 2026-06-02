@@ -173,7 +173,7 @@ const sharedStackScreens = {
     options: { title: "404" },
     linking: { path: "*" },
   },
-  Notifications: {
+  NotificationHistory: {
     screen: Notifications,
     options: { title: "Notifications" },
   },

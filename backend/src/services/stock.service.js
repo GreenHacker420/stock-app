@@ -123,3 +123,57 @@ export async function createMovement(user, data) {
 
   return movement;
 }
+
+export async function bulkStockEntry(user, data) {
+  await assertShopAccess(user, data.shopId);
+
+  // Validate all items exist and belong to the shop
+  const itemIds = data.entries.map((e) => e.itemId);
+  const items = await prisma.item.findMany({
+    where: {
+      id: { in: itemIds },
+      shopId: data.shopId,
+    },
+  });
+
+  if (items.length !== itemIds.length) {
+    throw new ApiError(400, "One or more items do not belong to this shop");
+  }
+
+  // Create stock movements inside a transaction
+  const movements = await prisma.$transaction(async (tx) => {
+    const list = [];
+    for (const entry of data.entries) {
+      const movement = await tx.stockLedger.create({
+        data: {
+          shopId: data.shopId,
+          itemId: entry.itemId,
+          movementType: "STOCK_IN",
+          quantityIn: entry.quantity,
+          quantityOut: 0,
+          reason: data.notes || "Bulk stock entry via app",
+          createdById: user.id,
+          approvedById: user.role === "OWNER" ? user.id : undefined,
+        },
+      });
+      list.push(movement);
+    }
+    return list;
+  });
+
+  // Write audit logs
+  for (const movement of movements) {
+    await writeAuditLog({
+      userId: user.id,
+      role: user.role,
+      shopId: data.shopId,
+      action: "stock.movement_created",
+      entityType: "StockLedger",
+      entityId: movement.id,
+      newValueJson: movement,
+      reason: data.notes || "Bulk stock entry via app",
+    });
+  }
+
+  return movements;
+}

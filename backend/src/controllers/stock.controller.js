@@ -17,3 +17,11 @@ export const createMovement = asyncHandler(async (req, res) => {
   emitShopEvent(req, movement.shopId, REALTIME_EVENTS.STOCK_UPDATED, { movementId: movement.id, itemId: movement.itemId, action: "movement_created" });
   res.status(201).json({ success: true, data: movement });
 });
+
+export const bulkStockEntry = asyncHandler(async (req, res) => {
+  const result = await stockService.bulkStockEntry(req.user, req.validated.body);
+  for (const movement of result) {
+    emitShopEvent(req, movement.shopId, REALTIME_EVENTS.STOCK_UPDATED, { movementId: movement.id, itemId: movement.itemId, action: "movement_created" });
+  }
+  res.status(201).json({ success: true, data: result });
+});
