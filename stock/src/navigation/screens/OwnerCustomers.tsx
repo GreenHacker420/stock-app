@@ -35,7 +35,7 @@ const CustomerCard = memo(({
   customer: Customer, 
   onPress: () => void 
 }) => {
-  const isPending = Number(customer.outstandingAmount ?? 0) > 0;
+  const isPending = Math.abs(Number(customer.outstandingAmount ?? 0)) > 0;
   
   return (
     <Pressable 
@@ -59,7 +59,7 @@ const CustomerCard = memo(({
       </View>
       <View style={styles.customerFooter}>
         <Text style={styles.outstandingLabel}>
-          Outstanding: <Text style={styles.outstandingValue}>{money(customer.outstandingAmount)}</Text>
+          Outstanding: <Text style={styles.outstandingValue}>{money(Math.abs(Number(customer.outstandingAmount)))}</Text>
         </Text>
         <Text style={styles.limitLabel}>
           Limit: {money(customer.creditLimit)}
@@ -250,7 +250,7 @@ export function CustomerDetail() {
                 <View style={styles.detailStatItem}>
                   <Text style={styles.statLabel}>Outstanding</Text>
                   <Text style={[styles.statValue, { color: colors.danger }]}>
-                    {money((outstandingQuery.data as any)?.totalPending ?? customer.outstandingAmount)}
+                    {money(Math.abs(Number(customer.outstandingAmount)) + ((outstandingQuery.data as any)?.totalPending ?? 0))}
                   </Text>
                 </View>
                 <View style={styles.detailStatItem}>
@@ -285,6 +285,14 @@ export function CustomerDetail() {
                       </View>
                     </View>
                   ))
+                ) : Math.abs(Number(customer.outstandingAmount)) > 0 ? (
+                  <View style={styles.recordRow}>
+                    <View>
+                      <Text style={styles.recordTitle}>Initial Balance (Migrated)</Text>
+                      <Text style={styles.recordSubtitle}>PENDING</Text>
+                    </View>
+                    <Text style={styles.recordAmount}>{money(Math.abs(Number(customer.outstandingAmount)))}</Text>
+                  </View>
                 ) : (
                   <Text style={styles.emptyText}>No outstanding records found.</Text>
                 )}

@@ -38,52 +38,64 @@ import { CreateOrder } from "./screens/CreateOrder";
 
 import { colors } from "../theme";
 
-const tabIcon = (source: string) => ({ color, size, focused }: { color: string; size: number; focused: boolean }) => (
-  <View style={{ alignItems: "center", justifyContent: "center" }}>
-    <Icon source={source} color={focused ? colors.primary : color} size={size + 2} />
-    {focused && (
-      <View 
-        style={{
-          width: 4,
-          height: 4,
-          borderRadius: 2,
-          backgroundColor: colors.primary,
-          marginTop: 2,
-          marginBottom: -6,
-        }} 
-      />
-    )}
+const tabIcon = (source: string) => ({ focused }: { color: string; size: number; focused: boolean }) => (
+  <View 
+    style={focused ? {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: "rgba(255, 255, 255, 0.15)", // Premium translucent white-teal active badge
+      alignItems: "center",
+      justifyContent: "center",
+    } : {
+      width: 44,
+      height: 44,
+      alignItems: "center",
+      justifyContent: "center",
+    }}
+  >
+    <Icon source={source} color={focused ? "#ffffff" : "#a3b8b5"} size={22} />
   </View>
 );
 
 const floatingTabOptions = {
   headerShown: false,
-  tabBarActiveTintColor: colors.primary,
-  tabBarInactiveTintColor: "#9ca3af",
+  tabBarShowLabel: false,
+  safeAreaInsets: { bottom: 0, top: 0, left: 0, right: 0 },
+  tabBarItemStyle: {
+    height: 64,
+    justifyContent: "center" as const,
+    alignItems: "center" as const,
+    paddingTop: 0,
+    paddingBottom: 0,
+    margin: 0,
+  },
+  tabBarIconStyle: {
+    justifyContent: "center" as const,
+    alignItems: "center" as const,
+    margin: 0,
+    padding: 0,
+  },
   tabBarLabelStyle: {
-    fontSize: 9,
-    fontWeight: "800" as const,
-    marginTop: 4,
-    letterSpacing: 0.5,
-    textTransform: "uppercase" as const,
+    display: "none" as const,
   },
   tabBarStyle: {
     position: "absolute" as const,
     bottom: 20,
-    left: 18,
-    right: 18,
-    height: 68,
-    paddingTop: 8,
-    paddingBottom: 10,
-    borderRadius: 24,
-    backgroundColor: "rgba(255, 255, 255, 0.90)", // Glassmorphic translucent background
-    borderWidth: 1,
-    borderColor: "rgba(22, 163, 74, 0.08)", // Subtle emerald outline border
+    left: 20,
+    right: 20,
+    height: 64,
+    borderRadius: 32, // Perfect circle ends for 64 height
+    backgroundColor: "#08332c", // Premium Deep Forest Teal matching reference mockup
+    borderWidth: 0,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.06,
-    shadowRadius: 12,
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
     elevation: 6,
+    paddingBottom: 0,
+    paddingTop: 0,
+    overflow: "visible" as const,
   },
 };
 

@@ -38,15 +38,11 @@ const ItemCard = memo(({ item, stock, onEdit, onManageStock, onPress }: {
   const isLow = stock <= Number(item.minimumStock ?? 0) && stock > 0;
   const isOut = stock === 0;
 
-  const initials = useMemo(() => {
-    return item.name.slice(0, 2).toUpperCase();
-  }, [item.name]);
-
   const pillInfo = useMemo(() => {
-    if (isOut) return { label: "OUT OF STOCK", bg: 'rgba(220, 38, 38, 0.08)', color: colors.danger };
-    if (isLow) return { label: `${stock} LOW STOCK`, bg: 'rgba(217, 119, 6, 0.08)', color: colors.warning };
-    return { label: `${stock} IN STOCK`, bg: 'rgba(22, 163, 74, 0.08)', color: colors.primary };
-  }, [stock, isLow, isOut]);
+    if (isOut) return { label: "Out of Stock", bg: colors.dangerLight, color: colors.danger };
+    if (isLow) return { label: "Low Stock", bg: colors.warningLight, color: colors.warning };
+    return { label: "In Stock", bg: colors.successLight, color: colors.success };
+  }, [isLow, isOut]);
 
   return (
     <Pressable 
@@ -57,40 +53,43 @@ const ItemCard = memo(({ item, stock, onEdit, onManageStock, onPress }: {
       ]}
     >
       <View style={styles.itemCardRow}>
-        {/* Left Side: Thumbnail Initial */}
+        {/* Left Side: Package Icon */}
         <View style={styles.itemAvatar}>
-          <Text style={styles.itemAvatarText}>{initials}</Text>
+          <Icon source="package-variant-closed" size={24} color={colors.textSecondary} />
         </View>
 
         {/* Middle Side: Details */}
         <View style={styles.itemDetails}>
           <Text style={styles.itemName} numberOfLines={1}>{item.name}</Text>
-          <Text style={styles.itemSubtitle}>
-            {item.sku || "No SKU"} • {item.unit}
-          </Text>
-          <View style={[styles.stockPill, { backgroundColor: pillInfo.bg }]}>
-            <Text style={[styles.stockPillText, { color: pillInfo.color }]}>{pillInfo.label}</Text>
-          </View>
+          <Text style={styles.itemSubtitle}>SKU: {item.sku || "N/A"}</Text>
+          <Text style={styles.itemStockCount}>Stock: <Text style={styles.itemStockValue}>{stock} {item.unit}</Text></Text>
         </View>
 
-        {/* Right Side: Quick Action Icon Buttons */}
-        <View style={styles.itemActions}>
-          <Pressable onPress={onEdit} style={({ pressed }) => [styles.actionButton, pressed && styles.pressed]}>
-            <Icon source="pencil-outline" size={18} color={colors.textSecondary} />
-          </Pressable>
-          <Pressable onPress={onManageStock} style={({ pressed }) => [styles.actionButton, pressed && styles.pressed]}>
-            <Icon source="warehouse" size={18} color={colors.primary} />
-          </Pressable>
+        {/* Right Side: Status Pill */}
+        <View style={[styles.stockPill, { backgroundColor: pillInfo.bg }]}>
+          <Text style={[styles.stockPillText, { color: pillInfo.color }]}>{pillInfo.label}</Text>
         </View>
       </View>
 
       <Divider style={styles.cardDivider} />
 
       <View style={styles.itemFooter}>
-        <Text style={styles.priceLabel}>Selling Price: <Text style={styles.priceValue}>{money(item.defaultSellingPrice)}</Text></Text>
-        {item.mrp && (
-          <Text style={styles.priceLabel}>MRP: <Text style={styles.priceValueMrp}>{money(item.mrp)}</Text></Text>
-        )}
+        <View style={styles.priceContainer}>
+          <Text style={styles.priceLabel}>Selling Price: <Text style={styles.priceValue}>{money(item.defaultSellingPrice)}</Text></Text>
+          {item.mrp && (
+            <Text style={styles.priceLabel}>MRP: <Text style={styles.priceValueMrp}>{money(item.mrp)}</Text></Text>
+          )}
+        </View>
+
+        {/* Action Buttons in Footer */}
+        <View style={styles.itemActions}>
+          <Pressable onPress={onEdit} style={({ pressed }) => [styles.actionButton, pressed && styles.pressed]}>
+            <Icon source="pencil-outline" size={16} color={colors.textSecondary} />
+          </Pressable>
+          <Pressable onPress={onManageStock} style={({ pressed }) => [styles.actionButton, pressed && styles.pressed]}>
+            <Icon source="warehouse" size={16} color={colors.primary} />
+          </Pressable>
+        </View>
       </View>
     </Pressable>
   );
@@ -235,14 +234,7 @@ export function ItemList() {
                     onPress={() => setFilter("ALL")} 
                     style={[styles.filterChip, filter === "ALL" && styles.filterChipActive]}
                   >
-                    <Text style={[styles.filterChipText, filter === "ALL" && styles.filterChipTextActive]}>All Items</Text>
-                  </Pressable>
-
-                  <Pressable 
-                    onPress={() => setFilter("LOW")} 
-                    style={[styles.filterChip, filter === "LOW" && styles.filterChipActive]}
-                  >
-                    <Text style={[styles.filterChipText, filter === "LOW" && styles.filterChipTextActive]}>Low Stock</Text>
+                    <Text style={[styles.filterChipText, filter === "ALL" && styles.filterChipTextActive]}>Total Stock</Text>
                   </Pressable>
 
                   <Pressable 
@@ -250,6 +242,13 @@ export function ItemList() {
                     style={[styles.filterChip, filter === "OUT" && styles.filterChipActive]}
                   >
                     <Text style={[styles.filterChipText, filter === "OUT" && styles.filterChipTextActive]}>Out of Stock</Text>
+                  </Pressable>
+
+                  <Pressable 
+                    onPress={() => setFilter("LOW")} 
+                    style={[styles.filterChip, filter === "LOW" && styles.filterChipActive]}
+                  >
+                    <Text style={[styles.filterChipText, filter === "LOW" && styles.filterChipTextActive]}>Low Stock</Text>
                   </Pressable>
                 </ScrollView>
               </View>
@@ -593,8 +592,8 @@ const styles = StyleSheet.create({
     marginRight: spacing.sm,
   },
   filterChipActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+    backgroundColor: 'rgba(99, 102, 241, 0.1)',
+    borderColor: '#6366f1',
   },
   filterChipText: {
     fontSize: 12,
@@ -602,7 +601,7 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
   },
   filterChipTextActive: {
-    color: colors.textInverse,
+    color: '#6366f1',
   },
   listContent: {
     paddingBottom: 130, // Clears the floating bottom tab bar and the FAB safely
@@ -629,10 +628,8 @@ const styles = StyleSheet.create({
   itemAvatar: {
     width: 48,
     height: 48,
-    borderRadius: 16,
-    backgroundColor: 'rgba(22, 163, 74, 0.04)',
-    borderWidth: 1,
-    borderColor: 'rgba(22, 163, 74, 0.1)',
+    borderRadius: 14,
+    backgroundColor: colors.surfaceOffset,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -654,30 +651,40 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: colors.textSecondary,
   },
+  itemStockCount: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  itemStockValue: {
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
   stockPill: {
-    alignSelf: 'flex-start',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 8,
-    marginTop: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
   },
   stockPillText: {
-    fontSize: 9,
-    fontWeight: fontWeight.extrabold,
+    fontSize: 10,
+    fontWeight: fontWeight.bold,
   },
   itemActions: {
     flexDirection: 'row',
-    gap: spacing.xs,
+    gap: spacing.sm,
   },
   actionButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.surface,
+    backgroundColor: colors.surfaceOffset,
+  },
+  priceContainer: {
+    gap: 2,
   },
   cardDivider: {
     marginVertical: spacing.md,

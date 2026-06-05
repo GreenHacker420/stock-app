@@ -177,7 +177,7 @@ export function CreateOrder() {
                     <List.Item
                       key={c.id}
                       title={c.name}
-                      description={`${c.phone || "No phone"} • Bal: ₹${Number(c.outstandingAmount || 0).toLocaleString()}`}
+                      description={`${c.phone || "No phone"} • Bal: ₹${Math.abs(Number(c.outstandingAmount || 0)).toLocaleString()}`}
                       onPress={() => {
                         setCustomerId(c.id);
                         setCustomerSearch("");
@@ -196,7 +196,7 @@ export function CreateOrder() {
               <View className="flex-1 pr-2">
                 <Text style={styles.customerName}>{selectedCustomer.name}</Text>
                 <Text variant="bodySmall" style={styles.customerDetails}>
-                  {selectedCustomer.phone || "No phone"} • Outstanding Balance: ₹{Number(selectedCustomer.outstandingAmount || 0).toLocaleString()}
+                  {selectedCustomer.phone || "No phone"} • Outstanding Balance: ₹{Math.abs(Number(selectedCustomer.outstandingAmount || 0)).toLocaleString()}
                 </Text>
               </View>
               <Button compact mode="text" onPress={() => setCustomerId(null)}>Change</Button>
