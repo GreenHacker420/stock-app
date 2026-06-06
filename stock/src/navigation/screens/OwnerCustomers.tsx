@@ -124,7 +124,7 @@ export function CustomerList() {
                 <SkeletonList count={8} itemHeight={80} />
               ) : (
                 <EmptyState 
-                  icon="👥" 
+                  icon="account-group-outline" 
                   title="No customers yet" 
                   subtitle="Add your first customer to get started" 
                 />

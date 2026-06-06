@@ -97,7 +97,7 @@ export function CashClosingReview() {
 
           {!sessionsQuery.isLoading && filteredSessions.length === 0 ? (
             <EmptyState 
-              icon="✅" 
+              icon="check-circle-outline" 
               title="Clear Ledger" 
               subtitle="All shop closures have been processed." 
             />

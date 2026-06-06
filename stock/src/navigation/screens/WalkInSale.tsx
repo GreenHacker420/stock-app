@@ -175,7 +175,7 @@ export function WalkInSale() {
                 <SkeletonList count={6} itemHeight={90} />
               ) : (
                 <EmptyState 
-                  icon="🔍" 
+                  icon="magnify" 
                   title="No products found" 
                   subtitle="Try searching by name or SKU" 
                 />

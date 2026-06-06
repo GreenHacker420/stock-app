@@ -164,7 +164,7 @@ export function ItemList() {
       <Screen>
         <AppHeader title="Inventory Management" />
         <EmptyState 
-          icon="⚠️" 
+          icon="alert-circle-outline" 
           title="Error loading items" 
           subtitle="Something went wrong while fetching your inventory."
           action={<Button label="Retry" onPress={() => itemsQuery.refetch()} />}
@@ -267,7 +267,7 @@ export function ItemList() {
                 <SkeletonList count={8} itemHeight={96} />
               ) : (
                 <EmptyState 
-                  icon="📦" 
+                  icon="package-variant-closed" 
                   title="No items found" 
                   subtitle="Try a different search term or add a new item." 
                 />

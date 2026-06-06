@@ -127,7 +127,7 @@ export function StockEntry() {
                 <SkeletonList count={8} itemHeight={80} />
               ) : (
                 <EmptyState 
-                  icon="📦" 
+                  icon="package-variant-closed" 
                   title="No items found" 
                   subtitle="Try searching for a different item name" 
                 />

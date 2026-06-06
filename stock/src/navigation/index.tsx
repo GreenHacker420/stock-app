@@ -1,7 +1,7 @@
-import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { createBottomTabNavigator, BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import { createStaticNavigation } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { View } from "react-native";
+import { View, Pressable, Dimensions, StyleSheet } from "react-native";
 import { Icon } from "react-native-paper";
 import { AssignStaff } from "./screens/AssignStaff";
 import { CashClosingReview } from "./screens/CashClosingReview";
@@ -20,12 +20,12 @@ import { AddEditStaff, StaffManagement } from "./screens/OwnerStaff";
 import {
   GenericPlannedScreen,
   NewSaleType,
-  Notifications,
   OwnerAlerts,
   OwnerRecords,
   OwnerStock,
-  StaffWork,
 } from "./screens/PlannedScreens";
+import { Notifications } from "./screens/Notifications";
+import { StaffWork } from "./screens/StaffWork";
 import { Profile } from "./screens/Profile";
 import { SetOpeningStock } from "./screens/SetOpeningStock";
 import { Settings } from "./screens/Settings";
@@ -38,142 +38,203 @@ import { CreateOrder } from "./screens/CreateOrder";
 
 import { colors } from "../theme";
 
-const tabIcon = (source: string) => ({ focused }: { color: string; size: number; focused: boolean }) => (
-  <View 
-    style={focused ? {
-      width: 44,
-      height: 44,
-      borderRadius: 22,
-      backgroundColor: "rgba(255, 255, 255, 0.15)", // Premium translucent white-teal active badge
-      alignItems: "center",
-      justifyContent: "center",
-    } : {
-      width: 44,
-      height: 44,
-      alignItems: "center",
-      justifyContent: "center",
-    }}
-  >
-    <Icon source={source} color={focused ? "#ffffff" : "#a3b8b5"} size={22} />
-  </View>
-);
+import { shadow } from "../theme";
+
+export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
+  return (
+    <View style={styles.tabBarContainer}>
+      <View style={styles.tabBarPill}>
+        {state.routes.map((route, index) => {
+          const { options } = descriptors[route.key];
+          const isFocused = state.index === index;
+
+          const onPress = () => {
+            const event = navigation.emit({
+              type: 'tabPress',
+              target: route.key,
+              canPreventDefault: true,
+            });
+
+            if (!isFocused && !event.defaultPrevented) {
+              navigation.navigate(route.name, route.params);
+            }
+          };
+
+          const onLongPress = () => {
+            navigation.emit({
+              type: 'tabLongPress',
+              target: route.key,
+            });
+          };
+
+          let iconName = "help-circle-outline";
+          if (route.name === "StaffHome" || route.name === "OwnerDashboard") {
+            iconName = isFocused ? "view-dashboard" : "view-dashboard-outline";
+          } else if (route.name === "StaffWork") {
+            iconName = isFocused ? "clipboard-list" : "clipboard-list-outline";
+          } else if (route.name === "OwnerRecords") {
+            iconName = isFocused ? "folder-table" : "folder-table-outline";
+          } else if (route.name === "OwnerStock") {
+            iconName = isFocused ? "warehouse" : "warehouse";
+          } else if (route.name === "StaffPayments") {
+            iconName = isFocused ? "cash-register" : "cash-register";
+          } else if (route.name === "Notifications" || route.name === "OwnerAlerts") {
+            iconName = isFocused ? "bell" : "bell-outline";
+          } else if (route.name === "Profile") {
+            iconName = isFocused ? "account-circle" : "account-circle-outline";
+          }
+
+          return (
+            <Pressable
+              key={route.key}
+              accessibilityRole="button"
+              accessibilityState={isFocused ? { selected: true } : {}}
+              accessibilityLabel={options.tabBarAccessibilityLabel}
+              testID={options.tabBarButtonTestID}
+              onPress={onPress}
+              onLongPress={onLongPress}
+              style={styles.tabButton}
+            >
+              <View style={[
+                styles.iconContainer,
+                isFocused && styles.iconContainerActive
+              ]}>
+                <Icon
+                  source={iconName}
+                  color={isFocused ? "#ffffff" : "#475569"}
+                  size={22}
+                />
+              </View>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  tabBarContainer: {
+    position: 'absolute',
+    bottom: 24,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+    elevation: 8,
+  },
+  tabBarPill: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    borderRadius: 32,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    width: Dimensions.get('window').width * 0.88,
+    maxWidth: 360,
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.05)',
+    ...shadow.lg,
+  },
+  tabButton: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 48,
+  },
+  iconContainer: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  iconContainerActive: {
+    backgroundColor: '#111827',
+    transform: [{ scale: 1.08 }],
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 3,
+  },
+});
 
 const floatingTabOptions = {
   headerShown: false,
-  tabBarShowLabel: false,
-  safeAreaInsets: { bottom: 0, top: 0, left: 0, right: 0 },
-  tabBarItemStyle: {
-    height: 64,
-    justifyContent: "center" as const,
-    alignItems: "center" as const,
-    paddingTop: 0,
-    paddingBottom: 0,
-    margin: 0,
-  },
-  tabBarIconStyle: {
-    justifyContent: "center" as const,
-    alignItems: "center" as const,
-    margin: 0,
-    padding: 0,
-  },
-  tabBarLabelStyle: {
-    display: "none" as const,
-  },
-  tabBarStyle: {
-    position: "absolute" as const,
-    bottom: 20,
-    left: 20,
-    right: 20,
-    height: 64,
-    borderRadius: 32, // Perfect circle ends for 64 height
-    backgroundColor: "#08332c", // Premium Deep Forest Teal matching reference mockup
-    borderWidth: 0,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.12,
-    shadowRadius: 8,
-    elevation: 6,
-    paddingBottom: 0,
-    paddingTop: 0,
-    overflow: "visible" as const,
-  },
 };
 
 const StaffTabs = createBottomTabNavigator({
+  tabBar: (props) => <CustomTabBar {...props} />,
   screenOptions: floatingTabOptions,
   screens: {
     StaffHome: {
       screen: Home,
       options: {
         title: "Home",
-        tabBarIcon: tabIcon("view-dashboard-outline"),
       },
     },
     StaffWork: {
       screen: StaffWork,
       options: {
         title: "Work",
-        tabBarIcon: tabIcon("clipboard-list-outline"),
       },
     },
     StaffPayments: {
       screen: Settings,
       options: {
         title: "DMs/Pay",
-        tabBarIcon: tabIcon("cash-register"),
       },
     },
     Notifications: {
       screen: Notifications,
       options: {
         title: "Alerts",
-        tabBarIcon: tabIcon("bell-outline"),
       },
     },
     Profile: {
       screen: Profile,
       options: {
-        tabBarIcon: tabIcon("account-circle-outline"),
+        title: "Profile",
       },
     },
   },
 });
 
 const OwnerTabs = createBottomTabNavigator({
+  tabBar: (props) => <CustomTabBar {...props} />,
   screenOptions: floatingTabOptions,
   screens: {
     OwnerDashboard: {
       screen: Home,
       options: {
         title: "Dashboard",
-        tabBarIcon: tabIcon("view-dashboard-outline"),
       },
     },
     OwnerRecords: {
       screen: OwnerRecords,
       options: {
         title: "Records",
-        tabBarIcon: tabIcon("folder-table-outline"),
       },
     },
     OwnerStock: {
       screen: OwnerStock,
       options: {
         title: "Stock",
-        tabBarIcon: tabIcon("warehouse"),
       },
     },
     OwnerAlerts: {
       screen: OwnerAlerts,
       options: {
         title: "Alerts",
-        tabBarIcon: tabIcon("bell-alert-outline"),
       },
     },
     Profile: {
       screen: Profile,
       options: {
-        tabBarIcon: tabIcon("account-circle-outline"),
+        title: "Profile",
       },
     },
   },

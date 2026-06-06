@@ -260,7 +260,7 @@ export function OrdersToPack() {
               <SkeletonList count={5} itemHeight={130} />
             ) : (
               <EmptyState 
-                icon="📋" 
+                icon="clipboard-text-outline" 
                 title="No orders found" 
                 subtitle={`New orders in "${tab}" will appear here.`} 
               />
