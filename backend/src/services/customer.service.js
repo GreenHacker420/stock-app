@@ -2,38 +2,61 @@ import prisma from "../lib/db.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 import { writeAuditLog } from "../utils/auditLog.js";
-import { money, sub } from "../utils/money.js";
+import { money } from "../utils/money.js";
+import { listSales } from "./sale.service.js";
+import { listPayments } from "./payment.service.js";
+import { listDeliveryMemos } from "./deliveryMemo.service.js";
 
-export async function computeDynamicCustomerOutstanding(customerId) {
-  const creditSum = await prisma.creditOutstanding.aggregate({
-    where: {
-      customerId,
-      status: { notIn: ["PAID", "CANCELLED"] }
-    },
-    _sum: {
-      pendingAmount: true
-    }
+export async function listCustomerSales(user, id, query) {
+  const customer = await getCustomer(user, id);
+  return listSales(user, { ...query, shopId: customer.shopId, customerId: id });
+}
+
+export async function listCustomerPayments(user, id, query) {
+  const customer = await getCustomer(user, id);
+  return listPayments(user, { ...query, shopId: customer.shopId, customerId: id });
+}
+
+export async function listCustomerDMs(user, id, query) {
+  const customer = await getCustomer(user, id);
+  return listDeliveryMemos(user, { ...query, shopId: customer.shopId, customerId: id });
+}
+
+export async function listCustomerReturns(user, id) {
+  const customer = await getCustomer(user, id);
+  return prisma.inventoryReturn.findMany({
+    where: { customerId: id },
+    include: { items: { include: { item: true } } },
+    orderBy: { createdAt: "desc" },
   });
+}
 
-  const advanceSum = await prisma.customerAdvance.aggregate({
-    where: {
-      customerId,
-      status: { notIn: ["PAID", "CANCELLED"] }
-    },
-    _sum: {
-      pendingAmount: true
-    }
-  });
+export async function getCustomerTimeline(user, id) {
+  const customer = await getCustomer(user, id);
+  
+  const [sales, payments, dms, returns, audits] = await Promise.all([
+    prisma.sale.findMany({ where: { customerId: id }, take: 20, orderBy: { createdAt: "desc" } }),
+    prisma.payment.findMany({ where: { customerId: id }, take: 20, orderBy: { createdAt: "desc" } }),
+    prisma.deliveryMemo.findMany({ where: { customerId: id }, take: 20, orderBy: { createdAt: "desc" } }),
+    prisma.inventoryReturn.findMany({ where: { customerId: id }, take: 20, orderBy: { createdAt: "desc" } }),
+    prisma.auditLog.findMany({ where: { entityType: "Customer", entityId: id }, take: 20, orderBy: { createdAt: "desc" } }),
+  ]);
 
-  const credits = creditSum._sum.pendingAmount || money(0);
-  const advances = advanceSum._sum.pendingAmount || money(0);
-  return sub(credits, advances);
+  const timeline = [
+    ...sales.map(s => ({ id: s.id, type: "SALE", date: s.createdAt, title: `Sale #${s.saleNumber}`, amount: s.totalAmount, status: s.saleStatus })),
+    ...payments.map(p => ({ id: p.id, type: "PAYMENT", date: p.receivedAt, title: `${p.paymentMode} Payment`, amount: p.amount, status: p.verificationStatus })),
+    ...dms.map(d => ({ id: d.id, type: "DM", date: d.createdAt, title: `Delivery Memo #${d.dmNumber}`, amount: d.estimatedAmount, status: d.status })),
+    ...returns.map(r => ({ id: r.id, type: "RETURN", date: r.createdAt, title: `Return #${r.returnNumber}`, amount: r.netAmount, status: r.status })),
+    ...audits.map(a => ({ id: a.id, type: "AUDIT", date: a.createdAt, title: a.action, detail: a.reason })),
+  ].sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  return timeline;
 }
 
 export async function listCustomers(user, { shopId, search }) {
   await assertShopAccess(user, shopId);
 
-  const customers = await prisma.customer.findMany({
+  return prisma.customer.findMany({
     where: {
       shopId,
       status: "ACTIVE",
@@ -47,19 +70,12 @@ export async function listCustomers(user, { shopId, search }) {
     },
     orderBy: { createdAt: "desc" },
   });
-
-  for (const customer of customers) {
-    customer.outstandingAmount = await computeDynamicCustomerOutstanding(customer.id);
-  }
-
-  return customers;
 }
 
 export async function getCustomer(user, id) {
   const customer = await prisma.customer.findUnique({ where: { id } });
   if (!customer) throw new ApiError(404, "Customer not found");
   await assertShopAccess(user, customer.shopId);
-  customer.outstandingAmount = await computeDynamicCustomerOutstanding(id);
   return customer;
 }
 
@@ -77,25 +93,10 @@ export async function createCustomer(user, data) {
       creditLimit: data.creditLimit ? money(data.creditLimit) : null,
       notes: data.notes,
       createdById: user.id,
-      outstandingAmount: money(0), // Always 0 in database storage!
+      outstandingAmount: money(data.outstandingAmount || 0),
+      advanceBalance: money(data.advanceBalance || 0),
     },
   });
-
-  const onboardingBalance = money(data.outstandingAmount);
-  if (onboardingBalance.gt(0)) {
-    await prisma.creditOutstanding.create({
-      data: {
-        shopId: customer.shopId,
-        customerId: customer.id,
-        originalAmount: onboardingBalance,
-        pendingAmount: onboardingBalance,
-        paidAmount: money(0),
-        sourceType: "OPENING_BALANCE",
-        status: "PENDING",
-        createdById: user.id
-      }
-    });
-  }
 
   await writeAuditLog({
     userId: user.id,
@@ -107,7 +108,6 @@ export async function createCustomer(user, data) {
     newValueJson: customer,
   });
 
-  customer.outstandingAmount = onboardingBalance;
   return customer;
 }
 
@@ -116,8 +116,9 @@ export async function updateCustomer(user, id, data) {
   if (!existing) throw new ApiError(404, "Customer not found");
   await assertShopAccess(user, existing.shopId);
 
-  // Strip outstandingAmount so it cannot be directly updated
-  const { outstandingAmount, ...updateData } = data;
+  // Strip outstandingAmount so it cannot be directly updated via normal updates
+  const { outstandingAmount, advanceBalance, ...updateData } = data;
+  
   if (updateData.creditLimit !== undefined) {
     updateData.creditLimit = updateData.creditLimit ? money(updateData.creditLimit) : null;
   }
@@ -138,21 +139,21 @@ export async function updateCustomer(user, id, data) {
     newValueJson: customer,
   });
 
-  customer.outstandingAmount = await computeDynamicCustomerOutstanding(id);
   return customer;
 }
 
 export async function getOutstanding(user, id) {
   const customer = await getCustomer(user, id);
-  const records = await prisma.creditOutstanding.findMany({
-    where: { customerId: id, status: { in: ["PENDING", "PARTIALLY_PAID", "OVERDUE"] } },
-    include: { sale: true, deliveryMemo: true, order: true },
-    orderBy: [{ dueDate: "asc" }, { createdAt: "desc" }],
+  const sales = await prisma.sale.findMany({
+    where: { customerId: id, paymentStatus: { in: ["UNPAID", "PARTIALLY_PAID"] }, saleStatus: { not: "CANCELLED" } },
+    orderBy: { createdAt: "desc" }
   });
-
-  // Calculate dynamic pending sum using Decimal arithmetic
-  const totalPending = records.reduce((sum, record) => sum.plus(record.pendingAmount), money(0));
-  return { customer, totalPending, records };
+  return {
+    customer,
+    outstandingAmount: customer.outstandingAmount,
+    advanceBalance: customer.advanceBalance,
+    sales
+  };
 }
 
 export async function getPriceHistory(user, id, { itemId }) {

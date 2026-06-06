@@ -1,4 +1,4 @@
-# SHOPCONTROL V2 – PRODUCT RESET & ARCHITECTURE FREEZE
+# SHOPCONTROL – PRODUCT RESET & ARCHITECTURE FREEZE
 
 **Treat this document as the source of truth for all schema, service, API, UI, workflow, and architectural decisions.**
 

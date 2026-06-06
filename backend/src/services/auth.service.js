@@ -2,12 +2,13 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import prisma from "../lib/db.js";
 import { ApiError } from "../utils/ApiError.js";
+import { OWNER_PERMISSIONS, STAFF_PERMISSIONS } from "../utils/permissions.js";
 
 function signToken(user) {
   return jwt.sign(
     {
       sub: user.id,
-      role: user.role.name,
+      role: user.role,
     },
     process.env.JWT_SECRET || "dev-secret",
     { expiresIn: process.env.JWT_EXPIRES_IN || "7d" },
@@ -33,13 +34,6 @@ export async function login({ identifier, password }) {
     where: {
       OR: [{ mobile: identifier }, { email: identifier }],
     },
-    include: {
-      role: {
-        include: {
-          permissions: true,
-        },
-      },
-    },
   });
 
   if (!user || user.status !== "ACTIVE") {
@@ -52,6 +46,7 @@ export async function login({ identifier, password }) {
   }
 
   const token = signToken(user);
+  const permissions = user.role === "OWNER" ? OWNER_PERMISSIONS : STAFF_PERMISSIONS;
 
   return {
     token,
@@ -60,8 +55,8 @@ export async function login({ identifier, password }) {
       name: user.name,
       mobile: user.mobile,
       email: user.email,
-      role: user.role.name,
-      permissions: user.role.permissions.map((permission) => permission.action),
+      role: user.role,
+      permissions,
     },
   };
 }
@@ -79,29 +74,24 @@ export async function updateMe(currentUser, data) {
   const user = await prisma.user.update({
     where: { id: currentUser.id },
     data: update,
-    include: { role: { include: { permissions: true } } },
   });
+
+  const permissions = user.role === "OWNER" ? OWNER_PERMISSIONS : STAFF_PERMISSIONS;
 
   return {
     id: user.id,
     name: user.name,
     mobile: user.mobile,
     email: user.email,
-    role: user.role.name,
-    permissions: user.role.permissions.map((permission) => permission.action),
+    role: user.role,
+    permissions,
   };
 }
 
 export async function listStaff(currentUser) {
-  const staffRole = await prisma.role.findUnique({
-    where: { name: "STAFF" },
-  });
-  if (!staffRole) {
-    return [];
-  }
   return prisma.user.findMany({
     where: {
-      roleId: staffRole.id,
+      role: "STAFF",
       status: "ACTIVE",
     },
     select: {
@@ -117,13 +107,6 @@ export async function listStaff(currentUser) {
 }
 
 export async function createStaff(currentUser, data) {
-  const staffRole = await prisma.role.findUnique({
-    where: { name: "STAFF" },
-  });
-  if (!staffRole) {
-    throw new ApiError(500, "Staff role not found in system");
-  }
-
   const existing = await prisma.user.findFirst({
     where: {
       OR: [
@@ -144,7 +127,7 @@ export async function createStaff(currentUser, data) {
       mobile: data.mobile,
       email: data.email,
       passwordHash,
-      roleId: staffRole.id,
+      role: "STAFF",
       status: "ACTIVE",
     },
     select: {
@@ -159,9 +142,8 @@ export async function createStaff(currentUser, data) {
 }
 
 export async function updateStaff(currentUser, staffId, data) {
-  const staffRole = await prisma.role.findUnique({ where: { name: "STAFF" } });
   const existing = await prisma.user.findUnique({ where: { id: staffId } });
-  if (!existing || existing.roleId !== staffRole?.id) {
+  if (!existing || existing.role !== "STAFF") {
     throw new ApiError(404, "Staff not found");
   }
 

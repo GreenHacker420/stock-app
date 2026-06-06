@@ -1,6 +1,31 @@
 import { asyncHandler } from "../utils/asyncHandler.js";
 import * as customerService from "../services/customer.service.js";
 
+export const listCustomerSales = asyncHandler(async (req, res) => {
+  const data = await customerService.listCustomerSales(req.user, req.validated.params.id, req.validated.query);
+  res.json({ success: true, data });
+});
+
+export const listCustomerPayments = asyncHandler(async (req, res) => {
+  const data = await customerService.listCustomerPayments(req.user, req.validated.params.id, req.validated.query);
+  res.json({ success: true, data });
+});
+
+export const listCustomerDMs = asyncHandler(async (req, res) => {
+  const data = await customerService.listCustomerDMs(req.user, req.validated.params.id, req.validated.query);
+  res.json({ success: true, data });
+});
+
+export const listCustomerReturns = asyncHandler(async (req, res) => {
+  const data = await customerService.listCustomerReturns(req.user, req.validated.params.id);
+  res.json({ success: true, data });
+});
+
+export const getCustomerTimeline = asyncHandler(async (req, res) => {
+  const data = await customerService.getCustomerTimeline(req.user, req.validated.params.id);
+  res.json({ success: true, data });
+});
+
 export const listCustomers = asyncHandler(async (req, res) => {
   const customers = await customerService.listCustomers(req.user, req.validated.query);
   res.json({ success: true, data: customers });

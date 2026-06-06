@@ -8,9 +8,10 @@ import {
   generateRecordNumber,
   getBillPaymentStatus,
   prisma,
+  increaseCustomerDebt,
 } from "./transactionHelpers.js";
 import { reserveStockForOrder } from "./stock.service.js";
-import { qty } from "../utils/money.js";
+import { qty, money } from "../utils/money.js";
 
 async function assertOrderAccess(user, orderId) {
   const order = await prisma.order.findUnique({
@@ -131,12 +132,13 @@ export async function createOrder(user, data) {
   });
 }
 
-export async function listOrders(user, { shopId, status }) {
+export async function listOrders(user, { shopId, customerId, status }) {
   await assertShopAccess(user, shopId);
 
   return prisma.order.findMany({
     where: {
       shopId,
+      customerId: customerId || undefined,
       status: status || undefined,
       assignedStaffId: user.role === "STAFF" ? user.id : undefined,
     },
@@ -495,6 +497,9 @@ export async function createDmFromOrder(user, id, data) {
         userId: user.id,
       });
     }
+    
+    // Increase global customer debt
+    await increaseCustomerDebt(tx, order.customerId, totalAmount);
 
     await createDispatchFromOrder(tx, user, order, items, { dmId: dm.id });
     await tx.order.update({ where: { id }, data: { status: "DM_CREATED" } });
@@ -532,6 +537,8 @@ export async function convertOrderToSale(user, id, data) {
         staffId: user.id,
         customerId: order.customerId,
         orderId: order.id,
+        gstRequired: !!data.gstRequired,
+        gstInvoiceStatus: data.gstRequired ? "PENDING" : "NOT_REQUIRED",
         subtotal,
         discountAmount,
         totalAmount,
@@ -564,6 +571,9 @@ export async function convertOrderToSale(user, id, data) {
         userId: user.id,
       });
     }
+
+    // Increase global customer debt
+    await increaseCustomerDebt(tx, order.customerId, totalAmount);
 
     const paymentResult = await applyPayments(tx, {
       user,

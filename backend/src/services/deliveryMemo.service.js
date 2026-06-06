@@ -6,7 +6,7 @@ import {
   createStockOut,
   generateRecordNumber,
   prisma,
-  autoAllocateCustomerAdvances,
+  increaseCustomerDebt,
   getBillPaymentStatus,
 } from "./transactionHelpers.js";
 import { money, sub } from "../utils/money.js";
@@ -71,21 +71,8 @@ export async function createDeliveryMemo(user, data) {
     }
 
     if (data.customerId) {
-      // Create the CreditOutstanding record representing initial full debt
-      await tx.creditOutstanding.create({
-        data: {
-          shopId: data.shopId,
-          customerId: data.customerId,
-          dmId: dm.id,
-          originalAmount: totalVal,
-          pendingAmount: totalVal,
-          paidAmount: money(0),
-          status: "PENDING",
-          sourceType: "DM",
-          createdById: user.id,
-          dueDate: data.expectedPaymentDate
-        }
-      });
+      // Increase global customer debt (decreases advance or increases outstanding)
+      await increaseCustomerDebt(tx, data.customerId, totalVal);
     }
 
     const paymentResult = await applyPayments(tx, {
@@ -97,41 +84,16 @@ export async function createDeliveryMemo(user, data) {
       payments: data.payments || [],
     });
 
-    if (data.customerId) {
-      // Auto-allocate existing customer advances against the remaining debt
-      await autoAllocateCustomerAdvances(tx, {
-        customerId: data.customerId,
-        shopId: data.shopId,
-        userId: user.id
-      });
-    }
-
-    // Read the final dynamic balances from CreditOutstanding or paymentResult
-    let finalPaid = paymentResult.paidAmount;
-    let finalBalance = paymentResult.balanceAmount;
-    let finalPaymentStatus = paymentResult.paymentStatus;
-
-    if (data.customerId) {
-      const debt = await tx.creditOutstanding.findUnique({
-        where: { dmId: dm.id }
-      });
-      if (debt) {
-        finalBalance = money(debt.pendingAmount);
-        finalPaid = sub(totalVal, finalBalance);
-        finalPaymentStatus = getBillPaymentStatus(totalVal, finalPaid);
-      }
-    }
-
     const updated = await tx.deliveryMemo.update({
       where: { id: dm.id },
       data: {
-        paidAmount: finalPaid,
-        balanceAmount: finalBalance,
-        paymentStatus: finalPaymentStatus,
+        paidAmount: paymentResult.paidAmount,
+        balanceAmount: paymentResult.balanceAmount,
+        paymentStatus: paymentResult.paymentStatus,
         status:
-          finalPaymentStatus === "PAID"
+          paymentResult.paymentStatus === "PAID"
             ? "FULLY_PAID"
-            : finalPaymentStatus === "PARTIALLY_PAID"
+            : paymentResult.paymentStatus === "PARTIALLY_PAID"
               ? "PARTIALLY_PAID"
               : "DISPATCHED",
       },
@@ -152,11 +114,12 @@ export async function createDeliveryMemo(user, data) {
   });
 }
 
-export async function listDeliveryMemos(user, { shopId }) {
+export async function listDeliveryMemos(user, { shopId, customerId }) {
   await assertShopAccess(user, shopId);
   return prisma.deliveryMemo.findMany({
     where: {
       shopId,
+      customerId: customerId || undefined,
       staffId: user.role === "STAFF" ? user.id : undefined,
     },
     include: { customer: true, items: { include: { item: true } }, payments: true },

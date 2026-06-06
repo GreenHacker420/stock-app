@@ -478,6 +478,26 @@ export async function fetchCustomerOutstanding(token: string, customerId: string
   return apiRequest(`/customers/${customerId}/outstanding`, { token });
 }
 
+export async function fetchCustomerSales(token: string, customerId: string) {
+  return apiRequest<Sale[]>(`/customers/${customerId}/sales`, { token });
+}
+
+export async function fetchCustomerPayments(token: string, customerId: string) {
+  return apiRequest<Payment[]>(`/customers/${customerId}/payments`, { token });
+}
+
+export async function fetchCustomerDMs(token: string, customerId: string) {
+  return apiRequest<any[]>(`/customers/${customerId}/delivery-memos`, { token });
+}
+
+export async function fetchCustomerReturns(token: string, customerId: string) {
+  return apiRequest<any[]>(`/customers/${customerId}/returns`, { token });
+}
+
+export async function fetchCustomerTimeline(token: string, customerId: string) {
+  return apiRequest<any[]>(`/customers/${customerId}/timeline`, { token });
+}
+
 export async function fetchCustomerPriceHistory(token: string, customerId: string, itemId?: string) {
   const query = itemId ? `?itemId=${encodeURIComponent(itemId)}` : "";
   return apiRequest(`/customers/${customerId}/price-history${query}`, { token });

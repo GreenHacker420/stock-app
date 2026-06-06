@@ -6,7 +6,7 @@ import {
   createStockOut,
   generateRecordNumber,
   prisma,
-  autoAllocateCustomerAdvances,
+  increaseCustomerDebt,
   getBillPaymentStatus,
 } from "./transactionHelpers.js";
 import { money, sub } from "../utils/money.js";
@@ -56,6 +56,8 @@ export async function createSale(user, data) {
         staffId: user.id,
         customerId: data.customerId,
         isWalkin: !!data.isWalkin,
+        gstRequired: !!data.gstRequired,
+        gstInvoiceStatus: data.gstRequired ? "PENDING" : "NOT_REQUIRED",
         subtotal: subtotalVal,
         discountAmount: discountVal,
         totalAmount: totalVal,
@@ -89,21 +91,8 @@ export async function createSale(user, data) {
     }
 
     if (!data.isWalkin && data.customerId) {
-      // Create the CreditOutstanding record representing initial full debt
-      await tx.creditOutstanding.create({
-        data: {
-          shopId: data.shopId,
-          customerId: data.customerId,
-          saleId: sale.id,
-          originalAmount: totalVal,
-          pendingAmount: totalVal,
-          paidAmount: money(0),
-          status: "PENDING",
-          sourceType: "SALE",
-          createdById: user.id,
-          dueDate: data.dueDate
-        }
-      });
+      // Increase global customer debt (decreases advance or increases outstanding)
+      await increaseCustomerDebt(tx, data.customerId, totalVal);
     }
 
     const paymentResult = await applyPayments(tx, {
@@ -119,38 +108,13 @@ export async function createSale(user, data) {
       throw new ApiError(400, "Walk-in sale must be fully paid");
     }
 
-    if (!data.isWalkin && data.customerId) {
-      // Auto-allocate existing customer advances against the remaining debt
-      await autoAllocateCustomerAdvances(tx, {
-        customerId: data.customerId,
-        shopId: data.shopId,
-        userId: user.id
-      });
-    }
-
-    // Read the final dynamic balances from CreditOutstanding or paymentResult
-    let finalPaid = paymentResult.paidAmount;
-    let finalBalance = paymentResult.balanceAmount;
-    let finalPaymentStatus = paymentResult.paymentStatus;
-
-    if (!data.isWalkin && data.customerId) {
-      const debt = await tx.creditOutstanding.findUnique({
-        where: { saleId: sale.id }
-      });
-      if (debt) {
-        finalBalance = money(debt.pendingAmount);
-        finalPaid = sub(totalVal, finalBalance);
-        finalPaymentStatus = getBillPaymentStatus(totalVal, finalPaid);
-      }
-    }
-
     const updatedSale = await tx.sale.update({
       where: { id: sale.id },
       data: {
-        paidAmount: finalPaid,
-        balanceAmount: finalBalance,
-        paymentStatus: finalPaymentStatus,
-        saleStatus: finalPaymentStatus === "PAID" ? "PAID" : "PENDING_PAYMENT",
+        paidAmount: paymentResult.paidAmount,
+        balanceAmount: paymentResult.balanceAmount,
+        paymentStatus: paymentResult.paymentStatus,
+        saleStatus: paymentResult.paymentStatus === "PAID" ? "PAID" : "PENDING_PAYMENT",
       },
       include: { items: true, payments: true },
     });
@@ -171,12 +135,13 @@ export async function createSale(user, data) {
   });
 }
 
-export async function listSales(user, { shopId }) {
+export async function listSales(user, { shopId, customerId }) {
   await assertShopAccess(user, shopId);
 
   return prisma.sale.findMany({
     where: {
       shopId,
+      customerId: customerId || undefined,
       staffId: user.role === "STAFF" ? user.id : undefined,
     },
     include: { customer: true, items: { include: { item: true } }, payments: true },

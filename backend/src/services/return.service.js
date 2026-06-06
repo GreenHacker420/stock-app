@@ -1,10 +1,9 @@
 import prisma from "../lib/db.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
-import { money, sub, qty, ZERO } from "../utils/money.js";
+import { money, qty, ZERO } from "../utils/money.js";
 import { writeAuditLog } from "../utils/auditLog.js";
-import { generateRecordNumber, getBillPaymentStatus } from "./transactionHelpers.js";
-import { Prisma } from "../generated/prisma/index.js";
+import { generateRecordNumber, decreaseCustomerDebt } from "./transactionHelpers.js";
 
 export async function createReturn(user, data) {
   await assertShopAccess(user, data.shopId);
@@ -188,7 +187,7 @@ export async function approveReturn(user, id) {
   });
 }
 
-export async function completeReturn(user, id, allocationData = {}) {
+export async function completeReturn(user, id) {
   const invReturn = await prisma.inventoryReturn.findUnique({
     where: { id },
     include: { items: true }
@@ -216,151 +215,14 @@ export async function completeReturn(user, id, allocationData = {}) {
       });
     }
 
-    // 2. Financial settlement
+    // 2. Adjust Financial Balance
     if (invReturn.sourceType === "SALE") {
-      // A. Create Credit Note
-      const creditNote = await tx.creditNote.create({
-        data: {
-          shopId: invReturn.shopId,
-          customerId: invReturn.customerId,
-          saleId: invReturn.saleId,
-          inventoryReturnId: invReturn.id,
-          amount: invReturn.netAmount,
-          status: "ISSUED"
-        }
-      });
-
-      // B. Determine allocations
-      let remainingCredit = money(invReturn.netAmount);
-      let appliedAmount = ZERO;
-      let refundAmount = ZERO;
-      let advanceAmount = ZERO;
-
-      // Automatically apply to active debt if any exists for the sale
-      const activeDebt = await tx.creditOutstanding.findUnique({
-        where: { saleId: invReturn.saleId }
-      });
-
-      if (activeDebt && activeDebt.pendingAmount.gt(0)) {
-        const applyToDebt = money(Prisma.Decimal.min(remainingCredit, activeDebt.pendingAmount));
-        appliedAmount = applyToDebt;
-        remainingCredit = remainingCredit.minus(applyToDebt);
-
-        // Update CreditOutstanding record
-        const newCreditNoteAmount = money(activeDebt.creditNoteAmount).plus(applyToDebt);
-        const newPendingAmount = money(activeDebt.originalAmount)
-          .minus(activeDebt.paidAmount)
-          .minus(newCreditNoteAmount);
-
-        const newStatus = newPendingAmount.eq(0) ? "PAID" : "PARTIALLY_PAID";
-
-        await tx.creditOutstanding.update({
-          where: { id: activeDebt.id },
-          data: {
-            creditNoteAmount: newCreditNoteAmount,
-            pendingAmount: newPendingAmount,
-            status: newStatus
-          }
-        });
-
-        // Update Sale columns
-        const sale = await tx.sale.findUnique({ where: { id: invReturn.saleId } });
-        if (sale) {
-          const newSaleBalance = newPendingAmount;
-          const newSalePaid = money(sale.totalAmount).minus(newSaleBalance);
-          const newSalePaymentStatus = getBillPaymentStatus(sale.totalAmount, newSalePaid);
-
-          await tx.sale.update({
-            where: { id: sale.id },
-            data: {
-              paidAmount: newSalePaid,
-              balanceAmount: newSaleBalance,
-              paymentStatus: newSalePaymentStatus,
-              saleStatus: newSalePaymentStatus === "PAID" ? "PAID" : "PENDING_PAYMENT"
-            }
-          });
-        }
-      }
-
-      // Allocate remaining credit based on user inputs
-      if (remainingCredit.gt(0)) {
-        const inputRefund = money(allocationData.refundAmount || 0);
-        const inputAdvance = money(allocationData.advanceAmount || 0);
-
-        if (inputRefund.plus(inputAdvance).gt(remainingCredit)) {
-          throw new ApiError(
-            400,
-            `Allocations (${inputRefund.toString()} refund, ${inputAdvance.toString()} advance) exceed remaining credit note amount (${remainingCredit.toString()})`
-          );
-        }
-
-        // Force remaining credit to either advance or refund if not specified, default to Advance
-        if (inputRefund.eq(0) && inputAdvance.eq(0)) {
-          advanceAmount = remainingCredit;
-        } else {
-          refundAmount = inputRefund;
-          advanceAmount = inputAdvance;
-        }
-
-        // Apply direct Refund
-        if (refundAmount.gt(0)) {
-          const payment = await tx.payment.create({
-            data: {
-              shopId: invReturn.shopId,
-              saleId: invReturn.saleId,
-              customerId: invReturn.customerId,
-              paymentMode: "REFUND",
-              amount: refundAmount,
-              verificationStatus: "VERIFIED",
-              receivedById: user.id
-            }
-          });
-
-          await tx.refund.create({
-            data: {
-              shopId: invReturn.shopId,
-              customerId: invReturn.customerId,
-              saleId: invReturn.saleId,
-              creditNoteId: creditNote.id,
-              paymentId: payment.id,
-              amount: refundAmount,
-              sourceType: allocationData.refundSource || "CASH",
-              approvedById: user.id
-            }
-          });
-        }
-
-        // Apply Customer Advance
-        if (advanceAmount.gt(0)) {
-          await tx.customerAdvance.create({
-            data: {
-              shopId: invReturn.shopId,
-              customerId: invReturn.customerId,
-              originalAmount: advanceAmount,
-              pendingAmount: advanceAmount,
-              paidAmount: ZERO,
-              status: "PENDING",
-              createdById: user.id
-            }
-          });
-        }
-      }
-
-      // Update CreditNote status and allocations
-      const totalAllocated = appliedAmount.plus(refundAmount).plus(advanceAmount);
-      const creditNoteStatus = totalAllocated.eq(creditNote.amount) ? "FULLY_APPLIED" : "PARTIALLY_APPLIED";
-
-      await tx.creditNote.update({
-        where: { id: creditNote.id },
-        data: {
-          appliedAmount,
-          refundAmount,
-          advanceAmount,
-          status: creditNoteStatus
-        }
-      });
+      // Decrease customer outstanding balance (increases advance or reduces outstanding)
+      await decreaseCustomerDebt(tx, invReturn.customerId, invReturn.netAmount);
     } else if (invReturn.sourceType === "DELIVERY_MEMO") {
-      // B. Update DeliveryMemoItem returnedQty
+      // Decrease customer debt + Update DeliveryMemoItem returnedQty
+      await decreaseCustomerDebt(tx, invReturn.customerId, invReturn.netAmount);
+
       for (const item of invReturn.items) {
         if (item.deliveryMemoItemId) {
           const dmItem = await tx.deliveryMemoItem.findUnique({
@@ -386,7 +248,7 @@ export async function completeReturn(user, id, allocationData = {}) {
         status: "COMPLETED",
         completedAt: new Date()
       },
-      include: { items: true, creditNote: true }
+      include: { items: true }
     });
 
     await writeAuditLog({
