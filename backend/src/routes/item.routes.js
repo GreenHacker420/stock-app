@@ -13,6 +13,8 @@ const listSchema = z.object({
   query: z.object({
     shopId: z.string().min(1),
     search: z.string().optional(),
+    page: z.coerce.number().int().positive().optional(),
+    limit: z.coerce.number().int().positive().optional(),
   }),
   params: z.object({}).optional(),
   body: z.object({}).optional(),

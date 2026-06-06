@@ -183,9 +183,9 @@ const StaffTabs = createBottomTabNavigator({
       },
     },
     StaffPayments: {
-      screen: Settings,
+      screen: TakePayment,
       options: {
-        title: "DMs/Pay",
+        title: "POS",
       },
     },
     Notifications: {

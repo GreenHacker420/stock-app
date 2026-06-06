@@ -1,5 +1,6 @@
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
+import { createNotification } from "./notification.service.js";
 import {
   applyPayments,
   calculateItemTotals,
@@ -49,6 +50,8 @@ export async function createOrder(user, data) {
       prefix: "ORD",
     });
 
+    const initialStatus = data.assignedStaffId ? "SENT_TO_STAFF" : "DRAFT";
+
     const order = await tx.order.create({
       data: {
         orderNumber,
@@ -58,7 +61,7 @@ export async function createOrder(user, data) {
         assignedStaffId: data.assignedStaffId,
         expectedDispatchDate: data.expectedDispatchDate,
         priority: data.priority || "NORMAL",
-        status: "DRAFT",
+        status: initialStatus,
         subtotal,
         discountAmount,
         totalAmount,
@@ -81,7 +84,7 @@ export async function createOrder(user, data) {
         events: {
           create: {
             eventType: "ORDER_CREATED",
-            newStatus: "DRAFT",
+            newStatus: initialStatus,
             createdById: user.id,
             note: data.ownerNotes,
           },
@@ -89,6 +92,26 @@ export async function createOrder(user, data) {
       },
       include: { items: true },
     });
+
+    if (data.assignedStaffId) {
+      await tx.packingTask.create({
+        data: {
+          id: `${order.id}:${data.assignedStaffId}`,
+          orderId: order.id,
+          shopId: data.shopId,
+          staffId: data.assignedStaffId,
+        },
+      });
+
+      await createNotification(tx, {
+        userId: data.assignedStaffId,
+        shopId: data.shopId,
+        triggerEvent: "ORDER_ASSIGNED",
+        entityType: "Order",
+        entityId: order.id,
+        message: `New order #${order.orderNumber} assigned to you for packing.`,
+      });
+    }
 
     await tx.auditLog.create({
       data: {
@@ -380,7 +403,7 @@ export async function createDmFromOrder(user, id, data) {
     : order.items.map((item) => ({
         orderItemId: item.id,
         itemId: item.itemId,
-        quantity: Number(item.quantityPacked || item.quantityOrdered),
+        quantity: Number(item.quantityPacked) || Number(item.quantityOrdered),
         rate: Number(item.rate),
         discountAmount: Number(item.discountAmount || 0),
       }));
@@ -450,7 +473,7 @@ export async function convertOrderToSale(user, id, data) {
     : order.items.map((item) => ({
         orderItemId: item.id,
         itemId: item.itemId,
-        quantity: Number(item.quantityPacked || item.quantityOrdered),
+        quantity: Number(item.quantityPacked) || Number(item.quantityOrdered),
         rate: Number(item.rate),
         discountAmount: Number(item.discountAmount || 0),
       }));

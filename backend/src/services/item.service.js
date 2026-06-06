@@ -3,23 +3,39 @@ import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 import { writeAuditLog } from "../utils/auditLog.js";
 
-export async function listItems(user, { shopId, search }) {
+export async function listItems(user, { shopId, search, page = 1, limit = 50 }) {
   await assertShopAccess(user, shopId);
 
-  return prisma.item.findMany({
-    where: {
-      shopId,
-      status: "ACTIVE",
-      OR: search
-        ? [
-            { name: { contains: search, mode: "insensitive" } },
-            { sku: { contains: search, mode: "insensitive" } },
-          ]
-        : undefined,
-    },
-    include: { category: true },
-    orderBy: { name: "asc" },
-  });
+  const where = {
+    shopId,
+    status: "ACTIVE",
+    OR: search
+      ? [
+          { name: { contains: search, mode: "insensitive" } },
+          { sku: { contains: search, mode: "insensitive" } },
+        ]
+      : undefined,
+  };
+
+  const skip = (page - 1) * limit;
+  const [items, total] = await Promise.all([
+    prisma.item.findMany({
+      where,
+      include: { category: true },
+      orderBy: { name: "asc" },
+      skip,
+      take: limit,
+    }),
+    prisma.item.count({ where }),
+  ]);
+
+  return {
+    items,
+    total,
+    page,
+    limit,
+    hasMore: skip + items.length < total,
+  };
 }
 
 export async function createCategory(user, data) {
