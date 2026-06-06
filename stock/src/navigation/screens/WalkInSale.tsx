@@ -127,13 +127,15 @@ export function WalkInSale() {
       items: cartArray.map(i => ({ 
         itemId: i.item.id, 
         quantity: i.quantity, 
-        sellingPrice: Number(i.item.defaultSellingPrice) 
+        rate: Number(i.item.defaultSellingPrice) 
       })),
-      paymentMethod: 'cash',
-      totalAmount: cartTotal,
+      isWalkin: true,
+      payments: [{
+        paymentMode: "CASH",
+        amount: cartTotal
+      }],
     }, {
       onSuccess: () => {
-        setCart({});
         setSuccessVisible(true);
       }
     });
@@ -208,6 +210,7 @@ export function WalkInSale() {
         message={`Sale of ${money(cartTotal)} recorded successfully.`}
         onClose={() => {
           setSuccessVisible(false);
+          setCart({});
           navigation.goBack();
         }}
       />

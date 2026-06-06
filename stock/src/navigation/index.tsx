@@ -19,11 +19,11 @@ import { SaleDetail, SalesList } from "./screens/OwnerSales";
 import { AddEditStaff, StaffManagement } from "./screens/OwnerStaff";
 import {
   GenericPlannedScreen,
-  NewSaleType,
   OwnerAlerts,
   OwnerRecords,
   OwnerStock,
 } from "./screens/PlannedScreens";
+import { NewSaleType } from "./screens/NewSaleType";
 import { Notifications } from "./screens/Notifications";
 import { StaffWork } from "./screens/StaffWork";
 import { Profile } from "./screens/Profile";

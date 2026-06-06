@@ -791,9 +791,7 @@ export function OwnerAlerts() {
   );
 }
 
-export function NewSaleType() {
-  return <ConfiguredScreen config={configs.NewSaleType} />;
-}
+
 
 export function GenericPlannedScreen() {
   const route = useRoute();

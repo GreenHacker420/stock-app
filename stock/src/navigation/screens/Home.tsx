@@ -43,8 +43,8 @@ export function Home() {
   const sessionQuery = useCurrentCashSessionQuery();
 
   const navigation = useNavigation();
-  const navigate = (screen: string) => {
-    (navigation as any).navigate(screen);
+  const navigate = (screen: string, params?: any) => {
+    (navigation as any).navigate(screen, params);
   };
 
   const selectedShop = useMemo(() => 
@@ -145,7 +145,7 @@ function StatusPill({ label, tone }: { label: string; tone: "green" | "blue" | "
   );
 }
 
-function OwnerHome({ navigate }: { navigate: (s: string) => void }) {
+function OwnerHome({ navigate }: { navigate: (s: string, params?: any) => void }) {
   const user = useAuthStore((state) => state.user);
   const dashboardQuery = useOwnerDashboardQuery();
   const dashboard = dashboardQuery.data as any;
@@ -344,7 +344,7 @@ function OwnerHome({ navigate }: { navigate: (s: string) => void }) {
   );
 }
 
-function StaffHome({ navigate, session, sessionLoading }: { navigate: (s: string) => void; session?: any; sessionLoading: boolean }) {
+function StaffHome({ navigate, session, sessionLoading }: { navigate: (s: string, params?: any) => void; session?: any; sessionLoading: boolean }) {
   if (sessionLoading) {
     return (
       <View style={styles.loadingContainer}>
@@ -414,9 +414,11 @@ function StaffHome({ navigate, session, sessionLoading }: { navigate: (s: string
 
       <View style={styles.gridContainer}>
         <CategoryCard title="Orders" icon="package-variant-closed" onPress={() => navigate("OrdersToPack")} />
-        <CategoryCard title="Create DM" icon="file-document-outline" onPress={() => {}} />
+        <CategoryCard title="New Sale" icon="cart-plus" onPress={() => navigate("NewSaleType")} />
+        <CategoryCard title="Create DM" icon="file-document-outline" onPress={() => navigate("OrdersToPack", { initialTab: "packed" })} />
         <CategoryCard title="Payment" icon="cash-register" onPress={() => navigate("TakePayment")} />
         <CategoryCard title="Stock Entry" icon="warehouse" onPress={() => navigate("StockEntry")} />
+        <CategoryCard title="Close Day" icon="cash-check" onPress={() => navigate("CloseDay")} />
       </View>
 
       <View style={styles.staffFooterActions}>

@@ -8,7 +8,13 @@ const entityLoaders = {
   SALE: (id) => prisma.sale.findUnique({ where: { id }, select: { id: true, shopId: true, saleNumber: true } }),
   DM: (id) => prisma.deliveryMemo.findUnique({ where: { id }, select: { id: true, shopId: true, dmNumber: true } }),
   ORDER: (id) => prisma.order.findUnique({ where: { id }, select: { id: true, shopId: true, orderNumber: true } }),
-  STOCK: (id) => prisma.stockLedger.findUnique({ where: { id }, select: { id: true, shopId: true } }),
+  STOCK: async (id) => {
+    const ledger = await prisma.stockLedger.findUnique({ where: { id }, select: { id: true, shopId: true } });
+    if (ledger) return ledger;
+    const shop = await prisma.shop.findUnique({ where: { id }, select: { id: true } });
+    if (shop) return { id, shopId: id };
+    return null;
+  },
   PAYMENT: (id) => prisma.payment.findUnique({ where: { id }, select: { id: true, shopId: true } }),
 };
 
@@ -120,6 +126,27 @@ export async function approveRequest(user, id) {
         approvedBy: { select: { id: true, name: true } },
       },
     });
+
+    // Apply the bulk stock entry changes if it is a STOCK request
+    if (existing.entityType === "STOCK") {
+      const change = existing.requestedChangeJson;
+      if (change && Array.isArray(change.entries)) {
+        for (const entry of change.entries) {
+          await tx.stockLedger.create({
+            data: {
+              shopId: entity.shopId,
+              itemId: entry.itemId,
+              movementType: "STOCK_IN",
+              quantityIn: entry.quantity,
+              quantityOut: 0,
+              reason: change.notes || "Bulk stock entry approved",
+              createdById: existing.requestedById,
+              approvedById: user.id,
+            },
+          });
+        }
+      }
+    }
 
     await createNotification(tx, {
       userId: existing.requestedById,

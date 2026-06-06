@@ -228,9 +228,10 @@ export interface UpdateItemPayload extends Partial<CreateItemPayload> {}
 export interface CreateSalePayload {
   shopId: string;
   customerId?: string;
-  items: Array<{ itemId: string; quantity: number; sellingPrice: number }>;
-  paymentMethod: 'cash' | 'upi' | 'credit';
-  totalAmount: number;
+  isWalkin?: boolean;
+  dueDate?: string;
+  items: Array<{ itemId: string; quantity: number; rate: number; discountAmount?: number }>;
+  payments?: Array<{ paymentMode: string; amount: number; referenceNumber?: string; notes?: string }>;
   notes?: string;
 }
 
@@ -396,9 +397,9 @@ export async function createSale(token: string, data: CreateSalePayload) {
 export async function createWalkInSale(token: string, data: any) {
   return createSale(token, {
     shopId: data.shopId,
-    items: [{ itemId: data.itemId, quantity: data.quantity, sellingPrice: data.rate }],
-    paymentMethod: 'cash',
-    totalAmount: data.quantity * data.rate
+    isWalkin: true,
+    items: [{ itemId: data.itemId, quantity: data.quantity, rate: data.rate }],
+    payments: [{ paymentMode: 'CASH', amount: data.quantity * data.rate }]
   });
 }
 

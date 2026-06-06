@@ -14,6 +14,7 @@ import { useDebounce } from "use-debounce";
 
 import { Item } from "../../api/client";
 import { useItemsQuery, useAddStockMutation } from "../../hooks/useItems";
+import { useAuthStore } from "../../auth/auth-store";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { SkeletonList } from "../../components/ui/SkeletonCard";
@@ -58,6 +59,8 @@ const StockEntryRow = memo(({
 
 export function StockEntry() {
   const navigation = useNavigation();
+  const user = useAuthStore((state) => state.user);
+  const isStaff = user?.role === "STAFF";
 
   const [search, setSearch] = useState("");
   const [debouncedSearch] = useDebounce(search, 300);
@@ -83,10 +86,9 @@ export function StockEntry() {
   const handleSubmit = () => {
     stockMutation.mutate({
       entries: entryItems,
-      notes: "Bulk stock entry via app",
+      notes: isStaff ? "Bulk stock entry request by staff" : "Bulk stock entry via app",
     }, {
       onSuccess: () => {
-        setEntries({});
         setSuccessVisible(true);
       }
     });
@@ -154,10 +156,15 @@ export function StockEntry() {
 
       <SuccessModal
         visible={successVisible}
-        title="Stock Updated"
-        message={`Successfully updated stock for ${entryCount} items.`}
+        title={isStaff ? "Request Submitted" : "Stock Updated"}
+        message={
+          isStaff 
+            ? `Your stock entry request for ${entryCount} items has been sent for owner approval.`
+            : `Successfully updated stock for ${entryCount} items.`
+        }
         onClose={() => {
           setSuccessVisible(false);
+          setEntries({});
           navigation.goBack();
         }}
       />

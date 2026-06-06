@@ -2,6 +2,7 @@ import prisma from "../lib/db.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 import { writeAuditLog } from "../utils/auditLog.js";
+import { notifyShopOwner } from "./notification.service.js";
 
 export async function getCurrentStock(user, { shopId, itemId }) {
   await assertShopAccess(user, shopId);
@@ -140,7 +141,56 @@ export async function bulkStockEntry(user, data) {
     throw new ApiError(400, "One or more items do not belong to this shop");
   }
 
-  // Create stock movements inside a transaction
+  // If user is staff, direct update by the staff should go to the owner approval
+  if (user.role === "STAFF") {
+    const request = await prisma.$transaction(async (tx) => {
+      const correctionReq = await tx.correctionRequest.create({
+        data: {
+          entityType: "STOCK",
+          entityId: data.shopId, // resolves via the STOCK loader
+          requestedChangeJson: {
+            entries: data.entries,
+            notes: data.notes || "Bulk stock entry submission by staff",
+          },
+          reason: data.notes || "Bulk stock entry submission by staff",
+          requestedById: user.id,
+        },
+        include: { requestedBy: { select: { id: true, name: true } } },
+      });
+
+      await notifyShopOwner(tx, {
+        shopId: data.shopId,
+        triggerEvent: "correction_request.submitted",
+        entityType: "CorrectionRequest",
+        entityId: correctionReq.id,
+        message: `${user.name} submitted a stock update request for approval`,
+      });
+
+      await tx.auditLog.create({
+        data: {
+          userId: user.id,
+          role: user.role,
+          shopId: data.shopId,
+          action: "correction.requested",
+          entityType: "CorrectionRequest",
+          entityId: correctionReq.id,
+          newValueJson: correctionReq,
+          reason: data.notes || "Bulk stock entry submission by staff",
+        },
+      });
+
+      return correctionReq;
+    });
+
+    return {
+      isRequest: true,
+      requestId: request.id,
+      status: request.status,
+      message: "Stock update submitted for owner approval.",
+    };
+  }
+
+  // Create stock movements inside a transaction for non-staff (owner/admin)
   const movements = await prisma.$transaction(async (tx) => {
     const list = [];
     for (const entry of data.entries) {
@@ -177,3 +227,4 @@ export async function bulkStockEntry(user, data) {
 
   return movements;
 }
+

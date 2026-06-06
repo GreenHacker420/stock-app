@@ -6,7 +6,7 @@ import {
   ScrollView, 
   ActivityIndicator 
 } from "react-native";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute } from "@react-navigation/native";
 import { Text, Icon, Checkbox, Divider, Portal, Modal, TextInput } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 import { useOrdersQuery, useMarkOrderItemPackedMutation, useCreateDmFromOrderMutation, useConvertOrderToSaleMutation } from "../../hooks/useOrders";
@@ -150,8 +150,9 @@ const OrderCard = memo(({
 
 export function OrdersToPack() {
   const navigation = useNavigation();
+  const route = useRoute<any>();
 
-  const [tab, setTab] = useState("pending");
+  const [tab, setTab] = useState(route.params?.initialTab || "pending");
   const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
 
   // Disbursement states
