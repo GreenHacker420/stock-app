@@ -759,10 +759,11 @@ model CreditOutstanding {
   saleId         String?           @unique
   dmId           String?           @unique
   orderId        String?
-  originalAmount Decimal           @db.Decimal(12, 2)
-  pendingAmount  Decimal           @db.Decimal(12, 2)
-  paidAmount     Decimal           @default(0) @db.Decimal(12, 2)
-  dueDate        DateTime?
+  originalAmount   Decimal           @db.Decimal(12, 2)
+  pendingAmount    Decimal           @default(dbgenerated("0.00")) @db.Decimal(12, 2)
+  paidAmount       Decimal           @default(0) @db.Decimal(12, 2)
+  creditNoteAmount Decimal           @default(0) @db.Decimal(12, 2)
+  dueDate          DateTime?
   note           String?
   status         CreditStatus      @default(PENDING)
   sourceType     CreditSourceType
@@ -790,7 +791,7 @@ model CustomerAdvance {
   customerId     String
   paymentId      String?        @unique
   originalAmount Decimal        @db.Decimal(12, 2)
-  pendingAmount  Decimal        @db.Decimal(12, 2)
+  pendingAmount  Decimal        @default(dbgenerated("0.00")) @db.Decimal(12, 2)
   paidAmount     Decimal        @default(0) @db.Decimal(12, 2)
   status         CreditStatus   @default(PENDING)
   createdById    String
