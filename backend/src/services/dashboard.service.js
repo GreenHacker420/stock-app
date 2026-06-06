@@ -17,15 +17,26 @@ export async function getOwnerDashboard(user, { shopId, date }) {
   const { start, end } = dayRange(date ? new Date(date) : new Date());
 
   const whereShop = { shopId: { in: ownedShopIds } };
-  const [sales, orders, dms, payments, stockLevels, cashSessions, rateRequests, correctionRequests] = await Promise.all([
+  const [
+    sales, 
+    orders, 
+    dms, 
+    payments, 
+    stockLevels, 
+    cashSessions, 
+    approvalRequests,
+    expenses,
+    gstPendingSales
+  ] = await Promise.all([
     prisma.sale.findMany({ where: { ...whereShop, createdAt: { gte: start, lte: end } } }),
     prisma.order.findMany({ where: { ...whereShop, createdAt: { gte: start, lte: end } } }),
     prisma.deliveryMemo.findMany({ where: { ...whereShop } }),
     prisma.payment.findMany({ where: { ...whereShop, receivedAt: { gte: start, lte: end } } }),
     prisma.stockLedger.groupBy({ by: ["itemId"], where: whereShop, _sum: { quantityIn: true, quantityOut: true } }),
     prisma.cashSession.findMany({ where: { ...whereShop, openedAt: { gte: start, lte: end } } }),
-    prisma.rateChangeRequest.count({ where: { status: "PENDING" } }),
-    prisma.correctionRequest.count({ where: { status: "PENDING" } }),
+    prisma.approvalRequest.findMany({ where: { status: "PENDING" } }),
+    prisma.expense.findMany({ where: { ...whereShop, createdAt: { gte: start, lte: end } } }),
+    prisma.sale.findMany({ where: { ...whereShop, gstRequired: true, gstInvoiceStatus: "PENDING" } }),
   ]);
 
   const paymentTotal = (mode) => payments.filter((payment) => payment.paymentMode === mode).reduce((sum, payment) => sum + Number(payment.amount), 0);
@@ -39,19 +50,21 @@ export async function getOwnerDashboard(user, { shopId, date }) {
     walkinSales: sales.filter((sale) => sale.isWalkin).reduce((sum, sale) => sum + Number(sale.totalAmount), 0),
     salesCount: sales.length,
     ordersCreated: orders.length,
-    ordersToPack: orders.filter((order) => ["CONFIRMED", "SENT_TO_STAFF", "PACKING", "PARTIALLY_PACKED"].includes(order.status)).length,
-    ordersDispatched: orders.filter((order) => ["DISPATCHED", "DM_CREATED", "CONVERTED_TO_SALE", "COMPLETED"].includes(order.status)).length,
+    ordersToPack: orders.filter((order) => ["CONFIRMED", "PACKING", "PARTIALLY_PACKED"].includes(order.status)).length,
+    ordersDispatched: orders.filter((order) => order.status === "DISPATCHED").length,
     pendingDmAmount,
     cashCollected: paymentTotal("CASH"),
     upiCollected: paymentTotal("UPI"),
     cardCollected: paymentTotal("CARD"),
     bankCollected: paymentTotal("BANK_TRANSFER"),
     chequeReceived: paymentTotal("CHEQUE"),
-    paymentVerificationPending: payments.filter((payment) => ["UPI", "CARD", "BANK_TRANSFER", "CHEQUE"].includes(payment.paymentMode) && payment.verificationStatus === "PENDING_VERIFICATION").length,
+    paymentVerificationPending: payments.filter((payment) => ["UPI", "CARD", "BANK_TRANSFER", "CHEQUE"].includes(payment.paymentMode) && payment.status === "RECORDED").length,
     cashMismatch: cashSessions.filter((session) => Number(session.difference || 0) !== 0).length,
-    rateChangeRequests: rateRequests,
-    correctionRequests,
+    pendingApprovalRequests: approvalRequests.length,
     lowStockAlerts: lowStockCount,
+    todayExpenses: expenses.reduce((sum, e) => sum + Number(e.amount), 0),
+    gstInvoicesPendingCount: gstPendingSales.length,
+    gstInvoicesPendingAmount: gstPendingSales.reduce((sum, s) => sum + Number(s.totalAmount), 0),
   };
 }
 
@@ -82,8 +95,8 @@ export async function getStaffTodaySummary(user, { shopId, date }) {
     cashCollected: paymentTotal("CASH"),
     upiRecorded: paymentTotal("UPI"),
     chequesReceived: payments.filter((payment) => payment.paymentMode === "CHEQUE").length,
-    ordersPacked: orders.filter((order) => ["PACKED", "PARTIALLY_PACKED", "DISPATCHED", "COMPLETED"].includes(order.status)).length,
-    ordersDispatched: orders.filter((order) => ["DISPATCHED", "DM_CREATED", "CONVERTED_TO_SALE", "COMPLETED"].includes(order.status)).length,
+    ordersPacked: orders.filter((order) => ["PACKED", "PARTIALLY_PACKED", "DISPATCHED"].includes(order.status)).length,
+    ordersDispatched: orders.filter((order) => order.status === "DISPATCHED").length,
     stockEntries: stockMovements.length,
     dayCloseStatus: cashSession?.status ?? "NOT_OPENED",
   };

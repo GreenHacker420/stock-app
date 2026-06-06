@@ -3,12 +3,12 @@ import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 import { writeAuditLog } from "../utils/auditLog.js";
 
-async function calculateExpectedCash(cashSessionId, openingCash, otherDeductionsAmount = 0, cashHandover = 0) {
+async function calculateExpectedCash(cashSessionId, openingCash, cashHandover = 0) {
   const cashPayments = await prisma.payment.aggregate({
     where: {
       cashSessionId,
       paymentMode: "CASH",
-      verificationStatus: { notIn: ["CANCELLED", "REFUNDED"] },
+      status: { not: "CANCELLED" },
     },
     _sum: { amount: true },
   });
@@ -16,7 +16,6 @@ async function calculateExpectedCash(cashSessionId, openingCash, otherDeductions
   return (
     Number(openingCash || 0) +
     Number(cashPayments._sum.amount || 0) -
-    Number(otherDeductionsAmount || 0) -
     Number(cashHandover || 0)
   );
 }
@@ -43,12 +42,11 @@ export async function openSession(user, { shopId }) {
     orderBy: [{ closedAt: "desc" }, { openedAt: "desc" }],
   });
 
-  const shop = await prisma.shop.findUnique({ where: { id: shopId } });
   const previousActual = Number(previousSession?.actualCash || 0);
   const previousHandover = Number(previousSession?.cashHandover || 0);
   const openingCash = previousSession
     ? Math.max(previousActual - previousHandover, 0)
-    : Number(shop.openingCash || 0);
+    : 0;
 
   const session = await prisma.cashSession.create({
     data: {
@@ -60,14 +58,15 @@ export async function openSession(user, { shopId }) {
     },
   });
 
-  await writeAuditLog({
-    userId: user.id,
-    role: user.role,
-    shopId,
-    action: "cash_session.opened",
-    entityType: "CashSession",
-    entityId: session.id,
-    newValueJson: session,
+  await prisma.auditLog.create({
+    data: {
+      userId: user.id,
+      shopId,
+      action: "cash_session.opened",
+      entityType: "CashSession",
+      entityId: session.id,
+      newValueJson: session,
+    }
   });
 
   return session;
@@ -100,14 +99,9 @@ export async function closeSession(user, sessionId, data) {
     throw new ApiError(400, "Only an open cash session can be closed");
   }
 
-  if (data.otherDeductionsAmount > 0 && !data.otherDeductionsReason) {
-    throw new ApiError(400, "Other deductions reason is required");
-  }
-
   const expectedCash = await calculateExpectedCash(
     sessionId,
     existing.openingCash,
-    data.otherDeductionsAmount,
     data.cashHandover,
   );
   const difference = Number(data.actualCash) - expectedCash;
@@ -122,8 +116,6 @@ export async function closeSession(user, sessionId, data) {
       expectedCash,
       actualCash: data.actualCash,
       cashHandover: data.cashHandover ?? 0,
-      otherDeductionsAmount: data.otherDeductionsAmount ?? 0,
-      otherDeductionsReason: data.otherDeductionsReason,
       difference,
       differenceReason: data.differenceReason,
       status: "CLOSED",
@@ -131,16 +123,17 @@ export async function closeSession(user, sessionId, data) {
     },
   });
 
-  await writeAuditLog({
-    userId: user.id,
-    role: user.role,
-    shopId: existing.shopId,
-    action: "cash_session.closed",
-    entityType: "CashSession",
-    entityId: session.id,
-    oldValueJson: existing,
-    newValueJson: session,
-    reason: data.differenceReason,
+  await prisma.auditLog.create({
+    data: {
+      userId: user.id,
+      shopId: existing.shopId,
+      action: "cash_session.closed",
+      entityType: "CashSession",
+      entityId: session.id,
+      oldValueJson: existing,
+      newValueJson: session,
+      reason: data.differenceReason,
+    }
   });
 
   return session;
@@ -164,13 +157,14 @@ export async function reviewSession(user, sessionId) {
     },
   });
 
-  await writeAuditLog({
-    userId: user.id,
-    role: user.role,
-    shopId: existing.shopId,
-    action: "cash_session.reviewed",
-    entityType: "CashSession",
-    entityId: session.id,
+  await prisma.auditLog.create({
+    data: {
+      userId: user.id,
+      shopId: existing.shopId,
+      action: "cash_session.reviewed",
+      entityType: "CashSession",
+      entityId: session.id,
+    }
   });
 
   return session;

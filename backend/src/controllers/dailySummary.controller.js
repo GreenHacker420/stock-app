@@ -24,7 +24,7 @@ export const listSummaries = asyncHandler(async (req, res) => {
 });
 
 export const getSummaryById = asyncHandler(async (req, res) => {
-  const summary = await summaryService.getSummaryById(req.user, req.validated.params.id);
+  const summary = await summaryService.getSummaryById(req.user, req.validated.params.id, req.query.shopId);
   res.json({ success: true, data: summary });
 });
 
@@ -35,7 +35,7 @@ export const lockSummary = asyncHandler(async (req, res) => {
 });
 
 export const lockSummaryById = asyncHandler(async (req, res) => {
-  const summary = await summaryService.lockSummaryById(req.user, req.validated.params.id);
+  const summary = await summaryService.lockSummaryById(req.user, req.validated.params.id, req.query.shopId);
   emitShopEvent(req, summary.shopId, REALTIME_EVENTS.DAILY_SUMMARY_UPDATED, { summaryId: summary.id, action: "locked" });
   res.json({ success: true, data: summary });
 });

@@ -15,6 +15,8 @@ import { OrdersToPack } from "./screens/OrdersToPack";
 import { PaymentVerification } from "./screens/PaymentVerification";
 import { AddEditCustomer, CustomerList } from "./screens/OwnerCustomers";
 import { CustomerDetail } from "./screens/CustomerDetail";
+import { ExpenseList } from "./screens/Expenses";
+import { VerificationQueue } from "./screens/VerificationQueue";
 import { AddEditItem, ItemDetail, ItemList } from "./screens/OwnerItems";
 import { SaleDetail, SalesList } from "./screens/OwnerSales";
 import { AddEditStaff, StaffManagement } from "./screens/OwnerStaff";
@@ -303,6 +305,14 @@ const sharedStackScreens = {
   TodaySummary: {
     screen: DailySummary,
     options: { title: "Today summary" },
+  },
+  Expenses: {
+    screen: ExpenseList,
+    options: { title: "Expenses" },
+  },
+  VerificationQueue: {
+    screen: VerificationQueue,
+    options: { title: "Verification Queue" },
   },
   CreateDeliveryMemo: {
     screen: GenericPlannedScreen,

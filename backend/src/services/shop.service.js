@@ -46,19 +46,19 @@ export async function createShop(user, data) {
       code: data.code,
       city: data.city,
       address: data.address,
-      openingCash: data.openingCash ?? 0,
       ownerId: user.id,
     },
   });
 
-  await writeAuditLog({
-    userId: user.id,
-    role: user.role,
-    shopId: shop.id,
-    action: "shop.created",
-    entityType: "Shop",
-    entityId: shop.id,
-    newValueJson: shop,
+  await prisma.auditLog.create({
+    data: {
+      userId: user.id,
+      shopId: shop.id,
+      action: "shop.created",
+      entityType: "Shop",
+      entityId: shop.id,
+      newValueJson: shop,
+    }
   });
 
   return shop;
@@ -75,15 +75,16 @@ export async function updateShop(user, shopId, data) {
     data,
   });
 
-  await writeAuditLog({
-    userId: user.id,
-    role: user.role,
-    shopId,
-    action: "shop.updated",
-    entityType: "Shop",
-    entityId: shopId,
-    oldValueJson: existing,
-    newValueJson: shop,
+  await prisma.auditLog.create({
+    data: {
+      userId: user.id,
+      shopId,
+      action: "shop.updated",
+      entityType: "Shop",
+      entityId: shopId,
+      oldValueJson: existing,
+      newValueJson: shop,
+    }
   });
 
   return shop;
@@ -97,10 +98,9 @@ export async function assignStaff(user, shopId, staffId) {
 
   const staff = await prisma.user.findUnique({
     where: { id: staffId },
-    include: { role: true },
   });
 
-  if (!staff || staff.role.name !== "STAFF" || staff.status !== "ACTIVE") {
+  if (!staff || staff.role !== "STAFF" || staff.status !== "ACTIVE") {
     throw new ApiError(400, "Active staff user not found");
   }
 
@@ -118,14 +118,15 @@ export async function assignStaff(user, shopId, staffId) {
     },
   });
 
-  await writeAuditLog({
-    userId: user.id,
-    role: user.role,
-    shopId,
-    action: "shop.staff_assigned",
-    entityType: "StaffShopAccess",
-    entityId: access.id,
-    newValueJson: access,
+  await prisma.auditLog.create({
+    data: {
+      userId: user.id,
+      shopId,
+      action: "shop.staff_assigned",
+      entityType: "StaffShopAccess",
+      entityId: access.id,
+      newValueJson: access,
+    }
   });
 
   return access;
@@ -135,20 +136,6 @@ export async function setOpeningStock(user, shopId, entries) {
   const shop = await prisma.shop.findUnique({ where: { id: shopId } });
   if (!shop || shop.ownerId !== user.id) {
     throw new ApiError(404, "Shop not found");
-  }
-
-  if (shop.openingStockLocked) {
-    throw new ApiError(400, "Opening stock is already locked for this shop");
-  }
-
-  const existingTransactions = await prisma.$transaction([
-    prisma.order.count({ where: { shopId } }),
-    prisma.sale.count({ where: { shopId } }),
-    prisma.deliveryMemo.count({ where: { shopId } }),
-  ]);
-
-  if (existingTransactions.some((count) => count > 0)) {
-    throw new ApiError(400, "Opening stock cannot be set after transactions exist");
   }
 
   const itemIds = entries.map((entry) => entry.itemId);
@@ -162,19 +149,6 @@ export async function setOpeningStock(user, shopId, entries) {
 
   if (items.length !== new Set(itemIds).size) {
     throw new ApiError(400, "One or more items do not belong to this shop");
-  }
-
-  const duplicateOpeningRows = await prisma.stockLedger.findMany({
-    where: {
-      shopId,
-      itemId: { in: itemIds },
-      movementType: "OPENING_STOCK",
-    },
-    select: { itemId: true },
-  });
-
-  if (duplicateOpeningRows.length > 0) {
-    throw new ApiError(400, "Opening stock already exists for one or more items");
   }
 
   const result = await prisma.$transaction(async (tx) => {
@@ -195,21 +169,17 @@ export async function setOpeningStock(user, shopId, entries) {
       ),
     );
 
-    await tx.shop.update({
-      where: { id: shopId },
-      data: { openingStockLocked: true },
-    });
-
     return rows;
   });
 
-  await writeAuditLog({
-    userId: user.id,
-    role: user.role,
-    shopId,
-    action: "stock.opening_set",
-    entityType: "StockLedger",
-    newValueJson: { count: result.length },
+  await tx.auditLog.create({
+    data: {
+      userId: user.id,
+      shopId,
+      action: "stock.opening_set",
+      entityType: "StockLedger",
+      newValueJson: { count: result.length },
+    }
   });
 
   return result;

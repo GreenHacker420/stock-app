@@ -35,7 +35,6 @@ export async function lockSummary(user, { shopId, date }) {
     where: { id: summary.id },
     data: {
       status: "LOCKED",
-      lockedAt: new Date(),
       reviewedById: user.id,
       reviewedAt: new Date(),
     }
@@ -91,13 +90,53 @@ async function accessibleShopIds(user) {
   return accesses.map((access) => access.shopId);
 }
 
-export async function getSummaryById(user, id) {
-  const summary = await prisma.dailySummary.findUnique({
-    where: { id },
-    include: { shop: true, reviewedBy: { select: { id: true, name: true } }, exports: true },
-  });
+export async function getSummaryById(user, id, shopIdQuery) {
+  // Check if ID is a valid date string (YYYY-MM-DD)
+  const isDate = /^\d{4}-\d{2}-\d{2}$/.test(id);
+  
+  let summary = null;
+
+  // 1. If it doesn't look like a date, try fetching by ID (CUID/UUID)
+  if (!isDate) {
+    summary = await prisma.dailySummary.findUnique({
+      where: { id },
+      include: { shop: true, reviewedBy: { select: { id: true, name: true } }, exports: true },
+    });
+  }
+
+  // 2. Fallback: If not found by ID, or if it is a date, try fetching by composite key [shopId, summaryDate]
+  if (!summary) {
+    // We need a shopId for the composite key lookup
+    let effectiveShopId = shopIdQuery;
+    
+    // If shopId not provided in query, and user is STAFF, use their first accessible shop
+    if (!effectiveShopId && user.role === "STAFF") {
+      const access = await prisma.staffShopAccess.findFirst({ where: { staffId: user.id } });
+      effectiveShopId = access?.shopId;
+    }
+
+    if (effectiveShopId) {
+      const summaryDate = new Date(id);
+      if (!isNaN(summaryDate.getTime())) {
+        summaryDate.setHours(0, 0, 0, 0);
+        summary = await prisma.dailySummary.findUnique({
+          where: { 
+            shopId_summaryDate: { 
+              shopId: effectiveShopId, 
+              summaryDate 
+            } 
+          },
+          include: { shop: true, reviewedBy: { select: { id: true, name: true } }, exports: true },
+        });
+      }
+    }
+  }
+
   if (!summary) throw new ApiError(404, "Daily summary not found");
+  
+  // Final security check: Ensure user has access to this shop
   await assertShopAccess(user, summary.shopId);
+  
   return summary;
 }
 
@@ -106,10 +145,9 @@ export async function lockSummaryById(user, id) {
   if (summary.status === "LOCKED") return summary;
 
   return prisma.dailySummary.update({
-    where: { id },
+    where: { id: summary.id },
     data: {
       status: "LOCKED",
-      lockedAt: new Date(),
       reviewedById: user.id,
       reviewedAt: new Date(),
     },
@@ -122,7 +160,7 @@ export async function exportSummary(user, id, format) {
 
   await prisma.dailySummaryExport.create({
     data: {
-      dailySummaryId: id,
+      dailySummaryId: summary.id,
       format: normalizedFormat,
       status: "DONE",
       exportedById: user.id,
@@ -149,15 +187,13 @@ async function generateSummaryInternal(shopId, date) {
   const endOfDay = new Date(date);
   endOfDay.setHours(23, 59, 59, 999);
 
-  const [sales, orders, payments, cashSession, dms, stockMovements, correctionRequests, rateChangeRequests] = await Promise.all([
+  const [sales, orders, payments, cashSession, dms, expenses] = await Promise.all([
     prisma.sale.findMany({ where: { shopId, createdAt: { gte: startOfDay, lte: endOfDay } } }),
     prisma.order.findMany({ where: { shopId, createdAt: { gte: startOfDay, lte: endOfDay } } }),
     prisma.payment.findMany({ where: { shopId, receivedAt: { gte: startOfDay, lte: endOfDay } } }),
     prisma.cashSession.findFirst({ where: { shopId, openedAt: { gte: startOfDay, lte: endOfDay } }, orderBy: { openedAt: 'desc' } }),
     prisma.deliveryMemo.findMany({ where: { shopId, createdAt: { gte: startOfDay, lte: endOfDay } } }),
-    prisma.stockLedger.findMany({ where: { shopId, createdAt: { gte: startOfDay, lte: endOfDay } } }),
-    prisma.correctionRequest.findMany({ where: { createdAt: { gte: startOfDay, lte: endOfDay } } }),
-    prisma.rateChangeRequest.findMany({ where: { createdAt: { gte: startOfDay, lte: endOfDay } } }),
+    prisma.expense.findMany({ where: { shopId, createdAt: { gte: startOfDay, lte: endOfDay } } }),
   ]);
 
   const paymentBreakdown = payments.reduce((acc, p) => {
@@ -182,18 +218,12 @@ async function generateSummaryInternal(shopId, date) {
       walkinSales,
       totalCashCollected: paymentBreakdown['CASH'] || 0,
       totalUpiCollected: paymentBreakdown['UPI'] || 0,
-      totalCardCollected: paymentBreakdown['CARD'] || 0,
       totalBankCollected: paymentBreakdown['BANK_TRANSFER'] || 0,
-      totalChequeReceived: paymentBreakdown['CHEQUE'] || 0,
-      totalCreditPending: paymentBreakdown['CREDIT'] || 0,
+      totalCreditPending: 0, 
       salesCount: sales.length,
       ordersCreatedCount: orders.length,
-      ordersDispatchedCount: orders.filter(o => o.status === 'DISPATCHED').length,
       dmCreatedCount: dms.length,
-      paymentMismatchCount: payments.filter(p => p.verificationStatus === "MISMATCH").length,
-      correctionRequestCount: correctionRequests.length,
-      rateChangeRequestCount: rateChangeRequests.length,
-      stockMovementCount: stockMovements.length,
+      expenseCount: expenses.length,
       payloadJson: {
         generatedAt: new Date().toISOString(),
         paymentBreakdown,
@@ -210,14 +240,10 @@ function toSummaryCsv(summary) {
     ["Walk-in Sales", summary.walkinSales],
     ["Sales Count", summary.salesCount],
     ["Orders Created", summary.ordersCreatedCount],
-    ["Orders Dispatched", summary.ordersDispatchedCount],
     ["DM Created", summary.dmCreatedCount],
     ["Cash Collected", summary.totalCashCollected],
     ["UPI Collected", summary.totalUpiCollected],
-    ["Card Collected", summary.totalCardCollected],
     ["Bank Collected", summary.totalBankCollected],
-    ["Cheque Received", summary.totalChequeReceived],
-    ["Credit Pending", summary.totalCreditPending],
     ["Expected Cash", summary.expectedCash],
     ["Actual Cash", summary.actualCash ?? ""],
     ["Cash Difference", summary.cashDifference ?? ""],

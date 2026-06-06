@@ -723,6 +723,10 @@ export type OwnerDashboardData = {
   rateChangeRequests: number;
   correctionRequests: number;
   lowStockAlerts: number;
+  pendingVerifications: number;
+  todayExpenses: number;
+  gstInvoicesPendingCount: number;
+  gstInvoicesPendingAmount: number;
 };
 
 export type StaffTodaySummaryData = {
