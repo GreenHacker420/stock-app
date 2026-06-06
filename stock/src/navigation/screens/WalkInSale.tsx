@@ -123,6 +123,7 @@ export function WalkInSale() {
   const saleMutation = useCreateSaleMutation();
 
   const handleCompleteSale = () => {
+    if (saleMutation.isPending) return;
     saleMutation.mutate({
       items: cartArray.map(i => ({ 
         itemId: i.item.id, 

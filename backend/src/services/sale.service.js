@@ -49,6 +49,7 @@ export async function createSale(user, data) {
         balanceAmount: totalAmount,
         dueDate: data.dueDate,
         saleStatus: "CONFIRMED",
+        customerSignature: data.customerSignature || undefined,
         items: {
           create: items.map((item) => ({
             itemId: item.itemId,

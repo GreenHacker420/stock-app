@@ -33,6 +33,7 @@ const createSchema = z.object({
     dueDate: z.coerce.date().optional(),
     items: z.array(saleItemSchema).min(1),
     payments: z.array(paymentSchema).optional(),
+    customerSignature: z.string().optional(),
   }),
   params: z.object({}).optional(),
   query: z.object({}).optional(),

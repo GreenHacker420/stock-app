@@ -233,6 +233,7 @@ export interface CreateSalePayload {
   items: Array<{ itemId: string; quantity: number; rate: number; discountAmount?: number }>;
   payments?: Array<{ paymentMode: string; amount: number; referenceNumber?: string; notes?: string }>;
   notes?: string;
+  customerSignature?: string;
 }
 
 export interface StockEntryPayload {

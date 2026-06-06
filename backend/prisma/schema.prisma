@@ -551,6 +551,7 @@ model Sale {
   updatedAt      DateTime          @updatedAt
   cancelledAt    DateTime?
   cancelReason   String?
+  customerSignature String?       @db.Text
 
   shop               Shop                @relation(fields: [shopId], references: [id])
   staff              User                @relation("SaleStaff", fields: [staffId], references: [id])

@@ -20,8 +20,12 @@ export const createMovement = asyncHandler(async (req, res) => {
 
 export const bulkStockEntry = asyncHandler(async (req, res) => {
   const result = await stockService.bulkStockEntry(req.user, req.validated.body);
-  for (const movement of result) {
-    emitShopEvent(req, movement.shopId, REALTIME_EVENTS.STOCK_UPDATED, { movementId: movement.id, itemId: movement.itemId, action: "movement_created" });
+  if (Array.isArray(result)) {
+    for (const movement of result) {
+      emitShopEvent(req, movement.shopId, REALTIME_EVENTS.STOCK_UPDATED, { movementId: movement.id, itemId: movement.itemId, action: "movement_created" });
+    }
+  } else if (result && result.isRequest) {
+    emitShopEvent(req, req.validated.body.shopId, REALTIME_EVENTS.NOTIFICATION_CREATED, { entityType: "CorrectionRequest", entityId: result.requestId, action: "created" });
   }
   res.status(201).json({ success: true, data: result });
 });

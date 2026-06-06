@@ -83,9 +83,10 @@ export function calculateItemTotals(items) {
 }
 
 export function getBillPaymentStatus(totalAmount, paidAmount) {
-  if (paidAmount <= 0) return "UNPAID";
+  const tolerance = 0.001;
+  if (paidAmount <= tolerance) return "UNPAID";
+  if (Math.abs(paidAmount - totalAmount) < tolerance) return "PAID";
   if (paidAmount < totalAmount) return "PARTIALLY_PAID";
-  if (paidAmount === totalAmount) return "PAID";
   return "OVERPAID";
 }
 
@@ -101,7 +102,7 @@ export async function applyPayments(tx, { user, shopId, saleId, dmId, orderId, c
   const paymentTotal = payments.reduce((sum, payment) => sum + Number(payment.amount), 0);
   const paidAmount = Number(existingPaidAmount) + paymentTotal;
 
-  if (paidAmount > Number(totalAmount)) {
+  if (paidAmount > Number(totalAmount) + 0.001) {
     throw new ApiError(400, "Overpayment is not allowed");
   }
 

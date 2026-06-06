@@ -24,6 +24,7 @@ import {
   OwnerStock,
 } from "./screens/PlannedScreens";
 import { NewSaleType } from "./screens/NewSaleType";
+import { RegularSale } from "./screens/RegularSale";
 import { Notifications } from "./screens/Notifications";
 import { StaffWork } from "./screens/StaffWork";
 import { Profile } from "./screens/Profile";
@@ -259,7 +260,7 @@ const sharedStackScreens = {
     options: { title: "New sale" },
   },
   RegularSale: {
-    screen: GenericPlannedScreen,
+    screen: RegularSale,
     options: { title: "Regular sale" },
   },
   SplitPayment: {
