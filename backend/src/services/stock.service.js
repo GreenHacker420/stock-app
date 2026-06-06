@@ -4,7 +4,7 @@ import { ApiError } from "../utils/ApiError.js";
 import { writeAuditLog } from "../utils/auditLog.js";
 import { notifyShopOwner } from "./notification.service.js";
 import { qty, ZERO } from "../utils/money.js";
-import { Prisma } from "../generated/prisma/index.js";
+import { createApprovalRequest } from "./approval.service.js";
 
 export async function getCurrentStock(user, { shopId, itemId }) {
   await assertShopAccess(user, shopId);
@@ -115,7 +115,6 @@ export async function createMovement(user, data) {
 
   await writeAuditLog({
     userId: user.id,
-    role: user.role,
     shopId: data.shopId,
     action: "stock.movement_created",
     entityType: "StockLedger",
@@ -146,42 +145,32 @@ export async function bulkStockEntry(user, data) {
   // If user is staff, direct update by the staff should go to the owner approval
   if (user.role === "STAFF") {
     const request = await prisma.$transaction(async (tx) => {
-      const correctionReq = await tx.correctionRequest.create({
-        data: {
-          entityType: "STOCK",
-          entityId: data.shopId, // resolves via the STOCK loader
-          requestedChangeJson: {
-            entries: data.entries,
-            notes: data.notes || "Bulk stock entry submission by staff",
-          },
-          reason: data.notes || "Bulk stock entry submission by staff",
-          requestedById: user.id,
-        },
-        include: { requestedBy: { select: { id: true, name: true } } },
-      });
-
-      await notifyShopOwner(tx, {
+      const approvalReq = await createApprovalRequest(tx, {
         shopId: data.shopId,
-        triggerEvent: "correction_request.submitted",
-        entityType: "CorrectionRequest",
-        entityId: correctionReq.id,
-        message: `${user.name} submitted a stock update request for approval`,
+        type: "STOCK_ENTRY",
+        entityType: "STOCK",
+        entityId: data.shopId,
+        payloadJson: {
+          entries: data.entries,
+          notes: data.notes || "Bulk stock entry submission by staff",
+        },
+        reason: data.notes || "Bulk stock entry submission by staff",
+        requestedById: user.id,
       });
 
       await tx.auditLog.create({
         data: {
           userId: user.id,
-          role: user.role,
           shopId: data.shopId,
-          action: "correction.requested",
-          entityType: "CorrectionRequest",
-          entityId: correctionReq.id,
-          newValueJson: correctionReq,
+          action: "stock.entry_requested",
+          entityType: "ApprovalRequest",
+          entityId: approvalReq.id,
+          newValueJson: approvalReq,
           reason: data.notes || "Bulk stock entry submission by staff",
         },
       });
 
-      return correctionReq;
+      return approvalReq;
     });
 
     return {
@@ -192,7 +181,7 @@ export async function bulkStockEntry(user, data) {
     };
   }
 
-  // Create stock movements inside a transaction for non-staff (owner/admin)
+  // Create stock movements inside a transaction for non-staff (owner)
   const movements = await prisma.$transaction(async (tx) => {
     const list = [];
     for (const entry of data.entries) {
@@ -205,7 +194,7 @@ export async function bulkStockEntry(user, data) {
           quantityOut: 0,
           reason: data.notes || "Bulk stock entry via app",
           createdById: user.id,
-          approvedById: user.role === "OWNER" ? user.id : undefined,
+          approvedById: user.id,
         },
       });
       list.push(movement);
@@ -217,7 +206,6 @@ export async function bulkStockEntry(user, data) {
   for (const movement of movements) {
     await writeAuditLog({
       userId: user.id,
-      role: user.role,
       shopId: data.shopId,
       action: "stock.movement_created",
       entityType: "StockLedger",
@@ -288,7 +276,6 @@ export async function reserveStockForOrder(tx, shopId, orderId, orderItems) {
         orderId,
         orderItemId: orderItem.id,
         itemId,
-        originalQty: needed,
         reservedQty: needed,
         packedQty: ZERO,
         status: "ACTIVE"
@@ -337,4 +324,3 @@ export async function checkAndLockStockForWalkin(tx, shopId, items) {
     }
   }
 }
-

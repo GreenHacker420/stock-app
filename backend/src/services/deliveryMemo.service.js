@@ -37,14 +37,10 @@ export async function createDeliveryMemo(user, data) {
         shopId: data.shopId,
         staffId: user.id,
         customerId: data.customerId,
-        customerName: data.customerName || customer?.name,
-        customerPhone: data.customerPhone || customer?.phone,
-        customerAddress: data.customerAddress || customer?.address,
         estimatedAmount: totalVal,
         balanceAmount: totalVal,
         expectedPaymentDate: data.expectedPaymentDate,
-        reason: data.reason,
-        status: "DISPATCHED",
+        status: "CREATED",
         items: {
           create: items.map((item) => ({
             itemId: item.itemId,
@@ -93,9 +89,7 @@ export async function createDeliveryMemo(user, data) {
         status:
           paymentResult.paymentStatus === "PAID"
             ? "FULLY_PAID"
-            : paymentResult.paymentStatus === "PARTIALLY_PAID"
-              ? "PARTIALLY_PAID"
-              : "DISPATCHED",
+            : "PARTIALLY_PAID",
       },
       include: { items: true, payments: true },
     });

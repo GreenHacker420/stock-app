@@ -17,7 +17,7 @@ async function getPaymentWithAccess(user, id) {
   return payment;
 }
 
-export async function listPayments(user, { shopId, customerId, paymentMode, verificationStatus }) {
+export async function listPayments(user, { shopId, customerId, paymentMode, status }) {
   await assertShopAccess(user, shopId);
 
   return prisma.payment.findMany({
@@ -25,7 +25,7 @@ export async function listPayments(user, { shopId, customerId, paymentMode, veri
       shopId,
       customerId: customerId || undefined,
       paymentMode: paymentMode || undefined,
-      verificationStatus: verificationStatus || undefined,
+      status: status || undefined,
       receivedById: user.role === "STAFF" ? user.id : undefined,
     },
     include: { details: true, customer: true, receivedBy: { select: { id: true, name: true } } },
@@ -90,7 +90,7 @@ export async function verifyPayment(user, id, { note }) {
   return prisma.payment.update({
     where: { id },
     data: {
-      verificationStatus: "VERIFIED",
+      status: "VERIFIED",
       verifiedById: user.id,
       verifiedAt: new Date(),
       notes: note || payment.notes,
@@ -99,14 +99,14 @@ export async function verifyPayment(user, id, { note }) {
   });
 }
 
-export async function markMismatch(user, id, { note }) {
+export async function rejectPayment(user, id, { note }) {
   if (user.role !== "OWNER") throw new ApiError(403, "Owner access required");
   const payment = await getPaymentWithAccess(user, id);
 
   return prisma.payment.update({
     where: { id },
     data: {
-      verificationStatus: "MISMATCH",
+      status: "REJECTED",
       verifiedById: user.id,
       verifiedAt: new Date(),
       notes: note || payment.notes,
@@ -118,17 +118,14 @@ export async function markMismatch(user, id, { note }) {
 export async function voidPayment(user, id, { reason } = {}) {
   if (user.role !== "OWNER") throw new ApiError(403, "Owner access required");
   const existing = await getPaymentWithAccess(user, id);
-  if (existing.isVoided) throw new ApiError(400, "Payment is already voided");
+  if (existing.status === "CANCELLED") throw new ApiError(400, "Payment is already cancelled");
 
   return prisma.$transaction(async (tx) => {
-    // 1. Mark Payment as voided
+    // 1. Mark Payment as cancelled
     const payment = await tx.payment.update({
       where: { id },
       data: {
-        isVoided: true,
-        voidedAt: new Date(),
-        voidedById: user.id,
-        verificationStatus: "CANCELLED",
+        status: "CANCELLED",
         notes: reason || existing.notes
       },
       include: { details: true }

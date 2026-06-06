@@ -62,9 +62,21 @@ export async function createItem(user, data) {
     data,
   });
 
+  // Initial price history entry
+  if (data.defaultSellingPrice) {
+    await prisma.itemPriceHistory.create({
+      data: {
+        itemId: item.id,
+        oldPrice: 0,
+        newPrice: data.defaultSellingPrice,
+        priceType: "SELLING",
+        changedById: user.id
+      }
+    });
+  }
+
   await writeAuditLog({
     userId: user.id,
-    role: user.role,
     shopId: item.shopId,
     action: "item.created",
     entityType: "Item",
@@ -87,23 +99,46 @@ export async function updateItem(user, id, data) {
     }
   }
 
-  const item = await prisma.item.update({
-    where: { id },
-    data,
-  });
+  return prisma.$transaction(async (tx) => {
+    const item = await tx.item.update({
+      where: { id },
+      data,
+    });
 
-  await writeAuditLog({
-    userId: user.id,
-    role: user.role,
-    shopId: item.shopId,
-    action: "item.updated",
-    entityType: "Item",
-    entityId: id,
-    oldValueJson: existing,
-    newValueJson: item,
-  });
+    // Track price changes
+    const priceTypes = [
+      { key: "defaultSellingPrice", label: "SELLING" },
+      { key: "minimumAllowedPrice", label: "MINIMUM" },
+      { key: "mrp", label: "MRP" },
+      { key: "purchasePrice", label: "PURCHASE" },
+    ];
 
-  return item;
+    for (const { key, label } of priceTypes) {
+      if (data[key] !== undefined && Number(data[key]) !== Number(existing[key])) {
+        await tx.itemPriceHistory.create({
+          data: {
+            itemId: id,
+            oldPrice: existing[key] || 0,
+            newPrice: data[key],
+            priceType: label,
+            changedById: user.id
+          }
+        });
+      }
+    }
+
+    await writeAuditLog({
+      userId: user.id,
+      shopId: item.shopId,
+      action: "item.updated",
+      entityType: "Item",
+      entityId: id,
+      oldValueJson: existing,
+      newValueJson: item,
+    });
+
+    return item;
+  });
 }
 
 export async function getItemStock(user, id) {
@@ -120,7 +155,7 @@ export async function getItemStock(user, id) {
   return { item, quantityIn, quantityOut, currentQuantity: quantityIn - quantityOut };
 }
 
-export async function getPriceHistory(user, id, { customerId }) {
+export async function getPurchaseHistory(user, id, { customerId }) {
   const item = await prisma.item.findUnique({ where: { id } });
   if (!item) throw new ApiError(404, "Item not found");
   await assertShopAccess(user, item.shopId);
@@ -166,9 +201,21 @@ export async function getPriceHistory(user, id, { customerId }) {
   };
 }
 
+export async function getPriceChangeHistory(user, id) {
+  const item = await prisma.item.findUnique({ where: { id } });
+  if (!item) throw new ApiError(404, "Item not found");
+  await assertShopAccess(user, item.shopId);
+
+  return prisma.itemPriceHistory.findMany({
+    where: { itemId: id },
+    include: { changedBy: { select: { id: true, name: true } } },
+    orderBy: { createdAt: "desc" },
+  });
+}
+
 export async function getRateSuggestion(user, id, { customerId }) {
   if (!customerId) throw new ApiError(400, "customerId is required");
-  const history = await getPriceHistory(user, id, { customerId });
+  const history = await getPurchaseHistory(user, id, { customerId });
   return {
     item: history.item,
     customerId,

@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "../auth/auth-store";
 import { useShopStore } from "../auth/shop-store";
 import { queryKeys } from "./query-keys";
-import { fetchCustomers, fetchCustomer, createCustomer, updateCustomer } from "../api/client";
+import { fetchCustomers, fetchCustomer, createCustomer, updateCustomer, fetchCustomerSales, fetchCustomerPayments, fetchCustomerDMs, fetchCustomerReturns, fetchCustomerTimeline } from "../api/client";
 
 export function useCustomersQuery() {
   const token = useAuthStore((state) => state.token);
@@ -22,6 +22,51 @@ export function useCustomerDetailQuery(id: string) {
     queryFn: () => fetchCustomer(token ?? "", id),
     enabled: !!token && !!id,
     staleTime: 5 * 60 * 1000, // 5 mins
+  });
+}
+
+export function useCustomerSalesQuery(id: string) {
+  const token = useAuthStore((state) => state.token);
+  return useQuery({
+    queryKey: ["customer-sales", id],
+    queryFn: () => fetchCustomerSales(token ?? "", id),
+    enabled: !!token && !!id,
+  });
+}
+
+export function useCustomerPaymentsQuery(id: string) {
+  const token = useAuthStore((state) => state.token);
+  return useQuery({
+    queryKey: ["customer-payments", id],
+    queryFn: () => fetchCustomerPayments(token ?? "", id),
+    enabled: !!token && !!id,
+  });
+}
+
+export function useCustomerDMsQuery(id: string) {
+  const token = useAuthStore((state) => state.token);
+  return useQuery({
+    queryKey: ["customer-dms", id],
+    queryFn: () => fetchCustomerDMs(token ?? "", id),
+    enabled: !!token && !!id,
+  });
+}
+
+export function useCustomerReturnsQuery(id: string) {
+  const token = useAuthStore((state) => state.token);
+  return useQuery({
+    queryKey: ["customer-returns", id],
+    queryFn: () => fetchCustomerReturns(token ?? "", id),
+    enabled: !!token && !!id,
+  });
+}
+
+export function useCustomerTimelineQuery(id: string) {
+  const token = useAuthStore((state) => state.token);
+  return useQuery({
+    queryKey: ["customer-timeline", id],
+    queryFn: () => fetchCustomerTimeline(token ?? "", id),
+    enabled: !!token && !!id,
   });
 }
 

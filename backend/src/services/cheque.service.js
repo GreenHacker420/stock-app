@@ -48,37 +48,25 @@ export async function updateChequeStatus(user, id, status, { reason } = {}) {
   if (user.role !== "OWNER") throw new ApiError(403, "Owner access required");
   const existing = await getChequePayment(user, id);
 
-  const dateFieldByStatus = {
-    DEPOSITED: { chequeDepositDate: new Date() },
-    CLEARED: { chequeClearDate: new Date() },
-    BOUNCED: { chequeClearDate: new Date() },
-    RETURNED: {},
-  };
-
   return prisma.$transaction(async (tx) => {
     const details = await tx.paymentDetail.upsert({
       where: { paymentId: id },
       update: {
         chequeStatus: status,
-        ...(dateFieldByStatus[status] || {}),
       },
       create: {
         paymentId: id,
         chequeStatus: status,
-        ...(dateFieldByStatus[status] || {}),
       },
     });
 
     const payment = await tx.payment.update({
       where: { id },
       data: {
-        verificationStatus: status === "CLEARED" ? "VERIFIED" : status === "BOUNCED" ? "MISMATCH" : existing.verificationStatus,
+        status: status === "CLEARED" ? "VERIFIED" : status === "BOUNCED" ? "REJECTED" : existing.status,
         verifiedById: ["CLEARED", "BOUNCED"].includes(status) ? user.id : existing.verifiedById,
         verifiedAt: ["CLEARED", "BOUNCED"].includes(status) ? new Date() : existing.verifiedAt,
         notes: reason || existing.notes,
-        isVoided: status === "BOUNCED" ? true : existing.isVoided,
-        voidedAt: status === "BOUNCED" ? new Date() : existing.voidedAt,
-        voidedById: status === "BOUNCED" ? user.id : existing.voidedById,
       },
       include: { details: true, customer: true },
     });
@@ -95,16 +83,17 @@ export async function updateChequeStatus(user, id, status, { reason } = {}) {
       });
     }
 
-    await writeAuditLog({
-      userId: user.id,
-      role: user.role,
-      shopId: existing.shopId,
-      action: `cheque.${status.toLowerCase()}`,
-      entityType: "Payment",
-      entityId: id,
-      oldValueJson: existing.details,
-      newValueJson: details,
-      reason,
+    await tx.auditLog.create({
+      data: {
+        userId: user.id,
+        shopId: existing.shopId,
+        action: `cheque.${status.toLowerCase()}`,
+        entityType: "Payment",
+        entityId: id,
+        oldValueJson: existing.details,
+        newValueJson: details,
+        reason,
+      }
     });
 
     return payment;

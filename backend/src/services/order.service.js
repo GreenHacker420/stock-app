@@ -53,7 +53,7 @@ export async function createOrder(user, data) {
       prefix: "ORD",
     });
 
-    const initialStatus = data.assignedStaffId ? "SENT_TO_STAFF" : "DRAFT";
+    const initialStatus = "DRAFT";
 
     const order = await tx.order.create({
       data: {
@@ -79,9 +79,6 @@ export async function createOrder(user, data) {
             rate: item.rate,
             discountAmount: item.discountAmount,
             lineTotal: item.lineTotal,
-            priceSource: item.priceSource,
-            lastCustomerRateSnapshot: item.lastCustomerRateSnapshot,
-            recentRateSnapshot: item.recentRateSnapshot,
           })),
         },
         events: {
@@ -119,7 +116,6 @@ export async function createOrder(user, data) {
     await tx.auditLog.create({
       data: {
         userId: user.id,
-        role: user.role,
         shopId: data.shopId,
         action: "order.created",
         entityType: "Order",
@@ -155,7 +151,7 @@ export async function getOrder(user, id) {
     include: {
       customer: true,
       assignedStaff: { select: { id: true, name: true, mobile: true } },
-      items: { include: { item: true, rateChangeRequests: true } },
+      items: { include: { item: true } },
       events: { orderBy: { createdAt: "asc" } },
       payments: true,
       dispatches: { include: { items: true } },
@@ -205,7 +201,6 @@ export async function assignStaff(user, id, staffId) {
       where: { id },
       data: {
         assignedStaffId: staffId,
-        status: order.status === "DRAFT" ? "SENT_TO_STAFF" : order.status,
       },
     });
 
@@ -465,14 +460,10 @@ export async function createDmFromOrder(user, id, data) {
         orderId: order.id,
         staffId: user.id,
         customerId: order.customerId,
-        customerName: customer.name,
-        customerPhone: customer.phone,
-        customerAddress: customer.address,
         estimatedAmount: totalAmount,
         balanceAmount: totalAmount,
         expectedPaymentDate: data.expectedPaymentDate,
-        reason: data.reason,
-        status: "DISPATCHED",
+        status: "PARTIALLY_PAID", // Default status
         items: {
           create: items.map((item) => ({
             itemId: item.itemId,
@@ -502,7 +493,7 @@ export async function createDmFromOrder(user, id, data) {
     await increaseCustomerDebt(tx, order.customerId, totalAmount);
 
     await createDispatchFromOrder(tx, user, order, items, { dmId: dm.id });
-    await tx.order.update({ where: { id }, data: { status: "DM_CREATED" } });
+    await tx.order.update({ where: { id }, data: { status: "DISPATCHED" } });
 
     return dm;
   });
@@ -544,7 +535,6 @@ export async function convertOrderToSale(user, id, data) {
         totalAmount,
         paidAmount: 0,
         balanceAmount: totalAmount,
-        dueDate: data.dueDate,
         paymentStatus: "UNPAID",
         saleStatus: "CONFIRMED",
         items: {
@@ -590,7 +580,7 @@ export async function convertOrderToSale(user, id, data) {
         paidAmount: paymentResult.paidAmount,
         balanceAmount: paymentResult.balanceAmount,
         paymentStatus: paymentResult.paymentStatus,
-        saleStatus: paymentResult.paymentStatus === "PAID" ? "PAID" : "PENDING_PAYMENT",
+        saleStatus: paymentResult.paymentStatus === "PAID" ? "PAID" : "CONFIRMED",
       },
     });
 
@@ -598,7 +588,7 @@ export async function convertOrderToSale(user, id, data) {
     await tx.order.update({
       where: { id },
       data: {
-        status: "CONVERTED_TO_SALE",
+        status: "DISPATCHED",
         paymentStatus: getBillPaymentStatus(Number(order.totalAmount), Number(order.paidAmount)),
       },
     });

@@ -44,7 +44,7 @@ export async function getCustomerTimeline(user, id) {
 
   const timeline = [
     ...sales.map(s => ({ id: s.id, type: "SALE", date: s.createdAt, title: `Sale #${s.saleNumber}`, amount: s.totalAmount, status: s.saleStatus })),
-    ...payments.map(p => ({ id: p.id, type: "PAYMENT", date: p.receivedAt, title: `${p.paymentMode} Payment`, amount: p.amount, status: p.verificationStatus })),
+    ...payments.map(p => ({ id: p.id, type: "PAYMENT", date: p.receivedAt, title: `${p.paymentMode} Payment`, amount: p.amount, status: p.status })),
     ...dms.map(d => ({ id: d.id, type: "DM", date: d.createdAt, title: `Delivery Memo #${d.dmNumber}`, amount: d.estimatedAmount, status: d.status })),
     ...returns.map(r => ({ id: r.id, type: "RETURN", date: r.createdAt, title: `Return #${r.returnNumber}`, amount: r.netAmount, status: r.status })),
     ...audits.map(a => ({ id: a.id, type: "AUDIT", date: a.createdAt, title: a.action, detail: a.reason })),
@@ -94,7 +94,6 @@ export async function createCustomer(user, data) {
       notes: data.notes,
       createdById: user.id,
       outstandingAmount: money(data.outstandingAmount || 0),
-      advanceBalance: money(data.advanceBalance || 0),
     },
   });
 
@@ -117,7 +116,7 @@ export async function updateCustomer(user, id, data) {
   await assertShopAccess(user, existing.shopId);
 
   // Strip outstandingAmount so it cannot be directly updated via normal updates
-  const { outstandingAmount, advanceBalance, ...updateData } = data;
+  const { outstandingAmount, ...updateData } = data;
   
   if (updateData.creditLimit !== undefined) {
     updateData.creditLimit = updateData.creditLimit ? money(updateData.creditLimit) : null;
@@ -151,7 +150,6 @@ export async function getOutstanding(user, id) {
   return {
     customer,
     outstandingAmount: customer.outstandingAmount,
-    advanceBalance: customer.advanceBalance,
     sales
   };
 }

@@ -37,7 +37,7 @@ export async function createReturn(user, data) {
       const alreadyReturned = await prisma.inventoryReturnItem.aggregate({
         where: {
           saleItemId: item.saleItemId,
-          return: { status: { in: ["APPROVED", "COMPLETED"] }, isVoided: false }
+          return: { status: { in: ["APPROVED", "COMPLETED"] } }
         },
         _sum: { quantity: true }
       });
@@ -68,7 +68,7 @@ export async function createReturn(user, data) {
       const alreadyReturned = await prisma.inventoryReturnItem.aggregate({
         where: {
           deliveryMemoItemId: item.deliveryMemoItemId,
-          return: { status: { in: ["APPROVED", "COMPLETED"] }, isVoided: false }
+          return: { status: { in: ["APPROVED", "COMPLETED"] } }
         },
         _sum: { quantity: true }
       });
@@ -86,15 +86,15 @@ export async function createReturn(user, data) {
     throw new ApiError(400, `Invalid return source type: ${data.sourceType}`);
   }
 
-  // Calculate totals
-  let subtotalAmount = ZERO;
+  // Calculate total net amount
+  let totalNetAmount = ZERO;
   const itemsData = [];
 
   for (const item of data.items) {
     const rateVal = money(item.rate);
     const qtyVal = qty(item.quantity);
     const totalAmountVal = money(qtyVal.times(rateVal));
-    subtotalAmount = subtotalAmount.plus(totalAmountVal);
+    totalNetAmount = totalNetAmount.plus(totalAmountVal);
 
     itemsData.push({
       itemId: item.itemId,
@@ -105,9 +105,6 @@ export async function createReturn(user, data) {
       totalAmount: totalAmountVal,
     });
   }
-
-  const adjAmountVal = money(data.adjustmentAmount || 0);
-  const netAmountVal = subtotalAmount.plus(adjAmountVal);
 
   return prisma.$transaction(async (tx) => {
     const returnNumber = await generateRecordNumber(tx, {
@@ -125,9 +122,7 @@ export async function createReturn(user, data) {
         saleId: data.saleId || null,
         dmId: data.dmId || null,
         sourceType: data.sourceType,
-        subtotalAmount,
-        adjustmentAmount: adjAmountVal,
-        netAmount: netAmountVal,
+        netAmount: totalNetAmount,
         status: "PENDING",
         notes: data.notes,
         createdById: user.id,
@@ -138,14 +133,15 @@ export async function createReturn(user, data) {
       include: { items: true }
     });
 
-    await writeAuditLog({
-      userId: user.id,
-      role: user.role,
-      shopId: data.shopId,
-      action: "return.created",
-      entityType: "InventoryReturn",
-      entityId: invReturn.id,
-      newValueJson: invReturn
+    await tx.auditLog.create({
+      data: {
+        userId: user.id,
+        shopId: data.shopId,
+        action: "return.created",
+        entityType: "InventoryReturn",
+        entityId: invReturn.id,
+        newValueJson: invReturn
+      }
     });
 
     return invReturn;
@@ -173,14 +169,15 @@ export async function approveReturn(user, id) {
       include: { items: true }
     });
 
-    await writeAuditLog({
-      userId: user.id,
-      role: user.role,
-      shopId: invReturn.shopId,
-      action: "return.approved",
-      entityType: "InventoryReturn",
-      entityId: id,
-      newValueJson: updated
+    await tx.auditLog.create({
+      data: {
+        userId: user.id,
+        shopId: invReturn.shopId,
+        action: "return.approved",
+        entityType: "InventoryReturn",
+        entityId: id,
+        newValueJson: updated
+      }
     });
 
     return updated;
@@ -216,13 +213,10 @@ export async function completeReturn(user, id) {
     }
 
     // 2. Adjust Financial Balance
-    if (invReturn.sourceType === "SALE") {
-      // Decrease customer outstanding balance (increases advance or reduces outstanding)
-      await decreaseCustomerDebt(tx, invReturn.customerId, invReturn.netAmount);
-    } else if (invReturn.sourceType === "DELIVERY_MEMO") {
-      // Decrease customer debt + Update DeliveryMemoItem returnedQty
-      await decreaseCustomerDebt(tx, invReturn.customerId, invReturn.netAmount);
+    // Returns reduce customer debt.
+    await decreaseCustomerDebt(tx, invReturn.customerId, invReturn.netAmount);
 
+    if (invReturn.sourceType === "DELIVERY_MEMO") {
       for (const item of invReturn.items) {
         if (item.deliveryMemoItemId) {
           const dmItem = await tx.deliveryMemoItem.findUnique({
@@ -251,14 +245,15 @@ export async function completeReturn(user, id) {
       include: { items: true }
     });
 
-    await writeAuditLog({
-      userId: user.id,
-      role: user.role,
-      shopId: invReturn.shopId,
-      action: "return.completed",
-      entityType: "InventoryReturn",
-      entityId: id,
-      newValueJson: completed
+    await tx.auditLog.create({
+      data: {
+        userId: user.id,
+        shopId: invReturn.shopId,
+        action: "return.completed",
+        entityType: "InventoryReturn",
+        entityId: id,
+        newValueJson: completed
+      }
     });
 
     return completed;

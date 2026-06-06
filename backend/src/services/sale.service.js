@@ -26,10 +26,6 @@ export async function createSale(user, data) {
     }
   }
 
-  if (data.isWalkin && data.payments?.some((payment) => payment.paymentMode === "CREDIT")) {
-    throw new ApiError(400, "Walk-in sale cannot use credit payment");
-  }
-
   const { items, subtotal, discountAmount, totalAmount } = calculateItemTotals(data.items);
 
   return prisma.$transaction(async (tx) => {
@@ -62,9 +58,7 @@ export async function createSale(user, data) {
         discountAmount: discountVal,
         totalAmount: totalVal,
         balanceAmount: totalVal,
-        dueDate: data.dueDate,
         saleStatus: "CONFIRMED",
-        customerSignature: data.customerSignature || undefined,
         items: {
           create: items.map((item) => ({
             itemId: item.itemId,
@@ -114,7 +108,7 @@ export async function createSale(user, data) {
         paidAmount: paymentResult.paidAmount,
         balanceAmount: paymentResult.balanceAmount,
         paymentStatus: paymentResult.paymentStatus,
-        saleStatus: paymentResult.paymentStatus === "PAID" ? "PAID" : "PENDING_PAYMENT",
+        saleStatus: paymentResult.paymentStatus === "PAID" ? "PAID" : "CONFIRMED",
       },
       include: { items: true, payments: true },
     });
@@ -122,7 +116,6 @@ export async function createSale(user, data) {
     await tx.auditLog.create({
       data: {
         userId: user.id,
-        role: user.role,
         shopId: data.shopId,
         action: data.isWalkin ? "sale.walkin_created" : "sale.created",
         entityType: "Sale",
