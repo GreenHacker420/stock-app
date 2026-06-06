@@ -110,28 +110,33 @@ export function CustomerList() {
         </View>
 
         <View style={styles.listWrapper}>
-          <FlashList
-            data={filteredData}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
-              <CustomerCard 
-                customer={item} 
-                onPress={() => (navigation as any).navigate("CustomerDetail", { customerId: item.id })}
+          {(() => {
+            const List = FlashList as any;
+            return (
+              <List
+                data={filteredData}
+                keyExtractor={(item: any) => item.id}
+                renderItem={({ item }: any) => (
+                  <CustomerCard 
+                    customer={item} 
+                    onPress={() => (navigation as any).navigate("CustomerDetail", { customerId: item.id })}
+                  />
+                )}
+                ListEmptyComponent={
+                  customersQuery.isLoading ? (
+                    <SkeletonList count={8} itemHeight={80} />
+                  ) : (
+                    <EmptyState 
+                      icon="account-group-outline" 
+                      title="No customers yet" 
+                      subtitle="Add your first customer to get started" 
+                    />
+                  )
+                }
+                contentContainerStyle={styles.listContent}
               />
-            )}
-            ListEmptyComponent={
-              customersQuery.isLoading ? (
-                <SkeletonList count={8} itemHeight={80} />
-              ) : (
-                <EmptyState 
-                  icon="account-group-outline" 
-                  title="No customers yet" 
-                  subtitle="Add your first customer to get started" 
-                />
-              )
-            }
-            contentContainerStyle={styles.listContent}
-          />
+            );
+          })()}
         </View>
 
         <Pressable 
@@ -205,124 +210,6 @@ export function AddEditCustomer() {
             size="lg"
           />
         </View>
-      </View>
-    </Screen>
-  );
-}
-
-export function CustomerDetail() {
-  const token = useAuthStore((state) => state.token);
-  const navigation = useNavigation();
-  const customerId = (useRoute().params as { customerId?: string } | undefined)?.customerId;
-  
-  const customerQuery = useQuery({ 
-    queryKey: ["customer", customerId], 
-    queryFn: () => fetchCustomer(token ?? "", customerId ?? ""), 
-    enabled: !!token && !!customerId 
-  });
-  
-  const outstandingQuery = useQuery({ 
-    queryKey: ["customer-outstanding", customerId], 
-    queryFn: () => fetchCustomerOutstanding(token ?? "", customerId ?? ""), 
-    enabled: !!token && !!customerId 
-  });
-  
-  const historyQuery = useQuery({ 
-    queryKey: ["customer-price-history", customerId], 
-    queryFn: () => fetchCustomerPriceHistory(token ?? "", customerId ?? ""), 
-    enabled: !!token && !!customerId 
-  });
-
-  const customer = customerQuery.data;
-
-  return (
-    <Screen edges={['top', 'left', 'right']}>
-      <View style={styles.container}>
-        <AppHeader title={customer?.name ?? "Customer Detail"} subtitle="Profile and transaction history" />
-        
-        {customer ? (
-          <ScrollView contentContainerStyle={styles.detailContent} showsVerticalScrollIndicator={false}>
-            <View style={styles.detailCard}>
-              <Text style={styles.detailName}>{customer.name}</Text>
-              <Text style={styles.detailSubtitle}>{customer.phone || "No phone"} • {customer.city || "No city"}</Text>
-              <Divider style={styles.divider} />
-              <View style={styles.detailStats}>
-                <View style={styles.detailStatItem}>
-                  <Text style={styles.statLabel}>Outstanding</Text>
-                  <Text style={[styles.statValue, { color: colors.danger }]}>
-                    {money(Math.abs(Number(customer.outstandingAmount)) + ((outstandingQuery.data as any)?.totalPending ?? 0))}
-                  </Text>
-                </View>
-                <View style={styles.detailStatItem}>
-                  <Text style={styles.statLabel}>Credit Limit</Text>
-                  <Text style={styles.statValue}>{money(customer.creditLimit)}</Text>
-                </View>
-              </View>
-            </View>
-
-            <Button 
-              variant="secondary" 
-              label="Edit Profile" 
-              icon={<Icon source="pencil" size={20} color={colors.primary} />} 
-              onPress={() => (navigation as any).navigate("AddEditCustomer", { customer })}
-              style={styles.editButton}
-            />
-
-            <Section title="Outstanding records">
-              <View style={styles.recordsCard}>
-                {((outstandingQuery.data as any)?.records ?? []).length > 0 ? (
-                  ((outstandingQuery.data as any)?.records ?? []).map((row: any, index: number) => (
-                    <View key={row.id}>
-                      {index > 0 && <Divider style={styles.rowDivider} />}
-                      <View style={styles.recordRow}>
-                        <View>
-                          <Text style={styles.recordTitle}>
-                            {row.sale?.saleNumber ?? row.deliveryMemo?.dmNumber ?? row.order?.orderNumber ?? "Outstanding"}
-                          </Text>
-                          <Text style={styles.recordSubtitle}>{row.status}</Text>
-                        </View>
-                        <Text style={styles.recordAmount}>{money(row.pendingAmount)}</Text>
-                      </View>
-                    </View>
-                  ))
-                ) : Math.abs(Number(customer.outstandingAmount)) > 0 ? (
-                  <View style={styles.recordRow}>
-                    <View>
-                      <Text style={styles.recordTitle}>Initial Balance (Migrated)</Text>
-                      <Text style={styles.recordSubtitle}>PENDING</Text>
-                    </View>
-                    <Text style={styles.recordAmount}>{money(Math.abs(Number(customer.outstandingAmount)))}</Text>
-                  </View>
-                ) : (
-                  <Text style={styles.emptyText}>No outstanding records found.</Text>
-                )}
-              </View>
-            </Section>
-
-            <Section title="Price history">
-              <View style={styles.recordsCard}>
-                {((historyQuery.data as any)?.rows ?? []).length > 0 ? (
-                  ((historyQuery.data as any)?.rows ?? []).slice(0, 10).map((row: any, index: number) => (
-                    <View key={`${row.type}-${row.recordNumber}-${index}`}>
-                      {index > 0 && <Divider style={styles.rowDivider} />}
-                      <View style={styles.recordRow}>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.recordTitle}>{row.item?.name}</Text>
-                          <Text style={styles.recordSubtitle}>{row.type} {row.recordNumber} • Qty {row.quantity}</Text>
-                        </View>
-                        <Text style={styles.recordAmount}>{money(row.rate)}</Text>
-                      </View>
-                    </View>
-                  ))
-                ) : (
-                  <Text style={styles.emptyText}>No price history found.</Text>
-                )}
-              </View>
-            </Section>
-          </ScrollView>
-        ) : (
-          <SkeletonList count={5} />
-        )}
       </View>
     </Screen>
   );

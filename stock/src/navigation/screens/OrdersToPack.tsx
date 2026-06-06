@@ -242,33 +242,38 @@ export function OrdersToPack() {
       </View>
 
       <View style={styles.listWrapper}>
-        <FlashList
-          data={filteredOrders}
-          keyExtractor={(item: Order) => item.id}
-          renderItem={({ item }: { item: Order }) => (
-            <OrderCard
-              order={item}
-              isExpanded={expandedOrderId === item.id}
-              onToggle={() => setExpandedOrderId(expandedOrderId === item.id ? null : item.id)}
-              onPack={(itemId, qty) => packMutation.mutate({ orderId: item.id, data: { orderItemId: itemId, quantityPacked: qty } })}
-              onShortage={(orderItem) => setShortageItem({ ...orderItem, orderId: item.id })}
-              onDisburse={() => handleOpenDisburse(item)}
-              isPacking={packMutation.isPending}
+        {(() => {
+          const List = FlashList as any;
+          return (
+            <List
+              data={filteredOrders}
+              keyExtractor={(item: Order) => item.id}
+              renderItem={({ item }: { item: Order }) => (
+                <OrderCard
+                  order={item}
+                  isExpanded={expandedOrderId === item.id}
+                  onToggle={() => setExpandedOrderId(expandedOrderId === item.id ? null : item.id)}
+                  onPack={(itemId, qty) => packMutation.mutate({ orderId: item.id, data: { orderItemId: itemId, quantityPacked: qty } })}
+                  onShortage={(orderItem) => setShortageItem({ ...orderItem, orderId: item.id })}
+                  onDisburse={() => handleOpenDisburse(item)}
+                  isPacking={packMutation.isPending}
+                />
+              )}
+              ListEmptyComponent={
+                ordersQuery.isLoading ? (
+                  <SkeletonList count={5} itemHeight={130} />
+                ) : (
+                  <EmptyState 
+                    icon="clipboard-text-outline" 
+                    title="No orders found" 
+                    subtitle={`New orders in "${tab}" will appear here.`} 
+                  />
+                )
+              }
+              contentContainerStyle={styles.listContent}
             />
-          )}
-          ListEmptyComponent={
-            ordersQuery.isLoading ? (
-              <SkeletonList count={5} itemHeight={130} />
-            ) : (
-              <EmptyState 
-                icon="clipboard-text-outline" 
-                title="No orders found" 
-                subtitle={`New orders in "${tab}" will appear here.`} 
-              />
-            )
-          }
-          contentContainerStyle={styles.listContent}
-        />
+          );
+        })()}
       </View>
 
       <Portal>

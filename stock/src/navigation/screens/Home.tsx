@@ -209,82 +209,56 @@ function OwnerHome({ navigate }: { navigate: (s: string, params?: any) => void }
       </View>
 
       <View style={styles.gridContainer}>
-        {/* Payment Verification Card */}
+        {/* Verification Queue Card */}
         <Pressable 
-          onPress={() => navigate("PaymentVerification")} 
+          onPress={() => navigate("VerificationQueue")} 
           style={({ pressed }) => [
             styles.taskCard,
-            (dashboard?.paymentVerificationPending ?? 0) > 0 && styles.taskCardWarning,
+            (dashboard?.pendingVerifications ?? 0) > 0 && styles.taskCardAlert,
             pressed && styles.pressed
           ]}
         >
           <View style={styles.taskHeader}>
             <Icon 
-              source="check-decagram-outline" 
+              source="shield-check-outline" 
               size={24} 
-              color={(dashboard?.paymentVerificationPending ?? 0) > 0 ? colors.warning : colors.textMuted} 
+              color={(dashboard?.pendingVerifications ?? 0) > 0 ? colors.primary : colors.textMuted} 
             />
             <Text style={[
               styles.taskBadge, 
-              (dashboard?.paymentVerificationPending ?? 0) > 0 ? styles.taskBadgeWarning : styles.taskBadgeClean
+              (dashboard?.pendingVerifications ?? 0) > 0 ? styles.taskBadgeAlert : styles.taskBadgeClean
             ]}>
-              {dashboard?.paymentVerificationPending ?? 0}
+              {dashboard?.pendingVerifications ?? 0}
             </Text>
           </View>
-          <Text style={styles.taskLabel}>VERIFY PAYMENTS</Text>
-          <Text style={styles.taskDesc}>UPI / cheque collections</Text>
+          <Text style={styles.taskLabel}>VERIFICATIONS</Text>
+          <Text style={styles.taskDesc}>Expenses & adjustments</Text>
         </Pressable>
 
-        {/* Rate Change Requests Card */}
+        {/* GST Pending Card */}
         <Pressable 
-          onPress={() => navigate("RateChangeRequests")} 
+          onPress={() => navigate("SalesList", { filter: 'gst_pending' })} 
           style={({ pressed }) => [
             styles.taskCard,
-            (dashboard?.rateChangeRequests ?? 0) > 0 && styles.taskCardAlert,
+            (dashboard?.gstInvoicesPendingCount ?? 0) > 0 && styles.taskCardWarning,
             pressed && styles.pressed
           ]}
         >
           <View style={styles.taskHeader}>
             <Icon 
-              source="tag-outline" 
+              source="file-percent-outline" 
               size={24} 
-              color={(dashboard?.rateChangeRequests ?? 0) > 0 ? colors.primary : colors.textMuted} 
+              color={(dashboard?.gstInvoicesPendingCount ?? 0) > 0 ? colors.warning : colors.textMuted} 
             />
             <Text style={[
               styles.taskBadge, 
-              (dashboard?.rateChangeRequests ?? 0) > 0 ? styles.taskBadgeAlert : styles.taskBadgeClean
+              (dashboard?.gstInvoicesPendingCount ?? 0) > 0 ? styles.taskBadgeWarning : styles.taskBadgeClean
             ]}>
-              {dashboard?.rateChangeRequests ?? 0}
+              {dashboard?.gstInvoicesPendingCount ?? 0}
             </Text>
           </View>
-          <Text style={styles.taskLabel}>RATE APPROVALS</Text>
-          <Text style={styles.taskDesc}>Discount rate clearances</Text>
-        </Pressable>
-
-        {/* Correction Requests Card */}
-        <Pressable 
-          onPress={() => navigate("CorrectionRequests")} 
-          style={({ pressed }) => [
-            styles.taskCard,
-            (dashboard?.correctionRequests ?? 0) > 0 && styles.taskCardAlert,
-            pressed && styles.pressed
-          ]}
-        >
-          <View style={styles.taskHeader}>
-            <Icon 
-              source="file-document-edit-outline" 
-              size={24} 
-              color={(dashboard?.correctionRequests ?? 0) > 0 ? colors.primary : colors.textMuted} 
-            />
-            <Text style={[
-              styles.taskBadge, 
-              (dashboard?.correctionRequests ?? 0) > 0 ? styles.taskBadgeAlert : styles.taskBadgeClean
-            ]}>
-              {dashboard?.correctionRequests ?? 0}
-            </Text>
-          </View>
-          <Text style={styles.taskLabel}>CORRECTIONS</Text>
-          <Text style={styles.taskDesc}>Invoice edit requests</Text>
+          <Text style={styles.taskLabel}>PENDING GST</Text>
+          <Text style={styles.taskDesc}>Bills to enter in Tally</Text>
         </Pressable>
 
         {/* Low Stock Alerts Card */}
@@ -416,9 +390,9 @@ function StaffHome({ navigate, session, sessionLoading }: { navigate: (s: string
         <CategoryCard title="Orders" icon="package-variant-closed" onPress={() => navigate("OrdersToPack")} />
         <CategoryCard title="New Sale" icon="cart-plus" onPress={() => navigate("NewSaleType")} />
         <CategoryCard title="Create DM" icon="file-document-outline" onPress={() => navigate("OrdersToPack", { initialTab: "packed" })} />
+        <CategoryCard title="Expenses" icon="cash-minus" onPress={() => navigate("Expenses")} />
         <CategoryCard title="Payment" icon="cash-register" onPress={() => navigate("TakePayment")} />
         <CategoryCard title="Stock Entry" icon="warehouse" onPress={() => navigate("StockEntry")} />
-        <CategoryCard title="Close Day" icon="cash-check" onPress={() => navigate("CloseDay")} />
       </View>
 
       <View style={styles.staffFooterActions}>

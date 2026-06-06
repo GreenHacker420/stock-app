@@ -116,8 +116,9 @@ function OverviewTab({ customer }: { customer: any }) {
 
 function SalesTab({ query }: { query: any }) {
   if (query.isLoading) return <ActivityIndicator style={{ marginTop: 40 }} />;
+  const List = FlashList as any;
   return (
-    <FlashList
+    <List
       data={query.data ?? []}
       renderItem={({ item }: { item: any }) => (
         <View style={styles.listItem}>
@@ -139,8 +140,9 @@ function SalesTab({ query }: { query: any }) {
 
 function PaymentsTab({ query }: { query: any }) {
   if (query.isLoading) return <ActivityIndicator style={{ marginTop: 40 }} />;
+  const List = FlashList as any;
   return (
-    <FlashList
+    <List
       data={query.data ?? []}
       renderItem={({ item }: { item: any }) => (
         <View style={styles.listItem}>
@@ -192,8 +194,9 @@ function OutstandingTab({ customer, salesQuery }: { customer: any, salesQuery: a
 
 function DMsTab({ query }: { query: any }) {
   if (query.isLoading) return <ActivityIndicator style={{ marginTop: 40 }} />;
+  const List = FlashList as any;
   return (
-    <FlashList
+    <List
       data={query.data ?? []}
       renderItem={({ item }: { item: any }) => (
         <View style={styles.listItem}>
@@ -215,8 +218,9 @@ function DMsTab({ query }: { query: any }) {
 
 function ReturnsTab({ query }: { query: any }) {
   if (query.isLoading) return <ActivityIndicator style={{ marginTop: 40 }} />;
+  const List = FlashList as any;
   return (
-    <FlashList
+    <List
       data={query.data ?? []}
       renderItem={({ item }: { item: any }) => (
         <View style={styles.listItem}>
@@ -238,8 +242,9 @@ function ReturnsTab({ query }: { query: any }) {
 
 function TimelineTab({ query }: { query: any }) {
   if (query.isLoading) return <ActivityIndicator style={{ marginTop: 40 }} />;
+  const List = FlashList as any;
   return (
-    <FlashList
+    <List
       data={query.data ?? []}
       renderItem={({ item }: { item: any }) => (
         <View style={styles.timelineItem}>

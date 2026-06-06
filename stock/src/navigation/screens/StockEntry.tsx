@@ -114,29 +114,34 @@ export function StockEntry() {
         </View>
 
         <View style={styles.listContainer}>
-          <FlashList
-            data={itemsQuery.data?.items ?? []}
-            keyExtractor={(item: Item) => item.id}
-            renderItem={({ item }: { item: Item }) => (
-              <StockEntryRow 
-                item={item} 
-                quantity={entries[item.id] || ""}
-                onChange={(val) => updateEntry(item.id, val)}
+          {(() => {
+            const List = FlashList as any;
+            return (
+              <List
+                data={itemsQuery.data?.items ?? []}
+                keyExtractor={(item: Item) => item.id}
+                renderItem={({ item }: { item: Item }) => (
+                  <StockEntryRow 
+                    item={item} 
+                    quantity={entries[item.id] || ""}
+                    onChange={(val) => updateEntry(item.id, val)}
+                  />
+                )}
+                ListEmptyComponent={
+                  itemsQuery.isLoading ? (
+                    <SkeletonList count={8} itemHeight={80} />
+                  ) : (
+                    <EmptyState 
+                      icon="package-variant-closed" 
+                      title="No items found" 
+                      subtitle="Try searching for a different item name" 
+                    />
+                  )
+                }
+                contentContainerStyle={styles.listContent}
               />
-            )}
-            ListEmptyComponent={
-              itemsQuery.isLoading ? (
-                <SkeletonList count={8} itemHeight={80} />
-              ) : (
-                <EmptyState 
-                  icon="package-variant-closed" 
-                  title="No items found" 
-                  subtitle="Try searching for a different item name" 
-                />
-              )
-            }
-            contentContainerStyle={styles.listContent}
-          />
+            );
+          })()}
         </View>
 
         <View style={styles.footer}>

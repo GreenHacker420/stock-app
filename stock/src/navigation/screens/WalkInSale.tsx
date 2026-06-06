@@ -142,6 +142,9 @@ export function WalkInSale() {
     });
   };
 
+  // Workaround for FlashList types compatibility with React 19
+  const List = FlashList as any;
+
   return (
     <Screen edges={['top', 'left', 'right']}>
       <KeyboardAvoidingView 
@@ -162,7 +165,7 @@ export function WalkInSale() {
         </View>
 
         <View style={styles.listContainer}>
-          <FlashList
+          <List
             data={itemsQuery.data?.items ?? []}
             keyExtractor={(item: Item) => item.id}
             renderItem={({ item }: { item: Item }) => (
@@ -173,6 +176,7 @@ export function WalkInSale() {
                 onRemove={() => updateQuantity(item, -1)}
               />
             )}
+            estimatedItemSize={90}
             ListEmptyComponent={
               itemsQuery.isLoading ? (
                 <SkeletonList count={6} itemHeight={90} />
