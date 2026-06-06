@@ -6,7 +6,10 @@ import {
   createStockOut,
   generateRecordNumber,
   prisma,
+  autoAllocateCustomerAdvances,
+  getBillPaymentStatus,
 } from "./transactionHelpers.js";
+import { money, sub } from "../utils/money.js";
 
 export async function createSale(user, data) {
   await assertShopAccess(user, data.shopId);
@@ -36,6 +39,10 @@ export async function createSale(user, data) {
       prefix: "SAL",
     });
 
+    const totalVal = money(totalAmount);
+    const subtotalVal = money(subtotal);
+    const discountVal = money(discountAmount);
+
     const sale = await tx.sale.create({
       data: {
         saleNumber,
@@ -43,10 +50,10 @@ export async function createSale(user, data) {
         staffId: user.id,
         customerId: data.customerId,
         isWalkin: !!data.isWalkin,
-        subtotal,
-        discountAmount,
-        totalAmount,
-        balanceAmount: totalAmount,
+        subtotal: subtotalVal,
+        discountAmount: discountVal,
+        totalAmount: totalVal,
+        balanceAmount: totalVal,
         dueDate: data.dueDate,
         saleStatus: "CONFIRMED",
         customerSignature: data.customerSignature || undefined,
@@ -54,9 +61,9 @@ export async function createSale(user, data) {
           create: items.map((item) => ({
             itemId: item.itemId,
             quantity: item.quantity,
-            rate: item.rate,
-            discountAmount: item.discountAmount,
-            totalAmount: item.lineTotal,
+            rate: money(item.rate),
+            discountAmount: money(item.discountAmount),
+            totalAmount: money(item.lineTotal),
           })),
         },
       },
@@ -75,12 +82,30 @@ export async function createSale(user, data) {
       });
     }
 
+    if (!data.isWalkin && data.customerId) {
+      // Create the CreditOutstanding record representing initial full debt
+      await tx.creditOutstanding.create({
+        data: {
+          shopId: data.shopId,
+          customerId: data.customerId,
+          saleId: sale.id,
+          originalAmount: totalVal,
+          pendingAmount: totalVal,
+          paidAmount: money(0),
+          status: "PENDING",
+          sourceType: "SALE",
+          createdById: user.id,
+          dueDate: data.dueDate
+        }
+      });
+    }
+
     const paymentResult = await applyPayments(tx, {
       user,
       shopId: data.shopId,
       saleId: sale.id,
       customerId: data.customerId,
-      totalAmount,
+      totalAmount: totalVal,
       payments: data.payments || [],
     });
 
@@ -88,27 +113,38 @@ export async function createSale(user, data) {
       throw new ApiError(400, "Walk-in sale must be fully paid");
     }
 
-    if (paymentResult.balanceAmount > 0 && data.customerId) {
-      await tx.creditOutstanding.create({
-        data: {
-          shopId: data.shopId,
-          customerId: data.customerId,
-          saleId: sale.id,
-          pendingAmount: paymentResult.balanceAmount,
-          dueDate: data.dueDate,
-          status: "PENDING",
-          createdById: user.id,
-        },
+    if (!data.isWalkin && data.customerId) {
+      // Auto-allocate existing customer advances against the remaining debt
+      await autoAllocateCustomerAdvances(tx, {
+        customerId: data.customerId,
+        shopId: data.shopId,
+        userId: user.id
       });
+    }
+
+    // Read the final dynamic balances from CreditOutstanding or paymentResult
+    let finalPaid = paymentResult.paidAmount;
+    let finalBalance = paymentResult.balanceAmount;
+    let finalPaymentStatus = paymentResult.paymentStatus;
+
+    if (!data.isWalkin && data.customerId) {
+      const debt = await tx.creditOutstanding.findUnique({
+        where: { saleId: sale.id }
+      });
+      if (debt) {
+        finalBalance = money(debt.pendingAmount);
+        finalPaid = sub(totalVal, finalBalance);
+        finalPaymentStatus = getBillPaymentStatus(totalVal, finalPaid);
+      }
     }
 
     const updatedSale = await tx.sale.update({
       where: { id: sale.id },
       data: {
-        paidAmount: paymentResult.paidAmount,
-        balanceAmount: paymentResult.balanceAmount,
-        paymentStatus: paymentResult.paymentStatus,
-        saleStatus: paymentResult.paymentStatus === "PAID" ? "PAID" : "PENDING_PAYMENT",
+        paidAmount: finalPaid,
+        balanceAmount: finalBalance,
+        paymentStatus: finalPaymentStatus,
+        saleStatus: finalPaymentStatus === "PAID" ? "PAID" : "PENDING_PAYMENT",
       },
       include: { items: true, payments: true },
     });

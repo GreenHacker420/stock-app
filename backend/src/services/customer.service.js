@@ -2,11 +2,38 @@ import prisma from "../lib/db.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 import { writeAuditLog } from "../utils/auditLog.js";
+import { money, sub } from "../utils/money.js";
+
+export async function computeDynamicCustomerOutstanding(customerId) {
+  const creditSum = await prisma.creditOutstanding.aggregate({
+    where: {
+      customerId,
+      status: { notIn: ["PAID", "CANCELLED"] }
+    },
+    _sum: {
+      pendingAmount: true
+    }
+  });
+
+  const advanceSum = await prisma.customerAdvance.aggregate({
+    where: {
+      customerId,
+      status: { notIn: ["PAID", "CANCELLED"] }
+    },
+    _sum: {
+      pendingAmount: true
+    }
+  });
+
+  const credits = creditSum._sum.pendingAmount || money(0);
+  const advances = advanceSum._sum.pendingAmount || money(0);
+  return sub(credits, advances);
+}
 
 export async function listCustomers(user, { shopId, search }) {
   await assertShopAccess(user, shopId);
 
-  return prisma.customer.findMany({
+  const customers = await prisma.customer.findMany({
     where: {
       shopId,
       status: "ACTIVE",
@@ -20,12 +47,19 @@ export async function listCustomers(user, { shopId, search }) {
     },
     orderBy: { createdAt: "desc" },
   });
+
+  for (const customer of customers) {
+    customer.outstandingAmount = await computeDynamicCustomerOutstanding(customer.id);
+  }
+
+  return customers;
 }
 
 export async function getCustomer(user, id) {
   const customer = await prisma.customer.findUnique({ where: { id } });
   if (!customer) throw new ApiError(404, "Customer not found");
   await assertShopAccess(user, customer.shopId);
+  customer.outstandingAmount = await computeDynamicCustomerOutstanding(id);
   return customer;
 }
 
@@ -40,11 +74,28 @@ export async function createCustomer(user, data) {
       address: data.address,
       city: data.city,
       gstin: data.gstin,
-      creditLimit: data.creditLimit,
+      creditLimit: data.creditLimit ? money(data.creditLimit) : null,
       notes: data.notes,
       createdById: user.id,
+      outstandingAmount: money(0), // Always 0 in database storage!
     },
   });
+
+  const onboardingBalance = money(data.outstandingAmount);
+  if (onboardingBalance.gt(0)) {
+    await prisma.creditOutstanding.create({
+      data: {
+        shopId: customer.shopId,
+        customerId: customer.id,
+        originalAmount: onboardingBalance,
+        pendingAmount: onboardingBalance,
+        paidAmount: money(0),
+        sourceType: "OPENING_BALANCE",
+        status: "PENDING",
+        createdById: user.id
+      }
+    });
+  }
 
   await writeAuditLog({
     userId: user.id,
@@ -56,6 +107,7 @@ export async function createCustomer(user, data) {
     newValueJson: customer,
   });
 
+  customer.outstandingAmount = onboardingBalance;
   return customer;
 }
 
@@ -64,9 +116,15 @@ export async function updateCustomer(user, id, data) {
   if (!existing) throw new ApiError(404, "Customer not found");
   await assertShopAccess(user, existing.shopId);
 
+  // Strip outstandingAmount so it cannot be directly updated
+  const { outstandingAmount, ...updateData } = data;
+  if (updateData.creditLimit !== undefined) {
+    updateData.creditLimit = updateData.creditLimit ? money(updateData.creditLimit) : null;
+  }
+
   const customer = await prisma.customer.update({
     where: { id },
-    data,
+    data: updateData,
   });
 
   await writeAuditLog({
@@ -80,6 +138,7 @@ export async function updateCustomer(user, id, data) {
     newValueJson: customer,
   });
 
+  customer.outstandingAmount = await computeDynamicCustomerOutstanding(id);
   return customer;
 }
 
@@ -91,7 +150,8 @@ export async function getOutstanding(user, id) {
     orderBy: [{ dueDate: "asc" }, { createdAt: "desc" }],
   });
 
-  const totalPending = records.reduce((sum, record) => sum + Number(record.pendingAmount), 0);
+  // Calculate dynamic pending sum using Decimal arithmetic
+  const totalPending = records.reduce((sum, record) => sum.plus(record.pendingAmount), money(0));
   return { customer, totalPending, records };
 }
 

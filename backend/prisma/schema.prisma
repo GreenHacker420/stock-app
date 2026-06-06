@@ -187,6 +187,24 @@ enum ExportStatus {
   FAILED
 }
 
+enum CreditSourceType {
+  SALE
+  DM
+  ORDER
+  OPENING_BALANCE
+}
+
+enum AllocationType {
+  PAYMENT
+  ADVANCE_APPLIED
+  REVERSAL
+}
+
+enum AllocationStatus {
+  ACTIVE
+  REVERSED
+}
+
 model User {
   id           String     @id @default(cuid())
   name         String
@@ -216,6 +234,7 @@ model User {
   cashSessions           CashSession[]        @relation("CashSessionStaff")
   cashSessionsReviewed   CashSession[]        @relation("CashSessionReviewedBy")
   creditOutstandings     CreditOutstanding[]  @relation("CreditCreatedBy")
+  customerAdvances       CustomerAdvance[]    @relation("AdvanceCreatedBy")
   rateRequests           RateChangeRequest[]  @relation("RateRequestedBy")
   rateApprovals          RateChangeRequest[]  @relation("RateApprovedBy")
   correctionRequests     CorrectionRequest[]  @relation("CorrectionRequestedBy")
@@ -272,6 +291,7 @@ model Shop {
   payments           Payment[]
   cashSessions       CashSession[]
   creditOutstandings CreditOutstanding[]
+  customerAdvances   CustomerAdvance[]
   notifications      Notification[]
   dailySummaries     DailySummary[]
 
@@ -315,6 +335,7 @@ model Customer {
   deliveryMemos      DeliveryMemo[]
   payments           Payment[]
   creditOutstandings CreditOutstanding[]
+  customerAdvances   CustomerAdvance[]
 
   @@index([shopId])
   @@index([phone])
@@ -561,7 +582,7 @@ model Sale {
   items              SaleItem[]
   dispatches         Dispatch[]
   payments           Payment[]
-  creditOutstandings CreditOutstanding[]
+  creditOutstanding  CreditOutstanding?
 
   @@unique([shopId, saleNumber])
   @@index([shopId, createdAt])
@@ -612,7 +633,7 @@ model DeliveryMemo {
   dispatches         Dispatch[]
   sales              Sale[]
   payments           Payment[]
-  creditOutstandings CreditOutstanding[]
+  creditOutstanding  CreditOutstanding?
 
   @@unique([shopId, dmNumber])
   @@index([shopId, status])
@@ -667,6 +688,8 @@ model Payment {
   receivedBy   User           @relation("PaymentReceivedBy", fields: [receivedById], references: [id])
   verifiedBy   User?          @relation("PaymentVerifiedBy", fields: [verifiedById], references: [id])
   details      PaymentDetail?
+  allocations  PaymentAllocation[]
+  customerAdvance CustomerAdvance?
 
   @@index([shopId, receivedAt])
   @@index([paymentMode, verificationStatus])
@@ -730,19 +753,23 @@ model CashSession {
 }
 
 model CreditOutstanding {
-  id            String       @id @default(cuid())
-  shopId        String
-  customerId    String
-  saleId        String?
-  dmId          String?
-  orderId       String?
-  pendingAmount Decimal      @db.Decimal(12, 2)
-  dueDate       DateTime?
-  note          String?
-  status        CreditStatus @default(PENDING)
-  createdById   String
-  createdAt     DateTime     @default(now())
-  updatedAt     DateTime     @updatedAt
+  id             String            @id @default(cuid())
+  shopId         String
+  customerId     String
+  saleId         String?           @unique
+  dmId           String?           @unique
+  orderId        String?
+  originalAmount Decimal           @db.Decimal(12, 2)
+  pendingAmount  Decimal           @db.Decimal(12, 2)
+  paidAmount     Decimal           @default(0) @db.Decimal(12, 2)
+  dueDate        DateTime?
+  note           String?
+  status         CreditStatus      @default(PENDING)
+  sourceType     CreditSourceType
+  referenceId    String?           // Originating invoice or customer ID
+  createdById    String
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
 
   shop         Shop          @relation(fields: [shopId], references: [id])
   customer     Customer      @relation(fields: [customerId], references: [id])
@@ -750,10 +777,55 @@ model CreditOutstanding {
   deliveryMemo DeliveryMemo? @relation(fields: [dmId], references: [id])
   order        Order?        @relation(fields: [orderId], references: [id])
   createdBy    User          @relation("CreditCreatedBy", fields: [createdById], references: [id])
+  allocations  PaymentAllocation[]
 
   @@index([shopId, status])
   @@index([customerId])
   @@index([shopId, dueDate])
+}
+
+model CustomerAdvance {
+  id             String         @id @default(cuid())
+  shopId         String
+  customerId     String
+  paymentId      String?        @unique
+  originalAmount Decimal        @db.Decimal(12, 2)
+  pendingAmount  Decimal        @db.Decimal(12, 2)
+  paidAmount     Decimal        @default(0) @db.Decimal(12, 2)
+  status         CreditStatus   @default(PENDING)
+  createdById    String
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  shop         Shop          @relation(fields: [shopId], references: [id])
+  customer     Customer      @relation(fields: [customerId], references: [id])
+  payment      Payment?      @relation(fields: [paymentId], references: [id])
+  createdBy    User          @relation("AdvanceCreatedBy", fields: [createdById], references: [id])
+  allocations  PaymentAllocation[]
+
+  @@index([shopId, status])
+  @@index([customerId])
+}
+
+model PaymentAllocation {
+  id                  String           @id @default(cuid())
+  paymentId           String
+  creditOutstandingId String?
+  customerAdvanceId   String?
+  amount              Decimal          @db.Decimal(12, 2)
+  allocationType      AllocationType
+  status              AllocationStatus @default(ACTIVE)
+  reversalOfId        String?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  payment           Payment            @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  creditOutstanding CreditOutstanding? @relation(fields: [creditOutstandingId], references: [id], onDelete: Cascade)
+  customerAdvance   CustomerAdvance?   @relation(fields: [customerAdvanceId], references: [id], onDelete: Cascade)
+
+  @@index([paymentId])
+  @@index([creditOutstandingId])
+  @@index([customerAdvanceId])
 }
 
 model RateChangeRequest {

@@ -29,11 +29,18 @@ const addSchema = z.object({
     orderId: z.string().optional(),
     customerId: z.string().optional(),
     paymentMode,
-    amount: z.coerce.number().positive(),
+    amount: z.coerce.number().positive("Payment amount must be greater than zero"),
     referenceNumber: z.string().optional(),
     proofImageUrl: z.string().optional(),
     notes: z.string().optional(),
     details: z.record(z.string(), z.any()).optional(),
+  }).refine((data) => {
+    const refs = [data.saleId, data.dmId, data.orderId].filter(Boolean);
+    if (refs.length > 1) return false;
+    if (refs.length === 0 && !data.customerId) return false;
+    return true;
+  }, {
+    message: "Target invoice references (saleId, dmId, orderId) are mutually exclusive. If none are provided, customerId is required.",
   }),
   params: z.object({}).optional(),
   query: z.object({}).optional(),

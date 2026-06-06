@@ -1,6 +1,7 @@
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
-import { applyPayments, getBillPaymentStatus, prisma } from "./transactionHelpers.js";
+import { applyPayments, prisma } from "./transactionHelpers.js";
+import { money } from "../utils/money.js";
 
 async function getPaymentWithAccess(user, id) {
   const payment = await prisma.payment.findUnique({
@@ -38,80 +39,36 @@ export async function addPayment(user, data) {
   await assertShopAccess(user, data.shopId);
 
   return prisma.$transaction(async (tx) => {
-    let totalAmount = Number(data.amount);
-    let existingPaidAmount = 0;
     let customerId = data.customerId;
 
     if (data.saleId) {
       const sale = await tx.sale.findUnique({ where: { id: data.saleId } });
       if (!sale || sale.shopId !== data.shopId) throw new ApiError(400, "Sale does not belong to this shop");
-      totalAmount = Number(sale.totalAmount);
-      existingPaidAmount = Number(sale.paidAmount);
       customerId = sale.customerId || customerId;
     }
 
     if (data.dmId) {
       const dm = await tx.deliveryMemo.findUnique({ where: { id: data.dmId } });
       if (!dm || dm.shopId !== data.shopId) throw new ApiError(400, "DM does not belong to this shop");
-      totalAmount = Number(dm.estimatedAmount);
-      existingPaidAmount = Number(dm.paidAmount);
       customerId = dm.customerId || customerId;
     }
 
     if (data.orderId) {
       const order = await tx.order.findUnique({ where: { id: data.orderId } });
       if (!order || order.shopId !== data.shopId) throw new ApiError(400, "Order does not belong to this shop");
-      totalAmount = Number(order.totalAmount);
-      existingPaidAmount = Number(order.paidAmount);
       customerId = order.customerId || customerId;
     }
 
-    const result = await applyPayments(tx, {
+    await applyPayments(tx, {
       user,
       shopId: data.shopId,
       saleId: data.saleId,
       dmId: data.dmId,
       orderId: data.orderId,
       customerId,
-      totalAmount,
-      existingPaidAmount,
+      totalAmount: money(0),
       payments: [data],
     });
-
-    if (data.saleId) {
-      await tx.sale.update({
-        where: { id: data.saleId },
-        data: {
-          paidAmount: result.paidAmount,
-          balanceAmount: result.balanceAmount,
-          paymentStatus: result.paymentStatus,
-          saleStatus: result.paymentStatus === "PAID" ? "PAID" : "PENDING_PAYMENT",
-        },
-      });
-    }
-
-    if (data.dmId) {
-      await tx.deliveryMemo.update({
-        where: { id: data.dmId },
-        data: {
-          paidAmount: result.paidAmount,
-          balanceAmount: result.balanceAmount,
-          paymentStatus: result.paymentStatus,
-          status: result.paymentStatus === "PAID" ? "FULLY_PAID" : "PARTIALLY_PAID",
-        },
-      });
-    }
-
-    if (data.orderId) {
-      await tx.order.update({
-        where: { id: data.orderId },
-        data: {
-          paidAmount: result.paidAmount,
-          balanceAmount: result.balanceAmount,
-          paymentStatus: getBillPaymentStatus(totalAmount, result.paidAmount),
-        },
-      });
-    }
 
     return tx.payment.findFirst({
       where: {

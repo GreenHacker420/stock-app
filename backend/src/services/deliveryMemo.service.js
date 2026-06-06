@@ -6,7 +6,10 @@ import {
   createStockOut,
   generateRecordNumber,
   prisma,
+  autoAllocateCustomerAdvances,
+  getBillPaymentStatus,
 } from "./transactionHelpers.js";
+import { money, sub } from "../utils/money.js";
 
 export async function createDeliveryMemo(user, data) {
   await assertShopAccess(user, data.shopId);
@@ -26,6 +29,8 @@ export async function createDeliveryMemo(user, data) {
       prefix: "DM",
     });
 
+    const totalVal = money(totalAmount);
+
     const dm = await tx.deliveryMemo.create({
       data: {
         dmNumber,
@@ -35,8 +40,8 @@ export async function createDeliveryMemo(user, data) {
         customerName: data.customerName || customer?.name,
         customerPhone: data.customerPhone || customer?.phone,
         customerAddress: data.customerAddress || customer?.address,
-        estimatedAmount: totalAmount,
-        balanceAmount: totalAmount,
+        estimatedAmount: totalVal,
+        balanceAmount: totalVal,
         expectedPaymentDate: data.expectedPaymentDate,
         reason: data.reason,
         status: "DISPATCHED",
@@ -44,9 +49,9 @@ export async function createDeliveryMemo(user, data) {
           create: items.map((item) => ({
             itemId: item.itemId,
             quantity: item.quantity,
-            rate: item.rate,
-            discountAmount: item.discountAmount,
-            totalAmount: item.lineTotal,
+            rate: money(item.rate),
+            discountAmount: money(item.discountAmount),
+            totalAmount: money(item.lineTotal),
           })),
         },
       },
@@ -65,39 +70,68 @@ export async function createDeliveryMemo(user, data) {
       });
     }
 
-    const paymentResult = await applyPayments(tx, {
-      user,
-      shopId: data.shopId,
-      dmId: dm.id,
-      customerId: data.customerId,
-      totalAmount,
-      payments: data.payments || [],
-    });
-
-    if (paymentResult.balanceAmount > 0 && data.customerId) {
+    if (data.customerId) {
+      // Create the CreditOutstanding record representing initial full debt
       await tx.creditOutstanding.create({
         data: {
           shopId: data.shopId,
           customerId: data.customerId,
           dmId: dm.id,
-          pendingAmount: paymentResult.balanceAmount,
-          dueDate: data.expectedPaymentDate,
+          originalAmount: totalVal,
+          pendingAmount: totalVal,
+          paidAmount: money(0),
           status: "PENDING",
+          sourceType: "DM",
           createdById: user.id,
-        },
+          dueDate: data.expectedPaymentDate
+        }
       });
+    }
+
+    const paymentResult = await applyPayments(tx, {
+      user,
+      shopId: data.shopId,
+      dmId: dm.id,
+      customerId: data.customerId,
+      totalAmount: totalVal,
+      payments: data.payments || [],
+    });
+
+    if (data.customerId) {
+      // Auto-allocate existing customer advances against the remaining debt
+      await autoAllocateCustomerAdvances(tx, {
+        customerId: data.customerId,
+        shopId: data.shopId,
+        userId: user.id
+      });
+    }
+
+    // Read the final dynamic balances from CreditOutstanding or paymentResult
+    let finalPaid = paymentResult.paidAmount;
+    let finalBalance = paymentResult.balanceAmount;
+    let finalPaymentStatus = paymentResult.paymentStatus;
+
+    if (data.customerId) {
+      const debt = await tx.creditOutstanding.findUnique({
+        where: { dmId: dm.id }
+      });
+      if (debt) {
+        finalBalance = money(debt.pendingAmount);
+        finalPaid = sub(totalVal, finalBalance);
+        finalPaymentStatus = getBillPaymentStatus(totalVal, finalPaid);
+      }
     }
 
     const updated = await tx.deliveryMemo.update({
       where: { id: dm.id },
       data: {
-        paidAmount: paymentResult.paidAmount,
-        balanceAmount: paymentResult.balanceAmount,
-        paymentStatus: paymentResult.paymentStatus,
+        paidAmount: finalPaid,
+        balanceAmount: finalBalance,
+        paymentStatus: finalPaymentStatus,
         status:
-          paymentResult.paymentStatus === "PAID"
+          finalPaymentStatus === "PAID"
             ? "FULLY_PAID"
-            : paymentResult.paymentStatus === "PARTIALLY_PAID"
+            : finalPaymentStatus === "PARTIALLY_PAID"
               ? "PARTIALLY_PAID"
               : "DISPATCHED",
       },
