@@ -107,8 +107,6 @@ export async function applyPayments(tx, { user, shopId, saleId, dmId, orderId, c
   }
 
   for (const payment of payments) {
-    if (payment.paymentMode === "CREDIT") continue; // Credit just means they didn't pay it now
-    
     const amt = money(payment.amount);
     if (amt.lte(0)) continue;
 
@@ -124,7 +122,7 @@ export async function applyPayments(tx, { user, shopId, saleId, dmId, orderId, c
         customerId,
         paymentMode: payment.paymentMode,
         amount: amt,
-        verificationStatus: payment.paymentMode === "CASH" ? "VERIFIED" : "PENDING_VERIFICATION",
+        status: payment.paymentMode === "CASH" ? "VERIFIED" : "RECORDED",
         receivedById: user.id,
         notes: payment.notes,
         details: payment.details ? {
@@ -133,31 +131,9 @@ export async function applyPayments(tx, { user, shopId, saleId, dmId, orderId, c
       }
     });
 
-    // Update Customer outstanding or advance balance if there's a customer
+    // Update Customer outstanding (reduces with payment)
     if (customerId) {
-      const customer = await tx.customer.findUnique({ where: { id: customerId } });
-      if (customer) {
-        // Simple logic: a payment reduces outstanding. 
-        // If outstanding becomes negative, it becomes advance.
-        let outAmt = money(customer.outstandingAmount);
-        let advAmt = money(customer.advanceBalance);
-
-        if (outAmt.gte(amt)) {
-          outAmt = sub(outAmt, amt);
-        } else {
-          const remainder = sub(amt, outAmt);
-          outAmt = money(0);
-          advAmt = add(advAmt, remainder);
-        }
-
-        await tx.customer.update({
-          where: { id: customerId },
-          data: {
-            outstandingAmount: outAmt,
-            advanceBalance: advAmt
-          }
-        });
-      }
+      await decreaseCustomerDebt(tx, customerId, amt);
     }
   }
 
@@ -177,28 +153,18 @@ export async function increaseCustomerDebt(tx, customerId, amount) {
   if (!customer) return;
   
   const amt = money(amount);
-  let outAmt = money(customer.outstandingAmount);
-  let advAmt = money(customer.advanceBalance);
-
-  if (advAmt.gte(amt)) {
-    advAmt = sub(advAmt, amt);
-  } else {
-    const remainder = sub(amt, advAmt);
-    advAmt = money(0);
-    outAmt = add(outAmt, remainder);
-  }
+  const outAmt = add(customer.outstandingAmount, amt);
 
   await tx.customer.update({
     where: { id: customerId },
     data: {
-      outstandingAmount: outAmt,
-      advanceBalance: advAmt
+      outstandingAmount: outAmt
     }
   });
 }
 
 /**
- * Update Customer Balance when a Return decreases debt.
+ * Update Customer Balance when a Return/Payment decreases debt.
  */
 export async function decreaseCustomerDebt(tx, customerId, amount) {
   if (!customerId) return;
@@ -206,22 +172,12 @@ export async function decreaseCustomerDebt(tx, customerId, amount) {
   if (!customer) return;
 
   const amt = money(amount);
-  let outAmt = money(customer.outstandingAmount);
-  let advAmt = money(customer.advanceBalance);
-
-  if (outAmt.gte(amt)) {
-    outAmt = sub(outAmt, amt);
-  } else {
-    const remainder = sub(amt, outAmt);
-    outAmt = money(0);
-    advAmt = add(advAmt, remainder);
-  }
+  const outAmt = sub(customer.outstandingAmount, amt);
 
   await tx.customer.update({
     where: { id: customerId },
     data: {
-      outstandingAmount: outAmt,
-      advanceBalance: advAmt
+      outstandingAmount: outAmt
     }
   });
 }

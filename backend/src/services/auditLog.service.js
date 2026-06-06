@@ -35,7 +35,7 @@ async function accessibleShopIds(user) {
 }
 
 export function toCsv(rows) {
-  const headers = ["createdAt", "user", "role", "shopId", "action", "entityType", "entityId", "reason"];
+  const headers = ["createdAt", "user", "shopId", "action", "entityType", "entityId", "reason"];
   const escape = (value) => `"${String(value ?? "").replaceAll('"', '""')}"`;
   return [
     headers.join(","),
@@ -43,7 +43,6 @@ export function toCsv(rows) {
       [
         row.createdAt?.toISOString?.() ?? row.createdAt,
         row.user?.name ?? row.userId ?? "System",
-        row.role,
         row.shopId,
         row.action,
         row.entityType,

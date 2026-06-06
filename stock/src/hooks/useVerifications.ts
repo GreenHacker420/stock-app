@@ -1,0 +1,33 @@
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useAuthStore } from "../auth/auth-store";
+import { useShopStore } from "../auth/shop-store";
+import { apiRequest } from "../api/client";
+
+export function usePendingVerificationsQuery() {
+  const token = useAuthStore((state) => state.token);
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  return useQuery({
+    queryKey: ["verifications", activeShopId],
+    queryFn: () => apiRequest<any[]>(`/verifications/pending?shopId=${activeShopId}`, { token }),
+    enabled: !!token && !!activeShopId,
+  });
+}
+
+export function useProcessVerificationMutation() {
+  const token = useAuthStore((state) => state.token);
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, status, notes }: { id: string; status: "APPROVED" | "REJECTED"; notes?: string }) =>
+      apiRequest(`/verifications/${id}/process`, {
+        method: "POST",
+        token,
+        body: JSON.stringify({ status, notes }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["verifications", activeShopId] });
+      queryClient.invalidateQueries({ queryKey: ["expenses", activeShopId] });
+      queryClient.invalidateQueries({ queryKey: ["current-stock", activeShopId] });
+    },
+  });
+}

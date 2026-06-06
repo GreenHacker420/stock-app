@@ -2,7 +2,6 @@ import prisma from "../lib/db.js";
 
 export async function writeAuditLog({
   userId,
-  role,
   shopId,
   action,
   entityType,
@@ -10,12 +9,10 @@ export async function writeAuditLog({
   oldValueJson,
   newValueJson,
   reason,
-  deviceInfo,
 }) {
   return prisma.auditLog.create({
     data: {
       userId,
-      role,
       shopId,
       action,
       entityType,
@@ -23,7 +20,6 @@ export async function writeAuditLog({
       oldValueJson,
       newValueJson,
       reason,
-      deviceInfo,
     },
   });
 }
