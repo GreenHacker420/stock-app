@@ -5,6 +5,7 @@ export const requirePermission = (...requiredPermissions) => (req, _res, next) =
     return next(new ApiError(401, "Authentication required"));
   }
 
+  // Owners have all permissions
   if (req.user.role === "OWNER") {
     return next();
   }
