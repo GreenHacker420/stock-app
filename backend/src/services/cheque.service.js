@@ -76,6 +76,9 @@ export async function updateChequeStatus(user, id, status, { reason } = {}) {
         verifiedById: ["CLEARED", "BOUNCED"].includes(status) ? user.id : existing.verifiedById,
         verifiedAt: ["CLEARED", "BOUNCED"].includes(status) ? new Date() : existing.verifiedAt,
         notes: reason || existing.notes,
+        isVoided: status === "BOUNCED" ? true : existing.isVoided,
+        voidedAt: status === "BOUNCED" ? new Date() : existing.voidedAt,
+        voidedById: status === "BOUNCED" ? user.id : existing.voidedById,
       },
       include: { details: true, customer: true },
     });
@@ -202,7 +205,10 @@ export async function updateChequeStatus(user, id, status, { reason } = {}) {
           data: {
             pendingAmount: money(0),
             paidAmount: money(0),
-            status: "CANCELLED"
+            status: "CANCELLED",
+            isVoided: true,
+            voidedAt: new Date(),
+            voidedById: user.id
           }
         });
       }

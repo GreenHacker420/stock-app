@@ -104,6 +104,7 @@ enum PaymentMode {
   CREDIT
   ADVANCE
   REFUND
+  CREDIT_NOTE
 }
 
 enum PaymentStatus {
@@ -187,23 +188,69 @@ enum ExportStatus {
   FAILED
 }
 
-enum CreditSourceType {
+
+
+enum ReturnSourceType {
   SALE
-  DM
-  ORDER
-  OPENING_BALANCE
+  DELIVERY_MEMO
 }
 
-enum AllocationType {
-  PAYMENT
-  ADVANCE_APPLIED
-  REVERSAL
-}
-
-enum AllocationStatus {
+enum ReservationStatus {
   ACTIVE
-  REVERSED
+  DISPATCHED
+  CANCELLED
 }
+
+enum ReturnStatus {
+  PENDING
+  APPROVED
+  COMPLETED
+  CANCELLED
+}
+
+enum CreditNoteStatus {
+  ISSUED
+  PARTIALLY_APPLIED
+  FULLY_APPLIED
+  CANCELLED
+}
+
+enum ReservationReleaseReason {
+  DISPATCH
+  CANCEL
+  SHORTAGE
+  EXPIRED
+}
+
+enum RefundSourceType {
+  CASH
+  BANK
+  CHEQUE
+  ADVANCE_REVERSAL
+}
+
+enum LedgerMovementType {
+  STOCK_IN
+  STOCK_OUT
+  RETURN
+  ADJUSTMENT
+  RESERVATION_RELEASE
+}
+
+enum AuditEventType {
+  PAYMENT_CREATED
+  PAYMENT_REVERSED
+  CREDIT_NOTE_CREATED
+  CREDIT_NOTE_APPLIED
+  ADVANCE_CREATED
+  ADVANCE_APPLIED
+  RESERVATION_CREATED
+  RESERVATION_RELEASED
+  RETURN_CREATED
+  RETURN_APPROVED
+  RETURN_COMPLETED
+}
+
 
 model User {
   id           String     @id @default(cuid())
@@ -233,8 +280,6 @@ model User {
   paymentsVerified       Payment[]            @relation("PaymentVerifiedBy")
   cashSessions           CashSession[]        @relation("CashSessionStaff")
   cashSessionsReviewed   CashSession[]        @relation("CashSessionReviewedBy")
-  creditOutstandings     CreditOutstanding[]  @relation("CreditCreatedBy")
-  customerAdvances       CustomerAdvance[]    @relation("AdvanceCreatedBy")
   rateRequests           RateChangeRequest[]  @relation("RateRequestedBy")
   rateApprovals          RateChangeRequest[]  @relation("RateApprovedBy")
   correctionRequests     CorrectionRequest[]  @relation("CorrectionRequestedBy")
@@ -243,6 +288,13 @@ model User {
   auditLogs              AuditLog[]
   dailySummariesReviewed DailySummary[]       @relation("SummaryReviewedBy")
   dailySummaryExports    DailySummaryExport[]
+  returnsCreated         InventoryReturn[]    @relation("ReturnCreatedBy")
+  returnsApproved        InventoryReturn[]    @relation("ReturnApprovedBy")
+  returnsVoided          InventoryReturn[]    @relation("ReturnVoidedBy")
+  creditNotesVoided      CreditNote[]         @relation("CreditNoteVoidedBy")
+  refundsApproved        Refund[]             @relation("RefundApprovedBy")
+  refundsVoided          Refund[]             @relation("RefundVoidedBy")
+  paymentsVoided         Payment[]            @relation("PaymentVoidedBy")
 }
 
 model Role {
@@ -290,10 +342,12 @@ model Shop {
   deliveryMemos      DeliveryMemo[]
   payments           Payment[]
   cashSessions       CashSession[]
-  creditOutstandings CreditOutstanding[]
-  customerAdvances   CustomerAdvance[]
   notifications      Notification[]
   dailySummaries     DailySummary[]
+  reservations       StockReservation[]
+  inventoryReturns   InventoryReturn[]
+  creditNotes        CreditNote[]
+  refunds            Refund[]
 
   @@index([ownerId])
 }
@@ -320,7 +374,7 @@ model Customer {
   city              String?
   gstin             String?
   creditLimit       Decimal?     @db.Decimal(12, 2)
-  outstandingAmount Decimal      @default(0) @db.Decimal(12, 2)
+  openingBalance    Decimal      @default(0) @db.Decimal(12, 2)
   notes             String?
   status            RecordStatus @default(ACTIVE)
   createdById       String
@@ -334,8 +388,9 @@ model Customer {
   sales              Sale[]
   deliveryMemos      DeliveryMemo[]
   payments           Payment[]
-  creditOutstandings CreditOutstanding[]
-  customerAdvances   CustomerAdvance[]
+  inventoryReturns   InventoryReturn[]
+  creditNotes        CreditNote[]
+  refunds            Refund[]
 
   @@index([shopId])
   @@index([phone])
@@ -379,6 +434,8 @@ model Item {
   dispatchItems     DispatchItem[]
   saleItems         SaleItem[]
   deliveryMemoItems DeliveryMemoItem[]
+  reservations       StockReservation[]
+  inventoryReturnItems InventoryReturnItem[]
 
   @@unique([shopId, sku])
   @@index([shopId, name])
@@ -442,7 +499,7 @@ model Order {
   sales              Sale[]
   deliveryMemos      DeliveryMemo[]
   payments           Payment[]
-  creditOutstandings CreditOutstanding[]
+  reservations       StockReservation[]
 
   @@unique([shopId, orderNumber])
   @@index([shopId, status])
@@ -471,6 +528,7 @@ model OrderItem {
   item               Item                @relation(fields: [itemId], references: [id])
   dispatchItems      DispatchItem[]
   rateChangeRequests RateChangeRequest[]
+  reservation        StockReservation?
 
   @@index([orderId])
   @@index([itemId])
@@ -582,7 +640,9 @@ model Sale {
   items              SaleItem[]
   dispatches         Dispatch[]
   payments           Payment[]
-  creditOutstanding  CreditOutstanding?
+  inventoryReturns   InventoryReturn[]
+  creditNotes        CreditNote[]
+  refunds            Refund[]
 
   @@unique([shopId, saleNumber])
   @@index([shopId, createdAt])
@@ -633,7 +693,9 @@ model DeliveryMemo {
   dispatches         Dispatch[]
   sales              Sale[]
   payments           Payment[]
-  creditOutstanding  CreditOutstanding?
+  inventoryReturns   InventoryReturn[]
+  creditNotes        CreditNote[]
+  refunds            Refund[]
 
   @@unique([shopId, dmNumber])
   @@index([shopId, status])
@@ -646,6 +708,7 @@ model DeliveryMemoItem {
   dmId           String
   itemId         String
   quantity       Decimal @db.Decimal(12, 3)
+  returnedQty    Decimal @default(0) @db.Decimal(12, 3)
   rate           Decimal @db.Decimal(12, 2)
   discountAmount Decimal @default(0) @db.Decimal(12, 2)
   totalAmount    Decimal @db.Decimal(12, 2)
@@ -676,6 +739,9 @@ model Payment {
   notes              String?
   cancelledAt        DateTime?
   cancelReason       String?
+  isVoided           Boolean       @default(false)
+  voidedAt           DateTime?
+  voidedById         String?
   createdAt          DateTime      @default(now())
   updatedAt          DateTime      @updatedAt
 
@@ -687,9 +753,9 @@ model Payment {
   cashSession  CashSession?   @relation(fields: [cashSessionId], references: [id])
   receivedBy   User           @relation("PaymentReceivedBy", fields: [receivedById], references: [id])
   verifiedBy   User?          @relation("PaymentVerifiedBy", fields: [verifiedById], references: [id])
+  voidedBy     User?          @relation("PaymentVoidedBy", fields: [voidedById], references: [id])
   details      PaymentDetail?
-  allocations  PaymentAllocation[]
-  customerAdvance CustomerAdvance?
+  refund          Refund?
 
   @@index([shopId, receivedAt])
   @@index([paymentMode, verificationStatus])
@@ -752,82 +818,7 @@ model CashSession {
   @@index([staffId, status])
 }
 
-model CreditOutstanding {
-  id             String            @id @default(cuid())
-  shopId         String
-  customerId     String
-  saleId         String?           @unique
-  dmId           String?           @unique
-  orderId        String?
-  originalAmount   Decimal           @db.Decimal(12, 2)
-  pendingAmount    Decimal           @default(dbgenerated("0.00")) @db.Decimal(12, 2)
-  paidAmount       Decimal           @default(0) @db.Decimal(12, 2)
-  creditNoteAmount Decimal           @default(0) @db.Decimal(12, 2)
-  dueDate          DateTime?
-  note           String?
-  status         CreditStatus      @default(PENDING)
-  sourceType     CreditSourceType
-  referenceId    String?           // Originating invoice or customer ID
-  createdById    String
-  createdAt      DateTime          @default(now())
-  updatedAt      DateTime          @updatedAt
 
-  shop         Shop          @relation(fields: [shopId], references: [id])
-  customer     Customer      @relation(fields: [customerId], references: [id])
-  sale         Sale?         @relation(fields: [saleId], references: [id])
-  deliveryMemo DeliveryMemo? @relation(fields: [dmId], references: [id])
-  order        Order?        @relation(fields: [orderId], references: [id])
-  createdBy    User          @relation("CreditCreatedBy", fields: [createdById], references: [id])
-  allocations  PaymentAllocation[]
-
-  @@index([shopId, status])
-  @@index([customerId])
-  @@index([shopId, dueDate])
-}
-
-model CustomerAdvance {
-  id             String         @id @default(cuid())
-  shopId         String
-  customerId     String
-  paymentId      String?        @unique
-  originalAmount Decimal        @db.Decimal(12, 2)
-  pendingAmount  Decimal        @default(dbgenerated("0.00")) @db.Decimal(12, 2)
-  paidAmount     Decimal        @default(0) @db.Decimal(12, 2)
-  status         CreditStatus   @default(PENDING)
-  createdById    String
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-
-  shop         Shop          @relation(fields: [shopId], references: [id])
-  customer     Customer      @relation(fields: [customerId], references: [id])
-  payment      Payment?      @relation(fields: [paymentId], references: [id])
-  createdBy    User          @relation("AdvanceCreatedBy", fields: [createdById], references: [id])
-  allocations  PaymentAllocation[]
-
-  @@index([shopId, status])
-  @@index([customerId])
-}
-
-model PaymentAllocation {
-  id                  String           @id @default(cuid())
-  paymentId           String
-  creditOutstandingId String?
-  customerAdvanceId   String?
-  amount              Decimal          @db.Decimal(12, 2)
-  allocationType      AllocationType
-  status              AllocationStatus @default(ACTIVE)
-  reversalOfId        String?
-  createdAt           DateTime         @default(now())
-  updatedAt           DateTime         @updatedAt
-
-  payment           Payment            @relation(fields: [paymentId], references: [id], onDelete: Cascade)
-  creditOutstanding CreditOutstanding? @relation(fields: [creditOutstandingId], references: [id], onDelete: Cascade)
-  customerAdvance   CustomerAdvance?   @relation(fields: [customerAdvanceId], references: [id], onDelete: Cascade)
-
-  @@index([paymentId])
-  @@index([creditOutstandingId])
-  @@index([customerAdvanceId])
-}
 
 model RateChangeRequest {
   id             String        @id @default(cuid())
@@ -966,3 +957,147 @@ model DailySummaryExport {
 
   @@index([dailySummaryId])
 }
+
+model StockReservation {
+  id             String                    @id @default(cuid())
+  shopId         String
+  orderId        String
+  orderItemId    String                    @unique
+  itemId         String
+  originalQty    Decimal                   @db.Decimal(12, 3)
+  reservedQty    Decimal                   @db.Decimal(12, 3)
+  packedQty      Decimal                   @default(0) @db.Decimal(12, 3)
+  status         ReservationStatus         @default(ACTIVE)
+  expiresAt      DateTime?
+  releasedAt     DateTime?
+  releasedReason ReservationReleaseReason?
+  createdAt      DateTime                  @default(now())
+  updatedAt      DateTime                  @updatedAt
+
+  shop      Shop      @relation(fields: [shopId], references: [id])
+  order     Order     @relation(fields: [orderId], references: [id])
+  orderItem OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade)
+  item      Item      @relation(fields: [itemId], references: [id])
+
+  @@index([shopId, status])
+  @@index([itemId, status])
+  @@index([orderId])
+}
+
+model InventoryReturn {
+  id               String              @id @default(cuid())
+  returnNumber     String              @unique
+  shopId           String
+  customerId       String
+  saleId           String?
+  dmId             String?
+  sourceType       ReturnSourceType
+  subtotalAmount   Decimal             @db.Decimal(12, 2)
+  adjustmentAmount Decimal             @default(0) @db.Decimal(12, 2)
+  netAmount        Decimal             @db.Decimal(12, 2)
+  status           ReturnStatus        @default(PENDING)
+  notes            String?
+  isVoided         Boolean             @default(false)
+  voidedAt         DateTime?
+  voidedById       String?
+  createdById      String
+  approvedById     String?
+  approvedAt       DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime            @default(now())
+  updatedAt        DateTime            @updatedAt
+
+  shop       Shop                  @relation(fields: [shopId], references: [id])
+  customer   Customer              @relation(fields: [customerId], references: [id])
+  sale       Sale?                 @relation(fields: [saleId], references: [id])
+  deliveryMemo DeliveryMemo?       @relation(fields: [dmId], references: [id])
+  createdBy  User                  @relation("ReturnCreatedBy", fields: [createdById], references: [id])
+  approvedBy User?                 @relation("ReturnApprovedBy", fields: [approvedById], references: [id])
+  voidedBy   User?                 @relation("ReturnVoidedBy", fields: [voidedById], references: [id])
+  items      InventoryReturnItem[]
+  creditNote CreditNote?
+
+  @@index([shopId, status])
+  @@index([customerId])
+}
+
+model InventoryReturnItem {
+  id                  String   @id @default(cuid())
+  inventoryReturnId   String
+  itemId              String
+  saleItemId          String?
+  deliveryMemoItemId  String?
+  quantity            Decimal  @db.Decimal(12, 3)
+  rate                Decimal  @db.Decimal(12, 2)
+  totalAmount         Decimal  @db.Decimal(12, 2)
+
+  return            InventoryReturn @relation(fields: [inventoryReturnId], references: [id], onDelete: Cascade)
+  item              Item            @relation(fields: [itemId], references: [id])
+
+  @@index([itemId])
+}
+
+model CreditNote {
+  id                String           @id @default(cuid())
+  shopId            String
+  customerId        String
+  saleId            String?
+  dmId              String?
+  inventoryReturnId String           @unique
+  amount            Decimal          @db.Decimal(12, 2)
+  appliedAmount     Decimal          @default(0) @db.Decimal(12, 2)
+  refundAmount      Decimal          @default(0) @db.Decimal(12, 2)
+  advanceAmount     Decimal          @default(0) @db.Decimal(12, 2)
+  status            CreditNoteStatus @default(ISSUED)
+  isVoided          Boolean          @default(false)
+  voidedAt          DateTime?
+  voidedById        String?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  shop            Shop            @relation(fields: [shopId], references: [id])
+  customer        Customer        @relation(fields: [customerId], references: [id])
+  sale            Sale?           @relation(fields: [saleId], references: [id])
+  deliveryMemo    DeliveryMemo?   @relation(fields: [dmId], references: [id])
+  inventoryReturn InventoryReturn @relation(fields: [inventoryReturnId], references: [id], onDelete: Cascade)
+  voidedBy        User?           @relation("CreditNoteVoidedBy", fields: [voidedById], references: [id])
+  refunds         Refund[]
+
+  @@index([shopId])
+  @@index([customerId])
+}
+
+model Refund {
+  id           String           @id @default(cuid())
+  shopId       String
+  customerId   String?
+  saleId       String?
+  dmId         String?
+  creditNoteId String?
+  paymentId    String?          @unique
+  amount       Decimal          @db.Decimal(12, 2)
+  sourceType   RefundSourceType
+  reason       String?
+  approvedById String
+  isVoided     Boolean          @default(false)
+  voidedAt     DateTime?
+  voidedById   String?
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  shop         Shop          @relation(fields: [shopId], references: [id])
+  customer     Customer?     @relation(fields: [customerId], references: [id])
+  sale         Sale?         @relation(fields: [saleId], references: [id])
+  deliveryMemo DeliveryMemo? @relation(fields: [dmId], references: [id])
+  creditNote   CreditNote?   @relation(fields: [creditNoteId], references: [id])
+  payment      Payment?      @relation(fields: [paymentId], references: [id])
+  approvedBy   User          @relation("RefundApprovedBy", fields: [approvedById], references: [id])
+  voidedBy     User?         @relation("RefundVoidedBy", fields: [voidedById], references: [id])
+
+  @@index([shopId])
+  @@index([creditNoteId])
+  @@index([customerId])
+  @@index([saleId])
+  @@index([dmId])
+}
+

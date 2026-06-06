@@ -10,6 +10,7 @@ import {
   getBillPaymentStatus,
 } from "./transactionHelpers.js";
 import { money, sub } from "../utils/money.js";
+import { checkAndLockStockForWalkin } from "./stock.service.js";
 
 export async function createSale(user, data) {
   await assertShopAccess(user, data.shopId);
@@ -32,6 +33,11 @@ export async function createSale(user, data) {
   const { items, subtotal, discountAmount, totalAmount } = calculateItemTotals(data.items);
 
   return prisma.$transaction(async (tx) => {
+    // If it's a walk-in sale, check and lock available stock
+    if (data.isWalkin) {
+      await checkAndLockStockForWalkin(tx, data.shopId, items);
+    }
+
     const saleNumber = await generateRecordNumber(tx, {
       shopId: data.shopId,
       model: "sale",

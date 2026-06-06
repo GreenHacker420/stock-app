@@ -17,6 +17,19 @@ export function money(value) {
   );
 }
 
+export const QUANTITY_SCALE = 3;
+
+export function qty(value) {
+  if (value === undefined || value === null) {
+    return ZERO;
+  }
+  const val = typeof value === "number" ? value.toString() : value;
+  return new Prisma.Decimal(val).toDecimalPlaces(
+    QUANTITY_SCALE,
+    Prisma.Decimal.ROUND_HALF_UP
+  );
+}
+
 export function add(a, b) {
   return money(money(a).plus(money(b)));
 }

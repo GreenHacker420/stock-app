@@ -8,11 +8,19 @@ import * as dmService from "../services/deliveryMemo.service.js";
 import * as paymentService from "../services/payment.service.js";
 import * as chequeService from "../services/cheque.service.js";
 import { cancelCreditOutstanding } from "../services/transactionHelpers.js";
+import * as returnService from "../services/return.service.js";
+import * as orderService from "../services/order.service.js";
+import * as stockService from "../services/stock.service.js";
 
 // Constant for system-triggered actions
 const SYSTEM_USER_ID = "SYSTEM";
 
 async function cleanDatabase() {
+  await prisma.refund.deleteMany();
+  await prisma.creditNote.deleteMany();
+  await prisma.inventoryReturnItem.deleteMany();
+  await prisma.inventoryReturn.deleteMany();
+  await prisma.stockReservation.deleteMany();
   await prisma.paymentAllocation.deleteMany();
   await prisma.customerAdvance.deleteMany();
   await prisma.creditOutstanding.deleteMany();

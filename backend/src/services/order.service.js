@@ -9,6 +9,8 @@ import {
   getBillPaymentStatus,
   prisma,
 } from "./transactionHelpers.js";
+import { reserveStockForOrder } from "./stock.service.js";
+import { qty } from "../utils/money.js";
 
 async function assertOrderAccess(user, orderId) {
   const order = await prisma.order.findUnique({
@@ -165,6 +167,9 @@ export async function confirmOrder(user, id) {
   if (order.status !== "DRAFT") throw new ApiError(400, "Only draft orders can be confirmed");
 
   return prisma.$transaction(async (tx) => {
+    // Reserve stock first (locks rows and checks availability)
+    await reserveStockForOrder(tx, order.shopId, order.id, order.items);
+
     const updated = await tx.order.update({
       where: { id },
       data: { status: "CONFIRMED" },
@@ -267,6 +272,14 @@ export async function markItemPacked(user, id, { orderItemId, quantityPacked }) 
   }
 
   await prisma.$transaction(async (tx) => {
+    // Update StockReservation packedQty
+    await tx.stockReservation.update({
+      where: { orderItemId },
+      data: {
+        packedQty: qty(nextPacked)
+      }
+    });
+
     await tx.orderItem.update({
       where: { id: orderItemId },
       data: {
@@ -304,6 +317,17 @@ export async function reportShortage(user, id, { orderItemId, availableQuantity,
   if (!item) throw new ApiError(404, "Order item not found");
 
   await prisma.$transaction(async (tx) => {
+    // Truncate reservation quantity and release shortage back to Available pool
+    await tx.stockReservation.update({
+      where: { orderItemId },
+      data: {
+        reservedQty: qty(availableQuantity),
+        packedQty: qty(availableQuantity),
+        releasedAt: new Date(),
+        releasedReason: "SHORTAGE"
+      }
+    });
+
     await tx.orderItem.update({
       where: { id: orderItemId },
       data: {
@@ -383,6 +407,19 @@ async function createDispatchFromOrder(tx, user, order, items, { saleId, dmId })
   });
 
   for (const item of items) {
+    // Transition StockReservation status to DISPATCHED
+    await tx.stockReservation.updateMany({
+      where: {
+        orderItemId: item.orderItemId,
+        status: "ACTIVE",
+      },
+      data: {
+        status: "DISPATCHED",
+        releasedAt: new Date(),
+        releasedReason: "DISPATCH",
+      },
+    });
+
     await tx.orderItem.update({
       where: { id: item.orderItemId },
       data: {

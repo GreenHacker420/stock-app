@@ -3,6 +3,8 @@ import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 import { writeAuditLog } from "../utils/auditLog.js";
 import { notifyShopOwner } from "./notification.service.js";
+import { qty, ZERO } from "../utils/money.js";
+import { Prisma } from "../generated/prisma/index.js";
 
 export async function getCurrentStock(user, { shopId, itemId }) {
   await assertShopAccess(user, shopId);
@@ -226,5 +228,113 @@ export async function bulkStockEntry(user, data) {
   }
 
   return movements;
+}
+
+export async function reserveStockForOrder(tx, shopId, orderId, orderItems) {
+  const itemIds = orderItems.map((item) => item.itemId);
+  if (itemIds.length === 0) return;
+
+  // 1. Pessimistic Row Lock on Item rows
+  await tx.$queryRawUnsafe(
+    `SELECT id FROM "Item" WHERE id IN (${itemIds.map((_, i) => `$${i + 1}`).join(", ")}) FOR UPDATE`,
+    ...itemIds
+  );
+
+  // 2. Fetch stock levels and active reservations for all items
+  for (const orderItem of orderItems) {
+    const { itemId, quantityOrdered } = orderItem;
+
+    // A. Physical stock (quantityIn - quantityOut)
+    const ledgerSum = await tx.stockLedger.aggregate({
+      where: { shopId, itemId },
+      _sum: {
+        quantityIn: true,
+        quantityOut: true,
+      }
+    });
+    const quantityIn = qty(ledgerSum._sum.quantityIn || 0);
+    const quantityOut = qty(ledgerSum._sum.quantityOut || 0);
+    const physical = quantityIn.minus(quantityOut);
+
+    // B. Active reservations (status = ACTIVE)
+    const reservationSum = await tx.stockReservation.aggregate({
+      where: {
+        shopId,
+        itemId,
+        status: "ACTIVE"
+      },
+      _sum: {
+        reservedQty: true
+      }
+    });
+    const reserved = qty(reservationSum._sum.reservedQty || 0);
+
+    // C. Available stock
+    const available = physical.minus(reserved);
+    const needed = qty(quantityOrdered);
+
+    if (available.lt(needed)) {
+      const item = await tx.item.findUnique({ where: { id: itemId } });
+      throw new ApiError(
+        400,
+        `Insufficient stock for item "${item?.name || itemId}". Physical: ${physical.toString()}, Reserved: ${reserved.toString()}, Available: ${available.toString()}, Requested: ${needed.toString()}`
+      );
+    }
+
+    // D. Create stock reservation
+    await tx.stockReservation.create({
+      data: {
+        shopId,
+        orderId,
+        orderItemId: orderItem.id,
+        itemId,
+        originalQty: needed,
+        reservedQty: needed,
+        packedQty: ZERO,
+        status: "ACTIVE"
+      }
+    });
+  }
+}
+
+export async function checkAndLockStockForWalkin(tx, shopId, items) {
+  const itemIds = items.map((item) => item.itemId);
+  if (itemIds.length === 0) return;
+
+  // 1. Pessimistic Row Lock
+  await tx.$queryRawUnsafe(
+    `SELECT id FROM "Item" WHERE id IN (${itemIds.map((_, i) => `$${i + 1}`).join(", ")}) FOR UPDATE`,
+    ...itemIds
+  );
+
+  // 2. Verify availability
+  for (const itemEntry of items) {
+    const { itemId, quantity } = itemEntry;
+
+    const ledgerSum = await tx.stockLedger.aggregate({
+      where: { shopId, itemId },
+      _sum: {
+        quantityIn: true,
+        quantityOut: true,
+      }
+    });
+    const physical = qty(ledgerSum._sum.quantityIn || 0).minus(qty(ledgerSum._sum.quantityOut || 0));
+
+    const reservationSum = await tx.stockReservation.aggregate({
+      where: { shopId, itemId, status: "ACTIVE" },
+      _sum: { reservedQty: true }
+    });
+    const reserved = qty(reservationSum._sum.reservedQty || 0);
+    const available = physical.minus(reserved);
+    const needed = qty(quantity);
+
+    if (available.lt(needed)) {
+      const item = await tx.item.findUnique({ where: { id: itemId } });
+      throw new ApiError(
+        400,
+        `Insufficient stock for walk-in item "${item?.name || itemId}". Available: ${available.toString()}, Requested: ${needed.toString()}`
+      );
+    }
+  }
 }
 
