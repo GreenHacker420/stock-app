@@ -63,9 +63,14 @@ export function RegularSale() {
   const [creditDaysOffset, setCreditDaysOffset] = useState<number>(15); // Default 15 days credit due
 
   // Signature state
+  const [scrollEnabled, setScrollEnabled] = useState(true);
   const [sigPaths, setSigPaths] = useState<string[]>([]);
   const [sigCurrentPath, setSigCurrentPath] = useState<string>("");
   const isSigEmpty = sigPaths.length === 0 && !sigCurrentPath;
+
+  const touchStart = useRef({ x: 0, y: 0 });
+  const sigCurrentPathRef = useRef("");
+  const sigPathsRef = useRef<string[]>([]);
 
   // Feedback modals
   const [successVisible, setSuccessVisible] = useState(false);
@@ -263,25 +268,53 @@ export function RegularSale() {
   };
 
   const handleClearSignature = () => {
+    sigCurrentPathRef.current = "";
+    sigPathsRef.current = [];
     setSigPaths([]);
     setSigCurrentPath("");
   };
 
-  // PanResponder for step 3 signature pad
+  // PanResponder for step 3 signature pad with scroll lock & touch mapping fixes
   const signaturePanResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderTerminationRequest: () => false,
       onPanResponderGrant: (evt) => {
+        setScrollEnabled(false);
         const { locationX, locationY } = evt.nativeEvent;
-        setSigCurrentPath(`M${locationX.toFixed(1)} ${locationY.toFixed(1)}`);
+        if (typeof locationX !== 'number' || typeof locationY !== 'number' || isNaN(locationX) || isNaN(locationY)) {
+          return;
+        }
+        touchStart.current = { x: locationX, y: locationY };
+        const startPath = `M${locationX.toFixed(1)} ${locationY.toFixed(1)}`;
+        sigCurrentPathRef.current = startPath;
+        setSigCurrentPath(startPath);
       },
       onPanResponderMove: (evt) => {
         const { locationX, locationY } = evt.nativeEvent;
-        setSigCurrentPath((prev) => `${prev} L${locationX.toFixed(1)} ${locationY.toFixed(1)}`);
+        if (typeof locationX !== 'number' || typeof locationY !== 'number' || isNaN(locationX) || isNaN(locationY)) {
+          return;
+        }
+        const nextPath = `${sigCurrentPathRef.current} L${locationX.toFixed(1)} ${locationY.toFixed(1)}`;
+        sigCurrentPathRef.current = nextPath;
+        setSigCurrentPath(nextPath);
       },
       onPanResponderRelease: () => {
-        if (sigCurrentPath) {
-          setSigPaths((prev) => [...prev, sigCurrentPath]);
+        setScrollEnabled(true);
+        if (sigCurrentPathRef.current) {
+          sigPathsRef.current = [...sigPathsRef.current, sigCurrentPathRef.current];
+          setSigPaths(sigPathsRef.current);
+          sigCurrentPathRef.current = "";
+          setSigCurrentPath("");
+        }
+      },
+      onPanResponderTerminate: () => {
+        setScrollEnabled(true);
+        if (sigCurrentPathRef.current) {
+          sigPathsRef.current = [...sigPathsRef.current, sigCurrentPathRef.current];
+          setSigPaths(sigPathsRef.current);
+          sigCurrentPathRef.current = "";
           setSigCurrentPath("");
         }
       },
@@ -334,7 +367,7 @@ export function RegularSale() {
       
       {renderStepIndicator()}
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContainer}>
+      <ScrollView scrollEnabled={scrollEnabled} showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContainer}>
         
         {/* ================= STEP 1: ITEMS & CUSTOMER ================= */}
         {step === 1 && (
@@ -733,7 +766,7 @@ export function RegularSale() {
                 style={styles.canvasInline} 
                 {...signaturePanResponder.panHandlers}
               >
-                <Svg style={StyleSheet.absoluteFill} pointerEvents="none">
+                <Svg width="100%" height="100%" style={StyleSheet.absoluteFill} pointerEvents="none">
                   {sigPaths.map((p, i) => (
                     <Path key={i} d={p} fill="none" stroke="#111827" strokeWidth={3.5} strokeLinecap="round" strokeLinejoin="round" />
                   ))}
@@ -1108,6 +1141,7 @@ const styles = StyleSheet.create({
 
   // Scroll content
   scrollContainer: {
+    flexGrow: 1,
     paddingBottom: 140,
   },
   searchSectionContainer: {
@@ -1491,6 +1525,7 @@ const styles = StyleSheet.create({
 
   // Step 3 Signature Pad Styles
   signatureCanvasContainer: {
+    flex: 1,
     marginHorizontal: spacing.lg,
     marginTop: spacing.md,
     backgroundColor: colors.surface,
@@ -1517,7 +1552,8 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
   canvasInline: {
-    height: 260,
+    flex: 1,
+    minHeight: 260,
     backgroundColor: '#f9fafb',
     borderWidth: 2,
     borderColor: colors.borderStrong,
