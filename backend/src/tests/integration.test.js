@@ -12,6 +12,8 @@ import * as orderService from "../services/order.service.js";
 import * as stockService from "../services/stock.service.js";
 import * as itemService from "../services/item.service.js";
 import * as approvalService from "../services/approval.service.js";
+import * as rateChangeService from "../services/rateChange.service.js";
+import * as correctionService from "../services/correction.service.js";
 
 async function cleanDatabase() {
   await prisma.inventoryReturnItem.deleteMany();
@@ -42,7 +44,7 @@ async function cleanDatabase() {
   await prisma.customer.deleteMany();
 
   // Clean up staff shop access and user last
-  await prisma.staffShopAccess.deleteMany();
+  await prisma.staffShopAccess.deleteMany({ where: { staff: { mobile: "7777777777" } } });
   await prisma.user.deleteMany({ where: { mobile: "7777777777" } });
 }
 
@@ -167,5 +169,91 @@ test.describe("ShopControl ERP Debt Ledger Integration Tests", () => {
     const finalStock = await stockService.getCurrentStock(owner, { shopId: shop.id, itemId: item.id });
     assert.strictEqual(finalStock.length, 1);
     assert.strictEqual(finalStock[0].currentQuantity, 15);
+  });
+
+  test("3. Staff Rate Change Request Approval Flow", async () => {
+    // A. Create an item first
+    const item = await itemService.createItem(owner, {
+      shopId: shop.id,
+      name: "Test Product B",
+      unit: "pcs",
+      defaultSellingPrice: 100,
+    });
+
+    // B. Create a draft order
+    const order = await orderService.createOrder(staff, {
+      shopId: shop.id,
+      customerId: customer.id,
+      items: [
+        { itemId: item.id, quantityOrdered: 10, rate: 100 }
+      ]
+    });
+
+    const orderItem = order.items[0];
+    assert.strictEqual(Number(orderItem.rate), 100);
+    assert.strictEqual(Number(order.totalAmount), 1000);
+
+    // C. Request rate change as staff
+    const request = await rateChangeService.createRateChangeRequest(staff, {
+      orderItemId: orderItem.id,
+      suggestedRate: 80,
+      reason: "Discount for regular customer"
+    });
+
+    assert.strictEqual(request.status, "PENDING");
+    assert.strictEqual(request.suggestedRate, 80);
+
+    // D. Approve as owner
+    const approveResult = await rateChangeService.approveRateChangeRequest(owner, request.id);
+    assert.strictEqual(approveResult.status, "APPROVED");
+
+    // E. Verify order item rate and order totals are updated
+    const updatedOrder = await orderService.getOrder(owner, order.id);
+    assert.strictEqual(Number(updatedOrder.items[0].rate), 80);
+    assert.strictEqual(Number(updatedOrder.totalAmount), 800);
+  });
+
+  test("4. Staff Sale Correction & Cancel Request Approval Flow", async () => {
+    // A. Create an item and add stock (opening stock)
+    const item = await itemService.createItem(owner, {
+      shopId: shop.id,
+      name: "Test Product C",
+      unit: "pcs",
+      defaultSellingPrice: 100,
+    });
+
+    await stockService.bulkStockEntry(owner, {
+      shopId: shop.id,
+      entries: [{ itemId: item.id, quantity: 50 }]
+    });
+
+    // B. Create a sale
+    const sale = await saleService.createSale(staff, {
+      shopId: shop.id,
+      customerId: customer.id,
+      items: [
+        { itemId: item.id, quantity: 5, rate: 100 }
+      ]
+    });
+
+    assert.strictEqual(sale.saleStatus, "CONFIRMED");
+
+    // C. Request sale cancellation as staff
+    const request = await correctionService.createCorrectionRequest(staff, {
+      entityType: "SALE",
+      entityId: sale.id,
+      requestedChangeJson: { action: "CANCEL", status: "CANCELLED" },
+      reason: "Customer changed mind"
+    });
+
+    assert.strictEqual(request.status, "PENDING");
+
+    // D. Approve cancellation request as owner
+    const approveResult = await correctionService.approveCorrectionRequest(owner, request.id);
+    assert.strictEqual(approveResult.status, "APPROVED");
+
+    // E. Verify sale is CANCELLED in database
+    const updatedSale = await saleService.getSale(owner, sale.id);
+    assert.strictEqual(updatedSale.saleStatus, "CANCELLED");
   });
 });

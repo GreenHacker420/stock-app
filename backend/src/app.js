@@ -20,6 +20,8 @@ import auditLogRoutes from "./routes/auditLog.routes.js";
 import chequeRoutes from "./routes/cheque.routes.js";
 import dashboardRoutes from "./routes/dashboard.routes.js";
 import expenseRoutes from "./routes/expense.routes.js";
+import rateChangeRoutes from "./routes/rateChange.routes.js";
+import correctionRoutes from "./routes/correction.routes.js";
 import { errorHandler, notFoundHandler } from "./middleware/error.middleware.js";
 
 export function createApp() {
@@ -68,6 +70,8 @@ export function createApp() {
   app.use("/cheques", chequeRoutes);
   app.use("/dashboard", dashboardRoutes);
   app.use("/expenses", expenseRoutes);
+  app.use("/rate-change-requests", rateChangeRoutes);
+  app.use("/correction-requests", correctionRoutes);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

@@ -21,17 +21,7 @@ export async function createExpense(user, data) {
       }
     });
 
-    await tx.verificationQueue.create({
-      data: {
-        shopId: data.shopId,
-        entityType: "EXPENSE",
-        entityId: expense.id,
-        action: "CREATE",
-        status: "PENDING",
-        requestedById: user.id,
-        notes: data.note
-      }
-    });
+
 
     await writeAuditLog({
       userId: user.id,
