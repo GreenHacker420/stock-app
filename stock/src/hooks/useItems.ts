@@ -109,6 +109,8 @@ export function useCreateStockMovementMutation() {
       if (activeShopId) {
         queryClient.invalidateQueries({ queryKey: ["current-stock", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["stock-movements", activeShopId] });
+        queryClient.invalidateQueries({ queryKey: ["item-stock"] });
+        queryClient.invalidateQueries({ queryKey: ["items"] });
       }
     },
   });
@@ -125,6 +127,8 @@ export function useAddStockMutation() {
       if (activeShopId) {
         queryClient.invalidateQueries({ queryKey: ["current-stock", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["stock-movements", activeShopId] });
+        queryClient.invalidateQueries({ queryKey: ["item-stock"] });
+        queryClient.invalidateQueries({ queryKey: ["items"] });
       }
     },
   });

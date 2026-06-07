@@ -110,8 +110,9 @@ export function useReportOrderShortageMutation() {
     onSuccess: (_, variables) => {
       if (activeShopId) {
         queryClient.invalidateQueries({ queryKey: ["orders", activeShopId] });
-        queryClient.invalidateQueries({ queryKey: ["items", activeShopId] });
+        queryClient.invalidateQueries({ queryKey: ["items"] });
         queryClient.invalidateQueries({ queryKey: ["current-stock", activeShopId] });
+        queryClient.invalidateQueries({ queryKey: ["item-stock"] });
       }
       queryClient.invalidateQueries({ queryKey: ["order", variables.orderId] });
     },
@@ -128,8 +129,9 @@ export function useCreateDmFromOrderMutation() {
     onSuccess: (_, variables) => {
       if (activeShopId) {
         queryClient.invalidateQueries({ queryKey: ["orders", activeShopId] });
-        queryClient.invalidateQueries({ queryKey: ["items", activeShopId] });
+        queryClient.invalidateQueries({ queryKey: ["items"] });
         queryClient.invalidateQueries({ queryKey: ["current-stock", activeShopId] });
+        queryClient.invalidateQueries({ queryKey: ["item-stock"] });
         queryClient.invalidateQueries({ queryKey: ["owner-dashboard"] });
         queryClient.invalidateQueries({ queryKey: ["staff-today-summary", activeShopId] });
       }
@@ -149,8 +151,9 @@ export function useConvertOrderToSaleMutation() {
       if (activeShopId) {
         queryClient.invalidateQueries({ queryKey: ["orders", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["sales", activeShopId] });
-        queryClient.invalidateQueries({ queryKey: ["items", activeShopId] });
+        queryClient.invalidateQueries({ queryKey: ["items"] });
         queryClient.invalidateQueries({ queryKey: ["current-stock", activeShopId] });
+        queryClient.invalidateQueries({ queryKey: ["item-stock"] });
         queryClient.invalidateQueries({ queryKey: ["owner-dashboard"] });
         queryClient.invalidateQueries({ queryKey: ["staff-today-summary", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["cash-sessions", activeShopId] });
@@ -170,6 +173,9 @@ export function useConfirmOrderMutation() {
     onSuccess: (_, orderId) => {
       if (activeShopId) {
         queryClient.invalidateQueries({ queryKey: ["orders", activeShopId] });
+        queryClient.invalidateQueries({ queryKey: ["items"] });
+        queryClient.invalidateQueries({ queryKey: ["current-stock", activeShopId] });
+        queryClient.invalidateQueries({ queryKey: ["item-stock"] });
       }
       queryClient.invalidateQueries({ queryKey: ["order", orderId] });
     },

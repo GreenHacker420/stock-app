@@ -56,8 +56,9 @@ export function useSetOpeningStockMutation() {
       setOpeningStock(token ?? "", shopId, entries),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.shops() });
-      queryClient.invalidateQueries({ queryKey: ["items", variables.shopId] });
+      queryClient.invalidateQueries({ queryKey: ["items"] });
       queryClient.invalidateQueries({ queryKey: ["current-stock", variables.shopId] });
+      queryClient.invalidateQueries({ queryKey: ["item-stock"] });
     },
   });
 }

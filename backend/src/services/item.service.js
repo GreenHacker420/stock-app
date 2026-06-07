@@ -113,19 +113,21 @@ export async function createCategory(user, data) {
 export async function createItem(user, data) {
   await assertShopAccess(user, data.shopId);
 
-  if (data.categoryId) {
-    const category = await prisma.itemCategory.findUnique({ where: { id: data.categoryId } });
-    if (!category || category.shopId !== data.shopId) {
+  const { initialStock, ...itemData } = data;
+
+  if (itemData.categoryId) {
+    const category = await prisma.itemCategory.findUnique({ where: { id: itemData.categoryId } });
+    if (!category || category.shopId !== itemData.shopId) {
       throw new ApiError(400, "Category does not belong to this shop");
     }
   }
 
   // Generate embedding for item name
-  const embedding = await generateEmbedding(data.name);
+  const embedding = await generateEmbedding(itemData.name);
 
   return prisma.$transaction(async (tx) => {
     const item = await tx.item.create({
-      data,
+      data: itemData,
     });
 
     const vectorString = `[${embedding.join(',')}]`;
@@ -135,13 +137,29 @@ export async function createItem(user, data) {
       item.id
     );
 
+    // Initial stock entry if provided
+    if (initialStock && Number(initialStock) > 0) {
+      await tx.stockLedger.create({
+        data: {
+          shopId: item.shopId,
+          itemId: item.id,
+          movementType: "IN",
+          quantityIn: Number(initialStock),
+          quantityOut: 0,
+          referenceType: "ADJUSTMENT",
+          reason: "Initial opening stock during item creation",
+          createdById: user.id
+        }
+      });
+    }
+
     // Initial price history entry
-    if (data.defaultSellingPrice) {
+    if (itemData.defaultSellingPrice) {
       await tx.itemPriceHistory.create({
         data: {
           itemId: item.id,
           oldPrice: 0,
-          newPrice: data.defaultSellingPrice,
+          newPrice: itemData.defaultSellingPrice,
           priceType: "SELLING",
           changedById: user.id
         }
@@ -166,22 +184,24 @@ export async function updateItem(user, id, data) {
   if (!existing) throw new ApiError(404, "Item not found");
   await assertShopAccess(user, existing.shopId);
 
-  if (data.categoryId) {
-    const category = await prisma.itemCategory.findUnique({ where: { id: data.categoryId } });
+  const { adjustmentStock, ...itemData } = data;
+
+  if (itemData.categoryId) {
+    const category = await prisma.itemCategory.findUnique({ where: { id: itemData.categoryId } });
     if (!category || category.shopId !== existing.shopId) {
       throw new ApiError(400, "Category does not belong to this shop");
     }
   }
 
   let embedding = null;
-  if (data.name && data.name !== existing.name) {
-    embedding = await generateEmbedding(data.name);
+  if (itemData.name && itemData.name !== existing.name) {
+    embedding = await generateEmbedding(itemData.name);
   }
 
   return prisma.$transaction(async (tx) => {
     const item = await tx.item.update({
       where: { id },
-      data,
+      data: itemData,
     });
 
     if (embedding) {
@@ -193,6 +213,23 @@ export async function updateItem(user, id, data) {
       );
     }
 
+    // Handle stock adjustment if provided
+    if (adjustmentStock !== undefined && adjustmentStock !== 0) {
+      const isPositive = Number(adjustmentStock) > 0;
+      await tx.stockLedger.create({
+        data: {
+          shopId: item.shopId,
+          itemId: item.id,
+          movementType: isPositive ? "IN" : "OUT",
+          quantityIn: isPositive ? Number(adjustmentStock) : 0,
+          quantityOut: isPositive ? 0 : Math.abs(Number(adjustmentStock)),
+          referenceType: "ADJUSTMENT",
+          reason: "Manual adjustment from item edit screen",
+          createdById: user.id
+        }
+      });
+    }
+
     // Track price changes
     const priceTypes = [
       { key: "defaultSellingPrice", label: "SELLING" },
@@ -202,12 +239,12 @@ export async function updateItem(user, id, data) {
     ];
 
     for (const { key, label } of priceTypes) {
-      if (data[key] !== undefined && data[key] !== null && Number(data[key]) !== Number(existing[key])) {
+      if (itemData[key] !== undefined && itemData[key] !== null && Number(itemData[key]) !== Number(existing[key])) {
         await tx.itemPriceHistory.create({
           data: {
             itemId: id,
             oldPrice: existing[key] || 0,
-            newPrice: data[key],
+            newPrice: itemData[key],
             priceType: label,
             changedById: user.id
           }

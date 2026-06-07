@@ -42,6 +42,7 @@ const createItemSchema = z.object({
     mrp: z.coerce.number().nonnegative().nullable().optional(),
     minimumStock: z.coerce.number().nonnegative().optional(),
     imageUrl: z.url().nullable().optional(),
+    initialStock: z.coerce.number().optional(),
   }),
   params: z.object({}).optional(),
   query: z.object({}).optional(),
@@ -49,7 +50,9 @@ const createItemSchema = z.object({
 
 const updateItemSchema = z.object({
   params: idParams,
-  body: createItemSchema.shape.body.partial().omit({ shopId: true }),
+  body: createItemSchema.shape.body.partial().extend({
+    adjustmentStock: z.coerce.number().optional(),
+  }).omit({ shopId: true }),
   query: z.object({}).optional(),
 });
 

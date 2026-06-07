@@ -35,8 +35,9 @@ export function useCreateSaleMutation() {
     onSuccess: () => {
       if (activeShopId) {
         queryClient.invalidateQueries({ queryKey: ["sales", activeShopId] });
-        queryClient.invalidateQueries({ queryKey: ["items", activeShopId] });
+        queryClient.invalidateQueries({ queryKey: ["items"] });
         queryClient.invalidateQueries({ queryKey: ["current-stock", activeShopId] });
+        queryClient.invalidateQueries({ queryKey: ["item-stock"] });
         queryClient.invalidateQueries({ queryKey: ["owner-dashboard"] });
         queryClient.invalidateQueries({ queryKey: ["staff-today-summary", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["cash-sessions", activeShopId] });
@@ -57,8 +58,9 @@ export function useCreateWalkInSaleMutation() {
     onSuccess: () => {
       if (activeShopId) {
         queryClient.invalidateQueries({ queryKey: ["sales", activeShopId] });
-        queryClient.invalidateQueries({ queryKey: ["items", activeShopId] });
+        queryClient.invalidateQueries({ queryKey: ["items"] });
         queryClient.invalidateQueries({ queryKey: ["current-stock", activeShopId] });
+        queryClient.invalidateQueries({ queryKey: ["item-stock"] });
         queryClient.invalidateQueries({ queryKey: ["owner-dashboard"] });
         queryClient.invalidateQueries({ queryKey: ["staff-today-summary", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["cash-sessions", activeShopId] });

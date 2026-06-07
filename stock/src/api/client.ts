@@ -231,9 +231,12 @@ export interface CreateItemPayload {
   purchasePrice?: number | null;
   mrp?: number | null;
   categoryId?: string | null;
+  initialStock?: number;
 }
 
-export interface UpdateItemPayload extends Partial<CreateItemPayload> {}
+export interface UpdateItemPayload extends Partial<CreateItemPayload> {
+  adjustmentStock?: number;
+}
 
 export interface CreateSalePayload {
   shopId: string;

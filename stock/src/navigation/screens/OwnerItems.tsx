@@ -304,6 +304,7 @@ export function AddEditItem() {
     purchasePrice: String(item?.purchasePrice ?? ""),
     mrp: String(item?.mrp ?? ""),
     minimumStock: String(item?.minimumStock ?? "0"),
+    stock: "0",
   });
 
   const createMutation = useCreateItemMutation();
@@ -322,11 +323,17 @@ export function AddEditItem() {
     };
 
     if (item) {
-      updateMutation.mutate({ id: item.id, data: payload }, {
+      updateMutation.mutate({ 
+        id: item.id, 
+        data: { ...payload, adjustmentStock: Number(form.stock) } 
+      }, {
         onSuccess: () => navigation.goBack()
       });
     } else {
-      createMutation.mutate(payload as any, {
+      createMutation.mutate({ 
+        ...payload, 
+        initialStock: Number(form.stock) 
+      } as any, {
         onSuccess: () => navigation.goBack()
       });
     }
@@ -358,6 +365,16 @@ export function AddEditItem() {
             <TextInput mode="outlined" label="Name" value={form.name} onChangeText={(v) => set("name", v)} outlineStyle={styles.inputOutline} style={styles.input} />
             <TextInput mode="outlined" label="SKU" value={form.sku ?? ""} onChangeText={(v) => set("sku", v)} outlineStyle={styles.inputOutline} style={styles.input} />
             <TextInput mode="outlined" label="Unit" value={form.unit} onChangeText={(v) => set("unit", v)} outlineStyle={styles.inputOutline} style={styles.input} />
+            <TextInput 
+              mode="outlined" 
+              label={item ? "Stock Adjustment (+ to add, - to sub)" : "Opening Stock"} 
+              keyboardType="numeric" 
+              value={form.stock} 
+              onChangeText={(v) => set("stock", v)} 
+              outlineStyle={styles.inputOutline} 
+              style={styles.input} 
+              placeholder={item ? "e.g. 10 or -5" : "e.g. 100"}
+            />
             <TextInput mode="outlined" label="Default selling price" keyboardType="numeric" value={form.defaultSellingPrice} onChangeText={(v) => set("defaultSellingPrice", v)} outlineStyle={styles.inputOutline} style={styles.input} />
             <TextInput mode="outlined" label="Minimum allowed price" keyboardType="numeric" value={form.minimumAllowedPrice} onChangeText={(v) => set("minimumAllowedPrice", v)} outlineStyle={styles.inputOutline} style={styles.input} />
             <TextInput mode="outlined" label="Purchase price" keyboardType="numeric" value={form.purchasePrice} onChangeText={(v) => set("purchasePrice", v)} outlineStyle={styles.inputOutline} style={styles.input} />

@@ -28,6 +28,8 @@ export function useProcessVerificationMutation() {
       queryClient.invalidateQueries({ queryKey: ["verifications", activeShopId] });
       queryClient.invalidateQueries({ queryKey: ["expenses", activeShopId] });
       queryClient.invalidateQueries({ queryKey: ["current-stock", activeShopId] });
+      queryClient.invalidateQueries({ queryKey: ["item-stock"] });
+      queryClient.invalidateQueries({ queryKey: ["items"] });
       queryClient.invalidateQueries({ queryKey: ["owner-dashboard"] });
     },
   });
