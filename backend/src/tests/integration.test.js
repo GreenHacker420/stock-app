@@ -156,7 +156,7 @@ test.describe("ShopControl ERP Debt Ledger Integration Tests", () => {
 
     // D. Check the stock remains 0 before approval
     const initialStock = await stockService.getCurrentStock(owner, { shopId: shop.id, itemId: item.id });
-    assert.strictEqual(initialStock.length, 0);
+    assert.strictEqual(initialStock.length > 0 ? initialStock[0].currentQuantity : 0, 0);
 
     // E. Respond to approval request as OWNER (APPROVE)
     const approveResult = await approvalService.respondToRequest(owner, staffEntryResult.requestId, {
@@ -310,5 +310,48 @@ test.describe("ShopControl ERP Debt Ledger Integration Tests", () => {
 
     const topItemIds = updatedTonerSearch.items.slice(0, 2).map(it => it.id);
     assert.ok(topItemIds.includes(item3.id));
+  });
+
+  test("6. Nullable item fields and minimumAllowedPrice price history tracking", async () => {
+    const item = await itemService.createItem(owner, {
+      shopId: shop.id,
+      name: "Test Product D",
+      unit: "pcs",
+      defaultSellingPrice: 100,
+      minimumAllowedPrice: 80,
+      sku: null,
+      mrp: null,
+      purchasePrice: null
+    });
+
+    assert.strictEqual(item.sku, null);
+    assert.strictEqual(item.mrp, null);
+    assert.strictEqual(Number(item.minimumAllowedPrice), 80);
+
+    const updated = await itemService.updateItem(owner, item.id, {
+      sku: "SKU-D-123",
+      mrp: 120,
+      purchasePrice: 60,
+      minimumAllowedPrice: 70
+    });
+
+    assert.strictEqual(updated.sku, "SKU-D-123");
+    assert.strictEqual(Number(updated.mrp), 120);
+    assert.strictEqual(Number(updated.purchasePrice), 60);
+    assert.strictEqual(Number(updated.minimumAllowedPrice), 70);
+
+    const priceHistories = await prisma.itemPriceHistory.findMany({
+      where: { itemId: item.id }
+    });
+    // SELLING from create (100), plus MINIMUM, MRP, PURCHASE from update
+    assert.ok(priceHistories.length >= 4);
+
+    const cleared = await itemService.updateItem(owner, item.id, {
+      mrp: null,
+      minimumAllowedPrice: null
+    });
+
+    assert.strictEqual(cleared.mrp, null);
+    assert.strictEqual(cleared.minimumAllowedPrice, null);
   });
 });

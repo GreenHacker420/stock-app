@@ -41,6 +41,7 @@ import { WalkInSale } from "./screens/WalkInSale";
 import { CreateOrder } from "./screens/CreateOrder";
 import { OrderList } from "./screens/OrderList";
 import { OrderDetail } from "./screens/OrderDetail";
+import { StockDashboard } from "./screens/StockDashboard";
 
 import { colors } from "../theme";
 
@@ -433,7 +434,7 @@ const sharedStackScreens = {
     options: { title: "Item detail" },
   },
   StockDashboard: {
-    screen: GenericPlannedScreen,
+    screen: StockDashboard,
     options: { title: "Stock dashboard" },
   },
   CashSessionDetail: {

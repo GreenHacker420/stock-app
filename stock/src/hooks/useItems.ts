@@ -81,9 +81,7 @@ export function useCreateItemMutation() {
     mutationFn: (data: Omit<CreateItemPayload, "shopId">) =>
       createItem(token ?? "", { ...data, shopId: activeShopId ?? "" }),
     onSuccess: () => {
-      if (activeShopId) {
-        queryClient.invalidateQueries({ queryKey: ["items", activeShopId] });
-      }
+      queryClient.invalidateQueries({ queryKey: ["items"] });
     },
   });
 }
@@ -96,9 +94,7 @@ export function useUpdateItemMutation() {
     mutationFn: ({ id, data }: { id: string; data: UpdateItemPayload }) =>
       updateItem(token ?? "", id, data),
     onSuccess: () => {
-      if (activeShopId) {
-        queryClient.invalidateQueries({ queryKey: ["items", activeShopId] });
-      }
+      queryClient.invalidateQueries({ queryKey: ["items"] });
     },
   });
 }

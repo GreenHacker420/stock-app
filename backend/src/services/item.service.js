@@ -202,7 +202,7 @@ export async function updateItem(user, id, data) {
     ];
 
     for (const { key, label } of priceTypes) {
-      if (data[key] !== undefined && Number(data[key]) !== Number(existing[key])) {
+      if (data[key] !== undefined && data[key] !== null && Number(data[key]) !== Number(existing[key])) {
         await tx.itemPriceHistory.create({
           data: {
             itemId: id,
@@ -312,3 +312,5 @@ export async function getRateSuggestion(user, id, { customerId }) {
     lastFive: history.rows.slice(0, 5),
   };
 }
+
+export { getPurchaseHistory as getPriceHistory };

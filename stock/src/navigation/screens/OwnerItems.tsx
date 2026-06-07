@@ -312,12 +312,13 @@ export function AddEditItem() {
   const handleSave = () => {
     const payload = {
       name: form.name.trim(),
-      sku: form.sku.trim() || undefined,
+      sku: form.sku.trim() || null,
       unit: form.unit.trim(),
       defaultSellingPrice: Number(form.defaultSellingPrice || 0),
+      minimumAllowedPrice: form.minimumAllowedPrice.trim() ? Number(form.minimumAllowedPrice) : null,
       minimumStock: Number(form.minimumStock || 0),
-      purchasePrice: form.purchasePrice ? Number(form.purchasePrice) : undefined,
-      mrp: form.mrp ? Number(form.mrp) : undefined,
+      purchasePrice: form.purchasePrice.trim() ? Number(form.purchasePrice) : null,
+      mrp: form.mrp.trim() ? Number(form.mrp) : null,
     };
 
     if (item) {
@@ -325,7 +326,7 @@ export function AddEditItem() {
         onSuccess: () => navigation.goBack()
       });
     } else {
-      createMutation.mutate(payload, {
+      createMutation.mutate(payload as any, {
         onSuccess: () => navigation.goBack()
       });
     }
@@ -423,11 +424,19 @@ export function ItemDetail() {
                     </View>
                     <View style={styles.detailStatItem}>
                       <Text style={styles.statSubLabel}>Min Price limit</Text>
-                      <Text style={styles.statSubValue}>{money(item.minimumAllowedPrice)}</Text>
+                      <Text style={styles.statSubValue}>
+                        {item.minimumAllowedPrice && Number(item.minimumAllowedPrice) > 0 
+                          ? money(item.minimumAllowedPrice) 
+                          : "Not set"}
+                      </Text>
                     </View>
                     <View style={styles.detailStatItem}>
                       <Text style={styles.statSubLabel}>MRP</Text>
-                      <Text style={styles.statSubValue}>{money(item.mrp)}</Text>
+                      <Text style={styles.statSubValue}>
+                        {item.mrp && Number(item.mrp) > 0 
+                          ? money(item.mrp) 
+                          : "Not set"}
+                      </Text>
                     </View>
                     <View style={styles.detailStatItem}>
                       <Text style={styles.statSubLabel}>Min Stock threshold</Text>

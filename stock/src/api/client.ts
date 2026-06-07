@@ -223,13 +223,14 @@ export type Sale = {
 export interface CreateItemPayload {
   shopId: string;
   name: string;
-  sku?: string;
+  sku?: string | null;
   unit: string;
   defaultSellingPrice: number;
+  minimumAllowedPrice?: number | null;
   minimumStock: number;
-  purchasePrice?: number;
-  mrp?: number;
-  categoryId?: string;
+  purchasePrice?: number | null;
+  mrp?: number | null;
+  categoryId?: string | null;
 }
 
 export interface UpdateItemPayload extends Partial<CreateItemPayload> {}

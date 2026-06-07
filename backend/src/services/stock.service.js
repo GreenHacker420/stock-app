@@ -10,6 +10,23 @@ import { EntityType, AuditAction } from "../generated/prisma/index.js";
 export async function getCurrentStock(user, { shopId, itemId }) {
   await assertShopAccess(user, shopId);
 
+  // 1. Get active items
+  const items = await prisma.item.findMany({
+    where: {
+      shopId,
+      status: "ACTIVE",
+      id: itemId || undefined,
+    },
+    select: {
+      id: true,
+      name: true,
+      sku: true,
+      unit: true,
+      minimumStock: true,
+    },
+  });
+
+  // 2. Group by stock ledger to get sums
   const rows = await prisma.stockLedger.groupBy({
     by: ["itemId"],
     where: {
@@ -22,34 +39,25 @@ export async function getCurrentStock(user, { shopId, itemId }) {
     },
   });
 
-  const items = await prisma.item.findMany({
-    where: {
-      shopId,
-      id: { in: rows.map((row) => row.itemId) },
-    },
-    select: {
-      id: true,
-      name: true,
-      sku: true,
-      unit: true,
-      minimumStock: true,
-    },
-  });
+  const ledgerMap = new Map(
+    rows.map((row) => [
+      row.itemId,
+      {
+        quantityIn: Number(row._sum.quantityIn || 0),
+        quantityOut: Number(row._sum.quantityOut || 0),
+      },
+    ])
+  );
 
-  const itemMap = new Map(items.map((item) => [item.id, item]));
-
-  return rows.map((row) => {
-    const quantityIn = Number(row._sum.quantityIn || 0);
-    const quantityOut = Number(row._sum.quantityOut || 0);
-    const currentQuantity = quantityIn - quantityOut;
-    const item = itemMap.get(row.itemId);
-
+  return items.map((item) => {
+    const ledger = ledgerMap.get(item.id) || { quantityIn: 0, quantityOut: 0 };
+    const currentQuantity = ledger.quantityIn - ledger.quantityOut;
     return {
       item,
-      quantityIn,
-      quantityOut,
+      quantityIn: ledger.quantityIn,
+      quantityOut: ledger.quantityOut,
       currentQuantity,
-      isLowStock: item ? currentQuantity <= Number(item.minimumStock) : false,
+      isLowStock: currentQuantity <= Number(item.minimumStock),
     };
   });
 }
