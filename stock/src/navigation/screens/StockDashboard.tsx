@@ -66,7 +66,11 @@ export function StockDashboard() {
 
   return (
     <Screen scroll={false} edges={['top', 'left', 'right']}>
-      <AppHeader title="Stock Dashboard" subtitle="Real-time physical stock and alerts." />
+      <AppHeader 
+        title="Stock Dashboard" 
+        subtitle="Real-time physical stock and alerts." 
+        fallbackRoute="Home"
+      />
 
       <View style={styles.container}>
         {/* Quick Summary Metrics */}

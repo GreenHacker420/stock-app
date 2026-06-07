@@ -270,7 +270,7 @@ export function OrderDetail() {
 
   return (
     <Screen edges={['top', 'left', 'right']}>
-      <AppHeader title={`Order #${order.orderNumber}`} showBack />
+      <AppHeader title={`Order #${order.orderNumber}`} fallbackRoute="OrderList" />
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         {/* Core Order Info Card */}

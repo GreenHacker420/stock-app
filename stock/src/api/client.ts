@@ -529,6 +529,10 @@ export async function fetchItemPriceHistory(token: string, itemId: string, custo
   return apiRequest(`/items/${itemId}/price-history${query}`, { token });
 }
 
+export async function fetchItemPriceChangeHistory(token: string, itemId: string) {
+  return apiRequest<any[]>(`/items/${itemId}/price-change-history`, { token });
+}
+
 export async function fetchItemRecentRates(token: string, itemId: string, customerId?: string) {
   const query = customerId ? `?customerId=${encodeURIComponent(customerId)}` : "";
   return apiRequest(`/items/${itemId}/recent-rates${query}`, { token });

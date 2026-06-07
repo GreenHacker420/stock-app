@@ -174,7 +174,11 @@ export function SaleDetail() {
 
   return (
     <Screen edges={['top', 'left', 'right']}>
-      <AppHeader title={sale?.saleNumber ?? "Sale Detail"} subtitle="Items, payments, customer, and status." />
+      <AppHeader 
+        title={sale?.saleNumber ?? "Sale Detail"} 
+        subtitle="Items, payments, customer, and status." 
+        fallbackRoute="SalesList"
+      />
       
       {!saleId ? (
         <Text style={styles.errorText}>Missing sale id.</Text>

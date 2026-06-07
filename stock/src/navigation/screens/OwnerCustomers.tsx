@@ -187,7 +187,11 @@ export function AddEditCustomer() {
 
   return (
     <Screen edges={['top', 'left', 'right']}>
-      <AppHeader title={customer ? "Edit Customer" : "Add Customer"} subtitle="Maintain customer profile settings" />
+      <AppHeader 
+        title={customer ? "Edit Customer" : "Add Customer"} 
+        subtitle="Maintain customer profile settings" 
+        fallbackRoute="CustomerList"
+      />
       <View style={styles.formContainer}>
         <Section title="Customer details">
           <View style={styles.formCard}>

@@ -16,9 +16,10 @@ type AppHeaderProps = {
   initials?: string;
   showBack?: boolean;
   hideAvatar?: boolean;
+  fallbackRoute?: string;
 };
 
-export function AppHeader({ title, subtitle, role, initials, showBack, hideAvatar }: AppHeaderProps) {
+export function AppHeader({ title, subtitle, role, initials, showBack, hideAvatar, fallbackRoute }: AppHeaderProps) {
   const user = useAuthStore((state) => state.user);
   const { activeShopId, setActiveShopId } = useShopStore();
   const navigation = useNavigation();
@@ -30,7 +31,8 @@ export function AppHeader({ title, subtitle, role, initials, showBack, hideAvata
     [shopsQuery.data, activeShopId]
   );
 
-  const canGoBack = showBack ?? (navigation ? navigation.canGoBack() : false);
+  const hasHistory = navigation ? navigation.canGoBack() : false;
+  const canGoBack = showBack ?? (hasHistory || !!fallbackRoute);
 
   const displayInitials = useMemo(() => {
     if (initials) return initials;
@@ -53,8 +55,10 @@ export function AppHeader({ title, subtitle, role, initials, showBack, hideAvata
         {canGoBack && (
           <Pressable 
             onPress={() => {
-              if (navigation.canGoBack()) {
+              if (hasHistory) {
                 navigation.goBack();
+              } else if (fallbackRoute) {
+                (navigation as any).navigate(fallbackRoute);
               }
             }}
             style={({ pressed }) => [

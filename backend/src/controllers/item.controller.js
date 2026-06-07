@@ -31,6 +31,11 @@ export const getPriceHistory = asyncHandler(async (req, res) => {
   res.json({ success: true, data: history });
 });
 
+export const getPriceChangeHistory = asyncHandler(async (req, res) => {
+  const history = await itemService.getPriceChangeHistory(req.user, req.validated.params.id);
+  res.json({ success: true, data: history });
+});
+
 export const getRecentRates = asyncHandler(async (req, res) => {
   const history = await itemService.getPriceHistory(req.user, req.validated.params.id, req.validated.query);
   res.json({ success: true, data: history.rows.slice(0, 10) });

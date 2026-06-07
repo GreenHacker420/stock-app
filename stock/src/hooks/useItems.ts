@@ -12,6 +12,7 @@ import {
   addStock,
   fetchItemStock,
   fetchItemPriceHistory,
+  fetchItemPriceChangeHistory,
   CreateItemPayload,
   UpdateItemPayload,
   StockEntryPayload,
@@ -93,8 +94,11 @@ export function useUpdateItemMutation() {
   return useMutation({
     mutationFn: ({ id, data }: { id: string; data: UpdateItemPayload }) =>
       updateItem(token ?? "", id, data),
-    onSuccess: () => {
+    onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: ["items"] });
+      queryClient.invalidateQueries({ queryKey: ["item-price-history", id] });
+      queryClient.invalidateQueries({ queryKey: ["item-price-change-history", id] });
+      queryClient.invalidateQueries({ queryKey: ["item-stock", id] });
     },
   });
 }
@@ -149,6 +153,16 @@ export function useItemPriceHistoryQuery(itemId?: string) {
   return useQuery({
     queryKey: ["item-price-history", itemId],
     queryFn: () => fetchItemPriceHistory(token ?? "", itemId ?? ""),
+    enabled: !!token && !!itemId,
+    staleTime: 5 * 60 * 1000, // 5 mins
+  });
+}
+
+export function useItemPriceChangeHistoryQuery(itemId?: string) {
+  const token = useAuthStore((state) => state.token);
+  return useQuery({
+    queryKey: ["item-price-change-history", itemId],
+    queryFn: () => fetchItemPriceChangeHistory(token ?? "", itemId ?? ""),
     enabled: !!token && !!itemId,
     staleTime: 5 * 60 * 1000, // 5 mins
   });

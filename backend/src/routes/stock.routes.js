@@ -55,7 +55,7 @@ const entrySchema = z.object({
     entries: z.array(
       z.object({
         itemId: z.string().min(1),
-        quantity: z.coerce.number().positive(),
+        quantity: z.coerce.number().refine((n) => n !== 0, "Quantity cannot be zero"),
       })
     ).min(1),
     notes: z.string().optional(),

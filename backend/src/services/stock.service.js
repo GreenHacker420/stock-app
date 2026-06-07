@@ -65,7 +65,7 @@ export async function getCurrentStock(user, { shopId, itemId }) {
 export async function listMovements(user, { shopId, itemId, movementType }) {
   await assertShopAccess(user, shopId);
 
-  return prisma.stockLedger.findMany({
+  const movements = await prisma.stockLedger.findMany({
     where: {
       shopId,
       itemId: itemId || undefined,
@@ -82,6 +82,31 @@ export async function listMovements(user, { shopId, itemId, movementType }) {
     },
     orderBy: { createdAt: "desc" },
   });
+
+  // Attach reference details manually since Prisma doesn't support polymorphic relations natively
+  const results = [];
+  for (const m of movements) {
+    const movement = { ...m };
+    if (m.referenceType === "SALE" && m.referenceId) {
+      movement.sale = await prisma.sale.findUnique({
+        where: { id: m.referenceId },
+        select: { id: true, saleNumber: true },
+      });
+    } else if (m.referenceType === "DM" && m.referenceId) {
+      movement.deliveryMemo = await prisma.deliveryMemo.findUnique({
+        where: { id: m.referenceId },
+        select: { id: true, dmNumber: true },
+      });
+    } else if (m.referenceType === "ORDER" && m.referenceId) {
+      movement.order = await prisma.order.findUnique({
+        where: { id: m.referenceId },
+        select: { id: true, orderNumber: true },
+      });
+    }
+    results.push(movement);
+  }
+
+  return results;
 }
 
 export async function createMovement(user, data) {
@@ -194,14 +219,15 @@ export async function bulkStockEntry(user, data) {
   const movements = await prisma.$transaction(async (tx) => {
     const list = [];
     for (const entry of data.entries) {
+      const isPositive = Number(entry.quantity) > 0;
       const movement = await tx.stockLedger.create({
         data: {
           shopId: data.shopId,
           itemId: entry.itemId,
-          movementType: "STOCK_IN",
-          quantityIn: entry.quantity,
-          quantityOut: 0,
-          reason: data.notes || "Bulk stock entry via app",
+          movementType: isPositive ? "STOCK_IN" : "MANUAL_ADJUSTMENT",
+          quantityIn: isPositive ? Number(entry.quantity) : 0,
+          quantityOut: isPositive ? 0 : Math.abs(Number(entry.quantity)),
+          reason: data.notes || (isPositive ? "Bulk stock entry via app" : "Manual adjustment via app"),
           createdById: user.id,
           approvedById: user.id,
         },

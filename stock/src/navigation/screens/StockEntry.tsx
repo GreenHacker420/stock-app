@@ -1,4 +1,4 @@
-import React, { useMemo, useState, memo, useCallback } from "react";
+import React, { useMemo, useState, memo, useCallback, useEffect } from "react";
 import { 
   View, 
   StyleSheet, 
@@ -7,13 +7,13 @@ import {
   Pressable, 
   TextInput 
 } from "react-native";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute } from "@react-navigation/native";
 import { Searchbar, Text, Icon } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
 
 import { Item } from "../../api/client";
-import { useItemsQuery, useAddStockMutation } from "../../hooks/useItems";
+import { useItemsQuery, useAddStockMutation, useItemStockQuery } from "../../hooks/useItems";
 import { useAuthStore } from "../../auth/auth-store";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
@@ -32,26 +32,46 @@ const StockEntryRow = memo(({
   quantity: string, 
   onChange: (val: string) => void 
 }) => {
+  const numericVal = Number(quantity);
+  const color = numericVal > 0 ? colors.success : numericVal < 0 ? colors.danger : colors.textPrimary;
+  const prefix = numericVal > 0 ? "+" : "";
+
   return (
     <View style={styles.row}>
       <View style={styles.rowInfo}>
         <Text style={styles.itemName}>{item.name}</Text>
         <View style={styles.stockBadge}>
-          <Text style={styles.stockBadgeText}>Unit: {item.unit}</Text>
+          <Text style={styles.stockBadgeText}>Unit: {item.unit} • SKU: {item.sku || "N/A"}</Text>
         </View>
       </View>
       
       <View style={styles.inputContainer}>
-        <TextInput
-          style={styles.qtyInput}
-          value={quantity}
-          onChangeText={onChange}
-          keyboardType="numeric"
-          placeholder="0"
-          placeholderTextColor={colors.textMuted}
-          selectTextOnFocus
-          returnKeyType="done"
-        />
+        <View style={styles.inputWrapper}>
+          <TextInput
+            style={[styles.qtyInput, { color }]}
+            value={quantity}
+            onChangeText={(text) => {
+              // Allow minus sign for typing negative numbers
+              if (text === "-" || text === "") {
+                onChange(text);
+                return;
+              }
+              const num = Number(text);
+              if (!isNaN(num)) {
+                onChange(text);
+              }
+            }}
+            keyboardType="numeric"
+            placeholder="0"
+            placeholderTextColor={colors.textMuted}
+            selectTextOnFocus
+            autoFocus={true}
+            returnKeyType="done"
+          />
+          {numericVal !== 0 && (
+            <Text style={[styles.prefixOverlay, { color }]}>{prefix}</Text>
+          )}
+        </View>
       </View>
     </View>
   );
@@ -59,19 +79,38 @@ const StockEntryRow = memo(({
 
 export function StockEntry() {
   const navigation = useNavigation();
+  const route = useRoute();
   const user = useAuthStore((state) => state.user);
   const isStaff = user?.role === "STAFF";
+
+  // Check if we are managing a specific item
+  const routeParams = route.params as { itemId?: string } | undefined;
+  const specificItemId = routeParams?.itemId;
 
   const [search, setSearch] = useState("");
   const [debouncedSearch] = useDebounce(search, 300);
   const [entries, setEntries] = useState<Record<string, string>>({});
   const [successVisible, setSuccessVisible] = useState(false);
 
-  const itemsQuery = useItemsQuery({ search: debouncedSearch, limit: 50 });
+  // If specific item, fetch its details
+  const specificItemQuery = useItemStockQuery(specificItemId);
+  const specificItem = (specificItemQuery.data as any)?.item as Item | undefined;
+
+  const itemsQuery = useItemsQuery({ 
+    search: debouncedSearch, 
+    limit: specificItemId ? 0 : 50 // Disable general query if we have a specific item
+  });
+
+  const displayItems = useMemo(() => {
+    if (specificItemId) {
+      return specificItem ? [specificItem] : [];
+    }
+    return itemsQuery.data?.items ?? [];
+  }, [specificItemId, specificItem, itemsQuery.data]);
 
   const entryItems = useMemo(() => {
     return Object.entries(entries)
-      .filter(([_, qty]) => Number(qty) > 0)
+      .filter(([_, qty]) => Number(qty) !== 0) // Allow negative for correction if needed, though bulk usually positive
       .map(([id, qty]) => ({ itemId: id, quantity: Number(qty) }));
   }, [entries]);
 
@@ -86,7 +125,9 @@ export function StockEntry() {
   const handleSubmit = () => {
     stockMutation.mutate({
       entries: entryItems,
-      notes: isStaff ? "Bulk stock entry request by staff" : "Bulk stock entry via app",
+      notes: specificItemId 
+        ? (isStaff ? `Restock for ${specificItem?.name}` : `Manual restock for ${specificItem?.name}`)
+        : (isStaff ? "Bulk stock entry request by staff" : "Bulk stock entry via app"),
     }, {
       onSuccess: () => {
         setSuccessVisible(true);
@@ -95,30 +136,41 @@ export function StockEntry() {
   };
 
   return (
-    <Screen edges={['top', 'left', 'right']}>
+    <Screen edges={['top', 'left', 'right', 'bottom']}>
       <KeyboardAvoidingView 
         style={styles.keyboardView} 
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
-        <AppHeader title="Stock Entry" subtitle="Update inventory levels" />
+        <AppHeader 
+          title={specificItemId ? "Update Stock" : "Stock Entry"} 
+          subtitle={specificItemId ? `Adding stock for ${specificItem?.name || 'item'}...` : "Update inventory levels"} 
+          fallbackRoute={specificItemId ? "StockDashboard" : "Home"}
+        />
         
-        <View style={styles.searchContainer}>
-          <Searchbar
-            placeholder="Search items to restock..."
-            onChangeText={setSearch}
-            value={search}
-            style={styles.searchBar}
-            inputStyle={styles.searchInput}
-          />
-        </View>
+        {!specificItemId && (
+          <View style={styles.searchContainer}>
+            <Searchbar
+              placeholder="Search items to restock..."
+              onChangeText={setSearch}
+              value={search}
+              style={styles.searchBar}
+              inputStyle={styles.searchInput}
+              elevation={0}
+            />
+          </View>
+        )}
 
         <View style={styles.listContainer}>
           {(() => {
             const List = FlashList as any;
+            const isLoading = specificItemId ? specificItemQuery.isLoading : itemsQuery.isLoading;
+            
+            if (isLoading) return <SkeletonList count={8} itemHeight={80} />;
+
             return (
               <List
-                data={itemsQuery.data?.items ?? []}
+                data={displayItems}
                 keyExtractor={(item: Item) => item.id}
                 renderItem={({ item }: { item: Item }) => (
                   <StockEntryRow 
@@ -128,17 +180,14 @@ export function StockEntry() {
                   />
                 )}
                 ListEmptyComponent={
-                  itemsQuery.isLoading ? (
-                    <SkeletonList count={8} itemHeight={80} />
-                  ) : (
-                    <EmptyState 
-                      icon="package-variant-closed" 
-                      title="No items found" 
-                      subtitle="Try searching for a different item name" 
-                    />
-                  )
+                  <EmptyState 
+                    icon="package-variant-closed" 
+                    title="No items found" 
+                    subtitle={specificItemId ? "Failed to load the specific item." : "Try searching for a different item name"} 
+                  />
                 }
                 contentContainerStyle={styles.listContent}
+                estimatedItemSize={90}
               />
             );
           })()}
@@ -146,15 +195,20 @@ export function StockEntry() {
 
         <View style={styles.footer}>
           <View style={styles.footerInfo}>
-            <Text style={styles.footerText}>{entryCount} items being updated</Text>
+            <Text style={styles.footerText}>
+              {specificItemId 
+                ? `Adjusting ${specificItem?.name || 'item'} by ${entries[specificItemId || ''] || '0'}` 
+                : `${entryCount} items being updated`}
+            </Text>
           </View>
           <Button 
-            label="SUBMIT STOCK ENTRY" 
+            label={specificItemId ? "CONFIRM STOCK UPDATE" : "SUBMIT STOCK ENTRY"} 
             onPress={handleSubmit} 
             loading={stockMutation.isPending}
             disabled={entryCount === 0}
             fullWidth
             size="lg"
+            variant="primary"
           />
         </View>
       </KeyboardAvoidingView>
@@ -164,13 +218,17 @@ export function StockEntry() {
         title={isStaff ? "Request Submitted" : "Stock Updated"}
         message={
           isStaff 
-            ? `Your stock entry request for ${entryCount} items has been sent for owner approval.`
-            : `Successfully updated stock for ${entryCount} items.`
+            ? `Your stock entry request has been sent for owner approval.`
+            : `Successfully updated stock level.`
         }
         onClose={() => {
           setSuccessVisible(false);
           setEntries({});
-          navigation.goBack();
+          if (navigation.canGoBack()) {
+            navigation.goBack();
+          } else {
+            (navigation as any).navigate("StockDashboard");
+          }
         }}
       />
     </Screen>
@@ -191,7 +249,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.border,
-    elevation: 0,
   },
   searchInput: {
     fontSize: fontSize.md,
@@ -201,7 +258,7 @@ const styles = StyleSheet.create({
   },
   listContent: {
     paddingHorizontal: spacing.lg,
-    paddingBottom: 120,
+    paddingBottom: spacing.xl,
   },
   row: {
     flexDirection: 'row',
@@ -211,10 +268,10 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.surfaceOffset,
     backgroundColor: colors.bg,
+    gap: spacing.md,
   },
   rowInfo: {
     flex: 1,
-    paddingRight: spacing.md,
   },
   itemName: {
     fontSize: fontSize.lg,
@@ -235,7 +292,17 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.medium,
   },
   inputContainer: {
-    width: 100,
+    width: 110,
+  },
+  inputWrapper: {
+    position: 'relative',
+    justifyContent: 'center',
+  },
+  prefixOverlay: {
+    position: 'absolute',
+    left: 10,
+    fontSize: fontSize.xl,
+    fontWeight: fontWeight.black,
   },
   qtyInput: {
     backgroundColor: colors.surface,
@@ -247,17 +314,15 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xl,
     fontWeight: fontWeight.black,
     color: colors.primary,
+    fontVariant: ['tabular-nums'],
   },
   footer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
     backgroundColor: colors.surface,
     padding: spacing.lg,
+    paddingBottom: Platform.OS === 'ios' ? spacing.xl : spacing.lg,
     borderTopWidth: 1,
     borderTopColor: colors.border,
-    ...shadow.lg,
+    boxShadow: "0 -4px 12px rgba(0, 0, 0, 0.05)",
   },
   footerInfo: {
     marginBottom: spacing.md,

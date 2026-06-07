@@ -48,7 +48,7 @@ export function CustomerDetail() {
 
   return (
     <Screen edges={['top', 'left', 'right']}>
-      <AppHeader title={customer.name} subtitle={customer.phone ?? "No phone"} />
+      <AppHeader title={customer.name} subtitle={customer.phone ?? "No phone"} fallbackRoute="CustomerList" />
       
       {/* Tab Bar */}
       <View style={styles.tabContainer}>

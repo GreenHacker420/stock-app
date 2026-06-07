@@ -69,6 +69,12 @@ router.get(
   itemController.getPriceHistory,
 );
 router.get(
+  "/:id/price-change-history",
+  requirePermission(PERMISSIONS.ITEM_VIEW),
+  validate(z.object({ params: idParams })),
+  itemController.getPriceChangeHistory,
+);
+router.get(
   "/:id/recent-rates",
   requirePermission(PERMISSIONS.ITEM_VIEW),
   validate(z.object({ params: idParams, query: z.object({ customerId: z.string().optional() }), body: z.object({}).optional() })),

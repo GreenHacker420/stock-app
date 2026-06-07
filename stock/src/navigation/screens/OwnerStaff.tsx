@@ -66,7 +66,11 @@ export function AddEditStaff() {
 
   return (
     <Screen>
-      <AppHeader title={staff ? "Edit Staff" : "Add Staff"} subtitle="Create login and update staff status." />
+      <AppHeader 
+        title={staff ? "Edit Staff" : "Add Staff"} 
+        subtitle="Create login and update staff status." 
+        fallbackRoute="StaffManagement"
+      />
       <Section title="Staff account">
         <View style={styles.formCard}>
           <TextInput mode="outlined" label="Name" value={form.name} onChangeText={(v) => set("name", v)} outlineStyle={styles.inputOutline} />

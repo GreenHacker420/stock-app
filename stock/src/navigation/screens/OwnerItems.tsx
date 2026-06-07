@@ -1,7 +1,7 @@
 import React, { useMemo, useState, memo } from "react";
-import { Pressable, View, StyleSheet, ScrollView, ActivityIndicator } from "react-native";
+import { Pressable, View, StyleSheet, ScrollView, ActivityIndicator, Modal, TouchableWithoutFeedback } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
-import { Divider, Icon, Searchbar, Text, TextInput } from "react-native-paper";
+import { Divider, Icon, Searchbar, Text, TextInput, SegmentedButtons } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
 
@@ -13,6 +13,7 @@ import {
   useUpdateItemMutation,
   useItemStockQuery,
   useItemPriceHistoryQuery,
+  useItemPriceChangeHistoryQuery,
   useStockMovementsQuery 
 } from "../../hooks/useItems";
 import { useShopStore } from "../../auth/shop-store";
@@ -327,14 +328,26 @@ export function AddEditItem() {
         id: item.id, 
         data: { ...payload, adjustmentStock: Number(form.stock) } 
       }, {
-        onSuccess: () => navigation.goBack()
+        onSuccess: () => {
+          if (navigation.canGoBack()) {
+            navigation.goBack();
+          } else {
+            (navigation as any).navigate("ItemList");
+          }
+        }
       });
     } else {
       createMutation.mutate({ 
         ...payload, 
         initialStock: Number(form.stock) 
       } as any, {
-        onSuccess: () => navigation.goBack()
+        onSuccess: () => {
+          if (navigation.canGoBack()) {
+            navigation.goBack();
+          } else {
+            (navigation as any).navigate("ItemList");
+          }
+        }
       });
     }
   };
@@ -348,51 +361,57 @@ export function AddEditItem() {
 
   return (
     <Screen edges={['top', 'left', 'right']}>
-      <AppHeader title={item ? "Edit Item" : "Add Item"} subtitle="Maintain item catalog and prices." />
-      <View style={styles.formContainer}>
-        <Section title="Item details">
-          <View style={styles.formCard}>
-            {item && (
-              <TextInput
-                mode="outlined"
-                label="Current Stock"
-                value={`${currentQuantity} ${item.unit}`}
-                disabled
-                style={styles.disabledInput}
-                outlineStyle={styles.inputOutline}
+      <AppHeader 
+        title={item ? "Edit Item" : "Add Item"} 
+        subtitle="Maintain item catalog and prices." 
+        fallbackRoute="ItemList"
+      />
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: spacing.xxl }}>
+        <View style={styles.formContainer}>
+          <Section title="Item details">
+            <View style={styles.formCard}>
+              {item && (
+                <TextInput
+                  mode="outlined"
+                  label="Current Stock"
+                  value={`${currentQuantity} ${item.unit}`}
+                  disabled
+                  style={styles.disabledInput}
+                  outlineStyle={styles.inputOutline}
+                />
+              )}
+              <TextInput mode="outlined" label="Name" value={form.name} onChangeText={(v) => set("name", v)} outlineStyle={styles.inputOutline} style={styles.input} />
+              <TextInput mode="outlined" label="SKU" value={form.sku ?? ""} onChangeText={(v) => set("sku", v)} outlineStyle={styles.inputOutline} style={styles.input} />
+              <TextInput mode="outlined" label="Unit" value={form.unit} onChangeText={(v) => set("unit", v)} outlineStyle={styles.inputOutline} style={styles.input} />
+              <TextInput 
+                mode="outlined" 
+                label={item ? "Stock Adjustment (+ to add, - to sub)" : "Opening Stock"} 
+                keyboardType="numeric" 
+                value={form.stock} 
+                onChangeText={(v) => set("stock", v)} 
+                outlineStyle={styles.inputOutline} 
+                style={styles.input} 
+                placeholder={item ? "e.g. 10 or -5" : "e.g. 100"}
               />
-            )}
-            <TextInput mode="outlined" label="Name" value={form.name} onChangeText={(v) => set("name", v)} outlineStyle={styles.inputOutline} style={styles.input} />
-            <TextInput mode="outlined" label="SKU" value={form.sku ?? ""} onChangeText={(v) => set("sku", v)} outlineStyle={styles.inputOutline} style={styles.input} />
-            <TextInput mode="outlined" label="Unit" value={form.unit} onChangeText={(v) => set("unit", v)} outlineStyle={styles.inputOutline} style={styles.input} />
-            <TextInput 
-              mode="outlined" 
-              label={item ? "Stock Adjustment (+ to add, - to sub)" : "Opening Stock"} 
-              keyboardType="numeric" 
-              value={form.stock} 
-              onChangeText={(v) => set("stock", v)} 
-              outlineStyle={styles.inputOutline} 
-              style={styles.input} 
-              placeholder={item ? "e.g. 10 or -5" : "e.g. 100"}
+              <TextInput mode="outlined" label="Default selling price" keyboardType="numeric" value={form.defaultSellingPrice} onChangeText={(v) => set("defaultSellingPrice", v)} outlineStyle={styles.inputOutline} style={styles.input} />
+              <TextInput mode="outlined" label="Minimum allowed price" keyboardType="numeric" value={form.minimumAllowedPrice} onChangeText={(v) => set("minimumAllowedPrice", v)} outlineStyle={styles.inputOutline} style={styles.input} />
+              <TextInput mode="outlined" label="Purchase price" keyboardType="numeric" value={form.purchasePrice} onChangeText={(v) => set("purchasePrice", v)} outlineStyle={styles.inputOutline} style={styles.input} />
+              <TextInput mode="outlined" label="MRP" keyboardType="numeric" value={form.mrp} onChangeText={(v) => set("mrp", v)} outlineStyle={styles.inputOutline} style={styles.input} />
+              <TextInput mode="outlined" label="Minimum stock alert" keyboardType="numeric" value={form.minimumStock} onChangeText={(v) => set("minimumStock", v)} outlineStyle={styles.inputOutline} style={styles.input} />
+            </View>
+          </Section>
+          <View style={styles.formFooter}>
+            <Button 
+              label="Save Item" 
+              onPress={handleSave} 
+              loading={isPending} 
+              disabled={!form.name.trim() || !form.unit.trim()}
+              fullWidth
+              size="lg"
             />
-            <TextInput mode="outlined" label="Default selling price" keyboardType="numeric" value={form.defaultSellingPrice} onChangeText={(v) => set("defaultSellingPrice", v)} outlineStyle={styles.inputOutline} style={styles.input} />
-            <TextInput mode="outlined" label="Minimum allowed price" keyboardType="numeric" value={form.minimumAllowedPrice} onChangeText={(v) => set("minimumAllowedPrice", v)} outlineStyle={styles.inputOutline} style={styles.input} />
-            <TextInput mode="outlined" label="Purchase price" keyboardType="numeric" value={form.purchasePrice} onChangeText={(v) => set("purchasePrice", v)} outlineStyle={styles.inputOutline} style={styles.input} />
-            <TextInput mode="outlined" label="MRP" keyboardType="numeric" value={form.mrp} onChangeText={(v) => set("mrp", v)} outlineStyle={styles.inputOutline} style={styles.input} />
-            <TextInput mode="outlined" label="Minimum stock alert" keyboardType="numeric" value={form.minimumStock} onChangeText={(v) => set("minimumStock", v)} outlineStyle={styles.inputOutline} style={styles.input} />
           </View>
-        </Section>
-        <View style={styles.formFooter}>
-          <Button 
-            label="Save Item" 
-            onPress={handleSave} 
-            loading={isPending} 
-            disabled={!form.name.trim() || !form.unit.trim()}
-            fullWidth
-            size="lg"
-          />
         </View>
-      </View>
+      </ScrollView>
     </Screen>
   );
 }
@@ -405,21 +424,101 @@ export function ItemDetail() {
 
   const stockQuery = useItemStockQuery(itemId);
   const historyQuery = useItemPriceHistoryQuery(itemId);
+  const priceChangeQuery = useItemPriceChangeHistoryQuery(itemId);
   const movementsQuery = useStockMovementsQuery(itemId);
 
   const [activeTab, setActiveTab] = useState("PRICE");
+  const [priceTab, setPriceTab] = useState("PURCHASE");
+  const [selectedMovement, setSelectedMovement] = useState<any>(null);
 
   const item = (stockQuery.data as any)?.item;
+
+  const renderMovementDetail = () => {
+    if (!selectedMovement) return null;
+    const m = selectedMovement;
+    const isIn = Number(m.quantityIn) > 0;
+    
+    return (
+      <Modal visible={!!selectedMovement} transparent animationType="fade" onRequestClose={() => setSelectedMovement(null)}>
+        <TouchableWithoutFeedback onPress={() => setSelectedMovement(null)}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback>
+              <View style={styles.modalContent}>
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>Movement Details</Text>
+                  <Pressable onPress={() => setSelectedMovement(null)}>
+                    <Icon source="close" size={24} color={colors.textSecondary} />
+                  </Pressable>
+                </View>
+                
+                <View style={styles.modalBody}>
+                  <View style={styles.modalRow}>
+                    <Text style={styles.modalLabel}>Type</Text>
+                    <Text style={styles.modalValue}>{m.movementType}</Text>
+                  </View>
+                  <View style={styles.modalRow}>
+                    <Text style={styles.modalLabel}>Quantity</Text>
+                    <Text style={[styles.modalValue, { color: isIn ? colors.success : colors.danger }]}>
+                      {isIn ? "+" : "-"}{isIn ? m.quantityIn : m.quantityOut} {item?.unit}
+                    </Text>
+                  </View>
+                  <View style={styles.modalRow}>
+                    <Text style={styles.modalLabel}>Reason</Text>
+                    <Text style={styles.modalValue}>{m.reason || "No reason provided"}</Text>
+                  </View>
+                  <View style={styles.modalRow}>
+                    <Text style={styles.modalLabel}>Created By</Text>
+                    <Text style={styles.modalValue}>{m.createdBy?.name || "System"}</Text>
+                  </View>
+                  <View style={styles.modalRow}>
+                    <Text style={styles.modalLabel}>Date</Text>
+                    <Text style={styles.modalValue}>{new Date(m.createdAt).toLocaleString()}</Text>
+                  </View>
+
+                  {m.sale && (
+                    <Button 
+                      variant="secondary" 
+                      label={`View Sale ${m.sale.saleNumber}`} 
+                      onPress={() => {
+                        setSelectedMovement(null);
+                        (navigation as any).navigate("SaleDetail", { saleId: m.sale.id });
+                      }}
+                      style={{ marginTop: spacing.md }}
+                    />
+                  )}
+                  {m.deliveryMemo && (
+                    <Button 
+                      variant="secondary" 
+                      label={`View DM ${m.deliveryMemo.dmNumber}`} 
+                      onPress={() => {
+                        setSelectedMovement(null);
+                        // (navigation as any).navigate("DMDetail", { dmId: m.deliveryMemo.id });
+                      }}
+                      style={{ marginTop: spacing.md }}
+                    />
+                  )}
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+    );
+  };
 
   return (
     <Screen edges={['top', 'left', 'right']}>
       <View style={styles.container}>
-        <AppHeader title={item?.name ?? "Item Detail"} subtitle="Stock and price settings." />
+        <AppHeader 
+          title={item?.name ?? "Item Detail"} 
+          subtitle="Stock and price settings." 
+          fallbackRoute="ItemList"
+        />
         {!itemId ? <Text style={styles.errorText}>Missing item id.</Text> : null}
         
         {item ? (
           <List
-            data={activeTab === "PRICE" ? ((historyQuery.data as any)?.rows ?? []) : (movementsQuery.data ?? [])}
+            data={activeTab === "PRICE" ? (priceTab === 'PURCHASE' ? ((historyQuery.data as any)?.rows ?? []) : (priceChangeQuery.data ?? [])) : (movementsQuery.data ?? [])}
             ListHeaderComponent={
               <>
                 <View style={styles.detailCard}>
@@ -494,47 +593,85 @@ export function ItemDetail() {
                     </Pressable>
                   </View>
                 </View>
+
+                {activeTab === 'PRICE' && (
+                  <View style={{ marginHorizontal: spacing.lg, marginBottom: spacing.md }}>
+                    <SegmentedButtons
+                      value={priceTab}
+                      onValueChange={setPriceTab}
+                      buttons={[
+                        { value: 'PURCHASE', label: 'Sale Rates' },
+                        { value: 'MANUAL', label: 'Price Updates' },
+                      ]}
+                      style={styles.segmentedBtn}
+                      theme={{ colors: { primary: colors.primary } }}
+                    />
+                  </View>
+                )}
               </>
             }
             renderItem={({ item: row, index }: any) => {
               if (activeTab === "PRICE") {
-                return (
-                  <View style={styles.historyRow}>
-                    <View style={styles.historyInfo}>
-                      <Text style={styles.historyTitle}>{row.recordNumber}</Text>
-                      <Text style={styles.historySubtitle}>
-                        {row.customer?.name ?? "Walk-in"} • Qty: {row.quantity}
-                      </Text>
+                if (priceTab === 'PURCHASE') {
+                  return (
+                    <View style={styles.historyRow}>
+                      <View style={styles.historyInfo}>
+                        <Text style={styles.historyTitle}>{row.recordNumber}</Text>
+                        <Text style={styles.historySubtitle}>
+                          {row.customer?.name ?? "Walk-in"} • Qty: {row.quantity}
+                        </Text>
+                      </View>
+                      <View style={styles.historyRight}>
+                        <Text style={styles.historyPrice}>{money(row.rate)}</Text>
+                        <Text style={styles.historyDate}>
+                          {new Date(row.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                        </Text>
+                      </View>
                     </View>
-                    <View style={styles.historyRight}>
-                      <Text style={styles.historyPrice}>{money(row.rate)}</Text>
-                      <Text style={styles.historyDate}>
-                        {new Date(row.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-                      </Text>
+                  );
+                } else {
+                  return (
+                    <View style={styles.historyRow}>
+                      <View style={styles.historyInfo}>
+                        <Text style={styles.historyTitle}>{row.priceType} Price Updated</Text>
+                        <Text style={styles.historySubtitle}>
+                          By {row.changedBy?.name || "System"} • Prev: {money(row.oldPrice)}
+                        </Text>
+                      </View>
+                      <View style={styles.historyRight}>
+                        <Text style={styles.historyPrice}>{money(row.newPrice)}</Text>
+                        <Text style={styles.historyDate}>
+                          {new Date(row.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                        </Text>
+                      </View>
                     </View>
-                  </View>
-                );
+                  );
+                }
               } else {
                 const isIn = Number(row.quantityIn) > 0;
                 const movementQty = isIn ? Number(row.quantityIn) : Number(row.quantityOut);
                 const color = isIn ? colors.success : colors.danger;
+                const refLabel = row.sale ? `Sale ${row.sale.saleNumber}` : (row.deliveryMemo ? `DM ${row.deliveryMemo.dmNumber}` : (row.order ? `Order ${row.order.orderNumber}` : null));
+
                 return (
-                  <View style={styles.historyRow}>
-                    <View style={styles.historyInfo}>
-                      <Text style={styles.historyTitle}>{row.reason || row.movementType}</Text>
-                      <Text style={styles.historySubtitle}>
-                        By {row.createdBy?.name || "System"} • {row.movementType}
-                      </Text>
+                  <Pressable onPress={() => setSelectedMovement(row)}>
+                    <View style={styles.historyRow}>
+                      <View style={styles.historyInfo}>
+                        <Text style={styles.historyTitle}>{refLabel || row.reason || row.movementType}</Text>
+                        <Text style={styles.historySubtitle}>
+                          By {row.createdBy?.name || "System"} • {row.movementType}
+                        </Text>
+                      </View>
+                      <View style={styles.historyRight}>
+                        <Text style={[styles.historyPrice, { color }]}>
+                          {isIn ? "+" : "-"}{movementQty} {item.unit}
+                        </Text>
+                        <Text style={styles.historyDate}>
+                          {new Date(row.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                        </Text>
+                      </View>
                     </View>
-                    <View style={styles.historyRight}>
-                      <Text style={[styles.historyPrice, { color }]}>
-                        {isIn ? "+" : "-"}{movementQty} {item.unit}
-                      </Text>
-                      <Text style={styles.historyDate}>
-                        {new Date(row.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-                      </Text>
-                    </View>
-                  </View>
+                  </Pressable>
                 );
               }
             }}
@@ -551,6 +688,7 @@ export function ItemDetail() {
           <SkeletonList count={5} />
         )}
       </View>
+      {renderMovementDetail()}
     </Screen>
   );
 }
@@ -868,6 +1006,58 @@ const styles = StyleSheet.create({
   },
   detailListContent: {
     paddingBottom: 40,
+  },
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.xl,
+  },
+  modalContent: {
+    width: '100%',
+    maxWidth: 340,
+    backgroundColor: colors.surface,
+    borderRadius: radius.xxl,
+    padding: spacing.xl,
+    ...shadow.lg,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.xl,
+  },
+  modalTitle: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.black,
+    color: colors.textPrimary,
+  },
+  modalBody: {
+    gap: spacing.md,
+  },
+  modalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    paddingVertical: 2,
+  },
+  modalLabel: {
+    fontSize: fontSize.sm,
+    color: colors.textSecondary,
+    fontWeight: fontWeight.medium,
+    flex: 1,
+  },
+  modalValue: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+    flex: 1.5,
+    textAlign: 'right',
+  },
+  segmentedBtn: {
+    marginBottom: spacing.md,
   },
   // Tab headers for ItemDetail
   tabBarContainer: {
