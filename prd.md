@@ -709,3 +709,36 @@ If it mainly belongs to accounting, taxation, bookkeeping, GST filing, or financ
 ShopControl runs the shop.
 
 Tally closes the books.
+
+
+
+
+
+
+Customer Capture Rules
+
+1. Every sale should have a customer.
+
+2. If customer is unknown:
+   Use default "Walk In Customer".
+
+3. Staff may optionally capture:
+   - Name
+   - Mobile Number
+   - Email
+
+4. If phone number already exists:
+   Link sale to existing customer.
+
+5. If phone number is new:
+   Create customer automatically.
+
+6. Customer Type:
+   - WALK_IN
+   - REGULAR
+   - BUSINESS
+
+7. Owner dashboard should show:
+   - New customers added today
+   - Returning customers
+   - Top customers

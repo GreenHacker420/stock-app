@@ -1,6 +1,7 @@
 import prisma from "../lib/db.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
+import { IS_DATE_REGEX } from "../lib/validate.js";
 
 export async function getSummary(user, { shopId, date }) {
   await assertShopAccess(user, shopId);
@@ -92,7 +93,7 @@ async function accessibleShopIds(user) {
 
 export async function getSummaryById(user, id, shopIdQuery) {
   // Check if ID is a valid date string (YYYY-MM-DD)
-  const isDate = /^\d{4}-\d{2}-\d{2}$/.test(id);
+  const isDate = IS_DATE_REGEX.test(id);
   
   let summary = null;
 

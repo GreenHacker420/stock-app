@@ -102,6 +102,7 @@ const ItemCard = memo(({ item, stock, onEdit, onManageStock, onPress }: {
 ));
 
 export function ItemList() {
+  const List = FlashList as any;
   const activeShopId = useShopStore((state) => state.activeShopId);
   const navigation = useNavigation();
   const [search, setSearch] = useState("");
@@ -179,107 +180,102 @@ export function ItemList() {
         <AppHeader title="Inventory Management" subtitle="Items, pricing, and stock levels." />
         
         <View style={styles.listWrapper}>
-          {(() => {
-            const List = FlashList as any;
-            return (
-              <List
-                data={filteredData}
-                keyExtractor={(item: Item) => item.id}
-                onRefresh={() => itemsQuery.refetch()}
-                refreshing={itemsQuery.isFetching && !itemsQuery.isFetchingNextPage}
-                onEndReached={handleLoadMore}
-                onEndReachedThreshold={0.5}
-                ListHeaderComponent={
-                  <View style={styles.headerComponent}>
-                    {/* Visual Top Summary Metrics scrolling bar */}
-                    <ScrollView 
-                      horizontal 
-                      showsHorizontalScrollIndicator={false} 
-                      contentContainerStyle={styles.statsScroll}
-                    >
-                      <View style={[styles.statCard, { backgroundColor: 'rgba(22, 163, 74, 0.03)', borderColor: 'rgba(22, 163, 74, 0.1)' }]}>
-                        <Text style={styles.statLabel}>STOCK VALUE</Text>
-                        <Text style={[styles.statValue, { color: colors.primary }]}>{money(totalStockValue)}</Text>
-                      </View>
-
-                      <View style={styles.statCard}>
-                        <Text style={styles.statLabel}>CATALOG SIZE</Text>
-                        <Text style={styles.statValue}>{totalCount} Items</Text>
-                      </View>
-
-                      <View style={[styles.statCard, outOfStockCount > 0 && { borderColor: 'rgba(220, 38, 38, 0.25)', backgroundColor: 'rgba(220, 38, 38, 0.02)' }]}>
-                        <Text style={[styles.statLabel, outOfStockCount > 0 && { color: colors.danger }]}>OUT OF STOCK</Text>
-                        <Text style={[styles.statValue, outOfStockCount > 0 && { color: colors.danger }]}>{outOfStockCount}</Text>
-                      </View>
-
-                      <View style={[styles.statCard, lowStockCount > 0 && { borderColor: 'rgba(217, 119, 6, 0.25)', backgroundColor: 'rgba(217, 119, 6, 0.02)' }]}>
-                        <Text style={[styles.statLabel, lowStockCount > 0 && { color: colors.warning }]}>LOW STOCK</Text>
-                        <Text style={[styles.statValue, lowStockCount > 0 && { color: colors.warning }]}>{lowStockCount}</Text>
-                      </View>
-                    </ScrollView>
-
-                    <Searchbar 
-                      value={search} 
-                      onChangeText={setSearch} 
-                      placeholder="Search item or SKU" 
-                      style={styles.searchBar} 
-                      inputStyle={styles.searchInput}
-                      iconColor={colors.textSecondary}
-                    />
-                    
-                    {/* Custom scrolling Filter Chips */}
-                    <ScrollView 
-                      horizontal 
-                      showsHorizontalScrollIndicator={false} 
-                      contentContainerStyle={styles.filterChipsRow}
-                    >
-                      <Pressable 
-                        onPress={() => setFilter("ALL")} 
-                        style={[styles.filterChip, filter === "ALL" && styles.filterChipActive]}
-                      >
-                        <Text style={[styles.filterChipText, filter === "ALL" && styles.filterChipTextActive]}>Total Stock</Text>
-                      </Pressable>
-
-                      <Pressable 
-                        onPress={() => setFilter("OUT")} 
-                        style={[styles.filterChip, filter === "OUT" && styles.filterChipActive]}
-                      >
-                        <Text style={[styles.filterChipText, filter === "OUT" && styles.filterChipTextActive]}>Out of Stock</Text>
-                      </Pressable>
-
-                      <Pressable 
-                        onPress={() => setFilter("LOW")} 
-                        style={[styles.filterChip, filter === "LOW" && styles.filterChipActive]}
-                      >
-                        <Text style={[styles.filterChipText, filter === "LOW" && styles.filterChipTextActive]}>Low Stock</Text>
-                      </Pressable>
-                    </ScrollView>
+          <List
+            data={filteredData}
+            keyExtractor={(item: Item) => item.id}
+            onRefresh={() => itemsQuery.refetch()}
+            refreshing={itemsQuery.isFetching && !itemsQuery.isFetchingNextPage}
+            onEndReached={handleLoadMore}
+            onEndReachedThreshold={0.5}
+            ListHeaderComponent={
+              <View style={styles.headerComponent}>
+                {/* Visual Top Summary Metrics scrolling bar */}
+                <ScrollView 
+                  horizontal 
+                  showsHorizontalScrollIndicator={false} 
+                  contentContainerStyle={styles.statsScroll}
+                >
+                  <View style={[styles.statCard, { backgroundColor: 'rgba(22, 163, 74, 0.03)', borderColor: 'rgba(22, 163, 74, 0.1)' }]}>
+                    <Text style={styles.statLabel}>STOCK VALUE</Text>
+                    <Text style={[styles.statValue, { color: colors.primary }]}>{money(totalStockValue)}</Text>
                   </View>
-                }
-                renderItem={({ item }: { item: Item }) => (
-                  <ItemCard 
-                    item={item} 
-                    stock={stockByItem.get(item.id) ?? 0} 
-                    onEdit={() => (navigation as any).navigate("AddEditItem", { item })}
-                    onManageStock={() => (navigation as any).navigate("StockEntry", { shopId: activeShopId, itemId: item.id })}
-                    onPress={() => (navigation as any).navigate("ItemDetail", { itemId: item.id })}
-                  />
-                )}
-                ListEmptyComponent={
-                  itemsQuery.isLoading ? (
-                    <SkeletonList count={8} itemHeight={96} />
-                  ) : (
-                    <EmptyState 
-                      icon="package-variant-closed" 
-                      title="No items found" 
-                      subtitle="Try a different search term or add a new item." 
-                    />
-                  )
-                }
-                contentContainerStyle={styles.listContent}
+
+                  <View style={styles.statCard}>
+                    <Text style={styles.statLabel}>CATALOG SIZE</Text>
+                    <Text style={styles.statValue}>{totalCount} Items</Text>
+                  </View>
+
+                  <View style={[styles.statCard, outOfStockCount > 0 && { borderColor: 'rgba(220, 38, 38, 0.25)', backgroundColor: 'rgba(220, 38, 38, 0.02)' }]}>
+                    <Text style={[styles.statLabel, outOfStockCount > 0 && { color: colors.danger }]}>OUT OF STOCK</Text>
+                    <Text style={[styles.statValue, outOfStockCount > 0 && { color: colors.danger }]}>{outOfStockCount}</Text>
+                  </View>
+
+                  <View style={[styles.statCard, lowStockCount > 0 && { borderColor: 'rgba(217, 119, 6, 0.25)', backgroundColor: 'rgba(217, 119, 6, 0.02)' }]}>
+                    <Text style={[styles.statLabel, lowStockCount > 0 && { color: colors.warning }]}>LOW STOCK</Text>
+                    <Text style={[styles.statValue, lowStockCount > 0 && { color: colors.warning }]}>{lowStockCount}</Text>
+                  </View>
+                </ScrollView>
+
+                <Searchbar 
+                  value={search} 
+                  onChangeText={setSearch} 
+                  placeholder="Search item or SKU" 
+                  style={styles.searchBar} 
+                  inputStyle={styles.searchInput}
+                  iconColor={colors.textSecondary}
+                />
+                
+                {/* Custom scrolling Filter Chips */}
+                <ScrollView 
+                  horizontal 
+                  showsHorizontalScrollIndicator={false} 
+                  contentContainerStyle={styles.filterChipsRow}
+                >
+                  <Pressable 
+                    onPress={() => setFilter("ALL")} 
+                    style={[styles.filterChip, filter === "ALL" && styles.filterChipActive]}
+                  >
+                    <Text style={[styles.filterChipText, filter === "ALL" && styles.filterChipTextActive]}>Total Stock</Text>
+                  </Pressable>
+
+                  <Pressable 
+                    onPress={() => setFilter("OUT")} 
+                    style={[styles.filterChip, filter === "OUT" && styles.filterChipActive]}
+                  >
+                    <Text style={[styles.filterChipText, filter === "OUT" && styles.filterChipTextActive]}>Out of Stock</Text>
+                  </Pressable>
+
+                  <Pressable 
+                    onPress={() => setFilter("LOW")} 
+                    style={[styles.filterChip, filter === "LOW" && styles.filterChipActive]}
+                  >
+                    <Text style={[styles.filterChipText, filter === "LOW" && styles.filterChipTextActive]}>Low Stock</Text>
+                  </Pressable>
+                </ScrollView>
+              </View>
+            }
+            renderItem={({ item }: { item: Item }) => (
+              <ItemCard 
+                item={item} 
+                stock={stockByItem.get(item.id) ?? 0} 
+                onEdit={() => (navigation as any).navigate("AddEditItem", { item })}
+                onManageStock={() => (navigation as any).navigate("StockEntry", { shopId: activeShopId, itemId: item.id })}
+                onPress={() => (navigation as any).navigate("ItemDetail", { itemId: item.id })}
               />
-            );
-          })()}
+            )}
+            ListEmptyComponent={
+              itemsQuery.isLoading ? (
+                <SkeletonList count={8} itemHeight={96} />
+              ) : (
+                <EmptyState 
+                  icon="package-variant-closed" 
+                  title="No items found" 
+                  subtitle="Try a different search term or add a new item." 
+                />
+              )
+            }
+            contentContainerStyle={styles.listContent}
+          />
         </View>
 
         {/* Floating Action Button (FAB) adjusted to sit safely above the glassmorphic tab bar */}
@@ -384,6 +380,7 @@ export function AddEditItem() {
 }
 
 export function ItemDetail() {
+  const List = FlashList as any;
   const activeShopId = useShopStore((state) => state.activeShopId);
   const navigation = useNavigation();
   const itemId = (useRoute().params as { itemId?: string } | undefined)?.itemId;
@@ -403,132 +400,127 @@ export function ItemDetail() {
         {!itemId ? <Text style={styles.errorText}>Missing item id.</Text> : null}
         
         {item ? (
-          {(() => {
-            const List = FlashList as any;
-            return (
-              <List
-                data={activeTab === "PRICE" ? ((historyQuery.data as any)?.rows ?? []) : (movementsQuery.data ?? [])}
-                ListHeaderComponent={
-                  <>
-                    <View style={styles.detailCard}>
-                      <View style={styles.detailRow}>
-                        <Text style={styles.detailLabel}>Current stock</Text>
-                        <Text style={styles.detailHeaderValue}>
-                          {(stockQuery.data as any)?.currentQuantity ?? 0} {item.unit}
-                        </Text>
-                      </View>
-                      <Divider style={styles.divider} />
-                      <View style={styles.detailStats}>
-                        <View style={styles.detailStatItem}>
-                          <Text style={styles.statSubLabel}>SKU</Text>
-                          <Text style={styles.statSubValue}>{item.sku || "Not set"}</Text>
-                        </View>
-                        <View style={styles.detailStatItem}>
-                          <Text style={styles.statSubLabel}>Default Selling Price</Text>
-                          <Text style={styles.statSubValue}>{money(item.defaultSellingPrice)}</Text>
-                        </View>
-                        <View style={styles.detailStatItem}>
-                          <Text style={styles.statSubLabel}>Min Price limit</Text>
-                          <Text style={styles.statSubValue}>{money(item.minimumAllowedPrice)}</Text>
-                        </View>
-                        <View style={styles.detailStatItem}>
-                          <Text style={styles.statSubLabel}>MRP</Text>
-                          <Text style={styles.statSubValue}>{money(item.mrp)}</Text>
-                        </View>
-                        <View style={styles.detailStatItem}>
-                          <Text style={styles.statSubLabel}>Min Stock threshold</Text>
-                          <Text style={styles.statSubValue}>{item.minimumStock} {item.unit}</Text>
-                        </View>
-                      </View>
+          <List
+            data={activeTab === "PRICE" ? ((historyQuery.data as any)?.rows ?? []) : (movementsQuery.data ?? [])}
+            ListHeaderComponent={
+              <>
+                <View style={styles.detailCard}>
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Current stock</Text>
+                    <Text style={styles.detailHeaderValue}>
+                      {(stockQuery.data as any)?.currentQuantity ?? 0} {item.unit}
+                    </Text>
+                  </View>
+                  <Divider style={styles.divider} />
+                  <View style={styles.detailStats}>
+                    <View style={styles.detailStatItem}>
+                      <Text style={styles.statSubLabel}>SKU</Text>
+                      <Text style={styles.statSubValue}>{item.sku || "Not set"}</Text>
                     </View>
+                    <View style={styles.detailStatItem}>
+                      <Text style={styles.statSubLabel}>Default Selling Price</Text>
+                      <Text style={styles.statSubValue}>{money(item.defaultSellingPrice)}</Text>
+                    </View>
+                    <View style={styles.detailStatItem}>
+                      <Text style={styles.statSubLabel}>Min Price limit</Text>
+                      <Text style={styles.statSubValue}>{money(item.minimumAllowedPrice)}</Text>
+                    </View>
+                    <View style={styles.detailStatItem}>
+                      <Text style={styles.statSubLabel}>MRP</Text>
+                      <Text style={styles.statSubValue}>{money(item.mrp)}</Text>
+                    </View>
+                    <View style={styles.detailStatItem}>
+                      <Text style={styles.statSubLabel}>Min Stock threshold</Text>
+                      <Text style={styles.statSubValue}>{item.minimumStock} {item.unit}</Text>
+                    </View>
+                  </View>
+                </View>
 
-                    <View style={styles.detailActions}>
-                      <Button 
-                        variant="secondary" 
-                        label="Edit Item" 
-                        icon={<Icon source="pencil" size={20} color={colors.primary} />} 
-                        onPress={() => (navigation as any).navigate("AddEditItem", { item })}
-                        style={{ flex: 1 }}
-                      />
-                      <Button 
-                        label="Manage Stock" 
-                        icon={<Icon source="warehouse" size={20} color={colors.textInverse} />} 
-                        onPress={() => (navigation as any).navigate("StockEntry", { shopId: activeShopId, itemId: item.id })}
-                        style={{ flex: 1 }}
-                      />
-                    </View>
-
-                    <View style={{ marginHorizontal: spacing.lg, marginBottom: spacing.md }}>
-                      <View style={styles.tabBarContainer}>
-                        <Pressable 
-                          onPress={() => setActiveTab('PRICE')}
-                          style={[styles.tabButton, activeTab === 'PRICE' && styles.tabButtonActive]}
-                        >
-                          <Text style={[styles.tabButtonText, activeTab === 'PRICE' && styles.tabButtonTextActive]}>PRICE HISTORY</Text>
-                        </Pressable>
-                        <Pressable 
-                          onPress={() => setActiveTab('MOVEMENT')}
-                          style={[styles.tabButton, activeTab === 'MOVEMENT' && styles.tabButtonActive]}
-                        >
-                          <Text style={[styles.tabButtonText, activeTab === 'MOVEMENT' && styles.tabButtonTextActive]}>STOCK LEDGER</Text>
-                        </Pressable>
-                      </View>
-                    </View>
-                  </>
-                }
-                renderItem={({ item, index }: any) => {
-                  const row = item as any;
-                  if (activeTab === "PRICE") {
-                    return (
-                      <View style={styles.historyRow}>
-                        <View style={styles.historyInfo}>
-                          <Text style={styles.historyTitle}>{row.recordNumber}</Text>
-                          <Text style={styles.historySubtitle}>
-                            {row.customer?.name ?? "Walk-in"} • Qty: {row.quantity}
-                          </Text>
-                        </View>
-                        <View style={styles.historyRight}>
-                          <Text style={styles.historyPrice}>{money(row.rate)}</Text>
-                          <Text style={styles.historyDate}>
-                            {new Date(row.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-                          </Text>
-                        </View>
-                      </View>
-                    );
-                  } else {
-                    const isIn = Number(row.quantityIn) > 0;
-                    const qty = isIn ? Number(row.quantityIn) : Number(row.quantityOut);
-                    const color = isIn ? colors.success : colors.danger;
-                    return (
-                      <View style={styles.historyRow}>
-                        <View style={styles.historyInfo}>
-                          <Text style={styles.historyTitle}>{row.reason || row.movementType}</Text>
-                          <Text style={styles.historySubtitle}>
-                            By {row.createdBy?.name || "System"} • {row.movementType}
-                          </Text>
-                        </View>
-                        <View style={styles.historyRight}>
-                          <Text style={[styles.historyPrice, { color }]}>
-                            {isIn ? "+" : "-"}{qty} {item.unit}
-                          </Text>
-                          <Text style={styles.historyDate}>
-                            {new Date(row.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-                          </Text>
-                        </View>
-                      </View>
-                    );
-                  }
-                }}
-                ListEmptyComponent={
-                  <EmptyState 
-                    icon={activeTab === "PRICE" ? "tag-outline" : "history"} 
-                    title="No records found" 
+                <View style={styles.detailActions}>
+                  <Button 
+                    variant="secondary" 
+                    label="Edit Item" 
+                    icon={<Icon source="pencil" size={20} color={colors.primary} />} 
+                    onPress={() => (navigation as any).navigate("AddEditItem", { item })}
+                    style={{ flex: 1 }}
                   />
-                }
-                contentContainerStyle={styles.detailListContent}
+                  <Button 
+                    label="Manage Stock" 
+                    icon={<Icon source="warehouse" size={20} color={colors.textInverse} />} 
+                    onPress={() => (navigation as any).navigate("StockEntry", { shopId: activeShopId, itemId: item.id })}
+                    style={{ flex: 1 }}
+                  />
+                </View>
+
+                <View style={{ marginHorizontal: spacing.lg, marginBottom: spacing.md }}>
+                  <View style={styles.tabBarContainer}>
+                    <Pressable 
+                      onPress={() => setActiveTab('PRICE')}
+                      style={[styles.tabButton, activeTab === 'PRICE' && styles.tabButtonActive]}
+                    >
+                      <Text style={[styles.tabButtonText, activeTab === 'PRICE' && styles.tabButtonTextActive]}>PRICE HISTORY</Text>
+                    </Pressable>
+                    <Pressable 
+                      onPress={() => setActiveTab('MOVEMENT')}
+                      style={[styles.tabButton, activeTab === 'MOVEMENT' && styles.tabButtonActive]}
+                    >
+                      <Text style={[styles.tabButtonText, activeTab === 'MOVEMENT' && styles.tabButtonTextActive]}>STOCK LEDGER</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              </>
+            }
+            renderItem={({ item: row, index }: any) => {
+              if (activeTab === "PRICE") {
+                return (
+                  <View style={styles.historyRow}>
+                    <View style={styles.historyInfo}>
+                      <Text style={styles.historyTitle}>{row.recordNumber}</Text>
+                      <Text style={styles.historySubtitle}>
+                        {row.customer?.name ?? "Walk-in"} • Qty: {row.quantity}
+                      </Text>
+                    </View>
+                    <View style={styles.historyRight}>
+                      <Text style={styles.historyPrice}>{money(row.rate)}</Text>
+                      <Text style={styles.historyDate}>
+                        {new Date(row.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                      </Text>
+                    </View>
+                  </View>
+                );
+              } else {
+                const isIn = Number(row.quantityIn) > 0;
+                const movementQty = isIn ? Number(row.quantityIn) : Number(row.quantityOut);
+                const color = isIn ? colors.success : colors.danger;
+                return (
+                  <View style={styles.historyRow}>
+                    <View style={styles.historyInfo}>
+                      <Text style={styles.historyTitle}>{row.reason || row.movementType}</Text>
+                      <Text style={styles.historySubtitle}>
+                        By {row.createdBy?.name || "System"} • {row.movementType}
+                      </Text>
+                    </View>
+                    <View style={styles.historyRight}>
+                      <Text style={[styles.historyPrice, { color }]}>
+                        {isIn ? "+" : "-"}{movementQty} {item.unit}
+                      </Text>
+                      <Text style={styles.historyDate}>
+                        {new Date(row.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                      </Text>
+                    </View>
+                  </View>
+                );
+              }
+            }}
+            estimatedItemSize={100}
+            ListEmptyComponent={
+              <EmptyState 
+                icon={activeTab === "PRICE" ? "tag-outline" : "history"} 
+                title="No records found" 
               />
-            );
-          })()}
+            }
+            contentContainerStyle={styles.detailListContent}
+          />
         ) : (
           <SkeletonList count={5} />
         )}

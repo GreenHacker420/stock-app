@@ -115,8 +115,8 @@ function OverviewTab({ customer }: { customer: any }) {
 }
 
 function SalesTab({ query }: { query: any }) {
-  if (query.isLoading) return <ActivityIndicator style={{ marginTop: 40 }} />;
   const List = FlashList as any;
+  if (query.isLoading) return <ActivityIndicator style={{ marginTop: 40 }} />;
   return (
     <List
       data={query.data ?? []}
@@ -128,7 +128,7 @@ function SalesTab({ query }: { query: any }) {
           </View>
           <View style={{ alignItems: 'flex-end' }}>
             <Text style={styles.listAmount}>{money(item.totalAmount)}</Text>
-            <StatusPill label={item.paymentStatus} tone={item.paymentStatus === 'PAID' ? 'green' : 'orange'} />
+            <StatusPill label={item.paymentStatus} tone={item.paymentStatus === 'PAID' ? 'green' : 'amber'} />
           </View>
         </View>
       )}
@@ -139,8 +139,8 @@ function SalesTab({ query }: { query: any }) {
 }
 
 function PaymentsTab({ query }: { query: any }) {
-  if (query.isLoading) return <ActivityIndicator style={{ marginTop: 40 }} />;
   const List = FlashList as any;
+  if (query.isLoading) return <ActivityIndicator style={{ marginTop: 40 }} />;
   return (
     <List
       data={query.data ?? []}
@@ -152,7 +152,7 @@ function PaymentsTab({ query }: { query: any }) {
           </View>
           <View style={{ alignItems: 'flex-end' }}>
             <Text style={styles.listAmount}>{money(item.amount)}</Text>
-            <StatusPill label={item.verificationStatus} tone={item.verificationStatus === 'VERIFIED' ? 'green' : 'orange'} />
+            <StatusPill label={item.verificationStatus} tone={item.verificationStatus === 'VERIFIED' ? 'green' : 'amber'} />
           </View>
         </View>
       )}
@@ -193,8 +193,8 @@ function OutstandingTab({ customer, salesQuery }: { customer: any, salesQuery: a
 }
 
 function DMsTab({ query }: { query: any }) {
-  if (query.isLoading) return <ActivityIndicator style={{ marginTop: 40 }} />;
   const List = FlashList as any;
+  if (query.isLoading) return <ActivityIndicator style={{ marginTop: 40 }} />;
   return (
     <List
       data={query.data ?? []}
@@ -217,8 +217,8 @@ function DMsTab({ query }: { query: any }) {
 }
 
 function ReturnsTab({ query }: { query: any }) {
-  if (query.isLoading) return <ActivityIndicator style={{ marginTop: 40 }} />;
   const List = FlashList as any;
+  if (query.isLoading) return <ActivityIndicator style={{ marginTop: 40 }} />;
   return (
     <List
       data={query.data ?? []}
@@ -230,7 +230,7 @@ function ReturnsTab({ query }: { query: any }) {
           </View>
           <View style={{ alignItems: 'flex-end' }}>
             <Text style={[styles.listAmount, { color: colors.danger }]}>-{money(item.netAmount)}</Text>
-            <StatusPill label={item.status} tone="orange" />
+            <StatusPill label={item.status} tone="amber" />
           </View>
         </View>
       )}
@@ -241,8 +241,8 @@ function ReturnsTab({ query }: { query: any }) {
 }
 
 function TimelineTab({ query }: { query: any }) {
-  if (query.isLoading) return <ActivityIndicator style={{ marginTop: 40 }} />;
   const List = FlashList as any;
+  if (query.isLoading) return <ActivityIndicator style={{ marginTop: 40 }} />;
   return (
     <List
       data={query.data ?? []}
@@ -313,7 +313,7 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    backgroundColor: colors.background,
+    backgroundColor: colors.bg,
   },
   tabContent: {
     padding: spacing.lg,
