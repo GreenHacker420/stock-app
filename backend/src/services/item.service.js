@@ -2,6 +2,7 @@ import prisma from "../lib/db.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 import { writeAuditLog } from "../utils/auditLog.js";
+import { EntityType, AuditAction } from "../generated/prisma/index.js";
 
 export async function listItems(user, { shopId, search, page = 1, limit = 50 }) {
   await assertShopAccess(user, shopId);
@@ -78,8 +79,8 @@ export async function createItem(user, data) {
   await writeAuditLog({
     userId: user.id,
     shopId: item.shopId,
-    action: "item.created",
-    entityType: "Item",
+    action: AuditAction.CREATED,
+    entityType: EntityType.ITEM,
     entityId: item.id,
     newValueJson: item,
   });
@@ -130,8 +131,8 @@ export async function updateItem(user, id, data) {
     await writeAuditLog({
       userId: user.id,
       shopId: item.shopId,
-      action: "item.updated",
-      entityType: "Item",
+      action: AuditAction.UPDATED,
+      entityType: EntityType.ITEM,
       entityId: id,
       oldValueJson: existing,
       newValueJson: item,

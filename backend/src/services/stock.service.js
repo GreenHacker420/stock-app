@@ -5,6 +5,7 @@ import { writeAuditLog } from "../utils/auditLog.js";
 import { notifyShopOwner } from "./notification.service.js";
 import { qty, ZERO } from "../utils/money.js";
 import { createApprovalRequest } from "./approval.service.js";
+import { EntityType, AuditAction } from "../generated/prisma/index.js";
 
 export async function getCurrentStock(user, { shopId, itemId }) {
   await assertShopAccess(user, shopId);
@@ -116,8 +117,8 @@ export async function createMovement(user, data) {
   await writeAuditLog({
     userId: user.id,
     shopId: data.shopId,
-    action: "stock.movement_created",
-    entityType: "StockLedger",
+    action: AuditAction.MOVEMENT_CREATED,
+    entityType: EntityType.STOCK_LEDGER,
     entityId: movement.id,
     newValueJson: movement,
     reason: data.reason,
@@ -148,7 +149,7 @@ export async function bulkStockEntry(user, data) {
       const approvalReq = await createApprovalRequest(tx, {
         shopId: data.shopId,
         type: "STOCK_ENTRY",
-        entityType: "STOCK",
+        entityType: EntityType.SHOP,
         entityId: data.shopId,
         payloadJson: {
           entries: data.entries,
@@ -162,8 +163,8 @@ export async function bulkStockEntry(user, data) {
         data: {
           userId: user.id,
           shopId: data.shopId,
-          action: "stock.entry_requested",
-          entityType: "ApprovalRequest",
+          action: AuditAction.ENTRY_REQUESTED,
+          entityType: EntityType.APPROVAL_REQUEST,
           entityId: approvalReq.id,
           newValueJson: approvalReq,
           reason: data.notes || "Bulk stock entry submission by staff",
@@ -207,8 +208,8 @@ export async function bulkStockEntry(user, data) {
     await writeAuditLog({
       userId: user.id,
       shopId: data.shopId,
-      action: "stock.movement_created",
-      entityType: "StockLedger",
+      action: AuditAction.MOVEMENT_CREATED,
+      entityType: EntityType.STOCK_LEDGER,
       entityId: movement.id,
       newValueJson: movement,
       reason: data.notes || "Bulk stock entry via app",

@@ -4,6 +4,7 @@ import { ApiError } from "../utils/ApiError.js";
 import { money, qty, ZERO } from "../utils/money.js";
 import { writeAuditLog } from "../utils/auditLog.js";
 import { generateRecordNumber, decreaseCustomerDebt } from "./transactionHelpers.js";
+import { EntityType, AuditAction } from "../generated/prisma/index.js";
 
 export async function createReturn(user, data) {
   await assertShopAccess(user, data.shopId);
@@ -137,8 +138,8 @@ export async function createReturn(user, data) {
       data: {
         userId: user.id,
         shopId: data.shopId,
-        action: "return.created",
-        entityType: "InventoryReturn",
+        action: AuditAction.CREATED,
+        entityType: EntityType.INVENTORY_RETURN,
         entityId: invReturn.id,
         newValueJson: invReturn
       }
@@ -173,8 +174,8 @@ export async function approveReturn(user, id) {
       data: {
         userId: user.id,
         shopId: invReturn.shopId,
-        action: "return.approved",
-        entityType: "InventoryReturn",
+        action: AuditAction.APPROVED,
+        entityType: EntityType.INVENTORY_RETURN,
         entityId: id,
         newValueJson: updated
       }
@@ -249,8 +250,8 @@ export async function completeReturn(user, id) {
       data: {
         userId: user.id,
         shopId: invReturn.shopId,
-        action: "return.completed",
-        entityType: "InventoryReturn",
+        action: AuditAction.COMPLETED,
+        entityType: EntityType.INVENTORY_RETURN,
         entityId: id,
         newValueJson: completed
       }

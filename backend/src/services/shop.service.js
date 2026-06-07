@@ -1,6 +1,7 @@
 import prisma from "../lib/db.js";
 import { ApiError } from "../utils/ApiError.js";
 import { writeAuditLog } from "../utils/auditLog.js";
+import { EntityType, AuditAction } from "../generated/prisma/index.js";
 
 export async function listShops(user) {
   const includeStaff = {
@@ -54,8 +55,8 @@ export async function createShop(user, data) {
     data: {
       userId: user.id,
       shopId: shop.id,
-      action: "shop.created",
-      entityType: "Shop",
+      action: AuditAction.CREATED,
+      entityType: EntityType.SHOP,
       entityId: shop.id,
       newValueJson: shop,
     }
@@ -79,8 +80,8 @@ export async function updateShop(user, shopId, data) {
     data: {
       userId: user.id,
       shopId,
-      action: "shop.updated",
-      entityType: "Shop",
+      action: AuditAction.UPDATED,
+      entityType: EntityType.SHOP,
       entityId: shopId,
       oldValueJson: existing,
       newValueJson: shop,
@@ -122,8 +123,8 @@ export async function assignStaff(user, shopId, staffId) {
     data: {
       userId: user.id,
       shopId,
-      action: "shop.staff_assigned",
-      entityType: "StaffShopAccess",
+      action: AuditAction.STAFF_ASSIGNED,
+      entityType: EntityType.STAFF_SHOP_ACCESS,
       entityId: access.id,
       newValueJson: access,
     }
@@ -172,12 +173,12 @@ export async function setOpeningStock(user, shopId, entries) {
     return rows;
   });
 
-  await tx.auditLog.create({
+  await prisma.auditLog.create({
     data: {
       userId: user.id,
       shopId,
-      action: "stock.opening_set",
-      entityType: "StockLedger",
+      action: AuditAction.OPENING_SET,
+      entityType: EntityType.STOCK_LEDGER,
       newValueJson: { count: result.length },
     }
   });

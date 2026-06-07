@@ -2,6 +2,7 @@ import prisma from "../lib/db.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 import { writeAuditLog } from "../utils/auditLog.js";
+import { EntityType, AuditAction } from "../generated/prisma/index.js";
 
 async function calculateExpectedCash(cashSessionId, openingCash, cashHandover = 0) {
   const cashPayments = await prisma.payment.aggregate({
@@ -62,8 +63,8 @@ export async function openSession(user, { shopId }) {
     data: {
       userId: user.id,
       shopId,
-      action: "cash_session.opened",
-      entityType: "CashSession",
+      action: AuditAction.CREATED,
+      entityType: EntityType.CASH_SESSION,
       entityId: session.id,
       newValueJson: session,
     }
@@ -127,8 +128,8 @@ export async function closeSession(user, sessionId, data) {
     data: {
       userId: user.id,
       shopId: existing.shopId,
-      action: "cash_session.closed",
-      entityType: "CashSession",
+      action: AuditAction.UPDATED,
+      entityType: EntityType.CASH_SESSION,
       entityId: session.id,
       oldValueJson: existing,
       newValueJson: session,
@@ -161,8 +162,8 @@ export async function reviewSession(user, sessionId) {
     data: {
       userId: user.id,
       shopId: existing.shopId,
-      action: "cash_session.reviewed",
-      entityType: "CashSession",
+      action: AuditAction.REVIEWED,
+      entityType: EntityType.CASH_SESSION,
       entityId: session.id,
     }
   });

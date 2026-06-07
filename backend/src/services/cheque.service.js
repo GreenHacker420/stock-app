@@ -4,6 +4,7 @@ import { ApiError } from "../utils/ApiError.js";
 import { writeAuditLog } from "../utils/auditLog.js";
 import { notifyShopOwner } from "./notification.service.js";
 import { money, add, sub, isZero } from "../utils/money.js";
+import { EntityType, AuditAction } from "../generated/prisma/index.js";
 import { increaseCustomerDebt } from "./transactionHelpers.js";
 
 async function getChequePayment(user, id) {
@@ -76,8 +77,8 @@ export async function updateChequeStatus(user, id, status, { reason } = {}) {
 
       await notifyShopOwner(tx, {
         shopId: existing.shopId,
-        triggerEvent: "cheque.bounced",
-        entityType: "Payment",
+        triggerEvent: "CHEQUE_BOUNCED",
+        entityType: EntityType.PAYMENT,
         entityId: id,
         message: `Cheque bounced for ₹${existing.amount}`,
       });
@@ -87,8 +88,8 @@ export async function updateChequeStatus(user, id, status, { reason } = {}) {
       data: {
         userId: user.id,
         shopId: existing.shopId,
-        action: `cheque.${status.toLowerCase()}`,
-        entityType: "Payment",
+        action: status,
+        entityType: EntityType.PAYMENT,
         entityId: id,
         oldValueJson: existing.details,
         newValueJson: details,

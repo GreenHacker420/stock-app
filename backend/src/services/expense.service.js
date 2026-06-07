@@ -2,6 +2,7 @@ import prisma from "../lib/db.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 import { writeAuditLog } from "../utils/auditLog.js";
+import { EntityType, AuditAction } from "../generated/prisma/index.js";
 import { money } from "../utils/money.js";
 
 export async function createExpense(user, data) {
@@ -34,10 +35,9 @@ export async function createExpense(user, data) {
 
     await writeAuditLog({
       userId: user.id,
-      role: user.role,
       shopId: data.shopId,
-      action: "expense.created",
-      entityType: "Expense",
+      action: AuditAction.CREATED,
+      entityType: EntityType.EXPENSE,
       entityId: expense.id,
       newValueJson: expense
     });

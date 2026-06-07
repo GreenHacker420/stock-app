@@ -10,6 +10,8 @@ import * as chequeService from "../services/cheque.service.js";
 import * as returnService from "../services/return.service.js";
 import * as orderService from "../services/order.service.js";
 import * as stockService from "../services/stock.service.js";
+import * as itemService from "../services/item.service.js";
+import * as approvalService from "../services/approval.service.js";
 
 async function cleanDatabase() {
   await prisma.inventoryReturnItem.deleteMany();
@@ -28,6 +30,7 @@ async function cleanDatabase() {
   await prisma.orderItem.deleteMany();
   await prisma.order.deleteMany();
   await prisma.stockLedger.deleteMany();
+  await prisma.stockBalance.deleteMany();
   await prisma.itemPriceHistory.deleteMany();
   await prisma.item.deleteMany();
   await prisma.itemCategory.deleteMany();
@@ -37,6 +40,10 @@ async function cleanDatabase() {
   await prisma.leaveRequest.deleteMany();
   await prisma.cashSession.deleteMany();
   await prisma.customer.deleteMany();
+
+  // Clean up staff shop access and user last
+  await prisma.staffShopAccess.deleteMany();
+  await prisma.user.deleteMany({ where: { mobile: "7777777777" } });
 }
 
 async function getOrCreateTestEntities() {
@@ -70,13 +77,30 @@ async function getOrCreateTestEntities() {
 }
 
 test.describe("ShopControl ERP Debt Ledger Integration Tests", () => {
-  let shop, owner, customer;
+  let shop, owner, customer, staff;
 
   test.before(async () => {
     const entities = await getOrCreateTestEntities();
     shop = entities.shop;
     owner = entities.owner;
     await cleanDatabase();
+
+    // Create staff member and shop access
+    staff = await prisma.user.create({
+      data: {
+        name: "Test Staff",
+        mobile: "7777777777",
+        passwordHash: "dummy",
+        role: "STAFF"
+      }
+    });
+
+    await prisma.staffShopAccess.create({
+      data: {
+        staffId: staff.id,
+        shopId: shop.id
+      }
+    });
 
     // Open a cash session for cash payments
     await prisma.cashSession.create({
@@ -103,5 +127,45 @@ test.describe("ShopControl ERP Debt Ledger Integration Tests", () => {
     });
 
     assert.strictEqual(Number(customer.outstandingAmount), 5000);
+  });
+
+  test("2. Staff Stock Entry Approval and Execution Flow", async () => {
+    // A. Create an item first
+    const item = await itemService.createItem(owner, {
+      shopId: shop.id,
+      name: "Test Product A",
+      unit: "pcs",
+      defaultSellingPrice: 100,
+    });
+
+    // B. Call bulkStockEntry as STAFF
+    const staffEntryResult = await stockService.bulkStockEntry(staff, {
+      shopId: shop.id,
+      entries: [
+        { itemId: item.id, quantity: 15 }
+      ],
+      notes: "Bulk stock entry request by staff"
+    });
+
+    // C. Verify staff request response
+    assert.strictEqual(staffEntryResult.isRequest, true);
+    assert.ok(staffEntryResult.requestId);
+    assert.strictEqual(staffEntryResult.status, "PENDING");
+
+    // D. Check the stock remains 0 before approval
+    const initialStock = await stockService.getCurrentStock(owner, { shopId: shop.id, itemId: item.id });
+    assert.strictEqual(initialStock.length, 0);
+
+    // E. Respond to approval request as OWNER (APPROVE)
+    const approveResult = await approvalService.respondToRequest(owner, staffEntryResult.requestId, {
+      status: "APPROVED"
+    });
+
+    assert.strictEqual(approveResult.status, "APPROVED");
+
+    // F. Verify the stock is updated to 15
+    const finalStock = await stockService.getCurrentStock(owner, { shopId: shop.id, itemId: item.id });
+    assert.strictEqual(finalStock.length, 1);
+    assert.strictEqual(finalStock[0].currentQuantity, 15);
   });
 });

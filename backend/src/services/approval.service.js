@@ -3,6 +3,7 @@ import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 import { writeAuditLog } from "../utils/auditLog.js";
 import { notifyShopOwner } from "./notification.service.js";
+import { EntityType, AuditAction } from "../generated/prisma/index.js";
 
 export async function createApprovalRequest(tx, { shopId, type, entityType, entityId, payloadJson, reason, requestedById }) {
   const request = await tx.approvalRequest.create({
@@ -21,8 +22,8 @@ export async function createApprovalRequest(tx, { shopId, type, entityType, enti
 
   await notifyShopOwner(tx, {
     shopId,
-    triggerEvent: "approval_request.submitted",
-    entityType: "ApprovalRequest",
+    triggerEvent: "APPROVAL_REQUESTED",
+    entityType: EntityType.APPROVAL_REQUEST,
     entityId: request.id,
     message: `New approval request (${type}) from ${request.requestedBy.name}`,
   });
@@ -85,12 +86,44 @@ export async function respondToRequest(user, id, { status, rejectedReason }) {
       },
     });
 
+    if (status === "APPROVED") {
+      if (request.type === "STOCK_ENTRY") {
+        const payload = request.payloadJson;
+        const entries = payload.entries || [];
+        for (const entry of entries) {
+          const movement = await tx.stockLedger.create({
+            data: {
+              shopId: request.shopId,
+              itemId: entry.itemId,
+              movementType: "STOCK_IN",
+              quantityIn: entry.quantity,
+              quantityOut: 0,
+              reason: payload.notes || "Approved Bulk stock entry",
+              createdById: request.requestedById,
+              approvedById: user.id,
+            },
+          });
+
+          await tx.auditLog.create({
+            data: {
+              userId: user.id,
+              shopId: request.shopId,
+              action: AuditAction.MOVEMENT_CREATED,
+              entityType: EntityType.STOCK_LEDGER,
+              entityId: movement.id,
+              newValueJson: movement,
+              reason: payload.notes || "Approved Bulk stock entry",
+            },
+          });
+        }
+      }
+    }
+
     await writeAuditLog({
       userId: user.id,
-      role: user.role,
       shopId: request.shopId,
-      action: `approval.${status.toLowerCase()}`,
-      entityType: "ApprovalRequest",
+      action: status,
+      entityType: EntityType.APPROVAL_REQUEST,
       entityId: id,
       oldValueJson: request,
       newValueJson: updated,

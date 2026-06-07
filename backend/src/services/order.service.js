@@ -12,6 +12,7 @@ import {
 } from "./transactionHelpers.js";
 import { reserveStockForOrder } from "./stock.service.js";
 import { qty, money } from "../utils/money.js";
+import { EntityType, AuditAction } from "../generated/prisma/index.js";
 
 async function assertOrderAccess(user, orderId) {
   const order = await prisma.order.findUnique({
@@ -107,7 +108,7 @@ export async function createOrder(user, data) {
         userId: data.assignedStaffId,
         shopId: data.shopId,
         triggerEvent: "ORDER_ASSIGNED",
-        entityType: "Order",
+        entityType: EntityType.ORDER,
         entityId: order.id,
         message: `New order #${order.orderNumber} assigned to you for packing.`,
       });
@@ -117,8 +118,8 @@ export async function createOrder(user, data) {
       data: {
         userId: user.id,
         shopId: data.shopId,
-        action: "order.created",
-        entityType: "Order",
+        action: AuditAction.CREATED,
+        entityType: EntityType.ORDER,
         entityId: order.id,
         newValueJson: order,
       },
