@@ -117,6 +117,8 @@ export type DailySummary = {
   ordersCreatedCount: number;
   ordersDispatchedCount: number;
   salesCount: number;
+  dmCreatedCount: number;
+  expenseCount: number;
 };
 
 export type Payment = {
@@ -209,6 +211,10 @@ export type Sale = {
   customer?: Customer | null;
   items?: Array<{ id: string; quantity: string; rate: string; discountAmount?: string; totalAmount: string; item: Item }>;
   payments?: Payment[];
+  gstRequired: boolean;
+  gstInvoiceStatus?: "NOT_REQUIRED" | "PENDING" | "GENERATED" | string;
+  gstInvoiceNumber?: string | null;
+  gstInvoiceGeneratedAt?: string | null;
 };
 
 export interface CreateItemPayload {
@@ -763,4 +769,12 @@ export async function fetchStaffTodaySummary(token: string, shopId: string, date
 
 export async function addStock(token: string, data: StockEntryPayload) {
   return apiRequest("/stock/entry", { method: "POST", token, body: JSON.stringify(data) });
+}
+
+export async function updateSaleGst(token: string, saleId: string, gstInvoiceNumber: string) {
+  return apiRequest<Sale>(`/sales/${saleId}/gst`, {
+    method: "PATCH",
+    token,
+    body: JSON.stringify({ gstInvoiceNumber }),
+  });
 }

@@ -7,64 +7,62 @@ import { validate } from "../middleware/validate.js";
 import { PERMISSIONS } from "../utils/permissions.js";
 
 const router = Router();
-const idParams = z.object({ id: z.string().min(1) });
 
-const listSchema = z.object({
+router.use(requireAuth);
+
+const querySchema = z.object({
   query: z.object({
-    shopId: z.string().min(1),
+    shopId: z.string(),
     search: z.string().optional(),
+    type: z.enum(["WALK_IN", "REGULAR", "BUSINESS"]).optional(),
+    includeWalkin: z.string().transform(v => v === "true").optional(),
   }),
-  params: z.object({}).optional(),
-  body: z.object({}).optional(),
 });
 
 const createSchema = z.object({
   body: z.object({
-    shopId: z.string().min(1),
-    name: z.string().min(1),
+    shopId: z.string(),
+    name: z.string().min(2),
+    type: z.enum(["WALK_IN", "REGULAR", "BUSINESS"]).optional(),
     phone: z.string().optional(),
+    email: z.string().email().optional().or(z.literal("")),
     address: z.string().optional(),
     city: z.string().optional(),
     gstin: z.string().optional(),
-    creditLimit: z.coerce.number().nonnegative().optional(),
+    contactPerson: z.string().optional(),
+    creditLimit: z.number().optional(),
+    outstandingAmount: z.number().optional(),
+    advanceBalance: z.number().optional(),
     notes: z.string().optional(),
   }),
-  params: z.object({}).optional(),
-  query: z.object({}).optional(),
 });
 
 const updateSchema = z.object({
-  params: idParams,
   body: z.object({
-    name: z.string().min(1).optional(),
-    phone: z.string().nullable().optional(),
-    address: z.string().nullable().optional(),
-    city: z.string().nullable().optional(),
-    gstin: z.string().nullable().optional(),
-    creditLimit: z.coerce.number().nonnegative().nullable().optional(),
-    notes: z.string().nullable().optional(),
+    name: z.string().min(2).optional(),
+    type: z.enum(["WALK_IN", "REGULAR", "BUSINESS"]).optional(),
+    phone: z.string().optional(),
+    email: z.string().email().optional().or(z.literal("")),
+    address: z.string().optional(),
+    city: z.string().optional(),
+    gstin: z.string().optional(),
+    contactPerson: z.string().optional(),
+    creditLimit: z.number().optional(),
+    notes: z.string().optional(),
     status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
   }),
-  query: z.object({}).optional(),
 });
 
-router.use(requireAuth);
-
-router.get("/", requirePermission(PERMISSIONS.CUSTOMER_VIEW), validate(listSchema), customerController.listCustomers);
-router.get("/:id/sales", requirePermission(PERMISSIONS.CUSTOMER_VIEW), validate(z.object({ params: idParams, query: z.object({}).passthrough() })), customerController.listCustomerSales);
-router.get("/:id/payments", requirePermission(PERMISSIONS.CUSTOMER_VIEW), validate(z.object({ params: idParams, query: z.object({}).passthrough() })), customerController.listCustomerPayments);
-router.get("/:id/delivery-memos", requirePermission(PERMISSIONS.CUSTOMER_VIEW), validate(z.object({ params: idParams, query: z.object({}).passthrough() })), customerController.listCustomerDMs);
-router.get("/:id/returns", requirePermission(PERMISSIONS.CUSTOMER_VIEW), validate(z.object({ params: idParams })), customerController.listCustomerReturns);
-router.get("/:id/timeline", requirePermission(PERMISSIONS.CUSTOMER_VIEW), validate(z.object({ params: idParams })), customerController.getCustomerTimeline);
-router.get("/:id/outstanding", requirePermission(PERMISSIONS.CUSTOMER_VIEW), validate(z.object({ params: idParams })), customerController.getOutstanding);
-router.get(
-  "/:id/price-history",
-  requirePermission(PERMISSIONS.CUSTOMER_VIEW),
-  validate(z.object({ params: idParams, query: z.object({ itemId: z.string().optional() }), body: z.object({}).optional() })),
-  customerController.getPriceHistory,
-);
-router.get("/:id", requirePermission(PERMISSIONS.CUSTOMER_VIEW), validate(z.object({ params: idParams })), customerController.getCustomer);
+router.get("/", requirePermission(PERMISSIONS.CUSTOMER_VIEW), validate(querySchema), customerController.listCustomers);
 router.post("/", requirePermission(PERMISSIONS.CUSTOMER_CREATE), validate(createSchema), customerController.createCustomer);
+router.get("/:id", requirePermission(PERMISSIONS.CUSTOMER_VIEW), customerController.getCustomer);
+router.get("/:id/summary", requirePermission(PERMISSIONS.CUSTOMER_VIEW), customerController.getCustomerSummary);
+router.get("/:id/outstanding", requirePermission(PERMISSIONS.CUSTOMER_VIEW), customerController.getOutstanding);
+router.get("/:id/timeline", requirePermission(PERMISSIONS.CUSTOMER_VIEW), customerController.getTimeline);
+router.get("/:id/sales", requirePermission(PERMISSIONS.CUSTOMER_VIEW), customerController.getSales);
+router.get("/:id/payments", requirePermission(PERMISSIONS.CUSTOMER_VIEW), customerController.getPayments);
+router.get("/:id/dms", requirePermission(PERMISSIONS.CUSTOMER_VIEW), customerController.getDMs);
+router.get("/:id/price-history", requirePermission(PERMISSIONS.CUSTOMER_VIEW), validate(z.object({ query: z.object({ itemId: z.string().optional() }) })), customerController.getPriceHistory);
 router.patch("/:id", requirePermission(PERMISSIONS.CUSTOMER_UPDATE), validate(updateSchema), customerController.updateCustomer);
 
 export default router;

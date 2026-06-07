@@ -8,7 +8,7 @@ export function usePendingVerificationsQuery() {
   const activeShopId = useShopStore((state) => state.activeShopId);
   return useQuery({
     queryKey: ["verifications", activeShopId],
-    queryFn: () => apiRequest<any[]>(`/verifications/pending?shopId=${activeShopId}`, { token }),
+    queryFn: () => apiRequest<any[]>(`/approvals?status=PENDING&shopId=${activeShopId}`, { token }),
     enabled: !!token && !!activeShopId,
   });
 }
@@ -19,15 +19,16 @@ export function useProcessVerificationMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, status, notes }: { id: string; status: "APPROVED" | "REJECTED"; notes?: string }) =>
-      apiRequest(`/verifications/${id}/process`, {
+      apiRequest(`/approvals/${id}/respond`, {
         method: "POST",
         token,
-        body: JSON.stringify({ status, notes }),
+        body: JSON.stringify({ status, rejectedReason: notes }),
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["verifications", activeShopId] });
       queryClient.invalidateQueries({ queryKey: ["expenses", activeShopId] });
       queryClient.invalidateQueries({ queryKey: ["current-stock", activeShopId] });
+      queryClient.invalidateQueries({ queryKey: ["owner-dashboard"] });
     },
   });
 }

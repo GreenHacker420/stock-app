@@ -19,3 +19,9 @@ export const getSale = asyncHandler(async (req, res) => {
   const sale = await saleService.getSale(req.user, req.validated.params.id);
   res.json({ success: true, data: sale });
 });
+
+export const updateGstInvoice = asyncHandler(async (req, res) => {
+  const sale = await saleService.updateGstInvoice(req.user, req.validated.params.id, req.validated.body);
+  emitShopEvent(req, sale.shopId, REALTIME_EVENTS.SALE_UPDATED, { saleId: sale.id, action: "gst_updated" });
+  res.json({ success: true, data: sale });
+});

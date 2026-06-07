@@ -147,6 +147,30 @@ export async function updateStaff(currentUser, staffId, data) {
     throw new ApiError(404, "Staff not found");
   }
 
+  if (data.email) {
+    const emailConflict = await prisma.user.findFirst({
+      where: {
+        email: data.email,
+        id: { not: staffId },
+      },
+    });
+    if (emailConflict) {
+      throw new ApiError(400, "A user with this email already exists");
+    }
+  }
+
+  if (data.mobile) {
+    const mobileConflict = await prisma.user.findFirst({
+      where: {
+        mobile: data.mobile,
+        id: { not: staffId },
+      },
+    });
+    if (mobileConflict) {
+      throw new ApiError(400, "A user with this mobile already exists");
+    }
+  }
+
   const update = {};
   if (data.name) update.name = data.name;
   if (data.mobile) update.mobile = data.mobile;

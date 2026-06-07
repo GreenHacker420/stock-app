@@ -17,6 +17,7 @@ export async function getOwnerDashboard(user, { shopId, date }) {
   const { start, end } = dayRange(date ? new Date(date) : new Date());
 
   const whereShop = { shopId: { in: ownedShopIds } };
+  
   const [
     sales, 
     orders, 
@@ -26,7 +27,10 @@ export async function getOwnerDashboard(user, { shopId, date }) {
     cashSessions, 
     approvalRequests,
     expenses,
-    gstPendingSales
+    gstPendingSales,
+    newCustomersToday,
+    outstandingCustomersCount,
+    topCustomersRaw
   ] = await Promise.all([
     prisma.sale.findMany({ where: { ...whereShop, createdAt: { gte: start, lte: end } } }),
     prisma.order.findMany({ where: { ...whereShop, createdAt: { gte: start, lte: end } } }),
@@ -37,7 +41,42 @@ export async function getOwnerDashboard(user, { shopId, date }) {
     prisma.approvalRequest.findMany({ where: { status: "PENDING" } }),
     prisma.expense.findMany({ where: { ...whereShop, createdAt: { gte: start, lte: end } } }),
     prisma.sale.findMany({ where: { ...whereShop, gstRequired: true, gstInvoiceStatus: "PENDING" } }),
+    prisma.customer.count({ where: { ...whereShop, createdAt: { gte: start, lte: end }, type: { not: "WALK_IN" } } }),
+    prisma.customer.count({ where: { ...whereShop, outstandingAmount: { gt: 0 } } }),
+    prisma.sale.groupBy({
+      by: ["customerId"],
+      where: { ...whereShop, saleStatus: { not: "CANCELLED" } },
+      _sum: { totalAmount: true },
+      orderBy: { _sum: { totalAmount: "desc" } },
+      take: 5
+    })
   ]);
+
+  // Enrich top customers
+  const topCustomerIds = topCustomersRaw.map(tc => tc.customerId).filter(Boolean);
+  const topCustomersDetailed = await prisma.customer.findMany({
+    where: { id: { in: topCustomerIds } },
+    select: { id: true, name: true, phone: true }
+  });
+  const topCustomers = topCustomersRaw.map(tc => ({
+    ...tc,
+    customer: topCustomersDetailed.find(c => c.id === tc.customerId)
+  })).filter(tc => tc.customer);
+
+  // Inactive customers (no purchase in 30 days) - Approximation
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const inactiveCustomersCount = await prisma.customer.count({
+    where: {
+      ...whereShop,
+      type: { not: "WALK_IN" },
+      sales: {
+        none: {
+          createdAt: { gte: thirtyDaysAgo }
+        }
+      }
+    }
+  });
 
   const paymentTotal = (mode) => payments.filter((payment) => payment.paymentMode === mode).reduce((sum, payment) => sum + Number(payment.amount), 0);
   const todaySales = sales.reduce((sum, sale) => sum + Number(sale.totalAmount), 0);
@@ -65,6 +104,12 @@ export async function getOwnerDashboard(user, { shopId, date }) {
     todayExpenses: expenses.reduce((sum, e) => sum + Number(e.amount), 0),
     gstInvoicesPendingCount: gstPendingSales.length,
     gstInvoicesPendingAmount: gstPendingSales.reduce((sum, s) => sum + Number(s.totalAmount), 0),
+    
+    // New Customer Widgets
+    newCustomersToday,
+    outstandingCustomersCount,
+    inactiveCustomersCount,
+    topCustomers
   };
 }
 

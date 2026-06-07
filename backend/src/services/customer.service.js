@@ -6,6 +6,7 @@ import { money } from "../utils/money.js";
 import { listSales } from "./sale.service.js";
 import { listPayments } from "./payment.service.js";
 import { listDeliveryMemos } from "./deliveryMemo.service.js";
+import { EntityType, AuditAction } from "../generated/prisma/index.js";
 
 export async function listCustomerSales(user, id, query) {
   const customer = await getCustomer(user, id);
@@ -39,7 +40,7 @@ export async function getCustomerTimeline(user, id) {
     prisma.payment.findMany({ where: { customerId: id }, take: 20, orderBy: { createdAt: "desc" } }),
     prisma.deliveryMemo.findMany({ where: { customerId: id }, take: 20, orderBy: { createdAt: "desc" } }),
     prisma.inventoryReturn.findMany({ where: { customerId: id }, take: 20, orderBy: { createdAt: "desc" } }),
-    prisma.auditLog.findMany({ where: { entityType: "Customer", entityId: id }, take: 20, orderBy: { createdAt: "desc" } }),
+    prisma.auditLog.findMany({ where: { entityType: EntityType.CUSTOMER, entityId: id }, take: 20, orderBy: { createdAt: "desc" } }),
   ]);
 
   const timeline = [
@@ -53,18 +54,20 @@ export async function getCustomerTimeline(user, id) {
   return timeline;
 }
 
-export async function listCustomers(user, { shopId, search }) {
+export async function listCustomers(user, { shopId, search, includeWalkin = false, type }) {
   await assertShopAccess(user, shopId);
 
   return prisma.customer.findMany({
     where: {
       shopId,
       status: "ACTIVE",
+      type: type || (includeWalkin ? undefined : { not: "WALK_IN" }),
       OR: search
         ? [
             { name: { contains: search, mode: "insensitive" } },
             { phone: { contains: search, mode: "insensitive" } },
             { city: { contains: search, mode: "insensitive" } },
+            { gstin: { contains: search, mode: "insensitive" } },
           ]
         : undefined,
     },
@@ -79,6 +82,119 @@ export async function getCustomer(user, id) {
   return customer;
 }
 
+/**
+ * Enhanced profile summary with activity metrics
+ */
+export async function getCustomerSummary(user, id) {
+  const customer = await getCustomer(user, id);
+
+  const [salesMetrics, dmsCount, paymentsMetrics, lastSale] = await Promise.all([
+    prisma.sale.aggregate({
+      where: { customerId: id, saleStatus: { not: "CANCELLED" } },
+      _sum: { totalAmount: true },
+      _count: { id: true }
+    }),
+    prisma.deliveryMemo.count({
+      where: { customerId: id, status: { not: "CANCELLED" } }
+    }),
+    prisma.payment.aggregate({
+      where: { customerId: id, status: { not: "CANCELLED" } },
+      _sum: { amount: true },
+      _count: { id: true }
+    }),
+    prisma.sale.findFirst({
+      where: { customerId: id, saleStatus: { not: "CANCELLED" } },
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true }
+    })
+  ]);
+
+  return {
+    ...customer,
+    activitySummary: {
+      totalSales: Number(salesMetrics._sum.totalAmount || 0),
+      totalPayments: Number(paymentsMetrics._sum.amount || 0),
+      totalOrders: salesMetrics._count.id,
+      totalDMs: dmsCount,
+      totalCollections: paymentsMetrics._count.id,
+      lastPurchaseDate: lastSale?.createdAt || null,
+      averageOrderValue: salesMetrics._count.id > 0 
+        ? Number(salesMetrics._sum.totalAmount || 0) / salesMetrics._count.id 
+        : 0
+    }
+  };
+}
+
+/**
+ * Get the default Walk-in customer for a shop. Creates it if missing.
+ */
+export async function getOrCreateWalkIn(shopId, userId) {
+  const walkin = await prisma.customer.findFirst({
+    where: {
+      shopId,
+      type: "WALK_IN",
+    },
+  });
+
+  if (walkin) return walkin;
+
+  return prisma.customer.create({
+    data: {
+      shopId,
+      name: "Walk In Customer",
+      type: "WALK_IN",
+      createdById: userId,
+      outstandingAmount: 0,
+      advanceBalance: 0,
+    },
+  });
+}
+
+/**
+ * Identify and link customer by phone, or create a new one.
+ */
+export async function captureCustomer(user, { shopId, name, phone, email }) {
+  await assertShopAccess(user, shopId);
+
+  if (!phone && !name) {
+    return getOrCreateWalkIn(shopId, user.id);
+  }
+
+  if (phone) {
+    const existing = await prisma.customer.findFirst({
+      where: {
+        shopId,
+        phone,
+      },
+    });
+
+    if (existing) return existing;
+  }
+
+  // Auto-create as REGULAR
+  const customer = await prisma.customer.create({
+    data: {
+      shopId,
+      name: name || "New Customer",
+      phone,
+      email,
+      type: "REGULAR",
+      createdById: user.id,
+    },
+  });
+
+  await writeAuditLog({
+    userId: user.id,
+    shopId,
+    action: AuditAction.CREATED,
+    entityType: EntityType.CUSTOMER,
+    entityId: customer.id,
+    newValueJson: customer,
+  });
+
+  return customer;
+}
+
 export async function createCustomer(user, data) {
   await assertShopAccess(user, data.shopId);
 
@@ -86,23 +202,26 @@ export async function createCustomer(user, data) {
     data: {
       shopId: data.shopId,
       name: data.name,
+      type: data.type || "REGULAR",
       phone: data.phone,
+      email: data.email,
       address: data.address,
       city: data.city,
       gstin: data.gstin,
+      contactPerson: data.contactPerson,
       creditLimit: data.creditLimit ? money(data.creditLimit) : null,
       notes: data.notes,
       createdById: user.id,
       outstandingAmount: money(data.outstandingAmount || 0),
+      advanceBalance: money(data.advanceBalance || 0),
     },
   });
 
   await writeAuditLog({
     userId: user.id,
-    role: user.role,
     shopId: customer.shopId,
-    action: "customer.created",
-    entityType: "Customer",
+    action: AuditAction.CREATED,
+    entityType: EntityType.CUSTOMER,
     entityId: customer.id,
     newValueJson: customer,
   });
@@ -115,8 +234,7 @@ export async function updateCustomer(user, id, data) {
   if (!existing) throw new ApiError(404, "Customer not found");
   await assertShopAccess(user, existing.shopId);
 
-  // Strip outstandingAmount so it cannot be directly updated via normal updates
-  const { outstandingAmount, ...updateData } = data;
+  const { outstandingAmount, advanceBalance, ...updateData } = data;
   
   if (updateData.creditLimit !== undefined) {
     updateData.creditLimit = updateData.creditLimit ? money(updateData.creditLimit) : null;
@@ -129,10 +247,9 @@ export async function updateCustomer(user, id, data) {
 
   await writeAuditLog({
     userId: user.id,
-    role: user.role,
     shopId: existing.shopId,
-    action: "customer.updated",
-    entityType: "Customer",
+    action: AuditAction.UPDATED,
+    entityType: EntityType.CUSTOMER,
     entityId: id,
     oldValueJson: existing,
     newValueJson: customer,

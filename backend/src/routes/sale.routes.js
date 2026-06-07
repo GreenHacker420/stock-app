@@ -10,7 +10,7 @@ const router = Router();
 const idParams = z.object({ id: z.string().min(1) });
 
 const paymentSchema = z.object({
-  paymentMode: z.enum(["CASH", "UPI", "CARD", "BANK_TRANSFER", "CHEQUE", "CREDIT", "ADVANCE", "REFUND"]),
+  paymentMode: z.enum(["CASH", "UPI", "CARD", "BANK_TRANSFER", "CHEQUE"]),
   amount: z.coerce.number().positive(),
   referenceNumber: z.string().optional(),
   proofImageUrl: z.string().optional(),
@@ -25,29 +25,37 @@ const saleItemSchema = z.object({
   discountAmount: z.coerce.number().nonnegative().optional(),
 });
 
+const customerInfoSchema = z.object({
+  name: z.string().optional(),
+  phone: z.string().optional(),
+  email: z.email().optional().or(z.literal("")),
+});
+
 const createSchema = z.object({
   body: z.object({
     shopId: z.string().min(1),
     customerId: z.string().optional(),
+    customerInfo: customerInfoSchema.optional(),
     isWalkin: z.boolean().optional(),
     dueDate: z.coerce.date().optional(),
     items: z.array(saleItemSchema).min(1),
     payments: z.array(paymentSchema).optional(),
     customerSignature: z.string().optional(),
+    gstRequired: z.boolean().optional(),
   }),
-  params: z.object({}).optional(),
-  query: z.object({}).optional(),
 });
 
 const listSchema = z.object({
-  query: z.object({ shopId: z.string().min(1) }),
-  params: z.object({}).optional(),
-  body: z.object({}).optional(),
+  query: z.object({ 
+    shopId: z.string().min(1),
+    customerId: z.string().optional(),
+  }),
 });
 
 router.use(requireAuth);
 router.get("/", requirePermission(PERMISSIONS.SALE_VIEW_OWN), validate(listSchema), saleController.listSales);
 router.get("/:id", requirePermission(PERMISSIONS.SALE_VIEW_OWN), validate(z.object({ params: idParams })), saleController.getSale);
 router.post("/", requirePermission(PERMISSIONS.SALE_CREATE), validate(createSchema), saleController.createSale);
+router.patch("/:id/gst", requirePermission(PERMISSIONS.SALE_VIEW_ALL), validate(z.object({ params: idParams, body: z.object({ gstInvoiceNumber: z.string().min(1) }) })), saleController.updateGstInvoice);
 
 export default router;

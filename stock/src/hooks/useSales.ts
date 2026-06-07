@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "../auth/auth-store";
 import { useShopStore } from "../auth/shop-store";
 import { queryKeys } from "./query-keys";
-import { fetchSales, fetchSale, createSale, createWalkInSale, CreateSalePayload } from "../api/client";
+import { fetchSales, fetchSale, createSale, createWalkInSale, CreateSalePayload, updateSaleGst } from "../api/client";
 
 export function useSalesQuery() {
   const token = useAuthStore((state) => state.token);
@@ -64,6 +64,23 @@ export function useCreateWalkInSaleMutation() {
         queryClient.invalidateQueries({ queryKey: ["cash-sessions", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["current-cash-session", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["customers", activeShopId] });
+      }
+    },
+  });
+}
+
+export function useUpdateGstMutation() {
+  const token = useAuthStore((state) => state.token);
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ saleId, gstInvoiceNumber }: { saleId: string; gstInvoiceNumber: string }) =>
+      updateSaleGst(token ?? "", saleId, gstInvoiceNumber),
+    onSuccess: (updatedSale) => {
+      if (activeShopId) {
+        queryClient.invalidateQueries({ queryKey: ["sales", activeShopId] });
+        queryClient.invalidateQueries({ queryKey: ["sale", updatedSale.id] });
+        queryClient.invalidateQueries({ queryKey: ["owner-dashboard"] });
       }
     },
   });

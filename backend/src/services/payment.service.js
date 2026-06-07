@@ -3,6 +3,7 @@ import { ApiError } from "../utils/ApiError.js";
 import { applyPayments, prisma, increaseCustomerDebt } from "./transactionHelpers.js";
 import { money, sub, add, isZero } from "../utils/money.js";
 import { writeAuditLog } from "../utils/auditLog.js";
+import { getOrCreateWalkIn } from "./customer.service.js";
 
 async function getPaymentWithAccess(user, id) {
   const payment = await prisma.payment.findUnique({
@@ -59,6 +60,11 @@ export async function addPayment(user, data) {
       const order = await tx.order.findUnique({ where: { id: data.orderId } });
       if (!order || order.shopId !== data.shopId) throw new ApiError(400, "Order does not belong to this shop");
       customerId = order.customerId || customerId;
+    }
+
+    if (!customerId) {
+      const walkin = await getOrCreateWalkIn(data.shopId, user.id);
+      customerId = walkin.id;
     }
 
     await applyPayments(tx, {
@@ -131,17 +137,15 @@ export async function voidPayment(user, id, { reason } = {}) {
       include: { details: true }
     });
 
-    // 2. Adjust Customer balance if there's a customer
-    if (existing.customerId) {
-       await increaseCustomerDebt(tx, existing.customerId, existing.amount);
-    }
+    // 2. Adjust Customer balance
+    // Cancelling a payment means their debt increases back.
+    await increaseCustomerDebt(tx, existing.customerId, existing.amount);
 
     await writeAuditLog({
       userId: user.id,
-      role: user.role,
       shopId: existing.shopId,
-      action: "payment.voided",
-      entityType: "Payment",
+      action: "VOIDED",
+      entityType: "PAYMENT",
       entityId: id,
       oldValueJson: existing,
       newValueJson: payment,

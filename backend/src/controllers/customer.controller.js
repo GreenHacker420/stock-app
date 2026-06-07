@@ -1,30 +1,5 @@
-import { asyncHandler } from "../utils/asyncHandler.js";
 import * as customerService from "../services/customer.service.js";
-
-export const listCustomerSales = asyncHandler(async (req, res) => {
-  const data = await customerService.listCustomerSales(req.user, req.validated.params.id, req.validated.query);
-  res.json({ success: true, data });
-});
-
-export const listCustomerPayments = asyncHandler(async (req, res) => {
-  const data = await customerService.listCustomerPayments(req.user, req.validated.params.id, req.validated.query);
-  res.json({ success: true, data });
-});
-
-export const listCustomerDMs = asyncHandler(async (req, res) => {
-  const data = await customerService.listCustomerDMs(req.user, req.validated.params.id, req.validated.query);
-  res.json({ success: true, data });
-});
-
-export const listCustomerReturns = asyncHandler(async (req, res) => {
-  const data = await customerService.listCustomerReturns(req.user, req.validated.params.id);
-  res.json({ success: true, data });
-});
-
-export const getCustomerTimeline = asyncHandler(async (req, res) => {
-  const data = await customerService.getCustomerTimeline(req.user, req.validated.params.id);
-  res.json({ success: true, data });
-});
+import { asyncHandler } from "../utils/asyncHandler.js";
 
 export const listCustomers = asyncHandler(async (req, res) => {
   const customers = await customerService.listCustomers(req.user, req.validated.query);
@@ -32,8 +7,13 @@ export const listCustomers = asyncHandler(async (req, res) => {
 });
 
 export const getCustomer = asyncHandler(async (req, res) => {
-  const customer = await customerService.getCustomer(req.user, req.validated.params.id);
+  const customer = await customerService.getCustomer(req.user, req.params.id);
   res.json({ success: true, data: customer });
+});
+
+export const getCustomerSummary = asyncHandler(async (req, res) => {
+  const summary = await customerService.getCustomerSummary(req.user, req.params.id);
+  res.json({ success: true, data: summary });
 });
 
 export const createCustomer = asyncHandler(async (req, res) => {
@@ -42,20 +22,36 @@ export const createCustomer = asyncHandler(async (req, res) => {
 });
 
 export const updateCustomer = asyncHandler(async (req, res) => {
-  const customer = await customerService.updateCustomer(
-    req.user,
-    req.validated.params.id,
-    req.validated.body,
-  );
+  const customer = await customerService.updateCustomer(req.user, req.params.id, req.validated.body);
   res.json({ success: true, data: customer });
 });
 
 export const getOutstanding = asyncHandler(async (req, res) => {
-  const outstanding = await customerService.getOutstanding(req.user, req.validated.params.id);
+  const outstanding = await customerService.getOutstanding(req.user, req.params.id);
   res.json({ success: true, data: outstanding });
 });
 
+export const getTimeline = asyncHandler(async (req, res) => {
+  const timeline = await customerService.getCustomerTimeline(req.user, req.params.id);
+  res.json({ success: true, data: timeline });
+});
+
+export const getSales = asyncHandler(async (req, res) => {
+  const sales = await customerService.listCustomerSales(req.user, req.params.id, req.query);
+  res.json({ success: true, data: sales });
+});
+
+export const getPayments = asyncHandler(async (req, res) => {
+  const payments = await customerService.listCustomerPayments(req.user, req.params.id, req.query);
+  res.json({ success: true, data: payments });
+});
+
+export const getDMs = asyncHandler(async (req, res) => {
+  const dms = await customerService.listCustomerDMs(req.user, req.params.id, req.query);
+  res.json({ success: true, data: dms });
+});
+
 export const getPriceHistory = asyncHandler(async (req, res) => {
-  const history = await customerService.getPriceHistory(req.user, req.validated.params.id, req.validated.query);
+  const history = await customerService.getPriceHistory(req.user, req.params.id, req.validated.query);
   res.json({ success: true, data: history });
 });

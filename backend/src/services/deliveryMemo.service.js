@@ -10,18 +10,25 @@ import {
   getBillPaymentStatus,
 } from "./transactionHelpers.js";
 import { money, sub } from "../utils/money.js";
+import { getOrCreateWalkIn } from "./customer.service.js";
 
 export async function createDeliveryMemo(user, data) {
   await assertShopAccess(user, data.shopId);
 
-  const customer = data.customerId ? await prisma.customer.findUnique({ where: { id: data.customerId } }) : null;
-  if (data.customerId && (!customer || customer.shopId !== data.shopId)) {
-    throw new ApiError(400, "Customer does not belong to this shop");
-  }
-
   const { items, totalAmount } = calculateItemTotals(data.items);
 
   return prisma.$transaction(async (tx) => {
+    let customerId = data.customerId;
+    if (!customerId) {
+      const walkin = await getOrCreateWalkIn(data.shopId, user.id);
+      customerId = walkin.id;
+    }
+
+    const customer = await tx.customer.findUnique({ where: { id: customerId } });
+    if (!customer || customer.shopId !== data.shopId) {
+      throw new ApiError(400, "Customer does not belong to this shop");
+    }
+
     const dmNumber = await generateRecordNumber(tx, {
       shopId: data.shopId,
       model: "deliveryMemo",
@@ -36,7 +43,7 @@ export async function createDeliveryMemo(user, data) {
         dmNumber,
         shopId: data.shopId,
         staffId: user.id,
-        customerId: data.customerId,
+        customerId: customer.id,
         estimatedAmount: totalVal,
         balanceAmount: totalVal,
         expectedPaymentDate: data.expectedPaymentDate,
@@ -66,16 +73,14 @@ export async function createDeliveryMemo(user, data) {
       });
     }
 
-    if (data.customerId) {
-      // Increase global customer debt (decreases advance or increases outstanding)
-      await increaseCustomerDebt(tx, data.customerId, totalVal);
-    }
+    // Increase global customer debt (decreases advance or increases outstanding)
+    await increaseCustomerDebt(tx, customer.id, totalVal);
 
     const paymentResult = await applyPayments(tx, {
       user,
       shopId: data.shopId,
       dmId: dm.id,
-      customerId: data.customerId,
+      customerId: customer.id,
       totalAmount: totalVal,
       payments: data.payments || [],
     });
@@ -97,7 +102,7 @@ export async function createDeliveryMemo(user, data) {
     await tx.dispatch.create({
       data: {
         dmId: dm.id,
-        customerId: data.customerId,
+        customerId: customer.id,
         shopId: data.shopId,
         dispatchedById: user.id,
         status: "DISPATCHED",

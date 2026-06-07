@@ -594,8 +594,8 @@ const styles = StyleSheet.create({
     marginRight: spacing.sm,
   },
   filterChipActive: {
-    backgroundColor: 'rgba(99, 102, 241, 0.1)',
-    borderColor: '#6366f1',
+    backgroundColor: 'rgba(22, 163, 74, 0.08)',
+    borderColor: colors.primary,
   },
   filterChipText: {
     fontSize: 12,
@@ -603,7 +603,7 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
   },
   filterChipTextActive: {
-    color: '#6366f1',
+    color: colors.primary,
   },
   listContent: {
     paddingBottom: 130, // Clears the floating bottom tab bar and the FAB safely

@@ -11,24 +11,31 @@ import {
 } from "./transactionHelpers.js";
 import { money, sub } from "../utils/money.js";
 import { checkAndLockStockForWalkin } from "./stock.service.js";
+import { captureCustomer, getOrCreateWalkIn } from "./customer.service.js";
+import { EntityType, AuditAction } from "../generated/prisma/index.js";
 
 export async function createSale(user, data) {
   await assertShopAccess(user, data.shopId);
 
-  if (data.isWalkin && data.customerId) {
-    throw new ApiError(400, "Walk-in sale cannot have a customer");
-  }
-
-  if (!data.isWalkin && data.customerId) {
-    const customer = await prisma.customer.findUnique({ where: { id: data.customerId } });
-    if (!customer || customer.shopId !== data.shopId) {
-      throw new ApiError(400, "Customer does not belong to this shop");
-    }
-  }
-
   const { items, subtotal, discountAmount, totalAmount } = calculateItemTotals(data.items);
 
   return prisma.$transaction(async (tx) => {
+    // Resolve Customer based on Strategy
+    let customer;
+    if (data.customerInfo) {
+      customer = await captureCustomer(user, { 
+        shopId: data.shopId, 
+        ...data.customerInfo 
+      });
+    } else if (data.customerId) {
+      customer = await tx.customer.findUnique({ where: { id: data.customerId } });
+      if (!customer || customer.shopId !== data.shopId) {
+        throw new ApiError(400, "Customer does not belong to this shop");
+      }
+    } else {
+      customer = await getOrCreateWalkIn(data.shopId, user.id);
+    }
+
     // If it's a walk-in sale, check and lock available stock
     if (data.isWalkin) {
       await checkAndLockStockForWalkin(tx, data.shopId, items);
@@ -50,8 +57,8 @@ export async function createSale(user, data) {
         saleNumber,
         shopId: data.shopId,
         staffId: user.id,
-        customerId: data.customerId,
-        isWalkin: !!data.isWalkin,
+        customerId: customer.id,
+        isWalkin: !!data.isWalkin || customer.type === "WALK_IN",
         gstRequired: !!data.gstRequired,
         gstInvoiceStatus: data.gstRequired ? "PENDING" : "NOT_REQUIRED",
         subtotal: subtotalVal,
@@ -84,16 +91,14 @@ export async function createSale(user, data) {
       });
     }
 
-    if (!data.isWalkin && data.customerId) {
-      // Increase global customer debt (decreases advance or increases outstanding)
-      await increaseCustomerDebt(tx, data.customerId, totalVal);
-    }
+    // Every sale increases debt/reduces advance for the linked customer
+    await increaseCustomerDebt(tx, customer.id, totalVal);
 
     const paymentResult = await applyPayments(tx, {
       user,
       shopId: data.shopId,
       saleId: sale.id,
-      customerId: data.customerId,
+      customerId: customer.id,
       totalAmount: totalVal,
       payments: data.payments || [],
     });
@@ -117,8 +122,8 @@ export async function createSale(user, data) {
       data: {
         userId: user.id,
         shopId: data.shopId,
-        action: data.isWalkin ? "sale.walkin_created" : "sale.created",
-        entityType: "Sale",
+        action: data.isWalkin ? AuditAction.WALKIN_CREATED : AuditAction.CREATED,
+        entityType: EntityType.SALE,
         entityId: sale.id,
         newValueJson: updatedSale,
       },
@@ -153,4 +158,25 @@ export async function getSale(user, id) {
     throw new ApiError(403, "You can view only your own sales");
   }
   return sale;
+}
+
+export async function updateGstInvoice(user, id, { gstInvoiceNumber }) {
+  if (user.role !== "OWNER") {
+    throw new ApiError(403, "Only owners can update GST invoice status");
+  }
+
+  const sale = await prisma.sale.findUnique({ where: { id } });
+  if (!sale) throw new ApiError(404, "Sale not found");
+
+  await assertShopAccess(user, sale.shopId);
+
+  return prisma.sale.update({
+    where: { id },
+    data: {
+      gstInvoiceStatus: "GENERATED",
+      gstInvoiceNumber,
+      gstInvoiceGeneratedAt: new Date(),
+    },
+    include: { customer: true, items: { include: { item: true } }, payments: true },
+  });
 }

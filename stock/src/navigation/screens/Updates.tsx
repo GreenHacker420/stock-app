@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { View, ScrollView, Pressable, StyleSheet, ActivityIndicator } from "react-native";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigation } from "@react-navigation/native";
@@ -35,15 +35,17 @@ export function Updates() {
     enabled: !!token && isOwner,
   });
 
-  const uniqueStaffIds = new Set<string>();
-  shopsQuery.data?.forEach((shop) => {
-    (shop as any).staffAccesses?.forEach((access: any) => {
-      if (access.staff?.id) {
-        uniqueStaffIds.add(access.staff.id);
-      }
+  const activeStaffCount = useMemo(() => {
+    const uniqueStaffIds = new Set<string>();
+    shopsQuery.data?.forEach((shop) => {
+      (shop as any).staffAccesses?.forEach((access: any) => {
+        if (access.staff?.id) {
+          uniqueStaffIds.add(access.staff.id);
+        }
+      });
     });
-  });
-  const activeStaffCount = uniqueStaffIds.size;
+    return uniqueStaffIds.size;
+  }, [shopsQuery.data]);
 
   const handleShopPress = (shop: Shop) => {
     if (isOwner) {
@@ -68,21 +70,26 @@ export function Updates() {
         {/* Global Stats Bar */}
         {isOwner && (
           <View style={styles.statsBar}>
-             <View>
-                <Text style={styles.statsLabel}>TOTAL PORTFOLIO REVENUE</Text>
-                <Text style={styles.statsValue}>
-                  ₹{Number(dashboardQuery.data?.todaySales ?? 0).toLocaleString("en-IN")}
-                </Text>
-             </View>
-             <View style={{ alignItems: 'flex-end' }}>
-                <Text style={styles.statsLabel}>ACTIVE STAFF</Text>
-                <Text style={styles.statsValue}>{activeStaffCount}</Text>
-             </View>
+            <View>
+              <Text style={styles.statsLabel}>PORTFOLIO REVENUE</Text>
+              <Text style={styles.statsValue}>
+                ₹{Number(dashboardQuery.data?.todaySales ?? 0).toLocaleString("en-IN")}
+              </Text>
+            </View>
+            <View style={{ alignItems: 'flex-end' }}>
+              <Text style={styles.statsLabel}>ACTIVE STAFF</Text>
+              <Text style={styles.statsValue}>{activeStaffCount}</Text>
+            </View>
           </View>
         )}
 
         <View style={styles.listContainer}>
-          {shopsQuery.isLoading && <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.xxl }} />}
+          {shopsQuery.isLoading && (
+            <View style={styles.loadingWrapper}>
+              <ActivityIndicator color={colors.primary} size="large" />
+              <Text style={styles.loadingText}>Loading portfolio shops...</Text>
+            </View>
+          )}
 
           {shopsQuery.data?.map((shop) => (
             <ShopPortfolioCard 
@@ -95,29 +102,29 @@ export function Updates() {
           ))}
 
           {!shopsQuery.isLoading && !shopsQuery.data?.length && (
-             <View style={styles.emptyContainer}>
-                <Icon source="store-plus-outline" size={64} color={colors.textMuted} />
-                <Text style={styles.emptyText}>No shops in portfolio</Text>
-             </View>
+            <View style={styles.emptyContainer}>
+              <Icon source="store-plus-outline" size={64} color={colors.textMuted} />
+              <Text style={styles.emptyText}>No shops in portfolio</Text>
+            </View>
           )}
         </View>
 
         {/* Global Management Shortcut */}
         {isOwner && (
-           <View style={styles.footerManagement}>
-              <Pressable 
-                style={({ pressed }) => [styles.managementBtn, pressed && styles.pressed]}
-              >
-                 <Icon source="cog-outline" size={20} color={colors.textSecondary} />
-                 <Text style={styles.managementBtnText}>Global Settings</Text>
-              </Pressable>
-              <Pressable 
-                style={({ pressed }) => [styles.managementBtn, pressed && styles.pressed]}
-              >
-                 <Icon source="shield-key-outline" size={20} color={colors.textSecondary} />
-                 <Text style={styles.managementBtnText}>Permissions</Text>
-              </Pressable>
-           </View>
+          <View style={styles.footerManagement}>
+            <Pressable 
+              style={({ pressed }) => [styles.managementBtn, pressed && styles.pressed]}
+            >
+              <Icon source="cog-outline" size={20} color={colors.textSecondary} />
+              <Text style={styles.managementBtnText}>Global Settings</Text>
+            </Pressable>
+            <Pressable 
+              style={({ pressed }) => [styles.managementBtn, pressed && styles.pressed]}
+            >
+              <Icon source="shield-key-outline" size={20} color={colors.textSecondary} />
+              <Text style={styles.managementBtnText}>Permissions</Text>
+            </Pressable>
+          </View>
         )}
       </ScrollView>
 
@@ -194,7 +201,10 @@ function ShopPortfolioCard({ shop, onManage, isOwner, token }: { shop: Shop, onM
   });
 
   const todaySales = shopDashboardQuery.data?.todaySales ?? 0;
-  const cashOnHand = currentSessionQuery.data ? currentSessionQuery.data.expectedCash : shop.openingCash;
+  // Fix the NaN expected cash on hand issue: fall back to 0 if undefined/not a number
+  const cashOnHand = currentSessionQuery.data?.expectedCash 
+    ? Number(currentSessionQuery.data.expectedCash) 
+    : 0;
 
   const staffList = (shop as any).staffAccesses?.map((access: any) => access.staff).filter(Boolean) || [];
   const staffAvatars = staffList.map((s: any) => {
@@ -207,7 +217,7 @@ function ShopPortfolioCard({ shop, onManage, isOwner, token }: { shop: Shop, onM
         <View style={styles.cardHeader}>
           <View style={styles.shopInfo}>
             <View style={styles.shopAvatar}>
-               <Text style={styles.shopAvatarText}>{shop.name[0]}</Text>
+              <Text style={styles.shopAvatarText}>{shop.name[0]?.toUpperCase()}</Text>
             </View>
             <View>
               <View style={styles.shopNameRow}>
@@ -224,43 +234,48 @@ function ShopPortfolioCard({ shop, onManage, isOwner, token }: { shop: Shop, onM
         </View>
 
         <View style={styles.cardMetrics}>
-           <View>
-             <Text style={styles.metricLabel}>TODAY'S SALES</Text>
-             <Text style={styles.metricValue}>₹{Number(todaySales).toLocaleString("en-IN")}</Text>
-           </View>
-           <View style={{ alignItems: 'flex-end' }}>
-             <Text style={styles.metricLabel}>CASH ON HAND</Text>
-             <Text style={styles.metricValue}>₹{Number(cashOnHand).toLocaleString("en-IN")}</Text>
-           </View>
+          <View>
+            <Text style={styles.metricLabel}>TODAY'S SALES</Text>
+            <Text style={styles.metricValue}>₹{Number(todaySales).toLocaleString("en-IN")}</Text>
+          </View>
+          <View style={{ alignItems: 'flex-end' }}>
+            <Text style={styles.metricLabel}>CASH ON HAND</Text>
+            <Text style={styles.metricValue}>₹{Number(cashOnHand).toLocaleString("en-IN")}</Text>
+          </View>
         </View>
 
         <View style={styles.cardFooter}>
-           <View style={styles.avatarsRow}>
-             {staffAvatars.map((init: string, i: number) => (
-               <Avatar
-                 key={i}
-                 rounded
-                 title={init}
-                 size={32}
-                 containerStyle={[
-                   styles.staffAvatar,
-                   { marginLeft: i === 0 ? 0 : -10 }
-                 ]}
-                 titleStyle={styles.staffAvatarText}
-               />
-             ))}
-           </View>
-           
-           {isOwner && (
-             <Button 
-                variant="ghost"
-                label="Manage"
-                size="sm"
-                onPress={onManage}
-                icon={<Icon source="arrow-right" size={16} color={colors.primary} />}
-                style={styles.manageBtn}
-             />
-           )}
+          <View style={styles.avatarsRow}>
+            {staffAvatars.map((init: string, i: number) => (
+              <Avatar
+                key={i}
+                rounded
+                title={init}
+                size={32}
+                containerStyle={[
+                  styles.staffAvatar,
+                  { marginLeft: i === 0 ? 0 : -10 }
+                ]}
+                titleStyle={styles.staffAvatarText}
+              />
+            ))}
+            {staffList.length > 4 && (
+              <View style={styles.avatarMore}>
+                <Text style={styles.avatarMoreText}>+{staffList.length - 4}</Text>
+              </View>
+            )}
+          </View>
+          
+          {isOwner && (
+            <Button 
+              variant="ghost"
+              label="Manage"
+              size="sm"
+              onPress={onManage}
+              icon={<Icon source="arrow-right" size={16} color={colors.primary} />}
+              style={styles.manageBtn}
+            />
+          )}
         </View>
       </View>
     </View>
@@ -270,16 +285,28 @@ function ShopPortfolioCard({ shop, onManage, isOwner, token }: { shop: Shop, onM
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: colors.bg,
   },
   scrollContent: {
-    paddingBottom: 100,
+    paddingBottom: 120,
+    paddingTop: spacing.md,
+  },
+  loadingWrapper: {
+    paddingVertical: spacing.xxl,
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  loadingText: {
+    color: colors.textSecondary,
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.medium,
   },
   statsBar: {
     marginHorizontal: spacing.lg,
     marginBottom: spacing.xl,
     backgroundColor: colors.textPrimary,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
+    borderRadius: 24,
+    padding: spacing.xl,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -287,23 +314,25 @@ const styles = StyleSheet.create({
   },
   statsLabel: {
     color: colors.textMuted,
-    fontSize: 10,
-    fontWeight: fontWeight.bold,
+    fontSize: 9,
+    fontWeight: fontWeight.black,
     letterSpacing: 1,
+    opacity: 0.8,
   },
   statsValue: {
     color: colors.textInverse,
     fontSize: fontSize.xl,
     fontWeight: fontWeight.black,
+    marginTop: 4,
   },
   listContainer: {
     paddingHorizontal: spacing.lg,
-    gap: spacing.xl,
+    gap: spacing.lg,
   },
   emptyContainer: {
     padding: spacing.huge,
     alignItems: 'center',
-    opacity: 0.4,
+    opacity: 0.5,
   },
   emptyText: {
     fontSize: fontSize.md,
@@ -313,13 +342,13 @@ const styles = StyleSheet.create({
   },
   footerManagement: {
     marginTop: spacing.xxxl,
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: spacing.xl,
     paddingVertical: spacing.xl,
     borderTopWidth: 1,
     borderTopColor: colors.border,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    backgroundColor: 'rgba(255, 255, 255, 0.5)',
+    backgroundColor: colors.surfaceOffset,
   },
   managementBtn: {
     flexDirection: 'row',
@@ -329,6 +358,7 @@ const styles = StyleSheet.create({
   managementBtnText: {
     color: colors.textSecondary,
     fontWeight: fontWeight.bold,
+    fontSize: fontSize.sm,
   },
   fab: {
     position: "absolute",
@@ -352,9 +382,9 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: colors.surface,
-    borderRadius: radius.lg,
+    borderRadius: 24,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: 'rgba(22, 163, 74, 0.06)',
     ...shadow.sm,
   },
   cardPadding: {
@@ -364,7 +394,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: spacing.xl,
+    marginBottom: spacing.lg,
   },
   shopInfo: {
     flexDirection: 'row',
@@ -372,9 +402,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   shopAvatar: {
-    height: 56,
-    width: 56,
-    borderRadius: radius.md,
+    height: 52,
+    width: 52,
+    borderRadius: 16,
     backgroundColor: colors.primaryMid,
     alignItems: 'center',
     justifyContent: 'center',
@@ -382,7 +412,7 @@ const styles = StyleSheet.create({
   },
   shopAvatarText: {
     color: colors.textInverse,
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: fontWeight.black,
   },
   shopNameRow: {
@@ -391,18 +421,18 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   shopName: {
-    fontSize: fontSize.lg,
-    fontWeight: fontWeight.bold,
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.extrabold,
     color: colors.textPrimary,
   },
   liveIndicator: {
-    height: 8,
-    width: 8,
+    height: 6,
+    width: 6,
     borderRadius: radius.full,
     backgroundColor: colors.success,
   },
   shopSubtext: {
-    fontSize: fontSize.sm,
+    fontSize: fontSize.xs,
     color: colors.textSecondary,
     fontWeight: fontWeight.medium,
   },
@@ -410,9 +440,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     backgroundColor: colors.surfaceOffset,
-    borderRadius: radius.md,
+    borderRadius: 18,
     padding: spacing.md,
-    marginBottom: spacing.lg,
+    marginBottom: spacing.md,
     borderWidth: 1,
     borderColor: colors.border,
   },
@@ -426,14 +456,17 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
     fontWeight: fontWeight.black,
     color: colors.textPrimary,
+    marginTop: 2,
   },
   cardFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    paddingTop: 4,
   },
   avatarsRow: {
     flexDirection: 'row',
+    alignItems: 'center',
   },
   staffAvatar: {
     backgroundColor: colors.primary,
@@ -443,6 +476,22 @@ const styles = StyleSheet.create({
   staffAvatarText: {
     fontSize: 10,
     fontWeight: fontWeight.bold,
+  },
+  avatarMore: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.surfaceOffset,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: colors.surface,
+    marginLeft: -10,
+  },
+  avatarMoreText: {
+    fontSize: 10,
+    fontWeight: fontWeight.bold,
+    color: colors.textSecondary,
   },
   manageBtn: {
     minHeight: 32,
