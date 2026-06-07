@@ -3,40 +3,101 @@ import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 import { writeAuditLog } from "../utils/auditLog.js";
 import { EntityType, AuditAction } from "../generated/prisma/index.js";
+import { generateEmbedding } from "../utils/embeddings.js";
 
 export async function listItems(user, { shopId, search, page = 1, limit = 50 }) {
   await assertShopAccess(user, shopId);
 
-  const where = {
-    shopId,
-    status: "ACTIVE",
-    OR: search
-      ? [
-          { name: { contains: search, mode: "insensitive" } },
-          { sku: { contains: search, mode: "insensitive" } },
-        ]
-      : undefined,
-  };
-
   const skip = (page - 1) * limit;
-  const [items, total] = await Promise.all([
-    prisma.item.findMany({
-      where,
-      include: { category: true },
-      orderBy: { name: "asc" },
-      skip,
-      take: limit,
-    }),
-    prisma.item.count({ where }),
-  ]);
 
-  return {
-    items,
-    total,
-    page,
-    limit,
-    hasMore: skip + items.length < total,
-  };
+  if (search) {
+    const embedding = await generateEmbedding(search);
+    const vectorString = `[${embedding.join(',')}]`;
+    const likePattern = `%${search}%`;
+
+    // Hybrid SQL query combining name/sku ILIKE search and vector similarity ranking
+    const items = await prisma.$queryRaw`
+      SELECT 
+        i.id, i."shopId", i.name, i.sku, i."categoryId", i.unit,
+        i."defaultSellingPrice", i."minimumAllowedPrice", i."purchasePrice", i.mrp,
+        i."minimumStock", i."imageUrl", i.status, i."createdAt", i."updatedAt",
+        c.id as "category_id", c.name as "category_name", c.status as "category_status", 
+        c."createdAt" as "category_createdAt", c."updatedAt" as "category_updatedAt",
+        COALESCE(i.embedding <=> ${vectorString}::vector, 1.0) as distance,
+        (CASE WHEN i.sku ILIKE ${likePattern} THEN 0.0 ELSE 1.0 END) * 0.1 + 
+        (CASE WHEN i.name ILIKE ${likePattern} THEN 0.0 ELSE 1.0 END) * 0.2 + 
+        COALESCE(i.embedding <=> ${vectorString}::vector, 1.0) as score
+      FROM "Item" i
+      LEFT JOIN "ItemCategory" c ON i."categoryId" = c.id
+      WHERE i."shopId" = ${shopId} AND i.status = 'ACTIVE'
+      ORDER BY score ASC
+      LIMIT ${limit}
+      OFFSET ${skip};
+    `;
+
+    const total = await prisma.item.count({
+      where: { shopId, status: "ACTIVE" }
+    });
+
+    const formattedItems = items.map(item => {
+      const { category_id, category_name, category_status, category_createdAt, category_updatedAt, ...rest } = item;
+      return {
+        ...rest,
+        defaultSellingPrice: Number(item.defaultSellingPrice),
+        minimumAllowedPrice: item.minimumAllowedPrice ? Number(item.minimumAllowedPrice) : null,
+        purchasePrice: item.purchasePrice ? Number(item.purchasePrice) : null,
+        mrp: item.mrp ? Number(item.mrp) : null,
+        minimumStock: Number(item.minimumStock),
+        category: category_id ? {
+          id: category_id,
+          name: category_name,
+          status: category_status,
+          createdAt: category_createdAt,
+          updatedAt: category_updatedAt,
+        } : null
+      };
+    });
+
+    return {
+      items: formattedItems,
+      total,
+      page,
+      limit,
+      hasMore: skip + formattedItems.length < total,
+    };
+  } else {
+    // Normal non-search catalog listing
+    const where = {
+      shopId,
+      status: "ACTIVE",
+    };
+
+    const [items, total] = await Promise.all([
+      prisma.item.findMany({
+        where,
+        include: { category: true },
+        orderBy: { name: "asc" },
+        skip,
+        take: limit,
+      }),
+      prisma.item.count({ where }),
+    ]);
+
+    return {
+      items: items.map(item => ({
+        ...item,
+        defaultSellingPrice: Number(item.defaultSellingPrice),
+        minimumAllowedPrice: item.minimumAllowedPrice ? Number(item.minimumAllowedPrice) : null,
+        purchasePrice: item.purchasePrice ? Number(item.purchasePrice) : null,
+        mrp: item.mrp ? Number(item.mrp) : null,
+        minimumStock: Number(item.minimumStock),
+      })),
+      total,
+      page,
+      limit,
+      hasMore: skip + items.length < total,
+    };
+  }
 }
 
 export async function createCategory(user, data) {
@@ -59,33 +120,45 @@ export async function createItem(user, data) {
     }
   }
 
-  const item = await prisma.item.create({
-    data,
-  });
+  // Generate embedding for item name
+  const embedding = await generateEmbedding(data.name);
 
-  // Initial price history entry
-  if (data.defaultSellingPrice) {
-    await prisma.itemPriceHistory.create({
-      data: {
-        itemId: item.id,
-        oldPrice: 0,
-        newPrice: data.defaultSellingPrice,
-        priceType: "SELLING",
-        changedById: user.id
-      }
+  return prisma.$transaction(async (tx) => {
+    const item = await tx.item.create({
+      data,
     });
-  }
 
-  await writeAuditLog({
-    userId: user.id,
-    shopId: item.shopId,
-    action: AuditAction.CREATED,
-    entityType: EntityType.ITEM,
-    entityId: item.id,
-    newValueJson: item,
+    const vectorString = `[${embedding.join(',')}]`;
+    await tx.$executeRawUnsafe(
+      `UPDATE "Item" SET embedding = $1::vector WHERE id = $2`,
+      vectorString,
+      item.id
+    );
+
+    // Initial price history entry
+    if (data.defaultSellingPrice) {
+      await tx.itemPriceHistory.create({
+        data: {
+          itemId: item.id,
+          oldPrice: 0,
+          newPrice: data.defaultSellingPrice,
+          priceType: "SELLING",
+          changedById: user.id
+        }
+      });
+    }
+
+    await writeAuditLog({
+      userId: user.id,
+      shopId: item.shopId,
+      action: AuditAction.CREATED,
+      entityType: EntityType.ITEM,
+      entityId: item.id,
+      newValueJson: item,
+    });
+
+    return tx.item.findUnique({ where: { id: item.id } });
   });
-
-  return item;
 }
 
 export async function updateItem(user, id, data) {
@@ -100,11 +173,25 @@ export async function updateItem(user, id, data) {
     }
   }
 
+  let embedding = null;
+  if (data.name && data.name !== existing.name) {
+    embedding = await generateEmbedding(data.name);
+  }
+
   return prisma.$transaction(async (tx) => {
     const item = await tx.item.update({
       where: { id },
       data,
     });
+
+    if (embedding) {
+      const vectorString = `[${embedding.join(',')}]`;
+      await tx.$executeRawUnsafe(
+        `UPDATE "Item" SET embedding = $1::vector WHERE id = $2`,
+        vectorString,
+        item.id
+      );
+    }
 
     // Track price changes
     const priceTypes = [
@@ -138,7 +225,7 @@ export async function updateItem(user, id, data) {
       newValueJson: item,
     });
 
-    return item;
+    return tx.item.findUnique({ where: { id } });
   });
 }
 

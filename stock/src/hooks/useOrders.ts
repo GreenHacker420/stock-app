@@ -12,6 +12,7 @@ import {
   reportOrderShortage,
   createDmFromOrder,
   convertOrderToSale,
+  confirmOrder,
 } from "../api/client";
 
 export function useOrdersQuery() {
@@ -156,6 +157,21 @@ export function useConvertOrderToSaleMutation() {
         queryClient.invalidateQueries({ queryKey: ["current-cash-session", activeShopId] });
       }
       queryClient.invalidateQueries({ queryKey: ["order", variables.orderId] });
+    },
+  });
+}
+
+export function useConfirmOrderMutation() {
+  const token = useAuthStore((state) => state.token);
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (orderId: string) => confirmOrder(token ?? "", orderId),
+    onSuccess: (_, orderId) => {
+      if (activeShopId) {
+        queryClient.invalidateQueries({ queryKey: ["orders", activeShopId] });
+      }
+      queryClient.invalidateQueries({ queryKey: ["order", orderId] });
     },
   });
 }

@@ -15,33 +15,35 @@ import * as approvalService from "../services/approval.service.js";
 import * as rateChangeService from "../services/rateChange.service.js";
 import * as correctionService from "../services/correction.service.js";
 
-async function cleanDatabase() {
-  await prisma.inventoryReturnItem.deleteMany();
-  await prisma.inventoryReturn.deleteMany();
-  await prisma.stockReservation.deleteMany();
-  await prisma.paymentDetail.deleteMany();
-  await prisma.payment.deleteMany();
-  await prisma.saleItem.deleteMany();
-  await prisma.sale.deleteMany();
-  await prisma.deliveryMemoItem.deleteMany();
-  await prisma.deliveryMemo.deleteMany();
-  await prisma.dispatchItem.deleteMany();
-  await prisma.dispatch.deleteMany();
-  await prisma.packingTask.deleteMany();
-  await prisma.orderEvent.deleteMany();
-  await prisma.orderItem.deleteMany();
-  await prisma.order.deleteMany();
-  await prisma.stockLedger.deleteMany();
-  await prisma.stockBalance.deleteMany();
-  await prisma.itemPriceHistory.deleteMany();
-  await prisma.item.deleteMany();
-  await prisma.itemCategory.deleteMany();
-  await prisma.expense.deleteMany();
-  await prisma.approvalRequest.deleteMany();
-  await prisma.attendance.deleteMany();
-  await prisma.leaveRequest.deleteMany();
-  await prisma.cashSession.deleteMany();
-  await prisma.customer.deleteMany();
+async function cleanDatabase(shopId) {
+  if (!shopId) return;
+
+  await prisma.inventoryReturnItem.deleteMany({ where: { return: { shopId } } });
+  await prisma.inventoryReturn.deleteMany({ where: { shopId } });
+  await prisma.stockReservation.deleteMany({ where: { shopId } });
+  await prisma.paymentDetail.deleteMany({ where: { payment: { shopId } } });
+  await prisma.payment.deleteMany({ where: { shopId } });
+  await prisma.saleItem.deleteMany({ where: { sale: { shopId } } });
+  await prisma.sale.deleteMany({ where: { shopId } });
+  await prisma.deliveryMemoItem.deleteMany({ where: { deliveryMemo: { shopId } } });
+  await prisma.deliveryMemo.deleteMany({ where: { shopId } });
+  await prisma.dispatchItem.deleteMany({ where: { dispatch: { shopId } } });
+  await prisma.dispatch.deleteMany({ where: { shopId } });
+  await prisma.packingTask.deleteMany({ where: { shopId } });
+  await prisma.orderEvent.deleteMany({ where: { order: { shopId } } });
+  await prisma.orderItem.deleteMany({ where: { order: { shopId } } });
+  await prisma.order.deleteMany({ where: { shopId } });
+  await prisma.stockLedger.deleteMany({ where: { shopId } });
+  await prisma.stockBalance.deleteMany({ where: { shopId } });
+  await prisma.itemPriceHistory.deleteMany({ where: { item: { shopId } } });
+  await prisma.item.deleteMany({ where: { shopId } });
+  await prisma.itemCategory.deleteMany({ where: { shopId } });
+  await prisma.expense.deleteMany({ where: { shopId } });
+  await prisma.approvalRequest.deleteMany({ where: { shopId } });
+  await prisma.attendance.deleteMany({ where: { shopId } });
+  await prisma.leaveRequest.deleteMany({ where: { staff: { mobile: "7777777777" } } });
+  await prisma.cashSession.deleteMany({ where: { shopId } });
+  await prisma.customer.deleteMany({ where: { shopId } });
 
   // Clean up staff shop access and user last
   await prisma.staffShopAccess.deleteMany({ where: { staff: { mobile: "7777777777" } } });
@@ -49,10 +51,7 @@ async function cleanDatabase() {
 }
 
 async function getOrCreateTestEntities() {
-  // Ensure we have a default shop and user
-  let shop = await prisma.shop.findFirst();
-  let owner = await prisma.user.findFirst({ where: { role: "OWNER" } });
-
+  let owner = await prisma.user.findUnique({ where: { mobile: "8888888888" } });
   if (!owner) {
     owner = await prisma.user.create({
       data: {
@@ -64,6 +63,7 @@ async function getOrCreateTestEntities() {
     });
   }
 
+  let shop = await prisma.shop.findUnique({ where: { code: "TST" } });
   if (!shop) {
     shop = await prisma.shop.create({
       data: {
@@ -85,7 +85,7 @@ test.describe("ShopControl ERP Debt Ledger Integration Tests", () => {
     const entities = await getOrCreateTestEntities();
     shop = entities.shop;
     owner = entities.owner;
-    await cleanDatabase();
+    await cleanDatabase(shop.id);
 
     // Create staff member and shop access
     staff = await prisma.user.create({
@@ -116,7 +116,7 @@ test.describe("ShopControl ERP Debt Ledger Integration Tests", () => {
   });
 
   test.after(async () => {
-    await cleanDatabase();
+    await cleanDatabase(shop.id);
   });
 
   test("1. Opening Balance Onboarding", async () => {
@@ -255,5 +255,60 @@ test.describe("ShopControl ERP Debt Ledger Integration Tests", () => {
     // E. Verify sale is CANCELLED in database
     const updatedSale = await saleService.getSale(owner, sale.id);
     assert.strictEqual(updatedSale.saleStatus, "CANCELLED");
+  });
+
+  test("5. Hybrid Vector Search and Embedding Updates Flow", async () => {
+    // A. Create multiple items with different names
+    const item1 = await itemService.createItem(owner, {
+      shopId: shop.id,
+      name: "Toner Printer Laser Cartridge 12A",
+      unit: "pcs",
+      defaultSellingPrice: 1500,
+    });
+
+    const item2 = await itemService.createItem(owner, {
+      shopId: shop.id,
+      name: "Office Steel Chasis Frame",
+      unit: "pcs",
+      defaultSellingPrice: 400,
+    });
+
+    const item3 = await itemService.createItem(owner, {
+      shopId: shop.id,
+      name: "Heavy Duty Painting Roller Tool",
+      unit: "pcs",
+      defaultSellingPrice: 200,
+    });
+
+    // B. Query "toner" and assert item1 is ranked first (due to vector similarity and name contains)
+    const tonerSearch = await itemService.listItems(owner, {
+      shopId: shop.id,
+      search: "toner",
+    });
+
+    assert.ok(tonerSearch.items.length >= 1);
+    assert.strictEqual(tonerSearch.items[0].id, item1.id);
+
+    // C. Query "chasis" and assert item2 is ranked first
+    const chasisSearch = await itemService.listItems(owner, {
+      shopId: shop.id,
+      search: "chasis",
+    });
+
+    assert.ok(chasisSearch.items.length >= 1);
+    assert.strictEqual(chasisSearch.items[0].id, item2.id);
+
+    // D. Update item3 name to "Toner Ink Refill Bottle" and verify search for "toner" now ranks it highly
+    await itemService.updateItem(owner, item3.id, {
+      name: "Toner Ink Refill Bottle"
+    });
+
+    const updatedTonerSearch = await itemService.listItems(owner, {
+      shopId: shop.id,
+      search: "toner",
+    });
+
+    const topItemIds = updatedTonerSearch.items.slice(0, 2).map(it => it.id);
+    assert.ok(topItemIds.includes(item3.id));
   });
 });

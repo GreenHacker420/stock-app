@@ -2,7 +2,7 @@ import React, { useMemo, useState } from "react";
 import { View, StyleSheet, Pressable, Modal, ScrollView, TouchableWithoutFeedback } from "react-native";
 import { Avatar } from "@rneui/themed";
 import { Text, Icon } from "react-native-paper";
-import { NavigationContext } from "@react-navigation/native";
+import { useNavigation } from "@react-navigation/native";
 
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
@@ -21,7 +21,7 @@ type AppHeaderProps = {
 export function AppHeader({ title, subtitle, role, initials, showBack, hideAvatar }: AppHeaderProps) {
   const user = useAuthStore((state) => state.user);
   const { activeShopId, setActiveShopId } = useShopStore();
-  const navigation = React.useContext(NavigationContext);
+  const navigation = useNavigation();
   const shopsQuery = useShopsQuery();
   const [modalVisible, setModalVisible] = useState(false);
 
@@ -52,7 +52,11 @@ export function AppHeader({ title, subtitle, role, initials, showBack, hideAvata
       <View style={styles.leftSection}>
         {canGoBack && (
           <Pressable 
-            onPress={() => navigation?.goBack()}
+            onPress={() => {
+              if (navigation.canGoBack()) {
+                navigation.goBack();
+              }
+            }}
             style={({ pressed }) => [
               styles.backButton,
               pressed && styles.pressed

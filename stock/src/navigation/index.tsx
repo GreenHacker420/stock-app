@@ -39,6 +39,8 @@ import { Updates } from "./screens/Updates";
 import { UpiConfig } from "./screens/UpiConfig";
 import { WalkInSale } from "./screens/WalkInSale";
 import { CreateOrder } from "./screens/CreateOrder";
+import { OrderList } from "./screens/OrderList";
+import { OrderDetail } from "./screens/OrderDetail";
 
 import { colors } from "../theme";
 
@@ -287,7 +289,7 @@ const sharedStackScreens = {
     options: { title: "Orders to pack" },
   },
   OrderDetail: {
-    screen: GenericPlannedScreen,
+    screen: OrderDetail,
     options: { title: "Order detail" },
   },
   Packing: {
@@ -375,7 +377,7 @@ const sharedStackScreens = {
     options: { title: "Create order" },
   },
   OrderList: {
-    screen: GenericPlannedScreen,
+    screen: OrderList,
     options: { title: "Orders" },
   },
   RateChangeRequests: {

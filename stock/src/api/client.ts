@@ -94,6 +94,9 @@ export type Order = {
     quantityOrdered: string;
     quantityPacked: string;
     quantityDispatched: string;
+    rate: string;
+    discountAmount?: string;
+    lineTotal?: string;
     item: Item;
   }>;
 };
@@ -417,6 +420,10 @@ export async function fetchOrders(token: string, shopId: string) {
 
 export async function fetchOrder(token: string, id: string) {
   return apiRequest<Order>(`/orders/${id}`, { token });
+}
+
+export async function confirmOrder(token: string, id: string) {
+  return apiRequest(`/orders/${id}/confirm`, { method: "POST", token });
 }
 
 export async function createOrder(token: string, data: any) {

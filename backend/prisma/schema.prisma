@@ -462,6 +462,7 @@ model Item {
   minimumStock        Decimal      @default(0) @db.Decimal(12, 3)
   imageUrl            String?
   status              RecordStatus @default(ACTIVE)
+  embedding           Unsupported("vector(384)")?
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
 
