@@ -353,6 +353,10 @@ model Shop {
   code      String       @unique
   city      String
   address   String?
+  phone     String?
+  email     String?
+  gstin     String?
+  logo      String?
   ownerId   String
   upiId     String?
   upiName   String?
@@ -702,6 +706,7 @@ model Sale {
   balanceAmount         Decimal           @default(0) @db.Decimal(12, 2)
   paymentStatus         BillPaymentStatus @default(UNPAID)
   saleStatus            SaleStatus        @default(DRAFT)
+  customerSignature     String?
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt
   cancelledAt           DateTime?

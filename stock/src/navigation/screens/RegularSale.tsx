@@ -1,6 +1,6 @@
 import { useState, useMemo, memo, useCallback, useRef, useEffect } from "react";
 import { useNavigation } from "@react-navigation/native";
-import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Pressable, Modal, Alert } from "react-native";
+import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Pressable, Modal, Alert, Linking } from "react-native";
 import { Searchbar, Text, Icon, List, TextInput, Switch, SegmentedButtons, Divider } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "@tanstack/react-query";
@@ -377,6 +377,8 @@ export function RegularSale() {
   const [notes, setNotes] = useState("");
   const [isGstSale, setIsGstSale] = useState(false);
   const [customerSignature, setCustomerSignature] = useState<string | undefined>();
+  const [isSignatureModalVisible, setIsSignatureModalVisible] = useState(false);
+  const [signatureKey, setSignatureKey] = useState(0);
   const [scrollEnabled, setScrollEnabled] = useState(true);
 
   const customersQuery = useQuery({
@@ -838,13 +840,34 @@ export function RegularSale() {
                     <Text style={styles.signatureSub}>Amount being credited: {money(balance)}</Text>
                   </View>
                   
-                  <View style={styles.signaturePadContainer}>
-                     <SignaturePad 
-                        onSave={setCustomerSignature} 
-                        onClear={() => setCustomerSignature(undefined)} 
-                        onDrawingStateChange={(isDrawing) => setScrollEnabled(!isDrawing)}
-                     />
-                  </View>
+                  {customerSignature ? (
+                    <View style={styles.signatureCapturedContainer}>
+                      <View style={styles.signatureCapturedRow}>
+                        <Icon source="check-circle" size={20} color={colors.success} />
+                        <Text style={styles.signatureCapturedText}>Signature Captured Successfully</Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', gap: spacing.md, marginTop: spacing.md, width: '100%' }}>
+                        <Button 
+                          label="RE-DRAW SIGNATURE" 
+                          variant="ghost" 
+                          size="sm"
+                          icon={<Icon source="pencil" size={16} color={colors.textPrimary} />}
+                          onPress={() => setIsSignatureModalVisible(true)}
+                          style={{ flex: 1 }}
+                        />
+                      </View>
+                    </View>
+                  ) : (
+                    <View style={{ paddingVertical: spacing.md }}>
+                      <Button
+                        label="DRAW CUSTOMER SIGNATURE"
+                        variant="primary"
+                        icon={<Icon source="pencil" size={18} color="white" />}
+                        onPress={() => setIsSignatureModalVisible(true)}
+                        fullWidth
+                      />
+                    </View>
+                  )}
                   
                   <View style={styles.infoBox}>
                      <Icon source="information" size={16} color={colors.info} />
@@ -900,13 +923,47 @@ export function RegularSale() {
                 )}
               </View>
               
-              <Button
-                label="SHARE RECEIPT (PDF)"
-                variant="ghost"
-                icon={<Icon source="share-variant" size={18} color={colors.primary} />}
-                onPress={async () => {
-                  await shareSaleInvoicePdf({
-                    sale: completedSale || {
+              <View style={styles.successActionsRow}>
+                <Button
+                  label="SHARE RECEIPT (PDF)"
+                  variant="ghost"
+                  icon={<Icon source="share-variant" size={18} color={colors.primary} />}
+                  onPress={async () => {
+                    await shareSaleInvoicePdf({
+                      sale: completedSale || {
+                        saleNumber: (saleMutation.data as any)?.saleNumber || "N/A",
+                        totalAmount: String(cartTotal),
+                        paidAmount: String(amountPaid || (paymentType === "CREDIT" ? 0 : cartTotal)),
+                        balanceAmount: String(isCredit ? balance : 0),
+                        isWalkin: false,
+                        createdAt: new Date().toISOString(),
+                        customer: selectedCustomer,
+                        items: cartArray.map(i => ({
+                          id: i.item.id,
+                          quantity: String(i.quantity),
+                          rate: String(i.customRate !== undefined ? i.customRate : Number(i.item.defaultSellingPrice)),
+                          totalAmount: String(i.quantity * (i.customRate !== undefined ? i.customRate : Number(i.item.defaultSellingPrice))),
+                          item: i.item,
+                        })),
+                        notes: notes || null,
+                        payments: paymentType !== "CREDIT" || (amountPaid && Number(amountPaid) > 0) ? [{
+                          paymentMode: paymentType === "CREDIT" ? partialPaymentMode : paymentType,
+                          amount: String(amountPaid === "" ? cartTotal : amountPaid),
+                          receivedAt: new Date().toISOString()
+                        }] : []
+                      },
+                      shop: activeShop,
+                      signatureBase64: customerSignature,
+                    });
+                  }}
+                  style={styles.halfBtn}
+                />
+                <Button
+                  label="WHATSAPP SHARE"
+                  variant="success"
+                  icon={<Icon source="whatsapp" size={18} color="white" />}
+                  onPress={() => {
+                    const saleObj = completedSale || {
                       saleNumber: (saleMutation.data as any)?.saleNumber || "N/A",
                       totalAmount: String(cartTotal),
                       paidAmount: String(amountPaid || (paymentType === "CREDIT" ? 0 : cartTotal)),
@@ -914,26 +971,32 @@ export function RegularSale() {
                       isWalkin: false,
                       createdAt: new Date().toISOString(),
                       customer: selectedCustomer,
-                      items: cartArray.map(i => ({
-                        id: i.item.id,
-                        quantity: String(i.quantity),
-                        rate: String(i.customRate !== undefined ? i.customRate : Number(i.item.defaultSellingPrice)),
-                        totalAmount: String(i.quantity * (i.customRate !== undefined ? i.customRate : Number(i.item.defaultSellingPrice))),
-                        item: i.item,
-                      })),
-                      notes: notes || null,
-                      payments: paymentType !== "CREDIT" || (amountPaid && Number(amountPaid) > 0) ? [{
-                        paymentMode: paymentType === "CREDIT" ? partialPaymentMode : paymentType,
-                        amount: String(amountPaid === "" ? cartTotal : amountPaid),
-                        receivedAt: new Date().toISOString()
-                      }] : []
-                    },
-                    shop: activeShop,
-                    signatureBase64: customerSignature,
-                  });
-                }}
-                style={{ ...styles.newSaleBtn, marginBottom: spacing.md }}
-              />
+                    };
+                    const shopName = activeShop?.name || "Vardaman Sales";
+                    const text = `*${shopName}*\n` +
+                      `Invoice: *#${saleObj.saleNumber}*\n` +
+                      `Date: ${new Date(saleObj.createdAt).toLocaleDateString("en-IN")}\n` +
+                      `Customer: ${saleObj.isWalkin ? "Walk-in" : saleObj.customer?.name || "Customer"}\n` +
+                      `Total Amount: *₹${Number(saleObj.totalAmount).toLocaleString("en-IN")}*\n` +
+                      `Paid: ₹${Number(saleObj.paidAmount).toLocaleString("en-IN")}\n` +
+                      `Balance: *₹${Number(saleObj.balanceAmount).toLocaleString("en-IN")}*\n` +
+                      `Status: *${Number(saleObj.balanceAmount) <= 0 ? "PAID" : "CREDIT"}*\n\n` +
+                      `Thank you for your business!`;
+                    
+                    let url = `https://wa.me/?text=${encodeURIComponent(text)}`;
+                    if (saleObj.customer?.phone) {
+                      const cleanPhone = saleObj.customer.phone.replace(/\D/g, "");
+                      const finalPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
+                      url = `https://wa.me/${finalPhone}?text=${encodeURIComponent(text)}`;
+                    }
+
+                    Linking.openURL(url).catch(() => {
+                      Alert.alert("Error", "Could not open WhatsApp.");
+                    });
+                  }}
+                  style={styles.halfBtn}
+                />
+              </View>
 
               <Button
                 label="START NEW SALE"
@@ -944,6 +1007,7 @@ export function RegularSale() {
                   setAmountPaid("");
                   setNotes("");
                   setCustomerSignature(undefined);
+                  setSignatureKey(prev => prev + 1);
                   setIsGstSale(false);
                   saleMutation.reset();
                   setScrollEnabled(true);
@@ -1012,6 +1076,58 @@ export function RegularSale() {
           </View>
         )}
       </KeyboardAvoidingView>
+
+      {/* Full Screen Signature Modal */}
+      <Modal
+        visible={isSignatureModalVisible}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => setIsSignatureModalVisible(false)}
+      >
+        <View style={styles.modalFullScreenContainer}>
+          <SignaturePad 
+            key={signatureKey}
+            hideHeaderFooter={true}
+            onSave={setCustomerSignature} 
+            onClear={() => setCustomerSignature(undefined)} 
+            onDrawingStateChange={(isDrawing) => setScrollEnabled(!isDrawing)}
+          />
+
+          <View style={styles.floatingHeader}>
+            <View>
+              <Text style={styles.floatingTitle}>Authorize Credit Sale</Text>
+              <Text style={styles.floatingSubtitle}>Amount: {money(balance)}</Text>
+            </View>
+            <Pressable 
+              onPress={() => setIsSignatureModalVisible(false)} 
+              style={styles.floatingCloseBtn}
+            >
+              <Icon source="close" size={24} color={colors.textPrimary} />
+            </Pressable>
+          </View>
+
+          {customerSignature ? (
+            <View style={styles.floatingBottomBar}>
+              <Button
+                label="CLEAR"
+                variant="ghost"
+                onPress={() => {
+                  setCustomerSignature(undefined);
+                  setSignatureKey(prev => prev + 1);
+                }}
+                style={styles.floatingBtnClear}
+              />
+              <Button
+                label="SAVE & CONTINUE"
+                variant="success"
+                icon={<Icon source="check" size={18} color="white" />}
+                onPress={() => setIsSignatureModalVisible(false)}
+                style={styles.floatingBtnContinue}
+              />
+            </View>
+          ) : null}
+        </View>
+      </Modal>
     </Screen>
   );
 }
@@ -1704,5 +1820,99 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.72,
+  },
+  modalFullScreenContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'white',
+    zIndex: 9999,
+  },
+  floatingHeader: {
+    position: 'absolute',
+    top: Platform.OS === 'ios' ? 50 : 20,
+    left: spacing.lg,
+    right: spacing.lg,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    ...shadow.sm,
+  },
+  floatingTitle: {
+    fontSize: 16,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  floatingSubtitle: {
+    fontSize: 12,
+    color: colors.primary,
+    fontWeight: fontWeight.medium,
+    marginTop: 2,
+  },
+  floatingCloseBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.surfaceOffset,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  floatingBottomBar: {
+    position: 'absolute',
+    bottom: Platform.OS === 'ios' ? 40 : 20,
+    left: spacing.lg,
+    right: spacing.lg,
+    flexDirection: 'row',
+    gap: spacing.md,
+    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    ...shadow.md,
+  },
+  floatingBtnClear: {
+    flex: 1,
+  },
+  floatingBtnContinue: {
+    flex: 1.5,
+  },
+  successActionsRow: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    width: '100%',
+    marginBottom: spacing.md,
+  },
+  halfBtn: {
+    flex: 1,
+  },
+  signatureCapturedContainer: {
+    backgroundColor: 'rgba(22, 163, 74, 0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(22, 163, 74, 0.15)',
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    marginVertical: spacing.md,
+    alignItems: 'center',
+  },
+  signatureCapturedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  signatureCapturedText: {
+    fontSize: 14,
+    fontWeight: fontWeight.bold,
+    color: colors.success,
   },
 });

@@ -66,6 +66,7 @@ export async function createSale(user, data) {
         totalAmount: totalVal,
         balanceAmount: totalVal,
         saleStatus: "CONFIRMED",
+        customerSignature: data.customerSignature || null,
         items: {
           create: items.map((item) => ({
             itemId: item.itemId,

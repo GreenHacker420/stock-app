@@ -14,6 +14,8 @@ const paymentMode = z.enum(["CASH", "UPI", "CARD", "BANK_TRANSFER", "CHEQUE", "C
 const listSchema = z.object({
   query: z.object({
     shopId: z.string().min(1),
+    customerId: z.string().optional(),
+    unlinked: z.string().transform(val => val === "true").or(z.boolean()).optional(),
     paymentMode: paymentMode.optional(),
     verificationStatus: z.enum(["RECORDED", "PENDING_VERIFICATION", "VERIFIED", "MISMATCH", "CANCELLED", "REFUNDED"]).optional(),
   }),
@@ -51,11 +53,27 @@ const noteSchema = z.object({
   query: z.object({}).optional(),
 });
 
+const attachSchema = z.object({
+  params: idParams,
+  body: z.object({
+    saleId: z.string().optional(),
+    dmId: z.string().optional(),
+    orderId: z.string().optional(),
+  }).refine((data) => {
+    const refs = [data.saleId, data.dmId, data.orderId].filter(Boolean);
+    return refs.length === 1;
+  }, {
+    message: "Must provide exactly one target (saleId, dmId, or orderId)",
+  }),
+  query: z.object({}).optional(),
+});
+
 router.use(requireAuth);
 router.get("/", requirePermission(PERMISSIONS.PAYMENT_VIEW_OWN), validate(listSchema), paymentController.listPayments);
 router.get("/:id", requirePermission(PERMISSIONS.PAYMENT_VIEW_OWN), validate(z.object({ params: idParams })), paymentController.getPayment);
 router.post("/", requirePermission(PERMISSIONS.PAYMENT_CREATE), validate(addSchema), paymentController.addPayment);
 router.post("/:id/verify", requirePermission(PERMISSIONS.PAYMENT_VERIFY), validate(noteSchema), paymentController.verifyPayment);
 router.post("/:id/mark-mismatch", requirePermission(PERMISSIONS.PAYMENT_VERIFY), validate(noteSchema), paymentController.markMismatch);
+router.post("/:id/attach", requirePermission(PERMISSIONS.PAYMENT_CREATE), validate(attachSchema), paymentController.attachPayment);
 
 export default router;

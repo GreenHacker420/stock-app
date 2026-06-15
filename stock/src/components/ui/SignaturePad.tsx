@@ -8,9 +8,39 @@ interface SignaturePadProps {
   onSave: (signatureBase64: string) => void;
   onClear?: () => void;
   onDrawingStateChange?: (isDrawing: boolean) => void;
+  hideHeaderFooter?: boolean;
 }
 
-export function SignaturePad({ onSave, onClear, onDrawingStateChange }: SignaturePadProps) {
+const calculateSignatureViewBox = (paths: string[]): string => {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  paths.forEach(path => {
+    const matches = path.match(/[-+]?[0-9]*\.?[0-9]+/g);
+    if (matches) {
+      for (let i = 0; i < matches.length; i += 2) {
+        const x = parseFloat(matches[i]);
+        const y = parseFloat(matches[i+1]);
+        if (!isNaN(x) && !isNaN(y)) {
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
+      }
+    }
+  });
+  if (minX === Infinity || minY === Infinity || maxX === -Infinity || maxY === -Infinity) {
+    return "0 0 300 150";
+  }
+  const width = maxX - minX;
+  const height = maxY - minY;
+  const padding = 10;
+  return `${minX - padding} ${minY - padding} ${width + padding * 2} ${height + padding * 2}`;
+};
+
+export function SignaturePad({ onSave, onClear, onDrawingStateChange, hideHeaderFooter }: SignaturePadProps) {
   const [paths, setPaths] = useState<string[]>([]);
   const [currentPath, setCurrentPath] = useState<string | null>(null);
 
@@ -45,7 +75,8 @@ export function SignaturePad({ onSave, onClear, onDrawingStateChange }: Signatur
           const next = [...pathsRef.current, finalPath];
           pathsRef.current = next;
           setPaths(next);
-          onSave(JSON.stringify(next));
+          const viewBox = calculateSignatureViewBox(next);
+          onSave(JSON.stringify({ paths: next, viewBox }));
           currentPathRef.current = null;
           setCurrentPath(null);
         }
@@ -67,6 +98,44 @@ export function SignaturePad({ onSave, onClear, onDrawingStateChange }: Signatur
     if (onClear) onClear();
     onSave(""); // Clear parent state too
   };
+
+  if (hideHeaderFooter) {
+    return (
+      <View 
+        style={[styles.pad, { backgroundColor: '#ffffff' }]} 
+        {...stablePanResponder.panHandlers}
+      >
+        <Svg style={styles.svg}>
+          {paths.map((path, index) => (
+            <Path
+              key={index}
+              d={path}
+              stroke={colors.textPrimary}
+              strokeWidth={3}
+              fill="none"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          ))}
+          {currentPath ? (
+            <Path
+              d={currentPath}
+              stroke={colors.textPrimary}
+              strokeWidth={3}
+              fill="none"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          ) : null}
+        </Svg>
+        {paths.length === 0 && !currentPath && (
+          <View style={styles.placeholder}>
+            <Text style={styles.placeholderText}>Sign here</Text>
+          </View>
+        )}
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>

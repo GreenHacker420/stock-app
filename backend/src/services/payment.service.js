@@ -18,7 +18,7 @@ async function getPaymentWithAccess(user, id) {
   return payment;
 }
 
-export async function listPayments(user, { shopId, customerId, paymentMode, status }) {
+export async function listPayments(user, { shopId, customerId, paymentMode, status, unlinked }) {
   await assertShopAccess(user, shopId);
 
   return prisma.payment.findMany({
@@ -28,6 +28,11 @@ export async function listPayments(user, { shopId, customerId, paymentMode, stat
       paymentMode: paymentMode || undefined,
       status: status || undefined,
       receivedById: user.role === "STAFF" ? user.id : undefined,
+      ...(unlinked ? {
+        saleId: null,
+        dmId: null,
+        orderId: null
+      } : {})
     },
     include: { details: true, customer: true, receivedBy: { select: { id: true, name: true } } },
     orderBy: { receivedAt: "desc" },
@@ -153,5 +158,85 @@ export async function voidPayment(user, id, { reason } = {}) {
     });
 
     return payment;
+  });
+}
+
+export async function attachPayment(user, id, { saleId, dmId, orderId }) {
+  const payment = await prisma.payment.findUnique({ where: { id } });
+  if (!payment) throw new ApiError(404, "Payment not found");
+  
+  await assertShopAccess(user, payment.shopId);
+
+  if (payment.saleId || payment.dmId || payment.orderId) {
+    throw new ApiError(400, "Payment is already attached to an invoice");
+  }
+
+  const refs = [saleId, dmId, orderId].filter(Boolean);
+  if (refs.length !== 1) {
+    throw new ApiError(400, "Must provide exactly one target (saleId, dmId, or orderId)");
+  }
+
+  return prisma.$transaction(async (tx) => {
+    // 1. Update the payment with the reference
+    const updatedPayment = await tx.payment.update({
+      where: { id },
+      data: {
+        saleId: saleId || undefined,
+        dmId: dmId || undefined,
+        orderId: orderId || undefined,
+      }
+    });
+
+    // 2. If it is a Sale, recalculate paidAmount, balanceAmount, paymentStatus, and saleStatus
+    if (saleId) {
+      const sale = await tx.sale.findUnique({
+        where: { id: saleId }
+      });
+      if (!sale) throw new ApiError(404, "Sale not found");
+
+      const allPayments = await tx.payment.findMany({
+        where: { saleId, status: { not: "CANCELLED" } }
+      });
+      const totalPaid = allPayments.reduce((sum, p) => sum + Number(p.amount), 0);
+      const balance = Number(sale.totalAmount) - totalPaid;
+      const status = balance <= 0 ? "PAID" : (totalPaid > 0 ? "PARTIALLY_PAID" : "UNPAID");
+
+      await tx.sale.update({
+        where: { id: saleId },
+        data: {
+          paidAmount: totalPaid,
+          balanceAmount: balance,
+          paymentStatus: status,
+          saleStatus: status === "PAID" ? "PAID" : sale.saleStatus
+        }
+      });
+    }
+
+    // 3. If it is a DeliveryMemo, recalculate paidAmount and balanceAmount
+    if (dmId) {
+      const dm = await tx.deliveryMemo.findUnique({
+        where: { id: dmId }
+      });
+      if (!dm) throw new ApiError(404, "DM not found");
+
+      const allPayments = await tx.payment.findMany({
+        where: { dmId, status: { not: "CANCELLED" } }
+      });
+      const totalPaid = allPayments.reduce((sum, p) => sum + Number(p.amount), 0);
+      const balance = Number(dm.estimatedAmount) - totalPaid;
+      const status = balance <= 0 ? "PAID" : (totalPaid > 0 ? "PARTIALLY_PAID" : "UNPAID");
+
+      await tx.deliveryMemo.update({
+        where: { id: dmId },
+        data: {
+          paidAmount: totalPaid,
+          balanceAmount: balance,
+          paymentStatus: status,
+          status: status === "PAID" ? "PAID" : dm.status
+        }
+      });
+    }
+
+    return updatedPayment;
   });
 }

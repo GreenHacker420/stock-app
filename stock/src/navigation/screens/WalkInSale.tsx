@@ -7,7 +7,8 @@ import {
   Pressable, 
   TextInput as RNTextInput,
   ScrollView,
-  Alert
+  Alert,
+  Linking
 } from "react-native";
 import { Searchbar, Text, Icon, TextInput, SegmentedButtons, List, Divider } from "react-native-paper";
 import { useNavigation } from "@react-navigation/native";
@@ -766,6 +767,48 @@ export function WalkInSale() {
                           }]
                         },
                         shop: selectedShop,
+                      });
+                    }}
+                    style={styles.receiptActionBtn}
+                  />
+                  <Button
+                    label="WhatsApp"
+                    variant="ghost"
+                    icon="whatsapp"
+                    onPress={() => {
+                      const saleObj = completedSale || {
+                        saleNumber: completedSaleNumber || "N/A",
+                        totalAmount: String(cartTotal),
+                        paidAmount: String(cartTotal),
+                        balanceAmount: "0",
+                        isWalkin: !customerId,
+                        createdAt: new Date().toISOString(),
+                        customer: customerId ? selectedCustomer : null,
+                      };
+                      const shopName = selectedShop?.name || "Vardaman Sales";
+                      const text = `*${shopName}*\n` +
+                        `Invoice: *#${saleObj.saleNumber}*\n` +
+                        `Date: ${new Date(saleObj.createdAt).toLocaleDateString("en-IN")}\n` +
+                        `Customer: ${saleObj.isWalkin ? "Walk-in" : saleObj.customer?.name || "Customer"}\n` +
+                        `Total Amount: *₹${Number(saleObj.totalAmount).toLocaleString("en-IN")}*\n` +
+                        `Paid: ₹${Number(saleObj.paidAmount).toLocaleString("en-IN")}\n` +
+                        `Balance: *₹${Number(saleObj.balanceAmount).toLocaleString("en-IN")}*\n` +
+                        `Status: *PAID*\n\n` +
+                        `Thank you for your business!`;
+                      
+                      let url = `https://wa.me/?text=${encodeURIComponent(text)}`;
+                      if (saleObj.customer?.phone) {
+                        const cleanPhone = saleObj.customer.phone.replace(/\D/g, "");
+                        const finalPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
+                        url = `https://wa.me/${finalPhone}?text=${encodeURIComponent(text)}`;
+                      } else if (customerPhone) {
+                        const cleanPhone = customerPhone.replace(/\D/g, "");
+                        const finalPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
+                        url = `https://wa.me/${finalPhone}?text=${encodeURIComponent(text)}`;
+                      }
+
+                      Linking.openURL(url).catch(() => {
+                        Alert.alert("Error", "Could not open WhatsApp.");
                       });
                     }}
                     style={styles.receiptActionBtn}

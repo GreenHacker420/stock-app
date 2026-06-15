@@ -29,3 +29,9 @@ export const markMismatch = asyncHandler(async (req, res) => {
   emitShopEvent(req, payment.shopId, REALTIME_EVENTS.PAYMENT_UPDATED, { paymentId: payment.id, action: "mismatch" });
   res.json({ success: true, data: payment });
 });
+
+export const attachPayment = asyncHandler(async (req, res) => {
+  const payment = await paymentService.attachPayment(req.user, req.validated.params.id, req.validated.body);
+  emitShopEvent(req, payment.shopId, REALTIME_EVENTS.PAYMENT_UPDATED, { paymentId: payment.id, action: "attached" });
+  res.json({ success: true, data: payment });
+});

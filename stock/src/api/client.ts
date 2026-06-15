@@ -16,6 +16,11 @@ export type Shop = {
   city: string;
   openingCash: string;
   openingStockLocked: boolean;
+  address?: string | null;
+  phone?: string | null;
+  email?: string | null;
+  gstin?: string | null;
+  logo?: string | null;
   upiId?: string | null;
   upiName?: string | null;
 };
@@ -232,6 +237,7 @@ export type Sale = {
   gstInvoiceNumber?: string | null;
   gstInvoiceGeneratedAt?: string | null;
   notes?: string | null;
+  customerSignature?: string | null;
 };
 
 export interface CreateItemPayload {
@@ -563,7 +569,17 @@ export async function fetchItemRateSuggestion(token: string, itemId: string, cus
 export async function fetchPayments(token: string, shopId: string, options: any = {}) {
   let url = `/payments?shopId=${encodeURIComponent(shopId)}`;
   if (options.verificationStatus) url += `&verificationStatus=${options.verificationStatus}`;
+  if (options.customerId) url += `&customerId=${encodeURIComponent(options.customerId)}`;
+  if (options.unlinked !== undefined) url += `&unlinked=${options.unlinked}`;
   return apiRequest<Payment[]>(url, { token });
+}
+
+export async function attachPayment(token: string, paymentId: string, data: { saleId?: string; dmId?: string; orderId?: string }) {
+  return apiRequest(`/payments/${paymentId}/attach`, {
+    method: "POST",
+    token,
+    body: JSON.stringify(data),
+  });
 }
 
 export async function verifyPayment(token: string, paymentId: string, note?: string) {

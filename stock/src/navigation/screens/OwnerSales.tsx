@@ -1,11 +1,13 @@
 import React, { useMemo, useState } from "react";
-import { View, StyleSheet, Pressable, ScrollView, Alert } from "react-native";
+import { View, StyleSheet, Pressable, ScrollView, Alert, Linking } from "react-native";
 import { Searchbar, Divider, Text, Icon } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
 import { useRoute } from "@react-navigation/native";
+import Svg, { Path } from "react-native-svg";
 
 import { useSalesQuery, useSaleQuery } from "../../hooks/useSales";
+import { usePaymentsQuery, useAttachPaymentMutation } from "../../hooks/usePayments";
 import { type Sale } from "../../api/client";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
@@ -22,6 +24,35 @@ import { shareSaleInvoicePdf } from "../../utils/pdf";
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 
+const getSignatureViewBox = (paths: string[]): string => {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  paths.forEach(path => {
+    const matches = path.match(/[-+]?[0-9]*\.?[0-9]+/g);
+    if (matches) {
+      for (let i = 0; i < matches.length; i += 2) {
+        const x = parseFloat(matches[i]);
+        const y = parseFloat(matches[i+1]);
+        if (!isNaN(x) && !isNaN(y)) {
+          if (x < minX) minX = x;
+          if (x > maxX) maxX = x;
+          if (y < minY) minY = y;
+          if (y > maxY) maxY = y;
+        }
+      }
+    }
+  });
+  if (minX === Infinity || minY === Infinity || maxX === -Infinity || maxY === -Infinity) {
+    return "0 0 300 150";
+  }
+  const width = maxX - minX;
+  const height = maxY - minY;
+  const padding = 10;
+  return `${minX - padding} ${minY - padding} ${width + padding * 2} ${height + padding * 2}`;
+};
+
 export function SalesList() {
   const [search, setSearch] = useState("");
   const [debouncedSearch] = useDebounce(search, 300);
@@ -36,8 +67,8 @@ export function SalesList() {
     let data = allSales;
     if (debouncedSearch) {
       const q = debouncedSearch.toLowerCase();
-      data = data.filter(s => 
-        s.saleNumber.toLowerCase().includes(q) || 
+      data = data.filter(s =>
+        s.saleNumber.toLowerCase().includes(q) ||
         (s.customer?.name || "").toLowerCase().includes(q)
       );
     }
@@ -99,9 +130,9 @@ export function SalesList() {
                       <Text style={styles.customerName}>{item.isWalkin ? "Walk-in Customer" : item.customer?.name}</Text>
                       <Text style={styles.staffBilledText}>Billed by: {item.staff?.name || "System"}</Text>
                     </View>
-                    <StatusPill 
-                      label={item.paymentStatus || "PENDING"} 
-                      tone={item.paymentStatus === 'PAID' ? 'green' : 'amber'} 
+                    <StatusPill
+                      label={item.paymentStatus || "PENDING"}
+                      tone={item.paymentStatus === 'PAID' ? 'green' : 'amber'}
                     />
                   </View>
                   <Divider style={styles.divider} />
@@ -132,16 +163,23 @@ export function SalesList() {
 export function SaleDetail() {
   const route = useRoute<any>();
   const saleId = route.params?.id;
-  
+
   const { activeShopId } = useShopStore();
   const shopsQuery = useShopsQuery();
-  const activeShop = useMemo(() => 
+  const activeShop = useMemo(() =>
     shopsQuery.data?.find(s => s.id === activeShopId),
     [shopsQuery.data, activeShopId]
   );
 
   const saleQuery = useSaleQuery(saleId);
   const sale = saleQuery.data as (Sale & { staff?: { name: string } | null }) | undefined;
+
+  const unlinkedPaymentsQuery = usePaymentsQuery(activeShopId || undefined, {
+    customerId: sale?.customerId ? (sale.customerId as string) : undefined,
+    unlinked: true,
+  });
+
+  const attachPaymentMutation = useAttachPaymentMutation();
 
   const [sharing, setSharing] = useState(false);
 
@@ -157,143 +195,277 @@ export function SaleDetail() {
     setSharing(false);
   };
 
+  const handleWhatsAppShare = () => {
+    const shopName = activeShop?.name || "Vardaman Sales";
+    const text = `*${shopName}*\n` +
+      `Invoice: *#${sale.saleNumber}*\n` +
+      `Date: ${new Date(sale.createdAt).toLocaleDateString("en-IN")}\n` +
+      `Customer: ${sale.isWalkin ? "Walk-in" : sale.customer?.name || "Customer"}\n` +
+      `Total Amount: *₹${Number(sale.totalAmount).toLocaleString("en-IN")}*\n` +
+      `Paid: ₹${Number(sale.paidAmount).toLocaleString("en-IN")}\n` +
+      `Balance: *₹${Number(sale.balanceAmount).toLocaleString("en-IN")}*\n` +
+      `Status: *${sale.paymentStatus}*\n\n` +
+      `Thank you for your business!`;
+    
+    let url = `https://wa.me/?text=${encodeURIComponent(text)}`;
+    if (sale.customer?.phone) {
+      const cleanPhone = sale.customer.phone.replace(/\D/g, "");
+      const finalPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
+      url = `https://wa.me/${finalPhone}?text=${encodeURIComponent(text)}`;
+    }
+
+    Linking.openURL(url).catch(() => {
+      Alert.alert("Error", "Could not open WhatsApp.");
+    });
+  };
+
   return (
     <Screen edges={['top', 'left', 'right']}>
       <AppHeader title={`Sale #${sale.saleNumber}`} subtitle="Transaction Details" showBack />
-      
+
       <ScrollView contentContainerStyle={styles.detailScroll} showsVerticalScrollIndicator={false}>
         <View style={styles.detailCard}>
-           <View style={styles.detailRow}>
-              <View style={styles.flex1}>
-                 <Text style={styles.customerNameBig}>{sale.isWalkin ? "Walk-in Customer" : sale.customer?.name}</Text>
-                 <Text style={styles.dateText}>
-                   Date: {new Date(sale.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
-                 </Text>
-                 <Text style={styles.billedByText}>Billed by: <Text style={styles.boldText}>{sale.staff?.name || "System"}</Text></Text>
+          <View style={styles.detailRow}>
+            <View style={styles.flex1}>
+              <Text style={styles.customerNameBig}>{sale.isWalkin ? "Walk-in Customer" : sale.customer?.name}</Text>
+              <Text style={styles.dateText}>
+                Date: {new Date(sale.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+              </Text>
+              <Text style={styles.billedByText}>Billed by: <Text style={styles.boldText}>{sale.staff?.name || "System"}</Text></Text>
+            </View>
+            <StatusPill label={sale.paymentStatus || "PENDING"} tone={sale.paymentStatus === 'PAID' ? 'green' : 'amber'} />
+          </View>
+
+          <Divider style={styles.detailDivider} />
+
+          <View style={styles.amountBox}>
+            <Text style={styles.amountLabel}>Total Sale Value</Text>
+            <Text style={styles.amountValue}>{money(sale.totalAmount)}</Text>
+          </View>
+
+          {sale.isGstRequired && (
+            <View style={styles.gstBox}>
+              <Icon source="file-percent-outline" size={20} color={colors.warning} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.gstTitle}>GST Invoice Required</Text>
+                <Text style={styles.gstDesc}>
+                  {sale.gstInvoiceNumber ? `Invoice: ${sale.gstInvoiceNumber}` : "Pending entry in Tally"}
+                </Text>
               </View>
-              <StatusPill label={sale.paymentStatus || "PENDING"} tone={sale.paymentStatus === 'PAID' ? 'green' : 'amber'} />
-           </View>
-
-           <Divider style={styles.detailDivider} />
-
-           <View style={styles.amountBox}>
-              <Text style={styles.amountLabel}>Total Sale Value</Text>
-              <Text style={styles.amountValue}>{money(sale.totalAmount)}</Text>
-           </View>
-
-           {sale.isGstRequired && (
-             <View style={styles.gstBox}>
-                <Icon source="file-percent-outline" size={20} color={colors.warning} />
-                <View style={{ flex: 1 }}>
-                   <Text style={styles.gstTitle}>GST Invoice Required</Text>
-                   <Text style={styles.gstDesc}>
-                      {sale.gstInvoiceNumber ? `Invoice: ${sale.gstInvoiceNumber}` : "Pending entry in Tally"}
-                   </Text>
-                </View>
-             </View>
-           )}
+            </View>
+          )}
         </View>
 
         <Section title="Items Summary">
-           <View style={styles.itemsCard}>
-              {sale.items?.map((item: any, idx: number) => {
-                const isPriceModified = Number(item.rate) !== Number(item.item?.defaultSellingPrice);
-                return (
-                  <View key={item.id}>
-                    <View style={styles.itemRow}>
-                       <View style={{ flex: 1 }}>
-                          <Text style={styles.itemName}>{item.item.name}</Text>
-                          <Text style={styles.itemSub}>
-                            {item.quantity} {item.item.unit} @ {money(item.rate)}
-                            {isPriceModified && (
-                              <Text style={styles.priceModifiedText}>
-                                {" "}• List: {money(item.item?.defaultSellingPrice)}
-                              </Text>
-                            )}
+          <View style={styles.itemsCard}>
+            {sale.items?.map((item: any, idx: number) => {
+              const isPriceModified = Number(item.rate) !== Number(item.item?.defaultSellingPrice);
+              return (
+                <View key={item.id}>
+                  <View style={styles.itemRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.itemName}>{item.item.name}</Text>
+                      <Text style={styles.itemSub}>
+                        {item.quantity} {item.item.unit} @ {money(item.rate)}
+                        {isPriceModified && (
+                          <Text style={styles.priceModifiedText}>
+                            {" "}• List: {money(item.item?.defaultSellingPrice)}
                           </Text>
-                       </View>
-                       <Text style={styles.itemTotal}>{money(Number(item.quantity) * Number(item.rate))}</Text>
+                        )}
+                      </Text>
                     </View>
-                    {idx < (sale.items?.length ?? 0) - 1 && <Divider style={styles.divider} />}
+                    <Text style={styles.itemTotal}>{money(Number(item.quantity) * Number(item.rate))}</Text>
                   </View>
-                );
-              })}
-           </View>
+                  {idx < (sale.items?.length ?? 0) - 1 && <Divider style={styles.divider} />}
+                </View>
+              );
+            })}
+          </View>
         </Section>
 
         <Section title="Payment Streams & Verifications">
-           <View style={styles.itemsCard}>
-              {sale.payments?.map((p: any, idx: number) => {
-                const collectedBy = p.receivedBy?.name ? `Collected by: ${p.receivedBy.name}` : "";
-                const verifiedBy = p.verifiedBy?.name ? `Verified by: ${p.verifiedBy.name}` : "";
-                
-                const upiRef = p.details?.upiReference ? `UPI Ref: ${p.details.upiReference}` : null;
-                const bankUtr = p.details?.bankUtr ? `UTR: ${p.details.bankUtr}` : null;
-                const cheque = p.details?.chequeNumber ? `Cheque #${p.details.chequeNumber} (${p.details.chequeBankName || "N/A"})` : null;
+          <View style={styles.itemsCard}>
+            {sale.payments?.map((p: any, idx: number) => {
+              const collectedBy = p.receivedBy?.name ? `Collected by: ${p.receivedBy.name}` : "";
+              const verifiedBy = p.verifiedBy?.name ? `Verified by: ${p.verifiedBy.name}` : "";
 
-                return (
+              const upiRef = p.details?.upiReference ? `UPI Ref: ${p.details.upiReference}` : null;
+              const bankUtr = p.details?.bankUtr ? `UTR: ${p.details.bankUtr}` : null;
+              const cheque = p.details?.chequeNumber ? `Cheque #${p.details.chequeNumber} (${p.details.chequeBankName || "N/A"})` : null;
+
+              return (
+                <View key={p.id} style={styles.paymentRowBlock}>
+                  <View style={styles.itemRow}>
+                    <View style={{ flex: 1, gap: 2 }}>
+                      <Text style={styles.itemName}>{p.paymentMode} Payment</Text>
+                      <Text style={styles.itemSub}>
+                        {new Date(p.receivedAt).toLocaleString("en-IN")}
+                      </Text>
+
+                      {collectedBy ? <Text style={styles.paymentMetaText}>{collectedBy}</Text> : null}
+
+                      {upiRef ? <Text style={styles.paymentDetailsText}>{upiRef}</Text> : null}
+                      {bankUtr ? <Text style={styles.paymentDetailsText}>{bankUtr}</Text> : null}
+                      {cheque ? <Text style={styles.paymentDetailsText}>{cheque}</Text> : null}
+
+                      {verifiedBy ? (
+                        <Text style={styles.paymentVerificationText}>
+                          {verifiedBy} {p.verifiedAt ? `on ${new Date(p.verifiedAt).toLocaleString("en-IN")}` : ""}
+                        </Text>
+                      ) : null}
+
+                      {p.notes ? (
+                        <View style={styles.paymentNoteCard}>
+                          <Text style={styles.paymentNoteText}>Notes: {p.notes}</Text>
+                        </View>
+                      ) : null}
+                    </View>
+                    <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
+                      <Text style={styles.itemTotal}>{money(p.amount)}</Text>
+                      <View style={{ marginTop: 4 }}>
+                        <StatusPill
+                          label={p.status || p.verificationStatus}
+                          tone={p.status === 'VERIFIED' || p.verificationStatus === 'VERIFIED' ? 'green' : 'amber'}
+                        />
+                      </View>
+                    </View>
+                  </View>
+                  {idx < (sale.payments?.length ?? 0) - 1 && <Divider style={styles.divider} />}
+                </View>
+              );
+            })}
+            {sale.payments?.length === 0 && <Text style={styles.emptyText}>No payments recorded yet.</Text>}
+          </View>
+        </Section>
+
+        {sale.customerSignature ? (() => {
+          try {
+            const parsed = JSON.parse(sale.customerSignature);
+            let signaturePaths: string[] = [];
+            let signatureViewBox = "0 0 300 150";
+            if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+              signaturePaths = parsed.paths || [];
+              signatureViewBox = parsed.viewBox || "0 0 300 150";
+            } else if (Array.isArray(parsed)) {
+              signaturePaths = parsed;
+              signatureViewBox = getSignatureViewBox(parsed);
+            }
+            if (signaturePaths.length > 0) {
+              return (
+                <Section title="Customer Signature">
+                  <View style={styles.signatureDisplayCard}>
+                    <Svg style={styles.signatureSvg} viewBox={signatureViewBox}>
+                      {signaturePaths.map((path: string, index: number) => (
+                        <Path
+                          key={index}
+                          d={path}
+                          stroke={colors.textPrimary}
+                          strokeWidth={3}
+                          fill="none"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        />
+                      ))}
+                    </Svg>
+                    <Text style={styles.signatureDisplayHint}>
+                      Acknowledgment signature collected at billing
+                    </Text>
+                  </View>
+                </Section>
+              );
+            }
+          } catch (e) {
+            console.error("Failed to parse signature:", e);
+          }
+          return null;
+        })() : null}
+
+        {sale.paymentStatus !== "PAID" && (
+          <Section title="Attach Existing Payment">
+            <View style={styles.itemsCard}>
+              {unlinkedPaymentsQuery.isLoading ? (
+                <Text style={styles.emptyText}>Loading unlinked payments...</Text>
+              ) : !unlinkedPaymentsQuery.data || unlinkedPaymentsQuery.data.length === 0 ? (
+                <Text style={styles.emptyText}>No unlinked payments found for this customer.</Text>
+              ) : (
+                unlinkedPaymentsQuery.data.map((p: any, idx: number) => (
                   <View key={p.id} style={styles.paymentRowBlock}>
                     <View style={styles.itemRow}>
-                       <View style={{ flex: 1, gap: 2 }}>
-                          <Text style={styles.itemName}>{p.paymentMode} Payment</Text>
-                          <Text style={styles.itemSub}>
-                            {new Date(p.receivedAt).toLocaleString("en-IN")}
-                          </Text>
-                          
-                          {collectedBy ? <Text style={styles.paymentMetaText}>{collectedBy}</Text> : null}
-                          
-                          {upiRef ? <Text style={styles.paymentDetailsText}>{upiRef}</Text> : null}
-                          {bankUtr ? <Text style={styles.paymentDetailsText}>{bankUtr}</Text> : null}
-                          {cheque ? <Text style={styles.paymentDetailsText}>{cheque}</Text> : null}
-
-                          {verifiedBy ? (
-                            <Text style={styles.paymentVerificationText}>
-                              {verifiedBy} {p.verifiedAt ? `on ${new Date(p.verifiedAt).toLocaleString("en-IN")}` : ""}
-                            </Text>
-                          ) : null}
-
-                          {p.notes ? (
-                            <View style={styles.paymentNoteCard}>
-                              <Text style={styles.paymentNoteText}>Notes: {p.notes}</Text>
-                            </View>
-                          ) : null}
-                       </View>
-                       <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
-                          <Text style={styles.itemTotal}>{money(p.amount)}</Text>
-                          <View style={{ marginTop: 4 }}>
-                            <StatusPill 
-                              label={p.status || p.verificationStatus} 
-                              tone={p.status === 'VERIFIED' || p.verificationStatus === 'VERIFIED' ? 'green' : 'amber'} 
-                            />
-                          </View>
-                       </View>
+                      <View style={{ flex: 1, gap: 2 }}>
+                        <Text style={styles.itemName}>{p.paymentMode} Payment</Text>
+                        <Text style={styles.itemSub}>
+                          {new Date(p.receivedAt).toLocaleString("en-IN")}
+                        </Text>
+                        {p.notes ? <Text style={styles.paymentMetaText}>Notes: {p.notes}</Text> : null}
+                      </View>
+                      <View style={{ alignItems: 'flex-end', justifyContent: 'center', gap: 6 }}>
+                        <Text style={styles.itemTotal}>{money(p.amount)}</Text>
+                        <Button
+                          label="ATTACH"
+                          variant="ghost"
+                          loading={attachPaymentMutation.isPending && attachPaymentMutation.variables?.paymentId === p.id}
+                          disabled={attachPaymentMutation.isPending}
+                          onPress={() => {
+                            Alert.alert(
+                              "Attach Payment",
+                              `Are you sure you want to attach this payment of ${money(p.amount)} to this sale?`,
+                              [
+                                { text: "Cancel", style: "cancel" },
+                                {
+                                  text: "Attach",
+                                  onPress: () => {
+                                    attachPaymentMutation.mutate({
+                                      paymentId: p.id,
+                                      saleId: sale.id
+                                    }, {
+                                      onSuccess: () => {
+                                        Alert.alert("Success", "Payment successfully attached!");
+                                      },
+                                      onError: (err: any) => {
+                                        Alert.alert("Error", err.message || "Failed to attach payment");
+                                      }
+                                    });
+                                  }
+                                }
+                              ]
+                            );
+                          }}
+                        />
+                      </View>
                     </View>
-                    {idx < (sale.payments?.length ?? 0) - 1 && <Divider style={styles.divider} />}
+                    {idx < (unlinkedPaymentsQuery.data?.length ?? 0) - 1 && <Divider style={styles.divider} />}
                   </View>
-                );
-              })}
-              {sale.payments?.length === 0 && <Text style={styles.emptyText}>No payments recorded yet.</Text>}
-           </View>
-        </Section>
-        
+                ))
+              )}
+            </View>
+          </Section>
+        )}
+
         {sale.notes && (
           <Section title="Operational Notes">
-             <View style={styles.notesCard}>
-                <Text style={styles.notesText}>{sale.notes}</Text>
-             </View>
+            <View style={styles.notesCard}>
+              <Text style={styles.notesText}>{sale.notes}</Text>
+            </View>
           </Section>
         )}
 
         <View style={styles.shareBtnContainer}>
-           <Button
-             label="SHARE INVOICE (PDF)"
-             variant="primary"
-             icon="share-variant"
-             loading={sharing}
-             disabled={sharing}
-             onPress={handleSharePdf}
-             style={styles.shareBtn}
-           />
+          <Button
+            label="PDF INVOICE"
+            variant="primary"
+            icon={<Icon source="file-pdf-box" size={18} color={colors.textInverse} />}
+            loading={sharing}
+            disabled={sharing}
+            onPress={handleSharePdf}
+            style={styles.halfBtn}
+          />
+          <Button
+            label="WHATSAPP SHARE"
+            variant="success"
+            icon={<Icon source="whatsapp" size={18} color="white" />}
+            onPress={handleWhatsAppShare}
+            style={styles.halfBtn}
+          />
         </View>
       </ScrollView>
     </Screen>
@@ -351,7 +523,28 @@ const styles = StyleSheet.create({
   emptyText: { textAlign: 'center', padding: spacing.xl, color: colors.textMuted, fontSize: 12 },
   notesCard: { backgroundColor: colors.surfaceOffset, padding: spacing.lg, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border },
   notesText: { fontSize: 13, color: colors.textSecondary, lineHeight: 18 },
-  shareBtnContainer: { marginTop: spacing.lg, marginBottom: spacing.xl },
-  shareBtn: { height: 50 },
-  flex1: { flex: 1 }
+  shareBtnContainer: { flexDirection: 'row', gap: spacing.md, marginTop: spacing.lg, marginBottom: spacing.xl },
+  halfBtn: { flex: 1, height: 50 },
+  flex1: { flex: 1 },
+  signatureDisplayCard: {
+    backgroundColor: 'white',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: 140,
+    ...shadow.sm,
+  },
+  signatureSvg: {
+    width: '100%',
+    height: 100,
+  },
+  signatureDisplayHint: {
+    fontSize: 10,
+    color: colors.textMuted,
+    fontStyle: 'italic',
+    marginTop: 4,
+  }
 });

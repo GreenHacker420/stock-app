@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { View, StyleSheet } from "react-native";
+import { View, StyleSheet, ScrollView } from "react-native";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRoute } from "@react-navigation/native";
 import { Button, TextInput, HelperText } from "react-native-paper";
@@ -24,6 +24,10 @@ export function CreateEditShop() {
   const [code, setCode] = useState("");
   const [city, setCity] = useState("");
   const [address, setAddress] = useState("");
+  const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
+  const [gstin, setGstin] = useState("");
+  const [logo, setLogo] = useState("");
   const [openingCash, setOpeningCash] = useState("0");
   const [error, setError] = useState("");
 
@@ -32,7 +36,11 @@ export function CreateEditShop() {
       setName(shop.name);
       setCode(shop.code);
       setCity(shop.city);
-      setAddress(""); 
+      setAddress(shop.address || ""); 
+      setPhone(shop.phone || "");
+      setEmail(shop.email || "");
+      setGstin(shop.gstin || "");
+      setLogo(shop.logo || "");
       setOpeningCash(String(shop.openingCash || "0"));
     }
   }, [shop]);
@@ -43,7 +51,11 @@ export function CreateEditShop() {
         return updateShop(token ?? "", shop.id, {
           name,
           city,
-          address: address || undefined,
+          address: address || null,
+          phone: phone || null,
+          email: email || null,
+          gstin: gstin || null,
+          logo: logo || null,
         });
       } else {
         return createShop(token ?? "", {
@@ -51,6 +63,10 @@ export function CreateEditShop() {
           code,
           city,
           address: address || undefined,
+          phone: phone || undefined,
+          email: email || undefined,
+          gstin: gstin || undefined,
+          logo: logo || undefined,
           openingCash: Number(openingCash || 0),
         });
       }
@@ -71,93 +87,140 @@ export function CreateEditShop() {
       <AppHeader
         title={isEditing ? "Edit Shop" : "Add Shop"}
         subtitle={isEditing ? `Modify details for ${shop?.name}` : "Establish a new retail or wholesale counter."}
+        showBack
       />
 
-      <Section title="Shop credentials">
-        <View style={styles.formContainer}>
-          <TextInput
-            mode="outlined"
-            label="Shop name"
-            value={name}
-            onChangeText={(text) => {
-              setName(text);
-              setError("");
-            }}
-            placeholder="e.g. Nagpur Branch"
-            outlineStyle={styles.inputOutline}
-            activeOutlineColor={colors.primary}
-          />
-
-          <TextInput
-            mode="outlined"
-            label="Shop unique code"
-            value={code}
-            onChangeText={(text) => {
-              setCode(text.toUpperCase());
-              setError("");
-            }}
-            disabled={isEditing}
-            placeholder="e.g. NGP-01"
-            outlineStyle={styles.inputOutline}
-            activeOutlineColor={colors.primary}
-          />
-
-          <TextInput
-            mode="outlined"
-            label="City"
-            value={city}
-            onChangeText={(text) => {
-              setCity(text);
-              setError("");
-            }}
-            placeholder="e.g. Nagpur"
-            outlineStyle={styles.inputOutline}
-            activeOutlineColor={colors.primary}
-          />
-
-          <TextInput
-            mode="outlined"
-            label="Address (Optional)"
-            value={address}
-            onChangeText={setAddress}
-            placeholder="e.g. Near Metro Station"
-            multiline
-            numberOfLines={3}
-            outlineStyle={styles.inputOutline}
-            activeOutlineColor={colors.primary}
-          />
-
-          {!isEditing && (
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: spacing.xl }} showsVerticalScrollIndicator={false}>
+        <Section title="Shop credentials">
+          <View style={styles.formContainer}>
             <TextInput
               mode="outlined"
-              label="Opening cash drawer amount"
-              value={openingCash}
+              label="Shop name"
+              value={name}
               onChangeText={(text) => {
-                setOpeningCash(text.replace(/[^0-9.]/g, ""));
+                setName(text);
                 setError("");
               }}
-              keyboardType="numeric"
-              placeholder="0"
+              placeholder="e.g. Nagpur Branch"
               outlineStyle={styles.inputOutline}
               activeOutlineColor={colors.primary}
             />
-          )}
 
-          {error ? <HelperText type="error">{error}</HelperText> : null}
+            <TextInput
+              mode="outlined"
+              label="Shop unique code"
+              value={code}
+              onChangeText={(text) => {
+                setCode(text.toUpperCase());
+                setError("");
+              }}
+              disabled={isEditing}
+              placeholder="e.g. NGP-01"
+              outlineStyle={styles.inputOutline}
+              activeOutlineColor={colors.primary}
+            />
 
-          <Button
-            mode="contained"
-            disabled={!isValid || mutation.isPending}
-            loading={mutation.isPending}
-            style={styles.submitButton}
-            contentStyle={styles.buttonContent}
-            buttonColor={colors.primary}
-            onPress={() => mutation.mutate()}
-          >
-            {isEditing ? "Save changes" : "Create shop"}
-          </Button>
-        </View>
-      </Section>
+            <TextInput
+              mode="outlined"
+              label="City"
+              value={city}
+              onChangeText={(text) => {
+                setCity(text);
+                setError("");
+              }}
+              placeholder="e.g. Nagpur"
+              outlineStyle={styles.inputOutline}
+              activeOutlineColor={colors.primary}
+            />
+
+            <TextInput
+              mode="outlined"
+              label="Address (Optional)"
+              value={address}
+              onChangeText={setAddress}
+              placeholder="e.g. Near Metro Station"
+              multiline
+              numberOfLines={3}
+              outlineStyle={styles.inputOutline}
+              activeOutlineColor={colors.primary}
+            />
+
+            <TextInput
+              mode="outlined"
+              label="Phone (Optional)"
+              value={phone}
+              onChangeText={setPhone}
+              placeholder="e.g. +91 98765 43210"
+              keyboardType="phone-pad"
+              outlineStyle={styles.inputOutline}
+              activeOutlineColor={colors.primary}
+            />
+
+            <TextInput
+              mode="outlined"
+              label="Email (Optional)"
+              value={email}
+              onChangeText={setEmail}
+              placeholder="e.g. info@abc.com"
+              keyboardType="email-address"
+              outlineStyle={styles.inputOutline}
+              activeOutlineColor={colors.primary}
+            />
+
+            <TextInput
+              mode="outlined"
+              label="GSTIN (Optional)"
+              value={gstin}
+              onChangeText={setGstin}
+              placeholder="e.g. 27AAAAA1111A1Z1"
+              autoCapitalize="characters"
+              outlineStyle={styles.inputOutline}
+              activeOutlineColor={colors.primary}
+            />
+
+            <TextInput
+              mode="outlined"
+              label="Logo URL (Optional)"
+              value={logo}
+              onChangeText={setLogo}
+              placeholder="e.g. https://domain.com/logo.png"
+              keyboardType="url"
+              outlineStyle={styles.inputOutline}
+              activeOutlineColor={colors.primary}
+            />
+
+            {!isEditing && (
+              <TextInput
+                mode="outlined"
+                label="Opening cash drawer amount"
+                value={openingCash}
+                onChangeText={(text) => {
+                  setOpeningCash(text.replace(/[^0-9.]/g, ""));
+                  setError("");
+                }}
+                keyboardType="numeric"
+                placeholder="0"
+                outlineStyle={styles.inputOutline}
+                activeOutlineColor={colors.primary}
+              />
+            )}
+
+            {error ? <HelperText type="error">{error}</HelperText> : null}
+
+            <Button
+              mode="contained"
+              disabled={!isValid || mutation.isPending}
+              loading={mutation.isPending}
+              style={styles.submitButton}
+              contentStyle={styles.buttonContent}
+              buttonColor={colors.primary}
+              onPress={() => mutation.mutate()}
+            >
+              {isEditing ? "Save changes" : "Create shop"}
+            </Button>
+          </View>
+        </Section>
+      </ScrollView>
     </Screen>
   );
 }

@@ -105,6 +105,15 @@ export function StaffWork() {
             />
 
             <WorkflowItem
+              title="Log expense"
+              subtitle="Log daily outgoings (tea, freight, porter, misc)."
+              icon="cash-minus"
+              iconBg="rgba(239, 68, 68, 0.06)"
+              iconColor="#ef4444"
+              onPress={() => navigate("Expenses")}
+            />
+
+            <WorkflowItem
               title="Close day"
               subtitle="Expected cash, actual cash, mismatch reason."
               icon="cash-check"

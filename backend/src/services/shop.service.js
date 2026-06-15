@@ -47,6 +47,12 @@ export async function createShop(user, data) {
       code: data.code,
       city: data.city,
       address: data.address,
+      phone: data.phone,
+      email: data.email,
+      gstin: data.gstin,
+      logo: data.logo,
+      upiId: data.upiId,
+      upiName: data.upiName,
       ownerId: user.id,
     },
   });

@@ -150,7 +150,7 @@ export async function applyPayments(tx, { user, shopId, saleId, dmId, orderId, c
 export async function increaseCustomerDebt(tx, customerId, amount) {
   if (!customerId) return;
   const customer = await tx.customer.findUnique({ where: { id: customerId } });
-  if (!customer) return;
+  if (!customer || customer.type === "WALK_IN") return;
   
   const amt = money(amount);
   const outAmt = add(customer.outstandingAmount, amt);
@@ -169,7 +169,7 @@ export async function increaseCustomerDebt(tx, customerId, amount) {
 export async function decreaseCustomerDebt(tx, customerId, amount) {
   if (!customerId) return;
   const customer = await tx.customer.findUnique({ where: { id: customerId } });
-  if (!customer) return;
+  if (!customer || customer.type === "WALK_IN") return;
 
   const amt = money(amount);
   const outAmt = sub(customer.outstandingAmount, amt);
