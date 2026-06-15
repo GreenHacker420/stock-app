@@ -33,7 +33,7 @@ export function CloseDay() {
   }, [shopId, shopsQuery.data]);
 
   const currentQuery = useQuery({
-    queryKey: ["cash-session", shopId],
+    queryKey: ["current-cash-session", shopId],
     queryFn: () => fetchCurrentCashSession(token ?? "", shopId ?? ""),
     enabled: !!token && !!shopId,
   });
@@ -55,7 +55,10 @@ export function CloseDay() {
         differenceReason: isMismatched ? differenceReason : undefined,
       }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["cash-session", shopId] });
+      queryClient.invalidateQueries({ queryKey: ["current-cash-session", shopId] });
+      queryClient.invalidateQueries({ queryKey: ["cash-sessions", shopId] });
+      queryClient.invalidateQueries({ queryKey: ["owner-dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["staff-today-summary", shopId] });
       setSuccessVisible(true);
     },
   });

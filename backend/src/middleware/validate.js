@@ -8,6 +8,7 @@ export const validate = (schema) => (req, _res, next) => {
   });
 
   if (!parsed.success) {
+    console.log("Validation Error:", JSON.stringify(parsed.error.flatten(), null, 2));
     return next(new ApiError(400, "Validation failed", parsed.error.flatten()));
   }
 

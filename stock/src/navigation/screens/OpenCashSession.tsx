@@ -25,7 +25,7 @@ export function OpenCashSession() {
   });
 
   const currentQuery = useQuery({
-    queryKey: ["cash-session", activeShopId],
+    queryKey: ["current-cash-session", activeShopId],
     queryFn: () => fetchCurrentCashSession(token ?? "", activeShopId ?? ""),
     enabled: !!token && !!activeShopId,
   });
@@ -33,7 +33,8 @@ export function OpenCashSession() {
   const openMutation = useMutation({
     mutationFn: () => openCashSession(token ?? "", activeShopId ?? ""),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["cash-session", activeShopId] });
+      queryClient.invalidateQueries({ queryKey: ["current-cash-session", activeShopId] });
+      queryClient.invalidateQueries({ queryKey: ["cash-sessions", activeShopId] });
       queryClient.invalidateQueries({ queryKey: ["owner-dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["staff-today-summary", activeShopId] });
     },

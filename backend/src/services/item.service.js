@@ -58,8 +58,10 @@ export async function listItems(user, { shopId, search, page = 1, limit = 50 }) 
       };
     });
 
+    const itemsWithStock = await attachAvailableStock(shopId, formattedItems);
+
     return {
-      items: formattedItems,
+      items: itemsWithStock,
       total,
       page,
       limit,
@@ -83,21 +85,71 @@ export async function listItems(user, { shopId, search, page = 1, limit = 50 }) 
       prisma.item.count({ where }),
     ]);
 
+    const formattedList = items.map(item => ({
+      ...item,
+      defaultSellingPrice: Number(item.defaultSellingPrice),
+      minimumAllowedPrice: item.minimumAllowedPrice ? Number(item.minimumAllowedPrice) : null,
+      purchasePrice: item.purchasePrice ? Number(item.purchasePrice) : null,
+      mrp: item.mrp ? Number(item.mrp) : null,
+      minimumStock: Number(item.minimumStock),
+    }));
+
+    const itemsWithStock = await attachAvailableStock(shopId, formattedList);
+
     return {
-      items: items.map(item => ({
-        ...item,
-        defaultSellingPrice: Number(item.defaultSellingPrice),
-        minimumAllowedPrice: item.minimumAllowedPrice ? Number(item.minimumAllowedPrice) : null,
-        purchasePrice: item.purchasePrice ? Number(item.purchasePrice) : null,
-        mrp: item.mrp ? Number(item.mrp) : null,
-        minimumStock: Number(item.minimumStock),
-      })),
+      items: itemsWithStock,
       total,
       page,
       limit,
       hasMore: skip + items.length < total,
     };
   }
+}
+
+async function attachAvailableStock(shopId, itemsList) {
+  if (!itemsList || itemsList.length === 0) return itemsList;
+  const itemIds = itemsList.map(i => i.id);
+
+  // 1. Get physical stock (quantityIn - quantityOut) from stock ledger
+  const ledgerSums = await prisma.stockLedger.groupBy({
+    by: ["itemId"],
+    where: { itemId: { in: itemIds }, shopId },
+    _sum: { quantityIn: true, quantityOut: true }
+  });
+
+  const physicalMap = new Map(
+    ledgerSums.map(row => [
+      row.itemId,
+      Number(row._sum.quantityIn || 0) - Number(row._sum.quantityOut || 0)
+    ])
+  );
+
+  // 2. Get reserved stock from active reservations
+  const reservationSums = await prisma.stockReservation.groupBy({
+    by: ["itemId"],
+    where: { itemId: { in: itemIds }, shopId, status: "ACTIVE" },
+    _sum: { reservedQty: true }
+  });
+
+  const reservedMap = new Map(
+    reservationSums.map(row => [
+      row.itemId,
+      Number(row._sum.reservedQty || 0)
+    ])
+  );
+
+  // 3. Map to each item
+  return itemsList.map(item => {
+    const physical = physicalMap.get(item.id) || 0;
+    const reserved = reservedMap.get(item.id) || 0;
+    const available = physical - reserved;
+    const computedVal = Math.max(0, available);
+    return {
+      ...item,
+      availableStock: computedVal,
+      currentStock: computedVal
+    };
+  });
 }
 
 export async function createCategory(user, data) {

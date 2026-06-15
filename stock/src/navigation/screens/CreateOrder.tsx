@@ -258,8 +258,8 @@ export function CreateOrder() {
                     key={item.id}
                     title={item.name}
                     titleStyle={styles.dropdownTitle}
-                    description={`Rate: ₹${item.defaultSellingPrice} • SKU: ${item.sku || "N/A"}`}
-                    descriptionStyle={styles.dropdownDesc}
+                    description={`Rate: ₹${item.defaultSellingPrice} • SKU: ${item.sku || "N/A"} • ${item.availableStock && Number(item.availableStock) > 0 ? `Stock: ${item.availableStock}` : 'OUT OF STOCK'}`}
+                    descriptionStyle={[styles.dropdownDesc, (!item.availableStock || Number(item.availableStock) <= 0) && { color: colors.danger, fontWeight: fontWeight.bold }]}
                     onPress={() => handleSelectItem(item)}
                     right={props => <List.Icon {...props} icon="plus-circle-outline" color={colors.primary} />}
                     style={styles.dropdownItem}

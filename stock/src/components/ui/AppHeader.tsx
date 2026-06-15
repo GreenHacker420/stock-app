@@ -2,13 +2,12 @@ import React, { useMemo, useState } from "react";
 import { View, StyleSheet, Pressable, Modal, ScrollView, TouchableWithoutFeedback } from "react-native";
 import { Avatar } from "@rneui/themed";
 import { Text, Icon } from "react-native-paper";
-import { NavigationContext, NavigationContainerRefContext } from "@react-navigation/native";
+import { useNavigation } from "@react-navigation/native";
 
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
 import { useShopsQuery } from "../../hooks/useShops";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
-import { navigationRef as globalNavigationRef } from "../../navigation/navigation-ref";
 
 type AppHeaderProps = {
   title: string;
@@ -16,19 +15,16 @@ type AppHeaderProps = {
   role?: "OWNER" | "STAFF";
   initials?: string;
   showBack?: boolean;
+  onBack?: () => void;
   hideAvatar?: boolean;
   fallbackRoute?: string;
 };
 
-export function AppHeader({ title, subtitle, role, initials, showBack, hideAvatar, fallbackRoute }: AppHeaderProps) {
+export function AppHeader({ title, subtitle, role, initials, showBack, onBack, hideAvatar, fallbackRoute }: AppHeaderProps) {
   const user = useAuthStore((state) => state.user);
   const { activeShopId, setActiveShopId } = useShopStore();
   
-  const navigationContext = React.use(NavigationContext);
-  const rootContext = React.use(NavigationContainerRefContext);
-  
-  const navigation = navigationContext ?? rootContext ?? globalNavigationRef;
-  
+  const navigation = useNavigation<any>();
   const shopsQuery = useShopsQuery();
   const [modalVisible, setModalVisible] = useState(false);
 
@@ -37,7 +33,7 @@ export function AppHeader({ title, subtitle, role, initials, showBack, hideAvata
     [shopsQuery.data, activeShopId]
   );
 
-  const hasHistory = navigation ? navigation.canGoBack() : false;
+  const hasHistory = navigation.canGoBack();
   const canGoBack = showBack ?? (hasHistory || !!fallbackRoute);
 
   const displayInitials = useMemo(() => {
@@ -61,16 +57,19 @@ export function AppHeader({ title, subtitle, role, initials, showBack, hideAvata
         {canGoBack && (
           <Pressable 
             onPress={() => {
-              if (hasHistory && navigation) {
+              if (onBack) {
+                onBack();
+              } else if (hasHistory) {
                 navigation.goBack();
-              } else if (fallbackRoute && navigation) {
-                (navigation as any).navigate(fallbackRoute);
+              } else if (fallbackRoute) {
+                navigation.navigate(fallbackRoute);
               }
             }}
             style={({ pressed }) => [
               styles.backButton,
               pressed && styles.pressed
             ]}
+            hitSlop={15}
           >
             <Icon source="arrow-left" size={24} color={colors.textPrimary} />
           </Pressable>
@@ -207,6 +206,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: -spacing.sm,
+    zIndex: 100,
   },
   titleContainer: {
     flex: 1,

@@ -37,6 +37,8 @@ export type Item = {
   minimumStock: string;
   status?: "ACTIVE" | "INACTIVE";
   category?: ItemCategory | null;
+  availableStock?: number;
+  currentStock?: number;
 };
 
 export type StockLevel = {
@@ -252,13 +254,14 @@ export interface UpdateItemPayload extends Partial<CreateItemPayload> {
 export interface CreateSalePayload {
   shopId: string;
   customerId?: string;
+  customerInfo?: { name?: string; phone?: string; email?: string };
   isWalkin?: boolean;
   dueDate?: string;
   items: Array<{ itemId: string; quantity: number; rate: number; discountAmount?: number }>;
   payments?: Array<{ paymentMode: string; amount: number; referenceNumber?: string; notes?: string }>;
   notes?: string;
   customerSignature?: string;
-  isGstRequired?: boolean;
+  gstRequired?: boolean;
 }
 
 export interface StockEntryPayload {

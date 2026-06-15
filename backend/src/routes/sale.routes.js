@@ -11,7 +11,7 @@ const idParams = z.object({ id: z.string().min(1) });
 
 const paymentSchema = z.object({
   paymentMode: z.enum(["CASH", "UPI", "CARD", "BANK_TRANSFER", "CHEQUE"]),
-  amount: z.coerce.number().positive(),
+  amount: z.coerce.number().nonnegative(),
   referenceNumber: z.string().optional(),
   proofImageUrl: z.string().optional(),
   notes: z.string().optional(),
@@ -20,8 +20,8 @@ const paymentSchema = z.object({
 
 const saleItemSchema = z.object({
   itemId: z.string().min(1),
-  quantity: z.coerce.number().positive(),
-  rate: z.coerce.number().positive(),
+  quantity: z.coerce.number().nonnegative(),
+  rate: z.coerce.number().nonnegative(),
   discountAmount: z.coerce.number().nonnegative().optional(),
 });
 
@@ -42,6 +42,7 @@ const createSchema = z.object({
     payments: z.array(paymentSchema).optional(),
     customerSignature: z.string().optional(),
     gstRequired: z.boolean().optional(),
+    notes: z.string().optional(),
   }),
 });
 

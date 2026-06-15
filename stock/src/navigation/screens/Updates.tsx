@@ -195,7 +195,7 @@ function ShopPortfolioCard({ shop, onManage, isOwner, token }: { shop: Shop, onM
   });
 
   const currentSessionQuery = useQuery({
-    queryKey: ["currentCashSession", shop.id],
+    queryKey: ["current-cash-session", shop.id],
     queryFn: () => fetchCurrentCashSession(token, shop.id),
     enabled: !!token,
   });
