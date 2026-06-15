@@ -14,30 +14,12 @@ export function SignaturePad({ onSave, onClear, onDrawingStateChange }: Signatur
   const [paths, setPaths] = useState<string[]>([]);
   const [currentPath, setCurrentPath] = useState<string | null>(null);
 
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: (evt) => {
-        const { locationX, locationY } = evt.nativeEvent;
-        // Use relative coordinates for SVG
-        const path = `M${locationX} ${locationY}`;
-        setCurrentPath(path);
-      },
-      onPanResponderMove: (evt) => {
-        const { locationX, locationY } = evt.nativeEvent;
-        setCurrentPath((prev) => prev ? `${prev} L${locationX} ${locationY}` : `M${locationX} ${locationY}`);
-      },
-      onPanResponderRelease: () => {
-        // We need to capture the currentPath value into the paths array
-        // but currentPath might be updated asynchronously. 
-        // We'll use a functional update to get the latest state safely.
-      },
-    })
-  ).current;
-
-  // We handle the release logic with an effect or by keeping track of the path in a ref for immediate access
   const currentPathRef = useRef<string | null>(null);
+  const pathsRef = useRef<string[]>([]);
+
+  useEffect(() => {
+    pathsRef.current = paths;
+  }, [paths]);
   
   // Create a customized pan responder that updates refs for stability
   const stablePanResponder = useRef(
@@ -60,12 +42,10 @@ export function SignaturePad({ onSave, onClear, onDrawingStateChange }: Signatur
       onPanResponderRelease: () => {
         if (currentPathRef.current) {
           const finalPath = currentPathRef.current;
-          setPaths((prev) => {
-            const next = [...prev, finalPath];
-            // Notify parent about the change
-            onSave(JSON.stringify(next));
-            return next;
-          });
+          const next = [...pathsRef.current, finalPath];
+          pathsRef.current = next;
+          setPaths(next);
+          onSave(JSON.stringify(next));
           currentPathRef.current = null;
           setCurrentPath(null);
         }
@@ -81,6 +61,7 @@ export function SignaturePad({ onSave, onClear, onDrawingStateChange }: Signatur
 
   const handleClear = () => {
     setPaths([]);
+    pathsRef.current = [];
     setCurrentPath(null);
     currentPathRef.current = null;
     if (onClear) onClear();

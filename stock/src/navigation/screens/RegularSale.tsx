@@ -1,6 +1,8 @@
-import React, { useState, useMemo, memo, useCallback, useRef, useEffect } from "react";
+import { useState, useMemo, memo, useCallback, useRef, useEffect } from "react";
+import { useNavigation } from "@react-navigation/native";
 import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Pressable, Modal, Alert } from "react-native";
 import { Searchbar, Text, Icon, List, TextInput, Switch, SegmentedButtons, Divider } from "react-native-paper";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "@tanstack/react-query";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
@@ -324,11 +326,14 @@ const SwipeableCartItem = memo(({
 );
 
 export function RegularSale() {
+  const navigation = useNavigation<any>();
+  const { activeShopId } = useShopStore();
   const token = useAuthStore((state) => state.token);
   const user = useAuthStore((state) => state.user);
-  const { activeShopId } = useShopStore();
+  const insets = useSafeAreaInsets();
 
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(1);
+  const bottomPadding = insets.bottom > 0 ? insets.bottom + 12 : spacing.lg;
 
   const [customerId, setCustomerId] = useState<string | null>(null);
   const [customerSearch, setCustomerSearch] = useState("");
@@ -450,15 +455,21 @@ export function RegularSale() {
     } else if (currentStep === 3) {
       setCurrentStep(2);
     } else {
-      goBack();
+      if (navigation.canGoBack()) {
+        navigation.goBack();
+      } else {
+        navigation.navigate(user?.role === "OWNER" ? "OwnerDashboard" : "StaffWork");
+      }
     }
   };
 
   const ProgressIndicator = ({ step }: { step: number }) => {
     return (
       <View style={styles.progressContainer}>
-        <View style={styles.progressLine} />
-        <View style={[styles.progressLineActive, { width: `${((step - 1) / 2) * 100}%` }]} />
+        <View style={styles.progressLineTrack}>
+          <View style={styles.progressLine} />
+          <View style={[styles.progressLineActive, { width: `${((step - 1) / 2) * 100}%` }]} />
+        </View>
         
         <View style={styles.progressStepsRow}>
           {[1, 2, 3].map((s) => {
@@ -508,7 +519,7 @@ export function RegularSale() {
         <ScrollView 
           scrollEnabled={scrollEnabled} 
           showsVerticalScrollIndicator={false} 
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom > 0 ? insets.bottom + 110 : 120 }]}
         >
           {currentStep === 1 && (
             <View style={styles.stepContainer}>
@@ -790,24 +801,22 @@ export function RegularSale() {
 
               {isCredit && (
                 <Section title="Customer Credit Authorization">
-                  <View style={styles.formCard}>
-                    <View style={styles.authHeader}>
-                      <Text style={styles.signatureHeader}>CREDIT ACKNOWLEDGMENT</Text>
-                      <Text style={styles.signatureSub}>Amount being credited: {money(balance)}</Text>
-                    </View>
-                    
-                    <View style={styles.signaturePadWrapper}>
-                       <SignaturePad 
-                          onSave={setCustomerSignature} 
-                          onClear={() => setCustomerSignature(undefined)} 
-                          onDrawingStateChange={(isDrawing) => setScrollEnabled(!isDrawing)}
-                       />
-                    </View>
-                    
-                    <View style={styles.infoBox}>
-                       <Icon source="information" size={16} color={colors.info} />
-                       <Text style={styles.infoText}>Signature is mandatory for credit transactions.</Text>
-                    </View>
+                  <View style={styles.creditInfoRow}>
+                    <Text style={styles.signatureHeader}>CREDIT ACKNOWLEDGMENT</Text>
+                    <Text style={styles.signatureSub}>Amount being credited: {money(balance)}</Text>
+                  </View>
+                  
+                  <View style={styles.signaturePadContainer}>
+                     <SignaturePad 
+                        onSave={setCustomerSignature} 
+                        onClear={() => setCustomerSignature(undefined)} 
+                        onDrawingStateChange={(isDrawing) => setScrollEnabled(!isDrawing)}
+                     />
+                  </View>
+                  
+                  <View style={styles.infoBox}>
+                     <Icon source="information" size={16} color={colors.info} />
+                     <Text style={styles.infoText}>Signature is mandatory for credit transactions.</Text>
                   </View>
                 </Section>
               )}
@@ -869,6 +878,7 @@ export function RegularSale() {
                   setNotes("");
                   setCustomerSignature(undefined);
                   setIsGstSale(false);
+                  saleMutation.reset();
                   setCurrentStep(1);
                 }}
                 style={styles.newSaleBtn}
@@ -879,7 +889,7 @@ export function RegularSale() {
         </ScrollView>
 
         {currentStep === 1 && (
-          <View style={styles.bottomBar}>
+          <View style={[styles.bottomBar, { paddingBottom: bottomPadding }]}>
             <View style={styles.bottomBarLeft}>
               <Text style={styles.bottomBarCount}>{cartItemCount} items</Text>
               <Text style={styles.bottomBarTotal}>{money(cartTotal)}</Text>
@@ -899,7 +909,7 @@ export function RegularSale() {
         )}
 
         {currentStep === 2 && (
-          <View style={styles.bottomBar}>
+          <View style={[styles.bottomBar, { paddingBottom: bottomPadding }]}>
             <Button 
               label="← Add Items" 
               variant="ghost"
@@ -916,7 +926,7 @@ export function RegularSale() {
         )}
 
         {currentStep === 3 && (
-          <View style={styles.bottomBar}>
+          <View style={[styles.bottomBar, { paddingBottom: bottomPadding }]}>
             <Button 
               label="← Review" 
               variant="ghost"
@@ -1156,6 +1166,13 @@ const styles = StyleSheet.create({
   authHeader: {
     marginBottom: spacing.sm,
   },
+  creditInfoRow: {
+    marginBottom: spacing.xs,
+    paddingHorizontal: spacing.xs,
+  },
+  signaturePadContainer: {
+    height: 320,
+  },
   signatureHeader: {
     fontSize: 12,
     fontWeight: fontWeight.black,
@@ -1197,20 +1214,25 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
     paddingHorizontal: 60,
   },
-  progressLine: {
+  progressLineTrack: {
     position: 'absolute',
+    left: 76,
+    right: 76,
     height: 3,
-    backgroundColor: colors.surfaceOffset,
-    left: 80,
-    right: 80,
+    justifyContent: 'center',
     zIndex: 1,
   },
-  progressLineActive: {
+  progressLine: {
+    width: '100%',
+    height: 3,
+    backgroundColor: colors.surfaceOffset,
     position: 'absolute',
+  },
+  progressLineActive: {
     height: 3,
     backgroundColor: colors.primary,
-    left: 80,
-    zIndex: 2,
+    position: 'absolute',
+    left: 0,
   },
   progressStepsRow: {
     flex: 1,

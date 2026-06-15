@@ -10,6 +10,8 @@ import {
   Alert
 } from "react-native";
 import { Searchbar, Text, Icon, TextInput, SegmentedButtons, List, Divider } from "react-native-paper";
+import { useNavigation } from "@react-navigation/native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
 
@@ -17,6 +19,7 @@ import { Item, Customer } from "../../api/client";
 import { useItemsQuery } from "../../hooks/useItems";
 import { useCreateSaleMutation } from "../../hooks/useSales";
 import { useCustomersQuery } from "../../hooks/useCustomers";
+import { useShopsQuery } from "../../hooks/useShops";
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
 import { Screen } from "../../components/Screen";
@@ -26,8 +29,6 @@ import { EmptyState } from "../../components/ui/EmptyState";
 import { Button } from "../../components/ui/Button";
 import { Section } from "../../components/ui/Section";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
-import { SuccessModal } from "../../components/ui/SuccessModal";
-import { navigate, goBack } from "../navigation-ref";
 
 function money(value?: string | number | null) {
   return `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
@@ -119,11 +120,22 @@ const SaleItemCard = memo(({
 }, (p, n) => p.item.id === n.item.id && p.quantity === n.quantity);
 
 export function WalkInSale() {
+  const navigation = useNavigation<any>();
+  const insets = useSafeAreaInsets();
+  const user = useAuthStore((state) => state.user);
+  const { activeShopId } = useShopStore();
+  const shopsQuery = useShopsQuery();
+
+  const selectedShop = useMemo(() => 
+    shopsQuery.data?.find(s => s.id === activeShopId), 
+    [shopsQuery.data, activeShopId]
+  );
+
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
   const [search, setSearch] = useState("");
   const [debouncedSearch] = useDebounce(search, 300);
   const [cart, setCart] = useState<Record<string, { item: Item, quantity: number }>>({});
   
-  const [isCompleted, setIsCompleted] = useState(false);
   const [completedSaleNumber, setCompletedSaleNumber] = useState<string | null>(null);
 
   // Customer selection & search states
@@ -134,6 +146,10 @@ export function WalkInSale() {
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [paymentMode, setPaymentMode] = useState<"CASH" | "UPI">("CASH");
+
+  // Step 2 Settlement inputs
+  const [amountReceived, setAmountReceived] = useState("");
+  const [notes, setNotes] = useState("");
 
   const itemsQuery = useItemsQuery({ search: debouncedSearch, limit: 50 });
   const customersQuery = useCustomersQuery();
@@ -154,6 +170,19 @@ export function WalkInSale() {
   const cartArray = useMemo(() => Object.values(cart), [cart]);
   const cartItemCount = useMemo(() => cartArray.reduce((sum, i) => sum + i.quantity, 0), [cartArray]);
   const cartTotal = useMemo(() => cartArray.reduce((sum, i) => sum + (i.quantity * Number(i.item.defaultSellingPrice)), 0), [cartArray]);
+
+  // Settlement Calculations
+  const calculatedChange = useMemo(() => {
+    const received = Number(amountReceived);
+    if (isNaN(received) || received <= cartTotal) return 0;
+    return received - cartTotal;
+  }, [amountReceived, cartTotal]);
+
+  const isPaymentValid = useMemo(() => {
+    if (paymentMode === "UPI") return true;
+    const received = Number(amountReceived);
+    return !isNaN(received) && received >= cartTotal;
+  }, [paymentMode, amountReceived, cartTotal]);
 
   const updateQuantity = useCallback((item: Item, delta: number) => {
     setCart(prev => {
@@ -190,14 +219,60 @@ export function WalkInSale() {
         paymentMode: paymentMode,
         amount: cartTotal
       }],
+      notes: notes || undefined,
     }, {
       onSuccess: (res: any) => {
         setCompletedSaleNumber(res?.saleNumber || "N/A");
-        setIsCompleted(true);
+        setCurrentStep(3);
       }
     });
   };
 
+  const handleHeaderBack = () => {
+    if (currentStep === 2) {
+      setCurrentStep(1);
+    } else {
+      if (navigation.canGoBack()) {
+        navigation.goBack();
+      } else {
+        navigation.navigate(user?.role === "OWNER" ? "OwnerDashboard" : "StaffWork");
+      }
+    }
+  };
+
+  const ProgressIndicator = ({ step }: { step: number }) => {
+    return (
+      <View style={styles.progressContainer}>
+        <View style={styles.progressLineTrack}>
+          <View style={styles.progressLine} />
+          <View style={[styles.progressLineActive, { width: step === 2 ? '100%' : '0%' }]} />
+        </View>
+        
+        <View style={styles.progressStepsRow}>
+          {[1, 2].map((s) => {
+            const isActive = s <= step;
+            return (
+              <View key={s} style={[
+                styles.progressNode,
+                isActive && styles.progressNodeActive
+              ]}>
+                {s === 1 && step > 1 ? (
+                  <Icon source="check" size={14} color="#ffffff" />
+                ) : (
+                  <Text style={[
+                    styles.progressNodeText,
+                    isActive && styles.progressNodeTextActive
+                  ]}>{s}</Text>
+                )}
+              </View>
+            );
+          })}
+        </View>
+      </View>
+    );
+  };
+
+  const bottomPadding = insets.bottom > 0 ? insets.bottom + 12 : spacing.lg;
   const FlashListAny = FlashList as any;
 
   return (
@@ -207,12 +282,26 @@ export function WalkInSale() {
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
-        {!isCompleted && (
-          <AppHeader title="Walk-in Sale" subtitle="Select items and complete checkout" showBack />
+        {currentStep < 3 && (
+          <>
+            <AppHeader 
+              title="Walk-in Sale" 
+              subtitle={currentStep === 1 ? "Select items and customer info" : "Settle payment & complete"} 
+              showBack={true} 
+              onBack={handleHeaderBack}
+            />
+            <ProgressIndicator step={currentStep} />
+          </>
         )}
         
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-          {!isCompleted ? (
+        <ScrollView 
+          showsVerticalScrollIndicator={false} 
+          contentContainerStyle={[
+            styles.scrollContent, 
+            { paddingBottom: currentStep === 1 ? (cartItemCount > 0 ? 140 : 100) : 120 }
+          ]}
+        >
+          {currentStep === 1 && (
             <View style={styles.stepContainer}>
               <Section title="Customer Details (Optional)">
                 <View style={styles.formCard}>
@@ -228,7 +317,7 @@ export function WalkInSale() {
                           elevation={0}
                         />
                         <Pressable 
-                          onPress={() => navigate("AddEditCustomer")}
+                          onPress={() => navigation.navigate("AddEditCustomer")}
                           style={({ pressed }) => [styles.searchAddBtn, pressed && styles.pressed]}
                         >
                           <Icon source="account-plus" size={24} color={colors.primary} />
@@ -337,31 +426,137 @@ export function WalkInSale() {
                   />
                 </View>
               </Section>
+            </View>
+          )}
 
-              <Section title="Payment Mode">
+          {currentStep === 2 && (
+            <View style={styles.stepContainer}>
+              <Section title="Settle & Pay">
+                {/* Total Due Premium Card */}
+                <View style={styles.totalDueCard}>
+                  <Text style={styles.totalDueLabel}>TOTAL DUE</Text>
+                  <Text style={styles.totalDueVal}>{money(cartTotal)}</Text>
+                  <View style={styles.totalDueFooter}>
+                    <Icon source="information-outline" size={14} color={colors.primaryDark} />
+                    <Text style={styles.totalDueFooterText}>
+                      Walk-in sales require instant settlement
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Custom Card Selection Grid */}
+                <Text style={styles.paymentSectionLabel}>Select Payment Mode</Text>
                 <View style={styles.paymentGrid}>
                   {(["CASH", "UPI"] as const).map((mode) => {
                     const isSelected = paymentMode === mode;
                     const label = mode === "CASH" ? "Cash" : "UPI";
-                    const icon = mode === "CASH" ? "cash" : "qrcode";
+                    const icon = mode === "CASH" ? "cash-multiple" : "qrcode-scan";
+                    
                     return (
                       <Pressable 
                         key={mode}
-                        onPress={() => setPaymentMode(mode)}
-                        style={[
+                        onPress={() => {
+                          setPaymentMode(mode);
+                          if (mode === "UPI") {
+                            setAmountReceived(String(cartTotal));
+                          } else {
+                            setAmountReceived("");
+                          }
+                        }}
+                        style={({ pressed }) => [
                           styles.paymentCard,
-                          isSelected && styles.paymentCardSelected
+                          isSelected && styles.paymentCardSelected,
+                          pressed && styles.pressed
                         ]}
                       >
-                        <Icon source={icon} size={28} color={isSelected ? colors.primaryDark : colors.textSecondary} />
-                        <Text style={[styles.paymentCardLabel, isSelected && styles.paymentCardLabelActive]}>{label}</Text>
+                        <View style={[
+                          styles.paymentCardIconWrapper,
+                          isSelected && styles.paymentCardIconWrapperActive
+                        ]}>
+                          <Icon 
+                            source={icon} 
+                            size={28} 
+                            color={isSelected ? colors.primary : colors.textSecondary} 
+                          />
+                        </View>
+                        <Text style={[
+                          styles.paymentCardLabel, 
+                          isSelected && styles.paymentCardLabelActive
+                        ]}>
+                          {label}
+                        </Text>
+                        {isSelected && (
+                          <View style={styles.paymentCardCheck}>
+                            <Icon source="check-circle" size={18} color={colors.primary} />
+                          </View>
+                        )}
                       </Pressable>
                     );
                   })}
                 </View>
+
+                {/* Amount Received Input (Only for Cash) */}
+                {paymentMode === "CASH" ? (
+                  <View style={styles.cashCalculationContainer}>
+                    <TextInput
+                      mode="outlined"
+                      label="Amount Received"
+                      value={amountReceived}
+                      onChangeText={setAmountReceived}
+                      keyboardType="numeric"
+                      style={styles.input}
+                      outlineStyle={styles.inputOutline}
+                      placeholder={`Min ${money(cartTotal)}`}
+                      left={<TextInput.Icon icon="cash" />}
+                    />
+                    
+                    {amountReceived ? (
+                      Number(amountReceived) < cartTotal ? (
+                        <View style={[styles.calcInfoBox, styles.calcInfoBoxError]}>
+                          <Icon source="alert-circle-outline" size={16} color={colors.danger} />
+                          <Text style={styles.calcErrorText}>
+                            Received amount cannot be less than total due.
+                          </Text>
+                        </View>
+                      ) : (
+                        <View style={[styles.calcInfoBox, styles.calcInfoBoxSuccess]}>
+                          <Icon source="swap-horizontal" size={16} color={colors.success} />
+                          <Text style={styles.calcSuccessText}>
+                            Change to Return: <Text style={styles.boldText}>{money(calculatedChange)}</Text>
+                          </Text>
+                        </View>
+                      )
+                    ) : null}
+                  </View>
+                ) : (
+                  <View style={styles.upiDisclaimerContainer}>
+                    <Icon source="information" size={16} color={colors.info} />
+                    <Text style={styles.upiDisclaimerText}>
+                      Customer pays {money(cartTotal)} via UPI. Ensure transaction status is verified before completing checkout.
+                    </Text>
+                  </View>
+                )}
+
+                {/* Notes Input */}
+                <View style={styles.notesContainer}>
+                  <TextInput
+                    mode="outlined"
+                    label="Transaction Notes (Optional)"
+                    value={notes}
+                    onChangeText={setNotes}
+                    multiline
+                    numberOfLines={3}
+                    style={styles.notesInput}
+                    outlineStyle={styles.inputOutline}
+                    placeholder="Add billing comments, product batch details etc."
+                    left={<TextInput.Icon icon="note-text-outline" />}
+                  />
+                </View>
               </Section>
             </View>
-          ) : (
+          )}
+
+          {currentStep === 3 && (
             <View style={styles.successContainer}>
               <View style={styles.successIconWrapper}>
                 <View style={styles.successPulseCircle}>
@@ -373,9 +568,10 @@ export function WalkInSale() {
                 Recorded walk-in sale of {money(cartTotal)} successfully.
               </Text>
               
+              {/* Receipt / Invoice Mock */}
               <View style={styles.receiptCard}>
                 <View style={styles.receiptHeader}>
-                  <Text style={styles.receiptShopName}>Vardaman Sales</Text>
+                  <Text style={styles.receiptShopName}>{selectedShop?.name ?? "Vardaman Sales"}</Text>
                   <Text style={styles.receiptMetaSub}>WALK-IN RECEIPT</Text>
                   <Text style={styles.receiptMetaDate}>
                     {new Date().toLocaleDateString("en-IN", {
@@ -416,7 +612,7 @@ export function WalkInSale() {
                   </View>
                   <View style={styles.receiptDetailRow}>
                     <Text style={styles.receiptDetailLabel}>Customer</Text>
-                    <Text style={styles.receiptDetailVal}>{customerName || "Walk-in Customer"}</Text>
+                    <Text style={styles.receiptDetailVal}>{customerId ? selectedCustomer?.name : (customerName || "Walk-in Customer")}</Text>
                   </View>
                   {customerPhone ? (
                     <View style={styles.receiptDetailRow}>
@@ -428,6 +624,12 @@ export function WalkInSale() {
                     <Text style={styles.receiptDetailLabel}>Payment Mode</Text>
                     <Text style={styles.receiptDetailVal}>{paymentMode}</Text>
                   </View>
+                  {notes ? (
+                    <View style={styles.receiptDetailRowCol}>
+                      <Text style={styles.receiptDetailLabel}>Notes</Text>
+                      <Text style={styles.receiptDetailValNotes}>{notes}</Text>
+                    </View>
+                  ) : null}
                 </View>
 
                 <View style={styles.dashedDivider} />
@@ -438,6 +640,18 @@ export function WalkInSale() {
                     <Text style={styles.receiptTotalLabel}>Total Amount</Text>
                     <Text style={styles.receiptTotalVal}>{money(cartTotal)}</Text>
                   </View>
+                  {paymentMode === "CASH" && amountReceived ? (
+                    <>
+                      <View style={styles.receiptBreakdownRow}>
+                        <Text style={styles.receiptBreakdownLabel}>Amount Received</Text>
+                        <Text style={styles.receiptBreakdownVal}>{money(amountReceived)}</Text>
+                      </View>
+                      <View style={styles.receiptBreakdownRow}>
+                        <Text style={styles.receiptBreakdownLabel}>Change Returned</Text>
+                        <Text style={[styles.receiptBreakdownVal, { color: colors.success }]}>{money(calculatedChange)}</Text>
+                      </View>
+                    </>
+                  ) : null}
                 </View>
 
                 {/* Receipt Footer */}
@@ -453,10 +667,16 @@ export function WalkInSale() {
                   variant="success"
                   onPress={() => {
                     setCart({});
+                    setCustomerId(null);
+                    setCustomerSearch("");
                     setCustomerName("");
                     setCustomerPhone("");
-                    setIsCompleted(false);
+                    setPaymentMode("CASH");
+                    setAmountReceived("");
+                    setNotes("");
                     setCompletedSaleNumber(null);
+                    saleMutation.reset();
+                    setCurrentStep(1);
                   }}
                   style={styles.newSaleBtn}
                 />
@@ -486,18 +706,42 @@ export function WalkInSale() {
           )}
         </ScrollView>
 
-        {!isCompleted && cartItemCount > 0 && (
-          <View style={styles.cartSummary}>
+        {/* Action Bottom Bars */}
+        {currentStep === 1 && cartItemCount > 0 && (
+          <View style={[styles.cartSummary, { paddingBottom: bottomPadding }]}>
             <View style={styles.cartInfo}>
               <Text style={styles.cartCount}>{cartItemCount} items</Text>
               <Text style={styles.cartTotal}>{money(cartTotal)}</Text>
             </View>
             <Button 
-              label="COMPLETE SALE →" 
+              label="Proceed to Payment →" 
+              variant="success"
+              onPress={() => {
+                setCurrentStep(2);
+                if (paymentMode === "UPI") {
+                  setAmountReceived(String(cartTotal));
+                }
+              }} 
+              style={styles.checkoutButton}
+            />
+          </View>
+        )}
+
+        {currentStep === 2 && (
+          <View style={[styles.cartSummary, { paddingBottom: bottomPadding, gap: spacing.md }]}>
+            <Button 
+              label="← Back" 
+              variant="ghost"
+              onPress={() => setCurrentStep(1)} 
+              style={{ flex: 1 }}
+            />
+            <Button 
+              label="Complete Checkout" 
               variant="success"
               onPress={handleCompleteSale} 
               loading={saleMutation.isPending}
-              style={styles.checkoutButton}
+              disabled={!isPaymentValid}
+              style={{ flex: 1.8 }}
             />
           </View>
         )}
@@ -511,7 +755,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 140,
+    paddingTop: spacing.md,
   },
   formCard: {
     backgroundColor: colors.surface,
@@ -539,9 +783,6 @@ const styles = StyleSheet.create({
   },
   listContainer: {
     minHeight: 200,
-  },
-  listContent: {
-    paddingBottom: 20,
   },
   itemCard: {
     flexDirection: 'row',
@@ -641,7 +882,7 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.bold,
   },
   stockBadge: {
-    backgroundColor: 'rgba(200, 245, 96, 0.15)',
+    backgroundColor: 'rgba(20, 163, 74, 0.15)',
     paddingHorizontal: spacing.sm,
     paddingVertical: 2,
     borderRadius: radius.sm,
@@ -650,9 +891,6 @@ const styles = StyleSheet.create({
     color: colors.primaryDark,
     fontSize: 10,
     fontWeight: fontWeight.bold,
-  },
-  segmentedFilter: {
-    marginTop: spacing.sm,
   },
   cartSummary: {
     position: 'absolute',
@@ -685,7 +923,7 @@ const styles = StyleSheet.create({
     flex: 1.5,
   },
   stepContainer: {
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: spacing.lg,
     gap: spacing.sm,
   },
   paymentGrid: {
@@ -703,11 +941,23 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.sm,
+    position: 'relative',
     ...shadow.sm,
   },
   paymentCardSelected: {
     borderColor: colors.primary,
     backgroundColor: colors.primaryLight,
+  },
+  paymentCardIconWrapper: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: colors.surfaceOffset,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  paymentCardIconWrapperActive: {
+    backgroundColor: 'white',
   },
   paymentCardLabel: {
     fontSize: fontSize.md,
@@ -718,13 +968,113 @@ const styles = StyleSheet.create({
     color: colors.primaryDark,
     fontWeight: fontWeight.extrabold,
   },
+  paymentCardCheck: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+  },
+  totalDueCard: {
+    backgroundColor: colors.primaryLight,
+    padding: spacing.xl,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(22, 163, 74, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    marginBottom: spacing.md,
+  },
+  totalDueLabel: {
+    fontSize: 10,
+    fontWeight: fontWeight.black,
+    color: colors.primaryDark,
+    letterSpacing: 1,
+  },
+  totalDueVal: {
+    fontSize: 36,
+    fontWeight: fontWeight.black,
+    color: colors.primaryDark,
+  },
+  totalDueFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 4,
+  },
+  totalDueFooterText: {
+    fontSize: 11,
+    color: colors.primaryDark,
+    opacity: 0.8,
+    fontWeight: fontWeight.medium,
+  },
+  paymentSectionLabel: {
+    fontSize: 14,
+    fontWeight: fontWeight.extrabold,
+    color: colors.textSecondary,
+    marginBottom: spacing.xs,
+  },
+  cashCalculationContainer: {
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  calcInfoBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    gap: spacing.sm,
+  },
+  calcInfoBoxError: {
+    backgroundColor: 'rgba(255, 74, 74, 0.08)',
+    borderColor: 'rgba(255, 74, 74, 0.2)',
+  },
+  calcInfoBoxSuccess: {
+    backgroundColor: 'rgba(22, 163, 74, 0.08)',
+    borderColor: 'rgba(22, 163, 74, 0.2)',
+  },
+  calcErrorText: {
+    fontSize: fontSize.sm,
+    color: colors.danger,
+    fontWeight: fontWeight.medium,
+  },
+  calcSuccessText: {
+    fontSize: fontSize.sm,
+    color: colors.primaryDark,
+    fontWeight: fontWeight.medium,
+  },
+  boldText: {
+    fontWeight: fontWeight.black,
+  },
+  upiDisclaimerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceOffset,
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  upiDisclaimerText: {
+    flex: 1,
+    fontSize: 12,
+    color: colors.textSecondary,
+    lineHeight: 16,
+  },
+  notesContainer: {
+    marginBottom: spacing.lg,
+  },
+  notesInput: {
+    backgroundColor: colors.surface,
+  },
   successContainer: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     padding: spacing.xl,
     backgroundColor: colors.bg,
-    marginTop: 20,
   },
   successIconWrapper: {
     marginBottom: spacing.lg,
@@ -822,6 +1172,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
+  receiptDetailRowCol: {
+    flexDirection: 'column',
+    gap: 4,
+    marginTop: 4,
+  },
   receiptDetailLabel: {
     fontSize: fontSize.sm,
     color: colors.textSecondary,
@@ -830,6 +1185,16 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
     fontWeight: fontWeight.bold,
     color: colors.textPrimary,
+  },
+  receiptDetailValNotes: {
+    fontSize: fontSize.sm,
+    color: colors.textSecondary,
+    backgroundColor: colors.surfaceOffset,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginTop: 2,
   },
   receiptBreakdownRow: {
     flexDirection: 'row',
@@ -987,5 +1352,66 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.72,
+  },
+  // Progress Indicator Styles
+  progressContainer: {
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    backgroundColor: colors.bg,
+    alignItems: 'center',
+  },
+  progressLineTrack: {
+    position: 'absolute',
+    top: spacing.md + 14,
+    left: spacing.lg + 24,
+    right: spacing.lg + 24,
+    height: 3,
+    backgroundColor: colors.surfaceOffset,
+    zIndex: 1,
+  },
+  progressLine: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: colors.border,
+  },
+  progressLineActive: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    bottom: 0,
+    backgroundColor: colors.primary,
+  },
+  progressStepsRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+    zIndex: 2,
+    paddingHorizontal: 12,
+  },
+  progressNode: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: colors.surface,
+    borderWidth: 2,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...shadow.sm,
+  },
+  progressNodeActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primary,
+  },
+  progressNodeText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
+    color: colors.textSecondary,
+  },
+  progressNodeTextActive: {
+    color: '#ffffff',
   },
 });
