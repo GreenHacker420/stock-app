@@ -1,10 +1,10 @@
 import React from "react";
 import { View, StyleSheet, Pressable, ScrollView } from "react-native";
 import { Text, Icon } from "react-native-paper";
-import { useNavigation } from "@react-navigation/native";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
+import { navigate } from "../navigation-ref";
 
 type WorkflowItemProps = {
   title: string;
@@ -41,12 +41,6 @@ function WorkflowItem({ title, subtitle, icon, iconBg, iconColor, onPress }: Wor
 }
 
 export function StaffWork() {
-  const navigation = useNavigation();
-
-  const handleNavigate = (route: string) => {
-    (navigation as any).navigate(route);
-  };
-
   return (
     <Screen edges={["top", "left", "right"]}>
       <AppHeader title="Workflows" role="STAFF" />
@@ -65,7 +59,7 @@ export function StaffWork() {
               icon="cart-plus"
               iconBg="rgba(22, 163, 74, 0.06)"
               iconColor={colors.success}
-              onPress={() => handleNavigate("NewSaleType")}
+              onPress={() => navigate("NewSaleType")}
             />
             
             <WorkflowItem
@@ -74,7 +68,7 @@ export function StaffWork() {
               icon="cash-register"
               iconBg="rgba(20, 184, 166, 0.06)"
               iconColor="#0d9488"
-              onPress={() => handleNavigate("OpenCashSession")}
+              onPress={() => navigate("OpenCashSession")}
             />
 
             <WorkflowItem
@@ -83,7 +77,7 @@ export function StaffWork() {
               icon="credit-card-outline"
               iconBg="rgba(217, 119, 6, 0.06)"
               iconColor="#d97706"
-              onPress={() => handleNavigate("TakePayment")}
+              onPress={() => navigate("TakePayment")}
             />
           </View>
         </View>
@@ -98,7 +92,7 @@ export function StaffWork() {
               icon="package-variant-closed"
               iconBg="rgba(22, 163, 74, 0.06)"
               iconColor={colors.success}
-              onPress={() => handleNavigate("OrdersToPack")}
+              onPress={() => navigate("OrdersToPack")}
             />
 
             <WorkflowItem
@@ -107,7 +101,7 @@ export function StaffWork() {
               icon="warehouse"
               iconBg="rgba(20, 184, 166, 0.06)"
               iconColor="#0d9488"
-              onPress={() => handleNavigate("StockEntry")}
+              onPress={() => navigate("StockEntry")}
             />
 
             <WorkflowItem
@@ -116,7 +110,7 @@ export function StaffWork() {
               icon="cash-check"
               iconBg="rgba(217, 119, 6, 0.06)"
               iconColor="#d97706"
-              onPress={() => handleNavigate("CloseDay")}
+              onPress={() => navigate("CloseDay")}
             />
           </View>
         </View>

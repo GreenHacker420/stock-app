@@ -1,7 +1,7 @@
 import React, { useMemo, useState, memo } from "react";
 import { Pressable, View, StyleSheet, ActivityIndicator, ScrollView } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigation, useRoute } from "@react-navigation/native";
+import { useRoute } from "@react-navigation/native";
 import { Divider, Icon, Searchbar, Text, TextInput } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
@@ -25,6 +25,7 @@ import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../the
 import { SkeletonList } from "../../components/ui/SkeletonCard";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { Button } from "../../components/ui/Button";
+import { navigate, goBack } from "../navigation-ref";
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 
@@ -72,7 +73,6 @@ const CustomerCard = memo(({
 export function CustomerList() {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
-  const navigation = useNavigation();
   
   const [search, setSearch] = useState("");
   const [debouncedSearch] = useDebounce(search, 300);
@@ -119,7 +119,7 @@ export function CustomerList() {
                 renderItem={({ item }: any) => (
                   <CustomerCard 
                     customer={item} 
-                    onPress={() => (navigation as any).navigate("CustomerDetail", { customerId: item.id })}
+                    onPress={() => navigate("CustomerDetail", { customerId: item.id })}
                   />
                 )}
                 ListEmptyComponent={
@@ -141,7 +141,7 @@ export function CustomerList() {
 
         <Pressable 
           style={styles.fab} 
-          onPress={() => (navigation as any).navigate("AddEditCustomer")}
+          onPress={() => navigate("AddEditCustomer")}
         >
           <Icon source="account-plus" size={28} color={colors.textInverse} />
         </Pressable>
@@ -154,7 +154,6 @@ export function AddEditCustomer() {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
   const route = useRoute();
-  const navigation = useNavigation();
   const queryClient = useQueryClient();
   const customer = (route.params as { customer?: Customer } | undefined)?.customer;
   
@@ -181,7 +180,7 @@ export function AddEditCustomer() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["customers", activeShopId] });
-      navigation.goBack();
+      goBack();
     },
   });
 

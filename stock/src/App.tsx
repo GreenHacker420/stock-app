@@ -14,6 +14,7 @@ import { useAuthStore } from './auth/auth-store';
 import { useShopStore } from './auth/shop-store';
 import { clientPersister } from './auth/mmkv-storage';
 import { OwnerNavigation, StaffNavigation } from './navigation';
+import { navigationRef } from './navigation/navigation-ref';
 import { Login } from './navigation/screens/Login';
 import { SelectShop } from './navigation/screens/SelectShop';
 import { RealtimeProvider } from './realtime/RealtimeProvider';
@@ -137,6 +138,7 @@ function AuthenticatedApp({ theme, prefix }: { theme: typeof navigationThemes.Li
 
   return (
     <Navigation
+      ref={navigationRef}
       theme={theme}
       linking={{
         enabled: "auto",

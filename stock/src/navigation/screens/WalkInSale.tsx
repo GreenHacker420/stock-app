@@ -4,11 +4,9 @@ import {
   StyleSheet, 
   KeyboardAvoidingView, 
   Platform, 
-  Pressable, 
-  ActivityIndicator 
+  Pressable 
 } from "react-native";
-import { useNavigation } from "@react-navigation/native";
-import { Searchbar, Text, Icon, Divider } from "react-native-paper";
+import { Searchbar, Text, Icon } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
 
@@ -22,6 +20,7 @@ import { EmptyState } from "../../components/ui/EmptyState";
 import { Button } from "../../components/ui/Button";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { SuccessModal } from "../../components/ui/SuccessModal";
+import { navigate, goBack } from "../navigation-ref";
 
 function money(value?: string | number | null) {
   return `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
@@ -92,8 +91,6 @@ const SaleItemCard = memo(({
 }, (p, n) => p.item.id === n.item.id && p.quantity === n.quantity);
 
 export function WalkInSale() {
-  const navigation = useNavigation();
-
   const [search, setSearch] = useState("");
   const [debouncedSearch] = useDebounce(search, 300);
   const [cart, setCart] = useState<Record<string, { item: Item, quantity: number }>>({});
@@ -216,7 +213,7 @@ export function WalkInSale() {
         onClose={() => {
           setSuccessVisible(false);
           setCart({});
-          navigation.goBack();
+          goBack();
         }}
       />
     </Screen>

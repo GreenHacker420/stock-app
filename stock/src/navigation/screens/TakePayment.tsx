@@ -18,7 +18,7 @@ import {
   SegmentedButtons,
   TextInput
 } from "react-native-paper";
-import { useRoute, useNavigation } from "@react-navigation/native";
+import { useRoute } from "@react-navigation/native";
 import QRCode from "react-native-qrcode-svg";
 
 import { useShopsQuery } from "../../hooks/useShops";
@@ -31,6 +31,7 @@ import { AppHeader } from "../../components/ui/AppHeader";
 import { Section } from "../../components/ui/Section";
 import { Button } from "../../components/ui/Button";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
+import { goBack } from "../navigation-ref";
 
 const paymentModes = [
   { label: "Cash", value: "CASH", icon: "cash" },
@@ -45,7 +46,6 @@ const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLoc
 export function TakePayment() {
   const { activeShopId } = useShopStore();
   const route = useRoute<any>();
-  const navigation = useNavigation();
 
   const [isWalkin, setIsWalkin] = useState(!route.params?.customerId);
   const [customerId, setCustomerId] = useState<string | undefined>(route.params?.customerId);
@@ -438,7 +438,7 @@ export function TakePayment() {
         message={`Received ${money(amount)} via ${paymentMode}.`}
         onClose={() => {
           setSuccessVisible(false);
-          navigation.goBack();
+          goBack();
         }}
       />
     </Screen>

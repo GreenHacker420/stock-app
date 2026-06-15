@@ -2,12 +2,13 @@ import React, { useMemo, useState } from "react";
 import { View, StyleSheet, Pressable, Modal, ScrollView, TouchableWithoutFeedback } from "react-native";
 import { Avatar } from "@rneui/themed";
 import { Text, Icon } from "react-native-paper";
-import { useNavigation } from "@react-navigation/native";
+import { NavigationContext, NavigationContainerRefContext } from "@react-navigation/native";
 
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
 import { useShopsQuery } from "../../hooks/useShops";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
+import { navigationRef as globalNavigationRef } from "../../navigation/navigation-ref";
 
 type AppHeaderProps = {
   title: string;
@@ -22,7 +23,12 @@ type AppHeaderProps = {
 export function AppHeader({ title, subtitle, role, initials, showBack, hideAvatar, fallbackRoute }: AppHeaderProps) {
   const user = useAuthStore((state) => state.user);
   const { activeShopId, setActiveShopId } = useShopStore();
-  const navigation = useNavigation();
+  
+  const navigationContext = React.use(NavigationContext);
+  const rootContext = React.use(NavigationContainerRefContext);
+  
+  const navigation = navigationContext ?? rootContext ?? globalNavigationRef;
+  
   const shopsQuery = useShopsQuery();
   const [modalVisible, setModalVisible] = useState(false);
 
@@ -55,9 +61,9 @@ export function AppHeader({ title, subtitle, role, initials, showBack, hideAvata
         {canGoBack && (
           <Pressable 
             onPress={() => {
-              if (hasHistory) {
+              if (hasHistory && navigation) {
                 navigation.goBack();
-              } else if (fallbackRoute) {
+              } else if (fallbackRoute && navigation) {
                 (navigation as any).navigate(fallbackRoute);
               }
             }}

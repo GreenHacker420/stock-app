@@ -2,7 +2,6 @@ import React, { useEffect, useState, useMemo } from "react";
 import { View, ScrollView, StyleSheet, KeyboardAvoidingView, Platform, Pressable } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { TextInput, Text, Icon, Divider, Checkbox } from "react-native-paper";
-import { useNavigation } from "@react-navigation/native";
 
 import { closeCashSession, fetchCurrentCashSession, fetchShops } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
@@ -13,11 +12,11 @@ import { Section } from "../../components/ui/Section";
 import { SuccessModal } from "../../components/ui/SuccessModal";
 import { Button } from "../../components/ui/Button";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
+import { navigate, goBack } from "../navigation-ref";
 
 export function CloseDay() {
   const token = useAuthStore((state) => state.token);
   const queryClient = useQueryClient();
-  const navigation = useNavigation();
   const [shopId, setShopId] = useState<string | undefined>();
   const [actualCash, setActualCash] = useState("");
   const [cashHandover, setCashHandover] = useState("");
@@ -74,7 +73,6 @@ export function CloseDay() {
           <View style={styles.contentContainer}>
             <ShopPicker shops={shopsQuery.data ?? []} selectedShopId={shopId} onSelect={setShopId} />
 
-            {/* System Calculation Card */}
             <View style={styles.calculationCard}>
                <View style={styles.calculationHeader}>
                   <Text style={styles.calculationHeaderTitle}>SYSTEM CALCULATION</Text>
@@ -98,7 +96,6 @@ export function CloseDay() {
                </View>
             </View>
 
-            {/* Physical Count Entry */}
             <Section title="Physical Reconciliation">
                <View style={styles.reconciliationCard}>
                   <View style={styles.inputGroup}>
@@ -163,13 +160,15 @@ export function CloseDay() {
                        <TextInput
                          mode="outlined"
                          label="Deduction Reason"
+                         placeholder="e.g. Paid Electricity, Advance to staff"
                          value={otherReason}
                          onChangeText={setOtherReason}
-                         style={styles.input}
+                         style={[styles.input, { marginTop: spacing.sm }]}
                          outlineStyle={styles.inputOutlineSmall}
                        />
                      )}
-                     <View style={styles.inlineInputRow}>
+                     
+                     <View style={[styles.inlineInputRow, { marginTop: spacing.md }]}>
                         <Text style={styles.inlineLabel}>Cash Handover</Text>
                         <TextInput
                           mode="flat"
@@ -186,52 +185,53 @@ export function CloseDay() {
                </View>
             </Section>
 
-            <Pressable 
-              style={styles.confirmationRow} 
-              onPress={() => setConfirmed(!confirmed)}
-            >
-               <Checkbox.Android 
-                 status={confirmed ? 'checked' : 'unchecked'} 
-                 color={colors.primary}
+            <View style={styles.confirmationSection}>
+               <Checkbox.Item
+                  label="I certify that the above physical count is accurate and matches the current drawer state."
+                  status={confirmed ? 'checked' : 'unchecked'}
+                  onPress={() => setConfirmed(!confirmed)}
+                  mode="android"
+                  labelStyle={styles.checkboxLabel}
+                  color={colors.primary}
                />
-               <Text style={styles.confirmationText}>
-                  I confirm that I have physically counted the cash and all entries are accurate.
-               </Text>
-            </Pressable>
+            </View>
+
+            <Button
+               variant="primary"
+               label="SUBMIT & CLOSE SESSION"
+               size="lg"
+               onPress={() => closeMutation.mutate()}
+               loading={closeMutation.isPending}
+               disabled={!confirmed || actualCash === "" || (isMismatched && !differenceReason.trim())}
+               fullWidth
+            />
+            
+            <View style={styles.infoBox}>
+               <Icon source="information-outline" size={18} color={colors.textSecondary} />
+               <Text style={styles.infoText}>Once submitted, you will not be able to record any more sales for this shop today until a new session is opened.</Text>
+            </View>
           </View>
         </ScrollView>
-
-        <View style={styles.footer}>
-           <Button
-              label={isMismatched ? "SUBMIT WITH MISMATCH" : "SUBMIT CLOSING REPORT"}
-              variant={isMismatched ? "danger" : "primary"}
-              disabled={!confirmed || !actualCash || (isMismatched && !differenceReason)}
-              loading={closeMutation.isPending}
-              onPress={() => closeMutation.mutate()}
-              fullWidth
-              size="lg"
-           />
-        </View>
       </KeyboardAvoidingView>
 
       <SuccessModal
         visible={successVisible}
         title="Day Closed"
-        message="The cash session has been closed successfully."
+        message="The cash session has been finalized. Summary report sent to owner."
         onClose={() => {
           setSuccessVisible(false);
-          navigation.goBack();
+          goBack();
         }}
       />
     </Screen>
   );
 }
 
-function BreakdownRow({ label, value, isNegative }: { label: string, value: string, isNegative?: boolean }) {
+function BreakdownRow({ label, value, isNegative }: { label: string; value: string; isNegative?: boolean }) {
   return (
     <View style={styles.breakdownRow}>
-       <Text style={styles.breakdownLabel}>{label}</Text>
-       <Text style={[styles.breakdownValue, isNegative && styles.negativeValue]}>{value}</Text>
+      <Text style={styles.breakdownLabel}>{label}</Text>
+      <Text style={[styles.breakdownValue, isNegative && { color: colors.danger }]}>{value}</Text>
     </View>
   );
 }
@@ -241,36 +241,35 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 120,
+    paddingBottom: 100,
   },
   contentContainer: {
-    padding: spacing.lg,
-    gap: spacing.xl,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    gap: spacing.lg,
   },
   calculationCard: {
     backgroundColor: colors.surface,
-    borderRadius: radius.lg,
+    borderRadius: 24,
     borderWidth: 1,
     borderColor: colors.border,
-    overflow: 'hidden',
+    padding: spacing.lg,
     ...shadow.sm,
   },
   calculationHeader: {
-    backgroundColor: colors.textPrimary,
-    padding: spacing.md,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginBottom: spacing.lg,
   },
   calculationHeaderTitle: {
-    color: colors.textMuted,
     fontSize: 10,
     fontWeight: fontWeight.bold,
+    color: colors.textMuted,
     letterSpacing: 1,
   },
   calculationBody: {
-    padding: spacing.xl,
-    gap: spacing.lg,
+    gap: spacing.md,
   },
   expectedRow: {
     flexDirection: 'row',
@@ -278,87 +277,87 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   expectedLabel: {
-    fontSize: 10,
+    fontSize: fontSize.xs,
     color: colors.textSecondary,
-    fontWeight: fontWeight.bold,
+    fontWeight: fontWeight.medium,
   },
   expectedValue: {
-    fontSize: fontSize.xxl,
-    color: colors.textPrimary,
+    fontSize: fontSize.xl,
     fontWeight: fontWeight.black,
+    color: colors.textPrimary,
   },
   ledgerBadge: {
-    backgroundColor: colors.primaryLight,
-    paddingHorizontal: spacing.md,
+    backgroundColor: colors.surfaceOffset,
+    paddingHorizontal: 8,
     paddingVertical: 4,
-    borderRadius: radius.full,
+    borderRadius: 6,
   },
   ledgerBadgeText: {
-    color: colors.primary,
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: fontWeight.black,
+    color: colors.textMuted,
   },
   divider: {
-    backgroundColor: colors.border,
+    backgroundColor: colors.surfaceOffset,
   },
   breakdownContainer: {
-    gap: spacing.xs,
+    gap: spacing.sm,
   },
   breakdownRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 2,
   },
   breakdownLabel: {
+    fontSize: 11,
     color: colors.textSecondary,
     fontWeight: fontWeight.medium,
-    fontSize: fontSize.sm,
   },
   breakdownValue: {
-    color: colors.textPrimary,
+    fontSize: 11,
     fontWeight: fontWeight.bold,
-    fontSize: fontSize.sm,
-  },
-  negativeValue: {
-    color: colors.danger,
+    color: colors.textPrimary,
   },
   reconciliationCard: {
     backgroundColor: colors.surface,
-    borderRadius: radius.lg,
+    borderRadius: 22,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: spacing.xl,
-    gap: spacing.xl,
+    padding: spacing.lg,
     ...shadow.sm,
+    gap: spacing.md,
   },
   inputGroup: {
     gap: spacing.sm,
   },
   inputLabel: {
     fontSize: 10,
-    fontWeight: fontWeight.black,
-    color: colors.textMuted,
-    letterSpacing: 1,
+    fontWeight: fontWeight.bold,
+    color: colors.textSecondary,
+    letterSpacing: 0.5,
   },
   largeInput: {
-    backgroundColor: colors.surface,
-    fontSize: fontSize.xxl,
     height: 64,
+    fontSize: 24,
+    fontWeight: fontWeight.black,
+    backgroundColor: colors.bg,
+  },
+  input: {
+    backgroundColor: colors.bg,
   },
   inputOutline: {
-    borderRadius: radius.lg,
-    borderWidth: 2,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: colors.borderStrong,
   },
   inputOutlineSmall: {
-    borderRadius: radius.md,
+    borderRadius: 10,
   },
   mismatchAlert: {
-    backgroundColor: colors.dangerLight,
+    backgroundColor: 'rgba(220, 38, 38, 0.04)',
     borderWidth: 1,
-    borderColor: 'rgba(220, 38, 38, 0.1)',
-    padding: spacing.lg,
-    borderRadius: radius.lg,
+    borderColor: 'rgba(220, 38, 38, 0.15)',
+    borderRadius: 14,
+    padding: spacing.md,
     gap: spacing.md,
   },
   alertHeader: {
@@ -372,33 +371,31 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   alertTitle: {
-    color: colors.danger,
+    fontSize: fontSize.sm,
     fontWeight: fontWeight.bold,
+    color: colors.danger,
   },
   alertAmount: {
-    color: colors.danger,
-    fontWeight: fontWeight.black,
     fontSize: fontSize.md,
-  },
-  input: {
-    backgroundColor: colors.surface,
+    fontWeight: fontWeight.black,
+    color: colors.danger,
   },
   balancedAlert: {
-    backgroundColor: colors.successLight,
-    borderWidth: 1,
-    borderColor: 'rgba(5, 150, 105, 0.1)',
-    padding: spacing.lg,
-    borderRadius: radius.lg,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
+    gap: spacing.sm,
+    backgroundColor: 'rgba(22, 163, 74, 0.05)',
+    padding: spacing.md,
+    borderRadius: 14,
+    justifyContent: 'center',
   },
   balancedText: {
-    color: colors.success,
+    fontSize: fontSize.sm,
     fontWeight: fontWeight.bold,
+    color: colors.success,
   },
   otherEntries: {
-    gap: spacing.lg,
+    gap: spacing.md,
   },
   inlineInputRow: {
     flexDirection: 'row',
@@ -406,36 +403,35 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   inlineLabel: {
+    fontSize: fontSize.sm,
     color: colors.textPrimary,
-    fontWeight: fontWeight.semibold,
-    fontSize: fontSize.md,
+    fontWeight: fontWeight.medium,
   },
   smallInlineInput: {
-    backgroundColor: 'transparent',
-    width: 120,
+    width: 100,
     textAlign: 'right',
+    backgroundColor: 'transparent',
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.bold,
   },
-  confirmationRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    paddingHorizontal: spacing.xs,
+  confirmationSection: {
+    marginTop: spacing.sm,
   },
-  confirmationText: {
-    fontSize: fontSize.xs,
+  checkboxLabel: {
+    fontSize: 12,
     color: colors.textSecondary,
-    flex: 1,
     lineHeight: 18,
   },
-  footer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: spacing.lg,
-    backgroundColor: colors.surface,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    ...shadow.lg,
-  }
+  infoBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.sm,
+  },
+  infoText: {
+    flex: 1,
+    fontSize: 11,
+    color: colors.textMuted,
+    lineHeight: 16,
+  },
 });

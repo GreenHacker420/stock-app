@@ -83,17 +83,26 @@ export type DetailedCashSession = CashSession & {
 export type Order = {
   id: string;
   orderNumber: string;
+  shopId: string;
+  customerId: string;
+  assignedStaffId?: string | null;
   status: string;
+  priority: string;
+  expectedDispatchDate: string;
   totalAmount: string;
   paidAmount: string;
   balanceAmount: string;
+  ownerNotes?: string | null;
   createdAt: string;
   customer?: Customer;
+  assignedStaff?: { id: string; name: string } | null;
   items: Array<{
     id: string;
+    itemId: string;
     quantityOrdered: string;
     quantityPacked: string;
     quantityDispatched: string;
+    quantityShortage?: string | null;
     rate: string;
     discountAmount?: string;
     lineTotal?: string;
@@ -215,6 +224,7 @@ export type Sale = {
   items?: Array<{ id: string; quantity: string; rate: string; discountAmount?: string; totalAmount: string; item: Item }>;
   payments?: Payment[];
   gstRequired: boolean;
+  isGstRequired?: boolean; // alias for compatibility
   gstInvoiceStatus?: "NOT_REQUIRED" | "PENDING" | "GENERATED" | string;
   gstInvoiceNumber?: string | null;
   gstInvoiceGeneratedAt?: string | null;
@@ -247,6 +257,7 @@ export interface CreateSalePayload {
   payments?: Array<{ paymentMode: string; amount: number; referenceNumber?: string; notes?: string }>;
   notes?: string;
   customerSignature?: string;
+  isGstRequired?: boolean;
 }
 
 export interface StockEntryPayload {
@@ -741,6 +752,7 @@ export type OwnerDashboardData = {
   chequeReceived: number;
   paymentVerificationPending: number;
   cashMismatch: number;
+  cashSessionDifferencesCount: number; // alias for compatibility
   rateChangeRequests: number;
   correctionRequests: number;
   lowStockAlerts: number;
@@ -784,6 +796,44 @@ export async function fetchStaffTodaySummary(token: string, shopId: string, date
 
 export async function addStock(token: string, data: StockEntryPayload) {
   return apiRequest("/stock/entry", { method: "POST", token, body: JSON.stringify(data) });
+}
+
+export type StockMovement = {
+  id: string;
+  itemId: string;
+  quantityIn: string;
+  quantityOut: string;
+  movementType: string;
+  reason?: string | null;
+  createdAt: string;
+  createdBy?: { id: string; name: string } | null;
+  item?: Item | null;
+  sale?: { id: string; saleNumber: string } | null;
+  deliveryMemo?: { id: string; dmNumber: string } | null;
+  order?: { id: string; orderNumber: string } | null;
+};
+
+export type Expense = {
+  id: string;
+  shopId: string;
+  amount: string;
+  category: string;
+  note?: string | null;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  createdAt: string;
+  createdBy: { id: string; name: string };
+};
+
+export async function fetchExpenses(token: string, shopId: string) {
+  return apiRequest<Expense[]>(`/expenses?shopId=${encodeURIComponent(shopId)}`, { token });
+}
+
+export async function createExpense(token: string, data: { shopId: string; amount: number; category: string; note?: string }) {
+  return apiRequest<Expense>("/expenses", { method: "POST", token, body: JSON.stringify(data) });
+}
+
+export async function verifyExpense(token: string, id: string, status: "APPROVED" | "REJECTED", note?: string) {
+  return apiRequest<Expense>(`/expenses/${id}/verify`, { method: "POST", token, body: JSON.stringify({ status, note }) });
 }
 
 export async function updateSaleGst(token: string, saleId: string, gstInvoiceNumber: string) {

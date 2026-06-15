@@ -1,5 +1,5 @@
 import { createBottomTabNavigator, BottomTabBarProps } from "@react-navigation/bottom-tabs";
-import { createStaticNavigation } from "@react-navigation/native";
+import { createStaticNavigation, StaticParamList } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { View, Pressable, Dimensions, StyleSheet } from "react-native";
 import { Icon } from "react-native-paper";
@@ -495,6 +495,83 @@ const OwnerRootStack = createNativeStackNavigator({
   },
 });
 
+export type RootStackParamList = {
+  // Tabs
+  StaffTabs: undefined;
+  OwnerTabs: undefined;
+  
+  // Tab screens (for direct navigation if needed)
+  StaffHome: undefined;
+  StaffWork: undefined;
+  StaffPayments: undefined;
+  Notifications: undefined;
+  Profile: undefined;
+  OwnerDashboard: undefined;
+  OwnerRecords: undefined;
+  OwnerStock: undefined;
+  OwnerAlerts: undefined;
+
+  // Shared Stack Screens
+  NotFound: undefined;
+  NotificationHistory: undefined;
+  WalkInSale: undefined;
+  NewSaleType: undefined;
+  RegularSale: undefined;
+  SplitPayment: undefined;
+  OpenCashSession: undefined;
+  StockEntry: { itemId?: string };
+  StockMovementHistory: undefined;
+  OrdersToPack: { initialTab?: string };
+  OrderDetail: { orderId: string };
+  Packing: undefined;
+  Dispatch: undefined;
+  CloseDay: undefined;
+  TodaySummary: undefined;
+  Expenses: undefined;
+  VerificationQueue: undefined;
+  CreateDeliveryMemo: undefined;
+  DeliveryMemoList: undefined;
+  DeliveryMemoDetail: undefined;
+  TakePayment: { customerId?: string; orderId?: string; amount?: number };
+  RequestCorrection: undefined;
+  RequestRateChange: undefined;
+  CreateEditShop: { shop?: any };
+  AssignStaff: { shop: any };
+  SetOpeningStock: { shop?: any };
+  PaymentVerification: undefined;
+  CashClosingReview: undefined;
+  DailySummary: undefined;
+  UpiConfig: undefined;
+  Updates: undefined;
+  CreateOrder: undefined;
+  OrderList: undefined;
+  RateChangeRequests: undefined;
+  PriceHistory: undefined;
+  SalesList: { filter?: string };
+  SaleDetail: { id: string };
+  ChequeList: undefined;
+  ChequeDetail: undefined;
+  CustomerList: undefined;
+  AddEditCustomer: { customer?: any };
+  CustomerDetail: { customerId: string };
+  CustomerOutstandingList: undefined;
+  ItemList: undefined;
+  AddEditItem: { item?: any };
+  ItemDetail: { itemId: string };
+  StockDashboard: undefined;
+  CashSessionDetail: undefined;
+  CorrectionRequests: undefined;
+  DailySummaryList: undefined;
+  StaffManagement: undefined;
+  AddEditStaff: { staff?: any };
+  AuditLog: undefined;
+  Settings: undefined;
+  Home: undefined;
+};
+
+export type StaffStackParamList = RootStackParamList;
+export type OwnerStackParamList = RootStackParamList;
+
 export const StaffNavigation = createStaticNavigation(StaffRootStack);
 export const OwnerNavigation = createStaticNavigation(OwnerRootStack);
 
@@ -503,4 +580,10 @@ type OwnerRootStackType = typeof OwnerRootStack;
 
 declare module "@react-navigation/core" {
   interface RootNavigator extends StaffRootStackType, OwnerRootStackType {}
+}
+
+declare global {
+  namespace ReactNavigation {
+    interface RootParamList extends RootStackParamList {}
+  }
 }

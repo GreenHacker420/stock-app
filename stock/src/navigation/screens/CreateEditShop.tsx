@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { View, StyleSheet } from "react-native";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { useNavigation, useRoute } from "@react-navigation/native";
+import { useRoute } from "@react-navigation/native";
 import { Button, TextInput, HelperText } from "react-native-paper";
 import { createShop, updateShop, Shop } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
@@ -9,11 +9,11 @@ import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { Section } from "../../components/ui/Section";
 import { colors, spacing, radius, fontSize, fontWeight } from '../../theme';
+import { goBack } from "../navigation-ref";
 
 export function CreateEditShop() {
   const token = useAuthStore((state) => state.token);
   const queryClient = useQueryClient();
-  const navigation = useNavigation();
   const route = useRoute();
 
   const params = route.params as { shop?: Shop } | undefined;
@@ -57,7 +57,7 @@ export function CreateEditShop() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["shops"] });
-      navigation.goBack();
+      goBack();
     },
     onError: (err: any) => {
       setError(err?.message || "Something went wrong. Please check your inputs.");

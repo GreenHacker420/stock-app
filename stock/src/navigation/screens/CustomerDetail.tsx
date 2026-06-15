@@ -1,10 +1,9 @@
 import React, { useState } from "react";
 import { View, StyleSheet, ScrollView, Pressable } from "react-native";
-import { useNavigation, useRoute } from "@react-navigation/native";
+import { useRoute } from "@react-navigation/native";
 import { Divider, Icon, Text, ActivityIndicator } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 
-import { useAuthStore } from "../../auth/auth-store";
 import { useCustomerDetailQuery, useCustomerSalesQuery, useCustomerPaymentsQuery, useCustomerDMsQuery, useCustomerReturnsQuery, useCustomerTimelineQuery } from "../../hooks/useCustomers";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
@@ -14,14 +13,15 @@ import { StatusPill } from "../../components/ui/StatusPill";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { SkeletonList } from "../../components/ui/SkeletonCard";
+import { navigate, goBack } from "../navigation-ref";
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 
 type TabType = "OVERVIEW" | "SALES" | "PAYMENTS" | "OUTSTANDING" | "DMS" | "RETURNS" | "TIMELINE";
 
 export function CustomerDetail() {
-  const navigation = useNavigation();
-  const customerId = (useRoute().params as { customerId: string }).customerId;
+  const route = useRoute<any>();
+  const customerId = route.params?.customerId;
   const [activeTab, setActiveTab] = useState<TabType>("OVERVIEW");
 
   const customerQuery = useCustomerDetailQuery(customerId);
@@ -80,7 +80,6 @@ export function CustomerDetail() {
 }
 
 function OverviewTab({ customer }: { customer: any }) {
-  const navigation = useNavigation();
   return (
     <ScrollView contentContainerStyle={styles.tabContent}>
       <View style={styles.statsGrid}>
@@ -107,7 +106,7 @@ function OverviewTab({ customer }: { customer: any }) {
       <Button 
         variant="secondary" 
         label="Edit Profile" 
-        onPress={() => (navigation as any).navigate("AddEditCustomer", { customer })} 
+        onPress={() => navigate("AddEditCustomer", { customer })} 
         style={{ marginTop: spacing.lg }}
       />
     </ScrollView>
@@ -176,16 +175,16 @@ function OutstandingTab({ customer, salesQuery }: { customer: any, salesQuery: a
         {unpaidSales.length > 0 ? unpaidSales.map((sale: any) => (
           <View key={sale.id} style={styles.listItem}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.listTitle}>#{sale.saleNumber}</Text>
-              <Text style={styles.listSubtitle}>Due: {sale.dueDate ? new Date(sale.dueDate).toLocaleDateString() : 'N/A'}</Text>
+              <Text style={styles.listTitle}>Sale #{sale.saleNumber}</Text>
+              <Text style={styles.listSubtitle}>{new Date(sale.createdAt).toLocaleDateString()}</Text>
             </View>
             <View style={{ alignItems: 'flex-end' }}>
-              <Text style={styles.listAmount}>{money(sale.balanceAmount)}</Text>
-              <Text style={styles.pendingText}>Pending of {money(sale.totalAmount)}</Text>
+              <Text style={[styles.listAmount, { color: colors.danger }]}>{money(sale.totalAmount)}</Text>
+              <Text style={styles.miniLabel}>PENDING</Text>
             </View>
           </View>
         )) : (
-          <Text style={styles.emptyText}>All invoices are paid.</Text>
+          <EmptyState title="All invoices cleared" icon="check-circle-outline" />
         )}
       </Section>
     </ScrollView>
@@ -205,13 +204,13 @@ function DMsTab({ query }: { query: any }) {
             <Text style={styles.listSubtitle}>{new Date(item.createdAt).toLocaleDateString()}</Text>
           </View>
           <View style={{ alignItems: 'flex-end' }}>
-            <Text style={styles.listAmount}>{money(item.estimatedAmount)}</Text>
-            <StatusPill label={item.status} tone="blue" />
+            <Text style={styles.listAmount}>{money(item.totalAmount)}</Text>
+            <StatusPill label={item.status} tone={item.status === 'PAID' ? 'green' : 'amber'} />
           </View>
         </View>
       )}
       estimatedItemSize={80}
-      ListEmptyComponent={<EmptyState title="No delivery memos found" />}
+      ListEmptyComponent={<EmptyState title="No Delivery Memos" />}
     />
   );
 }
@@ -229,8 +228,8 @@ function ReturnsTab({ query }: { query: any }) {
             <Text style={styles.listSubtitle}>{new Date(item.createdAt).toLocaleDateString()}</Text>
           </View>
           <View style={{ alignItems: 'flex-end' }}>
-            <Text style={[styles.listAmount, { color: colors.danger }]}>-{money(item.netAmount)}</Text>
-            <StatusPill label={item.status} tone="amber" />
+            <Text style={[styles.listAmount, { color: colors.danger }]}>{money(item.totalAmount)}</Text>
+            <Text style={styles.miniLabel}>REVERSED</Text>
           </View>
         </View>
       )}
@@ -248,30 +247,25 @@ function TimelineTab({ query }: { query: any }) {
       data={query.data ?? []}
       renderItem={({ item }: { item: any }) => (
         <View style={styles.timelineItem}>
-          <View style={styles.timelineIcon}>
-            <Icon 
-              source={item.type === 'SALE' ? 'file-document' : item.type === 'PAYMENT' ? 'currency-inr' : 'history'} 
-              size={24} 
-              color={colors.primary} 
-            />
-          </View>
-          <View style={styles.timelineContent}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-              <Text style={styles.timelineTitle}>{item.title}</Text>
-              <Text style={styles.timelineDate}>{new Date(item.date).toLocaleDateString()}</Text>
-            </View>
-            {item.amount && <Text style={styles.timelineAmount}>{money(item.amount)}</Text>}
-            <Text style={styles.timelineStatus}>{item.status || item.detail}</Text>
-          </View>
+           <View style={styles.timelinePoint}>
+              <View style={styles.timelineLine} />
+              <View style={styles.timelineDot} />
+           </View>
+           <View style={styles.timelineCard}>
+              <Text style={styles.timelineDate}>{new Date(item.createdAt).toLocaleString()}</Text>
+              <Text style={styles.timelineTitle}>{item.event}</Text>
+              <Text style={styles.timelineDesc}>{item.description}</Text>
+              {item.amount && <Text style={styles.timelineAmount}>{money(item.amount)}</Text>}
+           </View>
         </View>
       )}
-      estimatedItemSize={100}
-      ListEmptyComponent={<EmptyState title="No activity recorded" />}
+      estimatedItemSize={120}
+      contentContainerStyle={{ paddingVertical: spacing.lg }}
     />
   );
 }
 
-function InfoRow({ label, value }: { label: string, value: string }) {
+function InfoRow({ label, value }: { label: string; value: string }) {
   return (
     <View style={styles.infoRow}>
       <Text style={styles.infoLabel}>{label}</Text>
@@ -285,38 +279,37 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
+    height: 52,
   },
   tabScroll: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    gap: spacing.xl,
   },
   tabItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    borderRadius: radius.full,
-    marginRight: spacing.sm,
-    gap: spacing.sm,
+    gap: 8,
+    borderBottomWidth: 3,
+    borderBottomColor: 'transparent',
+    paddingHorizontal: 4,
   },
   activeTabItem: {
-    backgroundColor: colors.surfaceOffset,
+    borderBottomColor: colors.primary,
   },
   tabLabel: {
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.medium,
+    fontSize: 13,
+    fontWeight: fontWeight.bold,
     color: colors.textMuted,
   },
   activeTabLabel: {
     color: colors.primary,
-    fontWeight: fontWeight.bold,
   },
   content: {
     flex: 1,
-    backgroundColor: colors.bg,
   },
   tabContent: {
     padding: spacing.lg,
+    paddingBottom: 100,
   },
   statsGrid: {
     flexDirection: 'row',
@@ -333,43 +326,43 @@ const styles = StyleSheet.create({
     ...shadow.sm,
   },
   statLabel: {
-    fontSize: fontSize.xs,
-    color: colors.textMuted,
+    fontSize: 11,
     fontWeight: fontWeight.bold,
-    textTransform: 'uppercase',
+    color: colors.textSecondary,
+    marginBottom: 4,
   },
   statValue: {
-    fontSize: fontSize.xl,
+    fontSize: 18,
     fontWeight: fontWeight.black,
-    marginTop: 4,
   },
   infoCard: {
     backgroundColor: colors.surface,
     borderRadius: radius.lg,
-    padding: spacing.lg,
     borderWidth: 1,
     borderColor: colors.border,
+    overflow: 'hidden',
   },
   infoRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    paddingVertical: spacing.sm,
+    padding: spacing.lg,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.surfaceOffset,
   },
   infoLabel: {
-    fontSize: fontSize.sm,
-    color: colors.textMuted,
+    fontSize: 13,
+    color: colors.textSecondary,
   },
   infoValue: {
-    fontSize: fontSize.sm,
+    fontSize: 13,
     fontWeight: fontWeight.bold,
     color: colors.textPrimary,
-    textAlign: 'right',
     flex: 1,
-    marginLeft: spacing.lg,
+    textAlign: 'right',
+    marginLeft: 20,
   },
   listItem: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
     padding: spacing.lg,
     backgroundColor: colors.surface,
@@ -377,86 +370,99 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.surfaceOffset,
   },
   listTitle: {
-    fontSize: fontSize.md,
+    fontSize: 15,
     fontWeight: fontWeight.bold,
     color: colors.textPrimary,
   },
   listSubtitle: {
-    fontSize: fontSize.xs,
+    fontSize: 12,
     color: colors.textMuted,
     marginTop: 2,
   },
   listAmount: {
-    fontSize: fontSize.md,
+    fontSize: 15,
     fontWeight: fontWeight.black,
     color: colors.textPrimary,
     marginBottom: 4,
   },
+  miniLabel: {
+    fontSize: 9,
+    fontWeight: fontWeight.black,
+    color: colors.textMuted,
+  },
   totalBox: {
-    backgroundColor: colors.primary,
+    backgroundColor: colors.surfaceOffset,
     padding: spacing.xl,
     borderRadius: radius.lg,
-    marginBottom: spacing.xl,
     alignItems: 'center',
+    marginBottom: spacing.xl,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   totalLabel: {
-    color: colors.textInverse,
-    opacity: 0.8,
-    fontSize: fontSize.sm,
+    fontSize: 12,
     fontWeight: fontWeight.bold,
+    color: colors.textSecondary,
+    marginBottom: 4,
   },
   totalValue: {
-    color: colors.textInverse,
-    fontSize: fontSize.xxl,
+    fontSize: 24,
     fontWeight: fontWeight.black,
-    marginTop: 4,
-  },
-  pendingText: {
-    fontSize: fontSize.xs,
     color: colors.danger,
-    fontWeight: fontWeight.medium,
-  },
-  emptyText: {
-    textAlign: 'center',
-    color: colors.textMuted,
-    padding: spacing.xl,
   },
   timelineItem: {
     flexDirection: 'row',
-    padding: spacing.lg,
-    backgroundColor: colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.surfaceOffset,
-    gap: spacing.lg,
+    paddingHorizontal: spacing.lg,
   },
-  timelineIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.surfaceOffset,
+  timelinePoint: {
+    width: 24,
     alignItems: 'center',
-    justifyContent: 'center',
   },
-  timelineContent: {
+  timelineLine: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: 2,
+    backgroundColor: colors.surfaceOffset,
+  },
+  timelineDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: colors.primary,
+    marginTop: 20,
+    zIndex: 2,
+  },
+  timelineCard: {
     flex: 1,
-  },
-  timelineTitle: {
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.bold,
-    color: colors.textPrimary,
+    backgroundColor: colors.surface,
+    marginVertical: spacing.sm,
+    marginLeft: spacing.md,
+    padding: spacing.lg,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    ...shadow.sm,
   },
   timelineDate: {
-    fontSize: fontSize.xs,
+    fontSize: 10,
     color: colors.textMuted,
+    fontWeight: fontWeight.bold,
+  },
+  timelineTitle: {
+    fontSize: 14,
+    fontWeight: fontWeight.black,
+    color: colors.textPrimary,
+    marginTop: 4,
+  },
+  timelineDesc: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    marginTop: 2,
   },
   timelineAmount: {
     fontSize: fontSize.sm,
     fontWeight: fontWeight.bold,
     marginTop: 4,
   },
-  timelineStatus: {
-    fontSize: fontSize.xs,
-    color: colors.textMuted,
-    marginTop: 2,
-  }
 });

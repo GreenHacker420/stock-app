@@ -1,749 +1,227 @@
-import { useNavigation, useRoute } from "@react-navigation/native";
-import { ScrollView, View, Pressable, StyleSheet, ActivityIndicator } from "react-native";
-import { Button, Divider, Searchbar, SegmentedButtons, Text, TextInput, Icon } from "react-native-paper";
+import React from "react";
+import { View, StyleSheet, ScrollView, Pressable, ActivityIndicator } from "react-native";
+import { Text, Icon, Divider, Button as PaperButton } from "react-native-paper";
+import { useRoute } from "@react-navigation/native";
+import { useOwnerDashboardQuery } from "../../hooks/useDashboard";
+
 import { Screen } from "../../components/Screen";
-import { ActionTile } from "../../components/ui/ActionTile";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { Section } from "../../components/ui/Section";
-import { StatusPill } from "../../components/ui/StatusPill";
-import { useOwnerDashboardQuery } from "../../hooks/useDashboard";
-import { useAuthStore } from "../../auth/auth-store";
+import { Button } from "../../components/ui/Button";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
+import { useAuthStore } from "../../auth/auth-store";
+import { navigate } from "../navigation-ref";
 
-type Action = { title: string; subtitle: string; icon: string; route?: string; tone?: "green" | "amber" | "blue" | "red" };
-type Field = { label: string; value?: string; type?: "input" | "readonly" | "textarea" };
-type ScreenConfig = {
-  title: string;
-  subtitle: string;
-  tabs?: string[];
-  badges?: Array<{ label: string; tone?: "green" | "amber" | "blue" | "red" | "neutral" }>;
-  stats?: string[];
-  fields?: Field[];
-  rows?: string[];
-  actions?: Action[];
-  primary?: string;
+const smartTitle = (routeName: string) => {
+  return routeName
+    .replace(/([A-Z])/g, " $1")
+    .replace(/^./, (str) => str.toUpperCase())
+    .trim();
 };
 
-const baseBadges = [{ label: "Screen UI complete", tone: "green" as const }];
+const configs: Record<string, { title: string; subtitle: string; primary: string }> = {
+  SplitPayment: {
+    title: "Split Payment",
+    subtitle: "Divide a single bill across multiple payment methods.",
+    primary: "Proceed to split",
+  },
+  StockMovementHistory: {
+    title: "Stock Ledger",
+    subtitle: "Complete audit log of physical item movements.",
+    primary: "Download CSV",
+  },
+  CorrectionRequests: {
+    title: "Correction Queue",
+    subtitle: "Approval requests for editing or deleting records.",
+    primary: "Bulk approve",
+  },
+  RateChangeRequests: {
+    title: "Price Approvals",
+    subtitle: "Requests to sell items below minimum set price.",
+    primary: "Review all",
+  },
+  ChequeList: {
+    title: "Cheque Tracking",
+    subtitle: "Monitor received, cleared, and bounced cheques.",
+    primary: "Record deposit",
+  },
+  DeliveryMemoList: {
+    title: "Delivery Memos",
+    subtitle: "Manage kachha bills and pending conversions.",
+    primary: "Create new DM",
+  },
+};
 
-function smartTitle(routeName: string) {
-  return routeName.replace(/([A-Z])/g, " $1").trim();
+function ConfiguredScreen({ config }: { config: typeof configs[string] }) {
+  return (
+    <Screen edges={["top", "left", "right"]}>
+      <AppHeader title={config.title} subtitle={config.subtitle} showBack />
+      <View style={styles.emptyContainer}>
+        <Icon source="progress-wrench" size={80} color={colors.surfaceOffset} />
+        <Text style={styles.emptyTitle}>{config.title} is coming soon</Text>
+        <Text style={styles.emptyDesc}>
+          We are currently refining the {config.title.toLowerCase()} workflow to ensure it meets operational standards.
+        </Text>
+        <Button label={config.primary} variant="primary" style={{ marginTop: spacing.xl, width: 220 }} />
+      </View>
+    </Screen>
+  );
 }
 
-function ConfiguredScreen({ config }: { config: ScreenConfig }) {
-  const navigation = useNavigation();
-  const route = useRoute();
-  const params = route.params as Record<string, unknown> | undefined;
-  const tabs = config.tabs ?? ["All", "Pending", "Completed"];
-
-  const isTab = ["StaffWork", "OwnerRecords", "OwnerStock", "OwnerAlerts", "Notifications"].includes(route.name);
-
+export function OwnerRecords() {
   return (
-    <Screen scroll={false}>
-      <AppHeader title={config.title} subtitle={config.subtitle} />
-      <ScrollView 
-        showsVerticalScrollIndicator={false} 
-        contentContainerClassName={isTab ? "pb-24" : "pb-7"}
-      >
-        <View className="gap-4">
-          <View className="flex-row flex-wrap gap-2">
-            {[...baseBadges, ...(config.badges ?? [])].map((badge) => (
-              <StatusPill key={badge.label} label={badge.label} tone={badge.tone ?? "blue"} />
-            ))}
+    <Screen edges={["top", "left", "right"]}>
+      <AppHeader title="Operations History" subtitle="Consolidated business records." />
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <Section title="Direct reports">
+          <View style={styles.gridContainer}>
+            <Pressable onPress={() => navigate("SalesList")} style={({ pressed }) => [styles.statCard, pressed && styles.pressed]}>
+              <Icon source="receipt" size={24} color={colors.primary} />
+              <Text style={styles.statLabel}>SALES LOG</Text>
+              <Text style={styles.statValue}>Invoices</Text>
+            </Pressable>
+            <Pressable onPress={() => navigate("Expenses")} style={({ pressed }) => [styles.statCard, pressed && styles.pressed]}>
+              <Icon source="cash-minus" size={24} color={colors.primary} />
+              <Text style={styles.statLabel}>EXPENSES</Text>
+              <Text style={styles.statValue}>Outgoings</Text>
+            </Pressable>
+            <Pressable onPress={() => navigate("CustomerList")} style={({ pressed }) => [styles.statCard, pressed && styles.pressed]}>
+              <Icon source="account-group" size={24} color={colors.primary} />
+              <Text style={styles.statLabel}>CUSTOMERS</Text>
+              <Text style={styles.statValue}>Profiles</Text>
+            </Pressable>
+            <Pressable onPress={() => navigate("DailySummaryList")} style={({ pressed }) => [styles.statCard, pressed && styles.pressed]}>
+              <Icon source="file-chart-outline" size={24} color={colors.primary} />
+              <Text style={styles.statLabel}>SUMMARIES</Text>
+              <Text style={styles.statValue}>Day End</Text>
+            </Pressable>
           </View>
+        </Section>
 
-          {params ? (
-            <View className="rounded-lg border border-[#dbeafe] bg-blue-50 p-3">
-              <Text variant="bodySmall" style={{ color: "#1e3a8a", fontWeight: "700" }}>
-                Context: {JSON.stringify(params)}
-              </Text>
-            </View>
-          ) : null}
-
-          <Searchbar
-            value=""
-            onChangeText={() => {}}
-            placeholder="Search by number, name, phone, SKU, or reference"
-            style={{ backgroundColor: "white", borderRadius: 10, borderWidth: 1, borderColor: "#e5e7eb" } as any}
-          />
-
-          <SegmentedButtons
-            value={tabs[0]}
-            onValueChange={() => {}}
-            buttons={tabs.slice(0, 4).map((tab) => ({ value: tab, label: tab }))}
-            density="small"
-          />
-
-          {config.stats?.length ? (
-            <Section title="Summary">
-              <View className="flex-row flex-wrap gap-3">
-                {config.stats.map((stat) => (
-                  <View key={stat} className="min-w-[46%] flex-1 rounded-lg border border-[#e5e7eb] bg-white p-4">
-                    <Text variant="bodySmall" style={{ color: "#64748b" }}>
-                      {stat.split(":")[0]}
-                    </Text>
-                    <Text variant="titleMedium" style={{ color: "#111827", fontWeight: "900" }}>
-                      {stat.includes(":") ? stat.split(":").slice(1).join(":").trim() : "--"}
-                    </Text>
-                  </View>
-                ))}
-              </View>
-            </Section>
-          ) : null}
-
-          {config.fields?.length ? (
-            <Section title="Details">
-              <View className="gap-3 rounded-lg border border-[#e5e7eb] bg-white p-4">
-                {config.fields.map((field) =>
-                  field.type === "readonly" ? (
-                    <View key={field.label} className="flex-row justify-between gap-4">
-                      <Text style={{ color: "#64748b", flex: 1 }}>{field.label}</Text>
-                      <Text style={{ color: "#111827", fontWeight: "800", flex: 1, textAlign: "right" }}>{field.value ?? "--"}</Text>
-                    </View>
-                  ) : (
-                    <TextInput
-                      key={field.label}
-                      mode="outlined"
-                      label={field.label}
-                      value={field.value ?? ""}
-                      multiline={field.type === "textarea"}
-                      onChangeText={() => {}}
-                      style={{ backgroundColor: "white" }}
-                      outlineStyle={{ borderRadius: 10 }}
-                    />
-                  ),
-                )}
-              </View>
-            </Section>
-          ) : null}
-
-          {config.rows?.length ? (
-            <Section title="Records">
-              <View className="rounded-lg border border-dashed border-[#cbd5e1] bg-white p-5">
-                <Text style={{ color: "#475569", fontWeight: "800" }}>No records loaded</Text>
-                <Text variant="bodySmall" style={{ color: "#64748b", marginTop: 4 }}>
-                  This screen needs its list API connected before it can show live records.
-                </Text>
-              </View>
-            </Section>
-          ) : null}
-
-          {config.actions?.length ? (
-            <Section title="Actions">
-              <View className="gap-3">
-                {config.actions.map((action) => (
-                  <ActionTile
-                    key={action.title}
-                    title={action.title}
-                    subtitle={action.subtitle}
-                    icon={action.icon}
-                    tone={action.tone ?? "blue"}
-                    onPress={action.route ? () => (navigation as any).navigate(action.route) : undefined}
-                  />
-                ))}
-              </View>
-            </Section>
-          ) : null}
-
-          <Button mode="contained" icon="check-circle-outline" style={{ borderRadius: 10 }} onPress={() => {}}>
-            {config.primary ?? "Save"}
-          </Button>
-        </View>
+        <Section title="Banking & Finance">
+          <View style={styles.gridContainer}>
+            <Pressable onPress={() => navigate("ChequeList")} style={({ pressed }) => [styles.statCard, pressed && styles.pressed]}>
+              <Icon source="card-bulleted-outline" size={24} color={colors.textSecondary} />
+              <Text style={styles.statLabel}>CHEQUES</Text>
+              <Text style={styles.statValue}>Collection</Text>
+            </Pressable>
+            <Pressable onPress={() => navigate("AuditLog")} style={({ pressed }) => [styles.statCard, pressed && styles.pressed]}>
+              <Icon source="history" size={24} color={colors.textSecondary} />
+              <Text style={styles.statLabel}>AUDIT LOG</Text>
+              <Text style={styles.statValue}>Tracking</Text>
+            </Pressable>
+          </View>
+        </Section>
       </ScrollView>
     </Screen>
   );
 }
 
-const configs: Record<string, ScreenConfig> = {
-  Notifications: {
-    title: "Notifications",
-    subtitle: "In-app alerts linked to records.",
-    tabs: ["All", "Unread"],
-    stats: ["Unread: 0", "Today: 0"],
-    rows: ["Cheque bounced alert", "Cash mismatch alert", "Rate change request alert", "Low stock alert"],
-    primary: "Mark all read",
-  },
-  StaffWork: {
-    title: "Staff Work",
-    subtitle: "Daily staff workflows grouped by task.",
-    actions: [
-      { title: "Orders to Pack", subtitle: "View assigned packing work.", icon: "package-variant", route: "OrdersToPack" },
-      { title: "New Sale", subtitle: "Choose walk-in or regular sale.", icon: "cart-plus", route: "NewSaleType" },
-      { title: "Create DM", subtitle: "Record delivery memo stock out.", icon: "file-document-outline", route: "CreateDeliveryMemo" },
-      { title: "Take Payment", subtitle: "Collect against an existing record.", icon: "cash-register", route: "TakePayment" },
-      { title: "Stock Entry", subtitle: "Stock in, stock out, or damage/loss.", icon: "warehouse", route: "StockEntry" },
-      { title: "Close Day", subtitle: "Submit cash reconciliation.", icon: "cash-check", route: "CloseDay", tone: "amber" },
-    ],
-    primary: "Open selected workflow",
-  },
-  OwnerRecords: {
-    title: "Records",
-    subtitle: "Orders, sales, DMs, customers, and cheques.",
-    actions: [
-      { title: "Order List", subtitle: "Browse and manage all orders.", icon: "clipboard-list-outline", route: "OrderList" },
-      { title: "Sales List", subtitle: "Filter walk-in, regular, credit, and returns.", icon: "receipt", route: "SalesList" },
-      { title: "DM List", subtitle: "Track pending and overdue delivery memos.", icon: "file-document-outline", route: "DeliveryMemoList" },
-      { title: "Customer List", subtitle: "Manage registered customers.", icon: "account-group-outline", route: "CustomerList" },
-      { title: "Cheque List", subtitle: "Track cheque lifecycle.", icon: "bank-check", route: "ChequeList" },
-    ],
-    primary: "Open records",
-  },
-  OwnerStock: {
-    title: "Stock",
-    subtitle: "Catalog, current stock, low stock, and movement audit.",
-    actions: [
-      { title: "Item List", subtitle: "Browse and edit item catalog.", icon: "shape-outline", route: "ItemList" },
-      { title: "Stock Dashboard", subtitle: "Low stock and out-of-stock overview.", icon: "warehouse", route: "StockDashboard" },
-      { title: "Stock Movement History", subtitle: "Full audit of stock changes.", icon: "history", route: "StockMovementHistory" },
-      { title: "Set Opening Stock", subtitle: "One-time stock setup.", icon: "playlist-check", route: "SetOpeningStock" },
-    ],
-    primary: "Open stock tools",
-  },
-  OwnerAlerts: {
-    title: "Alerts",
-    subtitle: "Owner review queues and operational exceptions.",
-    actions: [
-      { title: "Payment Verification", subtitle: "Verify non-cash records.", icon: "check-decagram-outline", route: "PaymentVerification" },
-      { title: "Cash Closing Review", subtitle: "Review day-close submissions.", icon: "cash-check", route: "CashClosingReview" },
-      { title: "Rate Change Requests", subtitle: "Approve or reject rate requests.", icon: "tag-edit-outline", route: "RateChangeRequests" },
-      { title: "Correction Requests", subtitle: "Review correction requests.", icon: "file-alert-outline", route: "CorrectionRequests" },
-    ],
-    primary: "Review alerts",
-  },
-  NewSaleType: {
-    title: "New Sale",
-    subtitle: "Choose sale type.",
-    actions: [
-      { title: "Walk-in / Counter Sale", subtitle: "No customer account. Fully paid now.", icon: "walk", route: "WalkInSale", tone: "green" },
-      { title: "Regular Sale", subtitle: "Optional customer with split or pending payment.", icon: "account-cash-outline", route: "RegularSale" },
-    ],
-    primary: "Continue",
-  },
-  RegularSale: {
-    title: "Regular Sale",
-    subtitle: "Customer sale with split or pending payment.",
-    stats: ["Subtotal: ₹0", "Paid: ₹0", "Balance: ₹0"],
-    fields: [{ label: "Customer search" }, { label: "Due date" }],
-    rows: ["Added item rows with qty, rate, discount, total", "Payment lines with Cash, UPI, Card, Bank, Cheque, Pending"],
-    actions: [{ title: "Add Item", subtitle: "Open item picker.", icon: "plus-circle-outline" }, { title: "Split Payment", subtitle: "Record multiple modes.", icon: "cash-multiple", route: "SplitPayment" }],
-    primary: "Complete Sale",
-  },
-  SplitPayment: {
-    title: "Split Payment",
-    subtitle: "Record multiple payment modes for one bill.",
-    tabs: ["Cash", "UPI", "Card", "Bank"],
-    stats: ["Bill Total: ₹0", "Paid: ₹0", "Balance: ₹0"],
-    fields: [{ label: "Amount" }, { label: "Reference / UTR / Txn ID" }],
-    rows: ["Cash payment line", "UPI payment line", "Cheque payment line", "Pending due line"],
-    primary: "Done - Confirm Payment",
-  },
-  OrderDetail: detailConfig("Order Detail", "Full order view with packing, DM, sale, and request actions.", ["Start Packing", "Continue Packing", "Create DM", "Convert to Sale", "Request Correction"]),
-  Packing: {
-    title: "Packing",
-    subtitle: "Mark ordered items as packed or shortage.",
-    stats: ["Packed: 0 of 0", "Shortage: 0"],
-    rows: ["Item row: qty ordered, qty packed, packed toggle, shortage reason"],
-    fields: [{ label: "Staff notes", type: "textarea" }],
-    primary: "Mark Order Packed",
-  },
-  Dispatch: {
-    title: "Dispatch",
-    subtitle: "Dispatch packed items and continue to DM or sale.",
-    stats: ["Packed qty: 0", "Dispatch qty: 0"],
-    fields: [{ label: "Dispatch date" }, { label: "Proof photo URL" }, { label: "Notes", type: "textarea" }],
-    rows: ["Item dispatch row with qty to dispatch"],
-    actions: [{ title: "Create DM", subtitle: "Use dispatch items.", icon: "file-document-outline", route: "CreateDeliveryMemo" }, { title: "Convert to Sale", subtitle: "Use dispatch items.", icon: "receipt", route: "RegularSale" }],
-    primary: "Dispatch",
-  },
-  CreateDeliveryMemo: formConfig("Create Delivery Memo", "Record goods leaving without final payment.", ["Customer name", "Customer phone", "Customer address", "Expected payment date", "Reason for DM"], "Create DM"),
-  DeliveryMemoList: listConfig("Delivery Memos", "Track delivery memos by payment and return status.", ["All", "Pending", "Overdue", "Paid"], ["DM-20260527-001 - ABC Traders - Balance ₹0", "DM-20260527-002 - Counter customer - Pending"]),
-  DeliveryMemoDetail: detailConfig("Delivery Memo Detail", "Full DM record with payment, return, and correction actions.", ["Add Payment", "Mark Returned", "Request Correction", "Request Cancel"]),
-  StockMovementHistory: listConfig("Stock Movement History", "Audit stock in, out, damage, and adjustments.", ["Today", "Last 7 Days", "All"], ["Cement - STOCK_IN - 20 bags", "Paint - DAMAGE_LOSS - 2 pcs"]),
-  RequestCorrection: formConfig("Request Correction", "Ask owner to correct a record while preserving audit history.", ["Record type and number", "What needs to be corrected", "Reason / explanation"], "Submit Request"),
-  RequestRateChange: formConfig("Request Rate Change", "Ask owner to approve a different rate on an order item.", ["Order number", "Item name", "Current rate", "Suggested rate", "Reason"], "Submit Request"),
-  CreateOrder: formConfig("Create Order", "Three-step owner order flow: customer, items, review.", ["Customer", "Priority", "Expected dispatch date", "Owner notes", "Item, qty, rate, discount"], "Confirm & Send to Staff"),
-  OrderList: listConfig("Orders", "Browse and manage all orders.", ["All", "Draft", "To Pack", "Packing"], ["ORD-20260527-001 - ABC Traders - To Pack", "ORD-20260527-002 - XYZ Store - Packing"]),
-  RateChangeRequests: reviewConfig("Rate Change Requests", "Approve or reject staff rate change requests.", ["Current rate", "Suggested rate", "Difference", "Reason"]),
-  PriceHistory: listConfig("Price History", "Item/customer rate history across orders, sales, and DMs.", ["Customer", "All"], ["ABC Traders - ₹390 - 12 May 2026", "XYZ Traders - ₹395 - 10 May 2026"]),
-  SalesList: listConfig("Sales", "See all sales with full filters.", ["All", "Walk-in", "Regular", "Credit"], ["SAL-20260527-001 - Walk-in - ₹0", "SAL-20260527-002 - ABC Traders - Balance ₹0"]),
-  SaleDetail: detailConfig("Sale Detail", "Full sale record with payment verification and owner controls.", ["Verify Payment", "Mark Mismatch", "Approve Correction", "Approve Cancellation"]),
-  ChequeList: listConfig("Cheques", "Track cheque lifecycle.", ["All", "Received", "Deposited", "Cleared"], ["CHQ 123456 - ABC Traders - ₹0", "CHQ 998877 - XYZ Store - Deposited"]),
-  ChequeDetail: detailConfig("Cheque Detail", "Cheque record, proof, and lifecycle management.", ["Mark Deposited", "Mark Cleared", "Mark Bounced", "Mark Returned"]),
-  CustomerList: listConfig("Customers", "Browse and manage registered customers.", ["Active", "Inactive"], ["ABC Traders - Outstanding ₹0", "XYZ Store - Credit limit ₹0"]),
-  AddEditCustomer: formConfig("Add / Edit Customer", "Create or update a customer profile.", ["Name", "Phone", "Address", "City", "GSTIN", "Credit limit", "Notes"], "Save Customer"),
-  CustomerDetail: detailConfig("Customer Detail", "Customer profile, history, payments, outstanding, and price history.", ["Edit", "Record Payment", "Open Price History"]),
-  CustomerOutstandingList: listConfig("Customer Outstanding", "All pending customer payments.", ["All", "Overdue", "Due Week"], ["ABC Traders - SAL-001 - Pending ₹0", "XYZ Store - DM-001 - Overdue"]),
-  ItemList: listConfig("Items", "Browse and manage item catalog.", ["All", "Active", "Inactive", "Low Stock"], ["Cement - 45 bags - ₹390", "Paint - Low stock - ₹250"]),
-  AddEditItem: formConfig("Add / Edit Item", "Create or update catalog item.", ["Name", "SKU", "Category", "Unit", "Default price", "Minimum price", "Purchase price", "MRP", "Minimum stock"], "Save Item"),
-  ItemDetail: detailConfig("Item Detail", "Item stock, pricing, movement, and customer history.", ["Add Stock Entry", "Open Price History"]),
-  StockDashboard: listConfig("Stock Dashboard", "Bird's-eye stock view with low and out-of-stock alerts.", ["All", "Low Stock", "Out of Stock"], ["Cement - 45 bags - Healthy", "Paint - 2 pcs - Low stock"]),
-  CashSessionDetail: detailConfig("Cash Session Detail", "Owner review of staff cash close submission.", ["Approve & Mark Reviewed", "Flag Mismatch"]),
-  CorrectionRequests: reviewConfig("Correction Requests", "Review staff correction requests.", ["Entity", "What to correct", "Reason", "Requested by"]),
-  DailySummaryList: listConfig("Daily Summaries", "Browse past daily reports.", ["All", "Generated", "Locked"], ["27 May 2026 - Generated - Sales ₹0", "26 May 2026 - Locked - Difference ₹0"]),
-  StaffManagement: listConfig("Staff Management", "Manage staff accounts and shop access.", ["Active", "Inactive"], ["Ravi Staff - 9999999999 - Assigned shops", "Priya Staff - Last login pending"]),
-  AddEditStaff: formConfig("Add / Edit Staff", "Create or update staff account.", ["Name", "Mobile", "Password", "Status", "Shop assignments"], "Save Staff"),
-  AuditLog: listConfig("Audit Log", "Full activity trail for owner oversight.", ["Today", "7 Days", "All"], ["Sale created - SAL-001", "Cheque marked bounced - CHQ 123456"]),
-  Settings: formConfig("Settings", "Shop configuration, notification preferences, and account controls.", ["Shop name", "City", "Address", "Default opening cash", "Allow negative stock", "UPI reference required", "Card reference required"], "Save Settings"),
-};
-
-function formConfig(title: string, subtitle: string, labels: string[], primary: string): ScreenConfig {
-  return { title, subtitle, fields: labels.map((label) => ({ label, type: label.toLowerCase().includes("notes") || label.toLowerCase().includes("reason") ? "textarea" : "input" })), primary };
+export function OwnerStock() {
+  return (
+    <Screen edges={["top", "left", "right"]}>
+      <AppHeader title="Inventory Ops" subtitle="Monitor and adjust stock levels." />
+      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <Section title="Physical management">
+          <View style={styles.gridContainer}>
+            <Pressable onPress={() => navigate("StockDashboard")} style={({ pressed }) => [styles.statCard, pressed && styles.pressed]}>
+              <Icon source="warehouse" size={24} color={colors.primary} />
+              <Text style={styles.statLabel}>DASHBOARD</Text>
+              <Text style={styles.statValue}>Alerts</Text>
+            </Pressable>
+            <Pressable onPress={() => navigate("StockEntry")} style={({ pressed }) => [styles.statCard, pressed && styles.pressed]}>
+              <Icon source="plus-box" size={24} color={colors.primary} />
+              <Text style={styles.statLabel}>ENTRY</Text>
+              <Text style={styles.statValue}>Restock</Text>
+            </Pressable>
+            <Pressable onPress={() => navigate("ItemList")} style={({ pressed }) => [styles.statCard, pressed && styles.pressed]}>
+              <Icon source="barcode-scan" size={24} color={colors.primary} />
+              <Text style={styles.statLabel}>CATALOG</Text>
+              <Text style={styles.statValue}>Pricing</Text>
+            </Pressable>
+            <Pressable onPress={() => navigate("StockMovementHistory")} style={({ pressed }) => [styles.statCard, pressed && styles.pressed]}>
+              <Icon source="swap-horizontal" size={24} color={colors.primary} />
+              <Text style={styles.statLabel}>LEDGER</Text>
+              <Text style={styles.statValue}>History</Text>
+            </Pressable>
+          </View>
+        </Section>
+      </ScrollView>
+    </Screen>
+  );
 }
 
-function listConfig(title: string, subtitle: string, tabs: string[], rows: string[]): ScreenConfig {
-  return { title, subtitle, tabs, stats: ["Count: 0", "Amount: ₹0"], rows, primary: "Export / Refresh" };
-}
-
-function reviewConfig(title: string, subtitle: string, labels: string[]): ScreenConfig {
-  return {
-    title,
-    subtitle,
-    tabs: ["Pending", "Approved", "Rejected", "All"],
-    rows: ["Pending request card with approve/reject controls"],
-    fields: labels.map((label) => ({ label, value: "--", type: "readonly" })),
-    actions: [
-      { title: "Approve", subtitle: "Confirm and notify staff.", icon: "check-circle-outline", tone: "green" },
-      { title: "Reject", subtitle: "Capture rejection reason.", icon: "close-circle-outline", tone: "red" },
-    ],
-    primary: "Submit Decision",
-  };
-}
-
-function detailConfig(title: string, subtitle: string, actions: string[]): ScreenConfig {
-  return {
-    title,
-    subtitle,
-    stats: ["Total: ₹0", "Paid: ₹0", "Balance: ₹0"],
-    fields: [
-      { label: "Record number", value: "--", type: "readonly" },
-      { label: "Customer", value: "--", type: "readonly" },
-      { label: "Status", value: "--", type: "readonly" },
-    ],
-    rows: ["Item/payment/history row", "Timeline event row"],
-    actions: actions.map((title) => ({ title, subtitle: "Run this record action.", icon: "chevron-right-circle-outline" })),
-    primary: "Save Changes",
-  };
-}
-
-export function Notifications() {
-  return <ConfiguredScreen config={configs.Notifications} />;
-}
-
-export function StaffWork() {
-  return <ConfiguredScreen config={configs.StaffWork} />;
-}
-
-export function OwnerRecords() {
-  const navigation = useNavigation();
+export function OwnerAlerts() {
+  const user = useAuthStore((state) => state.user);
   const dashboardQuery = useOwnerDashboardQuery();
   const dashboard = dashboardQuery.data;
 
-  const navigate = (screen: string) => {
-    (navigation as any).navigate(screen);
-  };
-
   return (
-    <Screen edges={['top', 'left', 'right']}>
-      <AppHeader title="Records Dashboard" subtitle="Manage orders, sales, delivery memos, and customers" />
+    <Screen edges={["top", "left", "right"]}>
+      <AppHeader title="Work Queue" subtitle="Tasks requiring owner attention." />
       
       {dashboardQuery.isLoading ? (
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color={colors.primary} />
         </View>
       ) : (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-          <Section title="RECORDS OVERVIEW">
-            <View style={styles.statsRow}>
-              <View style={styles.statCard}>
-                <Text style={styles.statLabel}>TODAY SALES</Text>
-                <Text style={styles.statValue}>₹{Number(dashboard?.todaySales ?? 0).toLocaleString("en-IN")}</Text>
-              </View>
-              <View style={styles.statCard}>
-                <Text style={styles.statLabel}>PENDING DM</Text>
-                <Text style={styles.statValue}>₹{Number(dashboard?.pendingDmAmount ?? 0).toLocaleString("en-IN")}</Text>
-              </View>
-              <View style={styles.statCard}>
-                <Text style={styles.statLabel}>ORDERS TO PACK</Text>
-                <Text style={styles.statValue}>{dashboard?.ordersToPack ?? 0}</Text>
-              </View>
-              <View style={styles.statCard}>
-                <Text style={styles.statLabel}>TODAY SALES COUNT</Text>
-                <Text style={styles.statValue}>{dashboard?.salesCount ?? 0}</Text>
-              </View>
-            </View>
-          </Section>
-
-          <Section title="DATA MODULES">
-            <View style={styles.gridContainer}>
-              <ActionTile
-                title="Order List"
-                subtitle="Browse and manage customer orders"
-                icon="clipboard-list-outline"
-                tone="blue"
-                onPress={() => navigate("OrderList")}
-              />
-              <ActionTile
-                title="Sales List"
-                subtitle="Walk-in, credit, and regular sales history"
-                icon="receipt"
-                tone="blue"
-                onPress={() => navigate("SalesList")}
-              />
-              <ActionTile
-                title="DM List"
-                subtitle="Track pending and overdue delivery memos"
-                icon="file-document-outline"
-                tone="blue"
-                onPress={() => navigate("DeliveryMemoList")}
-              />
-              <ActionTile
-                title="Customer List"
-                subtitle="Manage registered customers and balances"
-                icon="account-group-outline"
-                tone="blue"
-                onPress={() => navigate("CustomerList")}
-              />
-              <ActionTile
-                title="Cheque List"
-                subtitle="Track received and pending bank cheques"
-                icon="bank-check"
-                tone="blue"
-                onPress={() => navigate("ChequeList")}
-              />
-            </View>
-          </Section>
-        </ScrollView>
-      )}
-    </Screen>
-  );
-}
-
-export function OwnerStock() {
-  const navigation = useNavigation();
-  const user = useAuthStore((state) => state.user);
-  const dashboardQuery = useOwnerDashboardQuery();
-  const dashboard = dashboardQuery.data;
-
-  const navigate = (screen: string) => {
-    (navigation as any).navigate(screen);
-  };
-
-  const isLowStock = (dashboard?.lowStockAlerts ?? 0) > 0;
-  const ownerName = user?.name ? user.name.split(/\s+/)[0] : "Owner";
-
-  return (
-    <Screen edges={['top', 'left', 'right']}>
-      {/* Premium Reference-Style Greeting Header */}
-      <View style={styles.dashboardHeader}>
-        <View style={styles.headerUserRow}>
-          <View style={styles.userAvatar}>
-            <Text style={styles.userAvatarText}>{ownerName.slice(0, 2).toUpperCase()}</Text>
-          </View>
-          <View style={styles.headerGreetingCol}>
-            <Text style={styles.greetingGreeting}>☀️ GOOD MORNING! ^_^</Text>
-            <Text style={styles.greetingName}>{ownerName} 👋</Text>
-          </View>
-        </View>
-        <View style={styles.headerActions}>
-          <Pressable style={styles.headerBtn} onPress={() => navigate("Updates")}>
-            <Text style={styles.headerBtnText}>Shops</Text>
-          </Pressable>
-          <Pressable style={styles.headerIconBtn} onPress={() => navigate("NotificationHistory")}>
-            <Icon source="bell-outline" size={20} color="#0f172a" />
-            <View style={styles.redDot} />
-          </Pressable>
-        </View>
-      </View>
-
-      {dashboardQuery.isLoading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
-        </View>
-      ) : (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-          {/* Reference-Style 4-Card Metric Grid */}
-          <Section title="INVENTORY OVERVIEW">
-            <View style={styles.metricsGrid}>
-              {/* Total Stock Value - Large Purple Filled Card */}
-              <Pressable 
-                style={[styles.metricCard, styles.metricCardPrimary]}
-                onPress={() => navigate("ItemList")}
-              >
-                <View style={styles.metricCardHeader}>
-                  <View style={styles.metricIconWrapperLight}>
-                    <Icon source="layers-outline" size={24} color={colors.primary} />
-                  </View>
-                  <Icon source="arrow-up-right" size={20} color="#ffffff" />
-                </View>
-                <Text style={[styles.metricValue, { color: "#ffffff" }]}>₹14,52,180</Text>
-                <Text style={[styles.metricLabel, { color: "rgba(255, 255, 255, 0.8)" }]}>Total Stock Value</Text>
-              </Pressable>
-
-              {/* Total Stock Card */}
-              <Pressable 
-                style={styles.metricCard}
-                onPress={() => navigate("ItemList")}
-              >
-                <View style={styles.metricCardHeader}>
-                  <View style={[styles.metricIconWrapper, { backgroundColor: "rgba(34, 197, 94, 0.08)" }]}>
-                    <Icon source="database-outline" size={22} color={colors.primary} />
-                  </View>
-                  <Icon source="arrow-up-right" size={20} color="#64748b" />
-                </View>
-                <Text style={styles.metricValue}>1,284</Text>
-                <Text style={styles.metricLabel}>Total Stock Units</Text>
-              </Pressable>
-
-              {/* Out of Stock Card */}
-              <Pressable 
-                style={styles.metricCard}
-                onPress={() => navigate("StockDashboard")}
-              >
-                <View style={styles.metricCardHeader}>
-                  <View style={[styles.metricIconWrapper, { backgroundColor: "rgba(220, 38, 38, 0.08)" }]}>
-                    <Icon source="cube-off-outline" size={22} color={colors.danger} />
-                  </View>
-                  <Icon source="arrow-up-right" size={20} color="#64748b" />
-                </View>
-                <Text style={styles.metricValue}>08</Text>
-                <Text style={styles.metricLabel}>Out of Stock</Text>
-              </Pressable>
-
-              {/* Low Stock Card */}
-              <Pressable 
-                style={styles.metricCard}
-                onPress={() => navigate("StockDashboard")}
-              >
-                <View style={styles.metricCardHeader}>
-                  <View style={[styles.metricIconWrapper, { backgroundColor: "rgba(217, 119, 6, 0.08)" }]}>
-                    <Icon source="alert-circle-outline" size={22} color={colors.warning} />
-                  </View>
-                  <Icon source="arrow-up-right" size={20} color="#64748b" />
-                </View>
-                <Text style={styles.metricValue}>{dashboard?.lowStockAlerts ?? 0}</Text>
-                <Text style={styles.metricLabel}>Low Stock Items</Text>
-              </Pressable>
-            </View>
-          </Section>
-
-          {/* Reference-Style Stock Flow Chart */}
-          <Section title="STOCK FLOW">
-            <View style={styles.chartContainer}>
-              <View style={styles.chartHeader}>
-                <Text style={styles.chartSubtitle}>+18% Rise in Total inventory Units</Text>
-                <View style={styles.chartDropdown}>
-                  <Text style={styles.chartDropdownText}>Last 7 days</Text>
-                  <Icon source="chevron-down" size={16} color="#64748b" />
-                </View>
-              </View>
-              
-              {/* Stacked area mockup columns */}
-              <View style={styles.chartContent}>
-                {/* Column 1 */}
-                <View style={styles.chartCol}>
-                  <View style={styles.chartBarWrapper}>
-                    <View style={[styles.chartBarSegment, { height: "30%", backgroundColor: "rgba(22, 163, 74, 0.7)", borderTopLeftRadius: 6, borderTopRightRadius: 6 }]} />
-                    <View style={[styles.chartBarSegment, { height: "15%", backgroundColor: "rgba(34, 197, 94, 0.5)" }]} />
-                    <View style={[styles.chartBarSegment, { height: "20%", backgroundColor: "rgba(217, 119, 6, 0.4)" }]} />
-                    <View style={[styles.chartBarSegment, { height: "15%", backgroundColor: "rgba(59, 130, 246, 0.3)", borderBottomLeftRadius: 6, borderBottomRightRadius: 6 }]} />
-                  </View>
-                  <Text style={styles.chartColLabel}>45%</Text>
-                </View>
-
-                {/* Column 2 */}
-                <View style={styles.chartCol}>
-                  <View style={styles.chartBarWrapper}>
-                    <View style={[styles.chartBarSegment, { height: "15%", backgroundColor: "rgba(22, 163, 74, 0.7)", borderTopLeftRadius: 6, borderTopRightRadius: 6 }]} />
-                    <View style={[styles.chartBarSegment, { height: "10%", backgroundColor: "rgba(34, 197, 94, 0.5)" }]} />
-                    <View style={[styles.chartBarSegment, { height: "10%", backgroundColor: "rgba(217, 119, 6, 0.4)" }]} />
-                    <View style={[styles.chartBarSegment, { height: "15%", backgroundColor: "rgba(59, 130, 246, 0.3)", borderBottomLeftRadius: 6, borderBottomRightRadius: 6 }]} />
-                  </View>
-                  <Text style={styles.chartColLabel}>20%</Text>
-                </View>
-
-                {/* Column 3 */}
-                <View style={styles.chartCol}>
-                  <View style={styles.chartBarWrapper}>
-                    <View style={[styles.chartBarSegment, { height: "40%", backgroundColor: "rgba(22, 163, 74, 0.7)", borderTopLeftRadius: 6, borderTopRightRadius: 6 }]} />
-                    <View style={[styles.chartBarSegment, { height: "20%", backgroundColor: "rgba(34, 197, 94, 0.5)" }]} />
-                    <View style={[styles.chartBarSegment, { height: "15%", backgroundColor: "rgba(217, 119, 6, 0.4)" }]} />
-                    <View style={[styles.chartBarSegment, { height: "15%", backgroundColor: "rgba(59, 130, 246, 0.3)", borderBottomLeftRadius: 6, borderBottomRightRadius: 6 }]} />
-                  </View>
-                  <Text style={styles.chartColLabel}>50%</Text>
-                </View>
-
-                {/* Column 4 */}
-                <View style={styles.chartCol}>
-                  <View style={styles.chartBarWrapper}>
-                    <View style={[styles.chartBarSegment, { height: "20%", backgroundColor: "rgba(22, 163, 74, 0.7)", borderTopLeftRadius: 6, borderTopRightRadius: 6 }]} />
-                    <View style={[styles.chartBarSegment, { height: "15%", backgroundColor: "rgba(34, 197, 94, 0.5)" }]} />
-                    <View style={[styles.chartBarSegment, { height: "10%", backgroundColor: "rgba(217, 119, 6, 0.4)" }]} />
-                    <View style={[styles.chartBarSegment, { height: "10%", backgroundColor: "rgba(59, 130, 246, 0.3)", borderBottomLeftRadius: 6, borderBottomRightRadius: 6 }]} />
-                  </View>
-                  <Text style={styles.chartColLabel}>35%</Text>
-                </View>
-
-                {/* Column 5 */}
-                <View style={styles.chartCol}>
-                  <View style={styles.chartBarWrapper}>
-                    <View style={[styles.chartBarSegment, { height: "45%", backgroundColor: "rgba(22, 163, 74, 0.7)", borderTopLeftRadius: 6, borderTopRightRadius: 6 }]} />
-                    <View style={[styles.chartBarSegment, { height: "20%", backgroundColor: "rgba(34, 197, 94, 0.5)" }]} />
-                    <View style={[styles.chartBarSegment, { height: "20%", backgroundColor: "rgba(217, 119, 6, 0.4)" }]} />
-                    <View style={[styles.chartBarSegment, { height: "15%", backgroundColor: "rgba(59, 130, 246, 0.3)", borderBottomLeftRadius: 6, borderBottomRightRadius: 6 }]} />
-                  </View>
-                  <Text style={styles.chartColLabel}>100%</Text>
-                </View>
-              </View>
-            </View>
-          </Section>
-
-          <Section title="INVENTORY TOOLS">
-            <View style={styles.gridContainer}>
-              <ActionTile
-                title="Products Catalog"
-                subtitle="Browse, edit, and add catalog items"
-                icon="shape-outline"
-                tone="blue"
-                onPress={() => navigate("ItemList")}
-              />
-              <ActionTile
-                title="Stock Dashboard"
-                subtitle="View low stock and out-of-stock items"
-                icon="warehouse"
-                tone={isLowStock ? "red" : "blue"}
-                onPress={() => navigate("StockDashboard")}
-              />
-              <ActionTile
-                title="Stock Movement History"
-                subtitle="Audit log of all stock entries and adjustments"
-                icon="history"
-                tone="blue"
-                onPress={() => navigate("StockMovementHistory")}
-              />
-              <ActionTile
-                title="Set Opening Stock"
-                subtitle="One-time initial stock setup per item"
-                icon="playlist-check"
-                tone="blue"
-                onPress={() => navigate("SetOpeningStock")}
-              />
-            </View>
-          </Section>
-        </ScrollView>
-      )}
-    </Screen>
-  );
-}
-
-export function OwnerAlerts() {
-  const navigation = useNavigation();
-  const dashboardQuery = useOwnerDashboardQuery();
-  const dashboard = dashboardQuery.data;
-
-  const navigate = (screen: string) => {
-    (navigation as any).navigate(screen);
-  };
-
-  const hasAlerts = 
-    (dashboard?.paymentVerificationPending ?? 0) > 0 ||
-    (dashboard?.cashMismatch ?? 0) > 0 ||
-    (dashboard?.rateChangeRequests ?? 0) > 0 ||
-    (dashboard?.correctionRequests ?? 0) > 0;
-
-  return (
-    <Screen edges={['top', 'left', 'right']}>
-      <AppHeader title="Owner Alerts" subtitle="Review queues and operational exceptions" />
-
-      {dashboardQuery.isLoading ? (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
-        </View>
-      ) : (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-          {hasAlerts ? (
-            <Section title="PENDING APPROVALS & EXCEPTIONS">
+        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+          {(dashboard?.pendingVerifications || 0) + (dashboard?.cashSessionDifferencesCount || 0) + (dashboard?.correctionRequests || 0) > 0 ? (
+            <Section title="Approvals & Verifications">
               <View style={styles.alertsContainer}>
-                {/* Payment Verification */}
+                {/* Payment & Expense Verifications */}
                 <Pressable
-                  onPress={() => navigate("PaymentVerification")}
+                  onPress={() => navigate("VerificationQueue")}
                   style={({ pressed }) => [
                     styles.alertCard,
-                    (dashboard?.paymentVerificationPending ?? 0) > 0 && styles.alertCardActive,
+                    (dashboard?.pendingVerifications ?? 0) > 0 && styles.alertCardActive,
                     pressed && styles.pressed
                   ]}
                 >
                   <View style={styles.alertContent}>
                     <Icon 
-                      source="check-decagram-outline" 
+                      source="shield-check-outline" 
                       size={28} 
-                      color={(dashboard?.paymentVerificationPending ?? 0) > 0 ? colors.warning : colors.textMuted} 
+                      color={(dashboard?.pendingVerifications ?? 0) > 0 ? colors.primary : colors.textMuted} 
                     />
                     <View style={styles.alertTextContainer}>
-                      <Text style={styles.alertTitle}>Payment Verification</Text>
-                      <Text style={styles.alertDesc}>UPI & Cheque payments awaiting clearance</Text>
+                      <Text style={styles.alertTitle}>Verification Queue</Text>
+                      <Text style={styles.alertDesc}>Expenses and payment records</Text>
                     </View>
                   </View>
                   <Text style={[
                     styles.alertBadge,
-                    (dashboard?.paymentVerificationPending ?? 0) > 0 ? styles.alertBadgeWarning : styles.alertBadgeClean
+                    (dashboard?.pendingVerifications ?? 0) > 0 ? styles.alertBadgeActive : styles.alertBadgeClean
                   ]}>
-                    {dashboard?.paymentVerificationPending ?? 0}
+                    {dashboard?.pendingVerifications ?? 0}
                   </Text>
                 </Pressable>
 
-                {/* Cash Closing Review */}
+                {/* Cash Session Differences */}
                 <Pressable
                   onPress={() => navigate("CashClosingReview")}
                   style={({ pressed }) => [
                     styles.alertCard,
-                    (dashboard?.cashMismatch ?? 0) > 0 && styles.alertCardDanger,
+                    (dashboard?.cashSessionDifferencesCount ?? 0) > 0 && styles.alertCardDanger,
                     pressed && styles.pressed
                   ]}
                 >
                   <View style={styles.alertContent}>
                     <Icon 
-                      source="cash-check" 
+                      source="cash-alert" 
                       size={28} 
-                      color={(dashboard?.cashMismatch ?? 0) > 0 ? colors.danger : colors.textMuted} 
+                      color={(dashboard?.cashSessionDifferencesCount ?? 0) > 0 ? colors.danger : colors.textMuted} 
                     />
                     <View style={styles.alertTextContainer}>
-                      <Text style={styles.alertTitle}>Cash Session Mismatches</Text>
-                      <Text style={styles.alertDesc}>Flagged staff shift close reports</Text>
+                      <Text style={styles.alertTitle}>Cash Mismatches</Text>
+                      <Text style={styles.alertDesc}>Day closing differences</Text>
                     </View>
                   </View>
                   <Text style={[
                     styles.alertBadge,
-                    (dashboard?.cashMismatch ?? 0) > 0 ? styles.alertBadgeDanger : styles.alertBadgeClean
+                    (dashboard?.cashSessionDifferencesCount ?? 0) > 0 ? styles.alertBadgeDanger : styles.alertBadgeClean
                   ]}>
-                    {dashboard?.cashMismatch ?? 0}
-                  </Text>
-                </Pressable>
-
-                {/* Rate Change Requests */}
-                <Pressable
-                  onPress={() => navigate("RateChangeRequests")}
-                  style={({ pressed }) => [
-                    styles.alertCard,
-                    (dashboard?.rateChangeRequests ?? 0) > 0 && styles.alertCardActive,
-                    pressed && styles.pressed
-                  ]}
-                >
-                  <View style={styles.alertContent}>
-                    <Icon 
-                      source="tag-edit-outline" 
-                      size={28} 
-                      color={(dashboard?.rateChangeRequests ?? 0) > 0 ? colors.primary : colors.textMuted} 
-                    />
-                    <View style={styles.alertTextContainer}>
-                      <Text style={styles.alertTitle}>Rate Approvals</Text>
-                      <Text style={styles.alertDesc}>Staff discount override requests</Text>
-                    </View>
-                  </View>
-                  <Text style={[
-                    styles.alertBadge,
-                    (dashboard?.rateChangeRequests ?? 0) > 0 ? styles.alertBadgeActive : styles.alertBadgeClean
-                  ]}>
-                    {dashboard?.rateChangeRequests ?? 0}
+                    {dashboard?.cashSessionDifferencesCount ?? 0}
                   </Text>
                 </Pressable>
 
@@ -837,7 +315,10 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
   },
   gridContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: spacing.md,
+    justifyContent: 'space-between',
   },
   alertsContainer: {
     gap: spacing.md,

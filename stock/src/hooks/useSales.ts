@@ -15,15 +15,20 @@ export function useSalesQuery() {
   });
 }
 
-export function useSaleDetailQuery(id: string) {
+export function useSaleQuery(id: string) {
   const token = useAuthStore((state) => state.token);
   return useQuery({
-    queryKey: queryKeys.sale(id),
+    queryKey: ["sale", id],
     queryFn: () => fetchSale(token ?? "", id),
     enabled: !!token && !!id,
-    staleTime: 2 * 60 * 1000, // 2 mins
+    staleTime: 5 * 60 * 1000,
   });
 }
+
+export function useSaleDetailQuery(id: string) {
+  return useSaleQuery(id);
+}
+
 
 export function useCreateSaleMutation() {
   const token = useAuthStore((state) => state.token);

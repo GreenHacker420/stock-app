@@ -1,31 +1,30 @@
 import React, { useMemo, useState } from "react";
 import { View, StyleSheet, ScrollView, Pressable } from "react-native";
-import { useNavigation } from "@react-navigation/native";
-import { Searchbar, Text, Icon, SegmentedButtons, Divider, Card } from "react-native-paper";
+import { Searchbar, Text, Icon, SegmentedButtons, Divider } from "react-native-paper";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { useSalesQuery } from "../../hooks/useSales";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { SkeletonList } from "../../components/ui/SkeletonCard";
 import { EmptyState } from "../../components/ui/EmptyState";
+import { navigate } from "../navigation-ref";
 
 function money(value?: string | number | null) {
   return `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 }
 
 export function NewSaleType() {
-  const navigation = useNavigation();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL"); // ALL, PAID, PENDING, PARTIAL
 
   const { data: sales, isLoading } = useSalesQuery();
 
   const handleStartWalkIn = () => {
-    navigation.navigate("WalkInSale" as never);
+    navigate("WalkInSale");
   };
 
   const handleStartRegular = () => {
-    navigation.navigate("RegularSale" as never);
+    navigate("RegularSale");
   };
 
   const filteredSales = useMemo(() => {
@@ -170,7 +169,7 @@ export function NewSaleType() {
                 <View key={sale.id}>
                   {idx > 0 && <Divider style={styles.divider} />}
                   <Pressable 
-                    onPress={() => (navigation as any).navigate("SaleDetail", { id: sale.id })}
+                    onPress={() => navigate("SaleDetail", { id: sale.id })}
                     style={({ pressed }) => [
                       styles.saleItemRow,
                       pressed && styles.pressedRow
@@ -212,49 +211,45 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
-    paddingBottom: 40,
+    paddingBottom: 100,
   },
   actionGrid: {
     gap: spacing.md,
     marginBottom: spacing.xxl,
   },
   actionCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: spacing.lg,
-    borderRadius: radius.lg,
-    borderWidth: 1.5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.xl,
+    borderRadius: 24,
+    borderWidth: 1,
     ...shadow.sm,
   },
   walkinCard: {
-    backgroundColor: "#f0fdf4",
-    borderColor: "#bbf7d0",
+    backgroundColor: '#f0fdf4',
+    borderColor: '#bbf7d0',
   },
   regularCard: {
-    backgroundColor: "#eff6ff",
-    borderColor: "#bfdbfe",
-  },
-  pressedCard: {
-    opacity: 0.9,
-    transform: [{ scale: 0.99 }],
+    backgroundColor: '#eff6ff',
+    borderColor: '#bfdbfe',
   },
   iconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: spacing.md,
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   walkinIconContainer: {
-    backgroundColor: "#dcfce7",
+    backgroundColor: '#dcfce7',
   },
   regularIconContainer: {
-    backgroundColor: "#dbeafe",
+    backgroundColor: '#dbeafe',
   },
   cardTextContent: {
     flex: 1,
-    paddingRight: spacing.xs,
+    marginLeft: spacing.lg,
+    gap: 2,
   },
   cardTitle: {
     fontSize: fontSize.lg,
@@ -262,21 +257,22 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
   },
   cardSubtitle: {
-    fontSize: fontSize.sm - 1,
+    fontSize: fontSize.xs,
     color: colors.textSecondary,
-    marginTop: 4,
     lineHeight: 16,
+    paddingRight: spacing.sm,
   },
   arrowIcon: {
-    paddingLeft: spacing.xs,
-  },
-  sectionTitle: {
-    fontSize: fontSize.lg,
-    fontWeight: fontWeight.extrabold,
-    color: colors.textPrimary,
+    opacity: 0.5,
   },
   historyHeader: {
     marginBottom: spacing.md,
+  },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: fontWeight.black,
+    color: colors.textPrimary,
+    letterSpacing: -0.5,
   },
   filterSection: {
     gap: spacing.md,
@@ -284,96 +280,99 @@ const styles = StyleSheet.create({
   },
   searchBar: {
     backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    borderWidth: 1.5,
+    borderRadius: radius.md,
+    borderWidth: 1,
     borderColor: colors.border,
     elevation: 0,
-    height: 52,
-    justifyContent: 'center',
-    shadowOpacity: 0,
+    height: 48,
   },
   searchInput: {
-    fontSize: fontSize.md,
-    color: colors.textPrimary,
+    fontSize: 14,
   },
   segmentedFilter: {
-    borderRadius: radius.md,
-  },
-  loaderContainer: {
-    marginTop: spacing.md,
-  },
-  emptyContainer: {
-    marginTop: spacing.xl,
+    height: 40,
   },
   salesListContainer: {
     backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    borderWidth: 1.5,
+    borderRadius: 24,
+    borderWidth: 1,
     borderColor: colors.border,
-    overflow: "hidden",
+    overflow: 'hidden',
     ...shadow.sm,
   },
   saleItemRow: {
-    flexDirection: "row",
-    alignItems: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
     padding: spacing.lg,
-    backgroundColor: colors.surface,
-  },
-  pressedRow: {
-    backgroundColor: colors.surfaceOffset,
-  },
-  divider: {
-    backgroundColor: colors.border,
   },
   avatarCircle: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   walkinAvatar: {
-    backgroundColor: "#dcfce7",
+    backgroundColor: '#f0fdf4',
+    borderWidth: 1,
+    borderColor: '#dcfce7',
   },
   customerAvatar: {
-    backgroundColor: "#dbeafe",
+    backgroundColor: '#eff6ff',
+    borderWidth: 1,
+    borderColor: '#dbeafe',
   },
   avatarText: {
-    fontSize: fontSize.md,
+    fontSize: 12,
     fontWeight: fontWeight.bold,
-    color: colors.textPrimary,
+    color: colors.textSecondary,
   },
   saleInfo: {
     flex: 1,
-    justifyContent: "center",
+    marginLeft: spacing.md,
+    gap: 2,
   },
   saleCustomer: {
-    fontSize: fontSize.md,
+    fontSize: fontSize.md - 1,
     fontWeight: fontWeight.bold,
     color: colors.textPrimary,
   },
   saleDetails: {
-    fontSize: fontSize.xs,
-    color: colors.textSecondary,
-    marginTop: 4,
+    fontSize: 11,
+    color: colors.textMuted,
   },
   salePriceInfo: {
-    alignItems: "flex-end",
-    gap: 4,
+    alignItems: 'flex-end',
+    gap: 6,
   },
   saleAmount: {
     fontSize: fontSize.md,
-    fontWeight: fontWeight.extrabold,
+    fontWeight: fontWeight.black,
     color: colors.textPrimary,
   },
   statusBadge: {
     paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: radius.sm,
+    borderRadius: 6,
   },
   statusBadgeText: {
-    fontSize: fontSize.xs - 1,
-    fontWeight: fontWeight.bold,
+    fontSize: 9,
+    fontWeight: fontWeight.black,
   },
+  divider: {
+    backgroundColor: colors.surfaceOffset,
+  },
+  loaderContainer: {
+    paddingTop: spacing.md,
+  },
+  emptyContainer: {
+    paddingVertical: spacing.huge,
+  },
+  pressedCard: {
+    opacity: 0.85,
+    transform: [{ scale: 0.98 }],
+  },
+  pressedRow: {
+    backgroundColor: colors.surfaceOffset,
+  }
 });

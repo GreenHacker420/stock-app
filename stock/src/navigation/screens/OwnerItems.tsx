@@ -1,196 +1,164 @@
-import React, { useMemo, useState, memo } from "react";
-import { Pressable, View, StyleSheet, ScrollView, ActivityIndicator, Modal, TouchableWithoutFeedback } from "react-native";
-import { useNavigation, useRoute } from "@react-navigation/native";
-import { Divider, Icon, Searchbar, Text, TextInput, SegmentedButtons } from "react-native-paper";
+import React, { useMemo, useState, memo, useCallback } from "react";
+import { View, StyleSheet, Pressable, ScrollView, ActivityIndicator, TouchableWithoutFeedback, Modal as RNModal } from "react-native";
+import { Searchbar, Divider, Text, Icon, SegmentedButtons, TextInput } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
+import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
+import { useRoute } from "@react-navigation/native";
 
-import { Item } from "../../api/client";
 import { 
-  useInfiniteItemsQuery,
-  useCurrentStockQuery,
-  useCreateItemMutation,
-  useUpdateItemMutation,
-  useItemStockQuery,
-  useItemPriceHistoryQuery,
-  useItemPriceChangeHistoryQuery,
-  useStockMovementsQuery 
-} from "../../hooks/useItems";
+  fetchItems, 
+  fetchItemStock, 
+  fetchItemPriceHistory, 
+  fetchItemPriceChangeHistory, 
+  fetchStockMovements,
+  createItem,
+  updateItem,
+  Item,
+  StockLevel,
+  StockMovement
+} from "../../api/client";
+import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
-import { AppHeader } from "../../components/ui/AppHeader";
-import { Section } from "../../components/ui/Section";
+import { useItemsQuery, useCreateItemMutation, useUpdateItemMutation, useItemStockQuery, useItemPriceHistoryQuery, useItemPriceChangeHistoryQuery, useStockMovementsQuery } from "../../hooks/useItems";
 import { Screen } from "../../components/Screen";
-import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
+import { AppHeader } from "../../components/ui/AppHeader";
+import { StatusPill } from "../../components/ui/StatusPill";
 import { SkeletonList } from "../../components/ui/SkeletonCard";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { Button } from "../../components/ui/Button";
+import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
+import { navigate, goBack } from "../navigation-ref";
 
-function money(value?: string | number | null) {
-  return `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
-}
+const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 
-const ItemCard = memo(({ item, stock, onEdit, onManageStock, onPress }: { 
-  item: Item; 
-  stock: number; 
-  onEdit: () => void;
-  onManageStock: () => void;
-  onPress: () => void;
+const ItemCard = memo(({ 
+  item, 
+  stock, 
+  onEdit, 
+  onManageStock, 
+  onPress 
+}: { 
+  item: Item, 
+  stock: number, 
+  onEdit: () => void, 
+  onManageStock: () => void, 
+  onPress: () => void 
 }) => {
-  const isLow = stock <= Number(item.minimumStock ?? 0) && stock > 0;
-  const isOut = stock === 0;
-
-  const pillInfo = useMemo(() => {
-    if (isOut) return { label: "Out of Stock", bg: colors.dangerLight, color: colors.danger };
-    if (isLow) return { label: "Low Stock", bg: colors.warningLight, color: colors.warning };
-    return { label: "In Stock", bg: colors.successLight, color: colors.success };
-  }, [isLow, isOut]);
+  const isLow = stock <= Number(item.minimumStock);
+  const isOut = stock <= 0;
 
   return (
     <Pressable 
-      onPress={onPress} 
+      onPress={onPress}
       style={({ pressed }) => [
         styles.itemCard,
         pressed && styles.itemCardPressed
       ]}
     >
       <View style={styles.itemCardRow}>
-        {/* Left Side: Package Icon */}
         <View style={styles.itemAvatar}>
-          <Icon source="package-variant-closed" size={24} color={colors.textSecondary} />
+          <Text style={styles.itemAvatarText}>{item.name[0].toUpperCase()}</Text>
         </View>
-
-        {/* Middle Side: Details */}
         <View style={styles.itemDetails}>
           <Text style={styles.itemName} numberOfLines={1}>{item.name}</Text>
-          <Text style={styles.itemSubtitle}>SKU: {item.sku || "N/A"}</Text>
-          <Text style={styles.itemStockCount}>Stock: <Text style={styles.itemStockValue}>{stock} {item.unit}</Text></Text>
+          <Text style={styles.itemSubtitle}>{item.sku || "No SKU"} • {item.unit}</Text>
+          <Text style={styles.itemStockCount}>
+            Stock: <Text style={styles.itemStockValue}>{stock} {item.unit}</Text>
+          </Text>
         </View>
-
-        {/* Right Side: Status Pill */}
-        <View style={[styles.stockPill, { backgroundColor: pillInfo.bg }]}>
-          <Text style={[styles.stockPillText, { color: pillInfo.color }]}>{pillInfo.label}</Text>
+        <View style={styles.itemActions}>
+           <StatusPill 
+             label={isOut ? "OUT" : isLow ? "LOW" : "OK"} 
+             tone={isOut ? "red" : isLow ? "amber" : "green"} 
+           />
+           <Pressable onPress={onEdit} style={styles.actionButton}>
+              <Icon source="pencil-outline" size={18} color={colors.textSecondary} />
+           </Pressable>
         </View>
       </View>
-
+      
       <Divider style={styles.cardDivider} />
-
+      
       <View style={styles.itemFooter}>
-        <View style={styles.priceContainer}>
-          <Text style={styles.priceLabel}>Selling Price: <Text style={styles.priceValue}>{money(item.defaultSellingPrice)}</Text></Text>
-          {item.mrp && (
-            <Text style={styles.priceLabel}>MRP: <Text style={styles.priceValueMrp}>{money(item.mrp)}</Text></Text>
-          )}
-        </View>
-
-        {/* Action Buttons in Footer */}
-        <View style={styles.itemActions}>
-          <Pressable onPress={onEdit} style={({ pressed }) => [styles.actionButton, pressed && styles.pressed]}>
-            <Icon source="pencil-outline" size={16} color={colors.textSecondary} />
-          </Pressable>
-          <Pressable onPress={onManageStock} style={({ pressed }) => [styles.actionButton, pressed && styles.pressed]}>
-            <Icon source="warehouse" size={16} color={colors.primary} />
-          </Pressable>
-        </View>
+         <View style={styles.priceContainer}>
+            <Text style={styles.priceLabel}>Selling Price</Text>
+            <Text style={styles.priceValue}>{money(item.defaultSellingPrice)}</Text>
+         </View>
+         <View style={styles.priceContainer}>
+            <Text style={styles.priceLabel}>MRP</Text>
+            <Text style={styles.priceValueMrp}>{money(item.mrp)}</Text>
+         </View>
+         <Button 
+            variant="ghost" 
+            label="Restock" 
+            onPress={onManageStock}
+            icon={<Icon source="plus-box-outline" size={16} color={colors.primary} />}
+         />
       </View>
     </Pressable>
   );
-}, (prev, next) => (
-  prev.item.id === next.item.id && 
-  prev.stock === next.stock && 
-  prev.item.name === next.item.name && 
-  prev.item.defaultSellingPrice === next.item.defaultSellingPrice &&
-  prev.item.mrp === next.item.mrp
-));
+});
 
 export function ItemList() {
-  const List = FlashList as any;
-  const activeShopId = useShopStore((state) => state.activeShopId);
-  const navigation = useNavigation();
+  const { activeShopId } = useShopStore();
   const [search, setSearch] = useState("");
   const [debouncedSearch] = useDebounce(search, 300);
-  const [filter, setFilter] = useState("ALL");
+  const [filter, setFilter] = useState<"ALL" | "LOW" | "OUT">("ALL");
 
-  const itemsQuery = useInfiniteItemsQuery({ search: debouncedSearch });
-  const stockQuery = useCurrentStockQuery();
+  const itemsQuery = useItemsQuery({ search: debouncedSearch, limit: 20 });
+  const stockQuery = useQuery({
+    queryKey: ["all-stock", activeShopId],
+    queryFn: () => fetchItems(useAuthStore.getState().token ?? "", activeShopId ?? ""),
+    enabled: !!activeShopId,
+  });
 
-  const stockByItem = useMemo(() => new Map((stockQuery.data ?? []).map((row) => [row.item.id, row.currentQuantity])), [stockQuery.data]);
+  const stockByItem = useMemo(() => {
+    const map = new Map<string, number>();
+    (stockQuery.data as any)?.items?.forEach((i: any) => {
+       map.set(i.id, i.currentStock || 0);
+    });
+    return map;
+  }, [stockQuery.data]);
 
-  const allItems = useMemo(() => {
-    if (!itemsQuery.data?.pages) return [];
-    return itemsQuery.data.pages
-      .flatMap((page) => page?.items || [])
-      .filter((item): item is Item => !!item && typeof item.id === "string");
-  }, [itemsQuery.data]);
-  
-  const filteredData = useMemo(() => {
-    if (filter === "LOW") {
-      return allItems.filter(item => {
-        const stock = stockByItem.get(item.id) ?? 0;
-        return stock <= Number(item.minimumStock ?? 0) && stock > 0;
-      });
-    }
-    if (filter === "OUT") {
-      return allItems.filter(item => (stockByItem.get(item.id) ?? 0) === 0);
-    }
-    return allItems;
-  }, [allItems, filter, stockByItem]);
+  const filteredItems = useMemo(() => {
+    const all = itemsQuery.data?.items ?? [];
+    if (filter === "ALL") return all;
+    return all.filter(item => {
+       const stock = stockByItem.get(item.id) ?? 0;
+       if (filter === "OUT") return stock <= 0;
+       if (filter === "LOW") return stock <= Number(item.minimumStock) && stock > 0;
+       return true;
+    });
+  }, [itemsQuery.data, filter, stockByItem]);
 
-  const lowStockCount = useMemo(() => {
-    return allItems.filter(item => {
-      const stock = stockByItem.get(item.id) ?? 0;
-      return stock <= Number(item.minimumStock ?? 0) && stock > 0;
-    }).length;
-  }, [allItems, stockByItem]);
-
-  const outOfStockCount = useMemo(() => {
-    return allItems.filter(item => (stockByItem.get(item.id) ?? 0) === 0).length;
-  }, [allItems, stockByItem]);
-
-  const totalStockValue = useMemo(() => {
-    return allItems.reduce((sum, item) => {
-      const stock = stockByItem.get(item.id) ?? 0;
-      return sum + stock * Number(item.defaultSellingPrice ?? 0);
-    }, 0);
-  }, [allItems, stockByItem]);
-
-  const totalCount = itemsQuery.data?.pages[0]?.total ?? 0;
+  const totalCount = itemsQuery.data?.total ?? 0;
+  const outOfStockCount = Array.from(stockByItem.values()).filter(v => v <= 0).length;
+  const lowStockCount = (stockQuery.data as any)?.items?.filter((i: any) => i.currentStock > 0 && i.currentStock <= Number(i.minimumStock)).length || 0;
+  const totalStockValue = (stockQuery.data as any)?.items?.reduce((sum: number, i: any) => sum + ((i.currentStock || 0) * Number(i.defaultSellingPrice || 0)), 0) || 0;
 
   const handleLoadMore = () => {
-    if (itemsQuery.hasNextPage && !itemsQuery.isFetchingNextPage) {
-      itemsQuery.fetchNextPage();
-    }
+    if (itemsQuery.hasNextPage) itemsQuery.fetchNextPage();
   };
 
-  if (itemsQuery.isError) {
-    return (
-      <Screen>
-        <AppHeader title="Inventory Management" />
-        <EmptyState 
-          icon="alert-circle-outline" 
-          title="Error loading items" 
-          subtitle="Something went wrong while fetching your inventory."
-          action={<Button label="Retry" onPress={() => itemsQuery.refetch()} />}
-        />
-      </Screen>
-    );
-  }
+  const List = FlashList as any;
 
   return (
-    <Screen edges={['top', 'left', 'right']}>
+    <Screen edges={['top', 'left', 'right']} scroll={false}>
+      <AppHeader title="Products Catalog" subtitle="Inventory management and pricing" />
+      
       <View style={styles.container}>
-        <AppHeader title="Inventory Management" subtitle="Items, pricing, and stock levels." />
-        
         <View style={styles.listWrapper}>
           <List
-            data={filteredData}
+            data={filteredItems}
             keyExtractor={(item: Item) => item.id}
-            onRefresh={() => itemsQuery.refetch()}
+            estimatedItemSize={160}
+            onRefresh={itemsQuery.refetch}
             refreshing={itemsQuery.isFetching && !itemsQuery.isFetchingNextPage}
             onEndReached={handleLoadMore}
             onEndReachedThreshold={0.5}
             ListHeaderComponent={
               <View style={styles.headerComponent}>
-                {/* Visual Top Summary Metrics scrolling bar */}
                 <ScrollView 
                   horizontal 
                   showsHorizontalScrollIndicator={false} 
@@ -226,7 +194,6 @@ export function ItemList() {
                   iconColor={colors.textSecondary}
                 />
                 
-                {/* Custom scrolling Filter Chips */}
                 <ScrollView 
                   horizontal 
                   showsHorizontalScrollIndicator={false} 
@@ -259,9 +226,9 @@ export function ItemList() {
               <ItemCard 
                 item={item} 
                 stock={stockByItem.get(item.id) ?? 0} 
-                onEdit={() => (navigation as any).navigate("AddEditItem", { item })}
-                onManageStock={() => (navigation as any).navigate("StockEntry", { shopId: activeShopId, itemId: item.id })}
-                onPress={() => (navigation as any).navigate("ItemDetail", { itemId: item.id })}
+                onEdit={() => navigate("AddEditItem", { item })}
+                onManageStock={() => navigate("StockEntry", { itemId: item.id })}
+                onPress={() => navigate("ItemDetail", { itemId: item.id })}
               />
             )}
             ListEmptyComponent={
@@ -279,10 +246,9 @@ export function ItemList() {
           />
         </View>
 
-        {/* Floating Action Button (FAB) adjusted to sit safely above the glassmorphic tab bar */}
         <Pressable 
           style={styles.fab} 
-          onPress={() => (navigation as any).navigate("AddEditItem")}
+          onPress={() => navigate("AddEditItem")}
         >
           <Icon source="plus" size={28} color={colors.textInverse} />
         </Pressable>
@@ -293,7 +259,6 @@ export function ItemList() {
 
 export function AddEditItem() {
   const route = useRoute();
-  const navigation = useNavigation();
   const item = (route.params as { item?: Item } | undefined)?.item;
   
   const [form, setForm] = useState({
@@ -328,26 +293,14 @@ export function AddEditItem() {
         id: item.id, 
         data: { ...payload, adjustmentStock: Number(form.stock) } 
       }, {
-        onSuccess: () => {
-          if (navigation.canGoBack()) {
-            navigation.goBack();
-          } else {
-            (navigation as any).navigate("ItemList");
-          }
-        }
+        onSuccess: () => goBack()
       });
     } else {
       createMutation.mutate({ 
         ...payload, 
         initialStock: Number(form.stock) 
       } as any, {
-        onSuccess: () => {
-          if (navigation.canGoBack()) {
-            navigation.goBack();
-          } else {
-            (navigation as any).navigate("ItemList");
-          }
-        }
+        onSuccess: () => goBack()
       });
     }
   };
@@ -419,7 +372,6 @@ export function AddEditItem() {
 export function ItemDetail() {
   const List = FlashList as any;
   const activeShopId = useShopStore((state) => state.activeShopId);
-  const navigation = useNavigation();
   const itemId = (useRoute().params as { itemId?: string } | undefined)?.itemId;
 
   const stockQuery = useItemStockQuery(itemId);
@@ -439,7 +391,7 @@ export function ItemDetail() {
     const isIn = Number(m.quantityIn) > 0;
     
     return (
-      <Modal visible={!!selectedMovement} transparent animationType="fade" onRequestClose={() => setSelectedMovement(null)}>
+      <RNModal visible={!!selectedMovement} transparent animationType="fade" onRequestClose={() => setSelectedMovement(null)}>
         <TouchableWithoutFeedback onPress={() => setSelectedMovement(null)}>
           <View style={styles.modalOverlay}>
             <TouchableWithoutFeedback>
@@ -481,18 +433,7 @@ export function ItemDetail() {
                       label={`View Sale ${m.sale.saleNumber}`} 
                       onPress={() => {
                         setSelectedMovement(null);
-                        (navigation as any).navigate("SaleDetail", { saleId: m.sale.id });
-                      }}
-                      style={{ marginTop: spacing.md }}
-                    />
-                  )}
-                  {m.deliveryMemo && (
-                    <Button 
-                      variant="secondary" 
-                      label={`View DM ${m.deliveryMemo.dmNumber}`} 
-                      onPress={() => {
-                        setSelectedMovement(null);
-                        // (navigation as any).navigate("DMDetail", { dmId: m.deliveryMemo.id });
+                        navigate("SaleDetail", { id: m.sale.id });
                       }}
                       style={{ marginTop: spacing.md }}
                     />
@@ -502,7 +443,7 @@ export function ItemDetail() {
             </TouchableWithoutFeedback>
           </View>
         </TouchableWithoutFeedback>
-      </Modal>
+      </RNModal>
     );
   };
 
@@ -566,13 +507,13 @@ export function ItemDetail() {
                     variant="secondary" 
                     label="Edit Item" 
                     icon={<Icon source="pencil" size={20} color={colors.primary} />} 
-                    onPress={() => (navigation as any).navigate("AddEditItem", { item })}
+                    onPress={() => navigate("AddEditItem", { item })}
                     style={{ flex: 1 }}
                   />
                   <Button 
                     label="Manage Stock" 
                     icon={<Icon source="warehouse" size={20} color={colors.textInverse} />} 
-                    onPress={() => (navigation as any).navigate("StockEntry", { shopId: activeShopId, itemId: item.id })}
+                    onPress={() => navigate("StockEntry", { itemId: item.id })}
                     style={{ flex: 1 }}
                   />
                 </View>

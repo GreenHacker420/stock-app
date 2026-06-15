@@ -1,683 +1,252 @@
-import { useMemo, useState } from "react";
-import { Pressable, ScrollView, View, StyleSheet, ActivityIndicator } from "react-native";
-import { useNavigation, useRoute } from "@react-navigation/native";
-import { Divider, Searchbar, SegmentedButtons, Text, TextInput, Card, Icon } from "react-native-paper";
-import { useSalesQuery, useSaleDetailQuery, useUpdateGstMutation } from "../../hooks/useSales";
+import React, { useMemo, useState } from "react";
+import { View, StyleSheet, Pressable, ScrollView, ActivityIndicator } from "react-native";
+import { Searchbar, Divider, Text, Icon } from "react-native-paper";
+import { FlashList } from "@shopify/flash-list";
+import { useDebounce } from "use-debounce";
+import { useRoute } from "@react-navigation/native";
+
+import { useSalesQuery, useSaleQuery } from "../../hooks/useSales";
+import { type Sale } from "../../api/client";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
-import { Section } from "../../components/ui/Section";
 import { StatusPill } from "../../components/ui/StatusPill";
+import { SkeletonList } from "../../components/ui/SkeletonCard";
+import { EmptyState } from "../../components/ui/EmptyState";
 import { Button } from "../../components/ui/Button";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
+import { navigate, goBack } from "../navigation-ref";
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 
 export function SalesList() {
-  const navigation = useNavigation();
-  const route = useRoute();
   const [search, setSearch] = useState("");
-  
-  // Support initial filter state from route params (e.g. gst_pending from dashboard)
-  const initialFilter = (route.params as { filter?: string } | undefined)?.filter || "ALL";
-  const [filter, setFilter] = useState(initialFilter);
+  const [debouncedSearch] = useDebounce(search, 300);
+  const route = useRoute<any>();
+  const initialFilter = route.params?.filter || "ALL"; // ALL, PAID, PENDING, PARTIAL
+  const [activeTab, setActiveTab] = useState(initialFilter);
 
-  const salesQuery = useSalesQuery();
+  const salesQuery = useSalesQuery({ search: debouncedSearch });
+  const allSales = salesQuery.data ?? [];
 
-  const rows = useMemo(() => {
-    return (salesQuery.data ?? []).filter((sale) => {
-      const customerName = sale.customer?.name || "Walk-in customer";
-      const text = `${sale.saleNumber} ${customerName} ${sale.paymentStatus ?? ""}`.toLowerCase();
-      const matches = text.includes(search.toLowerCase());
-      
-      if (filter === "WALKIN") return matches && sale.isWalkin;
-      if (filter === "REGULAR") return matches && !sale.isWalkin;
-      if (filter === "CREDIT") return matches && Number(sale.balanceAmount) > 0;
-      if (filter === "gst_pending") return matches && sale.gstRequired && sale.gstInvoiceStatus === "PENDING";
-      
-      return matches;
-    });
-  }, [filter, salesQuery.data, search]);
+  const filteredSales = useMemo(() => {
+    if (activeTab === "ALL") return allSales;
+    if (activeTab === "gst_pending") return allSales.filter(s => s.isGstRequired && !s.gstInvoiceNumber);
+    return allSales.filter(s => s.paymentStatus === activeTab);
+  }, [allSales, activeTab]);
 
-  const total = useMemo(() => rows.reduce((sum, sale) => sum + Number(sale.totalAmount), 0), [rows]);
-  const balance = useMemo(() => rows.reduce((sum, sale) => sum + Number(sale.balanceAmount), 0), [rows]);
+  const List = FlashList as any;
 
   return (
     <Screen scroll={false} edges={['top', 'left', 'right']}>
-      <AppHeader title="Sales Management" subtitle="All walk-in, regular, paid, and pending sales." />
-      
+      <AppHeader title="Sales History" subtitle="Monitor revenue and collections" />
+
       <View style={styles.container}>
-        {/* Premium Stats Grid */}
-        <View style={styles.statsRow}>
-          <View style={styles.statCard}>
-            <Text style={styles.statLabel}>SALES COUNT</Text>
-            <Text style={styles.statValue}>{rows.length}</Text>
-          </View>
-          <View style={[styles.statCard, { backgroundColor: 'rgba(22, 163, 74, 0.03)', borderColor: 'rgba(22, 163, 74, 0.1)' }]}>
-            <Text style={[styles.statLabel, { color: colors.primary }]}>REVENUE VALUE</Text>
-            <Text style={[styles.statValue, { color: colors.primary }]}>{money(total)}</Text>
-          </View>
+        <Searchbar
+          placeholder="Search invoice or customer"
+          onChangeText={setSearch}
+          value={search}
+          style={styles.searchBar}
+          inputStyle={styles.searchInput}
+        />
+
+        <View style={styles.tabContainer}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabScroll}>
+            {[
+              { key: "ALL", label: "All Sales" },
+              { key: "PAID", label: "Paid" },
+              { key: "PENDING", label: "Pending" },
+              { key: "gst_pending", label: "GST Pending" },
+            ].map(tab => (
+              <Pressable
+                key={tab.key}
+                onPress={() => setActiveTab(tab.key)}
+                style={[styles.tabButton, activeTab === tab.key && styles.tabButtonActive]}
+              >
+                <Text style={[styles.tabText, activeTab === tab.key && styles.tabTextActive]}>{tab.label.toUpperCase()}</Text>
+              </Pressable>
+            ))}
+          </ScrollView>
         </View>
 
-        <Searchbar 
-          value={search} 
-          onChangeText={setSearch} 
-          placeholder="Search sale number or customer" 
-          style={styles.searchBar} 
-          inputStyle={styles.searchInput}
-          iconColor={colors.textSecondary}
-        />
-
-        {/* Customized Filter Segmented buttons including GST pending filter */}
-        <SegmentedButtons 
-          value={filter} 
-          onValueChange={setFilter} 
-          buttons={[
-            { value: "ALL", label: "All" }, 
-            { value: "REGULAR", label: "Regular" }, 
-            { value: "CREDIT", label: "Credit" },
-            { value: "gst_pending", label: "Pending GST" }
-          ]} 
-          style={styles.segmentedBtn}
-          theme={{ colors: { primary: colors.primary } }}
-        />
-
-        <Text style={styles.outstandingText}>
-          Outstanding in filter: <Text style={styles.boldText}>{money(balance)}</Text>
-        </Text>
-
-        {salesQuery.isLoading ? (
-          <View style={styles.loadingWrapper}>
-            <ActivityIndicator color={colors.primary} size="large" />
-            <Text style={styles.loadingText}>Loading sales records...</Text>
-          </View>
-        ) : (
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-            <View style={styles.listGap}>
-              {rows.map((sale) => (
-                <Pressable key={sale.id} onPress={() => (navigation as any).navigate("SaleDetail", { saleId: sale.id })}>
-                  <View style={styles.saleCard}>
-                    <View style={styles.cardHeader}>
-                      <View style={styles.flex1}>
-                        <View style={styles.saleNumberRow}>
-                          <Text style={styles.saleNumberText}>{sale.saleNumber}</Text>
-                          {sale.gstRequired && (
-                            <View style={styles.gstTag}>
-                              <Text style={styles.gstTagText}>GST</Text>
-                            </View>
-                          )}
-                        </View>
-                        <Text style={styles.customerNameText}>{sale.isWalkin ? "Walk-in customer" : sale.customer?.name ?? "Regular sale"}</Text>
-                        <Text style={styles.dateText}>{new Date(sale.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</Text>
-                      </View>
-                      
-                      <View style={{ alignItems: 'flex-end', gap: 6 }}>
-                        <StatusPill 
-                          label={sale.paymentStatus ?? (Number(sale.balanceAmount) > 0 ? "PENDING" : "PAID")} 
-                          tone={Number(sale.balanceAmount) > 0 ? "amber" : "green"} 
-                        />
-                        {sale.gstRequired && (
-                          <StatusPill 
-                            label={sale.gstInvoiceStatus === 'GENERATED' ? 'TALLY OK' : 'TALLY PENDING'} 
-                            tone={sale.gstInvoiceStatus === 'GENERATED' ? 'green' : 'red'} 
-                          />
-                        )}
-                      </View>
+        <View style={styles.listWrapper}>
+          {salesQuery.isLoading ? (
+            <SkeletonList count={6} itemHeight={100} />
+          ) : (
+            <List
+              data={filteredSales}
+              keyExtractor={(item: Sale) => item.id}
+              estimatedItemSize={110}
+              renderItem={({ item }: { item: Sale }) => (
+                <Pressable
+                  onPress={() => navigate("SaleDetail", { id: item.id })}
+                  style={({ pressed }) => [styles.saleCard, pressed && styles.pressed]}
+                >
+                  <View style={styles.cardHeader}>
+                    <View>
+                      <Text style={styles.saleNumber}>#{item.saleNumber}</Text>
+                      <Text style={styles.customerName}>{item.isWalkin ? "Walk-in Customer" : item.customer?.name}</Text>
                     </View>
-                    
-                    <Divider style={styles.cardDivider} />
-                    
-                    <View style={styles.cardFooter}>
-                      <View>
-                        <Text style={styles.footerLabel}>TOTAL</Text>
-                        <Text style={styles.footerValue}>{money(sale.totalAmount)}</Text>
-                      </View>
-                      <View style={{ alignItems: 'center' }}>
-                        <Text style={styles.footerLabel}>PAID</Text>
-                        <Text style={[styles.footerValue, { color: colors.success }]}>{money(sale.paidAmount)}</Text>
-                      </View>
-                      <View style={{ alignItems: 'flex-end' }}>
-                        <Text style={styles.footerLabel}>OUTSTANDING</Text>
-                        <Text style={[styles.footerValue, { color: Number(sale.balanceAmount) > 0 ? colors.warning : colors.textPrimary }]}>{money(sale.balanceAmount)}</Text>
-                      </View>
+                    <StatusPill 
+                      label={item.paymentStatus} 
+                      tone={item.paymentStatus === 'PAID' ? 'green' : 'amber'} 
+                    />
+                  </View>
+                  <Divider style={styles.divider} />
+                  <View style={styles.cardFooter}>
+                    <View>
+                      <Text style={styles.footerLabel}>TOTAL AMOUNT</Text>
+                      <Text style={styles.footerValue}>{money(item.totalAmount)}</Text>
+                    </View>
+                    <View style={{ alignItems: 'flex-end' }}>
+                      <Text style={styles.footerLabel}>DATE</Text>
+                      <Text style={styles.footerValue}>{new Date(item.createdAt).toLocaleDateString()}</Text>
                     </View>
                   </View>
                 </Pressable>
-              ))}
-              {rows.length === 0 ? <Text style={styles.emptyText}>No sales found.</Text> : null}
-            </View>
-          </ScrollView>
-        )}
+              )}
+              ListEmptyComponent={<EmptyState icon="receipt" title="No sales found" />}
+              contentContainerStyle={styles.listContent}
+            />
+          )}
+        </View>
       </View>
     </Screen>
   );
 }
 
 export function SaleDetail() {
-  const saleId = (useRoute().params as { saleId?: string } | undefined)?.saleId;
-  const saleQuery = useSaleDetailQuery(saleId ?? "");
-  const updateGstMutation = useUpdateGstMutation();
+  const route = useRoute<any>();
+  const saleId = route.params?.id;
+  const saleQuery = useSaleQuery(saleId);
   const sale = saleQuery.data;
 
-  const [tallyInvoiceNumber, setTallyInvoiceNumber] = useState("");
-
-  const handleRegisterGst = () => {
-    if (!tallyInvoiceNumber.trim() || !saleId) return;
-    updateGstMutation.mutate({
-      saleId,
-      gstInvoiceNumber: tallyInvoiceNumber.trim(),
-    }, {
-      onSuccess: () => {
-        setTallyInvoiceNumber("");
-      }
-    });
-  };
+  if (saleQuery.isLoading) return <SkeletonList count={5} />;
+  if (!sale) return <EmptyState title="Sale not found" />;
 
   return (
     <Screen edges={['top', 'left', 'right']}>
-      <AppHeader 
-        title={sale?.saleNumber ?? "Sale Detail"} 
-        subtitle="Items, payments, customer, and status." 
-        fallbackRoute="SalesList"
-      />
+      <AppHeader title={`Sale #${sale.saleNumber}`} subtitle="Transaction Details" showBack />
       
-      {!saleId ? (
-        <Text style={styles.errorText}>Missing sale id.</Text>
-      ) : saleQuery.isLoading ? (
-        <ActivityIndicator color={colors.primary} style={{ marginTop: spacing.xxl }} />
-      ) : sale ? (
-        <ScrollView style={styles.container} showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-          {/* Main Info Card */}
-          <View style={styles.saleDetailCard}>
-            <View style={styles.cardHeader}>
-              <View style={styles.flex1}>
-                <Text style={styles.detailCustomerName}>
-                  {sale.isWalkin ? "Walk-in Customer" : sale.customer?.name ?? "Customer not linked"}
-                </Text>
-                <Text style={styles.detailSaleNumber}>Sale: {sale.saleNumber}</Text>
-                <Text style={styles.detailDateText}>Date: {new Date(sale.createdAt).toLocaleString('en-IN')}</Text>
+      <ScrollView contentContainerStyle={styles.detailScroll}>
+        <View style={styles.detailCard}>
+           <View style={styles.detailRow}>
+              <View>
+                 <Text style={styles.customerNameBig}>{sale.isWalkin ? "Walk-in Customer" : sale.customer?.name}</Text>
+                 <Text style={styles.dateText}>{new Date(sale.createdAt).toLocaleString()}</Text>
               </View>
-              <View style={{ gap: 4 }}>
-                <StatusPill label={sale.saleStatus ?? "SALE"} tone="blue" />
-                {sale.gstRequired && (
-                  <StatusPill 
-                    label={sale.gstInvoiceStatus === 'GENERATED' ? 'TALLY INVOICED' : 'TALLY PENDING'} 
-                    tone={sale.gstInvoiceStatus === 'GENERATED' ? 'green' : 'red'} 
-                  />
-                )}
-              </View>
-            </View>
-            
-            <Divider style={styles.detailDivider} />
-            
-            <View style={styles.detailMetricsRow}>
-              <View style={styles.detailMetricCol}>
-                <Text style={styles.detailMetricLabel}>TOTAL AMOUNT</Text>
-                <Text style={styles.detailMetricVal}>{money(sale.totalAmount)}</Text>
-              </View>
-              <View style={styles.detailMetricCol}>
-                <Text style={styles.detailMetricLabel}>PAID AMOUNT</Text>
-                <Text style={[styles.detailMetricVal, { color: colors.success }]}>{money(sale.paidAmount)}</Text>
-              </View>
-              <View style={[styles.detailMetricCol, { alignItems: 'flex-end' }]}>
-                <Text style={styles.detailMetricLabel}>BALANCE</Text>
-                <Text style={[styles.detailMetricVal, { color: Number(sale.balanceAmount) > 0 ? colors.warning : colors.textPrimary }]}>{money(sale.balanceAmount)}</Text>
-              </View>
-            </View>
-          </View>
+              <StatusPill label={sale.paymentStatus} tone={sale.paymentStatus === 'PAID' ? 'green' : 'amber'} />
+           </View>
 
-          {/* GST Assignation Billing Queue Box (If pending) */}
-          {sale.gstRequired && (
-            <Card style={[styles.gstBillingCard, sale.gstInvoiceStatus === 'PENDING' ? styles.gstPendingBorder : styles.gstGeneratedBorder]}>
-              <Card.Content>
-                <View style={styles.gstBillingHeader}>
-                  <Icon 
-                    source={sale.gstInvoiceStatus === 'GENERATED' ? "file-check-outline" : "file-clock-outline"} 
-                    size={24} 
-                    color={sale.gstInvoiceStatus === 'GENERATED' ? colors.success : colors.danger} 
-                  />
-                  <Text style={styles.gstBillingTitle}>Tally GST Invoice Reference</Text>
+           <Divider style={styles.detailDivider} />
+
+           <View style={styles.amountBox}>
+              <Text style={styles.amountLabel}>Total Sale Value</Text>
+              <Text style={styles.amountValue}>{money(sale.totalAmount)}</Text>
+           </View>
+
+           {sale.isGstRequired && (
+             <View style={styles.gstBox}>
+                <Icon source="file-percent-outline" size={20} color={colors.warning} />
+                <View style={{ flex: 1 }}>
+                   <Text style={styles.gstTitle}>GST Invoice Required</Text>
+                   <Text style={styles.gstDesc}>
+                      {sale.gstInvoiceNumber ? `Invoice: ${sale.gstInvoiceNumber}` : "Pending entry in Tally"}
+                   </Text>
                 </View>
+             </View>
+           )}
+        </View>
 
-                {sale.gstInvoiceStatus === 'PENDING' ? (
-                  <View style={styles.gstFormWrapper}>
-                    <Text style={styles.gstFormDesc}>
-                      This sale is marked as GST required. Create the invoice in Tally and register the invoice number below to complete.
-                    </Text>
-                    <View style={styles.gstFormInputRow}>
-                      <TextInput
-                        mode="outlined"
-                        dense
-                        label="Tally Invoice Number"
-                        value={tallyInvoiceNumber}
-                        onChangeText={setTallyInvoiceNumber}
-                        style={styles.gstInput}
-                        outlineStyle={{ borderRadius: radius.md }}
-                      />
-                      <Button
-                        label="Submit"
-                        size="md"
-                        onPress={handleRegisterGst}
-                        loading={updateGstMutation.isPending}
-                        disabled={!tallyInvoiceNumber.trim()}
-                        style={styles.gstSubmitBtn}
-                      />
-                    </View>
-                  </View>
-                ) : (
-                  <View style={styles.gstSuccessWrapper}>
-                    <View style={styles.gstInvoiceRow}>
-                      <Text style={styles.gstSuccessLabel}>Invoice Number:</Text>
-                      <Text style={styles.gstSuccessValue}>{sale.gstInvoiceNumber}</Text>
-                    </View>
-                    {sale.gstInvoiceGeneratedAt && (
-                      <View style={styles.gstInvoiceRow}>
-                        <Text style={styles.gstSuccessLabel}>Registered On:</Text>
-                        <Text style={styles.gstSuccessDate}>
-                          {new Date(sale.gstInvoiceGeneratedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-                )}
-              </Card.Content>
-            </Card>
-          )}
-
-          {/* Items Section */}
-          <Section title="Items Summary">
-            <View style={styles.sectionListCard}>
-              {(sale.items ?? []).map((row, index) => (
-                <View key={row.id}>
-                  {index > 0 ? <Divider style={styles.itemDivider} /> : null}
+        <Section title="Items Summary">
+           <View style={styles.itemsCard}>
+              {sale.items.map((item, idx) => (
+                <View key={item.id}>
                   <View style={styles.itemRow}>
-                    <View style={styles.flex1}>
-                      <Text style={styles.itemNameText}>{row.item.name}</Text>
-                      <Text style={styles.itemSubText}>Qty: {row.quantity} {row.item.unit} • Rate: {money(row.rate)}</Text>
-                    </View>
-                    <Text style={styles.itemTotalText}>{money(row.totalAmount)}</Text>
+                     <View style={{ flex: 1 }}>
+                        <Text style={styles.itemName}>{item.item.name}</Text>
+                        <Text style={styles.itemSub}>{item.quantity} {item.item.unit} @ {money(item.rate)}</Text>
+                     </View>
+                     <Text style={styles.itemTotal}>{money(item.quantity * Number(item.rate))}</Text>
                   </View>
+                  {idx < sale.items.length - 1 && <Divider style={styles.divider} />}
                 </View>
               ))}
-            </View>
-          </Section>
+           </View>
+        </Section>
 
-          {/* Payments Section */}
-          <Section title="Payment History">
-            <View style={styles.sectionListCard}>
-              {(sale.payments ?? []).map((payment, index) => (
-                <View key={payment.id}>
-                  {index > 0 ? <Divider style={styles.itemDivider} /> : null}
-                  <View style={styles.paymentRow}>
-                    <View style={styles.flex1}>
-                      <View style={styles.paymentModeRow}>
-                        <Text style={styles.paymentModeText}>{payment.paymentMode}</Text>
-                        <StatusPill 
-                          label={payment.verificationStatus} 
-                          tone={payment.verificationStatus === 'VERIFIED' ? 'green' : payment.verificationStatus === 'REJECTED' ? 'red' : 'amber'} 
-                        />
-                      </View>
-                      <Text style={styles.paymentDateText}>Recorded: {new Date(payment.receivedAt).toLocaleDateString('en-IN')}</Text>
-                      {payment.referenceNumber && (
-                        <Text style={styles.paymentRefText}>Ref: {payment.referenceNumber}</Text>
-                      )}
-                    </View>
-                    <Text style={styles.paymentAmountText}>{money(payment.amount)}</Text>
+        <Section title="Payment History">
+           <View style={styles.itemsCard}>
+              {sale.payments.map((p, idx) => (
+                <View key={p.id}>
+                  <View style={styles.itemRow}>
+                     <View style={{ flex: 1 }}>
+                        <Text style={styles.itemName}>{p.paymentMode} Payment</Text>
+                        <Text style={styles.itemSub}>{new Date(p.receivedAt).toLocaleDateString()}</Text>
+                     </View>
+                     <View style={{ alignItems: 'flex-end' }}>
+                        <Text style={styles.itemTotal}>{money(p.amount)}</Text>
+                        <Text style={styles.miniStatus}>{p.verificationStatus}</Text>
+                     </View>
                   </View>
+                  {idx < sale.payments.length - 1 && <Divider style={styles.divider} />}
                 </View>
               ))}
-              {!sale.payments?.length && (
-                <Text style={styles.emptyPaymentsText}>No payments recorded against this sale</Text>
-              )}
-            </View>
+              {sale.payments.length === 0 && <Text style={styles.emptyText}>No payments recorded yet.</Text>}
+           </View>
+        </Section>
+        
+        {sale.notes && (
+          <Section title="Operational Notes">
+             <View style={styles.notesCard}>
+                <Text style={styles.notesText}>{sale.notes}</Text>
+             </View>
           </Section>
-        </ScrollView>
-      ) : null}
+        )}
+      </ScrollView>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-  },
-  statsRow: {
-    flexDirection: "row",
-    gap: spacing.md,
-    marginBottom: spacing.md,
-  },
-  statCard: {
-    flex: 1,
-    borderRadius: 22,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    padding: spacing.lg,
-    ...shadow.sm,
-  },
-  statLabel: {
-    fontSize: 9,
-    fontWeight: fontWeight.black,
-    color: colors.textSecondary,
-    letterSpacing: 0.5,
-  },
-  statValue: {
-    fontSize: 20,
-    fontWeight: fontWeight.black,
-    color: colors.textPrimary,
-    marginTop: 4,
-  },
-  searchBar: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    elevation: 0,
-    height: 44,
-    justifyContent: 'center',
-    marginBottom: spacing.md,
-  },
-  searchInput: {
-    fontSize: 14,
-  },
-  segmentedBtn: {
-    marginBottom: spacing.md,
-  },
-  outstandingText: {
-    color: colors.textSecondary,
-    fontSize: fontSize.sm,
-    marginBottom: spacing.lg,
-  },
-  boldText: {
-    fontWeight: fontWeight.bold,
-    color: colors.textPrimary,
-  },
-  scrollContent: {
-    paddingBottom: 130,
-  },
-  listGap: {
-    gap: spacing.md,
-  },
-  saleCard: {
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: 'rgba(22, 163, 74, 0.05)',
-    backgroundColor: colors.surface,
-    padding: spacing.lg,
-    ...shadow.sm,
-  },
-  cardHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: 'flex-start',
-    gap: spacing.md,
-  },
-  flex1: {
-    flex: 1,
-  },
-  saleNumberRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    marginBottom: 2,
-  },
-  saleNumberText: {
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.extrabold,
-    color: colors.textPrimary,
-  },
-  gstTag: {
-    backgroundColor: 'rgba(99, 102, 241, 0.1)',
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: 6,
-  },
-  gstTagText: {
-    fontSize: 8,
-    fontWeight: fontWeight.bold,
-    color: '#6366f1',
-  },
-  customerNameText: {
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.bold,
-    color: colors.textSecondary,
-    marginBottom: 2,
-  },
-  dateText: {
-    fontSize: fontSize.xs,
-    color: colors.textMuted,
-  },
-  cardDivider: {
-    marginVertical: spacing.md,
-    backgroundColor: colors.border,
-  },
-  cardFooter: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  footerLabel: {
-    fontSize: 8,
-    color: colors.textMuted,
-    fontWeight: fontWeight.black,
-    letterSpacing: 0.3,
-  },
-  footerValue: {
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.extrabold,
-    color: colors.textPrimary,
-    marginTop: 2,
-  },
-  emptyText: {
-    textAlign: "center",
-    color: colors.textSecondary,
-    padding: spacing.xxl,
-  },
-  errorText: {
-    color: colors.danger,
-    padding: spacing.lg,
-    textAlign: 'center',
-  },
-  loadingWrapper: {
-    paddingVertical: spacing.xxl,
-    alignItems: 'center',
-    gap: spacing.sm,
-  },
-  loadingText: {
-    color: colors.textSecondary,
-    fontSize: fontSize.sm,
-  },
-  // Details Styles
-  saleDetailCard: {
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    padding: spacing.xl,
-    marginBottom: spacing.lg,
-    ...shadow.sm,
-  },
-  detailCustomerName: {
-    fontSize: 18,
-    fontWeight: fontWeight.black,
-    color: colors.textPrimary,
-  },
-  detailSaleNumber: {
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.bold,
-    color: colors.textSecondary,
-    marginTop: 2,
-  },
-  detailDateText: {
-    fontSize: fontSize.xs,
-    color: colors.textMuted,
-    marginTop: 2,
-  },
-  detailDivider: {
-    marginVertical: spacing.xl,
-  },
-  detailMetricsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  detailMetricCol: {
-    flex: 1,
-  },
-  detailMetricLabel: {
-    fontSize: 9,
-    color: colors.textMuted,
-    fontWeight: fontWeight.black,
-    letterSpacing: 0.5,
-  },
-  detailMetricVal: {
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.black,
-    color: colors.textPrimary,
-    marginTop: 4,
-  },
-  // GST Card Billing styles
-  gstBillingCard: {
-    borderRadius: 22,
-    borderWidth: 1,
-    marginBottom: spacing.lg,
-    ...shadow.sm,
-    backgroundColor: colors.surface,
-  },
-  gstPendingBorder: {
-    borderColor: 'rgba(220, 38, 38, 0.15)',
-  },
-  gstGeneratedBorder: {
-    borderColor: 'rgba(22, 163, 74, 0.15)',
-  },
-  gstBillingHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    marginBottom: spacing.sm,
-  },
-  gstBillingTitle: {
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.bold,
-    color: colors.textPrimary,
-  },
-  gstFormWrapper: {
-    marginTop: 4,
-  },
-  gstFormDesc: {
-    fontSize: fontSize.xs,
-    color: colors.textSecondary,
-    lineHeight: 18,
-    marginBottom: spacing.md,
-  },
-  gstFormInputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  gstInput: {
-    flex: 1,
-    backgroundColor: colors.surface,
-  },
-  gstSubmitBtn: {
-    height: 40,
-  },
-  gstSuccessWrapper: {
-    marginTop: spacing.md,
-    backgroundColor: colors.surfaceOffset,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    gap: spacing.sm,
-  },
-  gstInvoiceRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  gstSuccessLabel: {
-    fontSize: fontSize.xs,
-    color: colors.textSecondary,
-    fontWeight: fontWeight.semibold,
-  },
-  gstSuccessValue: {
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.extrabold,
-    color: colors.success,
-  },
-  gstSuccessDate: {
-    fontSize: fontSize.xs,
-    color: colors.textPrimary,
-    fontWeight: fontWeight.semibold,
-  },
-  // Section summary styles
-  sectionListCard: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 22,
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.md,
-    ...shadow.sm,
-  },
-  itemDivider: {
-    marginVertical: spacing.md,
-  },
-  itemRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: spacing.sm,
-  },
-  itemNameText: {
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.bold,
-    color: colors.textPrimary,
-  },
-  itemSubText: {
-    fontSize: fontSize.xs,
-    color: colors.textSecondary,
-    marginTop: 2,
-  },
-  itemTotalText: {
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.extrabold,
-    color: colors.textPrimary,
-  },
-  paymentRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: spacing.sm,
-  },
-  paymentModeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    marginBottom: 2,
-  },
-  paymentModeText: {
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.bold,
-    color: colors.textPrimary,
-  },
-  paymentDateText: {
-    fontSize: fontSize.xs,
-    color: colors.textMuted,
-    marginTop: 2,
-  },
-  paymentRefText: {
-    fontSize: fontSize.xs,
-    color: colors.textSecondary,
-    marginTop: 1,
-  },
-  paymentAmountText: {
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.extrabold,
-    color: colors.textPrimary,
-  },
-  emptyPaymentsText: {
-    fontSize: fontSize.sm,
-    color: colors.textMuted,
-    textAlign: 'center',
-    paddingVertical: spacing.lg,
-  },
+  container: { flex: 1, paddingHorizontal: spacing.lg, paddingTop: spacing.md },
+  searchBar: { backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, elevation: 0, height: 44, marginBottom: spacing.md },
+  searchInput: { fontSize: 14 },
+  tabContainer: { height: 38, marginBottom: spacing.lg },
+  tabScroll: { gap: spacing.xs },
+  tabButton: { paddingHorizontal: spacing.xl, borderRadius: radius.full, backgroundColor: colors.surfaceOffset, borderWidth: 1, borderColor: colors.border, justifyContent: 'center', height: 34 },
+  tabButtonActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  tabText: { fontSize: 10, fontWeight: fontWeight.bold, color: colors.textSecondary },
+  tabTextActive: { color: 'white' },
+  listWrapper: { flex: 1 },
+  listContent: { paddingBottom: 100 },
+  saleCard: { backgroundColor: colors.surface, borderRadius: 20, borderWidth: 1, borderColor: colors.border, padding: spacing.lg, marginBottom: spacing.md, ...shadow.sm },
+  pressed: { opacity: 0.72, transform: [{ scale: 0.98 }] },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  saleNumber: { fontSize: 12, fontWeight: fontWeight.bold, color: colors.primary },
+  customerName: { fontSize: 15, fontWeight: fontWeight.black, color: colors.textPrimary, marginTop: 2 },
+  divider: { marginVertical: spacing.md, backgroundColor: colors.surfaceOffset },
+  cardFooter: { flexDirection: 'row', justifyContent: 'space-between' },
+  footerLabel: { fontSize: 8, fontWeight: fontWeight.black, color: colors.textMuted, letterSpacing: 0.5 },
+  footerValue: { fontSize: 12, fontWeight: fontWeight.bold, color: colors.textSecondary, marginTop: 2 },
+  detailScroll: { paddingHorizontal: spacing.lg, paddingBottom: 60 },
+  detailCard: { backgroundColor: colors.surface, borderRadius: 24, padding: spacing.xl, borderWidth: 1, borderColor: colors.border, ...shadow.sm, marginTop: spacing.md },
+  detailRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  customerNameBig: { fontSize: 18, fontWeight: fontWeight.black, color: colors.textPrimary },
+  dateText: { fontSize: 12, color: colors.textMuted, marginTop: 4 },
+  detailDivider: { marginVertical: spacing.xl, backgroundColor: colors.border },
+  amountBox: { alignItems: 'center', gap: 4 },
+  amountLabel: { fontSize: 10, fontWeight: fontWeight.bold, color: colors.textSecondary, letterSpacing: 1 },
+  amountValue: { fontSize: 28, fontWeight: fontWeight.black, color: colors.primary },
+  gstBox: { flexDirection: 'row', gap: spacing.md, backgroundColor: 'rgba(217, 119, 6, 0.05)', padding: spacing.md, borderRadius: 14, marginTop: spacing.xl, borderWidth: 1, borderColor: 'rgba(217, 119, 6, 0.1)' },
+  gstTitle: { fontSize: 13, fontWeight: fontWeight.bold, color: colors.warning },
+  gstDesc: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  itemsCard: { backgroundColor: colors.surface, borderRadius: 20, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.lg },
+  itemRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: spacing.lg },
+  itemName: { fontSize: 14, fontWeight: fontWeight.bold, color: colors.textPrimary },
+  itemSub: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  itemTotal: { fontSize: 14, fontWeight: fontWeight.black, color: colors.textPrimary },
+  miniStatus: { fontSize: 10, fontWeight: fontWeight.bold, color: colors.textMuted, marginTop: 2 },
+  emptyText: { textAlign: 'center', padding: spacing.xl, color: colors.textMuted, fontSize: 12 },
+  notesCard: { backgroundColor: colors.surfaceOffset, padding: spacing.lg, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border },
+  notesText: { fontSize: 13, color: colors.textSecondary, lineHeight: 18 }
 });

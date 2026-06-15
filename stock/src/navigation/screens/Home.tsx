@@ -1,6 +1,5 @@
 import React, { useMemo, useState } from "react";
 import { ScrollView, View, Pressable, StyleSheet, ActivityIndicator } from "react-native";
-import { useNavigation } from "@react-navigation/native";
 import { Text, Icon, Button } from "react-native-paper";
 
 import { useAuthStore } from "../../auth/auth-store";
@@ -12,6 +11,7 @@ import { Screen } from "../../components/Screen";
 import { ActionTile } from "../../components/ui/ActionTile";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
+import { navigate } from "../navigation-ref";
 
 type CategoryCardProps = {
   title: string;
@@ -41,11 +41,6 @@ export function Home() {
   const { activeShopId, setActiveShopId } = useShopStore();
   const shopsQuery = useShopsQuery();
   const sessionQuery = useCurrentCashSessionQuery();
-
-  const navigation = useNavigation();
-  const navigate = (screen: string, params?: any) => {
-    (navigation as any).navigate(screen, params);
-  };
 
   const selectedShop = useMemo(() => 
     shopsQuery.data?.find(s => s.id === activeShopId), 
@@ -145,7 +140,7 @@ function StatusPill({ label, tone }: { label: string; tone: "green" | "blue" | "
   );
 }
 
-function OwnerHome({ navigate }: { navigate: (s: string, params?: any) => void }) {
+function OwnerHome({ navigate }: { navigate: (s: any, params?: any) => void }) {
   const user = useAuthStore((state) => state.user);
   const dashboardQuery = useOwnerDashboardQuery();
   const dashboard = dashboardQuery.data as any;
@@ -318,7 +313,7 @@ function OwnerHome({ navigate }: { navigate: (s: string, params?: any) => void }
   );
 }
 
-function StaffHome({ navigate, session, sessionLoading }: { navigate: (s: string, params?: any) => void; session?: any; sessionLoading: boolean }) {
+function StaffHome({ navigate, session, sessionLoading }: { navigate: (s: any, params?: any) => void; session?: any; sessionLoading: boolean }) {
   if (sessionLoading) {
     return (
       <View style={styles.loadingContainer}>

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Pressable, ScrollView, View, StyleSheet } from "react-native";
-import { useNavigation, useRoute } from "@react-navigation/native";
+import { useRoute } from "@react-navigation/native";
 import { Button, Text, TextInput } from "react-native-paper";
 import { ApiUser } from "../../api/client";
 import { useStaffQuery, useCreateStaffMutation, useUpdateStaffMutation } from "../../hooks/useAuth";
@@ -9,19 +9,19 @@ import { AppHeader } from "../../components/ui/AppHeader";
 import { Section } from "../../components/ui/Section";
 import { StatusPill } from "../../components/ui/StatusPill";
 import { colors, spacing, radius, fontWeight } from "../../theme";
+import { navigate, goBack } from "../navigation-ref";
 
 export function StaffManagement() {
-  const navigation = useNavigation();
   const staffQuery = useStaffQuery();
 
   return (
     <Screen scroll={false}>
       <AppHeader title="Staff Management" subtitle="Create staff accounts and manage access." />
-      <Button mode="contained" icon="account-plus" onPress={() => (navigation as any).navigate("AddEditStaff")} style={styles.addButton} contentStyle={styles.buttonContent}>Add Staff</Button>
+      <Button mode="contained" icon="account-plus" onPress={() => navigate("AddEditStaff")} style={styles.addButton} contentStyle={styles.buttonContent}>Add Staff</Button>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         <View style={styles.listGap}>
           {(staffQuery.data ?? []).map((staff) => (
-            <Pressable key={staff.id} onPress={() => (navigation as any).navigate("AddEditStaff", { staff })}>
+            <Pressable key={staff.id} onPress={() => navigate("AddEditStaff", { staff })}>
               <View style={styles.staffCard}>
                 <View style={styles.cardHeader}>
                   <View>
@@ -41,7 +41,6 @@ export function StaffManagement() {
 
 export function AddEditStaff() {
   const route = useRoute();
-  const navigation = useNavigation();
   const staff = (route.params as { staff?: ApiUser } | undefined)?.staff;
   const [form, setForm] = useState({ name: staff?.name ?? "", mobile: staff?.mobile ?? "", email: staff?.email ?? "", password: "", status: "ACTIVE" });
   const set = (key: keyof typeof form, value: string) => setForm((prev) => ({ ...prev, [key]: value }));
@@ -53,11 +52,11 @@ export function AddEditStaff() {
     const payload = { ...form, email: form.email || null, password: form.password || undefined };
     if (staff) {
       updateMutation.mutate({ id: staff.id, data: payload }, {
-        onSuccess: () => navigation.goBack()
+        onSuccess: () => goBack()
       });
     } else {
       createMutation.mutate(payload, {
-        onSuccess: () => navigation.goBack()
+        onSuccess: () => goBack()
       });
     }
   };

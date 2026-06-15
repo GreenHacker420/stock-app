@@ -1,6 +1,5 @@
 import React, { useMemo, useState } from "react";
 import { View, StyleSheet, Pressable, ScrollView, ActivityIndicator } from "react-native";
-import { useNavigation } from "@react-navigation/native";
 import { Searchbar, Divider, Text, Icon } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 
@@ -13,9 +12,9 @@ import { SkeletonList } from "../../components/ui/SkeletonCard";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { Button } from "../../components/ui/Button";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
+import { navigate } from "../navigation-ref";
 
 export function StockDashboard() {
-  const navigation = useNavigation();
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState<"all" | "low" | "out">("all");
 
@@ -114,14 +113,14 @@ export function StockDashboard() {
             variant="primary"
             label="New Stock Entry"
             icon={<Icon source="plus-box" size={18} color={colors.textInverse} />}
-            onPress={() => (navigation as any).navigate("StockEntry")}
+            onPress={() => navigate("StockEntry")}
             style={{ flex: 1 }}
           />
           <Button
             variant="secondary"
             label="Add Product"
             icon={<Icon source="cube-outline" size={18} color={colors.primary} />}
-            onPress={() => (navigation as any).navigate("AddEditItem")}
+            onPress={() => navigate("AddEditItem")}
             style={{ flex: 0.8 }}
           />
         </View>
@@ -174,7 +173,7 @@ export function StockDashboard() {
 
                     return (
                       <Pressable
-                        onPress={() => (navigation as any).navigate("ItemDetail", { itemId: item.item.id })}
+                        onPress={() => navigate("ItemDetail", { itemId: item.item.id })}
                         style={({ pressed }) => [
                           styles.stockCard,
                           pressed && styles.pressed

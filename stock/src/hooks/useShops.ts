@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "../auth/auth-store";
 import { queryKeys } from "./query-keys";
-import { fetchShops, createShop, updateShop, assignStaffToShop, setOpeningStock } from "../api/client";
+import { fetchShops, createShop, updateShop, assignStaffToShop, setOpeningStock, fetchStaff, createDmFromOrder } from "../api/client";
 
 export function useShopsQuery() {
   const token = useAuthStore((state) => state.token);
@@ -10,6 +10,27 @@ export function useShopsQuery() {
     queryFn: () => fetchShops(token ?? ""),
     enabled: !!token,
     staleTime: 15 * 60 * 1000, // 15 mins
+  });
+}
+
+export function useStaffQuery() {
+  const token = useAuthStore((state) => state.token);
+  return useQuery({
+    queryKey: ["staff"],
+    queryFn: () => fetchStaff(token ?? ""),
+    enabled: !!token,
+  });
+}
+
+export function useAddDeliveryMemoMutation() {
+  const token = useAuthStore((state) => state.token);
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ orderId, ...data }: { orderId: string; [key: string]: any }) => 
+      createDmFromOrder(token ?? "", orderId, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["orders"] });
+    }
   });
 }
 

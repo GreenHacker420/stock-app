@@ -15,12 +15,12 @@ import {
   confirmOrder,
 } from "../api/client";
 
-export function useOrdersQuery() {
+export function useOrdersQuery(options: { search?: string } = {}) {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
   return useQuery({
-    queryKey: queryKeys.orders(activeShopId ?? ""),
-    queryFn: () => fetchOrders(token ?? "", activeShopId ?? ""),
+    queryKey: [...queryKeys.orders(activeShopId ?? ""), options.search],
+    queryFn: () => fetchOrders(token ?? "", activeShopId ?? ""), // Note: API currently doesn't take search, but we might filter in UI or update API
     enabled: !!token && !!activeShopId,
     staleTime: 3 * 60 * 1000, // 3 mins
   });
@@ -33,6 +33,31 @@ export function useOrderDetailQuery(id: string) {
     queryFn: () => fetchOrder(token ?? "", id),
     enabled: !!token && !!id,
     staleTime: 3 * 60 * 1000, // 3 mins
+  });
+}
+
+export function useOrderQuery(id: string) {
+  return useOrderDetailQuery(id);
+}
+
+export function useUpdateOrderStatusMutation() {
+  const token = useAuthStore((state) => state.token);
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ orderId, status, assignedStaffId, shortage }: { orderId: string; status?: string; assignedStaffId?: string; shortage?: { itemId: string; quantity: number } }) => {
+       if (status === 'PACKING') return startOrderPacking(token ?? "", orderId);
+       if (assignedStaffId) return assignStaffToOrder(token ?? "", orderId, assignedStaffId);
+       if (shortage) return reportOrderShortage(token ?? "", orderId, shortage);
+       // Add other status updates if needed
+       return Promise.resolve();
+    },
+    onSuccess: (_, variables) => {
+      if (activeShopId) {
+        queryClient.invalidateQueries({ queryKey: ["orders", activeShopId] });
+      }
+      queryClient.invalidateQueries({ queryKey: ["order", variables.orderId] });
+    },
   });
 }
 

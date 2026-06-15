@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { View, ScrollView, StyleSheet } from "react-native";
-import { useNavigation, useRoute } from "@react-navigation/native";
+import { useRoute } from "@react-navigation/native";
 import { Button, TextInput, List, Text, HelperText } from "react-native-paper";
 import { Shop } from "../../api/client";
 import { useShopStore } from "../../auth/shop-store";
@@ -10,10 +10,10 @@ import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { Section } from "../../components/ui/Section";
 import { colors, spacing, radius, fontWeight } from "../../theme";
+import { goBack } from "../navigation-ref";
 
 export function SetOpeningStock() {
   const activeShopId = useShopStore((state) => state.activeShopId);
-  const navigation = useNavigation();
   const route = useRoute();
 
   const params = route.params as { shop?: Shop } | undefined;
@@ -45,7 +45,7 @@ export function SetOpeningStock() {
       { shopId: shop?.id ?? "", entries },
       {
         onSuccess: () => {
-          navigation.goBack();
+          goBack();
         },
         onError: (err: any) => {
           setError(err?.message || "Failed to initialize opening stock. Please try again.");
@@ -73,8 +73,7 @@ export function SetOpeningStock() {
   if (!shop) {
     return (
       <Screen>
-        <AppHeader title="Opening Stock" subtitle="Pick or create a shop first." />
-        <Text style={styles.errorText}>No active shop found. Go to Dashboard and choose a shop.</Text>
+        <Text>Shop not found.</Text>
       </Screen>
     );
   }
@@ -156,7 +155,7 @@ export function SetOpeningStock() {
             mode="outlined"
             style={styles.footerButton}
             contentStyle={styles.buttonContent}
-            onPress={() => navigation.goBack()}
+            onPress={() => goBack()}
           >
             Cancel
           </Button>

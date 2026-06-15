@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { View, ScrollView, StyleSheet } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigation, useRoute } from "@react-navigation/native";
+import { useRoute } from "@react-navigation/native";
 import { Button, TextInput, List, HelperText, Portal, Modal, IconButton, Text } from "react-native-paper";
 import { fetchStaff, createStaff, assignStaffToShop, Shop } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
@@ -9,11 +9,11 @@ import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { Section } from "../../components/ui/Section";
 import { colors, spacing, radius, fontSize, fontWeight } from '../../theme';
+import { goBack } from "../navigation-ref";
 
 export function AssignStaff() {
   const token = useAuthStore((state) => state.token);
   const queryClient = useQueryClient();
-  const navigation = useNavigation();
   const route = useRoute();
 
   const params = route.params as { shop: Shop } | undefined;
@@ -133,7 +133,7 @@ export function AssignStaff() {
           mode="outlined"
           style={styles.footerButton}
           contentStyle={styles.buttonContent}
-          onPress={() => navigation.goBack()}
+          onPress={() => goBack()}
         >
           Close
         </Button>

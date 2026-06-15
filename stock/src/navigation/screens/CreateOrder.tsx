@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { ScrollView, View, Pressable, StyleSheet } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useNavigation } from "@react-navigation/native";
 import { Button, Text, TextInput, SegmentedButtons, Icon, Searchbar, List, Divider, Card } from "react-native-paper";
-import { createOrder, fetchCustomers, fetchItems, fetchStaff, fetchShops } from "../../api/client";
+import { createOrder, fetchCustomers, fetchItems, fetchStaff, fetchShops, Item, Customer, ApiUser } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
 import { Screen } from "../../components/Screen";
@@ -11,37 +10,52 @@ import { AppHeader } from "../../components/ui/AppHeader";
 import { Section } from "../../components/ui/Section";
 import { SuccessModal } from "../../components/ui/SuccessModal";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from '../../theme';
+import { navigate, goBack } from "../navigation-ref";
 
-const priorities = [
+type OrderPriority = "LOW" | "NORMAL" | "HIGH" | "URGENT";
+
+interface PriorityButton {
+  label: string;
+  value: OrderPriority;
+}
+
+const priorities: PriorityButton[] = [
   { label: "Low", value: "LOW" },
   { label: "Normal", value: "NORMAL" },
   { label: "High", value: "HIGH" },
   { label: "Urgent", value: "URGENT" },
-] as const;
+];
+
+interface CartItem {
+  id: string;
+  name: string;
+  quantity: number;
+  rate: number;
+  unit: string;
+}
 
 export function CreateOrder() {
   const token = useAuthStore((state) => state.token);
   const { activeShopId } = useShopStore();
   const queryClient = useQueryClient();
-  const navigation = useNavigation();
 
   // Selected customer
   const [customerId, setCustomerId] = useState<string | null>(null);
   const [customerSearch, setCustomerSearch] = useState("");
 
   // Cart state
-  const [cart, setCart] = useState<Array<{ id: string, name: string, quantity: number, rate: number, unit: string }>>([]);
+  const [cart, setCart] = useState<CartItem[]>([]);
   const [itemSearch, setItemSearch] = useState("");
 
   // Item detail form for the active item being added/edited
-  const [selectedItemToAdd, setSelectedItemToAdd] = useState<any>(null);
+  const [selectedItemToAdd, setSelectedItemToAdd] = useState<Item | null>(null);
   const [addQuantity, setAddQuantity] = useState("1");
   const [addRate, setAddRate] = useState("");
 
   // Order settings
   const [assignedStaffId, setAssignedStaffId] = useState<string | null>(null);
   const [expectedOffsetDays, setExpectedOffsetDays] = useState<number>(1); // default: 1 day (tomorrow)
-  const [priority, setPriority] = useState<"LOW" | "NORMAL" | "HIGH" | "URGENT">("NORMAL");
+  const [priority, setPriority] = useState<OrderPriority>("NORMAL");
   const [notes, setNotes] = useState("");
 
   // Modal feedback
@@ -50,8 +64,7 @@ export function CreateOrder() {
 
   // Queries
   const shopsQuery = useQuery({ queryKey: ["shops"], queryFn: () => fetchShops(token ?? ""), enabled: !!token });
-  const activeShop = shopsQuery.data?.find(s => s.id === activeShopId);
-
+  
   const customersQuery = useQuery({
     queryKey: ["customers", activeShopId],
     queryFn: () => fetchCustomers(token ?? "", activeShopId ?? ""),
@@ -75,7 +88,7 @@ export function CreateOrder() {
     if (!customerSearch) return [];
     return (customersQuery.data ?? []).filter(c =>
       c.name.toLowerCase().includes(customerSearch.toLowerCase()) ||
-      c.phone?.includes(customerSearch)
+      (c.phone && c.phone.includes(customerSearch))
     ).slice(0, 5);
   }, [customersQuery.data, customerSearch]);
 
@@ -119,12 +132,12 @@ export function CreateOrder() {
       setSuccessVisible(true);
       setErrorMsg(null);
     },
-    onError: (err: any) => {
+    onError: (err: Error) => {
       setErrorMsg(err.message || "Failed to create order");
     }
   });
 
-  const handleSelectItem = (item: any) => {
+  const handleSelectItem = (item: Item) => {
     setSelectedItemToAdd(item);
     setAddQuantity("1");
     setAddRate(String(item.defaultSellingPrice));
@@ -154,6 +167,10 @@ export function CreateOrder() {
 
   const handleRemoveCartItem = (id: string) => {
     setCart(cart.filter(c => c.id !== id));
+  };
+
+  const handlePriorityChange = (value: string) => {
+    setPriority(value as OrderPriority);
   };
 
   return (
@@ -203,35 +220,27 @@ export function CreateOrder() {
             <Card style={styles.selectedCustomerCard}>
               <Card.Content style={styles.customerCardContent}>
                 <View style={styles.customerAvatar}>
-                  <Text style={styles.customerAvatarText}>
-                    {selectedCustomer?.name?.substring(0, 2).toUpperCase()}
-                  </Text>
+                  <Text style={styles.customerAvatarText}>{selectedCustomer.name[0].toUpperCase()}</Text>
                 </View>
-                <View style={styles.customerInfo}>
-                  <Text style={styles.customerName}>{selectedCustomer?.name}</Text>
-                  <Text style={styles.customerDetails}>
-                    {selectedCustomer?.phone || "No phone"}
-                  </Text>
-                  <Text style={styles.customerBalance}>
-                    Balance: <Text style={Number(selectedCustomer?.outstandingAmount || 0) < 0 ? styles.balanceNegative : styles.balancePositive}>₹{Math.abs(Number(selectedCustomer?.outstandingAmount || 0)).toLocaleString()}</Text>
-                  </Text>
+                <View style={styles.customerInfoCol}>
+                  <Text style={styles.customerNameText}>{selectedCustomer.name}</Text>
+                  <Text style={styles.customerSubText}>{selectedCustomer.phone || "No phone number"}</Text>
                 </View>
                 <Button 
-                  mode="outlined" 
+                  mode="text" 
                   compact 
+                  textColor={colors.danger} 
                   onPress={() => setCustomerId(null)}
-                  style={styles.changeButton}
-                  labelStyle={styles.changeButtonLabel}
                 >
-                  Change
+                  CHANGE
                 </Button>
               </Card.Content>
             </Card>
           )}
         </Section>
 
-        {/* Item Selection Section */}
-        <Section title="Add Items">
+        {/* Items Section */}
+        <Section title="Add Items to Order">
           <View style={styles.searchSectionContainer}>
             <Searchbar
               placeholder="Search items by name or SKU..."
@@ -244,227 +253,165 @@ export function CreateOrder() {
             />
             {itemSearch ? (
               <View style={styles.searchDropdown}>
-                {filteredItems.map(i => (
+                {filteredItems.map(item => (
                   <List.Item
-                    key={i.id}
-                    title={i.name}
+                    key={item.id}
+                    title={item.name}
                     titleStyle={styles.dropdownTitle}
-                    description={`Price: ₹${i.defaultSellingPrice} / ${i.unit}`}
+                    description={`Rate: ₹${item.defaultSellingPrice} • SKU: ${item.sku || "N/A"}`}
                     descriptionStyle={styles.dropdownDesc}
-                    onPress={() => handleSelectItem(i)}
+                    onPress={() => handleSelectItem(item)}
                     right={props => <List.Icon {...props} icon="plus-circle-outline" color={colors.primary} />}
                     style={styles.dropdownItem}
                   />
                 ))}
-                {filteredItems.length === 0 && (
-                  <View style={styles.dropdownEmpty}>
-                    <Text style={styles.dropdownEmptyText}>No items found</Text>
-                  </View>
-                )}
               </View>
             ) : null}
           </View>
 
-          {/* Quick Item Add Overlay Panel */}
+          {/* Quick Add Form */}
           {selectedItemToAdd && (
-            <Card style={styles.itemAddCard}>
-              <Card.Content style={styles.itemAddCardContent}>
-                <View style={styles.itemAddHeader}>
-                  <Icon source="package-variant-closed" size={24} color={colors.primary} />
-                  <Text style={styles.itemAddTitle}>{selectedItemToAdd.name}</Text>
-                </View>
-                <View style={styles.itemFormRow}>
-                  <TextInput
-                    mode="outlined"
-                    label="Quantity"
-                    value={addQuantity}
-                    onChangeText={setAddQuantity}
-                    keyboardType="numeric"
-                    style={styles.itemInput}
-                    outlineStyle={styles.itemInputOutline}
-                    activeOutlineColor={colors.primary}
-                    right={<TextInput.Affix text={selectedItemToAdd.unit} />}
-                  />
-                  <TextInput
-                    mode="outlined"
-                    label="Rate"
-                    value={addRate}
-                    onChangeText={setAddRate}
-                    keyboardType="numeric"
-                    style={styles.itemInput}
-                    outlineStyle={styles.itemInputOutline}
-                    activeOutlineColor={colors.primary}
-                    left={<TextInput.Affix text="₹" />}
-                  />
-                </View>
-                <View style={styles.itemActionRow}>
-                  <Button 
-                    mode="outlined" 
-                    onPress={() => setSelectedItemToAdd(null)}
-                    style={styles.itemCancelButton}
-                    labelStyle={styles.itemCancelButtonLabel}
-                  >
-                    Cancel
-                  </Button>
-                  <Button 
-                    mode="contained" 
-                    onPress={handleAddCartItem}
-                    style={styles.itemConfirmButton}
-                    labelStyle={styles.itemConfirmButtonLabel}
-                  >
-                    Add to Order
-                  </Button>
-                </View>
-              </Card.Content>
-            </Card>
+            <View style={styles.quickAddForm}>
+              <Text style={styles.quickAddTitle}>Adding: {selectedItemToAdd.name}</Text>
+              <View style={styles.inputRow}>
+                <TextInput
+                  mode="outlined"
+                  label={`Qty (${selectedItemToAdd.unit})`}
+                  value={addQuantity}
+                  onChangeText={setAddQuantity}
+                  keyboardType="numeric"
+                  style={[styles.flex1, styles.input]}
+                  outlineStyle={styles.inputOutline}
+                />
+                <TextInput
+                  mode="outlined"
+                  label="Rate (₹)"
+                  value={addRate}
+                  onChangeText={setAddRate}
+                  keyboardType="numeric"
+                  style={[styles.flex1, styles.input]}
+                  outlineStyle={styles.inputOutline}
+                />
+              </View>
+              <View style={styles.quickAddActions}>
+                <Button mode="text" onPress={() => setSelectedItemToAdd(null)}>CANCEL</Button>
+                <Button mode="contained" onPress={handleAddCartItem}>ADD TO ORDER</Button>
+              </View>
+            </View>
           )}
-        </Section>
 
-        {/* Order Cart */}
-        {cart.length > 0 && (
-          <Section title="Order Items">
+          {/* Cart Table */}
+          {cart.length > 0 && (
             <View style={styles.cartContainer}>
               {cart.map((item, idx) => (
                 <View key={item.id}>
-                  {idx > 0 && <Divider style={styles.divider} />}
-                  <View style={styles.cartItemRow}>
-                    <View style={styles.cartItemInfo}>
+                  <View style={styles.cartItem}>
+                    <View style={styles.cartItemLeft}>
                       <Text style={styles.cartItemName}>{item.name}</Text>
-                      <Text style={styles.cartItemDetails}>
-                        ₹{item.rate} x {item.quantity} {item.unit}
-                      </Text>
+                      <Text style={styles.cartItemSub}>{item.quantity} {item.unit} @ ₹{item.rate}</Text>
                     </View>
-                    <View style={styles.cartItemAction}>
+                    <View style={styles.cartItemRight}>
                       <Text style={styles.cartItemTotal}>₹{(item.quantity * item.rate).toLocaleString()}</Text>
-                      <Pressable onPress={() => handleRemoveCartItem(item.id)} style={styles.deletePressable}>
-                        <Icon source="trash-can-outline" size={20} color={colors.danger} />
+                      <Pressable onPress={() => handleRemoveCartItem(item.id)}>
+                        <Icon source="close-circle" size={20} color={colors.danger} />
                       </Pressable>
                     </View>
                   </View>
+                  {idx < cart.length - 1 && <Divider style={styles.cartDivider} />}
                 </View>
               ))}
-              <View style={styles.cartSubtotalContainer}>
-                <Text style={styles.cartSubtotalLabel}>Subtotal</Text>
-                <Text style={styles.cartSubtotalValue}>₹{subtotal.toLocaleString()}</Text>
+              <View style={styles.totalRow}>
+                <Text style={styles.totalLabel}>ORDER TOTAL</Text>
+                <Text style={styles.totalValue}>₹{subtotal.toLocaleString()}</Text>
               </View>
             </View>
-          </Section>
-        )}
+          )}
+        </Section>
 
-        {/* Dispatch Settings */}
-        <Section title="Fulfillment Settings">
-          <View style={styles.settingsContainer}>
-            {/* Assign Staff */}
-            <View style={styles.settingField}>
-              <Text style={styles.settingLabel}>ASSIGN FULFILLMENT STAFF (OPTIONAL)</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.staffScroll}>
-                {(staffQuery.data ?? []).map(s => {
-                  const isSelected = assignedStaffId === s.id;
-                  const initials = s.name ? s.name.substring(0, 2).toUpperCase() : "ST";
-                  const colorsList = ["#e0f2fe", "#fee2e2", "#fef3c7", "#dcfce7", "#f3e8ff"];
-                  const idx = s.name.charCodeAt(0) % colorsList.length;
-                  const avatarBg = colorsList[idx];
-                  const avatarText = isSelected ? colors.primaryDark : "#475569";
+        {/* Fulfillment Settings */}
+        <Section title="Order Details & Fulfillment">
+          <View style={styles.settingsCard}>
+            <Text style={styles.fieldLabel}>ASSIGN TO STAFF (OPTIONAL)</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.staffScroll}>
+              <Pressable
+                onPress={() => setAssignedStaffId(null)}
+                style={[styles.staffPill, assignedStaffId === null && styles.staffPillActive]}
+              >
+                <Text style={[styles.staffPillText, assignedStaffId === null && styles.staffPillTextActive]}>Any Staff</Text>
+              </Pressable>
+              {staffQuery.data?.map(s => (
+                <Pressable
+                  key={s.id}
+                  onPress={() => setAssignedStaffId(s.id)}
+                  style={[styles.staffPill, assignedStaffId === s.id && styles.staffPillActive]}
+                >
+                  <Text style={[styles.staffPillText, assignedStaffId === s.id && styles.staffPillTextActive]}>{s.name.split(' ')[0]}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
 
-                  return (
-                    <Pressable
-                      key={s.id}
-                      onPress={() => setAssignedStaffId(isSelected ? null : s.id)}
-                      style={styles.staffAvatarContainer}
-                    >
-                      <View style={[styles.avatarCircle, { backgroundColor: avatarBg }, isSelected && styles.avatarCircleSelected]}>
-                        <Text style={[styles.avatarText, { color: avatarText }]}>{initials}</Text>
-                        {isSelected && (
-                          <View style={styles.avatarCheckBadge}>
-                            <Icon source="check" size={10} color="#ffffff" />
-                          </View>
-                        )}
-                      </View>
-                      <Text style={[styles.staffAvatarName, isSelected && styles.staffAvatarNameSelected]} numberOfLines={1}>
-                        {s.name}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </ScrollView>
+            <Text style={[styles.fieldLabel, { marginTop: spacing.lg }]}>ORDER PRIORITY</Text>
+            <SegmentedButtons
+              value={priority}
+              onValueChange={handlePriorityChange}
+              buttons={priorities}
+              style={styles.priorityBtns}
+              theme={{ colors: { primary: colors.primary } }}
+            />
+
+            <Text style={[styles.fieldLabel, { marginTop: spacing.lg }]}>EXPECTED DISPATCH</Text>
+            <View style={styles.dispatchRow}>
+              {[1, 2, 3, 5, 7].map(days => (
+                <Pressable
+                  key={days}
+                  onPress={() => setExpectedOffsetDays(days)}
+                  style={[styles.dayPill, expectedOffsetDays === days && styles.dayPillActive]}
+                >
+                  <Text style={[styles.dayPillText, expectedOffsetDays === days && styles.dayPillTextActive]}>{days}D</Text>
+                </Pressable>
+              ))}
             </View>
 
-            {/* Expected Dispatch Offset */}
-            <View style={styles.settingField}>
-              <Text style={styles.settingLabel}>EXPECTED DISPATCH DATE</Text>
-              <SegmentedButtons
-                value={String(expectedOffsetDays)}
-                onValueChange={v => setExpectedOffsetDays(Number(v))}
-                buttons={[
-                  { value: "1", label: "Tomorrow" },
-                  { value: "3", label: "3 Days" },
-                  { value: "7", label: "1 Week" },
-                ]}
-                theme={{ colors: { primary: colors.primary } }}
-                style={styles.segmentedButtons}
-              />
-            </View>
-
-            {/* Priority */}
-            <View style={styles.settingField}>
-              <Text style={styles.settingLabel}>ORDER PRIORITY</Text>
-              <SegmentedButtons
-                value={priority}
-                onValueChange={v => setPriority(v as any)}
-                buttons={priorities.map(p => ({ value: p.value, label: p.label }))}
-                theme={{ colors: { primary: colors.primary } }}
-                style={styles.segmentedButtons}
-              />
-            </View>
-
-            {/* Notes */}
-            <View style={styles.settingField}>
-              <TextInput
-                mode="outlined"
-                label="Fulfillment Notes for Staff"
-                value={notes}
-                onChangeText={setNotes}
-                multiline
-                numberOfLines={3}
-                style={styles.notesInput}
-                outlineStyle={styles.notesOutline}
-                activeOutlineColor={colors.primary}
-                placeholder="E.g., urgent dispatch, double check quantities, client requested clean packaging..."
-              />
-            </View>
+            <TextInput
+              mode="outlined"
+              label="Fulfillment Notes"
+              placeholder="Packaging instructions or delivery notes..."
+              value={notes}
+              onChangeText={setNotes}
+              multiline
+              numberOfLines={3}
+              style={[styles.input, { marginTop: spacing.lg }]}
+              outlineStyle={styles.inputOutline}
+            />
           </View>
         </Section>
 
         {errorMsg && (
-          <View style={styles.errorContainer}>
-            <Icon source="alert-circle" size={20} color={colors.danger} />
+          <View style={styles.errorBox}>
+            <Icon source="alert-circle" size={18} color={colors.danger} />
             <Text style={styles.errorText}>{errorMsg}</Text>
           </View>
         )}
-      </ScrollView>
 
-      {/* Footer Checkout Action */}
-      <View style={styles.footer}>
         <Button
           mode="contained"
-          disabled={!customerId || cart.length === 0 || orderMutation.isPending}
-          loading={orderMutation.isPending}
           onPress={() => orderMutation.mutate()}
-          style={[styles.checkoutButton, (!customerId || cart.length === 0) && styles.checkoutButtonDisabled]}
-          contentStyle={styles.checkoutButtonContent}
-          labelStyle={styles.checkoutButtonLabel}
+          loading={orderMutation.isPending}
+          disabled={!customerId || cart.length === 0}
+          style={styles.submitBtn}
+          labelStyle={styles.submitBtnLabel}
         >
-          Book Order (₹{subtotal.toLocaleString()})
+          CONFIRM & CREATE ORDER
         </Button>
-      </View>
+      </ScrollView>
 
       <SuccessModal
         visible={successVisible}
-        title="Order Booked"
-        message="The customer order has been registered successfully!"
+        title="Order Created"
+        message={`Order for ${selectedCustomer?.name} has been placed successfully.`}
         onClose={() => {
           setSuccessVisible(false);
-          navigation.goBack();
+          goBack();
         }}
       />
     </Screen>
@@ -473,69 +420,57 @@ export function CreateOrder() {
 
 const styles = StyleSheet.create({
   scrollContainer: {
-    paddingBottom: 140,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.xs,
+    paddingBottom: 100,
   },
   searchSectionContainer: {
-    position: 'relative',
     zIndex: 10,
   },
   searchBar: {
     backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    elevation: 0,
-    height: 52,
-    justifyContent: 'center',
-    shadowOpacity: 0,
-  },
-  searchInput: {
-    fontSize: fontSize.md,
-    color: colors.textPrimary,
-  },
-  searchDropdown: {
-    marginTop: spacing.xs,
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
+    borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.border,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    elevation: 4,
-    zIndex: 50,
-    overflow: 'hidden',
+    elevation: 0,
+    height: 48,
+  },
+  searchInput: {
+    fontSize: 14,
+  },
+  searchDropdown: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    marginTop: spacing.xs,
+    borderWidth: 1,
+    borderColor: colors.border,
+    ...shadow.md,
+    maxHeight: 250,
   },
   dropdownItem: {
-    paddingVertical: spacing.xs,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.surfaceOffset,
+    paddingVertical: 4,
   },
   dropdownTitle: {
-    fontSize: fontSize.md,
+    fontSize: fontSize.sm,
     fontWeight: fontWeight.bold,
-    color: colors.textPrimary,
   },
   dropdownDesc: {
-    fontSize: fontSize.xs,
-    color: colors.textSecondary,
-    marginTop: 2,
+    fontSize: 11,
   },
   dropdownEmpty: {
-    padding: spacing.lg,
+    padding: spacing.md,
     alignItems: 'center',
   },
   dropdownEmptyText: {
+    fontSize: 12,
     color: colors.textMuted,
-    fontSize: fontSize.sm,
   },
   selectedCustomerCard: {
     backgroundColor: colors.surface,
-    borderWidth: 1.5,
-    borderColor: colors.primaryMid,
+    borderWidth: 1,
+    borderColor: colors.primary,
     borderRadius: radius.lg,
-    ...shadow.sm,
+    elevation: 0,
   },
   customerCardContent: {
     flexDirection: 'row',
@@ -543,302 +478,208 @@ const styles = StyleSheet.create({
     padding: spacing.md,
   },
   customerAvatar: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: colors.primaryLight,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: spacing.md,
   },
   customerAvatarText: {
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.bold,
     color: colors.primaryDark,
+    fontWeight: fontWeight.bold,
   },
-  customerInfo: {
+  customerInfoCol: {
     flex: 1,
+    marginLeft: spacing.md,
   },
-  customerName: {
+  customerNameText: {
     fontSize: fontSize.md,
-    fontWeight: fontWeight.extrabold,
+    fontWeight: fontWeight.bold,
     color: colors.textPrimary,
   },
-  customerDetails: {
-    fontSize: fontSize.xs,
+  customerSubText: {
+    fontSize: 11,
     color: colors.textSecondary,
     marginTop: 2,
   },
-  customerBalance: {
-    fontSize: fontSize.xs,
-    color: colors.textSecondary,
-    marginTop: 2,
-  },
-  balancePositive: {
-    color: colors.success,
-    fontWeight: fontWeight.bold,
-  },
-  balanceNegative: {
-    color: colors.danger,
-    fontWeight: fontWeight.bold,
-  },
-  changeButton: {
-    borderColor: colors.borderStrong,
-    borderRadius: radius.md,
-  },
-  changeButtonLabel: {
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.bold,
-    color: colors.textSecondary,
-  },
-  itemAddCard: {
-    backgroundColor: colors.bg,
-    borderWidth: 1.5,
-    borderColor: colors.primaryMid,
-    marginTop: spacing.md,
-    borderRadius: radius.lg,
-    ...shadow.sm,
-  },
-  itemAddCardContent: {
+  quickAddForm: {
+    backgroundColor: colors.surfaceOffset,
     padding: spacing.lg,
+    borderRadius: radius.lg,
+    marginTop: spacing.md,
+    gap: spacing.md,
   },
-  itemAddHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    marginBottom: spacing.md,
+  quickAddTitle: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.primary,
   },
-  itemAddTitle: {
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.extrabold,
-    color: colors.textPrimary,
-    flex: 1,
-  },
-  itemFormRow: {
+  inputRow: {
     flexDirection: 'row',
     gap: spacing.md,
-    marginBottom: spacing.md,
   },
-  itemInput: {
-    flex: 1,
+  input: {
     backgroundColor: colors.surface,
-    height: 52,
   },
-  itemInputOutline: {
+  inputOutline: {
     borderRadius: radius.md,
-    borderColor: colors.borderStrong,
   },
-  itemActionRow: {
+  quickAddActions: {
     flexDirection: 'row',
+    justifyContent: 'flex-end',
     gap: spacing.md,
-  },
-  itemCancelButton: {
-    flex: 1,
-    borderColor: colors.borderStrong,
-    borderRadius: radius.md,
-  },
-  itemCancelButtonLabel: {
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.bold,
-    color: colors.textSecondary,
-  },
-  itemConfirmButton: {
-    flex: 1,
-    backgroundColor: colors.primary,
-    borderRadius: radius.md,
-  },
-  itemConfirmButtonLabel: {
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.bold,
-    color: '#ffffff',
   },
   cartContainer: {
     backgroundColor: colors.surface,
     borderRadius: radius.lg,
-    borderWidth: 1.5,
+    borderWidth: 1,
     borderColor: colors.border,
-    overflow: 'hidden',
+    padding: spacing.lg,
+    marginTop: spacing.md,
   },
-  cartItemRow: {
+  cartItem: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: spacing.lg,
+    paddingVertical: spacing.sm,
   },
-  cartItemInfo: {
+  cartItemLeft: {
     flex: 1,
-    paddingRight: spacing.md,
   },
   cartItemName: {
-    fontSize: fontSize.md,
+    fontSize: fontSize.sm,
     fontWeight: fontWeight.bold,
-    color: colors.textPrimary,
   },
-  cartItemDetails: {
-    fontSize: fontSize.xs,
+  cartItemSub: {
+    fontSize: 11,
     color: colors.textSecondary,
-    marginTop: 4,
+    marginTop: 2,
   },
-  cartItemAction: {
+  cartItemRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.sm,
+    gap: spacing.md,
   },
   cartItemTotal: {
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.extrabold,
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.black,
     color: colors.textPrimary,
   },
-  deletePressable: {
-    padding: spacing.xs,
-    borderRadius: radius.sm,
-  },
-  divider: {
-    backgroundColor: colors.border,
-  },
-  cartSubtotalContainer: {
+  cartDivider: {
     backgroundColor: colors.surfaceOffset,
-    padding: spacing.lg,
+  },
+  totalRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: spacing.md,
+    paddingTop: spacing.md,
     borderTopWidth: 1,
     borderTopColor: colors.border,
-    alignItems: 'center',
   },
-  cartSubtotalLabel: {
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.bold,
-    color: colors.textSecondary,
+  totalLabel: {
+    fontSize: 11,
+    fontWeight: fontWeight.black,
+    color: colors.textMuted,
   },
-  cartSubtotalValue: {
-    fontSize: fontSize.xl,
+  totalValue: {
+    fontSize: fontSize.lg,
     fontWeight: fontWeight.black,
     color: colors.primary,
   },
-  settingsContainer: {
+  settingsCard: {
     backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    borderWidth: 1.5,
+    borderRadius: 20,
+    borderWidth: 1,
     borderColor: colors.border,
     padding: spacing.lg,
-    gap: spacing.xl,
   },
-  settingField: {
-    gap: spacing.sm,
-  },
-  settingLabel: {
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.extrabold,
-    color: colors.textSecondary,
+  fieldLabel: {
+    fontSize: 10,
+    fontWeight: fontWeight.black,
+    color: colors.textMuted,
     letterSpacing: 0.5,
+    marginBottom: spacing.sm,
   },
   staffScroll: {
-    paddingVertical: spacing.xs,
-    gap: spacing.lg,
+    marginHorizontal: -spacing.sm,
   },
-  staffAvatarContainer: {
-    alignItems: 'center',
-    width: 68,
-    gap: spacing.xs,
+  staffPill: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: radius.full,
+    backgroundColor: colors.surfaceOffset,
+    marginHorizontal: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
-  avatarCircle: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    position: 'relative',
-    borderWidth: 2,
-    borderColor: 'transparent',
-  },
-  avatarCircleSelected: {
+  staffPillActive: {
+    backgroundColor: colors.primary,
     borderColor: colors.primary,
   },
-  avatarText: {
-    fontSize: fontSize.md,
+  staffPillText: {
+    fontSize: 12,
     fontWeight: fontWeight.bold,
+    color: colors.textSecondary,
   },
-  avatarCheckBadge: {
-    position: 'absolute',
-    bottom: -2,
-    right: -2,
-    backgroundColor: colors.primary,
-    width: 18,
-    height: 18,
-    borderRadius: 9,
+  staffPillTextActive: {
+    color: 'white',
+  },
+  dispatchRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+  },
+  dayPill: {
+    width: 48,
+    height: 36,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceOffset,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1.5,
-    borderColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
-  staffAvatarName: {
-    fontSize: fontSize.xs,
-    color: colors.textSecondary,
-    fontWeight: fontWeight.medium,
-    textAlign: 'center',
-    width: '100%',
+  dayPillActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
   },
-  staffAvatarNameSelected: {
-    color: colors.primary,
+  dayPillText: {
+    fontSize: 12,
     fontWeight: fontWeight.bold,
+    color: colors.textSecondary,
   },
-  segmentedButtons: {
-    borderRadius: radius.md,
+  dayPillTextActive: {
+    color: 'white',
   },
-  notesInput: {
-    backgroundColor: colors.surface,
+  priorityBtns: {
+    height: 40,
   },
-  notesOutline: {
-    borderRadius: radius.md,
-    borderColor: colors.borderStrong,
-  },
-  errorContainer: {
-    backgroundColor: colors.dangerLight,
-    padding: spacing.md,
-    borderRadius: radius.lg,
+  errorBox: {
     flexDirection: 'row',
     alignItems: 'center',
+    padding: spacing.md,
+    backgroundColor: colors.dangerLight,
+    borderRadius: radius.md,
+    marginTop: spacing.lg,
     gap: spacing.sm,
-    marginHorizontal: spacing.lg,
-    marginTop: spacing.md,
-    borderWidth: 1,
-    borderColor: 'rgba(220, 38, 38, 0.15)',
   },
   errorText: {
     color: colors.danger,
+    fontSize: 12,
     fontWeight: fontWeight.bold,
     flex: 1,
-    fontSize: fontSize.sm,
   },
-  footer: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: spacing.lg,
-    backgroundColor: colors.surface,
-    borderTopWidth: 1.5,
-    borderTopColor: colors.border,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 8,
-  },
-  checkoutButton: {
+  submitBtn: {
+    marginTop: spacing.xl,
     borderRadius: radius.lg,
     backgroundColor: colors.primary,
   },
-  checkoutButtonDisabled: {
-    backgroundColor: colors.textDisabled,
+  submitBtnLabel: {
+    fontWeight: fontWeight.bold,
+    paddingVertical: 4,
   },
-  checkoutButtonContent: {
-    height: 54,
-  },
-  checkoutButtonLabel: {
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.extrabold,
-    color: '#ffffff',
+  flex1: {
+    flex: 1,
   },
 });
-

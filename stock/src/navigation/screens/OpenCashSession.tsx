@@ -1,20 +1,19 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import { View, StyleSheet, Pressable, ScrollView } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Text, Icon, Portal, Modal, Divider, List } from "react-native-paper";
-import { useNavigation } from "@react-navigation/native";
 import { fetchCurrentCashSession, fetchShops, openCashSession } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
+import { navigate } from "../navigation-ref";
 
 export function OpenCashSession() {
   const token = useAuthStore((state) => state.token);
   const { activeShopId, setActiveShopId } = useShopStore();
   const queryClient = useQueryClient();
-  const navigation = useNavigation();
 
   const [shopModalVisible, setShopModalVisible] = useState(false);
 
@@ -131,7 +130,7 @@ export function OpenCashSession() {
                 
                 <Pressable 
                   style={styles.shortcutRow}
-                  onPress={() => (navigation as any).navigate("TakePayment")}
+                  onPress={() => navigate("TakePayment")}
                 >
                   <View style={styles.shortcutLeft}>
                     <View style={styles.shortcutIconBg}>
@@ -144,7 +143,7 @@ export function OpenCashSession() {
 
                 <Pressable 
                   style={styles.shortcutRow}
-                  onPress={() => (navigation as any).navigate("WalkInSale")}
+                  onPress={() => navigate("WalkInSale")}
                 >
                   <View style={styles.shortcutLeft}>
                     <View style={styles.shortcutIconBg}>
@@ -197,14 +196,14 @@ export function OpenCashSession() {
                       styles.shopItemTitle,
                       isSelected && styles.shopItemTitleActive
                     ]}
-                    description={`${shop.city || "No City"} • Opening Cash: ₹${shop.openingCash}`}
+                    description={`${shop.city || "No City"} • Opening: ₹${shop.openingCash}`}
+                    descriptionStyle={styles.shopItemDesc}
                     onPress={() => {
                       setActiveShopId(shop.id);
                       setShopModalVisible(false);
                     }}
-                    right={(props) => isSelected ? (
-                      <List.Icon {...props} icon="check-circle" color={colors.primary} />
-                    ) : null}
+                    left={props => <List.Icon {...props} icon="storefront" color={isSelected ? colors.primary : colors.textMuted} />}
+                    right={props => isSelected ? <List.Icon {...props} icon="check-circle" color={colors.primary} /> : null}
                   />
                   <Divider style={styles.modalDivider} />
                 </View>
@@ -220,167 +219,168 @@ export function OpenCashSession() {
 const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.xs,
-    paddingBottom: 120,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.huge,
+    gap: spacing.lg,
   },
   section: {
-    marginTop: spacing.lg,
+    gap: spacing.sm,
   },
   sectionLabel: {
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.extrabold,
-    color: colors.textPrimary,
-    marginBottom: spacing.md,
+    fontSize: 10,
+    fontWeight: fontWeight.bold,
+    color: colors.textSecondary,
+    textTransform: "uppercase",
+    letterSpacing: 1,
+    paddingLeft: spacing.xs,
   },
   shopSelector: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     backgroundColor: colors.primary,
-    borderRadius: radius.md,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.lg,
-    ...shadow.md,
+    paddingHorizontal: spacing.xl,
+    paddingVertical: spacing.lg,
+    borderRadius: 24,
+    ...shadow.sm,
   },
   shopSelectorText: {
-    flex: 1,
-    color: "#ffffff",
-    fontWeight: fontWeight.extrabold,
     fontSize: fontSize.md,
-    marginLeft: spacing.sm,
+    fontWeight: fontWeight.black,
+    color: "#ffffff",
+    flex: 1,
+    marginHorizontal: spacing.md,
   },
   gridContainer: {
     flexDirection: "row",
     gap: spacing.md,
-    marginTop: spacing.xl,
   },
   card: {
     flex: 1,
     backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: "#f1f5f9",
+    borderRadius: 24,
     padding: spacing.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: "center",
+    gap: spacing.xs,
     ...shadow.sm,
   },
   iconWrapper: {
     width: 44,
     height: 44,
-    borderRadius: 22,
+    borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: spacing.sm,
+    marginBottom: spacing.xs,
   },
   cardValue: {
-    fontSize: fontSize.xl,
+    fontSize: fontSize.md,
     fontWeight: fontWeight.black,
     color: colors.textPrimary,
+  },
+  cardLabel: {
+    fontSize: 9,
+    fontWeight: fontWeight.bold,
+    color: colors.textMuted,
+    letterSpacing: 0.5,
   },
   statusOpenText: {
     color: colors.success,
   },
   statusClosedText: {
-    color: colors.info,
-  },
-  cardLabel: {
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.extrabold,
-    color: colors.textSecondary,
-    marginTop: spacing.xs,
+    color: colors.textMuted,
   },
   openButton: {
+    borderRadius: radius.lg,
     backgroundColor: colors.primary,
-    borderRadius: radius.md,
-    marginTop: spacing.sm,
-    ...shadow.md,
   },
   openButtonContent: {
-    height: 52,
+    height: 56,
   },
   openButtonLabel: {
-    fontSize: fontSize.lg,
-    fontWeight: fontWeight.extrabold,
-    color: "#ffffff",
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.bold,
   },
   successCard: {
     backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
+    borderRadius: 24,
     padding: spacing.xl,
+    borderWidth: 1,
+    borderColor: colors.border,
     ...shadow.sm,
   },
   successHeader: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.sm,
+    gap: spacing.md,
+    marginBottom: spacing.md,
   },
   successTitle: {
     fontSize: fontSize.lg,
-    fontWeight: fontWeight.extrabold,
-    color: colors.success,
+    fontWeight: fontWeight.black,
+    color: colors.textPrimary,
   },
   successDescription: {
     fontSize: fontSize.sm,
     color: colors.textSecondary,
-    marginTop: spacing.md,
     lineHeight: 20,
+    marginBottom: spacing.lg,
   },
   divider: {
-    marginVertical: spacing.lg,
-    backgroundColor: "#e2e8f0",
+    backgroundColor: colors.surfaceOffset,
+    marginBottom: spacing.lg,
   },
   shortcutsContainer: {
-    gap: spacing.sm,
+    gap: spacing.md,
   },
   shortcutsTitle: {
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.extrabold,
-    color: colors.textSecondary,
+    fontSize: 10,
+    fontWeight: fontWeight.bold,
+    color: colors.textMuted,
     textTransform: "uppercase",
-    marginBottom: spacing.xs,
+    letterSpacing: 0.5,
   },
   shortcutRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: spacing.md,
-    borderRadius: radius.md,
+    paddingVertical: spacing.sm,
   },
   shortcutLeft: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.md,
+    gap: spacing.lg,
   },
   shortcutIconBg: {
     width: 36,
     height: 36,
-    borderRadius: 18,
+    borderRadius: 10,
     backgroundColor: colors.primaryLight,
     alignItems: "center",
     justifyContent: "center",
   },
   shortcutText: {
-    fontSize: fontSize.md,
+    fontSize: fontSize.sm,
     fontWeight: fontWeight.bold,
     color: colors.textPrimary,
   },
   modalContent: {
     backgroundColor: colors.surface,
-    marginHorizontal: spacing.xl,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
+    padding: spacing.xl,
+    margin: spacing.xl,
+    borderRadius: 28,
     maxHeight: "80%",
   },
   modalHeader: {
     flexDirection: "row",
-    alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: spacing.md,
+    alignItems: "center",
+    marginBottom: spacing.lg,
   },
   modalTitle: {
-    fontSize: 18,
-    fontWeight: fontWeight.extrabold,
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.black,
     color: colors.textPrimary,
   },
   modalScroll: {
@@ -393,7 +393,10 @@ const styles = StyleSheet.create({
   },
   shopItemTitleActive: {
     color: colors.primary,
-    fontWeight: fontWeight.extrabold,
+  },
+  shopItemDesc: {
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
   },
   modalDivider: {
     backgroundColor: colors.surfaceOffset,
