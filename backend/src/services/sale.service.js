@@ -145,7 +145,12 @@ export async function listSales(user, { shopId, customerId }) {
       customerId: customerId || undefined,
       staffId: user.role === "STAFF" ? user.id : undefined,
     },
-    include: { customer: true, items: { include: { item: true } }, payments: true },
+    include: { 
+      customer: true, 
+      items: { include: { item: true } }, 
+      payments: true,
+      staff: { select: { id: true, name: true, role: true } }
+    },
     orderBy: { createdAt: "desc" },
   });
 }
@@ -153,7 +158,18 @@ export async function listSales(user, { shopId, customerId }) {
 export async function getSale(user, id) {
   const sale = await prisma.sale.findUnique({
     where: { id },
-    include: { customer: true, items: { include: { item: true } }, payments: { include: { details: true } } },
+    include: { 
+      customer: true, 
+      items: { include: { item: true } }, 
+      payments: { 
+        include: { 
+          details: true,
+          receivedBy: { select: { id: true, name: true } },
+          verifiedBy: { select: { id: true, name: true } }
+        } 
+      },
+      staff: { select: { id: true, name: true, role: true } }
+    },
   });
   if (!sale) throw new ApiError(404, "Sale not found");
   await assertShopAccess(user, sale.shopId);

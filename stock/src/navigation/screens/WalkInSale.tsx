@@ -29,6 +29,7 @@ import { EmptyState } from "../../components/ui/EmptyState";
 import { Button } from "../../components/ui/Button";
 import { Section } from "../../components/ui/Section";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
+import { shareSaleInvoicePdf, printSaleInvoiceDirect } from "../../utils/pdf";
 
 function money(value?: string | number | null) {
   return `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
@@ -157,6 +158,7 @@ export function WalkInSale() {
   const [cart, setCart] = useState<Record<string, { item: Item, quantity: number }>>({});
   
   const [completedSaleNumber, setCompletedSaleNumber] = useState<string | null>(null);
+  const [completedSale, setCompletedSale] = useState<any | null>(null);
 
   // Customer selection & search states
   const [customerId, setCustomerId] = useState<string | null>(null);
@@ -242,6 +244,7 @@ export function WalkInSale() {
       notes: notes || undefined,
     }, {
       onSuccess: (res: any) => {
+        setCompletedSale(res);
         setCompletedSaleNumber(res?.saleNumber || "N/A");
         setCurrentStep(3);
       }
@@ -707,8 +710,31 @@ export function WalkInSale() {
                     label="Print Receipt"
                     variant="ghost"
                     icon="printer"
-                    onPress={() => {
-                      Alert.alert("Print", "Receipt sent to printing queue.");
+                    onPress={async () => {
+                      await printSaleInvoiceDirect({
+                        sale: completedSale || {
+                          saleNumber: completedSaleNumber || "N/A",
+                          totalAmount: String(cartTotal),
+                          paidAmount: String(cartTotal),
+                          balanceAmount: "0",
+                          isWalkin: !customerId,
+                          createdAt: new Date().toISOString(),
+                          items: cartArray.map(i => ({
+                            id: i.item.id,
+                            quantity: String(i.quantity),
+                            rate: String(i.item.defaultSellingPrice),
+                            totalAmount: String(i.quantity * Number(i.item.defaultSellingPrice)),
+                            item: i.item,
+                          })),
+                          notes: notes || null,
+                          payments: [{
+                            paymentMode: paymentMode,
+                            amount: String(cartTotal),
+                            receivedAt: new Date().toISOString()
+                          }]
+                        },
+                        shop: selectedShop,
+                      });
                     }}
                     style={styles.receiptActionBtn}
                   />
@@ -716,8 +742,31 @@ export function WalkInSale() {
                     label="Share"
                     variant="ghost"
                     icon="share-variant"
-                    onPress={() => {
-                      Alert.alert("Share", "Receipt shared successfully.");
+                    onPress={async () => {
+                      await shareSaleInvoicePdf({
+                        sale: completedSale || {
+                          saleNumber: completedSaleNumber || "N/A",
+                          totalAmount: String(cartTotal),
+                          paidAmount: String(cartTotal),
+                          balanceAmount: "0",
+                          isWalkin: !customerId,
+                          createdAt: new Date().toISOString(),
+                          items: cartArray.map(i => ({
+                            id: i.item.id,
+                            quantity: String(i.quantity),
+                            rate: String(i.item.defaultSellingPrice),
+                            totalAmount: String(i.quantity * Number(i.item.defaultSellingPrice)),
+                            item: i.item,
+                          })),
+                          notes: notes || null,
+                          payments: [{
+                            paymentMode: paymentMode,
+                            amount: String(cartTotal),
+                            receivedAt: new Date().toISOString()
+                          }]
+                        },
+                        shop: selectedShop,
+                      });
                     }}
                     style={styles.receiptActionBtn}
                   />

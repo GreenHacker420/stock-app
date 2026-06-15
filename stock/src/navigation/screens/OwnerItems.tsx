@@ -26,6 +26,19 @@ import { navigate, goBack } from "../navigation-ref";
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 
+const getAvatarColor = (name: string) => {
+  const colorsList = [
+    { bg: "#eff6ff", text: "#2563eb" }, // Blue
+    { bg: "#ecfdf5", text: "#059669" }, // Emerald
+    { bg: "#fef3c7", text: "#d97706" }, // Amber
+    { bg: "#faf5ff", text: "#7c3aed" }, // Violet
+    { bg: "#fff1f2", text: "#e11d48" }, // Rose
+    { bg: "#f0fdfa", text: "#0d9488" }, // Teal
+  ];
+  const charCodeSum = name.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
+  return colorsList[charCodeSum % colorsList.length];
+};
+
 const ItemCard = memo(({ 
   item, 
   stock, 
@@ -41,25 +54,33 @@ const ItemCard = memo(({
 }) => {
   const isLow = stock <= Number(item.minimumStock);
   const isOut = stock <= 0;
+  const avatarColors = getAvatarColor(item.name);
+  const leftBorderColor = isOut ? colors.danger : isLow ? colors.warning : colors.success;
 
   return (
     <Pressable 
       onPress={onPress}
       style={({ pressed }) => [
         styles.itemCard,
+        { borderLeftWidth: 5, borderLeftColor: leftBorderColor },
         pressed && styles.itemCardPressed
       ]}
     >
       <View style={styles.itemCardRow}>
-        <View style={styles.itemAvatar}>
-          <Text style={styles.itemAvatarText}>{item.name[0].toUpperCase()}</Text>
+        <View style={[styles.itemAvatar, { backgroundColor: avatarColors.bg }]}>
+          <Text style={[styles.itemAvatarText, { color: avatarColors.text }]}>{item.name[0].toUpperCase()}</Text>
         </View>
         <View style={styles.itemDetails}>
           <Text style={styles.itemName} numberOfLines={1}>{item.name}</Text>
           <Text style={styles.itemSubtitle}>{item.sku || "No SKU"} • {item.unit}</Text>
-          <Text style={styles.itemStockCount}>
-            Stock: <Text style={styles.itemStockValue}>{stock} {item.unit}</Text>
-          </Text>
+          <View style={styles.itemStockCountContainer}>
+            <Text style={styles.itemStockCount}>
+              Stock: <Text style={[styles.itemStockValue, { color: leftBorderColor }]}>{stock} {item.unit}</Text>
+            </Text>
+            {item.minimumStock ? (
+              <Text style={styles.minStockText}>Min: {item.minimumStock}</Text>
+            ) : null}
+          </View>
         </View>
         <View style={styles.itemActions}>
            <StatusPill 
@@ -72,9 +93,7 @@ const ItemCard = memo(({
         </View>
       </View>
       
-      <Divider style={styles.cardDivider} />
-      
-      <View style={styles.itemFooter}>
+      <View style={styles.itemFooterGrid}>
          <View style={styles.priceContainer}>
             <Text style={styles.priceLabel}>Selling Price</Text>
             <Text style={styles.priceValue}>{money(item.defaultSellingPrice)}</Text>
@@ -83,11 +102,18 @@ const ItemCard = memo(({
             <Text style={styles.priceLabel}>MRP</Text>
             <Text style={styles.priceValueMrp}>{money(item.mrp)}</Text>
          </View>
+         {item.minimumAllowedPrice ? (
+           <View style={styles.priceContainer}>
+              <Text style={styles.priceLabel}>Min Price</Text>
+              <Text style={styles.priceValueMin}>{money(item.minimumAllowedPrice)}</Text>
+           </View>
+         ) : null}
          <Button 
             variant="ghost" 
             label="Restock" 
             onPress={onManageStock}
             icon={<Icon source="plus-box-outline" size={16} color={colors.primary} />}
+            style={styles.restockButton}
          />
       </View>
     </Pressable>
@@ -779,17 +805,40 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: colors.surfaceOffset,
   },
+  itemStockCountContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: 2,
+  },
+  minStockText: {
+    fontSize: 10,
+    color: colors.textSecondary,
+    backgroundColor: colors.surfaceOffset,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: radius.sm,
+    borderWidth: 0.5,
+    borderColor: colors.border,
+  },
   priceContainer: {
     gap: 2,
   },
-  cardDivider: {
-    marginVertical: spacing.md,
-    backgroundColor: colors.border,
-  },
-  itemFooter: {
+  itemFooterGrid: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    marginTop: spacing.md,
+    backgroundColor: colors.surfaceOffset,
+    padding: spacing.md,
+    borderRadius: radius.md,
+  },
+  priceValueMin: {
+    fontWeight: fontWeight.bold,
+    color: colors.textSecondary,
+  },
+  restockButton: {
+    paddingHorizontal: spacing.sm,
   },
   priceLabel: {
     fontSize: 11,

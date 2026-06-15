@@ -22,6 +22,8 @@ import { SkeletonList } from "../../components/ui/SkeletonCard";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { goBack, navigate } from "../navigation-ref";
+import { useShopsQuery } from "../../hooks/useShops";
+import { shareSaleInvoicePdf } from "../../utils/pdf";
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 
@@ -352,6 +354,13 @@ export function RegularSale() {
   const user = useAuthStore((state) => state.user);
   const insets = useSafeAreaInsets();
 
+  const shopsQuery = useShopsQuery();
+  const activeShop = useMemo(() => 
+    shopsQuery.data?.find(s => s.id === activeShopId),
+    [shopsQuery.data, activeShopId]
+  );
+  const [completedSale, setCompletedSale] = useState<any | null>(null);
+
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(1);
   const bottomPadding = insets.bottom > 0 ? insets.bottom + 12 : spacing.lg;
 
@@ -459,7 +468,8 @@ export function RegularSale() {
     };
 
     saleMutation.mutate(payload, {
-      onSuccess: () => {
+      onSuccess: (res: any) => {
+        setCompletedSale(res);
         setCurrentStep(4);
       }
     });
@@ -890,6 +900,41 @@ export function RegularSale() {
                 )}
               </View>
               
+              <Button
+                label="SHARE RECEIPT (PDF)"
+                variant="ghost"
+                icon={<Icon source="share-variant" size={18} color={colors.primary} />}
+                onPress={async () => {
+                  await shareSaleInvoicePdf({
+                    sale: completedSale || {
+                      saleNumber: (saleMutation.data as any)?.saleNumber || "N/A",
+                      totalAmount: String(cartTotal),
+                      paidAmount: String(amountPaid || (paymentType === "CREDIT" ? 0 : cartTotal)),
+                      balanceAmount: String(isCredit ? balance : 0),
+                      isWalkin: false,
+                      createdAt: new Date().toISOString(),
+                      customer: selectedCustomer,
+                      items: cartArray.map(i => ({
+                        id: i.item.id,
+                        quantity: String(i.quantity),
+                        rate: String(i.customRate !== undefined ? i.customRate : Number(i.item.defaultSellingPrice)),
+                        totalAmount: String(i.quantity * (i.customRate !== undefined ? i.customRate : Number(i.item.defaultSellingPrice))),
+                        item: i.item,
+                      })),
+                      notes: notes || null,
+                      payments: paymentType !== "CREDIT" || (amountPaid && Number(amountPaid) > 0) ? [{
+                        paymentMode: paymentType === "CREDIT" ? partialPaymentMode : paymentType,
+                        amount: String(amountPaid === "" ? cartTotal : amountPaid),
+                        receivedAt: new Date().toISOString()
+                      }] : []
+                    },
+                    shop: activeShop,
+                    signatureBase64: customerSignature,
+                  });
+                }}
+                style={{ ...styles.newSaleBtn, marginBottom: spacing.md }}
+              />
+
               <Button
                 label="START NEW SALE"
                 variant="success"

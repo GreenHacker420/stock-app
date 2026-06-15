@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { View, StyleSheet, Pressable, ScrollView } from "react-native";
+import { View, StyleSheet, Pressable, ScrollView, Alert } from "react-native";
 import { Searchbar, Divider, Text, Icon } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
@@ -15,7 +15,10 @@ import { EmptyState } from "../../components/ui/EmptyState";
 import { Button } from "../../components/ui/Button";
 import { Section } from "../../components/ui/Section";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
-import { navigate, goBack } from "../navigation-ref";
+import { navigate } from "../navigation-ref";
+import { useShopStore } from "../../auth/shop-store";
+import { useShopsQuery } from "../../hooks/useShops";
+import { shareSaleInvoicePdf } from "../../utils/pdf";
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 
@@ -35,7 +38,7 @@ export function SalesList() {
       const q = debouncedSearch.toLowerCase();
       data = data.filter(s => 
         s.saleNumber.toLowerCase().includes(q) || 
-        s.customer?.name.toLowerCase().includes(q)
+        (s.customer?.name || "").toLowerCase().includes(q)
       );
     }
     if (activeTab === "ALL") return data;
@@ -84,16 +87,17 @@ export function SalesList() {
             <List
               data={filteredSales}
               keyExtractor={(item: Sale) => item.id}
-              estimatedItemSize={110}
-              renderItem={({ item }: { item: Sale }) => (
+              estimatedItemSize={120}
+              renderItem={({ item }: { item: Sale & { staff?: { name: string } | null } }) => (
                 <Pressable
                   onPress={() => navigate("SaleDetail", { id: item.id })}
                   style={({ pressed }) => [styles.saleCard, pressed && styles.pressed]}
                 >
                   <View style={styles.cardHeader}>
-                    <View>
+                    <View style={styles.flex1}>
                       <Text style={styles.saleNumber}>#{item.saleNumber}</Text>
                       <Text style={styles.customerName}>{item.isWalkin ? "Walk-in Customer" : item.customer?.name}</Text>
+                      <Text style={styles.staffBilledText}>Billed by: {item.staff?.name || "System"}</Text>
                     </View>
                     <StatusPill 
                       label={item.paymentStatus || "PENDING"} 
@@ -107,8 +111,10 @@ export function SalesList() {
                       <Text style={styles.footerValue}>{money(item.totalAmount)}</Text>
                     </View>
                     <View style={{ alignItems: 'flex-end' }}>
-                      <Text style={styles.footerLabel}>DATE</Text>
-                      <Text style={styles.footerValue}>{new Date(item.createdAt).toLocaleDateString()}</Text>
+                      <Text style={styles.footerLabel}>DATE & TIME</Text>
+                      <Text style={styles.footerValue}>
+                        {new Date(item.createdAt).toLocaleString("en-IN", { dateStyle: "short", timeStyle: "short" })}
+                      </Text>
                     </View>
                   </View>
                 </Pressable>
@@ -126,22 +132,44 @@ export function SalesList() {
 export function SaleDetail() {
   const route = useRoute<any>();
   const saleId = route.params?.id;
+  
+  const { activeShopId } = useShopStore();
+  const shopsQuery = useShopsQuery();
+  const activeShop = useMemo(() => 
+    shopsQuery.data?.find(s => s.id === activeShopId),
+    [shopsQuery.data, activeShopId]
+  );
+
   const saleQuery = useSaleQuery(saleId);
-  const sale = saleQuery.data;
+  const sale = saleQuery.data as (Sale & { staff?: { name: string } | null }) | undefined;
+
+  const [sharing, setSharing] = useState(false);
 
   if (saleQuery.isLoading) return <SkeletonList count={5} />;
   if (!sale) return <EmptyState title="Sale not found" />;
+
+  const handleSharePdf = async () => {
+    setSharing(true);
+    await shareSaleInvoicePdf({
+      sale: sale,
+      shop: activeShop,
+    });
+    setSharing(false);
+  };
 
   return (
     <Screen edges={['top', 'left', 'right']}>
       <AppHeader title={`Sale #${sale.saleNumber}`} subtitle="Transaction Details" showBack />
       
-      <ScrollView contentContainerStyle={styles.detailScroll}>
+      <ScrollView contentContainerStyle={styles.detailScroll} showsVerticalScrollIndicator={false}>
         <View style={styles.detailCard}>
            <View style={styles.detailRow}>
-              <View>
+              <View style={styles.flex1}>
                  <Text style={styles.customerNameBig}>{sale.isWalkin ? "Walk-in Customer" : sale.customer?.name}</Text>
-                 <Text style={styles.dateText}>{new Date(sale.createdAt).toLocaleString()}</Text>
+                 <Text style={styles.dateText}>
+                   Date: {new Date(sale.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+                 </Text>
+                 <Text style={styles.billedByText}>Billed by: <Text style={styles.boldText}>{sale.staff?.name || "System"}</Text></Text>
               </View>
               <StatusPill label={sale.paymentStatus || "PENDING"} tone={sale.paymentStatus === 'PAID' ? 'green' : 'amber'} />
            </View>
@@ -168,38 +196,82 @@ export function SaleDetail() {
 
         <Section title="Items Summary">
            <View style={styles.itemsCard}>
-              {sale.items?.map((item: any, idx: number) => (
-                <View key={item.id}>
-                  <View style={styles.itemRow}>
-                     <View style={{ flex: 1 }}>
-                        <Text style={styles.itemName}>{item.item.name}</Text>
-                        <Text style={styles.itemSub}>{item.quantity} {item.item.unit} @ {money(item.rate)}</Text>
-                     </View>
-                     <Text style={styles.itemTotal}>{money(Number(item.quantity) * Number(item.rate))}</Text>
+              {sale.items?.map((item: any, idx: number) => {
+                const isPriceModified = Number(item.rate) !== Number(item.item?.defaultSellingPrice);
+                return (
+                  <View key={item.id}>
+                    <View style={styles.itemRow}>
+                       <View style={{ flex: 1 }}>
+                          <Text style={styles.itemName}>{item.item.name}</Text>
+                          <Text style={styles.itemSub}>
+                            {item.quantity} {item.item.unit} @ {money(item.rate)}
+                            {isPriceModified && (
+                              <Text style={styles.priceModifiedText}>
+                                {" "}• List: {money(item.item?.defaultSellingPrice)}
+                              </Text>
+                            )}
+                          </Text>
+                       </View>
+                       <Text style={styles.itemTotal}>{money(Number(item.quantity) * Number(item.rate))}</Text>
+                    </View>
+                    {idx < (sale.items?.length ?? 0) - 1 && <Divider style={styles.divider} />}
                   </View>
-                  {idx < (sale.items?.length ?? 0) - 1 && <Divider style={styles.divider} />}
-                </View>
-              ))}
+                );
+              })}
            </View>
         </Section>
 
-        <Section title="Payment History">
+        <Section title="Payment Streams & Verifications">
            <View style={styles.itemsCard}>
-              {sale.payments?.map((p: any, idx: number) => (
-                <View key={p.id}>
-                  <View style={styles.itemRow}>
-                     <View style={{ flex: 1 }}>
-                        <Text style={styles.itemName}>{p.paymentMode} Payment</Text>
-                        <Text style={styles.itemSub}>{new Date(p.receivedAt).toLocaleDateString()}</Text>
-                     </View>
-                     <View style={{ alignItems: 'flex-end' }}>
-                        <Text style={styles.itemTotal}>{money(p.amount)}</Text>
-                        <Text style={styles.miniStatus}>{p.verificationStatus}</Text>
-                     </View>
+              {sale.payments?.map((p: any, idx: number) => {
+                const collectedBy = p.receivedBy?.name ? `Collected by: ${p.receivedBy.name}` : "";
+                const verifiedBy = p.verifiedBy?.name ? `Verified by: ${p.verifiedBy.name}` : "";
+                
+                const upiRef = p.details?.upiReference ? `UPI Ref: ${p.details.upiReference}` : null;
+                const bankUtr = p.details?.bankUtr ? `UTR: ${p.details.bankUtr}` : null;
+                const cheque = p.details?.chequeNumber ? `Cheque #${p.details.chequeNumber} (${p.details.chequeBankName || "N/A"})` : null;
+
+                return (
+                  <View key={p.id} style={styles.paymentRowBlock}>
+                    <View style={styles.itemRow}>
+                       <View style={{ flex: 1, gap: 2 }}>
+                          <Text style={styles.itemName}>{p.paymentMode} Payment</Text>
+                          <Text style={styles.itemSub}>
+                            {new Date(p.receivedAt).toLocaleString("en-IN")}
+                          </Text>
+                          
+                          {collectedBy ? <Text style={styles.paymentMetaText}>{collectedBy}</Text> : null}
+                          
+                          {upiRef ? <Text style={styles.paymentDetailsText}>{upiRef}</Text> : null}
+                          {bankUtr ? <Text style={styles.paymentDetailsText}>{bankUtr}</Text> : null}
+                          {cheque ? <Text style={styles.paymentDetailsText}>{cheque}</Text> : null}
+
+                          {verifiedBy ? (
+                            <Text style={styles.paymentVerificationText}>
+                              {verifiedBy} {p.verifiedAt ? `on ${new Date(p.verifiedAt).toLocaleString("en-IN")}` : ""}
+                            </Text>
+                          ) : null}
+
+                          {p.notes ? (
+                            <View style={styles.paymentNoteCard}>
+                              <Text style={styles.paymentNoteText}>Notes: {p.notes}</Text>
+                            </View>
+                          ) : null}
+                       </View>
+                       <View style={{ alignItems: 'flex-end', justifyContent: 'center' }}>
+                          <Text style={styles.itemTotal}>{money(p.amount)}</Text>
+                          <View style={{ marginTop: 4 }}>
+                            <StatusPill 
+                              label={p.status || p.verificationStatus} 
+                              tone={p.status === 'VERIFIED' || p.verificationStatus === 'VERIFIED' ? 'green' : 'amber'} 
+                            />
+                          </View>
+                       </View>
+                    </View>
+                    {idx < (sale.payments?.length ?? 0) - 1 && <Divider style={styles.divider} />}
                   </View>
-                  {idx < (sale.payments?.length ?? 0) - 1 && <Divider style={styles.divider} />}
-                </View>
-              ))}
+                );
+              })}
               {sale.payments?.length === 0 && <Text style={styles.emptyText}>No payments recorded yet.</Text>}
            </View>
         </Section>
@@ -211,6 +283,18 @@ export function SaleDetail() {
              </View>
           </Section>
         )}
+
+        <View style={styles.shareBtnContainer}>
+           <Button
+             label="SHARE INVOICE (PDF)"
+             variant="primary"
+             icon="share-variant"
+             loading={sharing}
+             disabled={sharing}
+             onPress={handleSharePdf}
+             style={styles.shareBtn}
+           />
+        </View>
       </ScrollView>
     </Screen>
   );
@@ -233,15 +317,19 @@ const styles = StyleSheet.create({
   cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   saleNumber: { fontSize: 12, fontWeight: fontWeight.bold, color: colors.primary },
   customerName: { fontSize: 15, fontWeight: fontWeight.black, color: colors.textPrimary, marginTop: 2 },
+  staffBilledText: { fontSize: 11, color: colors.textSecondary, marginTop: 2, fontStyle: 'italic' },
   divider: { marginVertical: spacing.md, backgroundColor: colors.surfaceOffset },
   cardFooter: { flexDirection: 'row', justifyContent: 'space-between' },
   footerLabel: { fontSize: 8, fontWeight: fontWeight.black, color: colors.textMuted, letterSpacing: 0.5 },
   footerValue: { fontSize: 12, fontWeight: fontWeight.bold, color: colors.textSecondary, marginTop: 2 },
-  detailScroll: { paddingHorizontal: spacing.lg, paddingBottom: 60 },
+  detailScroll: { paddingHorizontal: spacing.lg, paddingBottom: 80 },
   detailCard: { backgroundColor: colors.surface, borderRadius: 24, padding: spacing.xl, borderWidth: 1, borderColor: colors.border, ...shadow.sm, marginTop: spacing.md },
   detailRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   customerNameBig: { fontSize: 18, fontWeight: fontWeight.black, color: colors.textPrimary },
-  dateText: { fontSize: 12, color: colors.textMuted, marginTop: 4 },
+  dateText: { fontSize: 12, color: colors.textSecondary, marginTop: 4 },
+  billedByText: { fontSize: 12, color: colors.textMuted, marginTop: 2 },
+  boldText: { fontWeight: fontWeight.bold, color: colors.textPrimary },
+  priceModifiedText: { color: colors.warning, fontWeight: fontWeight.semibold, fontSize: 11 },
   detailDivider: { marginVertical: spacing.xl, backgroundColor: colors.border },
   amountBox: { alignItems: 'center', gap: 4 },
   amountLabel: { fontSize: 10, fontWeight: fontWeight.bold, color: colors.textSecondary, letterSpacing: 1 },
@@ -249,13 +337,21 @@ const styles = StyleSheet.create({
   gstBox: { flexDirection: 'row', gap: spacing.md, backgroundColor: 'rgba(217, 119, 6, 0.05)', padding: spacing.md, borderRadius: 14, marginTop: spacing.xl, borderWidth: 1, borderColor: 'rgba(217, 119, 6, 0.1)' },
   gstTitle: { fontSize: 13, fontWeight: fontWeight.bold, color: colors.warning },
   gstDesc: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
-  itemsCard: { backgroundColor: colors.surface, borderRadius: 20, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.lg },
+  itemsCard: { backgroundColor: colors.surface, borderRadius: 20, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.lg, marginBottom: spacing.sm },
   itemRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: spacing.lg },
+  paymentRowBlock: { paddingVertical: spacing.xs },
   itemName: { fontSize: 14, fontWeight: fontWeight.bold, color: colors.textPrimary },
   itemSub: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  paymentMetaText: { fontSize: 11, color: colors.textSecondary, marginTop: 1, fontWeight: fontWeight.medium },
+  paymentDetailsText: { fontSize: 11, color: colors.primary, fontWeight: fontWeight.bold, marginTop: 1 },
+  paymentVerificationText: { fontSize: 11, color: colors.success, fontStyle: 'italic', marginTop: 1 },
+  paymentNoteCard: { backgroundColor: colors.surfaceOffset, padding: 6, borderRadius: radius.sm, marginTop: 4, borderWidth: 1, borderColor: colors.border },
+  paymentNoteText: { fontSize: 11, color: colors.textSecondary },
   itemTotal: { fontSize: 14, fontWeight: fontWeight.black, color: colors.textPrimary },
-  miniStatus: { fontSize: 10, fontWeight: fontWeight.bold, color: colors.textMuted, marginTop: 2 },
   emptyText: { textAlign: 'center', padding: spacing.xl, color: colors.textMuted, fontSize: 12 },
   notesCard: { backgroundColor: colors.surfaceOffset, padding: spacing.lg, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border },
-  notesText: { fontSize: 13, color: colors.textSecondary, lineHeight: 18 }
+  notesText: { fontSize: 13, color: colors.textSecondary, lineHeight: 18 },
+  shareBtnContainer: { marginTop: spacing.lg, marginBottom: spacing.xl },
+  shareBtn: { height: 50 },
+  flex1: { flex: 1 }
 });
