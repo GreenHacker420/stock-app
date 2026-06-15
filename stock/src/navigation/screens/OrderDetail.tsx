@@ -62,7 +62,6 @@ export function OrderDetail() {
   const [successMessage, setSuccessMessage] = useState("");
 
   const isOwner = user?.role === "OWNER";
-  const canModify = ["DRAFT", "CONFIRMED", "PACKING"].includes(order?.status || "");
 
   const handleUpdateStatus = (status: string) => {
     updateStatusMutation.mutate({ orderId, status }, {
@@ -154,7 +153,7 @@ export function OrderDetail() {
         <View style={styles.orderCard}>
           <View style={styles.cardHeader}>
             <View style={styles.headerTitleCol}>
-              <Text style={styles.customerName}>{order.customer.name}</Text>
+              <Text style={styles.customerName}>{order.customer?.name}</Text>
               <Text style={styles.dateText}>Booked: {new Date(order.createdAt).toLocaleDateString()}</Text>
             </View>
             <View style={styles.headerStatusCol}>
@@ -226,7 +225,7 @@ export function OrderDetail() {
               label="Contact" 
               variant="secondary" 
               style={styles.actionBtn}
-              onPress={() => Linking.openURL(`tel:${order.customer.phone}`)}
+              onPress={() => order.customer?.phone && Linking.openURL(`tel:${order.customer.phone}`)}
               icon={<Icon source="phone" size={16} color={colors.primary} />}
             />
           </View>
@@ -251,7 +250,8 @@ export function OrderDetail() {
         <Section title="Order Items">
           <View style={styles.itemsCard}>
             {order.items.map((item, idx) => {
-              const isShort = (item.quantityShortage || 0) > 0;
+              const shortageQtyNum = Number(item.quantityShortage || 0);
+              const isShort = shortageQtyNum > 0;
               const isPacked = item.quantityPacked === item.quantityOrdered;
 
               return (
@@ -260,7 +260,7 @@ export function OrderDetail() {
                     onPress={() => {
                       if (order.status === 'PACKING') {
                         setSelectedShortageItem(item);
-                        setShortageQty(String(item.quantityShortage || 0));
+                        setShortageQty(String(shortageQtyNum));
                         setShortageModalVisible(true);
                       }
                     }}
@@ -276,7 +276,7 @@ export function OrderDetail() {
                       <Text style={styles.itemSub}>Ordered: {item.quantityOrdered} {item.item.unit} • Packed: {item.quantityPacked || 0}</Text>
                     </View>
                     <View style={styles.itemRight}>
-                      <Text style={styles.itemTotal}>₹{(item.quantityOrdered * item.rate).toLocaleString()}</Text>
+                      <Text style={styles.itemTotal}>₹{(Number(item.quantityOrdered) * Number(item.rate)).toLocaleString()}</Text>
                       {isShort && (
                         <View style={styles.shortageBadge}>
                           <Text style={styles.shortageText}>SHORT: {item.quantityShortage}</Text>
@@ -302,15 +302,15 @@ export function OrderDetail() {
            <View style={styles.customerCard}>
               <View style={styles.contactRow}>
                 <Icon source="account-outline" size={20} color={colors.textSecondary} />
-                <Text style={styles.contactText}>{order.customer.name}</Text>
+                <Text style={styles.contactText}>{order.customer?.name}</Text>
               </View>
               <View style={styles.contactRow}>
                 <Icon source="phone-outline" size={20} color={colors.textSecondary} />
-                <Text style={styles.contactText}>{order.customer.phone || "No phone"}</Text>
+                <Text style={styles.contactText}>{order.customer?.phone || "No phone"}</Text>
               </View>
               <View style={styles.contactRow}>
                 <Icon source="map-marker-outline" size={20} color={colors.textSecondary} />
-                <Text style={styles.contactText} numberOfLines={1}>{order.customer.address || "No address"}</Text>
+                <Text style={styles.contactText} numberOfLines={1}>{order.customer?.address || "No address"}</Text>
               </View>
            </View>
         </Section>
@@ -406,7 +406,7 @@ export function OrderDetail() {
                 value={amountPaid}
                 onChangeText={setAmountPaid}
                 style={styles.textInput}
-                outlineStyle={{ radius: radius.md }}
+                outlineStyle={{ borderRadius: radius.md }}
               />
               <View style={styles.modeGrid}>
                 {["CASH", "UPI", "CARD", "BANK_TRANSFER"].map((mode) => (

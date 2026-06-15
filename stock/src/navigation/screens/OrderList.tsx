@@ -74,7 +74,7 @@ export function OrderList() {
                   <View style={styles.cardHeader}>
                     <View>
                       <Text style={styles.orderNumber}>#{item.orderNumber}</Text>
-                      <Text style={styles.customerName}>{item.customer.name}</Text>
+                      <Text style={styles.customerName}>{item.customer?.name}</Text>
                     </View>
                     <StatusPill 
                       label={item.status} 

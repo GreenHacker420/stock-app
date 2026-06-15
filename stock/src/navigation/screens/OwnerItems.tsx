@@ -3,20 +3,13 @@ import { View, StyleSheet, Pressable, ScrollView, ActivityIndicator, TouchableWi
 import { Searchbar, Divider, Text, Icon, SegmentedButtons, TextInput } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
-import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRoute } from "@react-navigation/native";
 
 import { 
   fetchItems, 
-  fetchItemStock, 
-  fetchItemPriceHistory, 
-  fetchItemPriceChangeHistory, 
-  fetchStockMovements,
-  createItem,
-  updateItem,
-  Item,
-  StockLevel,
-  StockMovement
+  Item, 
+  StockLevel 
 } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
@@ -27,6 +20,7 @@ import { StatusPill } from "../../components/ui/StatusPill";
 import { SkeletonList } from "../../components/ui/SkeletonCard";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { Button } from "../../components/ui/Button";
+import { Section } from "../../components/ui/Section";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { navigate, goBack } from "../navigation-ref";
 
@@ -101,6 +95,7 @@ const ItemCard = memo(({
 });
 
 export function ItemList() {
+  const token = useAuthStore((state) => state.token);
   const { activeShopId } = useShopStore();
   const [search, setSearch] = useState("");
   const [debouncedSearch] = useDebounce(search, 300);
@@ -109,8 +104,8 @@ export function ItemList() {
   const itemsQuery = useItemsQuery({ search: debouncedSearch, limit: 20 });
   const stockQuery = useQuery({
     queryKey: ["all-stock", activeShopId],
-    queryFn: () => fetchItems(useAuthStore.getState().token ?? "", activeShopId ?? ""),
-    enabled: !!activeShopId,
+    queryFn: () => fetchItems(token ?? "", activeShopId ?? ""),
+    enabled: !!activeShopId && !!token,
   });
 
   const stockByItem = useMemo(() => {
@@ -137,10 +132,6 @@ export function ItemList() {
   const lowStockCount = (stockQuery.data as any)?.items?.filter((i: any) => i.currentStock > 0 && i.currentStock <= Number(i.minimumStock)).length || 0;
   const totalStockValue = (stockQuery.data as any)?.items?.reduce((sum: number, i: any) => sum + ((i.currentStock || 0) * Number(i.defaultSellingPrice || 0)), 0) || 0;
 
-  const handleLoadMore = () => {
-    if (itemsQuery.hasNextPage) itemsQuery.fetchNextPage();
-  };
-
   const List = FlashList as any;
 
   return (
@@ -154,9 +145,7 @@ export function ItemList() {
             keyExtractor={(item: Item) => item.id}
             estimatedItemSize={160}
             onRefresh={itemsQuery.refetch}
-            refreshing={itemsQuery.isFetching && !itemsQuery.isFetchingNextPage}
-            onEndReached={handleLoadMore}
-            onEndReachedThreshold={0.5}
+            refreshing={itemsQuery.isFetching}
             ListHeaderComponent={
               <View style={styles.headerComponent}>
                 <ScrollView 
@@ -372,7 +361,7 @@ export function AddEditItem() {
 export function ItemDetail() {
   const List = FlashList as any;
   const activeShopId = useShopStore((state) => state.activeShopId);
-  const itemId = (useRoute().params as { itemId?: string } | undefined)?.itemId;
+  const itemId = (useRoute<any>().params as { itemId?: string } | undefined)?.itemId;
 
   const stockQuery = useItemStockQuery(itemId);
   const historyQuery = useItemPriceHistoryQuery(itemId);

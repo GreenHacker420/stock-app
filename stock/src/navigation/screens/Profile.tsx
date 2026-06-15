@@ -1,7 +1,7 @@
 import { useEffect, useState, useMemo } from "react";
-import { View, Switch, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Pressable } from "react-native";
+import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Pressable } from "react-native";
 import { useMutation } from "@tanstack/react-query";
-import { Button, Text, TextInput, Divider, Icon } from "react-native-paper";
+import { Button, Text, TextInput, Divider, Icon, Switch } from "react-native-paper";
 import * as Crypto from "expo-crypto";
 import * as LocalAuthentication from "expo-local-authentication";
 import { updateMe } from "../../api/client";
@@ -150,7 +150,7 @@ export function Profile() {
       setPassword("");
       showSuccess("Profile Saved", "Your profile changes have been saved.");
     },
-    onError: (err) => {
+    onError: (err: any) => {
       setError(err instanceof Error ? err.message : "Failed to update profile.");
     }
   });
@@ -599,9 +599,6 @@ const styles = StyleSheet.create({
   },
   divider: {
     backgroundColor: colors.surfaceOffset,
-  },
-  flex1: {
-    flex: 1,
   },
   pressed: {
     opacity: 0.7,

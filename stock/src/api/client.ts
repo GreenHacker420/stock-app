@@ -228,6 +228,7 @@ export type Sale = {
   gstInvoiceStatus?: "NOT_REQUIRED" | "PENDING" | "GENERATED" | string;
   gstInvoiceNumber?: string | null;
   gstInvoiceGeneratedAt?: string | null;
+  notes?: string | null;
 };
 
 export interface CreateItemPayload {

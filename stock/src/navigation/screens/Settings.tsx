@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
-import { View, StyleSheet, ScrollView, Switch, Pressable, Platform } from "react-native";
-import { Text, Icon, Divider, Portal, Modal, Button } from "react-native-paper";
+import { View, StyleSheet, ScrollView, Pressable, Platform } from "react-native";
+import { Text, Icon, Divider, Portal, Modal, Button, Switch } from "react-native-paper";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { Section } from "../../components/ui/Section";

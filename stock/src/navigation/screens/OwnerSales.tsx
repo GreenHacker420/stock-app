@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { View, StyleSheet, Pressable, ScrollView, ActivityIndicator } from "react-native";
+import { View, StyleSheet, Pressable, ScrollView } from "react-native";
 import { Searchbar, Divider, Text, Icon } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
@@ -13,6 +13,7 @@ import { StatusPill } from "../../components/ui/StatusPill";
 import { SkeletonList } from "../../components/ui/SkeletonCard";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { Button } from "../../components/ui/Button";
+import { Section } from "../../components/ui/Section";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { navigate, goBack } from "../navigation-ref";
 
@@ -25,14 +26,22 @@ export function SalesList() {
   const initialFilter = route.params?.filter || "ALL"; // ALL, PAID, PENDING, PARTIAL
   const [activeTab, setActiveTab] = useState(initialFilter);
 
-  const salesQuery = useSalesQuery({ search: debouncedSearch });
+  const salesQuery = useSalesQuery();
   const allSales = salesQuery.data ?? [];
 
   const filteredSales = useMemo(() => {
-    if (activeTab === "ALL") return allSales;
-    if (activeTab === "gst_pending") return allSales.filter(s => s.isGstRequired && !s.gstInvoiceNumber);
-    return allSales.filter(s => s.paymentStatus === activeTab);
-  }, [allSales, activeTab]);
+    let data = allSales;
+    if (debouncedSearch) {
+      const q = debouncedSearch.toLowerCase();
+      data = data.filter(s => 
+        s.saleNumber.toLowerCase().includes(q) || 
+        s.customer?.name.toLowerCase().includes(q)
+      );
+    }
+    if (activeTab === "ALL") return data;
+    if (activeTab === "gst_pending") return data.filter(s => s.isGstRequired && !s.gstInvoiceNumber);
+    return data.filter(s => s.paymentStatus === activeTab);
+  }, [allSales, activeTab, debouncedSearch]);
 
   const List = FlashList as any;
 
@@ -87,7 +96,7 @@ export function SalesList() {
                       <Text style={styles.customerName}>{item.isWalkin ? "Walk-in Customer" : item.customer?.name}</Text>
                     </View>
                     <StatusPill 
-                      label={item.paymentStatus} 
+                      label={item.paymentStatus || "PENDING"} 
                       tone={item.paymentStatus === 'PAID' ? 'green' : 'amber'} 
                     />
                   </View>
@@ -134,7 +143,7 @@ export function SaleDetail() {
                  <Text style={styles.customerNameBig}>{sale.isWalkin ? "Walk-in Customer" : sale.customer?.name}</Text>
                  <Text style={styles.dateText}>{new Date(sale.createdAt).toLocaleString()}</Text>
               </View>
-              <StatusPill label={sale.paymentStatus} tone={sale.paymentStatus === 'PAID' ? 'green' : 'amber'} />
+              <StatusPill label={sale.paymentStatus || "PENDING"} tone={sale.paymentStatus === 'PAID' ? 'green' : 'amber'} />
            </View>
 
            <Divider style={styles.detailDivider} />
@@ -159,16 +168,16 @@ export function SaleDetail() {
 
         <Section title="Items Summary">
            <View style={styles.itemsCard}>
-              {sale.items.map((item, idx) => (
+              {sale.items?.map((item: any, idx: number) => (
                 <View key={item.id}>
                   <View style={styles.itemRow}>
                      <View style={{ flex: 1 }}>
                         <Text style={styles.itemName}>{item.item.name}</Text>
                         <Text style={styles.itemSub}>{item.quantity} {item.item.unit} @ {money(item.rate)}</Text>
                      </View>
-                     <Text style={styles.itemTotal}>{money(item.quantity * Number(item.rate))}</Text>
+                     <Text style={styles.itemTotal}>{money(Number(item.quantity) * Number(item.rate))}</Text>
                   </View>
-                  {idx < sale.items.length - 1 && <Divider style={styles.divider} />}
+                  {idx < (sale.items?.length ?? 0) - 1 && <Divider style={styles.divider} />}
                 </View>
               ))}
            </View>
@@ -176,7 +185,7 @@ export function SaleDetail() {
 
         <Section title="Payment History">
            <View style={styles.itemsCard}>
-              {sale.payments.map((p, idx) => (
+              {sale.payments?.map((p: any, idx: number) => (
                 <View key={p.id}>
                   <View style={styles.itemRow}>
                      <View style={{ flex: 1 }}>
@@ -188,10 +197,10 @@ export function SaleDetail() {
                         <Text style={styles.miniStatus}>{p.verificationStatus}</Text>
                      </View>
                   </View>
-                  {idx < sale.payments.length - 1 && <Divider style={styles.divider} />}
+                  {idx < (sale.payments?.length ?? 0) - 1 && <Divider style={styles.divider} />}
                 </View>
               ))}
-              {sale.payments.length === 0 && <Text style={styles.emptyText}>No payments recorded yet.</Text>}
+              {sale.payments?.length === 0 && <Text style={styles.emptyText}>No payments recorded yet.</Text>}
            </View>
         </Section>
         
