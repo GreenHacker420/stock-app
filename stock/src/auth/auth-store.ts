@@ -37,6 +37,12 @@ function createAuthStore() {
     await setToken(LAST_IDENTIFIER_KEY, identifier);
     await deleteToken(QUICK_PIN_HASH_KEY);
     await deleteToken("shopcontrol_pin_set");
+    if (result.user.name) {
+      await setToken("shopcontrol_last_user_name", result.user.name);
+    }
+    if (result.user.mobile) {
+      await setToken("shopcontrol_last_user_phone", result.user.mobile);
+    }
     set({ token: result.token, user: result.user, isBootstrapping: false });
   },
   async signInWithSavedToken(pin) {
@@ -83,6 +89,8 @@ function createAuthStore() {
     await deleteToken(QUICK_PIN_HASH_KEY);
     await deleteToken("shopcontrol_biometric_enabled");
     await deleteToken("shopcontrol_pin_set");
+    await deleteToken("shopcontrol_last_user_name");
+    await deleteToken("shopcontrol_last_user_phone");
     useShopStore.getState().setActiveShopId(null);
     set({ token: null, user: null, isBootstrapping: false });
   },

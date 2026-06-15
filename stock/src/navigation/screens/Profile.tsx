@@ -2,6 +2,7 @@ import { useEffect, useState, useMemo } from "react";
 import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Pressable } from "react-native";
 import { useMutation } from "@tanstack/react-query";
 import { Button, Text, TextInput, Divider, Icon, Switch } from "react-native-paper";
+import { LinearGradient } from "expo-linear-gradient";
 import * as Crypto from "expo-crypto";
 import * as LocalAuthentication from "expo-local-authentication";
 import { updateMe } from "../../api/client";
@@ -14,7 +15,7 @@ import { StatusPill } from "../../components/ui/StatusPill";
 import { SuccessModal } from "../../components/ui/SuccessModal";
 import { getToken, setToken } from "../../auth/token-storage";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
-import { navigate, goBack } from "../navigation-ref";
+import { navigate } from "../navigation-ref";
 
 async function hashQuickPin(mobile: string, pin: string) {
   return Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, `${mobile.trim()}:${pin}`);
@@ -55,7 +56,6 @@ export function Profile() {
   const user = useAuthStore((state) => state.user);
   const token = useAuthStore((state) => state.token);
   const signOut = useAuthStore((state) => state.signOut);
-  const setActiveShopId = useShopStore((state) => state.setActiveShopId);
 
   const [name, setName] = useState(user?.name ?? "");
   const [email, setEmail] = useState(user?.email ?? "");
@@ -134,6 +134,10 @@ export function Profile() {
       await setToken("shopcontrol_quick_pin_hash", hash);
       await setToken("shopcontrol_last_identifier", user.mobile);
       await setToken("shopcontrol_pin_set", "true");
+      if (user?.name) {
+        await setToken("shopcontrol_last_user_name", user.name);
+      }
+      await setToken("shopcontrol_last_user_phone", user.mobile);
       
       const activeToken = await getToken("shopcontrol_token");
       if (activeToken) {
@@ -180,195 +184,226 @@ export function Profile() {
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          {/* Profile Card */}
-          <View style={styles.profileCard}>
+          {/* Profile Card / Header with LinearGradient */}
+          <LinearGradient
+            colors={[colors.primaryDark, colors.primary]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.profileCard}
+          >
             <View style={styles.avatar}>
               <Text style={styles.avatarText}>{displayInitials}</Text>
             </View>
             <View style={styles.flex1}>
               <Text style={styles.userName}>{user?.name}</Text>
               <View style={styles.userMobileContainer}>
-                <Icon source="phone-outline" size={16} color="rgba(255, 255, 255, 0.7)" />
+                <Icon source="phone" size={16} color="rgba(255, 255, 255, 0.8)" />
                 <Text style={styles.userMobile}>{user?.mobile}</Text>
               </View>
             </View>
             <View style={styles.roleBadge}>
               <Text style={styles.roleText}>{user?.role ?? "USER"}</Text>
             </View>
-          </View>
+          </LinearGradient>
 
-          {/* Account Info */}
-          <Section title="Account details">
-            <View style={styles.detailsCard}>
-              <View style={styles.detailRow}>
-                <View style={styles.detailLeft}>
-                  <Icon source="email-outline" size={20} color={colors.textSecondary} />
-                  <Text style={styles.detailLabel}>Email</Text>
+          <View style={styles.sectionsContainer}>
+            {/* Account Info */}
+            <Section title="Account details">
+              <View style={styles.detailsCard}>
+                <View style={styles.detailRow}>
+                  <View style={styles.detailLeft}>
+                    <View style={styles.detailIconBg}>
+                      <Icon source="email-outline" size={20} color={colors.primary} />
+                    </View>
+                    <View>
+                      <Text style={styles.detailLabel}>Email Address</Text>
+                      <Text style={styles.detailSubLabel}>{user?.email || "Not configured"}</Text>
+                    </View>
+                  </View>
                 </View>
-                <Text style={styles.detailValue}>{user?.email || "Not set"}</Text>
-              </View>
-              <View style={styles.detailRowNoBorder}>
-                <View style={styles.detailLeft}>
-                  <Icon source="shield-check-outline" size={20} color={colors.textSecondary} />
-                  <Text style={styles.detailLabel}>Role</Text>
+                <View style={styles.detailRowNoBorder}>
+                  <View style={styles.detailLeft}>
+                    <View style={styles.detailIconBg}>
+                      <Icon source="shield-check-outline" size={20} color={colors.primary} />
+                    </View>
+                    <View>
+                      <Text style={styles.detailLabel}>Role</Text>
+                      <Text style={styles.detailSubLabel}>User access level</Text>
+                    </View>
+                  </View>
+                  <StatusPill label={user?.role ?? "USER"} tone={user?.role === 'OWNER' ? 'green' : 'blue'} />
                 </View>
-                <StatusPill label={user?.role ?? "USER"} tone={user?.role === 'OWNER' ? 'green' : 'blue'} />
               </View>
-            </View>
-          </Section>
+            </Section>
 
-          {/* App Settings */}
-          <Section title="App settings">
-            <View style={styles.detailsCard}>
-              {user?.role === 'OWNER' && (
-                <SettingItem 
-                  icon="store-edit-outline" 
-                  title="Manage Shops" 
-                  subtitle="View and edit shop locations"
-                  onPress={() => navigate("Updates")}
-                />
-              )}
-              <SettingItem 
-                icon="cog-outline" 
-                title="Preferences" 
-                subtitle="Notifications and display"
-                onPress={() => navigate("Settings")}
-                isLast={user?.role !== 'OWNER'}
-              />
-              {user?.role === 'OWNER' && (
-                <SettingItem 
-                  icon="account-tie-outline" 
-                  title="Staff Management" 
-                  subtitle="Assign permissions and PINs"
-                  onPress={() => navigate("StaffManagement")}
-                  isLast={true}
-                />
-              )}
-            </View>
-          </Section>
-
-          {/* Security & Quick Login */}
-          <Section title="Security & quick login">
-            <View style={styles.detailsCard}>
-              <View style={styles.settingToggle}>
-                <View style={styles.flex1}>
-                  <Text style={styles.settingItemTitle}>Biometric Login</Text>
-                  <Text style={styles.settingItemSubtitle}>Use FaceID/TouchID to unlock</Text>
-                </View>
-                <Switch
-                  value={biometricEnabled}
-                  onValueChange={handleBiometricToggle}
-                  color={colors.primary}
-                />
-              </View>
-              
-              <Divider style={styles.divider} />
-              
-              <View style={styles.pinForm}>
-                <Text style={styles.pinFormTitle}>Set Quick Login PIN</Text>
-                <View style={styles.pinInputs}>
-                  <TextInput
-                    mode="outlined"
-                    label="New 4-digit PIN"
-                    value={pin}
-                    onChangeText={setPin}
-                    secureTextEntry
-                    keyboardType="number-pad"
-                    maxLength={4}
-                    style={styles.pinInput}
-                    outlineStyle={styles.inputOutline}
-                    activeOutlineColor={colors.primary}
+            {/* App Settings */}
+            <Section title="App settings">
+              <View style={styles.detailsCard}>
+                {user?.role === 'OWNER' && (
+                  <SettingItem 
+                    icon="store-edit-outline" 
+                    title="Manage Shops" 
+                    subtitle="View and edit shop locations"
+                    onPress={() => navigate("Updates")}
                   />
-                  <TextInput
-                    mode="outlined"
-                    label="Confirm PIN"
-                    value={pinConfirm}
-                    onChangeText={setPinConfirm}
-                    secureTextEntry
-                    keyboardType="number-pad"
-                    maxLength={4}
-                    style={styles.pinInput}
-                    outlineStyle={styles.inputOutline}
-                    activeOutlineColor={colors.primary}
+                )}
+                <SettingItem 
+                  icon="cog-outline" 
+                  title="Preferences" 
+                  subtitle="Notifications and display"
+                  onPress={() => navigate("Settings")}
+                  isLast={user?.role !== 'OWNER'}
+                />
+                {user?.role === 'OWNER' && (
+                  <SettingItem 
+                    icon="account-tie-outline" 
+                    title="Staff Management" 
+                    subtitle="Assign permissions and PINs"
+                    onPress={() => navigate("StaffManagement")}
+                    isLast={true}
+                  />
+                )}
+              </View>
+            </Section>
+
+            {/* Security & Quick Login */}
+            <Section title="Security & quick login">
+              <View style={styles.detailsCard}>
+                <View style={styles.settingToggle}>
+                  <View style={styles.detailLeft}>
+                    <View style={styles.detailIconBg}>
+                      <Icon source="fingerprint" size={20} color={colors.primary} />
+                    </View>
+                    <View style={styles.flex1}>
+                      <Text style={styles.settingItemTitle}>Biometric Login</Text>
+                      <Text style={styles.settingItemSubtitle}>Use FaceID/TouchID to unlock</Text>
+                    </View>
+                  </View>
+                  <Switch
+                    value={biometricEnabled}
+                    onValueChange={handleBiometricToggle}
+                    color={colors.primary}
                   />
                 </View>
-                <Button 
-                  mode="outlined" 
-                  onPress={handleSavePin}
-                  style={styles.savePinBtn}
-                  labelStyle={styles.savePinLabel}
+                
+                <Divider style={styles.divider} />
+                
+                <View style={styles.pinForm}>
+                  <View style={styles.detailLeft}>
+                    <View style={styles.detailIconBg}>
+                      <Icon source="lock-reset" size={20} color={colors.primary} />
+                    </View>
+                    <View>
+                      <Text style={styles.settingItemTitle}>Set Quick Login PIN</Text>
+                      <Text style={styles.settingItemSubtitle}>Fast 4-digit passcode access</Text>
+                    </View>
+                  </View>
+                  
+                  <View style={styles.pinInputs}>
+                    <TextInput
+                      mode="outlined"
+                      label="New PIN"
+                      value={pin}
+                      onChangeText={setPin}
+                      secureTextEntry
+                      keyboardType="number-pad"
+                      maxLength={4}
+                      style={styles.pinInput}
+                      outlineStyle={styles.inputOutline}
+                      activeOutlineColor={colors.primary}
+                    />
+                    <TextInput
+                      mode="outlined"
+                      label="Confirm PIN"
+                      value={pinConfirm}
+                      onChangeText={setPinConfirm}
+                      secureTextEntry
+                      keyboardType="number-pad"
+                      maxLength={4}
+                      style={styles.pinInput}
+                      outlineStyle={styles.inputOutline}
+                      activeOutlineColor={colors.primary}
+                    />
+                  </View>
+                  <Button 
+                    mode="contained" 
+                    onPress={handleSavePin}
+                    style={styles.savePinBtn}
+                    labelStyle={styles.savePinLabel}
+                  >
+                    UPDATE SECURE PIN
+                  </Button>
+                </View>
+              </View>
+            </Section>
+
+            {/* Edit Profile */}
+            <Section title="Update profile">
+              <View style={styles.formCard}>
+                <TextInput
+                  mode="outlined"
+                  label="Full Name"
+                  value={name}
+                  onChangeText={setName}
+                  style={styles.input}
+                  outlineStyle={styles.inputOutline}
+                  activeOutlineColor={colors.primary}
+                />
+                <TextInput
+                  mode="outlined"
+                  label="Email Address"
+                  value={email}
+                  onChangeText={setEmail}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  style={styles.input}
+                  outlineStyle={styles.inputOutline}
+                  activeOutlineColor={colors.primary}
+                />
+                <TextInput
+                  mode="outlined"
+                  label="New Password (Optional)"
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry
+                  style={styles.input}
+                  outlineStyle={styles.inputOutline}
+                  activeOutlineColor={colors.primary}
+                />
+                
+                {error && (
+                  <View style={styles.errorBox}>
+                    <Icon source="alert-circle" size={18} color={colors.danger} />
+                    <Text style={styles.errorText}>{error}</Text>
+                  </View>
+                )}
+
+                <Button
+                  mode="contained"
+                  onPress={() => mutation.mutate()}
+                  loading={mutation.isPending}
+                  style={styles.saveButton}
+                  labelStyle={styles.saveButtonLabel}
                 >
-                  UPDATE PIN
+                  SAVE CHANGES
                 </Button>
               </View>
-            </View>
-          </Section>
+            </Section>
 
-          {/* Edit Profile */}
-          <Section title="Update profile">
-            <View style={styles.formCard}>
-              <TextInput
-                mode="outlined"
-                label="Full Name"
-                value={name}
-                onChangeText={setName}
-                style={styles.input}
-                outlineStyle={styles.inputOutline}
-                activeOutlineColor={colors.primary}
-              />
-              <TextInput
-                mode="outlined"
-                label="Email Address"
-                value={email}
-                onChangeText={setEmail}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                style={styles.input}
-                outlineStyle={styles.inputOutline}
-                activeOutlineColor={colors.primary}
-              />
-              <TextInput
-                mode="outlined"
-                label="New Password (Optional)"
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry
-                style={styles.input}
-                outlineStyle={styles.inputOutline}
-                activeOutlineColor={colors.primary}
-              />
-              
-              {error && (
-                <View style={styles.errorBox}>
-                  <Icon source="alert-circle" size={18} color={colors.danger} />
-                  <Text style={styles.errorText}>{error}</Text>
-                </View>
-              )}
-
-              <Button
-                mode="contained"
-                onPress={() => mutation.mutate()}
-                loading={mutation.isPending}
-                style={styles.saveButton}
-                labelStyle={styles.saveButtonLabel}
+            {/* Sign Out Card */}
+            <View style={styles.signOutContainer}>
+              <Pressable
+                onPress={signOut}
+                style={({ pressed }) => [
+                  styles.signOutCard,
+                  pressed && styles.signOutCardPressed
+                ]}
               >
-                SAVE CHANGES
-              </Button>
+                <Icon source="logout" size={20} color={colors.danger} />
+                <Text style={styles.signOutText}>Sign Out from Account</Text>
+              </Pressable>
+              <Text style={styles.versionText}>v1.0.4 • Build 2026.06.15</Text>
             </View>
-          </Section>
-
-          {/* Sign Out */}
-          <View style={styles.signOutContainer}>
-            <Button
-              mode="text"
-              onPress={signOut}
-              textColor={colors.danger}
-              icon="logout"
-              labelStyle={styles.signOutLabel}
-            >
-              SIGN OUT FROM ACCOUNT
-            </Button>
-            <Text style={styles.versionText}>v1.0.4 • Build 2026.06.14</Text>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -391,25 +426,26 @@ const styles = StyleSheet.create({
     paddingBottom: 160,
   },
   profileCard: {
-    backgroundColor: colors.primary,
     flexDirection: "row",
     alignItems: "center",
     padding: spacing.xl,
-    paddingTop: spacing.md,
-    borderBottomLeftRadius: 32,
-    borderBottomRightRadius: 32,
+    paddingTop: spacing.xxl,
+    paddingBottom: spacing.xxl,
+    borderBottomLeftRadius: 36,
+    borderBottomRightRadius: 36,
     gap: spacing.lg,
-    ...shadow.md,
+    ...shadow.lg,
   },
   avatar: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: "rgba(255, 255, 255, 0.2)",
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: "rgba(255, 255, 255, 0.15)",
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 2,
-    borderColor: "rgba(255, 255, 255, 0.5)",
+    borderWidth: 1.5,
+    borderColor: "rgba(255, 255, 255, 0.4)",
+    ...shadow.sm,
   },
   avatarText: {
     color: "white",
@@ -426,18 +462,20 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    marginTop: 2,
+    marginTop: 4,
   },
   userMobile: {
-    color: "rgba(255, 255, 255, 0.8)",
+    color: "rgba(255, 255, 255, 0.85)",
     fontSize: fontSize.sm,
     fontWeight: fontWeight.medium,
   },
   roleBadge: {
-    backgroundColor: "rgba(0, 0, 0, 0.15)",
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: radius.sm,
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.3)",
   },
   roleText: {
     color: "white",
@@ -445,12 +483,18 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.black,
     letterSpacing: 0.5,
   },
+  sectionsContainer: {
+    paddingHorizontal: spacing.lg,
+    gap: spacing.xl,
+    marginTop: spacing.md,
+  },
   detailsCard: {
     backgroundColor: colors.surface,
     borderRadius: 20,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: "rgba(229, 231, 235, 0.5)",
     overflow: "hidden",
+    ...shadow.sm,
   },
   detailRow: {
     flexDirection: "row",
@@ -458,7 +502,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: spacing.lg,
     borderBottomWidth: 1,
-    borderBottomColor: colors.surfaceOffset,
+    borderBottomColor: "#f3f4f6",
   },
   detailRowNoBorder: {
     flexDirection: "row",
@@ -469,12 +513,27 @@ const styles = StyleSheet.create({
   detailLeft: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.md,
+    gap: spacing.lg,
+    flex: 1,
+  },
+  detailIconBg: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: colors.primaryLight,
+    alignItems: "center",
+    justifyContent: "center",
   },
   detailLabel: {
     fontSize: fontSize.sm,
+    color: colors.textPrimary,
+    fontWeight: fontWeight.bold,
+  },
+  detailSubLabel: {
+    fontSize: 12,
     color: colors.textSecondary,
-    fontWeight: fontWeight.semibold,
+    marginTop: 2,
+    fontWeight: fontWeight.medium,
   },
   detailValue: {
     fontSize: fontSize.sm,
@@ -487,7 +546,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     padding: spacing.lg,
     borderBottomWidth: 1,
-    borderBottomColor: colors.surfaceOffset,
+    borderBottomColor: "#f3f4f6",
   },
   settingItemLast: {
     flexDirection: "row",
@@ -502,9 +561,9 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   settingItemIconBg: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+    width: 38,
+    height: 38,
+    borderRadius: 12,
     backgroundColor: colors.primaryLight,
     alignItems: "center",
     justifyContent: "center",
@@ -528,15 +587,10 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     gap: spacing.md,
   },
-  pinFormTitle: {
-    fontSize: 11,
-    fontWeight: fontWeight.black,
-    color: colors.textMuted,
-    letterSpacing: 0.5,
-  },
   pinInputs: {
     flexDirection: "row",
     gap: spacing.md,
+    marginTop: spacing.xs,
   },
   pinInput: {
     flex: 1,
@@ -545,20 +599,22 @@ const styles = StyleSheet.create({
   savePinBtn: {
     borderRadius: radius.md,
     marginTop: 4,
-    borderColor: colors.borderStrong,
+    backgroundColor: colors.primary,
   },
   savePinLabel: {
     fontSize: 11,
     fontWeight: fontWeight.black,
     letterSpacing: 1,
+    color: "white",
   },
   formCard: {
     backgroundColor: colors.surface,
     borderRadius: 20,
     padding: spacing.lg,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: "rgba(229, 231, 235, 0.5)",
     gap: spacing.md,
+    ...shadow.sm,
   },
   input: {
     backgroundColor: colors.surface,
@@ -576,13 +632,34 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   signOutContainer: {
-    marginTop: spacing.xxl,
+    marginTop: spacing.xl,
+    marginBottom: spacing.xxl,
     alignItems: "center",
-    gap: spacing.md,
+    gap: spacing.sm,
+    width: "100%",
   },
-  signOutLabel: {
-    fontWeight: fontWeight.bold,
+  signOutCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.dangerLight,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: "rgba(220, 38, 38, 0.15)",
+    gap: spacing.sm,
+    width: "100%",
+    ...shadow.sm,
+  },
+  signOutCardPressed: {
+    opacity: 0.8,
+    backgroundColor: "rgba(254, 226, 226, 0.8)",
+  },
+  signOutText: {
+    color: colors.danger,
     fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
   },
   versionText: {
     fontSize: 10,
@@ -607,6 +684,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceOffset,
   },
   pressed: {
-    opacity: 0.7,
+    opacity: 0.72,
   },
 });

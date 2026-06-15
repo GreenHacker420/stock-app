@@ -1,13 +1,15 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef, useCallback } from "react";
 import { 
   KeyboardAvoidingView, 
   Platform, 
   Pressable, 
   ScrollView, 
   View, 
-  StyleSheet 
+  StyleSheet,
+  Animated
 } from "react-native";
 import * as LocalAuthentication from "expo-local-authentication";
+import * as Haptics from "expo-haptics";
 import { Divider, Icon, Text, TextInput as PaperInput } from "react-native-paper";
 import { z } from "zod";
 
@@ -37,12 +39,48 @@ export function Login() {
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [biometricEnabled, setBiometricEnabled] = useState(false);
   const [pinDigits, setPinDigits] = useState("");
+  const [savedUserName, setSavedUserName] = useState("");
+  const [savedUserPhone, setSavedUserPhone] = useState("");
+  const [failedAttempts, setFailedAttempts] = useState(0);
+  const [lockoutTimeLeft, setLockoutTimeLeft] = useState(0);
+  const biometricTriggered = useRef(false);
+
+  const handleBiometricLogin = useCallback(async () => {
+    setError(null);
+    setInfo(null);
+    const hasSaved = await getToken(LAST_IDENTIFIER_KEY);
+    if (!hasSaved) return;
+
+    const result = await LocalAuthentication.authenticateAsync({
+      promptMessage: "Unlock ShopControl",
+      fallbackLabel: "Use PIN",
+    });
+    
+    if (result.success) {
+      setIsSubmitting(true);
+      try {
+        await signInWithSavedToken();
+      } catch (err) {
+        setError("Saved login expired. Sign in again.");
+      } finally {
+        setIsSubmitting(false);
+      }
+    } else {
+      if (result.error !== "user_cancel" && result.error !== "system_cancel" && result.error !== "app_cancel") {
+        setError("Biometric authentication failed.");
+      } else {
+        setInfo("Biometric unlock cancelled.");
+      }
+    }
+  }, [signInWithSavedToken]);
 
   useEffect(() => {
     async function loadSavedLogin() {
       const savedIdentifier = await getToken(LAST_IDENTIFIER_KEY);
       const bioEnabledVal = await getToken("shopcontrol_biometric_enabled");
       const pinSetVal = await getToken("shopcontrol_pin_set");
+      const savedName = await getToken("shopcontrol_last_user_name");
+      const savedPhone = await getToken("shopcontrol_last_user_phone");
       
       const hasHardware = await LocalAuthentication.hasHardwareAsync().catch(() => false);
       const isEnrolled = await LocalAuthentication.isEnrolledAsync().catch(() => false);
@@ -53,6 +91,8 @@ export function Login() {
       setBiometricEnabled(bioEnabled);
       const isPinSet = pinSetVal === "true";
       setPinSet(isPinSet);
+      if (savedName) setSavedUserName(savedName);
+      if (savedPhone) setSavedUserPhone(savedPhone);
 
       if (savedIdentifier) {
         setIdentifier(savedIdentifier);
@@ -61,11 +101,9 @@ export function Login() {
         const isBioActive = isBioAvailable && bioEnabled;
         if (isPinSet || isBioActive) {
           setMode("PIN");
-          if (isBioActive) {
-            // Auto-trigger biometric check
-            setTimeout(() => {
-              handleBiometricLogin();
-            }, 300);
+          if (isBioActive && !biometricTriggered.current) {
+            biometricTriggered.current = true;
+            handleBiometricLogin();
           }
         } else {
           setMode("PASSWORD");
@@ -73,11 +111,27 @@ export function Login() {
       }
     }
     loadSavedLogin();
-  }, []);
+  }, [handleBiometricLogin]);
+
+  // Lockout timer countdown effect
+  useEffect(() => {
+    if (lockoutTimeLeft <= 0) return;
+    const timer = setInterval(() => {
+      setLockoutTimeLeft(prev => {
+        if (prev <= 1) {
+          clearInterval(timer);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [lockoutTimeLeft]);
 
   // Auto-submit PIN once it reaches 4 digits
   useEffect(() => {
     if (mode === "PIN" && pinDigits.length === 4) {
+      if (isSubmitting) return;
       const submitPin = async () => {
         setIsSubmitting(true);
         setError(null);
@@ -86,15 +140,25 @@ export function Login() {
         } catch (err) {
           setError(err instanceof Error ? err.message : "Invalid PIN");
           setPinDigits(""); // Clear PIN on failure
+          setFailedAttempts(prev => {
+            const next = prev + 1;
+            if (next >= 3) {
+              setError("Too many failed attempts. PIN login locked for 30 seconds.");
+              setLockoutTimeLeft(30);
+              setMode("PASSWORD");
+              return 0;
+            }
+            return next;
+          });
         } finally {
           setIsSubmitting(false);
         }
       };
       submitPin();
     }
-  }, [pinDigits, mode]);
+  }, [pinDigits, mode, isSubmitting, signInWithSavedToken]);
 
-  async function handleSubmit() {
+  const handleSubmit = useCallback(async () => {
     setError(null);
     setInfo(null);
 
@@ -130,42 +194,72 @@ export function Login() {
     } finally {
       setIsSubmitting(false);
     }
-  }
+  }, [mode, identifier, password, signIn]);
 
-  async function handleBiometricLogin() {
+  const handleKeyInput = useCallback((digit: string) => {
+    if (isSubmitting) return;
     setError(null);
-    setInfo(null);
-    const hasSaved = await getToken(LAST_IDENTIFIER_KEY);
-    if (!hasSaved) return;
-
-    const result = await LocalAuthentication.authenticateAsync({
-      promptMessage: "Unlock ShopControl",
-      fallbackLabel: "Use PIN",
-    });
-    
-    if (result.success) {
-      setIsSubmitting(true);
-      try {
-        await signInWithSavedToken();
-      } catch (err) {
-        setError("Saved login expired. Sign in again.");
-      } finally {
-        setIsSubmitting(false);
-      }
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     }
-  }
+    setPinDigits(prev => {
+      if (prev.length < 4) {
+        return prev + digit;
+      }
+      return prev;
+    });
+  }, [isSubmitting]);
+
+  const handleBackspace = useCallback(() => {
+    if (isSubmitting) return;
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    }
+    setPinDigits(prev => prev.slice(0, -1));
+  }, [isSubmitting]);
+
+  const handleSwitchToPin = useCallback(() => {
+    if (lockoutTimeLeft > 0) {
+      setError(`PIN login is locked. Please try again in ${lockoutTimeLeft} seconds.`);
+      return;
+    }
+    setMode("PIN");
+    setPassword("");
+    setError(null);
+  }, [lockoutTimeLeft]);
+
+  const maskIdentifier = (id: string) => {
+    if (!id) return "";
+    const clean = id.trim();
+    if (clean.includes("@")) {
+      const parts = clean.split("@");
+      const local = parts[0];
+      const domain = parts[1];
+      if (local.length > 2) {
+        return `${local[0]}***${local[local.length - 1]}@${domain}`;
+      }
+      return `${local[0]}***@${domain}`;
+    }
+    if (clean.length >= 4) {
+      const last4 = clean.slice(-4);
+      return `+91 ******${last4}`;
+    }
+    return clean;
+  };
 
   const isForgot = mode === "FORGOT";
 
-  const handleKeyInput = (digit: string) => {
-    setError(null);
-    if (pinDigits.length < 4) {
-      setPinDigits(prev => prev + digit);
-    }
-  };
-
-  const handleBackspace = () => {
-    setPinDigits(prev => prev.slice(0, -1));
+  const renderKeypadButton = (digit: string) => {
+    return (
+      <Pressable 
+        style={styles.keypadBtn} 
+        onPress={() => handleKeyInput(digit)}
+        accessibilityRole="button"
+        accessibilityLabel={`Digit ${digit}`}
+      >
+        <Text style={styles.keypadBtnText}>{digit}</Text>
+      </Pressable>
+    );
   };
 
   return (
@@ -191,12 +285,37 @@ export function Login() {
 
           <View style={styles.card}>
             <View style={styles.cardHeader}>
-              <Text style={styles.cardTitle}>
-                {isForgot ? "Forgot PIN" : mode === "PIN" ? "Quick Login" : "Sign In"}
-              </Text>
-              <Text style={styles.cardSubtitle}>
-                {isForgot ? "Reset is handled by admin." : mode === "PIN" ? "Enter your 4-digit PIN to unlock." : "Enter your mobile/email and password."}
-              </Text>
+              {mode === "PIN" ? (
+                <View style={{ alignItems: 'center', width: '100%', gap: 2 }}>
+                  {savedUserName ? (
+                    <>
+                      <Text style={styles.welcomeText}>Welcome back,</Text>
+                      <Text style={styles.userNameText}>{savedUserName}</Text>
+                      {savedUserPhone ? (
+                        <Text style={styles.userPhoneText}>{maskIdentifier(savedUserPhone)}</Text>
+                      ) : null}
+                    </>
+                  ) : (
+                    <>
+                      <Text style={styles.cardTitle}>Quick Login</Text>
+                      {savedUserPhone ? (
+                        <Text style={styles.userPhoneText}>{maskIdentifier(savedUserPhone)}</Text>
+                      ) : (
+                        <Text style={styles.cardSubtitle}>Enter your 4-digit PIN to unlock.</Text>
+                      )}
+                    </>
+                  )}
+                </View>
+              ) : (
+                <>
+                  <Text style={styles.cardTitle}>
+                    {isForgot ? "Forgot PIN" : "Sign In"}
+                  </Text>
+                  <Text style={styles.cardSubtitle}>
+                    {isForgot ? "Reset is handled by admin." : "Enter your mobile/email and password."}
+                  </Text>
+                </>
+              )}
             </View>
 
             {!isForgot ? (
@@ -205,38 +324,34 @@ export function Login() {
                   {/* Dots Indicator */}
                   <View style={styles.dotsRow}>
                     {[0, 1, 2, 3].map((i) => (
-                      <View 
-                        key={i} 
-                        style={[
-                          styles.dot, 
-                          pinDigits.length > i && styles.dotFilled
-                        ]} 
-                      />
+                      <PasscodeDot key={i} filled={pinDigits.length > i} />
                     ))}
                   </View>
 
                   {/* Grid */}
                   <View style={styles.passcodeKeypad}>
                     <View style={styles.keypadRow}>
-                      <Pressable style={styles.keypadBtn} onPress={() => handleKeyInput("1")}><Text style={styles.keypadBtnText}>1</Text></Pressable>
-                      <Pressable style={styles.keypadBtn} onPress={() => handleKeyInput("2")}><Text style={styles.keypadBtnText}>2</Text></Pressable>
-                      <Pressable style={styles.keypadBtn} onPress={() => handleKeyInput("3")}><Text style={styles.keypadBtnText}>3</Text></Pressable>
+                      {renderKeypadButton("1")}
+                      {renderKeypadButton("2")}
+                      {renderKeypadButton("3")}
                     </View>
                     <View style={styles.keypadRow}>
-                      <Pressable style={styles.keypadBtn} onPress={() => handleKeyInput("4")}><Text style={styles.keypadBtnText}>4</Text></Pressable>
-                      <Pressable style={styles.keypadBtn} onPress={() => handleKeyInput("5")}><Text style={styles.keypadBtnText}>5</Text></Pressable>
-                      <Pressable style={styles.keypadBtn} onPress={() => handleKeyInput("6")}><Text style={styles.keypadBtnText}>6</Text></Pressable>
+                      {renderKeypadButton("4")}
+                      {renderKeypadButton("5")}
+                      {renderKeypadButton("6")}
                     </View>
                     <View style={styles.keypadRow}>
-                      <Pressable style={styles.keypadBtn} onPress={() => handleKeyInput("7")}><Text style={styles.keypadBtnText}>7</Text></Pressable>
-                      <Pressable style={styles.keypadBtn} onPress={() => handleKeyInput("8")}><Text style={styles.keypadBtnText}>8</Text></Pressable>
-                      <Pressable style={styles.keypadBtn} onPress={() => handleKeyInput("9")}><Text style={styles.keypadBtnText}>9</Text></Pressable>
+                      {renderKeypadButton("7")}
+                      {renderKeypadButton("8")}
+                      {renderKeypadButton("9")}
                     </View>
                     <View style={styles.keypadRow}>
                       {biometricAvailable && biometricEnabled ? (
                         <Pressable 
                           style={[styles.keypadBtn, { backgroundColor: 'transparent', elevation: 0 }]} 
                           onPress={handleBiometricLogin}
+                          accessibilityRole="button"
+                          accessibilityLabel="Unlock with Biometrics"
                         >
                           <Icon source="fingerprint" size={28} color={colors.primary} />
                         </Pressable>
@@ -244,9 +359,21 @@ export function Login() {
                         <View style={styles.keypadBtnEmpty} />
                       )}
                       
-                      <Pressable style={styles.keypadBtn} onPress={() => handleKeyInput("0")}><Text style={styles.keypadBtnText}>0</Text></Pressable>
+                      <Pressable 
+                        style={styles.keypadBtn} 
+                        onPress={() => handleKeyInput("0")}
+                        accessibilityRole="button"
+                        accessibilityLabel="Digit 0"
+                      >
+                        <Text style={styles.keypadBtnText}>0</Text>
+                      </Pressable>
                       
-                      <Pressable style={[styles.keypadBtn, styles.keypadBackspace]} onPress={handleBackspace}>
+                      <Pressable 
+                        style={[styles.keypadBtn, styles.keypadBackspace]} 
+                        onPress={handleBackspace}
+                        accessibilityRole="button"
+                        accessibilityLabel="Backspace"
+                      >
                         <Icon source="backspace-outline" size={24} color={colors.textPrimary} />
                       </Pressable>
                     </View>
@@ -296,7 +423,12 @@ export function Login() {
                       secureTextEntry={secureText}
                       onChangeText={setPassword}
                       left={<PaperInput.Icon icon="lock-outline" color={colors.textMuted} />}
-                      right={<PaperInput.Icon icon={secureText ? "eye-off-outline" : "eye-outline"} color={colors.textMuted} onPress={() => setSecureText(!secureText)} />}
+                      right={<PaperInput.Icon 
+                        icon={secureText ? "eye-off-outline" : "eye-outline"} 
+                        color={colors.textMuted} 
+                        onPress={() => setSecureText(!secureText)} 
+                        accessibilityLabel={secureText ? "Show password" : "Hide password"}
+                      />}
                       outlineStyle={styles.inputOutline}
                       activeOutlineColor={colors.primary}
                       style={styles.input}
@@ -344,7 +476,7 @@ export function Login() {
                     <Button 
                       variant="ghost" 
                       label="Use quick PIN login" 
-                      onPress={() => { setMode("PIN"); setPassword(""); setError(null); }}
+                      onPress={handleSwitchToPin}
                       fullWidth
                     />
                   )}
@@ -355,6 +487,29 @@ export function Login() {
         </ScrollView>
       </KeyboardAvoidingView>
     </Screen>
+  );
+}
+
+function PasscodeDot({ filled }: { filled: boolean }) {
+  const scaleAnim = useRef(new Animated.Value(filled ? 1.25 : 1)).current;
+
+  useEffect(() => {
+    Animated.spring(scaleAnim, {
+      toValue: filled ? 1.25 : 1,
+      useNativeDriver: true,
+      friction: 4,
+      tension: 40,
+    }).start();
+  }, [filled]);
+
+  return (
+    <Animated.View 
+      style={[
+        styles.dot, 
+        filled && styles.dotFilled,
+        { transform: [{ scale: scaleAnim }] }
+      ]} 
+    />
   );
 }
 
@@ -425,6 +580,26 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
     color: colors.textSecondary,
     fontWeight: fontWeight.medium,
+  },
+  welcomeText: {
+    fontSize: fontSize.md,
+    color: colors.textSecondary,
+    fontWeight: fontWeight.medium,
+    textAlign: "center",
+  },
+  userNameText: {
+    fontSize: fontSize.xxl,
+    fontWeight: fontWeight.black,
+    color: colors.textPrimary,
+    textAlign: "center",
+    marginTop: 2,
+  },
+  userPhoneText: {
+    fontSize: fontSize.sm,
+    color: colors.textMuted,
+    fontWeight: fontWeight.semibold,
+    textAlign: "center",
+    marginTop: 4,
   },
   form: {
     gap: spacing.lg,

@@ -37,10 +37,9 @@ const addSchema = z.object({
   }).refine((data) => {
     const refs = [data.saleId, data.dmId, data.orderId].filter(Boolean);
     if (refs.length > 1) return false;
-    if (refs.length === 0 && !data.customerId) return false;
     return true;
   }, {
-    message: "Target invoice references (saleId, dmId, orderId) are mutually exclusive. If none are provided, customerId is required.",
+    message: "Target invoice references (saleId, dmId, orderId) are mutually exclusive.",
   }),
   params: z.object({}).optional(),
   query: z.object({}).optional(),

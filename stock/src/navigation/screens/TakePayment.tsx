@@ -20,6 +20,7 @@ import {
 } from "react-native-paper";
 import { useRoute } from "@react-navigation/native";
 import QRCode from "react-native-qrcode-svg";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useShopsQuery } from "../../hooks/useShops";
 import { useCustomersQuery } from "../../hooks/useCustomers";
@@ -46,9 +47,13 @@ const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLoc
 export function TakePayment() {
   const { activeShopId } = useShopStore();
   const route = useRoute<any>();
+  const insets = useSafeAreaInsets();
 
   const [isWalkin, setIsWalkin] = useState(!route.params?.customerId);
   const isTabBarVisible = route.name === "StaffPayments";
+  const bottomPadding = isTabBarVisible 
+    ? (insets.bottom > 0 ? insets.bottom + 80 : 100) 
+    : (insets.bottom > 0 ? insets.bottom : spacing.lg);
   const [customerId, setCustomerId] = useState<string | undefined>(route.params?.customerId);
   const [orderId, setOrderId] = useState<string | undefined>(route.params?.orderId);
   const [searchQuery, setSearchQuery] = useState("");
@@ -90,10 +95,6 @@ export function TakePayment() {
       notes: notes || (upiOption === 'GENERATE' ? 'Paid via generated QR' : undefined),
     }, {
       onSuccess: () => {
-        setAmount("");
-        setReference("");
-        setNote("");
-        setUpiOption("REGISTER");
         setSuccessVisible(true);
       },
       onError: (err: any) => {
@@ -418,7 +419,7 @@ export function TakePayment() {
 
         {/* Footer Confirm Action */}
         {!showQrSection && (
-          <View style={[styles.footer, isTabBarVisible && styles.footerTabOffset]}>
+          <View style={[styles.footer, { paddingBottom: bottomPadding }]}>
             <Button
               label="CONFIRM PAYMENT"
               variant="success"
@@ -439,6 +440,10 @@ export function TakePayment() {
         message={`Received ${money(amount)} via ${paymentMode}.`}
         onClose={() => {
           setSuccessVisible(false);
+          setAmount("");
+          setReference("");
+          setNote("");
+          setUpiOption("REGISTER");
           goBack();
         }}
       />
