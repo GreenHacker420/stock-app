@@ -66,7 +66,6 @@ export async function createSale(user, data) {
         totalAmount: totalVal,
         balanceAmount: totalVal,
         saleStatus: "CONFIRMED",
-        notes: data.notes,
         items: {
           create: items.map((item) => ({
             itemId: item.itemId,
@@ -101,7 +100,10 @@ export async function createSale(user, data) {
       saleId: sale.id,
       customerId: customer.id,
       totalAmount: totalVal,
-      payments: data.payments || [],
+      payments: (data.payments || []).map((p) => ({
+        ...p,
+        notes: p.notes || data.notes,
+      })),
     });
 
     if (data.isWalkin && paymentResult.paymentStatus !== "PAID") {

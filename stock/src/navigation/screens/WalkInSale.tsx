@@ -48,11 +48,27 @@ const SaleItemCard = memo(({
   const stockQty = item.availableStock ?? 0;
   const isOutOfStock = stockQty <= 0;
   const isMaxStockReached = quantity >= stockQty;
+  const hasQty = quantity > 0;
 
   return (
-    <View style={styles.itemCard}>
+    <View style={[
+      styles.itemCard,
+      hasQty && styles.itemCardActive
+    ]}>
+      {/* Left Icon Avatar */}
+      <View style={[
+        styles.itemAvatarContainer,
+        hasQty && styles.itemAvatarContainerActive
+      ]}>
+        <Icon 
+          source="package-variant-closed" 
+          size={22} 
+          color={hasQty ? colors.primary : colors.textSecondary} 
+        />
+      </View>
+
       <View style={styles.itemInfo}>
-        <Text style={styles.itemName}>{item.name}</Text>
+        <Text style={styles.itemName} numberOfLines={1}>{item.name}</Text>
         <View style={styles.metaRow}>
           <Text style={styles.itemSubtitle}>
             {item.sku || "No SKU"} • {money(item.defaultSellingPrice)} / {item.unit}
@@ -60,6 +76,10 @@ const SaleItemCard = memo(({
           {isOutOfStock ? (
             <View style={styles.outOfStockBadge}>
               <Text style={styles.outOfStockText}>OUT OF STOCK</Text>
+            </View>
+          ) : stockQty <= 10 ? (
+            <View style={[styles.stockBadge, styles.stockBadgeLow]}>
+              <Text style={[styles.stockText, styles.stockTextLow]}>Low Stock: {stockQty}</Text>
             </View>
           ) : (
             <View style={styles.stockBadge}>
@@ -295,6 +315,7 @@ export function WalkInSale() {
         )}
         
         <ScrollView 
+          style={styles.scrollView}
           showsVerticalScrollIndicator={false} 
           contentContainerStyle={[
             styles.scrollContent, 
@@ -754,6 +775,9 @@ const styles = StyleSheet.create({
   keyboardView: {
     flex: 1,
   },
+  scrollView: {
+    flex: 1,
+  },
   scrollContent: {
     paddingTop: spacing.md,
   },
@@ -788,23 +812,49 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: spacing.lg,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.surfaceOffset,
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    marginBottom: spacing.sm,
+    ...shadow.sm,
+  },
+  itemCardActive: {
+    borderColor: colors.primary,
+    backgroundColor: '#f0fdf4',
+  },
+  itemAvatarContainer: {
+    width: 42,
+    height: 42,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceOffset,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: spacing.md,
+  },
+  itemAvatarContainerActive: {
+    backgroundColor: colors.primaryLight,
   },
   itemInfo: {
     flex: 1,
-    paddingRight: spacing.md,
+    marginRight: spacing.sm,
   },
   itemName: {
-    fontSize: fontSize.lg,
+    fontSize: fontSize.md,
     fontWeight: fontWeight.bold,
     color: colors.textPrimary,
   },
   itemSubtitle: {
-    fontSize: fontSize.sm,
+    fontSize: 12,
     color: colors.textSecondary,
-    marginTop: spacing.xs,
+    marginTop: 2,
+  },
+  stockBadgeLow: {
+    backgroundColor: colors.warningLight,
+  },
+  stockTextLow: {
+    color: colors.warning,
   },
   quantityControls: {
     minWidth: 120,
