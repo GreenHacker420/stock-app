@@ -60,6 +60,7 @@ export type Customer = {
   outstandingAmount?: string;
   notes?: string | null;
   status?: "ACTIVE" | "INACTIVE";
+  type?: "REGULAR" | "WALK_IN";
 };
 
 export type CashSession = {
@@ -490,8 +491,9 @@ export async function convertOrderToSale(token: string, orderId: string, data: a
 }
 
 // CUSTOMERS
-export async function fetchCustomers(token: string, shopId: string) {
-  return apiRequest<Customer[]>(`/customers?shopId=${encodeURIComponent(shopId)}`, { token });
+export async function fetchCustomers(token: string, shopId: string, includeWalkin = false) {
+  const url = `/customers?shopId=${encodeURIComponent(shopId)}${includeWalkin ? "&includeWalkin=true" : ""}`;
+  return apiRequest<Customer[]>(url, { token });
 }
 
 export async function fetchCustomer(token: string, id: string) {

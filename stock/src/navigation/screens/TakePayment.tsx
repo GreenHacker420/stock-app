@@ -48,6 +48,7 @@ export function TakePayment() {
   const route = useRoute<any>();
 
   const [isWalkin, setIsWalkin] = useState(!route.params?.customerId);
+  const isTabBarVisible = route.name === "StaffPayments";
   const [customerId, setCustomerId] = useState<string | undefined>(route.params?.customerId);
   const [orderId, setOrderId] = useState<string | undefined>(route.params?.orderId);
   const [searchQuery, setSearchQuery] = useState("");
@@ -417,7 +418,7 @@ export function TakePayment() {
 
         {/* Footer Confirm Action */}
         {!showQrSection && (
-          <View style={styles.footer}>
+          <View style={[styles.footer, isTabBarVisible && styles.footerTabOffset]}>
             <Button
               label="CONFIRM PAYMENT"
               variant="success"
@@ -776,6 +777,9 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
     backgroundColor: colors.surface,
     ...shadow.lg,
+  },
+  footerTabOffset: {
+    paddingBottom: Platform.OS === 'ios' ? 128 : 120,
   },
   pressed: {
     opacity: 0.72,

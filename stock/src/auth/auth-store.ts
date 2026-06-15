@@ -35,7 +35,8 @@ function createAuthStore() {
     await setToken(TOKEN_KEY, result.token);
     await setToken(QUICK_TOKEN_KEY, result.token);
     await setToken(LAST_IDENTIFIER_KEY, identifier);
-    await setToken(QUICK_PIN_HASH_KEY, await hashQuickPin(identifier, password));
+    await deleteToken(QUICK_PIN_HASH_KEY);
+    await deleteToken("shopcontrol_pin_set");
     set({ token: result.token, user: result.user, isBootstrapping: false });
   },
   async signInWithSavedToken(pin) {
@@ -62,6 +63,13 @@ function createAuthStore() {
         return;
       }
 
+      const pinSet = await getToken("shopcontrol_pin_set");
+      const bioEnabled = await getToken("shopcontrol_biometric_enabled");
+      if (pinSet === "true" || bioEnabled === "true") {
+        set({ token: null, user: null, isBootstrapping: false });
+        return;
+      }
+
       const user = await fetchMe(token);
       set({ token, user, isBootstrapping: false });
     } catch {
@@ -71,6 +79,10 @@ function createAuthStore() {
   },
   async signOut() {
     await deleteToken(TOKEN_KEY);
+    await deleteToken(QUICK_TOKEN_KEY);
+    await deleteToken(QUICK_PIN_HASH_KEY);
+    await deleteToken("shopcontrol_biometric_enabled");
+    await deleteToken("shopcontrol_pin_set");
     useShopStore.getState().setActiveShopId(null);
     set({ token: null, user: null, isBootstrapping: false });
   },

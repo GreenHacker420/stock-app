@@ -103,12 +103,14 @@ function OverviewTab({ customer }: { customer: any }) {
         </View>
       </Section>
 
-      <Button 
-        variant="secondary" 
-        label="Edit Profile" 
-        onPress={() => navigate("AddEditCustomer", { customer })} 
-        style={{ marginTop: spacing.lg }}
-      />
+      {customer.type !== "WALK_IN" && (
+        <Button 
+          variant="secondary" 
+          label="Edit Profile" 
+          onPress={() => navigate("AddEditCustomer", { customer })} 
+          style={{ marginTop: spacing.lg }}
+        />
+      )}
     </ScrollView>
   );
 }

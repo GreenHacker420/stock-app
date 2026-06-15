@@ -9,13 +9,16 @@ import {
   ScrollView,
   Alert
 } from "react-native";
-import { Searchbar, Text, Icon, TextInput, SegmentedButtons } from "react-native-paper";
+import { Searchbar, Text, Icon, TextInput, SegmentedButtons, List, Divider } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
 
-import { Item } from "../../api/client";
+import { Item, Customer } from "../../api/client";
 import { useItemsQuery } from "../../hooks/useItems";
 import { useCreateSaleMutation } from "../../hooks/useSales";
+import { useCustomersQuery } from "../../hooks/useCustomers";
+import { useAuthStore } from "../../auth/auth-store";
+import { useShopStore } from "../../auth/shop-store";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { SkeletonList } from "../../components/ui/SkeletonCard";
@@ -123,12 +126,30 @@ export function WalkInSale() {
   const [isCompleted, setIsCompleted] = useState(false);
   const [completedSaleNumber, setCompletedSaleNumber] = useState<string | null>(null);
 
-  // Walk-in Customer Info
+  // Customer selection & search states
+  const [customerId, setCustomerId] = useState<string | null>(null);
+  const [customerSearch, setCustomerSearch] = useState("");
+
+  // Custom Walk-in Customer Info
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [paymentMode, setPaymentMode] = useState<"CASH" | "UPI">("CASH");
 
   const itemsQuery = useItemsQuery({ search: debouncedSearch, limit: 50 });
+  const customersQuery = useCustomersQuery();
+
+  const selectedCustomer = useMemo(() => 
+    customersQuery.data?.find(c => c.id === customerId),
+    [customersQuery.data, customerId]
+  );
+
+  const filteredCustomers = useMemo(() => {
+    if (!customerSearch) return [];
+    return (customersQuery.data ?? []).filter(c =>
+      c.name.toLowerCase().includes(customerSearch.toLowerCase()) ||
+      (c.phone && c.phone.includes(customerSearch))
+    ).slice(0, 5);
+  }, [customersQuery.data, customerSearch]);
 
   const cartArray = useMemo(() => Object.values(cart), [cart]);
   const cartItemCount = useMemo(() => cartArray.reduce((sum, i) => sum + i.quantity, 0), [cartArray]);
@@ -159,8 +180,9 @@ export function WalkInSale() {
         quantity: i.quantity, 
         rate: Number(i.item.defaultSellingPrice) 
       })),
-      isWalkin: true,
-      customerInfo: customerName || customerPhone ? {
+      isWalkin: !customerId,
+      customerId: customerId || undefined,
+      customerInfo: !customerId && (customerName || customerPhone) ? {
         name: customerName || undefined,
         phone: customerPhone || undefined,
       } : undefined,
@@ -176,7 +198,7 @@ export function WalkInSale() {
     });
   };
 
-  const List = FlashList as any;
+  const FlashListAny = FlashList as any;
 
   return (
     <Screen edges={['top', 'left', 'right']}>
@@ -194,25 +216,86 @@ export function WalkInSale() {
             <View style={styles.stepContainer}>
               <Section title="Customer Details (Optional)">
                 <View style={styles.formCard}>
-                  <TextInput
-                    mode="outlined"
-                    label="Customer Name"
-                    value={customerName}
-                    onChangeText={setCustomerName}
-                    style={styles.input}
-                    outlineStyle={styles.inputOutline}
-                    left={<TextInput.Icon icon="account-outline" />}
-                  />
-                  <TextInput
-                    mode="outlined"
-                    label="Mobile Number"
-                    value={customerPhone}
-                    onChangeText={setCustomerPhone}
-                    keyboardType="phone-pad"
-                    style={styles.input}
-                    outlineStyle={styles.inputOutline}
-                    left={<TextInput.Icon icon="phone-outline" />}
-                  />
+                  {!selectedCustomer ? (
+                    <>
+                      <View style={styles.searchRow}>
+                        <Searchbar
+                          placeholder="Search existing customer..."
+                          onChangeText={setCustomerSearch}
+                          value={customerSearch}
+                          style={[styles.searchBar, { flex: 1, marginBottom: 0 }]}
+                          inputStyle={styles.searchInput}
+                          elevation={0}
+                        />
+                        <Pressable 
+                          onPress={() => navigate("AddEditCustomer")}
+                          style={({ pressed }) => [styles.searchAddBtn, pressed && styles.pressed]}
+                        >
+                          <Icon source="account-plus" size={24} color={colors.primary} />
+                        </Pressable>
+                      </View>
+
+                      {customerSearch && filteredCustomers.length > 0 ? (
+                        <View style={styles.searchDropdown}>
+                          {filteredCustomers.map(c => (
+                            <List.Item
+                              key={c.id}
+                              title={c.name}
+                              description={c.phone || "No phone"}
+                              onPress={() => { setCustomerId(c.id); setCustomerSearch(""); }}
+                              right={props => <List.Icon {...props} icon="account-check-outline" color={colors.primary} />}
+                            />
+                          ))}
+                        </View>
+                      ) : null}
+
+                      <View style={styles.orRow}>
+                        <Divider style={styles.orDivider} />
+                        <Text style={styles.orText}>OR QUICK WALK-IN DETAILS</Text>
+                        <Divider style={styles.orDivider} />
+                      </View>
+
+                      <TextInput
+                        mode="outlined"
+                        label="Customer Name"
+                        value={customerName}
+                        onChangeText={setCustomerName}
+                        style={styles.input}
+                        outlineStyle={styles.inputOutline}
+                        left={<TextInput.Icon icon="account-outline" />}
+                      />
+                      <TextInput
+                        mode="outlined"
+                        label="Mobile Number"
+                        value={customerPhone}
+                        onChangeText={setCustomerPhone}
+                        keyboardType="phone-pad"
+                        style={styles.input}
+                        outlineStyle={styles.inputOutline}
+                        left={<TextInput.Icon icon="phone-outline" />}
+                      />
+                    </>
+                  ) : (
+                    <View style={styles.selectedCustomerCard}>
+                      <View style={styles.customerRow}>
+                        <View style={styles.customerAvatar}>
+                          <Text style={styles.customerAvatarText}>
+                            {selectedCustomer.name[0].toUpperCase()}
+                          </Text>
+                        </View>
+                        <View style={styles.flex1}>
+                          <Text style={styles.customerNameText}>{selectedCustomer.name}</Text>
+                          <Text style={styles.customerPhoneText}>{selectedCustomer.phone || "No phone"}</Text>
+                        </View>
+                      </View>
+                      <Pressable 
+                        onPress={() => setCustomerId(null)}
+                        style={({ pressed }) => [styles.changeCustBtn, pressed && styles.pressed]}
+                      >
+                        <Text style={styles.changeCustText}>CHANGE</Text>
+                      </Pressable>
+                    </View>
+                  )}
                 </View>
               </Section>
 
@@ -227,7 +310,7 @@ export function WalkInSale() {
                 />
                 
                 <View style={styles.listContainer}>
-                  <List
+                  <FlashListAny
                     data={itemsQuery.data?.items ?? []}
                     keyExtractor={(item: Item) => item.id}
                     renderItem={({ item }: { item: Item }) => (
@@ -805,5 +888,104 @@ const styles = StyleSheet.create({
   },
   receiptActionBtn: {
     flex: 1,
+  },
+  searchRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    alignItems: 'center',
+  },
+  searchAddBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceOffset,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  searchDropdown: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginTop: spacing.xs,
+    marginBottom: spacing.sm,
+    ...shadow.sm,
+  },
+  orRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: spacing.md,
+    gap: spacing.md,
+  },
+  orDivider: {
+    flex: 1,
+    backgroundColor: colors.border,
+  },
+  orText: {
+    fontSize: 9,
+    fontWeight: fontWeight.black,
+    color: colors.textMuted,
+    letterSpacing: 0.5,
+  },
+  selectedCustomerCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.primaryLight,
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: 'rgba(22, 163, 74, 0.2)',
+  },
+  customerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    flex: 1,
+  },
+  customerAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  customerAvatarText: {
+    color: 'white',
+    fontWeight: fontWeight.bold,
+    fontSize: fontSize.md,
+  },
+  customerNameText: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.extrabold,
+    color: colors.primaryDark,
+  },
+  customerPhoneText: {
+    fontSize: fontSize.xs,
+    color: colors.primaryDark,
+    opacity: 0.8,
+  },
+  changeCustBtn: {
+    backgroundColor: 'white',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: 'rgba(22, 163, 74, 0.2)',
+  },
+  changeCustText: {
+    fontSize: 10,
+    fontWeight: fontWeight.black,
+    color: colors.primary,
+  },
+  flex1: {
+    flex: 1,
+  },
+  pressed: {
+    opacity: 0.72,
   },
 });

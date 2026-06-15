@@ -388,6 +388,8 @@ function StaffHome({ navigate, session, sessionLoading }: { navigate: (s: any, p
         <CategoryCard title="Expenses" icon="cash-minus" onPress={() => navigate("Expenses")} />
         <CategoryCard title="Payment" icon="cash-register" onPress={() => navigate("TakePayment")} />
         <CategoryCard title="Stock Entry" icon="warehouse" onPress={() => navigate("StockEntry")} />
+        <CategoryCard title="Customers" icon="account-group-outline" onPress={() => navigate("CustomerList")} />
+        <CategoryCard title="Products" icon="warehouse" onPress={() => navigate("ItemList")} />
       </View>
 
       <View style={styles.staffFooterActions}>

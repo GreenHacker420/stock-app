@@ -50,13 +50,20 @@ const CustomerCard = memo(({
         <View style={styles.customerMain}>
           <Text style={styles.customerName}>{customer.name}</Text>
           <Text style={styles.customerSubtitle}>
-            {customer.phone || "No phone"} • {customer.city || "No city"}
+            {customer.type === "WALK_IN" ? "Counter Walk-in Sales" : `${customer.phone || "No phone"} • ${customer.city || "No city"}`}
           </Text>
         </View>
-        <StatusPill 
-          label={isPending ? "PENDING" : "CLEAR"} 
-          tone={isPending ? "red" : "green"} 
-        />
+        {customer.type === "WALK_IN" ? (
+          <StatusPill 
+            label="WALK-IN" 
+            tone="blue" 
+          />
+        ) : (
+          <StatusPill 
+            label={isPending ? "PENDING" : "CLEAR"} 
+            tone={isPending ? "red" : "green"} 
+          />
+        )}
       </View>
       <View style={styles.customerFooter}>
         <Text style={styles.outstandingLabel}>
@@ -78,8 +85,8 @@ export function CustomerList() {
   const [debouncedSearch] = useDebounce(search, 300);
 
   const customersQuery = useQuery({ 
-    queryKey: ["customers", activeShopId], 
-    queryFn: () => fetchCustomers(token ?? "", activeShopId ?? ""), 
+    queryKey: ["customers", activeShopId, "includeWalkin"], 
+    queryFn: () => fetchCustomers(token ?? "", activeShopId ?? "", true), 
     enabled: !!token && !!activeShopId 
   });
 

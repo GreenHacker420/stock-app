@@ -33,22 +33,66 @@ export function Login() {
   const [info, setInfo] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [hasSavedLogin, setHasSavedLogin] = useState(false);
+  const [pinSet, setPinSet] = useState(false);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
+  const [biometricEnabled, setBiometricEnabled] = useState(false);
+  const [pinDigits, setPinDigits] = useState("");
 
   useEffect(() => {
     async function loadSavedLogin() {
       const savedIdentifier = await getToken(LAST_IDENTIFIER_KEY);
+      const bioEnabledVal = await getToken("shopcontrol_biometric_enabled");
+      const pinSetVal = await getToken("shopcontrol_pin_set");
+      
       const hasHardware = await LocalAuthentication.hasHardwareAsync().catch(() => false);
       const isEnrolled = await LocalAuthentication.isEnrolledAsync().catch(() => false);
-      setBiometricAvailable(hasHardware && isEnrolled);
+      const isBioAvailable = hasHardware && isEnrolled;
+      
+      setBiometricAvailable(isBioAvailable);
+      const bioEnabled = bioEnabledVal === "true";
+      setBiometricEnabled(bioEnabled);
+      const isPinSet = pinSetVal === "true";
+      setPinSet(isPinSet);
+
       if (savedIdentifier) {
         setIdentifier(savedIdentifier);
         setHasSavedLogin(true);
-        setMode("PIN");
+        
+        const isBioActive = isBioAvailable && bioEnabled;
+        if (isPinSet || isBioActive) {
+          setMode("PIN");
+          if (isBioActive) {
+            // Auto-trigger biometric check
+            setTimeout(() => {
+              handleBiometricLogin();
+            }, 300);
+          }
+        } else {
+          setMode("PASSWORD");
+        }
       }
     }
     loadSavedLogin();
   }, []);
+
+  // Auto-submit PIN once it reaches 4 digits
+  useEffect(() => {
+    if (mode === "PIN" && pinDigits.length === 4) {
+      const submitPin = async () => {
+        setIsSubmitting(true);
+        setError(null);
+        try {
+          await signInWithSavedToken(pinDigits);
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Invalid PIN");
+          setPinDigits(""); // Clear PIN on failure
+        } finally {
+          setIsSubmitting(false);
+        }
+      };
+      submitPin();
+    }
+  }, [pinDigits, mode]);
 
   async function handleSubmit() {
     setError(null);
@@ -74,17 +118,13 @@ export function Login() {
     const passwordSchema = z.string().min(4);
     const passResult = passwordSchema.safeParse(password);
     if (!passResult.success) {
-      setError(mode === "PIN" ? "Enter your 4+ digit PIN." : "Password too short.");
+      setError("Password too short.");
       return;
     }
 
     setIsSubmitting(true);
     try {
-      if (mode === "PIN" && hasSavedLogin) {
-        await signInWithSavedToken(password);
-      } else {
-        await signIn(trimmedIdentifier, password);
-      }
+      await signIn(trimmedIdentifier, password);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Invalid credentials");
     } finally {
@@ -95,7 +135,8 @@ export function Login() {
   async function handleBiometricLogin() {
     setError(null);
     setInfo(null);
-    if (!hasSavedLogin || !biometricAvailable) return;
+    const hasSaved = await getToken(LAST_IDENTIFIER_KEY);
+    if (!hasSaved) return;
 
     const result = await LocalAuthentication.authenticateAsync({
       promptMessage: "Unlock ShopControl",
@@ -115,6 +156,17 @@ export function Login() {
   }
 
   const isForgot = mode === "FORGOT";
+
+  const handleKeyInput = (digit: string) => {
+    setError(null);
+    if (pinDigits.length < 4) {
+      setPinDigits(prev => prev + digit);
+    }
+  };
+
+  const handleBackspace = () => {
+    setPinDigits(prev => prev.slice(0, -1));
+  };
 
   return (
     <Screen edges={['top', 'bottom', 'left', 'right']} bg={colors.bg}>
@@ -143,51 +195,115 @@ export function Login() {
                 {isForgot ? "Forgot PIN" : mode === "PIN" ? "Quick Login" : "Sign In"}
               </Text>
               <Text style={styles.cardSubtitle}>
-                {isForgot ? "Reset is handled by admin." : mode === "PIN" ? "Use your saved mobile and PIN." : "Enter your mobile/email and password."}
+                {isForgot ? "Reset is handled by admin." : mode === "PIN" ? "Enter your 4-digit PIN to unlock." : "Enter your mobile/email and password."}
               </Text>
             </View>
 
             {!isForgot ? (
-              <View style={styles.form}>
-                <View style={styles.inputGroup}>
-                  <Text style={styles.label}>MOBILE / EMAIL</Text>
-                  <PaperInput
-                    mode="outlined"
-                    placeholder="Enter mobile or email"
-                    value={identifier}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                    left={<PaperInput.Icon icon="account-outline" color={colors.textMuted} />}
-                    onChangeText={setIdentifier}
-                    disabled={mode === "PIN" && hasSavedLogin}
-                    outlineStyle={styles.inputOutline}
-                    activeOutlineColor={colors.primary}
-                    style={styles.input}
-                  />
-                </View>
+              mode === "PIN" ? (
+                <View style={styles.passcodeContainer}>
+                  {/* Dots Indicator */}
+                  <View style={styles.dotsRow}>
+                    {[0, 1, 2, 3].map((i) => (
+                      <View 
+                        key={i} 
+                        style={[
+                          styles.dot, 
+                          pinDigits.length > i && styles.dotFilled
+                        ]} 
+                      />
+                    ))}
+                  </View>
 
-                <View style={styles.inputGroup}>
-                  <View style={styles.labelRow}>
-                    <Text style={styles.label}>{mode === "PIN" ? "PIN" : "PASSWORD"}</Text>
-                    <Pressable onPress={() => { setMode("FORGOT"); setError(null); setInfo(null); }}>
-                      <Text style={styles.forgotBtn}>FORGOT?</Text>
+                  {/* Grid */}
+                  <View style={styles.passcodeKeypad}>
+                    <View style={styles.keypadRow}>
+                      <Pressable style={styles.keypadBtn} onPress={() => handleKeyInput("1")}><Text style={styles.keypadBtnText}>1</Text></Pressable>
+                      <Pressable style={styles.keypadBtn} onPress={() => handleKeyInput("2")}><Text style={styles.keypadBtnText}>2</Text></Pressable>
+                      <Pressable style={styles.keypadBtn} onPress={() => handleKeyInput("3")}><Text style={styles.keypadBtnText}>3</Text></Pressable>
+                    </View>
+                    <View style={styles.keypadRow}>
+                      <Pressable style={styles.keypadBtn} onPress={() => handleKeyInput("4")}><Text style={styles.keypadBtnText}>4</Text></Pressable>
+                      <Pressable style={styles.keypadBtn} onPress={() => handleKeyInput("5")}><Text style={styles.keypadBtnText}>5</Text></Pressable>
+                      <Pressable style={styles.keypadBtn} onPress={() => handleKeyInput("6")}><Text style={styles.keypadBtnText}>6</Text></Pressable>
+                    </View>
+                    <View style={styles.keypadRow}>
+                      <Pressable style={styles.keypadBtn} onPress={() => handleKeyInput("7")}><Text style={styles.keypadBtnText}>7</Text></Pressable>
+                      <Pressable style={styles.keypadBtn} onPress={() => handleKeyInput("8")}><Text style={styles.keypadBtnText}>8</Text></Pressable>
+                      <Pressable style={styles.keypadBtn} onPress={() => handleKeyInput("9")}><Text style={styles.keypadBtnText}>9</Text></Pressable>
+                    </View>
+                    <View style={styles.keypadRow}>
+                      {biometricAvailable && biometricEnabled ? (
+                        <Pressable 
+                          style={[styles.keypadBtn, { backgroundColor: 'transparent', elevation: 0 }]} 
+                          onPress={handleBiometricLogin}
+                        >
+                          <Icon source="fingerprint" size={28} color={colors.primary} />
+                        </Pressable>
+                      ) : (
+                        <View style={styles.keypadBtnEmpty} />
+                      )}
+                      
+                      <Pressable style={styles.keypadBtn} onPress={() => handleKeyInput("0")}><Text style={styles.keypadBtnText}>0</Text></Pressable>
+                      
+                      <Pressable style={[styles.keypadBtn, styles.keypadBackspace]} onPress={handleBackspace}>
+                        <Icon source="backspace-outline" size={24} color={colors.textPrimary} />
+                      </Pressable>
+                    </View>
+                  </View>
+
+                  <View style={styles.passcodeFooter}>
+                    <Pressable 
+                      onPress={() => { setMode("PASSWORD"); setPassword(""); setError(null); }}
+                      style={({ pressed }) => [styles.passcodeLinkBtn, pressed && styles.pressed]}
+                    >
+                      <Text style={styles.passcodeLinkText}>Use Password</Text>
+                    </Pressable>
+                    <Pressable 
+                      onPress={() => { setMode("FORGOT"); setError(null); setInfo(null); }}
+                      style={({ pressed }) => [styles.passcodeLinkBtn, pressed && styles.pressed]}
+                    >
+                      <Text style={styles.passcodeLinkText}>Forgot PIN?</Text>
                     </Pressable>
                   </View>
-                  <PaperInput
-                    mode="outlined"
-                    placeholder={mode === "PIN" ? "••••" : "Enter password"}
-                    value={password}
-                    secureTextEntry={secureText}
-                    keyboardType={mode === "PIN" ? "number-pad" : "default"}
-                    onChangeText={setPassword}
-                    left={<PaperInput.Icon icon="lock-outline" color={colors.textMuted} />}
-                    right={<PaperInput.Icon icon={secureText ? "eye-off-outline" : "eye-outline"} color={colors.textMuted} onPress={() => setSecureText(!secureText)} />}
-                    outlineStyle={styles.inputOutline}
-                    activeOutlineColor={colors.primary}
-                    style={styles.input}
-                  />
                 </View>
-              </View>
+              ) : (
+                <View style={styles.form}>
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.label}>MOBILE / EMAIL</Text>
+                    <PaperInput
+                      mode="outlined"
+                      placeholder="Enter mobile or email"
+                      value={identifier}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                      left={<PaperInput.Icon icon="account-outline" color={colors.textMuted} />}
+                      onChangeText={setIdentifier}
+                      outlineStyle={styles.inputOutline}
+                      activeOutlineColor={colors.primary}
+                      style={styles.input}
+                    />
+                  </View>
+
+                  <View style={styles.inputGroup}>
+                    <View style={styles.labelRow}>
+                      <Text style={styles.label}>PASSWORD</Text>
+                    </View>
+                    <PaperInput
+                      mode="outlined"
+                      placeholder="Enter password"
+                      value={password}
+                      secureTextEntry={secureText}
+                      onChangeText={setPassword}
+                      left={<PaperInput.Icon icon="lock-outline" color={colors.textMuted} />}
+                      right={<PaperInput.Icon icon={secureText ? "eye-off-outline" : "eye-outline"} color={colors.textMuted} onPress={() => setSecureText(!secureText)} />}
+                      outlineStyle={styles.inputOutline}
+                      activeOutlineColor={colors.primary}
+                      style={styles.input}
+                    />
+                  </View>
+                </View>
+              )
             ) : (
               <View style={styles.infoBox}>
                 <Text style={styles.infoText}>
@@ -209,34 +325,26 @@ export function Login() {
               </View>
             )}
 
-            <Button 
-              label={isForgot ? "BACK TO LOGIN" : "SIGN IN TO CONTROL"} 
-              onPress={isForgot ? () => setMode(hasSavedLogin ? "PIN" : "PASSWORD") : handleSubmit} 
-              loading={isSubmitting} 
-              size="lg"
-              fullWidth
-              style={styles.submitBtn}
-            />
+            {mode !== "PIN" && (
+              <Button 
+                label={isForgot ? "BACK TO LOGIN" : "SIGN IN TO CONTROL"} 
+                onPress={isForgot ? () => setMode(hasSavedLogin ? "PIN" : "PASSWORD") : handleSubmit} 
+                loading={isSubmitting} 
+                size="lg"
+                fullWidth
+                style={styles.submitBtn}
+              />
+            )}
 
-            {!isForgot && (
+            {!isForgot && mode !== "PIN" && (
               <>
                 <Divider style={styles.divider} />
                 <View style={styles.extraActions}>
-                  {hasSavedLogin && (
+                  {hasSavedLogin && (pinSet || biometricEnabled) && (
                     <Button 
                       variant="ghost" 
-                      label={mode === "PIN" ? "Use password instead" : "Use quick PIN login"} 
-                      onPress={() => { setMode(mode === "PIN" ? "PASSWORD" : "PIN"); setPassword(""); setError(null); }}
-                      fullWidth
-                    />
-                  )}
-                  
-                  {biometricAvailable && hasSavedLogin && (
-                    <Button 
-                      variant="secondary" 
-                      icon={<Icon source="fingerprint" size={20} color={colors.primary} />} 
-                      label="Biometric Login" 
-                      onPress={handleBiometricLogin}
+                      label="Use quick PIN login" 
+                      onPress={() => { setMode("PIN"); setPassword(""); setError(null); }}
                       fullWidth
                     />
                   )}
@@ -394,5 +502,81 @@ const styles = StyleSheet.create({
   },
   extraActions: {
     gap: spacing.md,
-  }
+  },
+  passcodeContainer: {
+    alignItems: "center",
+    gap: spacing.xl,
+    paddingVertical: spacing.md,
+    width: "100%",
+  },
+  dotsRow: {
+    flexDirection: "row",
+    gap: spacing.xl,
+    justifyContent: "center",
+    marginVertical: spacing.lg,
+  },
+  dot: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 2.5,
+    borderColor: colors.borderStrong,
+    backgroundColor: "transparent",
+  },
+  dotFilled: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  passcodeKeypad: {
+    width: "100%",
+    gap: spacing.md,
+  },
+  keypadRow: {
+    flexDirection: "row",
+    gap: spacing.md,
+  },
+  keypadBtn: {
+    flex: 1,
+    height: 64,
+    borderRadius: 20,
+    backgroundColor: colors.surfaceOffset,
+    alignItems: "center",
+    justifyContent: "center",
+    ...shadow.sm,
+  },
+  keypadBtnText: {
+    fontSize: 22,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  keypadBtnEmpty: {
+    flex: 1,
+    height: 64,
+    backgroundColor: "transparent",
+  },
+  keypadBackspace: {
+    backgroundColor: "transparent",
+    elevation: 0,
+    shadowOpacity: 0,
+  },
+  passcodeFooter: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    width: "100%",
+    marginTop: spacing.md,
+    paddingHorizontal: spacing.sm,
+  },
+  passcodeLinkBtn: {
+    paddingVertical: spacing.sm,
+  },
+  passcodeLinkText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.black,
+    color: colors.primary,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  pressed: {
+    opacity: 0.7,
+  },
 });

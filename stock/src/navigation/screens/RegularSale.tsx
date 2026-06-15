@@ -19,7 +19,7 @@ import { Section } from "../../components/ui/Section";
 import { SkeletonList } from "../../components/ui/SkeletonCard";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
-import { goBack } from "../navigation-ref";
+import { goBack, navigate } from "../navigation-ref";
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 
@@ -515,15 +515,36 @@ export function RegularSale() {
               <Section title="Customer Details">
                 {!selectedCustomer ? (
                   <View style={styles.formCard}>
-                    <Searchbar
-                      placeholder="Search customer name or phone..."
-                      onChangeText={setCustomerSearch}
-                      value={customerSearch}
-                      style={styles.searchBar}
-                      inputStyle={styles.searchInput}
-                      elevation={0}
-                    />
-                    {customerSearch ? (
+                    <View style={styles.searchRow}>
+                      <Searchbar
+                        placeholder="Search customer name or phone..."
+                        onChangeText={setCustomerSearch}
+                        value={customerSearch}
+                        style={[styles.searchBar, { flex: 1, marginBottom: 0 }]}
+                        inputStyle={styles.searchInput}
+                        elevation={0}
+                      />
+                      <Pressable 
+                        onPress={() => navigate("AddEditCustomer")}
+                        style={({ pressed }) => [styles.searchAddBtn, pressed && styles.pressed]}
+                      >
+                        <Icon source="account-plus" size={24} color={colors.primary} />
+                      </Pressable>
+                    </View>
+
+                    {customerSearch && filteredCustomers.length === 0 ? (
+                      <Pressable 
+                        onPress={() => navigate("AddEditCustomer", { customer: { name: customerSearch } })}
+                        style={styles.addNewCustomerRow}
+                      >
+                        <Icon source="account-plus-outline" size={20} color={colors.primary} />
+                        <Text style={styles.addNewCustomerText}>
+                          No matches. Create "{customerSearch}"?
+                        </Text>
+                      </Pressable>
+                    ) : null}
+
+                    {customerSearch && filteredCustomers.length > 0 ? (
                       <View style={styles.searchDropdown}>
                         {filteredCustomers.map(c => (
                           <List.Item
@@ -1530,5 +1551,39 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: spacing.sm,
     marginTop: spacing.sm,
+  },
+  searchRow: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    alignItems: 'center',
+  },
+  searchAddBtn: {
+    width: 48,
+    height: 48,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceOffset,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  addNewCustomerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.primaryLight,
+    borderWidth: 1,
+    borderColor: 'rgba(22, 163, 74, 0.2)',
+  },
+  addNewCustomerText: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.primaryDark,
+    flex: 1,
+  },
+  pressed: {
+    opacity: 0.72,
   },
 });

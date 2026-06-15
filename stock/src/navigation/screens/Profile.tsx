@@ -133,6 +133,7 @@ export function Profile() {
       const hash = await hashQuickPin(user.mobile, pin);
       await setToken("shopcontrol_quick_pin_hash", hash);
       await setToken("shopcontrol_last_identifier", user.mobile);
+      await setToken("shopcontrol_pin_set", "true");
       
       const activeToken = await getToken("shopcontrol_token");
       if (activeToken) {
@@ -219,25 +220,30 @@ export function Profile() {
           {/* App Settings */}
           <Section title="App settings">
             <View style={styles.detailsCard}>
-              <SettingItem 
-                icon="store-edit-outline" 
-                title="Manage Shops" 
-                subtitle="View and edit shop locations"
-                onPress={() => navigate("Updates")}
-              />
+              {user?.role === 'OWNER' && (
+                <SettingItem 
+                  icon="store-edit-outline" 
+                  title="Manage Shops" 
+                  subtitle="View and edit shop locations"
+                  onPress={() => navigate("Updates")}
+                />
+              )}
               <SettingItem 
                 icon="cog-outline" 
                 title="Preferences" 
                 subtitle="Notifications and display"
                 onPress={() => navigate("Settings")}
+                isLast={user?.role !== 'OWNER'}
               />
-              <SettingItem 
-                icon="account-tie-outline" 
-                title="Staff Management" 
-                subtitle="Assign permissions and PINs"
-                onPress={() => navigate("StaffManagement")}
-                isLast={true}
-              />
+              {user?.role === 'OWNER' && (
+                <SettingItem 
+                  icon="account-tie-outline" 
+                  title="Staff Management" 
+                  subtitle="Assign permissions and PINs"
+                  onPress={() => navigate("StaffManagement")}
+                  isLast={true}
+                />
+              )}
             </View>
           </Section>
 
@@ -382,7 +388,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: spacing.huge,
+    paddingBottom: 160,
   },
   profileCard: {
     backgroundColor: colors.primary,
