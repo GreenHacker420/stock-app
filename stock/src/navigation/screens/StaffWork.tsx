@@ -21,17 +21,15 @@ function WorkflowItem({ title, subtitle, icon, iconBg, iconColor, onPress }: Wor
       onPress={onPress}
       style={({ pressed }) => [
         styles.itemCard,
-        pressed && styles.pressed
-      ]}
+        pressed ? styles.pressed : undefined
+      ].filter(Boolean) as any}
     >
-      <View style={styles.itemLeft}>
-        <View style={[styles.iconWrapper, { backgroundColor: iconBg }]}>
-          <Icon source={icon} size={22} color={iconColor} />
-        </View>
-        <View style={styles.textContainer}>
-          <Text style={styles.itemTitle}>{title}</Text>
-          <Text style={styles.itemSubtitle}>{subtitle}</Text>
-        </View>
+      <View style={[styles.iconWrapper, { backgroundColor: iconBg }]}>
+        <Icon source={icon} size={22} color={iconColor} />
+      </View>
+      <View style={styles.textContainer}>
+        <Text style={styles.itemTitle}>{title}</Text>
+        <Text style={styles.itemSubtitle}>{subtitle}</Text>
       </View>
       <View style={styles.arrowWrapper}>
         <Icon source="chevron-right" size={20} color={colors.textMuted} />
@@ -43,12 +41,15 @@ function WorkflowItem({ title, subtitle, icon, iconBg, iconColor, onPress }: Wor
 export function StaffWork() {
   return (
     <Screen edges={["top", "left", "right"]}>
-      <AppHeader title="Workflows" role="STAFF" />
-
       <ScrollView 
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
+        <View style={styles.headerSpacer}>
+          <Text style={styles.pageTitle}>Workflows</Text>
+          <Text style={styles.pageSubtitle}>Day-to-day shop operations</Text>
+        </View>
+
         {/* Counter Section */}
         <View style={styles.section}>
           <Text style={styles.sectionHeader}>Counter</Text>
@@ -57,7 +58,7 @@ export function StaffWork() {
               title="New sale"
               subtitle="Walk-in or regular customer sale."
               icon="cart-plus"
-              iconBg="rgba(22, 163, 74, 0.06)"
+              iconBg={colors.primaryLight}
               iconColor={colors.success}
               onPress={() => navigate("NewSaleType")}
             />
@@ -66,7 +67,7 @@ export function StaffWork() {
               title="Open cash"
               subtitle="Start the counter session before cash sales."
               icon="cash-register"
-              iconBg="rgba(20, 184, 166, 0.06)"
+              iconBg="#ccfbf1"
               iconColor="#0d9488"
               onPress={() => navigate("OpenCashSession")}
             />
@@ -75,7 +76,7 @@ export function StaffWork() {
               title="Take payment"
               subtitle="Cash, UPI, card, bank, cheque, or pending."
               icon="credit-card-outline"
-              iconBg="rgba(217, 119, 6, 0.06)"
+              iconBg={colors.warningLight}
               iconColor="#d97706"
               onPress={() => navigate("TakePayment")}
             />
@@ -90,7 +91,7 @@ export function StaffWork() {
               title="Orders to pack"
               subtitle="Pick, pack, shortage, and dispatch flow."
               icon="package-variant-closed"
-              iconBg="rgba(22, 163, 74, 0.06)"
+              iconBg={colors.primaryLight}
               iconColor={colors.success}
               onPress={() => navigate("OrdersToPack")}
             />
@@ -99,7 +100,7 @@ export function StaffWork() {
               title="Stock entry"
               subtitle="Stock in, stock out, damage, and adjustment."
               icon="warehouse"
-              iconBg="rgba(20, 184, 166, 0.06)"
+              iconBg="#ccfbf1"
               iconColor="#0d9488"
               onPress={() => navigate("StockEntry")}
             />
@@ -108,7 +109,7 @@ export function StaffWork() {
               title="Log expense"
               subtitle="Log daily outgoings (tea, freight, porter, misc)."
               icon="cash-minus"
-              iconBg="rgba(239, 68, 68, 0.06)"
+              iconBg={colors.dangerLight}
               iconColor="#ef4444"
               onPress={() => navigate("Expenses")}
             />
@@ -117,7 +118,7 @@ export function StaffWork() {
               title="Close day"
               subtitle="Expected cash, actual cash, mismatch reason."
               icon="cash-check"
-              iconBg="rgba(217, 119, 6, 0.06)"
+              iconBg={colors.warningLight}
               iconColor="#d97706"
               onPress={() => navigate("CloseDay")}
             />
@@ -134,6 +135,22 @@ export function StaffWork() {
 }
 
 const styles = StyleSheet.create({
+  headerSpacer: {
+    marginTop: spacing.md,
+    marginBottom: spacing.lg,
+  },
+  pageTitle: {
+    fontSize: 26,
+    fontWeight: fontWeight.black,
+    color: colors.textPrimary,
+    letterSpacing: -0.5,
+  },
+  pageSubtitle: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    fontWeight: fontWeight.medium,
+    marginTop: 2,
+  },
   scrollContent: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.xs,
@@ -156,20 +173,14 @@ const styles = StyleSheet.create({
   itemCard: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 20,
     paddingVertical: 18,
     paddingHorizontal: 20,
+    gap: spacing.md,
     ...shadow.sm,
-  },
-  itemLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-    gap: spacing.lg,
   },
   iconWrapper: {
     width: 48,

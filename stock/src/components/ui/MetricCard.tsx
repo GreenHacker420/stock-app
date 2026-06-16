@@ -1,4 +1,4 @@
-import { View, StyleSheet } from "react-native";
+import { View, StyleSheet, StyleProp, ViewStyle } from "react-native";
 import { Icon, Text } from "react-native-paper";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 
@@ -8,20 +8,21 @@ type MetricCardProps = {
   icon: string;
   tone?: "green" | "amber" | "blue" | "red";
   helper?: string;
+  style?: StyleProp<ViewStyle>;
 };
 
 const tones = {
-  green: { bg: colors.surface, iconBg: 'rgba(5, 150, 105, 0.08)', color: colors.success },
-  amber: { bg: colors.surface, iconBg: 'rgba(217, 119, 6, 0.08)', color: colors.warning },
-  blue: { bg: colors.surface, iconBg: 'rgba(30, 64, 175, 0.08)', color: colors.primary },
-  red: { bg: colors.surface, iconBg: 'rgba(220, 38, 38, 0.08)', color: colors.danger },
+  green: { bg: colors.surface, iconBg: colors.successLight, color: colors.success },
+  amber: { bg: colors.surface, iconBg: colors.warningLight, color: colors.warning },
+  blue: { bg: colors.surface, iconBg: colors.infoLight, color: colors.info },
+  red: { bg: colors.surface, iconBg: colors.dangerLight, color: colors.danger },
 };
 
-export function MetricCard({ label, value, icon, tone = "green", helper }: MetricCardProps) {
+export function MetricCard({ label, value, icon, tone = "green", helper, style }: MetricCardProps) {
   const palette = tones[tone];
 
   return (
-    <View style={[styles.container, { backgroundColor: palette.bg }]}>
+    <View style={StyleSheet.flatten([styles.container, { backgroundColor: palette.bg }, style])}>
       <View style={styles.header}>
         <View style={[styles.iconContainer, { backgroundColor: palette.iconBg }]}>
           <Icon source={icon} size={20} color={palette.color} />
@@ -46,7 +47,6 @@ export function MetricCard({ label, value, icon, tone = "green", helper }: Metri
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
     padding: spacing.lg,
     borderRadius: radius.lg,
     borderWidth: 1,

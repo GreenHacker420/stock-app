@@ -5,9 +5,14 @@ import {
   configureFonts,
 } from "react-native-paper";
 import { DarkTheme, DefaultTheme } from "@react-navigation/native";
+import { Platform } from "react-native";
 
 const fontConfig = {
-  fontFamily: "System",
+  fontFamily: Platform.select({
+    web: 'System, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+    ios: 'System',
+    default: 'sans-serif',
+  }),
 };
 
 import { colors } from "./index";

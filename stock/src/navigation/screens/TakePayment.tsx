@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
+import { LinearGradient } from "expo-linear-gradient";
 import { 
   ScrollView, 
   View, 
@@ -109,7 +110,7 @@ export function TakePayment() {
     return `upi://pay?pa=${activeShop.upiId}&pn=${name}&am=${amount}&cu=INR`;
   }, [activeShop, amount]);
 
-  const showQrSection = paymentMode === 'UPI' && upiOption === 'GENERATE' && amount;
+  const showQrSection = paymentMode === 'UPI' && upiOption === 'GENERATE' && amount && !!activeShop?.upiId;
 
   // Keypad controls
   const handleKeyPress = (key: string) => {
@@ -146,14 +147,22 @@ export function TakePayment() {
     <Screen edges={['top', 'left', 'right']}>
       <KeyboardAvoidingView 
         style={styles.keyboardView} 
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
-        <AppHeader title="Take Payment" subtitle="Record POS collections" />
-        
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+
+        <ScrollView 
+          style={styles.scrollView}
+          showsVerticalScrollIndicator={false} 
+          contentContainerStyle={styles.scrollContent}
+        >
           {/* Curved Brand Customer Header Card */}
-          <View style={styles.customerCard}>
+          <LinearGradient
+            colors={[colors.primaryDark, colors.primary]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.customerCard}
+          >
             <View style={styles.customerHeader}>
               <Text style={styles.customerLabel}>Customer Info</Text>
               <View style={styles.walkinToggleContainer}>
@@ -193,7 +202,7 @@ export function TakePayment() {
                      </View>
                      <Pressable 
                        onPress={() => { setCustomerId(undefined); setOrderId(undefined); }}
-                       style={({ pressed }) => [styles.changeCustButton, pressed && styles.pressed]}
+                       style={({ pressed }) => [styles.changeCustButton, pressed ? styles.pressed : undefined].filter(Boolean) as any}
                      >
                        <Text style={styles.changeCustText}>Change</Text>
                      </Pressable>
@@ -228,7 +237,7 @@ export function TakePayment() {
                 </View>
               </View>
             )}
-          </View>
+          </LinearGradient>
 
           {/* Amount Received Display */}
           <View style={styles.amountDisplayContainer}>
@@ -264,20 +273,20 @@ export function TakePayment() {
                   <Pressable 
                     key={mode.value} 
                     onPress={() => { if(!paymentMutation.isPending) { setPaymentMode(mode.value); setErrorMsg(null); } }}
-                    style={[
+                    style={([
                       styles.methodTab,
-                      isActive && styles.methodTabActive
-                    ]}
+                      isActive ? styles.methodTabActive : undefined
+                    ].filter(Boolean)) as any}
                   >
                     <Icon 
                       source={mode.icon} 
                       size={20} 
                       color={isActive ? "white" : colors.textSecondary} 
                     />
-                    <Text style={[
+                    <Text style={([
                       styles.methodTabLabel,
-                      isActive && styles.methodTabLabelActive
-                    ]}>
+                      isActive ? styles.methodTabLabelActive : undefined
+                    ].filter(Boolean)) as any}>
                       {mode.label}
                     </Text>
                   </Pressable>
@@ -419,7 +428,10 @@ export function TakePayment() {
 
         {/* Footer Confirm Action */}
         {!showQrSection && (
-          <View style={[styles.footer, { paddingBottom: bottomPadding }]}>
+          <View style={[
+            isTabBarVisible ? styles.tabFooter : styles.stackFooter,
+            { paddingBottom: bottomPadding }
+          ]}>
             <Button
               label="CONFIRM PAYMENT"
               variant="success"
@@ -455,15 +467,34 @@ const styles = StyleSheet.create({
   keyboardView: {
     flex: 1,
   },
+  scrollView: {
+    flex: 1,
+  },
   scrollContent: {
-    paddingBottom: 120,
+    paddingBottom: 150, // ensures the Confirm button scrolls completely clear of floating tabs
+  },
+  tabHeaderSpacer: {
+    paddingHorizontal: spacing.lg,
+    marginTop: spacing.md,
+    marginBottom: spacing.md,
+  },
+  tabTitle: {
+    fontSize: 26,
+    fontWeight: fontWeight.black,
+    color: colors.textPrimary,
+    letterSpacing: -0.5,
+  },
+  tabSubtitle: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    fontWeight: fontWeight.medium,
+    marginTop: 2,
   },
   customerCard: {
-    backgroundColor: colors.primary,
-    borderBottomLeftRadius: 32,
-    borderBottomRightRadius: 32,
-    padding: spacing.xl,
-    paddingTop: spacing.md,
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.md,
+    borderRadius: 24,
+    padding: spacing.lg,
     gap: spacing.md,
     ...shadow.md,
   },
@@ -475,7 +506,7 @@ const styles = StyleSheet.create({
   customerLabel: {
     fontSize: 10,
     fontWeight: fontWeight.bold,
-    color: 'rgba(255, 255, 255, 0.6)',
+    color: 'rgba(255, 255, 255, 0.65)',
     textTransform: 'uppercase',
     letterSpacing: 1,
   },
@@ -547,7 +578,7 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
   },
   customerPhone: {
-    color: 'rgba(255, 255, 255, 0.7)',
+    color: 'rgba(255, 255, 255, 0.75)',
     fontSize: fontSize.xs,
     marginTop: 2,
   },
@@ -565,20 +596,28 @@ const styles = StyleSheet.create({
   amountDisplayContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: spacing.xl,
+    paddingVertical: spacing.md,
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.md,
+    marginBottom: spacing.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1.5,
+    borderColor: colors.borderStrong,
+    borderRadius: 20,
+    ...shadow.sm,
   },
   amountCurrency: {
     fontSize: 10,
     fontWeight: fontWeight.black,
-    color: colors.textMuted,
+    color: colors.textSecondary,
     letterSpacing: 1,
-    marginBottom: 6,
+    marginBottom: 4,
   },
   amountValue: {
-    fontSize: fontSize.huge,
+    fontSize: 36,
     fontWeight: fontWeight.black,
     color: colors.primary,
-    letterSpacing: -1,
+    letterSpacing: -0.5,
   },
   presetsRow: {
     flexDirection: 'row',
@@ -590,26 +629,32 @@ const styles = StyleSheet.create({
   presetButton: {
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: radius.md,
-    backgroundColor: colors.surfaceOffset,
+    borderRadius: 12,
+    backgroundColor: colors.primaryLight,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: 'rgba(22, 163, 74, 0.4)',
+    minWidth: 58,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   presetText: {
-    fontSize: fontSize.xs,
+    fontSize: 12,
     fontWeight: fontWeight.bold,
-    color: colors.textPrimary,
+    color: colors.primaryDark,
   },
   clearButton: {
     paddingHorizontal: 12,
     paddingVertical: 8,
-    borderRadius: radius.md,
+    borderRadius: 12,
     backgroundColor: colors.dangerLight,
     borderWidth: 1,
-    borderColor: 'rgba(220, 38, 38, 0.1)',
+    borderColor: 'rgba(220, 38, 38, 0.4)',
+    minWidth: 64,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   clearText: {
-    fontSize: fontSize.xs,
+    fontSize: 12,
     fontWeight: fontWeight.bold,
     color: colors.danger,
   },
@@ -623,16 +668,16 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceOffset,
     borderRadius: 20,
     padding: 6,
-    borderWidth: 1,
-    borderColor: colors.border,
+    borderWidth: 1.5,
+    borderColor: colors.borderStrong,
   },
   methodTab: {
     flex: 1,
-    height: 56,
-    borderRadius: 14,
+    height: 48,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 4,
+    gap: 2,
   },
   methodTabActive: {
     backgroundColor: colors.primary,
@@ -662,7 +707,7 @@ const styles = StyleSheet.create({
     padding: spacing.md,
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: 'rgba(217, 119, 6, 0.2)',
+    borderColor: 'rgba(217, 119, 6, 0.4)',
   },
   alertText: {
     fontSize: 12,
@@ -675,8 +720,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     padding: spacing.xl,
     borderRadius: 24,
-    borderWidth: 1,
-    borderColor: colors.border,
+    borderWidth: 1.5,
+    borderColor: colors.borderStrong,
     alignItems: 'center',
     gap: spacing.lg,
     ...shadow.sm,
@@ -703,8 +748,8 @@ const styles = StyleSheet.create({
   },
   keypadContainer: {
     paddingHorizontal: spacing.xl,
-    gap: spacing.sm,
-    marginBottom: spacing.md,
+    gap: 6,
+    marginBottom: spacing.sm,
   },
   keypadRow: {
     flexDirection: 'row',
@@ -712,14 +757,14 @@ const styles = StyleSheet.create({
   },
   keypadButton: {
     flex: 1,
-    height: 52,
-    borderRadius: 16,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
+    height: 46,
+    borderRadius: 14,
+    backgroundColor: '#f3f4f6',
+    borderWidth: 1.5,
+    borderColor: '#d1d5db',
     alignItems: 'center',
     justifyContent: 'center',
-    ...shadow.sm,
+    ...shadow.md,
   },
   keypadButtonText: {
     fontSize: 20,
@@ -727,7 +772,8 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
   },
   keypadBackspace: {
-    backgroundColor: colors.surfaceOffset,
+    backgroundColor: '#e5e7eb',
+    borderColor: '#d1d5db',
   },
   metadataContainer: {
     paddingHorizontal: spacing.lg,
@@ -776,15 +822,17 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.bold,
     flex: 1,
   },
-  footer: {
+  tabFooter: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.xs,
+    backgroundColor: 'transparent',
+  },
+  stackFooter: {
     padding: spacing.lg,
     borderTopWidth: 1,
     borderTopColor: colors.border,
     backgroundColor: colors.surface,
     ...shadow.lg,
-  },
-  footerTabOffset: {
-    paddingBottom: Platform.OS === 'ios' ? 128 : 120,
   },
   pressed: {
     opacity: 0.72,

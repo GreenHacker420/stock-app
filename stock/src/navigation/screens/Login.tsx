@@ -382,13 +382,19 @@ export function Login() {
                   <View style={styles.passcodeFooter}>
                     <Pressable 
                       onPress={() => { setMode("PASSWORD"); setPassword(""); setError(null); }}
-                      style={({ pressed }) => [styles.passcodeLinkBtn, pressed && styles.pressed]}
+                      style={({ pressed }) => [
+                        styles.passcodeLinkBtn, 
+                        pressed ? styles.pressed : undefined
+                      ].filter(Boolean) as any}
                     >
                       <Text style={styles.passcodeLinkText}>Use Password</Text>
                     </Pressable>
                     <Pressable 
                       onPress={() => { setMode("FORGOT"); setError(null); setInfo(null); }}
-                      style={({ pressed }) => [styles.passcodeLinkBtn, pressed && styles.pressed]}
+                      style={({ pressed }) => [
+                        styles.passcodeLinkBtn, 
+                        pressed ? styles.pressed : undefined
+                      ].filter(Boolean) as any}
                     >
                       <Text style={styles.passcodeLinkText}>Forgot PIN?</Text>
                     </Pressable>
@@ -506,9 +512,9 @@ function PasscodeDot({ filled }: { filled: boolean }) {
     <Animated.View 
       style={[
         styles.dot, 
-        filled && styles.dotFilled,
+        filled ? styles.dotFilled : undefined,
         { transform: [{ scale: scaleAnim }] }
-      ]} 
+      ].filter(Boolean) as any} 
     />
   );
 }

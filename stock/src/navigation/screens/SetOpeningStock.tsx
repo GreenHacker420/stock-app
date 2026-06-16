@@ -85,7 +85,7 @@ export function SetOpeningStock() {
         subtitle={`Set starting quantities for ${shop.name}`}
       />
 
-      <ScrollView className="flex-1 mt-2">
+      <ScrollView style={{ flex: 1, marginTop: 8 }}>
         <Section title="Inventory Items">
           {itemsQuery.isLoading ? (
             <View style={styles.loadingItems}>

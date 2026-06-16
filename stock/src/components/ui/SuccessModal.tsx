@@ -27,22 +27,29 @@ export function SuccessModal({ visible, title, message, onClose }: SuccessModalP
           elevation: 6,
         }}
       >
-        <View className="items-center gap-5 mt-2">
+        <View style={{ alignItems: "center", gap: 20, marginTop: 8 }}>
           {/* Success Checkmark Circle */}
           <View 
             style={{
+              height: 64,
+              width: 64,
+              borderRadius: 32,
+              backgroundColor: "#ecfdf5", // bg-emerald-50
+              alignItems: "center",
+              justifyContent: "center",
+              borderWidth: 1,
+              borderColor: "#d1fae5", // border-emerald-100
               shadowColor: "#10b981",
               shadowOffset: { width: 0, height: 8 },
               shadowOpacity: 0.2,
               shadowRadius: 16,
               elevation: 4,
             }}
-            className="h-16 w-16 rounded-full bg-emerald-50 items-center justify-center border border-emerald-100"
           >
             <Icon source="check-circle" size={36} color="#10b981" />
           </View>
 
-          <View className="items-center gap-2">
+          <View style={{ alignItems: "center", gap: 8 }}>
             <Text variant="titleLarge" style={{ fontWeight: "900", color: "#0f172a", textAlign: "center" }}>
               {title}
             </Text>

@@ -1,6 +1,6 @@
 import { io, type Socket } from "socket.io-client";
 
-const SOCKET_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:6600";
+const SOCKET_URL = process.env.EXPO_PUBLIC_API_URL ?? "https://shop-api.evergreenclassic.in";
 
 export type RealtimeEvent =
   | "order:updated"

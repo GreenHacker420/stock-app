@@ -318,7 +318,7 @@ const styles = StyleSheet.create({
     paddingBottom: Platform.OS === 'ios' ? spacing.xl : spacing.lg,
     borderTopWidth: 1,
     borderTopColor: colors.border,
-    boxShadow: "0 -4px 12px rgba(0, 0, 0, 0.05)",
+    ...shadow.md,
   },
   footerInfo: {
     marginBottom: spacing.md,

@@ -74,7 +74,7 @@ export function AssignStaff() {
     <Screen scroll={false}>
       <AppHeader title="Assign Staff" subtitle={`Manage operators for ${shop.name}`} />
 
-      <ScrollView className="flex-1 mt-2">
+      <ScrollView style={{ flex: 1, marginTop: 8 }}>
         <Section title="Active Staff Members">
           <View style={styles.staffContainer}>
             {staffQuery.data?.length === 0 ? (

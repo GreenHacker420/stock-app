@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { ScrollView, View, Pressable, StyleSheet, ActivityIndicator } from "react-native";
+import { ScrollView, View, Pressable, StyleSheet, ActivityIndicator, Dimensions, useWindowDimensions } from "react-native";
 import { Text, Icon, Button } from "react-native-paper";
 
 import { useAuthStore } from "../../auth/auth-store";
@@ -10,6 +10,7 @@ import { useOwnerDashboardQuery } from "../../hooks/useDashboard";
 import { Screen } from "../../components/Screen";
 import { ActionTile } from "../../components/ui/ActionTile";
 import { AppHeader } from "../../components/ui/AppHeader";
+import { StatusPill } from "../../components/ui/StatusPill";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { navigate } from "../navigation-ref";
 
@@ -20,18 +21,25 @@ type CategoryCardProps = {
 };
 
 function CategoryCard({ title, icon, onPress }: CategoryCardProps) {
+  const { width: windowWidth } = useWindowDimensions();
+  const cardWidth = (windowWidth - spacing.lg * 2 - spacing.md) / 2;
+
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [
+      style={[
         styles.catCard,
-        pressed && styles.pressed
+        { width: cardWidth, margin: spacing.md / 2 }
       ]}
     >
-      <View style={styles.catCardIconWrapper}>
-        <Icon source={icon} size={30} color={colors.primary} />
-      </View>
-      <Text style={styles.catCardText} numberOfLines={1}>{title.toUpperCase()}</Text>
+      {({ pressed }) => (
+        <View style={StyleSheet.flatten([styles.catCardInner, pressed && styles.pressed])}>
+          <View style={styles.catCardIconWrapper}>
+            <Icon source={icon} size={26} color={colors.primary} />
+          </View>
+          <Text style={styles.catCardText} numberOfLines={2}>{title.toUpperCase()}</Text>
+        </View>
+      )}
     </Pressable>
   );
 }
@@ -73,6 +81,7 @@ export function Home() {
         subtitle={subtitleText}
         role={user?.role}
         initials={initials}
+        showBack={false}
       />
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
@@ -126,24 +135,13 @@ export function Home() {
   );
 }
 
-function StatusPill({ label, tone }: { label: string; tone: "green" | "blue" | "amber" }) {
-  const tones = {
-    green: { bg: 'rgba(22, 163, 74, 0.08)', color: colors.success },
-    blue: { bg: 'rgba(34, 197, 94, 0.08)', color: colors.primary },
-    amber: { bg: 'rgba(217, 119, 6, 0.08)', color: colors.warning },
-  };
-  const currentTone = tones[tone];
-  return (
-    <View style={[styles.statusPillWrapper, { backgroundColor: currentTone.bg }]}>
-      <Text style={[styles.statusPillLabel, { color: currentTone.color }]}>{label}</Text>
-    </View>
-  );
-}
-
 function OwnerHome({ navigate }: { navigate: (s: any, params?: any) => void }) {
   const user = useAuthStore((state) => state.user);
   const dashboardQuery = useOwnerDashboardQuery();
   const dashboard = dashboardQuery.data as any;
+
+  const { width: windowWidth } = useWindowDimensions();
+  const cardWidth = (windowWidth - spacing.lg * 2 - spacing.md) / 2;
 
   const [activeCategory, setActiveCategory] = useState<'sales' | 'inventory' | 'reports'>('sales');
 
@@ -207,79 +205,91 @@ function OwnerHome({ navigate }: { navigate: (s: any, params?: any) => void }) {
         {/* Verification Queue Card */}
         <Pressable 
           onPress={() => navigate("VerificationQueue")} 
-          style={({ pressed }) => [
+          style={[
             styles.taskCard,
-            (dashboard?.pendingVerifications ?? 0) > 0 && styles.taskCardAlert,
-            pressed && styles.pressed
+            { width: cardWidth, margin: spacing.md / 2 },
+            (dashboard?.pendingVerifications ?? 0) > 0 ? styles.taskCardAlert : undefined,
           ]}
         >
-          <View style={styles.taskHeader}>
-            <Icon 
-              source="shield-check-outline" 
-              size={24} 
-              color={(dashboard?.pendingVerifications ?? 0) > 0 ? colors.primary : colors.textMuted} 
-            />
-            <Text style={[
-              styles.taskBadge, 
-              (dashboard?.pendingVerifications ?? 0) > 0 ? styles.taskBadgeAlert : styles.taskBadgeClean
-            ]}>
-              {dashboard?.pendingVerifications ?? 0}
-            </Text>
-          </View>
-          <Text style={styles.taskLabel}>VERIFICATIONS</Text>
-          <Text style={styles.taskDesc}>Expenses & adjustments</Text>
+          {({ pressed }) => (
+            <View style={StyleSheet.flatten([styles.taskCardInner, pressed && styles.pressed])}>
+              <View style={styles.taskHeader}>
+                <Icon 
+                  source="shield-check-outline" 
+                  size={24} 
+                  color={(dashboard?.pendingVerifications ?? 0) > 0 ? colors.primary : colors.textMuted} 
+                />
+                <Text style={[
+                  styles.taskBadge, 
+                  (dashboard?.pendingVerifications ?? 0) > 0 ? styles.taskBadgeAlert : styles.taskBadgeClean
+                ]}>
+                  {dashboard?.pendingVerifications ?? 0}
+                </Text>
+              </View>
+              <Text style={styles.taskLabel}>VERIFICATIONS</Text>
+              <Text style={styles.taskDesc}>Expenses & adjustments</Text>
+            </View>
+          )}
         </Pressable>
 
         {/* GST Pending Card */}
         <Pressable 
           onPress={() => navigate("SalesList", { filter: 'gst_pending' })} 
-          style={({ pressed }) => [
+          style={[
             styles.taskCard,
-            (dashboard?.gstInvoicesPendingCount ?? 0) > 0 && styles.taskCardWarning,
-            pressed && styles.pressed
+            { width: cardWidth, margin: spacing.md / 2 },
+            (dashboard?.gstInvoicesPendingCount ?? 0) > 0 ? styles.taskCardWarning : undefined,
           ]}
         >
-          <View style={styles.taskHeader}>
-            <Icon 
-              source="file-percent-outline" 
-              size={24} 
-              color={(dashboard?.gstInvoicesPendingCount ?? 0) > 0 ? colors.warning : colors.textMuted} 
-            />
-            <Text style={[
-              styles.taskBadge, 
-              (dashboard?.gstInvoicesPendingCount ?? 0) > 0 ? styles.taskBadgeWarning : styles.taskBadgeClean
-            ]}>
-              {dashboard?.gstInvoicesPendingCount ?? 0}
-            </Text>
-          </View>
-          <Text style={styles.taskLabel}>PENDING GST</Text>
-          <Text style={styles.taskDesc}>Bills to enter in Tally</Text>
+          {({ pressed }) => (
+            <View style={StyleSheet.flatten([styles.taskCardInner, pressed && styles.pressed])}>
+              <View style={styles.taskHeader}>
+                <Icon 
+                  source="file-percent-outline" 
+                  size={24} 
+                  color={(dashboard?.gstInvoicesPendingCount ?? 0) > 0 ? colors.warning : colors.textMuted} 
+                />
+                <Text style={[
+                  styles.taskBadge, 
+                  (dashboard?.gstInvoicesPendingCount ?? 0) > 0 ? styles.taskBadgeWarning : styles.taskBadgeClean
+                ]}>
+                  {dashboard?.gstInvoicesPendingCount ?? 0}
+                </Text>
+              </View>
+              <Text style={styles.taskLabel}>PENDING GST</Text>
+              <Text style={styles.taskDesc}>Bills to enter in Tally</Text>
+            </View>
+          )}
         </Pressable>
 
         {/* Low Stock Alerts Card */}
         <Pressable 
           onPress={() => navigate("StockDashboard")} 
-          style={({ pressed }) => [
+          style={[
             styles.taskCard,
-            (dashboard?.lowStockAlerts ?? 0) > 0 && styles.taskCardDanger,
-            pressed && styles.pressed
+            { width: cardWidth, margin: spacing.md / 2 },
+            (dashboard?.lowStockAlerts ?? 0) > 0 ? styles.taskCardDanger : undefined,
           ]}
         >
-          <View style={styles.taskHeader}>
-            <Icon 
-              source="alert-circle-outline" 
-              size={24} 
-              color={(dashboard?.lowStockAlerts ?? 0) > 0 ? colors.danger : colors.textMuted} 
-            />
-            <Text style={[
-              styles.taskBadge, 
-              (dashboard?.lowStockAlerts ?? 0) > 0 ? styles.taskBadgeDanger : styles.taskBadgeClean
-            ]}>
-              {dashboard?.lowStockAlerts ?? 0}
-            </Text>
-          </View>
-          <Text style={styles.taskLabel}>LOW STOCK</Text>
-          <Text style={styles.taskDesc}>Products below limit</Text>
+          {({ pressed }) => (
+            <View style={StyleSheet.flatten([styles.taskCardInner, pressed && styles.pressed])}>
+              <View style={styles.taskHeader}>
+                <Icon 
+                  source="alert-circle-outline" 
+                  size={24} 
+                  color={(dashboard?.lowStockAlerts ?? 0) > 0 ? colors.danger : colors.textMuted} 
+                />
+                <Text style={[
+                  styles.taskBadge, 
+                  (dashboard?.lowStockAlerts ?? 0) > 0 ? styles.taskBadgeDanger : styles.taskBadgeClean
+                ]}>
+                  {dashboard?.lowStockAlerts ?? 0}
+                </Text>
+              </View>
+              <Text style={styles.taskLabel}>LOW STOCK</Text>
+              <Text style={styles.taskDesc}>Products below limit</Text>
+            </View>
+          )}
         </Pressable>
       </View>
 
@@ -332,14 +342,14 @@ function StaffHome({ navigate, session, sessionLoading }: { navigate: (s: any, p
       <View style={[
         styles.staffBanner, 
         { 
-          backgroundColor: isOpen ? 'rgba(22, 163, 74, 0.03)' : 'rgba(217, 119, 6, 0.03)',
-          borderColor: isOpen ? 'rgba(22, 163, 74, 0.15)' : 'rgba(217, 119, 6, 0.15)'
+          backgroundColor: isOpen ? colors.primaryLight : colors.warningLight,
+          borderColor: isOpen ? 'rgba(22, 163, 74, 0.3)' : 'rgba(217, 119, 6, 0.3)'
         }
       ]}>
         <View style={styles.staffBannerHeader}>
           <View style={[
             styles.staffBannerIconBg, 
-            { backgroundColor: isOpen ? 'rgba(22, 163, 74, 0.08)' : 'rgba(217, 119, 6, 0.08)' }
+            { backgroundColor: colors.surface }
           ]}>
             <Icon 
               source={isOpen ? "check-circle" : "alert-circle"} 
@@ -395,7 +405,10 @@ function StaffHome({ navigate, session, sessionLoading }: { navigate: (s: any, p
       <View style={styles.staffFooterActions}>
         <Pressable 
           onPress={() => navigate("DailySummary")}
-          style={({ pressed }) => [styles.secondaryActionButton, pressed && styles.pressed]}
+          style={({ pressed }) => [
+            styles.secondaryActionButton, 
+            pressed ? styles.pressed : undefined
+          ].filter(Boolean) as any}
         >
           <Text style={styles.secondaryActionLabel}>Today's Summary</Text>
         </Pressable>
@@ -406,8 +419,8 @@ function StaffHome({ navigate, session, sessionLoading }: { navigate: (s: any, p
             style={({ pressed }) => [
               styles.secondaryActionButton, 
               { borderColor: colors.danger },
-              pressed && styles.pressed
-            ]}
+              pressed ? styles.pressed : undefined
+            ].filter(Boolean) as any}
           >
             <Text style={[styles.secondaryActionLabel, { color: colors.danger }]}>Close Day</Text>
           </Pressable>
@@ -419,7 +432,7 @@ function StaffHome({ navigate, session, sessionLoading }: { navigate: (s: any, p
 
 const styles = StyleSheet.create({
   scrollContent: {
-    paddingBottom: spacing.huge,
+    paddingBottom: 120,
     paddingTop: spacing.md,
   },
   sectionGap: {
@@ -495,15 +508,17 @@ const styles = StyleSheet.create({
   },
   // Actionable Pending Tasks Cards
   taskCard: {
-    width: '48%',
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 22,
-    padding: spacing.lg,
-    marginBottom: spacing.md,
-    gap: spacing.xs,
     ...shadow.sm,
+  },
+  taskCardInner: {
+    flex: 1,
+    width: '100%',
+    padding: spacing.lg,
+    gap: spacing.xs,
   },
   taskCardWarning: {
     borderColor: 'rgba(217, 119, 6, 0.25)',
@@ -593,41 +608,41 @@ const styles = StyleSheet.create({
   gridContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: spacing.lg - (spacing.md / 2),
     paddingTop: spacing.md,
   },
   catCard: {
-    width: '48%',
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 20,
-    padding: spacing.lg,
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: 120,
-    marginBottom: spacing.md,
+    minHeight: 110,
     ...shadow.sm,
   },
+  catCardInner: {
+    flex: 1,
+    width: '100%',
+    padding: spacing.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   catCardIconWrapper: {
-    width: 52,
-    height: 52,
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(22, 163, 74, 0.1)',
-    backgroundColor: 'rgba(22, 163, 74, 0.02)',
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: colors.primaryLight,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.xs,
   },
   catCardText: {
-    fontSize: 10,
+    fontSize: 10.5,
     fontWeight: fontWeight.bold,
     color: colors.textPrimary,
     letterSpacing: 0.5,
     textAlign: 'center',
-    marginTop: 2,
+    marginTop: 4,
+    lineHeight: 13,
   },
   pressed: {
     opacity: 0.72,

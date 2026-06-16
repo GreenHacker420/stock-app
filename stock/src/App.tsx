@@ -9,7 +9,6 @@ import * as SplashScreen from 'expo-splash-screen';
 import * as React from 'react';
 import { ActivityIndicator, PaperProvider } from 'react-native-paper';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import "../global.css";
 import { useAuthStore } from './auth/auth-store';
 import { useShopStore } from './auth/shop-store';
 import { clientPersister } from './auth/mmkv-storage';
@@ -65,6 +64,8 @@ const rneTheme = createTheme({
   },
 });
 
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+
 export function App() {
   const restoreSession = useAuthStore((state) => state.restoreSession);
   const isBootstrapping = useAuthStore((state) => state.isBootstrapping);
@@ -77,46 +78,53 @@ export function App() {
   const paperTheme = paperLightTheme;
   const navigationTheme = navigationThemes.LightTheme;
 
-  if (isBootstrapping) {
-    return (
+  return (
+    <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <PaperProvider theme={paperTheme} settings={paperSettings}>
-          <RneThemeProvider theme={rneTheme}>
-            <ActivityIndicator style={{ flex: 1 }} />
-          </RneThemeProvider>
-        </PaperProvider>
+        <PersistQueryClientProvider
+          client={queryClient}
+          persistOptions={{ persister: clientPersister }}
+        >
+          <PaperProvider theme={paperTheme} settings={paperSettings}>
+            <RneThemeProvider theme={rneTheme}>
+              <AppContent
+                isBootstrapping={isBootstrapping}
+                user={user}
+                navigationTheme={navigationTheme}
+                prefix={prefix}
+              />
+            </RneThemeProvider>
+          </PaperProvider>
+        </PersistQueryClientProvider>
       </SafeAreaProvider>
-    );
+    </GestureHandlerRootView>
+  );
+}
+
+function AppContent({
+  isBootstrapping,
+  user,
+  navigationTheme,
+  prefix,
+}: {
+  isBootstrapping: boolean;
+  user: any;
+  navigationTheme: any;
+  prefix: string;
+}) {
+  if (isBootstrapping) {
+    return <ActivityIndicator style={{ flex: 1 }} />;
   }
 
   if (!user) {
     SplashScreen.hideAsync();
-    return (
-      <SafeAreaProvider>
-        <PaperProvider theme={paperTheme} settings={paperSettings}>
-          <RneThemeProvider theme={rneTheme}>
-            <Login />
-          </RneThemeProvider>
-        </PaperProvider>
-      </SafeAreaProvider>
-    );
+    return <Login />;
   }
 
   return (
-    <SafeAreaProvider>
-      <PersistQueryClientProvider
-        client={queryClient}
-        persistOptions={{ persister: clientPersister }}
-      >
-        <PaperProvider theme={paperTheme} settings={paperSettings}>
-          <RneThemeProvider theme={rneTheme}>
-            <RealtimeProvider>
-              <AuthenticatedApp theme={navigationTheme} prefix={prefix} />
-            </RealtimeProvider>
-          </RneThemeProvider>
-        </PaperProvider>
-      </PersistQueryClientProvider>
-    </SafeAreaProvider>
+    <RealtimeProvider>
+      <AuthenticatedApp theme={navigationTheme} prefix={prefix} />
+    </RealtimeProvider>
   );
 }
 

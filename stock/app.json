@@ -22,6 +22,11 @@
         "android.permission.USE_FINGERPRINT"
       ]
     },
+    "androidNavigationBar": {
+      "visible": true,
+      "backgroundColor": "#fbfcfb",
+      "barStyle": "dark-content"
+    },
     "web": {
       "bundler": "metro",
       "favicon": "./assets/favicon.png"

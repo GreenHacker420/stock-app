@@ -1,4 +1,4 @@
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://localhost:6600";
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? "https://shop-api.evergreenclassic.in";
 
 export type ApiUser = {
   id: string;

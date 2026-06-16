@@ -1,6 +1,5 @@
 import React, { useMemo, useState } from "react";
 import { View, StyleSheet, Pressable, Modal, ScrollView, TouchableWithoutFeedback } from "react-native";
-import { Avatar } from "@rneui/themed";
 import { Text, Icon } from "react-native-paper";
 import { useNavigation } from "@react-navigation/native";
 
@@ -81,19 +80,26 @@ export function AppHeader({ title, subtitle, role, initials, showBack, onBack, h
         )}
         <View style={styles.titleContainer}>
           <Text style={styles.title} numberOfLines={1}>{title}</Text>
-          {activeShopId && shopsQuery.data && shopsQuery.data.length > 0 ? (
+          {activeShopId && selectedShop ? (
             <Pressable
-              onPress={() => setModalVisible(true)}
+              onPress={() => {
+                if (user?.role === "OWNER") {
+                  setModalVisible(true);
+                }
+              }}
+              disabled={user?.role !== "OWNER"}
               style={({ pressed }) => [
                 styles.shopSelectorPill,
-                pressed && styles.pressed
-              ]}
+                (user?.role === "OWNER" && pressed) ? styles.pressed : undefined
+              ].filter(Boolean) as any}
             >
               <Icon source="storefront-outline" size={14} color={colors.primary} />
               <Text style={styles.shopSelectorText} numberOfLines={1}>
-                {selectedShop ? selectedShop.name : "Select Shop"}
+                {selectedShop.name}
               </Text>
-              <Icon source="chevron-down" size={14} color={colors.primary} />
+              {user?.role === "OWNER" && (
+                <Icon source="chevron-down" size={14} color={colors.primary} />
+              )}
             </Pressable>
           ) : subtitle ? (
             <Text style={styles.subtitle} numberOfLines={1}>
@@ -105,13 +111,8 @@ export function AppHeader({ title, subtitle, role, initials, showBack, onBack, h
 
       {!hideAvatar && (
         <View style={styles.rightSection}>
-          <View style={styles.avatarContainer}>
-            <Avatar
-              rounded
-              title={displayInitials}
-              containerStyle={styles.avatar}
-              titleStyle={styles.avatarText}
-            />
+          <View style={[styles.avatarContainer, styles.avatar]}>
+            <Text style={styles.avatarText}>{displayInitials}</Text>
           </View>
           {displayRole && (
             <View style={[
@@ -238,13 +239,19 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     width: 40,
     height: 40,
+    borderRadius: radius.full,
     borderWidth: 1.5,
     borderColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   avatarText: {
     fontSize: 14,
     fontWeight: fontWeight.bold,
     color: colors.textInverse,
+    textAlign: 'center',
+    includeFontPadding: false,
+    textAlignVertical: 'center',
   },
   roleBadge: {
     paddingHorizontal: 8,
@@ -275,6 +282,7 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.bold,
     color: colors.primaryDark,
     maxWidth: 160,
+    flexShrink: 1,
   },
   overlay: {
     flex: 1,

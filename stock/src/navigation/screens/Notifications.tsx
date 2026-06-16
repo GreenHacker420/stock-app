@@ -1,6 +1,8 @@
 import { useState, useMemo } from "react";
 import { View, StyleSheet, Pressable, ScrollView, ActivityIndicator } from "react-native";
 import { Text, Icon, Button } from "react-native-paper";
+import { useRoute } from "@react-navigation/native";
+import { useAuthStore } from "../../auth/auth-store";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { EmptyState } from "../../components/ui/EmptyState";
@@ -12,6 +14,11 @@ import {
 } from "../../hooks/useNotifications";
 
 export function Notifications() {
+  const route = useRoute<any>();
+  const user = useAuthStore((state) => state.user);
+  const isTabBarVisible = route.name === "Notifications" || route.name === "OwnerAlerts";
+  const showHeader = !isTabBarVisible || user?.role === "OWNER";
+
   const [filterUnread, setFilterUnread] = useState(false);
   const notificationsQuery = useNotificationsQuery();
   const markReadMutation = useMarkNotificationReadMutation();
@@ -89,7 +96,14 @@ export function Notifications() {
 
   return (
     <Screen edges={["top", "left", "right"]}>
-      <AppHeader title="Alerts" subtitle="In-app events and activity logs" hideAvatar />
+      {showHeader ? (
+        <AppHeader title="Alerts" subtitle="In-app events and activity logs" hideAvatar />
+      ) : (
+        <View style={styles.headerSpacer}>
+          <Text style={styles.pageTitle}>Alerts</Text>
+          <Text style={styles.pageSubtitle}>In-app events and activity logs</Text>
+        </View>
+      )}
 
       {/* Segmented Button / Tabs */}
       <View style={styles.tabContainer}>
@@ -203,6 +217,23 @@ export function Notifications() {
 }
 
 const styles = StyleSheet.create({
+  headerSpacer: {
+    paddingHorizontal: spacing.lg,
+    marginTop: spacing.md,
+    marginBottom: spacing.xs,
+  },
+  pageTitle: {
+    fontSize: 26,
+    fontWeight: fontWeight.black,
+    color: colors.textPrimary,
+    letterSpacing: -0.5,
+  },
+  pageSubtitle: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    fontWeight: fontWeight.medium,
+    marginTop: 2,
+  },
   tabContainer: {
     flexDirection: "row",
     alignItems: "center",

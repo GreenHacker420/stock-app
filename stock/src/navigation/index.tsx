@@ -1,7 +1,7 @@
 import { createBottomTabNavigator, BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import { createStaticNavigation, StaticParamList } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { View, Pressable, Dimensions, StyleSheet } from "react-native";
+import { View, Pressable, Dimensions, StyleSheet, Platform } from "react-native";
 import { Icon } from "react-native-paper";
 import { AssignStaff } from "./screens/AssignStaff";
 import { CashClosingReview } from "./screens/CashClosingReview";
@@ -104,8 +104,8 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
             >
               <View style={[
                 styles.iconContainer,
-                isFocused && styles.iconContainerActive
-              ]}>
+                isFocused ? styles.iconContainerActive : undefined
+              ].filter(Boolean) as any}>
                 <Icon
                   source={iconName}
                   color={isFocused ? "#ffffff" : "#475569"}
@@ -154,18 +154,25 @@ const styles = StyleSheet.create({
   iconContainer: {
     width: 42,
     height: 42,
-    borderRadius: 21,
+    borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
+    overflow: 'hidden',
   },
   iconContainerActive: {
     backgroundColor: '#111827',
-    transform: [{ scale: 1.08 }],
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
-    elevation: 3,
+    ...Platform.select({
+      ios: {
+        transform: [{ scale: 1.08 }],
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.15,
+        shadowRadius: 6,
+      },
+      android: {
+        // Flat styling on Android avoids OS elevation bugs drawing a square shadow
+      },
+    }),
   },
 });
 

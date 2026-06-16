@@ -1,4 +1,5 @@
-import { Pressable, View, StyleSheet } from "react-native";
+"use no memo";
+import { Pressable, View, StyleSheet, StyleProp, ViewStyle } from "react-native";
 import { Icon, Text } from "react-native-paper";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 
@@ -8,49 +9,58 @@ type ActionTileProps = {
   icon: string;
   tone?: "green" | "amber" | "blue" | "red";
   onPress?: () => void;
+  style?: StyleProp<ViewStyle>;
 };
 
 const tones = {
-  green: { bg: 'rgba(5, 150, 105, 0.08)', color: colors.success },
-  amber: { bg: 'rgba(217, 119, 6, 0.08)', color: colors.warning },
-  blue: { bg: 'rgba(30, 64, 175, 0.08)', color: colors.primary },
-  red: { bg: 'rgba(220, 38, 38, 0.08)', color: colors.danger },
+  green: { bg: colors.successLight, color: colors.success },
+  amber: { bg: colors.warningLight, color: colors.warning },
+  blue: { bg: colors.infoLight, color: colors.info },
+  red: { bg: colors.dangerLight, color: colors.danger },
 };
 
-export function ActionTile({ title, subtitle, icon, tone = "green", onPress }: ActionTileProps) {
+export function ActionTile({ title, subtitle, icon, tone = "green", onPress, style }: ActionTileProps) {
   const palette = tones[tone];
 
   return (
     <Pressable
       onPress={onPress}
-      style={({ pressed }) => [
+      style={({ pressed }) => StyleSheet.flatten([
         styles.container,
-        pressed && styles.pressed
-      ]}
+        style,
+      ])}
     >
-      <View style={[styles.iconContainer, { backgroundColor: palette.bg }]}>
-        <Icon source={icon} size={24} color={palette.color} />
-      </View>
-      <View style={styles.content}>
-        <Text style={styles.title}>{title}</Text>
-        <Text style={styles.subtitle}>{subtitle}</Text>
-      </View>
-      <Icon source="chevron-right" size={24} color={colors.textMuted} />
+      {({ pressed }) => (
+        <View style={StyleSheet.flatten([styles.innerContainer, pressed && styles.pressed])}>
+          <View style={[styles.iconContainer, { backgroundColor: palette.bg }]}>
+            <Icon source={icon} size={24} color={palette.color} />
+          </View>
+          <View style={styles.content}>
+            <Text style={styles.title}>{title}</Text>
+            <Text style={styles.subtitle}>{subtitle}</Text>
+          </View>
+          <Icon source="chevron-right" size={24} color={colors.textMuted} />
+        </View>
+      )}
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: spacing.lg,
     backgroundColor: colors.surface,
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
     minHeight: 80,
     ...shadow.sm,
+  },
+  innerContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: spacing.lg,
+    flex: 1,
+    width: '100%',
   },
   iconContainer: {
     height: 48,

@@ -174,10 +174,8 @@ export function Profile() {
 
   return (
     <Screen>
-      <AppHeader title="Profile" subtitle="Signed-in user and permissions." hideAvatar={true} />
-      
       <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={styles.flex1}
       >
         <ScrollView

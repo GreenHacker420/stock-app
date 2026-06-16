@@ -1,5 +1,6 @@
+"use no memo";
 import React from 'react';
-import { Pressable, Text, StyleSheet, ActivityIndicator, ViewStyle } from 'react-native';
+import { Pressable, Text, StyleSheet, ActivityIndicator, ViewStyle, StyleProp } from 'react-native';
 import { colors, radius, fontSize, fontWeight, spacing } from '../../theme';
 
 type Variant = 'primary' | 'secondary' | 'danger' | 'ghost' | 'success';
@@ -13,7 +14,7 @@ interface Props {
   loading?: boolean;
   disabled?: boolean;
   fullWidth?: boolean;
-  style?: ViewStyle;
+  style?: StyleProp<ViewStyle>;
   icon?: React.ReactNode;
 }
 
@@ -27,15 +28,15 @@ export function Button({
     <Pressable
       onPress={onPress}
       disabled={isDisabled}
-      style={({ pressed }) => [
+      style={({ pressed }) => StyleSheet.flatten([
         styles.base,
         styles[variant],
         styles[`size_${size}`],
         fullWidth && styles.fullWidth,
-        pressed && !isDisabled && styles.pressed,
+        (pressed && !isDisabled) && styles.pressed,
         isDisabled && styles.disabled,
         style,
-      ]}
+      ])}
       accessibilityRole="button"
       accessibilityLabel={label}
     >
@@ -47,7 +48,12 @@ export function Button({
       ) : (
         <>
           {icon && <>{icon}</>}
-          <Text style={[styles.label, styles[`${variant}Label`], styles[`size_${size}Label`]]}>
+          <Text style={[
+            styles.label, 
+            styles[`${variant}Label`], 
+            styles[`size_${size}Label`],
+            isDisabled && styles.disabledLabel
+          ]}>
             {label}
           </Text>
         </>
@@ -60,7 +66,8 @@ const styles = StyleSheet.create({
   base:            { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderRadius: radius.lg, gap: spacing.sm },
   fullWidth:       { width: '100%' },
   pressed:         { opacity: 0.72, transform: [{ scale: 0.975 }] },
-  disabled:        { opacity: 0.4 },
+  disabled:        { backgroundColor: '#e5e7eb', borderWidth: 1, borderColor: '#d1d5db' },
+  disabledLabel:   { color: '#9ca3af' },
 
   primary:         { backgroundColor: colors.primary },
   secondary:       { backgroundColor: colors.primaryLight, borderWidth: 1, borderColor: '#bfdbfe' },

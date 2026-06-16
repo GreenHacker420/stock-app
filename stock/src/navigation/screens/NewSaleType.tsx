@@ -56,7 +56,7 @@ export function NewSaleType() {
 
   return (
     <Screen edges={['top', 'left', 'right']}>
-      <AppHeader title="Sales Hub" subtitle="Register payments and log customer transactions" />
+      <AppHeader title="Sales Hub" subtitle="Register payments and log customer transactions" showBack />
 
       <ScrollView 
         showsVerticalScrollIndicator={false} 
@@ -73,7 +73,7 @@ export function NewSaleType() {
             ]}
           >
             <View style={[styles.iconContainer, styles.walkinIconContainer]}>
-              <Icon source="walk" size={28} color="#15803d" />
+              <Icon source="walk" size={28} color={colors.primary} />
             </View>
             <View style={styles.cardTextContent}>
               <Text style={styles.cardTitle}>Walk-in Sale</Text>
@@ -82,7 +82,7 @@ export function NewSaleType() {
               </Text>
             </View>
             <View style={styles.arrowIcon}>
-              <Icon source="chevron-right" size={20} color="#15803d" />
+              <Icon source="chevron-right" size={20} color={colors.primary} />
             </View>
           </Pressable>
 
@@ -95,7 +95,7 @@ export function NewSaleType() {
             ]}
           >
             <View style={[styles.iconContainer, styles.regularIconContainer]}>
-              <Icon source="account-cash-outline" size={28} color="#1d4ed8" />
+              <Icon source="account-cash-outline" size={28} color="#0d9488" />
             </View>
             <View style={styles.cardTextContent}>
               <Text style={styles.cardTitle}>Regular Sale</Text>
@@ -104,7 +104,7 @@ export function NewSaleType() {
               </Text>
             </View>
             <View style={styles.arrowIcon}>
-              <Icon source="chevron-right" size={20} color="#1d4ed8" />
+              <Icon source="chevron-right" size={20} color="#0d9488" />
             </View>
           </Pressable>
         </View>
@@ -227,11 +227,11 @@ const styles = StyleSheet.create({
   },
   walkinCard: {
     backgroundColor: '#f0fdf4',
-    borderColor: '#bbf7d0',
+    borderColor: 'rgba(22, 163, 74, 0.25)',
   },
   regularCard: {
-    backgroundColor: '#eff6ff',
-    borderColor: '#bfdbfe',
+    backgroundColor: '#f0fdfa',
+    borderColor: 'rgba(13, 148, 136, 0.25)',
   },
   iconContainer: {
     width: 52,
@@ -241,10 +241,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   walkinIconContainer: {
-    backgroundColor: '#dcfce7',
+    backgroundColor: colors.primaryLight,
   },
   regularIconContainer: {
-    backgroundColor: '#dbeafe',
+    backgroundColor: '#ccfbf1',
   },
   cardTextContent: {
     flex: 1,

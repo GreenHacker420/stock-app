@@ -11,7 +11,7 @@ type ShopPickerProps = {
 export function ShopPicker({ shops, selectedShopId, onSelect }: ShopPickerProps) {
   if (!shops.length) {
     return (
-      <View className="rounded-lg border border-dashed border-gray-200 bg-white p-4">
+      <View style={{ borderRadius: 8, borderWidth: 1, borderStyle: "dashed", borderColor: "#e5e7eb", backgroundColor: "#ffffff", padding: 16 }}>
         <Text variant="titleSmall" style={{ color: "#111827", fontWeight: "700" }}>
           No shop access
         </Text>
@@ -23,11 +23,11 @@ export function ShopPicker({ shops, selectedShopId, onSelect }: ShopPickerProps)
   }
 
   return (
-    <View className="gap-2">
+    <View style={{ gap: 8 }}>
       <Text variant="labelLarge" style={{ color: "#6b7280" }}>
         Shop
       </Text>
-      <View className="flex-row flex-wrap gap-2">
+      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
         {shops.map((shop) => (
           <Button
             key={shop.id}
