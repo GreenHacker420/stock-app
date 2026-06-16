@@ -24,7 +24,12 @@ export function AppHeader({ title, subtitle, role, initials, showBack, onBack, h
   const user = useAuthStore((state) => state.user);
   const { activeShopId, setActiveShopId } = useShopStore();
   
-  const navigation = useNavigation<any>();
+  let navigation: any = null;
+  try {
+    navigation = useNavigation<any>();
+  } catch (e) {
+    // Rendered outside navigation context
+  }
   const shopsQuery = useShopsQuery();
   const [modalVisible, setModalVisible] = useState(false);
 
@@ -33,7 +38,7 @@ export function AppHeader({ title, subtitle, role, initials, showBack, onBack, h
     [shopsQuery.data, activeShopId]
   );
 
-  const hasHistory = navigation.canGoBack();
+  const hasHistory = navigation ? navigation.canGoBack() : false;
   const canGoBack = showBack ?? (hasHistory || !!fallbackRoute);
 
   const displayInitials = useMemo(() => {
@@ -59,9 +64,9 @@ export function AppHeader({ title, subtitle, role, initials, showBack, onBack, h
             onPress={() => {
               if (onBack) {
                 onBack();
-              } else if (hasHistory) {
+              } else if (navigation && hasHistory) {
                 navigation.goBack();
-              } else if (fallbackRoute) {
+              } else if (navigation && fallbackRoute) {
                 navigation.navigate(fallbackRoute);
               }
             }}

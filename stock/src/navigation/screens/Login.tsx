@@ -266,7 +266,7 @@ export function Login() {
     <Screen edges={['top', 'bottom', 'left', 'right']} bg={colors.bg}>
       <KeyboardAvoidingView 
         style={styles.container} 
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <ScrollView 
           contentContainerStyle={styles.scrollContent} 
