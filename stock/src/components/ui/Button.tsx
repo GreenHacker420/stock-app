@@ -1,6 +1,7 @@
 "use no memo";
 import React from 'react';
 import { Pressable, Text, StyleSheet, ActivityIndicator, ViewStyle, StyleProp } from 'react-native';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { colors, radius, fontSize, fontWeight, spacing } from '../../theme';
 
 type Variant = 'primary' | 'secondary' | 'danger' | 'ghost' | 'success';
@@ -15,7 +16,7 @@ interface Props {
   disabled?: boolean;
   fullWidth?: boolean;
   style?: StyleProp<ViewStyle>;
-  icon?: React.ReactNode;
+  icon?: React.ReactNode | string;
 }
 
 export function Button({
@@ -23,6 +24,24 @@ export function Button({
   loading = false, disabled = false, fullWidth = false, style, icon,
 }: Props) {
   const isDisabled = disabled || loading;
+
+  const getIconColor = () => {
+    if (isDisabled) return '#9ca3af';
+    switch (variant) {
+      case 'primary':
+      case 'danger':
+      case 'success':
+        return colors.textInverse;
+      case 'secondary':
+        return colors.primary;
+      case 'ghost':
+        return colors.textPrimary;
+      default:
+        return colors.textPrimary;
+    }
+  };
+
+  const iconColor = getIconColor();
 
   return (
     <Pressable
@@ -47,7 +66,13 @@ export function Button({
         />
       ) : (
         <>
-          {icon && <>{icon}</>}
+          {icon && (
+            typeof icon === 'string' ? (
+              <MaterialCommunityIcons name={icon as any} size={18} color={iconColor} />
+            ) : (
+              icon
+            )
+          )}
           <Text style={[
             styles.label, 
             styles[`${variant}Label`], 

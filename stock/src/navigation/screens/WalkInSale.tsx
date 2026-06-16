@@ -160,6 +160,8 @@ export function WalkInSale() {
   
   const [completedSaleNumber, setCompletedSaleNumber] = useState<string | null>(null);
   const [completedSale, setCompletedSale] = useState<any | null>(null);
+  const [isPrinting, setIsPrinting] = useState(false);
+  const [isSharing, setIsSharing] = useState(false);
 
   // Customer selection & search states
   const [customerId, setCustomerId] = useState<string | null>(null);
@@ -711,31 +713,38 @@ export function WalkInSale() {
                     label="Print Receipt"
                     variant="ghost"
                     icon="printer"
+                    loading={isPrinting}
+                    disabled={isSharing}
                     onPress={async () => {
-                      await printSaleInvoiceDirect({
-                        sale: completedSale || {
-                          saleNumber: completedSaleNumber || "N/A",
-                          totalAmount: String(cartTotal),
-                          paidAmount: String(cartTotal),
-                          balanceAmount: "0",
-                          isWalkin: !customerId,
-                          createdAt: new Date().toISOString(),
-                          items: cartArray.map(i => ({
-                            id: i.item.id,
-                            quantity: String(i.quantity),
-                            rate: String(i.item.defaultSellingPrice),
-                            totalAmount: String(i.quantity * Number(i.item.defaultSellingPrice)),
-                            item: i.item,
-                          })),
-                          notes: notes || null,
-                          payments: [{
-                            paymentMode: paymentMode,
-                            amount: String(cartTotal),
-                            receivedAt: new Date().toISOString()
-                          }]
-                        },
-                        shop: selectedShop,
-                      });
+                      setIsPrinting(true);
+                      try {
+                        await printSaleInvoiceDirect({
+                          sale: completedSale || {
+                            saleNumber: completedSaleNumber || "N/A",
+                            totalAmount: String(cartTotal),
+                            paidAmount: String(cartTotal),
+                            balanceAmount: "0",
+                            isWalkin: !customerId,
+                            createdAt: new Date().toISOString(),
+                            items: cartArray.map(i => ({
+                              id: i.item.id,
+                              quantity: String(i.quantity),
+                              rate: String(i.item.defaultSellingPrice),
+                              totalAmount: String(i.quantity * Number(i.item.defaultSellingPrice)),
+                              item: i.item,
+                            })),
+                            notes: notes || null,
+                            payments: [{
+                              paymentMode: paymentMode,
+                              amount: String(cartTotal),
+                              receivedAt: new Date().toISOString()
+                            }]
+                          },
+                          shop: selectedShop,
+                        });
+                      } finally {
+                        setIsPrinting(false);
+                      }
                     }}
                     style={styles.receiptActionBtn}
                   />
@@ -743,31 +752,38 @@ export function WalkInSale() {
                     label="Share"
                     variant="ghost"
                     icon="share-variant"
+                    loading={isSharing}
+                    disabled={isPrinting}
                     onPress={async () => {
-                      await shareSaleInvoicePdf({
-                        sale: completedSale || {
-                          saleNumber: completedSaleNumber || "N/A",
-                          totalAmount: String(cartTotal),
-                          paidAmount: String(cartTotal),
-                          balanceAmount: "0",
-                          isWalkin: !customerId,
-                          createdAt: new Date().toISOString(),
-                          items: cartArray.map(i => ({
-                            id: i.item.id,
-                            quantity: String(i.quantity),
-                            rate: String(i.item.defaultSellingPrice),
-                            totalAmount: String(i.quantity * Number(i.item.defaultSellingPrice)),
-                            item: i.item,
-                          })),
-                          notes: notes || null,
-                          payments: [{
-                            paymentMode: paymentMode,
-                            amount: String(cartTotal),
-                            receivedAt: new Date().toISOString()
-                          }]
-                        },
-                        shop: selectedShop,
-                      });
+                      setIsSharing(true);
+                      try {
+                        await shareSaleInvoicePdf({
+                          sale: completedSale || {
+                            saleNumber: completedSaleNumber || "N/A",
+                            totalAmount: String(cartTotal),
+                            paidAmount: String(cartTotal),
+                            balanceAmount: "0",
+                            isWalkin: !customerId,
+                            createdAt: new Date().toISOString(),
+                            items: cartArray.map(i => ({
+                              id: i.item.id,
+                              quantity: String(i.quantity),
+                              rate: String(i.item.defaultSellingPrice),
+                              totalAmount: String(i.quantity * Number(i.item.defaultSellingPrice)),
+                              item: i.item,
+                            })),
+                            notes: notes || null,
+                            payments: [{
+                              paymentMode: paymentMode,
+                              amount: String(cartTotal),
+                              receivedAt: new Date().toISOString()
+                            }]
+                          },
+                          shop: selectedShop,
+                        });
+                      } finally {
+                        setIsSharing(false);
+                      }
                     }}
                     style={styles.receiptActionBtn}
                   />
@@ -775,6 +791,7 @@ export function WalkInSale() {
                     label="WhatsApp"
                     variant="ghost"
                     icon="whatsapp"
+                    disabled={isPrinting || isSharing}
                     onPress={() => {
                       const saleObj = completedSale || {
                         saleNumber: completedSaleNumber || "N/A",

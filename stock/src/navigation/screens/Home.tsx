@@ -117,19 +117,7 @@ export function Home() {
           </>
         )}
 
-        <View style={styles.statusSection}>
-          <Text style={styles.statusTitle}>SYSTEM STATUS</Text>
-          <View style={styles.statusPills}>
-            <StatusPill 
-              label="API Connected" 
-              tone="green" 
-            />
-            <StatusPill 
-              label={activeShopId ? "Shop Active" : "No Shop Selected"} 
-              tone={activeShopId ? "blue" : "amber"} 
-            />
-          </View>
-        </View>
+
       </ScrollView>
     </Screen>
   );
