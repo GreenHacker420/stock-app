@@ -166,6 +166,7 @@ export function WalkInSale() {
   // Customer selection & search states
   const [customerId, setCustomerId] = useState<string | null>(null);
   const [customerSearch, setCustomerSearch] = useState("");
+  const [customerDetailsExpanded, setCustomerDetailsExpanded] = useState(false);
 
   // Custom Walk-in Customer Info
   const [customerName, setCustomerName] = useState("");
@@ -183,6 +184,16 @@ export function WalkInSale() {
     customersQuery.data?.find(c => c.id === customerId),
     [customersQuery.data, customerId]
   );
+
+  const customerSummaryText = useMemo(() => {
+    if (selectedCustomer) {
+      return `Customer: ${selectedCustomer.name}`;
+    }
+    if (customerName.trim()) {
+      return `Walk-in: ${customerName.trim()}`;
+    }
+    return "Default Walk-In (Anonymous)";
+  }, [selectedCustomer, customerName]);
 
   const filteredCustomers = useMemo(() => {
     if (!customerSearch) return [];
@@ -331,88 +342,105 @@ export function WalkInSale() {
           {currentStep === 1 && (
             <View style={styles.stepContainer}>
               <Section title="Customer Details (Optional)">
-                <View style={styles.formCard}>
-                  {!selectedCustomer ? (
-                    <>
-                      <View style={styles.searchRow}>
-                        <Searchbar
-                          placeholder="Search existing customer..."
-                          onChangeText={setCustomerSearch}
-                          value={customerSearch}
-                          style={[styles.searchBar, { flex: 1, marginBottom: 0 }]}
-                          inputStyle={styles.searchInput}
-                          elevation={0}
+                <Pressable
+                  onPress={() => setCustomerDetailsExpanded(prev => !prev)}
+                  style={styles.accordionHeader}
+                >
+                  <View style={styles.accordionLeft}>
+                    <Icon source="account-outline" size={20} color={colors.textSecondary} />
+                    <Text style={styles.accordionSummaryText}>{customerSummaryText}</Text>
+                  </View>
+                  <Icon 
+                    source={customerDetailsExpanded ? "chevron-up" : "chevron-down"} 
+                    size={24} 
+                    color={colors.primary} 
+                  />
+                </Pressable>
+
+                {customerDetailsExpanded && (
+                  <View style={styles.formCard}>
+                    {!selectedCustomer ? (
+                      <>
+                        <View style={styles.searchRow}>
+                          <Searchbar
+                            placeholder="Search existing customer..."
+                            onChangeText={setCustomerSearch}
+                            value={customerSearch}
+                            style={[styles.searchBar, { flex: 1, marginBottom: 0 }]}
+                            inputStyle={styles.searchInput}
+                            elevation={0}
+                          />
+                          <Pressable 
+                            onPress={() => navigation.navigate("AddEditCustomer")}
+                            style={({ pressed }) => [styles.searchAddBtn, pressed && styles.pressed]}
+                          >
+                            <Icon source="account-plus" size={24} color={colors.primary} />
+                          </Pressable>
+                        </View>
+
+                        {customerSearch && filteredCustomers.length > 0 ? (
+                          <View style={styles.searchDropdown}>
+                            {filteredCustomers.map(c => (
+                              <List.Item
+                                key={c.id}
+                                title={c.name}
+                                description={c.phone || "No phone"}
+                                onPress={() => { setCustomerId(c.id); setCustomerSearch(""); }}
+                                right={props => <List.Icon {...props} icon="account-check-outline" color={colors.primary} />}
+                              />
+                            ))}
+                          </View>
+                        ) : null}
+
+                        <View style={styles.orRow}>
+                          <Divider style={styles.orDivider} />
+                          <Text style={styles.orText}>OR QUICK WALK-IN DETAILS</Text>
+                          <Divider style={styles.orDivider} />
+                        </View>
+
+                        <TextInput
+                          mode="outlined"
+                          label="Customer Name"
+                          value={customerName}
+                          onChangeText={setCustomerName}
+                          style={styles.input}
+                          outlineStyle={styles.inputOutline}
+                          left={<TextInput.Icon icon="account-outline" />}
                         />
+                        <TextInput
+                          mode="outlined"
+                          label="Mobile Number"
+                          value={customerPhone}
+                          onChangeText={setCustomerPhone}
+                          keyboardType="phone-pad"
+                          style={styles.input}
+                          outlineStyle={styles.inputOutline}
+                          left={<TextInput.Icon icon="phone-outline" />}
+                        />
+                      </>
+                    ) : (
+                      <View style={styles.selectedCustomerCard}>
+                        <View style={styles.customerRow}>
+                          <View style={styles.customerAvatar}>
+                            <Text style={styles.customerAvatarText}>
+                              {selectedCustomer.name[0].toUpperCase()}
+                            </Text>
+                          </View>
+                          <View style={styles.flex1}>
+                            <Text style={styles.customerNameText}>{selectedCustomer.name}</Text>
+                            <Text style={styles.customerPhoneText}>{selectedCustomer.phone || "No phone"}</Text>
+                          </View>
+                        </View>
                         <Pressable 
-                          onPress={() => navigation.navigate("AddEditCustomer")}
-                          style={({ pressed }) => [styles.searchAddBtn, pressed && styles.pressed]}
+                          onPress={() => setCustomerId(null)}
+                          style={({ pressed }) => [styles.changeCustBtn, pressed && styles.pressed]}
                         >
-                          <Icon source="account-plus" size={24} color={colors.primary} />
+                          <Text style={styles.changeCustText}>CHANGE</Text>
                         </Pressable>
                       </View>
-
-                      {customerSearch && filteredCustomers.length > 0 ? (
-                        <View style={styles.searchDropdown}>
-                          {filteredCustomers.map(c => (
-                            <List.Item
-                              key={c.id}
-                              title={c.name}
-                              description={c.phone || "No phone"}
-                              onPress={() => { setCustomerId(c.id); setCustomerSearch(""); }}
-                              right={props => <List.Icon {...props} icon="account-check-outline" color={colors.primary} />}
-                            />
-                          ))}
-                        </View>
-                      ) : null}
-
-                      <View style={styles.orRow}>
-                        <Divider style={styles.orDivider} />
-                        <Text style={styles.orText}>OR QUICK WALK-IN DETAILS</Text>
-                        <Divider style={styles.orDivider} />
-                      </View>
-
-                      <TextInput
-                        mode="outlined"
-                        label="Customer Name"
-                        value={customerName}
-                        onChangeText={setCustomerName}
-                        style={styles.input}
-                        outlineStyle={styles.inputOutline}
-                        left={<TextInput.Icon icon="account-outline" />}
-                      />
-                      <TextInput
-                        mode="outlined"
-                        label="Mobile Number"
-                        value={customerPhone}
-                        onChangeText={setCustomerPhone}
-                        keyboardType="phone-pad"
-                        style={styles.input}
-                        outlineStyle={styles.inputOutline}
-                        left={<TextInput.Icon icon="phone-outline" />}
-                      />
-                    </>
-                  ) : (
-                    <View style={styles.selectedCustomerCard}>
-                      <View style={styles.customerRow}>
-                        <View style={styles.customerAvatar}>
-                          <Text style={styles.customerAvatarText}>
-                            {selectedCustomer.name[0].toUpperCase()}
-                          </Text>
-                        </View>
-                        <View style={styles.flex1}>
-                          <Text style={styles.customerNameText}>{selectedCustomer.name}</Text>
-                          <Text style={styles.customerPhoneText}>{selectedCustomer.phone || "No phone"}</Text>
-                        </View>
-                      </View>
-                      <Pressable 
-                        onPress={() => setCustomerId(null)}
-                        style={({ pressed }) => [styles.changeCustBtn, pressed && styles.pressed]}
-                      >
-                        <Text style={styles.changeCustText}>CHANGE</Text>
-                      </Pressable>
-                    </View>
-                  )}
-                </View>
+                    )}
+                  </View>
+                )}
               </Section>
 
               <Section title="Select Items">
@@ -1229,11 +1257,31 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
   },
   successContainer: {
-    flex: 1,
     alignItems: 'center',
-    justifyContent: 'center',
     padding: spacing.xl,
+    paddingTop: spacing.xxl,
     backgroundColor: colors.bg,
+  },
+  accordionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: colors.surface,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  accordionLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    flex: 1,
+  },
+  accordionSummaryText: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
   },
   successIconWrapper: {
     marginBottom: spacing.lg,

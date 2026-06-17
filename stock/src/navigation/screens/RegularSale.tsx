@@ -1,6 +1,6 @@
 import { useState, useMemo, memo, useCallback, useRef, useEffect } from "react";
 import { useNavigation } from "@react-navigation/native";
-import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Pressable, Modal, Alert, Linking } from "react-native";
+import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Pressable, Modal, Alert, Linking, Animated, PanResponder } from "react-native";
 import { Searchbar, Text, Icon, List, TextInput, Switch, SegmentedButtons, Divider } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "@tanstack/react-query";
@@ -164,87 +164,102 @@ const SwipeableCartItem = memo(({
 
   const currentRate = customRate !== undefined ? customRate : defaultPrice;
 
-  const touchStartX = useRef(0);
-  const touchStartY = useRef(0);
-  const isDragging = useRef(false);
+  const translateX = useRef(new Animated.Value(0)).current;
 
-  const handleStart = (clientX: number, clientY: number) => {
-    touchStartX.current = clientX;
-    touchStartY.current = clientY;
-    isDragging.current = true;
-  };
-
-  const handleMove = (clientX: number, clientY: number) => {
-    if (!isDragging.current) return;
-    const deltaX = clientX - touchStartX.current;
-    const deltaY = Math.abs(clientY - touchStartY.current);
-    if (deltaX > 50 && deltaY < 30) {
-      setShowEditModal(true);
-      isDragging.current = false;
-    }
-  };
-
-  const handleEnd = () => {
-    isDragging.current = false;
-  };
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        return Math.abs(gestureState.dx) > 10 && gestureState.dx > 0;
+      },
+      onPanResponderGrant: () => {
+        translateX.setValue(0);
+      },
+      onPanResponderMove: (_, gestureState) => {
+        const newX = Math.max(0, Math.min(100, gestureState.dx));
+        translateX.setValue(newX);
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dx > 60) {
+          setShowEditModal(true);
+        }
+        Animated.spring(translateX, {
+          toValue: 0,
+          useNativeDriver: true,
+          bounciness: 8,
+        }).start();
+      },
+      onPanResponderTerminate: () => {
+        Animated.spring(translateX, {
+          toValue: 0,
+          useNativeDriver: true,
+        }).start();
+      }
+    })
+  ).current;
 
   return (
-    <View 
-      onTouchStart={(e) => {
-        const touch = e.nativeEvent.touches[0];
-        if (touch) handleStart(touch.pageX, touch.pageY);
-      }}
-      onTouchMove={(e) => {
-        const touch = e.nativeEvent.touches[0];
-        if (touch) handleMove(touch.pageX, touch.pageY);
-      }}
-      onTouchEnd={handleEnd}
-      {...({
-        onMouseDown: (e: any) => handleStart(e.clientX, e.clientY),
-        onMouseMove: (e: any) => handleMove(e.clientX, e.clientY),
-        onMouseUp: handleEnd,
-        onMouseLeave: handleEnd,
-        style: [styles.cartReviewRow, Platform.OS === 'web' ? { userSelect: 'none', touchAction: 'pan-y' } : {}]
-      } as any)}
-    >
-      <View style={styles.cartItemLeft}>
-        <Text style={styles.cartItemName}>{item.name}</Text>
-        <View style={styles.priceEditTrigger}>
-          <Text style={styles.cartItemPrice}>
-            {money(currentRate)} / {item.unit}
-          </Text>
-          {customRate !== undefined && (
-            <Text style={styles.customPriceLabel}> (Custom)</Text>
-          )}
+    <View style={styles.swipeContainer}>
+      <View style={styles.swipeUnderlay}>
+        <View style={styles.swipeUnderlayContent}>
+          <Icon source="pencil" size={20} color="#ffffff" />
+          <Text style={styles.swipeUnderlayText}>Edit Price</Text>
         </View>
-      </View>
-      
-      <View style={styles.counterRow}>
-        <Pressable 
-          onPress={() => onUpdateQuantity(quantity - 1)}
-          style={({ pressed }) => [styles.qtyButton, pressed && styles.buttonPressed]}
-        >
-          <Icon source="minus" size={18} color={colors.primary} />
-        </Pressable>
-        <View style={styles.qtyDisplay}>
-          <Text style={styles.qtyText}>{quantity}</Text>
-        </View>
-        <Pressable 
-          onPress={() => onUpdateQuantity(quantity + 1)}
-          disabled={quantity >= (item.availableStock ?? 0)}
-          style={({ pressed }) => [
-            styles.qtyButton,
-            quantity >= (item.availableStock ?? 0) && styles.disabledQtyButton,
-            pressed && quantity < (item.availableStock ?? 0) && styles.buttonPressed
-          ]}
-        >
-          <Icon source="plus" size={18} color={quantity >= (item.availableStock ?? 0) ? colors.textMuted : colors.primary} />
-        </Pressable>
       </View>
 
-      <View style={styles.cartItemRight}>
-        <Text style={styles.cartItemSubtotal}>{money(quantity * currentRate)}</Text>
-      </View>
+      <Animated.View
+        style={[
+          styles.cartReviewRow,
+          { transform: [{ translateX }] }
+        ]}
+        {...panResponder.panHandlers}
+      >
+        <View style={styles.cartItemLeft}>
+          <Text style={styles.cartItemName} numberOfLines={1}>{item.name}</Text>
+          <Text style={styles.cartItemPrice}>
+            {customRate !== undefined ? (
+              <>
+                <Text style={{ textDecorationLine: "line-through" }}>{money(item.defaultSellingPrice)}</Text>
+                {"  "}
+                <Text style={{ color: colors.success, fontWeight: "bold" }}>{money(customRate)}</Text>
+              </>
+            ) : (
+              money(item.defaultSellingPrice)
+            )}
+            {" • Stock: "}{item.availableStock ?? 0}
+          </Text>
+        </View>
+
+        <View style={styles.counterRow}>
+          <Pressable 
+            onPress={() => onUpdateQuantity(quantity - 1)}
+            style={({ pressed }) => [
+              styles.qtyButton,
+              pressed && styles.buttonPressed
+            ]}
+          >
+            <Icon source="minus" size={18} color={colors.primary} />
+          </Pressable>
+          <View style={styles.qtyDisplay}>
+            <Text style={styles.qtyText}>{quantity}</Text>
+          </View>
+          <Pressable 
+            onPress={() => onUpdateQuantity(quantity + 1)}
+            disabled={quantity >= (item.availableStock ?? 0)}
+            style={({ pressed }) => [
+              styles.qtyButton,
+              quantity >= (item.availableStock ?? 0) && styles.disabledQtyButton,
+              pressed && quantity < (item.availableStock ?? 0) && styles.buttonPressed
+            ]}
+          >
+            <Icon source="plus" size={18} color={quantity >= (item.availableStock ?? 0) ? colors.textMuted : colors.primary} />
+          </Pressable>
+        </View>
+
+        <View style={styles.cartItemRight}>
+          <Text style={styles.cartItemSubtotal}>{money(quantity * currentRate)}</Text>
+        </View>
+      </Animated.View>
 
       <Modal
         visible={showEditModal}
@@ -753,32 +768,66 @@ export function RegularSale() {
               </View>
 
               <Section title="Payment Mode">
-                <View style={styles.paymentGrid}>
-                  {(["CASH", "UPI", "BANK_TRANSFER", "CREDIT"] as const).map((mode) => {
-                    const isSelected = paymentType === mode;
-                    const label = mode === "CASH" ? "Cash" : mode === "UPI" ? "UPI" : mode === "BANK_TRANSFER" ? "Bank" : "Credit";
-                    const icon = mode === "CASH" ? "cash" : mode === "UPI" ? "qrcode" : mode === "BANK_TRANSFER" ? "bank" : "card-text-outline";
-                    return (
-                      <Pressable 
-                        key={mode}
-                        onPress={() => {
-                          setPaymentType(mode);
-                          if (mode === "CREDIT") {
-                            setAmountPaid("0");
-                          } else {
-                            setAmountPaid(String(cartTotal));
-                          }
-                        }}
-                        style={[
-                          styles.paymentCard,
-                          isSelected && styles.paymentCardSelected
-                        ]}
-                      >
-                        <Icon source={icon} size={28} color={isSelected ? colors.primaryDark : colors.textSecondary} />
-                        <Text style={[styles.paymentCardLabel, isSelected && styles.paymentCardLabelActive]}>{label}</Text>
-                      </Pressable>
-                    );
-                  })}
+                <View style={styles.paymentGridRows}>
+                  <View style={styles.paymentGridRow}>
+                    <Pressable 
+                      onPress={() => {
+                        setPaymentType("CASH");
+                        setAmountPaid(String(cartTotal));
+                      }}
+                      style={[
+                        styles.paymentCard,
+                        paymentType === "CASH" && styles.paymentCardSelected
+                      ]}
+                    >
+                      <Icon source="cash" size={28} color={paymentType === "CASH" ? colors.primaryDark : colors.textSecondary} />
+                      <Text style={[styles.paymentCardLabel, paymentType === "CASH" && styles.paymentCardLabelActive]}>Cash</Text>
+                    </Pressable>
+
+                    <Pressable 
+                      onPress={() => {
+                        setPaymentType("UPI");
+                        setAmountPaid(String(cartTotal));
+                      }}
+                      style={[
+                        styles.paymentCard,
+                        paymentType === "UPI" && styles.paymentCardSelected
+                      ]}
+                    >
+                      <Icon source="qrcode" size={28} color={paymentType === "UPI" ? colors.primaryDark : colors.textSecondary} />
+                      <Text style={[styles.paymentCardLabel, paymentType === "UPI" && styles.paymentCardLabelActive]}>UPI</Text>
+                    </Pressable>
+                  </View>
+
+                  <View style={styles.paymentGridRow}>
+                    <Pressable 
+                      onPress={() => {
+                        setPaymentType("BANK_TRANSFER");
+                        setAmountPaid(String(cartTotal));
+                      }}
+                      style={[
+                        styles.paymentCard,
+                        paymentType === "BANK_TRANSFER" && styles.paymentCardSelected
+                      ]}
+                    >
+                      <Icon source="bank" size={28} color={paymentType === "BANK_TRANSFER" ? colors.primaryDark : colors.textSecondary} />
+                      <Text style={[styles.paymentCardLabel, paymentType === "BANK_TRANSFER" && styles.paymentCardLabelActive]}>Bank</Text>
+                    </Pressable>
+
+                    <Pressable 
+                      onPress={() => {
+                        setPaymentType("CREDIT");
+                        setAmountPaid("0");
+                      }}
+                      style={[
+                        styles.paymentCard,
+                        paymentType === "CREDIT" && styles.paymentCardSelected
+                      ]}
+                    >
+                      <Icon source="card-text-outline" size={28} color={paymentType === "CREDIT" ? colors.primaryDark : colors.textSecondary} />
+                      <Text style={[styles.paymentCardLabel, paymentType === "CREDIT" && styles.paymentCardLabelActive]}>Credit</Text>
+                    </Pressable>
+                  </View>
                 </View>
               </Section>
 
@@ -938,6 +987,7 @@ export function RegularSale() {
                         isWalkin: false,
                         createdAt: new Date().toISOString(),
                         customer: selectedCustomer,
+                        customerSignature: customerSignature,
                         items: cartArray.map(i => ({
                           id: i.item.id,
                           quantity: String(i.quantity),
@@ -1520,8 +1570,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.surfaceOffset,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.surface,
   },
   cartItemLeft: {
     flex: 1.5,
@@ -1601,15 +1651,17 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     marginTop: spacing.xs,
   },
-  paymentGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+  paymentGridRows: {
+    flexDirection: 'column',
     gap: spacing.md,
     marginBottom: spacing.lg,
   },
+  paymentGridRow: {
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
   paymentCard: {
     flex: 1,
-    minWidth: '45%',
     backgroundColor: colors.surface,
     borderRadius: radius.lg,
     borderWidth: 2,
@@ -1653,12 +1705,36 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
   },
   successContainer: {
-    flex: 1,
     alignItems: 'center',
-    justifyContent: 'center',
     padding: spacing.xl,
+    paddingTop: spacing.xxl,
     backgroundColor: colors.bg,
-    marginTop: 40,
+  },
+  swipeContainer: {
+    position: 'relative',
+    overflow: 'hidden',
+    backgroundColor: '#10b981', // Green background underlay
+    borderRadius: radius.lg,
+    marginBottom: spacing.sm,
+  },
+  swipeUnderlay: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    width: 100,
+    justifyContent: 'center',
+    paddingLeft: spacing.md,
+  },
+  swipeUnderlayContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  swipeUnderlayText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: fontWeight.bold,
   },
   successIconWrapper: {
     marginBottom: spacing.lg,

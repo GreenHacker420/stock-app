@@ -96,42 +96,46 @@ async function printHtmlOnWeb(html: string): Promise<void> {
 
 export async function generateSaleInvoiceHtml({ sale, shop, signatureBase64 }: ShareInvoiceOptions): Promise<string> {
   let signatureHtml = "";
-  if (sale.customerSignature) {
-    try {
-      const parsed = JSON.parse(sale.customerSignature);
-      let paths: string[] = [];
-      let signatureViewBox = "0 0 300 150";
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-        paths = parsed.paths || [];
-        signatureViewBox = parsed.viewBox || "0 0 300 150";
-      } else if (Array.isArray(parsed)) {
-        paths = parsed;
-        signatureViewBox = getSignatureViewBox(parsed);
-      }
+  let rawSig = sale.customerSignature || signatureBase64;
+  if (rawSig) {
+    rawSig = rawSig.trim();
+    if (rawSig.startsWith("{") || rawSig.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(rawSig);
+        let paths: string[] = [];
+        let signatureViewBox = "0 0 300 150";
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          paths = parsed.paths || [];
+          signatureViewBox = parsed.viewBox || "0 0 300 150";
+        } else if (Array.isArray(parsed)) {
+          paths = parsed;
+          signatureViewBox = getSignatureViewBox(parsed);
+        }
 
-      if (paths.length > 0) {
-        const pathElements = paths
-          .map((p) => `<path d="${p}" stroke="var(--primary)" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round" />`)
-          .join("");
-        signatureHtml = `
-          <div class="signature-section" style="margin-top: 30px; text-align: right;">
-            <div class="meta-label" style="color: var(--muted); font-weight: 500; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Customer Signature</div>
-            <div style="display: inline-block; width: 150px; height: 75px; border-bottom: 1px solid var(--border);">
-              <svg viewBox="${signatureViewBox}" style="width: 100%; height: 100%;">${pathElements}</svg>
+        if (paths.length > 0) {
+          const pathElements = paths
+            .map((p) => `<path d="${p}" stroke="var(--primary)" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round" />`)
+            .join("");
+          signatureHtml = `
+            <div class="signature-section" style="margin-top: 30px; text-align: right;">
+              <div class="meta-label" style="color: var(--muted); font-weight: 500; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Customer Signature</div>
+              <div style="display: inline-block; width: 150px; height: 75px; border-bottom: 1px solid var(--border);">
+                <svg viewBox="${signatureViewBox}" style="width: 100%; height: 100%;">${pathElements}</svg>
+              </div>
             </div>
-          </div>
-        `;
+          `;
+        }
+      } catch (e) {
+        console.error("Failed to parse customer signature for PDF:", e);
       }
-    } catch (e) {
-      console.error("Failed to parse customer signature for PDF:", e);
+    } else if (rawSig.startsWith("data:") || rawSig.length > 100) {
+      signatureHtml = `
+        <div class="signature-section" style="margin-top: 30px; text-align: right;">
+          <div class="meta-label" style="color: var(--muted); font-weight: 500; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Customer Signature</div>
+          <img class="signature-img" src="${rawSig}" alt="Signature" style="max-height: 50px; max-width: 150px; object-fit: contain; border-bottom: 1px solid var(--border);" />
+        </div>
+      `;
     }
-  } else if (signatureBase64) {
-    signatureHtml = `
-      <div class="signature-section" style="margin-top: 30px; text-align: right;">
-        <div class="meta-label" style="color: var(--muted); font-weight: 500; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Customer Signature</div>
-        <img class="signature-img" src="${signatureBase64}" alt="Signature" style="max-height: 50px; max-width: 150px; object-fit: contain; border-bottom: 1px solid var(--border);" />
-      </div>
-    `;
   }
 
   const shopName = shop?.name || "RETAIL STORE";

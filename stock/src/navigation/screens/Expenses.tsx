@@ -119,17 +119,17 @@ export function ExpenseList() {
               style={styles.input}
               outlineStyle={{ borderRadius: radius.md }}
            />
-           <View style={styles.categoryGrid}>
-              {expenseCategories.map(cat => (
-                <Pressable 
-                  key={cat} 
-                  onPress={() => setForm(f => ({ ...f, category: cat }))}
-                  style={[styles.catBtn, form.category === cat && styles.catBtnActive]}
-                >
-                  <Text style={[styles.catBtnText, form.category === cat && styles.catBtnTextActive]}>{cat.split('_')[0]}</Text>
-                </Pressable>
-              ))}
-           </View>
+            <View style={styles.categoryGrid}>
+               {expenseCategories.map(cat => (
+                 <Pressable 
+                   key={cat} 
+                   onPress={() => setForm(f => ({ ...f, category: cat }))}
+                   style={[styles.catBtn, form.category === cat && styles.catBtnActive]}
+                 >
+                   <Text style={[styles.catBtnText, form.category === cat && styles.catBtnTextActive]}>{cat.replace('_', ' ')}</Text>
+                 </Pressable>
+               ))}
+            </View>
            <TextInput
               mode="outlined"
               label="Notes / Purpose"
@@ -176,8 +176,8 @@ const styles = StyleSheet.create({
   modalContent: { backgroundColor: colors.surface, margin: spacing.xl, padding: spacing.xl, borderRadius: radius.xl },
   modalTitle: { fontSize: 20, fontWeight: fontWeight.black, marginBottom: spacing.lg, textAlign: 'center' },
   input: { backgroundColor: colors.surface, marginBottom: spacing.md },
-  categoryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.md },
-  catBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border },
+  categoryGrid: { flexDirection: 'row', flexWrap: 'wrap', marginHorizontal: -4, marginBottom: spacing.md },
+  catBtn: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, margin: 4 },
   catBtnActive: { backgroundColor: colors.primary, borderColor: colors.primary },
   catBtnText: { fontSize: 11, fontWeight: fontWeight.bold, color: colors.textSecondary },
   catBtnTextActive: { color: 'white' }

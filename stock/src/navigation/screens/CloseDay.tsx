@@ -38,7 +38,9 @@ export function CloseDay() {
     enabled: !!token && !!shopId,
   });
 
+  const openingCash = Number(currentQuery.data?.openingCash ?? 0);
   const expected = Number(currentQuery.data?.expectedCash ?? 0);
+  const netCollections = Math.max(0, expected - openingCash);
   const actual = Number(actualCash || 0);
   const deductions = Number(otherDeductions || 0);
   const finalExpected = expected - deductions;
@@ -63,6 +65,32 @@ export function CloseDay() {
     },
   });
 
+  if (!currentQuery.isLoading && !currentQuery.data) {
+    return (
+      <Screen edges={['top', 'left', 'right']}>
+        <AppHeader title="Day Closing" subtitle="Session Reconciliation" />
+        <View style={styles.blockerContainer}>
+          <View style={styles.blockerCard}>
+            <View style={styles.blockerIconContainer}>
+              <Icon source="alert-circle" size={48} color={colors.warning} />
+            </View>
+            <Text style={styles.blockerTitle}>No Active Cash Session</Text>
+            <Text style={styles.blockerText}>
+              There is currently no active cash session for this shop. You must open a cash session before you can reconcile and close the day.
+            </Text>
+            <Button
+              label="OPEN CASH SESSION"
+              variant="primary"
+              onPress={() => navigate("OpenCashSession")}
+              fullWidth
+              style={styles.blockerButton}
+            />
+          </View>
+        </View>
+      </Screen>
+    );
+  }
+
   return (
     <Screen edges={['top', 'left', 'right']}>
       <KeyboardAvoidingView 
@@ -84,8 +112,8 @@ export function CloseDay() {
                <View style={styles.calculationBody}>
                   <View style={styles.expectedRow}>
                      <View>
-                        <Text style={styles.expectedLabel}>EXPECTED CASH</Text>
-                        <Text style={styles.expectedValue}>₹{expected.toLocaleString()}</Text>
+                        <Text style={styles.expectedLabel}>FINAL EXPECTED CASH</Text>
+                        <Text style={styles.expectedValue}>₹{finalExpected.toLocaleString("en-IN")}</Text>
                      </View>
                      <View style={styles.ledgerBadge}>
                         <Text style={styles.ledgerBadgeText}>LEDGER BASE</Text>
@@ -93,8 +121,9 @@ export function CloseDay() {
                   </View>
                   <Divider style={styles.divider} />
                   <View style={styles.breakdownContainer}>
-                     <BreakdownRow label="Cash Sales (+)" value={`₹${expected.toLocaleString()}`} />
-                     <BreakdownRow label="Expenses / Payouts (-)" value={`₹${deductions.toLocaleString()}`} isNegative />
+                     <BreakdownRow label="Opening Cash (+)" value={`₹${openingCash.toLocaleString("en-IN")}`} />
+                     <BreakdownRow label="Net Cash Collections (+)" value={`₹${netCollections.toLocaleString("en-IN")}`} />
+                     <BreakdownRow label="Other Deductions (-)" value={`₹${deductions.toLocaleString("en-IN")}`} isNegative />
                   </View>
                </View>
             </View>
@@ -436,5 +465,45 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: colors.textMuted,
     lineHeight: 16,
+  },
+  blockerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    padding: spacing.xl,
+    backgroundColor: colors.bg,
+  },
+  blockerCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    padding: spacing.xl,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+    ...shadow.md,
+  },
+  blockerIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: colors.warningLight,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: spacing.lg,
+  },
+  blockerTitle: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+    marginBottom: spacing.xs,
+  },
+  blockerText: {
+    fontSize: fontSize.sm,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 20,
+    marginBottom: spacing.xl,
+  },
+  blockerButton: {
+    marginTop: spacing.sm,
   },
 });
