@@ -60,7 +60,7 @@ export function PaymentVerification() {
 
   return (
     <Screen scroll={false}>
-      <AppHeader title="Payment Verification" subtitle={`${pendingCount} entries pending review`} />
+      <AppHeader title="Payment Verification" subtitle={`${pendingCount} entries pending review`} showBack />
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabContainer} contentContainerStyle={styles.tabContent}>
         {["ALL", "UPI", "CARD", "BANK_TRANSFER", "CHEQUE"].map(mode => (

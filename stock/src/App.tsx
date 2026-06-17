@@ -18,6 +18,7 @@ import { Login } from './navigation/screens/Login';
 import { SelectShop } from './navigation/screens/SelectShop';
 import { RealtimeProvider } from './realtime/RealtimeProvider';
 import { navigationThemes, paperLightTheme } from './theme/paper';
+import { useNotificationSetup } from './notifications/FCMManager';
 
 Asset.loadAsync([
   ...NavigationAssets,
@@ -112,6 +113,8 @@ function AppContent({
   navigationTheme: any;
   prefix: string;
 }) {
+  useNotificationSetup();
+
   if (isBootstrapping) {
     return <ActivityIndicator style={{ flex: 1 }} />;
   }

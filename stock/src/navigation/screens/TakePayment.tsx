@@ -57,6 +57,7 @@ export function TakePayment() {
     : (insets.bottom > 0 ? insets.bottom : spacing.lg);
   const [customerId, setCustomerId] = useState<string | undefined>(route.params?.customerId);
   const [orderId, setOrderId] = useState<string | undefined>(route.params?.orderId);
+  const [dmId, setDmId] = useState<string | undefined>(route.params?.dmId);
   const [searchQuery, setSearchQuery] = useState("");
   const [amount, setAmount] = useState(route.params?.amount?.toString() || "");
   const [paymentMode, setPaymentMode] = useState<typeof paymentModes[number]["value"]>("CASH");
@@ -90,6 +91,7 @@ export function TakePayment() {
     paymentMutation.mutate({
       customerId: isWalkin ? undefined : customerId,
       orderId,
+      dmId,
       paymentMode,
       amount: Number(amount),
       referenceNumber: reference || undefined,
@@ -197,11 +199,14 @@ export function TakePayment() {
                         </View>
                         <View style={styles.flex1}>
                            <Text style={styles.customerName}>{selectedCustomer.name}</Text>
-                           <Text style={styles.customerPhone}>{selectedCustomer.phone}{orderId ? ` • Linked Order` : ""}</Text>
+                           <Text style={styles.customerPhone}>
+                             {selectedCustomer.phone}
+                             {orderId ? " • Linked Order" : dmId ? " • Linked Delivery Memo" : ""}
+                           </Text>
                         </View>
                      </View>
                      <Pressable 
-                       onPress={() => { setCustomerId(undefined); setOrderId(undefined); }}
+                       onPress={() => { setCustomerId(undefined); setOrderId(undefined); setDmId(undefined); }}
                        style={({ pressed }) => [styles.changeCustButton, pressed ? styles.pressed : undefined].filter(Boolean) as any}
                      >
                        <Text style={styles.changeCustText}>Change</Text>

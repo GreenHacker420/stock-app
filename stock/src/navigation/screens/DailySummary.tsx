@@ -2,7 +2,8 @@ import { useEffect, useState, useMemo } from "react";
 import { View, ScrollView, StyleSheet, ActivityIndicator } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Text, Card, Icon, Divider, List } from "react-native-paper";
-import { fetchDailySummary, lockDailySummary } from "../../api/client";
+import { useRoute } from "@react-navigation/native";
+import { fetchDailySummary, lockDailySummary, fetchDailySummaryById, lockDailySummaryById } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
 import { Screen } from "../../components/Screen";
@@ -14,23 +15,37 @@ export function DailySummary() {
   const token = useAuthStore((state) => state.token);
   const { activeShopId } = useShopStore();
   const queryClient = useQueryClient();
+  const route = useRoute<any>();
 
   const today = new Date().toISOString().split('T')[0];
+  const targetDate = route.params?.date || today;
+  const targetId = route.params?.id;
 
   const [successVisible, setSuccessVisible] = useState(false);
   const [successTitle, setSuccessTitle] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   
   const summaryQuery = useQuery({ 
-    queryKey: ["daily-summary", activeShopId, today], 
-    queryFn: () => fetchDailySummary(token ?? "", activeShopId ?? "", today), 
-    enabled: !!token && !!activeShopId 
+    queryKey: targetId 
+      ? ["daily-summary-id", targetId] 
+      : ["daily-summary", activeShopId, targetDate], 
+    queryFn: () => targetId 
+      ? fetchDailySummaryById(token ?? "", targetId)
+      : fetchDailySummary(token ?? "", activeShopId ?? "", targetDate), 
+    enabled: !!token && (!!targetId || (!!activeShopId && !!targetDate))
   });
 
   const lockMutation = useMutation({
-    mutationFn: () => lockDailySummary(token ?? "", activeShopId ?? "", today),
+    mutationFn: () => targetId 
+      ? lockDailySummaryById(token ?? "", targetId)
+      : lockDailySummary(token ?? "", activeShopId ?? "", targetDate),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["daily-summary", activeShopId, today] });
+      if (targetId) {
+        queryClient.invalidateQueries({ queryKey: ["daily-summary-id", targetId] });
+      } else {
+        queryClient.invalidateQueries({ queryKey: ["daily-summary", activeShopId, targetDate] });
+      }
+      queryClient.invalidateQueries({ queryKey: ["daily-summaries"] });
       setSuccessTitle("Summary Locked");
       setSuccessMessage("The daily operations summary has been locked and compiled successfully.");
       setSuccessVisible(true);

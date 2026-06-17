@@ -312,6 +312,8 @@ function OwnerHome({ navigate }: { navigate: (s: any, params?: any) => void }) {
 }
 
 function StaffHome({ navigate, session, sessionLoading }: { navigate: (s: any, params?: any) => void; session?: any; sessionLoading: boolean }) {
+  const [isSessionCollapsed, setIsSessionCollapsed] = useState(false);
+
   if (sessionLoading) {
     return (
       <View style={styles.loadingContainer}>
@@ -331,7 +333,9 @@ function StaffHome({ navigate, session, sessionLoading }: { navigate: (s: any, p
         styles.staffBanner, 
         { 
           backgroundColor: isOpen ? colors.primaryLight : colors.warningLight,
-          borderColor: isOpen ? 'rgba(22, 163, 74, 0.3)' : 'rgba(217, 119, 6, 0.3)'
+          borderColor: isOpen ? 'rgba(22, 163, 74, 0.3)' : 'rgba(217, 119, 6, 0.3)',
+          padding: isSessionCollapsed ? spacing.md : spacing.xl,
+          gap: isSessionCollapsed ? 0 : spacing.md,
         }
       ]}>
         <View style={styles.staffBannerHeader}>
@@ -346,33 +350,42 @@ function StaffHome({ navigate, session, sessionLoading }: { navigate: (s: any, p
             />
           </View>
           <View style={styles.flex1}>
-            <Text style={[
-              styles.staffBannerTitle, 
-              { color: isOpen ? colors.success : colors.warning }
-            ]}>
-              {isOpen ? "Cash Session Active" : "Cash Session Closed"}
-            </Text>
-            <Text style={[styles.staffBannerDesc, { color: colors.textSecondary }]} numberOfLines={2}>
-              {isOpen 
-                ? `Counter cash tracking active. Open: ₹${Number(session?.openingCash ?? 0).toLocaleString("en-IN")}` 
-                : "You must open a cash session to start registering sales."
-              }
-            </Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={[
+                styles.staffBannerTitle, 
+                { color: isOpen ? colors.success : colors.warning }
+              ]}>
+                {isOpen ? "Cash Session Active" : "Cash Session Closed"}
+              </Text>
+              <Pressable onPress={() => setIsSessionCollapsed(!isSessionCollapsed)} style={{ padding: 4 }}>
+                <Icon source={isSessionCollapsed ? "chevron-down" : "chevron-up"} size={20} color={colors.textSecondary} />
+              </Pressable>
+            </View>
+            {!isSessionCollapsed && (
+              <Text style={[styles.staffBannerDesc, { color: colors.textSecondary }]} numberOfLines={2}>
+                {isOpen 
+                  ? `Counter cash tracking active. Open: ₹${Number(session?.openingCash ?? 0).toLocaleString("en-IN")}` 
+                  : "You must open a cash session to start registering sales."
+                }
+              </Text>
+            )}
           </View>
         </View>
-        <Button
-          mode="contained"
-          onPress={() => navigate(isOpen ? "WalkInSale" : "OpenCashSession")}
-          style={[
-            styles.staffBannerButton,
-            { backgroundColor: isOpen ? colors.success : colors.primary }
-          ]}
-          contentStyle={styles.staffBannerButtonContent}
-          labelStyle={{ fontWeight: fontWeight.bold, fontSize: fontSize.sm }}
-          icon={isOpen ? "cart-plus" : "play"}
-        >
-          {isOpen ? "New Counter Sale" : "Open Cash Session"}
-        </Button>
+        {!isSessionCollapsed && (
+          <Button
+            mode="contained"
+            onPress={() => navigate(isOpen ? "WalkInSale" : "OpenCashSession")}
+            style={[
+              styles.staffBannerButton,
+              { backgroundColor: isOpen ? colors.success : colors.primary }
+            ]}
+            contentStyle={styles.staffBannerButtonContent}
+            labelStyle={{ fontWeight: fontWeight.bold, fontSize: fontSize.sm }}
+            icon={isOpen ? "cart-plus" : "play"}
+          >
+            {isOpen ? "New Counter Sale" : "Open Cash Session"}
+          </Button>
+        )}
       </View>
 
       <View style={styles.categoryHeader}>
@@ -382,7 +395,7 @@ function StaffHome({ navigate, session, sessionLoading }: { navigate: (s: any, p
       <View style={styles.gridContainer}>
         <CategoryCard title="Orders" icon="package-variant-closed" onPress={() => navigate("OrdersToPack")} />
         <CategoryCard title="New Sale" icon="cart-plus" onPress={() => navigate("NewSaleType")} />
-        <CategoryCard title="Create DM" icon="file-document-outline" onPress={() => navigate("OrdersToPack", { initialTab: "packed" })} />
+        <CategoryCard title="Create DM" icon="file-document-outline" onPress={() => navigate("DeliveryMemoList")} />
         <CategoryCard title="Expenses" icon="cash-minus" onPress={() => navigate("Expenses")} />
         <CategoryCard title="Payment" icon="cash-register" onPress={() => navigate("TakePayment")} />
         <CategoryCard title="Stock Entry" icon="warehouse" onPress={() => navigate("StockEntry")} />

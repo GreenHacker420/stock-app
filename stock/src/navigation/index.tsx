@@ -42,6 +42,11 @@ import { CreateOrder } from "./screens/CreateOrder";
 import { OrderList } from "./screens/OrderList";
 import { OrderDetail } from "./screens/OrderDetail";
 import { StockDashboard } from "./screens/StockDashboard";
+import { DailySummaryList } from "./screens/DailySummaryList";
+import { StockMovementHistory } from "./screens/StockMovementHistory";
+import { DeliveryMemoList } from "./screens/DeliveryMemoList";
+import { CreateDeliveryMemo } from "./screens/CreateDeliveryMemo";
+import { DeliveryMemoDetail } from "./screens/DeliveryMemoDetail";
 
 import { colors } from "../theme";
 
@@ -289,7 +294,7 @@ const sharedStackScreens = {
     options: { title: "Stock entry" },
   },
   StockMovementHistory: {
-    screen: GenericPlannedScreen,
+    screen: StockMovementHistory,
     options: { title: "Stock movement history" },
   },
   OrdersToPack: {
@@ -325,15 +330,15 @@ const sharedStackScreens = {
     options: { title: "Verification Queue" },
   },
   CreateDeliveryMemo: {
-    screen: GenericPlannedScreen,
+    screen: CreateDeliveryMemo,
     options: { title: "Create delivery memo" },
   },
   DeliveryMemoList: {
-    screen: GenericPlannedScreen,
+    screen: DeliveryMemoList,
     options: { title: "Delivery memos" },
   },
   DeliveryMemoDetail: {
-    screen: GenericPlannedScreen,
+    screen: DeliveryMemoDetail,
     options: { title: "Delivery memo detail" },
   },
   TakePayment: {
@@ -453,7 +458,7 @@ const sharedStackScreens = {
     options: { title: "Correction requests" },
   },
   DailySummaryList: {
-    screen: GenericPlannedScreen,
+    screen: DailySummaryList,
     options: { title: "Daily summaries" },
   },
   StaffManagement: {
@@ -538,8 +543,8 @@ export type RootStackParamList = {
   VerificationQueue: undefined;
   CreateDeliveryMemo: undefined;
   DeliveryMemoList: undefined;
-  DeliveryMemoDetail: undefined;
-  TakePayment: { customerId?: string; orderId?: string; amount?: number };
+  DeliveryMemoDetail: { id: string };
+  TakePayment: { customerId?: string; orderId?: string; dmId?: string; amount?: number };
   RequestCorrection: undefined;
   RequestRateChange: undefined;
   CreateEditShop: { shop?: any };
@@ -547,7 +552,7 @@ export type RootStackParamList = {
   SetOpeningStock: { shop?: any };
   PaymentVerification: undefined;
   CashClosingReview: undefined;
-  DailySummary: undefined;
+  DailySummary: { id?: string; date?: string };
   UpiConfig: undefined;
   Updates: undefined;
   CreateOrder: undefined;

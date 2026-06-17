@@ -35,6 +35,7 @@
       "reactCompiler": true
     },
     "plugins": [
+      "expo-notifications",
       "expo-asset",
       [
         "expo-splash-screen",

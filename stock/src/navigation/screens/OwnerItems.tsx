@@ -55,14 +55,14 @@ const ItemCard = memo(({
   const isLow = stock <= Number(item.minimumStock);
   const isOut = stock <= 0;
   const avatarColors = getAvatarColor(item.name);
-  const leftBorderColor = isOut ? colors.danger : isLow ? colors.warning : colors.success;
+  const statusColor = isOut ? colors.danger : isLow ? colors.warning : colors.success;
 
   return (
     <Pressable 
       onPress={onPress}
       style={({ pressed }) => [
         styles.itemCard,
-        { borderLeftWidth: 5, borderLeftColor: leftBorderColor },
+        { borderLeftWidth: 6, borderLeftColor: statusColor },
         pressed && styles.itemCardPressed
       ]}
     >
@@ -72,49 +72,47 @@ const ItemCard = memo(({
         </View>
         <View style={styles.itemDetails}>
           <Text style={styles.itemName} numberOfLines={1}>{item.name}</Text>
-          <Text style={styles.itemSubtitle}>{item.sku || "No SKU"} • {item.unit}</Text>
+          <Text style={styles.itemSubtitle}>{item.sku ? `SKU: ${item.sku}` : "No SKU"} • {item.unit}</Text>
+          
           <View style={styles.itemStockCountContainer}>
             <Text style={styles.itemStockCount}>
-              Stock: <Text style={[styles.itemStockValue, { color: leftBorderColor }]}>{stock} {item.unit}</Text>
+              Stock: <Text style={[styles.itemStockValue, { color: statusColor, fontSize: 13, fontWeight: fontWeight.extrabold }]}>{stock} {item.unit}</Text>
             </Text>
             {item.minimumStock ? (
-              <Text style={styles.minStockText}>Min: {item.minimumStock}</Text>
+              <Text style={styles.minStockText}>Alert Min: {item.minimumStock}</Text>
             ) : null}
           </View>
         </View>
         <View style={styles.itemActions}>
            <StatusPill 
-             label={isOut ? "OUT" : isLow ? "LOW" : "OK"} 
+             label={isOut ? "OUT OF STOCK" : isLow ? "LOW STOCK" : "IN STOCK"} 
              tone={isOut ? "red" : isLow ? "amber" : "green"} 
            />
-           <Pressable onPress={onEdit} style={styles.actionButton}>
-              <Icon source="pencil-outline" size={18} color={colors.textSecondary} />
+           <Pressable onPress={onEdit} style={[styles.actionButton, { backgroundColor: colors.surfaceOffset }]}>
+              <Icon source="pencil-outline" size={16} color={colors.textSecondary} />
            </Pressable>
         </View>
       </View>
       
       <View style={styles.itemFooterGrid}>
          <View style={styles.priceContainer}>
-            <Text style={styles.priceLabel}>Selling Price</Text>
+            <Text style={styles.priceLabel}>SELLING PRICE</Text>
             <Text style={styles.priceValue}>{money(item.defaultSellingPrice)}</Text>
          </View>
          <View style={styles.priceContainer}>
             <Text style={styles.priceLabel}>MRP</Text>
-            <Text style={styles.priceValueMrp}>{money(item.mrp)}</Text>
+            <Text style={[styles.priceValueMrp, { textDecorationLine: 'none', color: colors.textSecondary }]}>{money(item.mrp)}</Text>
          </View>
          {item.minimumAllowedPrice ? (
            <View style={styles.priceContainer}>
-              <Text style={styles.priceLabel}>Min Price</Text>
+              <Text style={styles.priceLabel}>MIN PRICE</Text>
               <Text style={styles.priceValueMin}>{money(item.minimumAllowedPrice)}</Text>
            </View>
          ) : null}
-         <Button 
-            variant="ghost" 
-            label="Restock" 
-            onPress={onManageStock}
-            icon={<Icon source="plus-box-outline" size={16} color={colors.primary} />}
-            style={styles.restockButton}
-         />
+         <Pressable onPress={onManageStock} style={styles.miniRestockBtn}>
+            <Icon source="plus-box" size={16} color={colors.primary} />
+            <Text style={styles.miniRestockText}>RESTOCK</Text>
+         </Pressable>
       </View>
     </Pressable>
   );
@@ -837,8 +835,20 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.bold,
     color: colors.textSecondary,
   },
-  restockButton: {
-    paddingHorizontal: spacing.sm,
+  miniRestockBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.primaryLight,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs + 2,
+    borderRadius: radius.md,
+    gap: 4,
+  },
+  miniRestockText: {
+    fontSize: 10,
+    fontWeight: fontWeight.extrabold,
+    color: colors.primary,
+    letterSpacing: 0.5,
   },
   priceLabel: {
     fontSize: 11,

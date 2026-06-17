@@ -865,3 +865,28 @@ export async function updateSaleGst(token: string, saleId: string, gstInvoiceNum
     body: JSON.stringify({ gstInvoiceNumber }),
   });
 }
+
+export async function registerPushToken(token: string, pushToken: string) {
+  return apiRequest("/users/push-token", {
+    method: "POST",
+    token,
+    body: JSON.stringify({ pushToken }),
+  });
+}
+
+export async function fetchDeliveryMemos(token: string, shopId: string) {
+  return apiRequest<any[]>(`/delivery-memos?shopId=${encodeURIComponent(shopId)}`, { token });
+}
+
+export async function fetchDeliveryMemo(token: string, id: string) {
+  return apiRequest<any>(`/delivery-memos/${id}`, { token });
+}
+
+export async function createDeliveryMemo(token: string, data: any) {
+  return apiRequest<any>("/delivery-memos", {
+    method: "POST",
+    token,
+    body: JSON.stringify(data),
+  });
+}
+

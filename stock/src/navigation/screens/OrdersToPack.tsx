@@ -24,8 +24,12 @@ export function OrdersToPack() {
 
   const filteredOrders = useMemo(() => {
     // Only show actionable statuses for packing flow
-    const actionable = allOrders.filter(o => ["CONFIRMED", "PACKING", "PACKED"].includes(o.status));
+    const actionable = allOrders.filter(o => 
+      ["CONFIRMED", "SENT_TO_STAFF", "PACKING", "PARTIALLY_PACKED", "PACKED"].includes(o.status)
+    );
     if (activeTab === "ALL") return actionable;
+    if (activeTab === "CONFIRMED") return actionable.filter(o => ["CONFIRMED", "SENT_TO_STAFF"].includes(o.status));
+    if (activeTab === "PACKING") return actionable.filter(o => ["PACKING", "PARTIALLY_PACKED"].includes(o.status));
     return actionable.filter(o => o.status === activeTab);
   }, [allOrders, activeTab]);
 
