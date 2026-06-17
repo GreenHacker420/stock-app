@@ -43,6 +43,23 @@ const paymentModes = [
   { label: "Cheque", value: "CHEQUE", icon: "file-document-edit-outline" },
 ] as const;
 
+const getPaymentModeColor = (mode: string) => {
+  switch (mode) {
+    case "CASH":
+      return "#16a34a"; // Emerald Green
+    case "UPI":
+      return "#7c3aed"; // Royal Violet
+    case "CARD":
+      return "#2563eb"; // Deep Cobalt
+    case "BANK":
+      return "#4f46e5"; // Indigo Blue
+    case "CHEQUE":
+      return "#ea580c"; // Warm Rust
+    default:
+      return colors.primary;
+  }
+};
+
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 
 export function TakePayment() {
@@ -160,7 +177,7 @@ export function TakePayment() {
         >
           {/* Curved Brand Customer Header Card */}
           <LinearGradient
-            colors={[colors.primaryDark, colors.primary]}
+            colors={[colors.primaryDark, colors.primaryMid]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={styles.customerCard}
@@ -244,54 +261,60 @@ export function TakePayment() {
             )}
           </LinearGradient>
 
-          {/* Amount Received Display */}
+          {/* Amount Received Display (Digital POS Theme) */}
           <View style={styles.amountDisplayContainer}>
             <Text style={styles.amountCurrency}>AMOUNT RECEIVED</Text>
-            <Text style={styles.amountValue}>₹{amount || "0"}</Text>
+            <View style={styles.amountDisplayRow}>
+              <Text style={styles.amountSymbol}>₹</Text>
+              <Text style={styles.amountValue}>{amount || "0"}</Text>
+              <Text style={styles.blinkingCursor}>|</Text>
+            </View>
           </View>
 
-          {/* Amount Presets Row */}
+          {/* Amount Presets Row (Tactile Capsules) */}
           <View style={styles.presetsRow}>
-            <Pressable style={styles.presetButton} onPress={() => handlePresetPress(100)}>
-              <Text style={styles.presetText}>+100</Text>
-            </Pressable>
-            <Pressable style={styles.presetButton} onPress={() => handlePresetPress(500)}>
-              <Text style={styles.presetText}>+500</Text>
-            </Pressable>
-            <Pressable style={styles.presetButton} onPress={() => handlePresetPress(1000)}>
-              <Text style={styles.presetText}>+1000</Text>
-            </Pressable>
-            <Pressable style={styles.presetButton} onPress={() => handlePresetPress(5000)}>
-              <Text style={styles.presetText}>+5000</Text>
-            </Pressable>
-            <Pressable style={styles.clearButton} onPress={handleClear}>
+            {([100, 500, 1000, 5000] as const).map((val) => (
+              <Pressable
+                key={val}
+                style={({ pressed }) => [styles.presetButton, pressed ? styles.pressed : undefined].filter(Boolean) as any}
+                onPress={() => handlePresetPress(val)}
+              >
+                <Text style={styles.presetText}>+{val}</Text>
+              </Pressable>
+            ))}
+            <Pressable
+              style={({ pressed }) => [styles.clearButton, pressed ? styles.pressed : undefined].filter(Boolean) as any}
+              onPress={handleClear}
+            >
               <Text style={styles.clearText}>CLEAR</Text>
             </Pressable>
           </View>
 
-          {/* Payment Methods Slider-Row */}
+          {/* Payment Methods Slider-Row (Dynamic Selection Themes) */}
           <View style={styles.methodsContainer}>
             <View style={styles.methodsList}>
               {paymentModes.map(mode => {
                 const isActive = paymentMode === mode.value;
+                const activeColor = getPaymentModeColor(mode.value);
                 return (
                   <Pressable 
                     key={mode.value} 
                     onPress={() => { if(!paymentMutation.isPending) { setPaymentMode(mode.value); setErrorMsg(null); } }}
-                    style={([
+                    style={({ pressed }) => [
                       styles.methodTab,
-                      isActive ? styles.methodTabActive : undefined
-                    ].filter(Boolean)) as any}
+                      isActive ? { backgroundColor: activeColor } : undefined,
+                      pressed ? styles.pressed : undefined
+                    ].filter(Boolean) as any}
                   >
                     <Icon 
                       source={mode.icon} 
-                      size={20} 
+                      size={18} 
                       color={isActive ? "white" : colors.textSecondary} 
                     />
-                    <Text style={([
+                    <Text style={[
                       styles.methodTabLabel,
                       isActive ? styles.methodTabLabelActive : undefined
-                    ].filter(Boolean)) as any}>
+                    ].filter(Boolean) as any}>
                       {mode.label}
                     </Text>
                   </Pressable>
@@ -328,7 +351,13 @@ export function TakePayment() {
           {/* Contextual Keypad vs Dynamic QR Area */}
           {showQrSection && activeShop?.upiId ? (
             <View style={styles.qrCard}>
-               <QRCode value={upiPayload} size={150} />
+               <View style={styles.qrHeader}>
+                 <Icon source="qrcode-scan" size={24} color={getPaymentModeColor("UPI")} />
+                 <Text style={styles.qrTitle}>DYNAMIC PAY QR</Text>
+               </View>
+               <View style={styles.qrFrame}>
+                 <QRCode value={upiPayload} size={160} />
+               </View>
                <View style={styles.qrInfo}>
                   <Text style={styles.qrAmount}>₹{amount}</Text>
                   <Text style={styles.qrInstructions}>Verify payment on your phone before saving.</Text>
@@ -342,7 +371,7 @@ export function TakePayment() {
                   />
                   <Button 
                      variant="success" 
-                     label="Done" 
+                     label="Confirm Paid" 
                      onPress={handleConfirmPayment}
                      loading={paymentMutation.isPending}
                      style={styles.flex1}
@@ -351,45 +380,61 @@ export function TakePayment() {
                </View>
             </View>
           ) : (
-            /* Custom POS Numeric Keypad */
+            /* Custom POS Numeric Keypad (Tactile Registered Theme) */
             <View style={styles.keypadContainer}>
-              <View style={styles.keypadRow}>
-                <Pressable style={styles.keypadButton} onPress={() => handleKeyPress("1")}><Text style={styles.keypadButtonText}>1</Text></Pressable>
-                <Pressable style={styles.keypadButton} onPress={() => handleKeyPress("2")}><Text style={styles.keypadButtonText}>2</Text></Pressable>
-                <Pressable style={styles.keypadButton} onPress={() => handleKeyPress("3")}><Text style={styles.keypadButtonText}>3</Text></Pressable>
-              </View>
-              <View style={styles.keypadRow}>
-                <Pressable style={styles.keypadButton} onPress={() => handleKeyPress("4")}><Text style={styles.keypadButtonText}>4</Text></Pressable>
-                <Pressable style={styles.keypadButton} onPress={() => handleKeyPress("5")}><Text style={styles.keypadButtonText}>5</Text></Pressable>
-                <Pressable style={styles.keypadButton} onPress={() => handleKeyPress("6")}><Text style={styles.keypadButtonText}>6</Text></Pressable>
-              </View>
-              <View style={styles.keypadRow}>
-                <Pressable style={styles.keypadButton} onPress={() => handleKeyPress("7")}><Text style={styles.keypadButtonText}>7</Text></Pressable>
-                <Pressable style={styles.keypadButton} onPress={() => handleKeyPress("8")}><Text style={styles.keypadButtonText}>8</Text></Pressable>
-                <Pressable style={styles.keypadButton} onPress={() => handleKeyPress("9")}><Text style={styles.keypadButtonText}>9</Text></Pressable>
-              </View>
-              <View style={styles.keypadRow}>
-                <Pressable style={styles.keypadButton} onPress={() => handleKeyPress(".")}><Text style={styles.keypadButtonText}>.</Text></Pressable>
-                <Pressable style={styles.keypadButton} onPress={() => handleKeyPress("0")}><Text style={styles.keypadButtonText}>0</Text></Pressable>
-                <Pressable style={[styles.keypadButton, styles.keypadBackspace]} onPress={() => handleKeyPress("⌫")}>
-                  <Icon source="backspace-outline" size={22} color={colors.textPrimary} />
-                </Pressable>
-              </View>
+              {[
+                ["1", "2", "3"],
+                ["4", "5", "6"],
+                ["7", "8", "9"],
+                [".", "0", "⌫"]
+              ].map((row, rIdx) => (
+                <View key={rIdx} style={styles.keypadRow}>
+                  {row.map((key) => {
+                    const isBackspace = key === "⌫";
+                    return (
+                      <Pressable
+                        key={key}
+                        style={({ pressed }) => [
+                          styles.keypadButton,
+                          isBackspace ? styles.keypadBackspace : undefined,
+                          pressed ? (isBackspace ? styles.keypadBackspacePressed : styles.keypadButtonPressed) : undefined
+                        ].filter(Boolean) as any}
+                        onPress={() => handleKeyPress(key)}
+                      >
+                        {isBackspace ? (
+                          <Icon source="backspace-outline" size={22} color="#ffffff" />
+                        ) : (
+                          <Text style={styles.keypadButtonText}>{key}</Text>
+                        )}
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ))}
             </View>
           )}
 
-          {/* Collapsible Metadata Toggle */}
-          <View style={styles.metadataContainer}>
+          {/* Collapsible Metadata Accordion */}
+          <View style={[
+            styles.metadataContainer,
+            showMetadata ? styles.metadataContainerExpanded : undefined
+          ].filter(Boolean) as any}>
             <Pressable 
               onPress={() => setShowMetadata(!showMetadata)}
-              style={styles.metadataToggle}
+              style={({ pressed }) => [
+                styles.metadataToggle,
+                pressed ? styles.pressed : undefined
+              ].filter(Boolean) as any}
             >
-              <Text style={styles.metadataToggleText}>
-                {showMetadata ? "Hide additional details" : "Add notes & references"}
-              </Text>
+              <View style={styles.metadataToggleRow}>
+                <Icon source="note-edit-outline" size={18} color={colors.primary} />
+                <Text style={styles.metadataToggleText}>
+                  {showMetadata ? "Hide additional details" : "Add notes & references"}
+                </Text>
+              </View>
               <Icon 
                 source={showMetadata ? "chevron-up" : "chevron-down"} 
-                size={18} 
+                size={20} 
                 color={colors.primary} 
               />
             </Pressable>
@@ -405,6 +450,7 @@ export function TakePayment() {
                      style={styles.metadataInput}
                      outlineStyle={styles.inputOutline}
                      activeOutlineColor={colors.primary}
+                     placeholder={paymentMode === 'CHEQUE' ? "e.g. 123456" : "e.g. UTR12345678"}
                   />
                 )}
 
@@ -418,6 +464,7 @@ export function TakePayment() {
                    style={styles.metadataInput}
                    outlineStyle={styles.inputOutline}
                    activeOutlineColor={colors.primary}
+                   placeholder="Add internal notes about this payment..."
                 />
               </View>
             )}
@@ -601,28 +648,48 @@ const styles = StyleSheet.create({
   amountDisplayContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: spacing.md,
+    paddingVertical: spacing.lg,
     marginHorizontal: spacing.lg,
     marginTop: spacing.md,
     marginBottom: spacing.md,
-    backgroundColor: colors.surface,
+    backgroundColor: '#0f172a', // Premium deep slate dark panel
     borderWidth: 1.5,
-    borderColor: colors.borderStrong,
-    borderRadius: 20,
-    ...shadow.sm,
+    borderColor: '#334155', // Slate 700 border
+    borderRadius: 24,
+    ...shadow.md,
   },
   amountCurrency: {
     fontSize: 10,
     fontWeight: fontWeight.black,
-    color: colors.textSecondary,
-    letterSpacing: 1,
-    marginBottom: 4,
+    color: '#94a3b8', // Soft slate
+    letterSpacing: 1.5,
+    marginBottom: 6,
+    textTransform: 'uppercase',
+  },
+  amountDisplayRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  amountSymbol: {
+    fontSize: 24,
+    fontWeight: fontWeight.bold,
+    color: colors.primaryMid, // Glowing green symbol
+    marginRight: 4,
+    marginTop: 2,
   },
   amountValue: {
-    fontSize: 36,
+    fontSize: 38,
     fontWeight: fontWeight.black,
-    color: colors.primary,
+    color: '#ffffff', // High contrast white
     letterSpacing: -0.5,
+  },
+  blinkingCursor: {
+    fontSize: 34,
+    fontWeight: fontWeight.regular,
+    color: colors.primaryMid,
+    marginLeft: 2,
+    opacity: 0.8,
   },
   presetsRow: {
     flexDirection: 'row',
@@ -632,15 +699,15 @@ const styles = StyleSheet.create({
     marginBottom: spacing.md,
   },
   presetButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 12,
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 14,
     backgroundColor: colors.primaryLight,
     borderWidth: 1,
-    borderColor: 'rgba(22, 163, 74, 0.4)',
-    minWidth: 58,
+    borderColor: 'rgba(22, 163, 74, 0.25)',
     alignItems: 'center',
     justifyContent: 'center',
+    ...shadow.sm,
   },
   presetText: {
     fontSize: 12,
@@ -648,20 +715,21 @@ const styles = StyleSheet.create({
     color: colors.primaryDark,
   },
   clearButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 12,
+    flex: 1.2,
+    paddingVertical: 10,
+    borderRadius: 14,
     backgroundColor: colors.dangerLight,
     borderWidth: 1,
-    borderColor: 'rgba(220, 38, 38, 0.4)',
-    minWidth: 64,
+    borderColor: 'rgba(220, 38, 38, 0.25)',
     alignItems: 'center',
     justifyContent: 'center',
+    ...shadow.sm,
   },
   clearText: {
     fontSize: 12,
     fontWeight: fontWeight.bold,
     color: colors.danger,
+    letterSpacing: 0.5,
   },
   methodsContainer: {
     paddingHorizontal: spacing.lg,
@@ -678,20 +746,18 @@ const styles = StyleSheet.create({
   },
   methodTab: {
     flex: 1,
-    height: 48,
-    borderRadius: 12,
+    height: 52,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 2,
-  },
-  methodTabActive: {
-    backgroundColor: colors.primary,
-    ...shadow.sm,
+    gap: 4,
   },
   methodTabLabel: {
     fontSize: 10,
-    fontWeight: fontWeight.bold,
+    fontWeight: fontWeight.extrabold,
     color: colors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   methodTabLabelActive: {
     color: 'white',
@@ -728,7 +794,27 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: colors.borderStrong,
     alignItems: 'center',
-    gap: spacing.lg,
+    gap: spacing.md,
+    ...shadow.md,
+  },
+  qrHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    marginBottom: spacing.xs,
+  },
+  qrTitle: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.extrabold,
+    color: colors.textSecondary,
+    letterSpacing: 1.5,
+  },
+  qrFrame: {
+    padding: spacing.md,
+    backgroundColor: '#ffffff',
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: colors.borderStrong,
     ...shadow.sm,
   },
   qrInfo: {
@@ -752,58 +838,78 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   keypadContainer: {
-    paddingHorizontal: spacing.xl,
-    gap: 6,
-    marginBottom: spacing.sm,
+    paddingHorizontal: spacing.lg,
+    gap: 8,
+    marginBottom: spacing.md,
   },
   keypadRow: {
     flexDirection: 'row',
-    gap: spacing.sm,
+    gap: 8,
   },
   keypadButton: {
     flex: 1,
-    height: 46,
-    borderRadius: 14,
-    backgroundColor: '#f3f4f6',
-    borderWidth: 1.5,
-    borderColor: '#d1d5db',
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: '#f8fafc', // Beautiful off-white
+    borderWidth: 1,
+    borderColor: '#e2e8f0', // Soft border
     alignItems: 'center',
     justifyContent: 'center',
-    ...shadow.md,
+    ...shadow.sm,
+  },
+  keypadButtonPressed: {
+    backgroundColor: '#e2e8f0',
+    borderColor: '#cbd5e1',
   },
   keypadButtonText: {
-    fontSize: 20,
-    fontWeight: fontWeight.bold,
-    color: colors.textPrimary,
+    fontSize: 22,
+    fontWeight: fontWeight.extrabold,
+    color: '#0f172a', // Deep high-contrast slate text
   },
   keypadBackspace: {
-    backgroundColor: '#e5e7eb',
-    borderColor: '#d1d5db',
+    backgroundColor: '#0f172a', // Deep slate / black for backspace
+    borderColor: '#0f172a',
+  },
+  keypadBackspacePressed: {
+    backgroundColor: '#334155',
   },
   metadataContainer: {
-    paddingHorizontal: spacing.lg,
-    marginTop: spacing.xs,
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.md,
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: 'hidden',
+    ...shadow.sm,
+  },
+  metadataContainerExpanded: {
+    borderColor: colors.borderStrong,
   },
   metadataToggle: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.xs,
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
+    backgroundColor: colors.surfaceOffset,
+  },
+  metadataToggleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
   },
   metadataToggleText: {
     fontSize: fontSize.sm,
     fontWeight: fontWeight.bold,
-    color: colors.primary,
+    color: colors.textPrimary,
   },
   metadataFields: {
     gap: spacing.md,
     backgroundColor: colors.surface,
     padding: spacing.lg,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: colors.border,
-    ...shadow.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
   },
   metadataInput: {
     backgroundColor: colors.surface,

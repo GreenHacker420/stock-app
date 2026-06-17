@@ -1,15 +1,14 @@
-import React, { useMemo, useState, memo, useCallback } from "react";
-import { View, StyleSheet, Pressable, ScrollView, ActivityIndicator, TouchableWithoutFeedback, Modal as RNModal } from "react-native";
+import React, { useMemo, useState, memo } from "react";
+import { View, StyleSheet, Pressable, ScrollView, TouchableWithoutFeedback, Modal as RNModal } from "react-native";
 import { Searchbar, Divider, Text, Icon, SegmentedButtons, TextInput } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useRoute } from "@react-navigation/native";
 
 import { 
   fetchItems, 
-  Item, 
-  StockLevel 
+  Item 
 } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
@@ -60,60 +59,64 @@ const ItemCard = memo(({
   return (
     <Pressable 
       onPress={onPress}
-      style={({ pressed }) => [
-        styles.itemCard,
-        { borderLeftWidth: 6, borderLeftColor: statusColor },
-        pressed && styles.itemCardPressed
-      ]}
+      style={styles.cardPressable}
     >
-      <View style={styles.itemCardRow}>
-        <View style={[styles.itemAvatar, { backgroundColor: avatarColors.bg }]}>
-          <Text style={[styles.itemAvatarText, { color: avatarColors.text }]}>{item.name[0].toUpperCase()}</Text>
-        </View>
-        <View style={styles.itemDetails}>
-          <Text style={styles.itemName} numberOfLines={1}>{item.name}</Text>
-          <Text style={styles.itemSubtitle}>{item.sku ? `SKU: ${item.sku}` : "No SKU"} • {item.unit}</Text>
+      {({ pressed }) => (
+        <View style={[
+          styles.itemCard,
+          { borderLeftWidth: 5, borderLeftColor: statusColor },
+          pressed && styles.itemCardPressed
+        ]}>
+          <View style={styles.itemCardRow}>
+            <View style={[styles.itemAvatar, { backgroundColor: avatarColors.bg }]}>
+              <Text style={[styles.itemAvatarText, { color: avatarColors.text }]}>{item.name[0].toUpperCase()}</Text>
+            </View>
+            <View style={styles.itemDetails}>
+              <Text style={styles.itemName} numberOfLines={1}>{item.name}</Text>
+              <Text style={styles.itemSubtitle}>{item.sku ? `SKU: ${item.sku}` : "No SKU"} • {item.unit}</Text>
+              
+              <View style={styles.itemStockCountContainer}>
+                <Text style={styles.itemStockCount}>
+                  Stock: <Text style={[styles.itemStockValue, { color: statusColor, fontSize: 13, fontWeight: fontWeight.extrabold }]}>{stock} {item.unit}</Text>
+                </Text>
+                {item.minimumStock ? (
+                  <Text style={styles.minStockText}>Alert Min: {item.minimumStock}</Text>
+                ) : null}
+              </View>
+            </View>
+            <View style={styles.itemActions}>
+               <StatusPill 
+                 label={isOut ? "OUT OF STOCK" : isLow ? "LOW STOCK" : "IN STOCK"} 
+                 tone={isOut ? "red" : isLow ? "amber" : "green"} 
+               />
+               <Pressable onPress={onEdit} style={[styles.actionButton, { backgroundColor: colors.surfaceOffset }]}>
+                  <Icon source="pencil-outline" size={16} color={colors.textSecondary} />
+               </Pressable>
+            </View>
+          </View>
           
-          <View style={styles.itemStockCountContainer}>
-            <Text style={styles.itemStockCount}>
-              Stock: <Text style={[styles.itemStockValue, { color: statusColor, fontSize: 13, fontWeight: fontWeight.extrabold }]}>{stock} {item.unit}</Text>
-            </Text>
-            {item.minimumStock ? (
-              <Text style={styles.minStockText}>Alert Min: {item.minimumStock}</Text>
-            ) : null}
+          <View style={styles.itemFooterGrid}>
+             <View style={[styles.priceCapsule, { backgroundColor: colors.primaryLight }]}>
+                <Text style={[styles.priceCapsuleLabel, { color: colors.primaryDark }]}>SELL</Text>
+                <Text style={[styles.priceCapsuleValue, { color: colors.primaryDark }]}>{money(item.defaultSellingPrice)}</Text>
+             </View>
+             <View style={[styles.priceCapsule, { backgroundColor: colors.surface }]}>
+                <Text style={[styles.priceCapsuleLabel, { color: colors.textSecondary }]}>MRP</Text>
+                <Text style={[styles.priceCapsuleValue, { color: colors.textPrimary }]}>{money(item.mrp)}</Text>
+             </View>
+             {item.minimumAllowedPrice ? (
+               <View style={[styles.priceCapsule, { backgroundColor: 'rgba(217, 119, 6, 0.08)', borderColor: 'rgba(217, 119, 6, 0.15)', borderWidth: 1 }]}>
+                  <Text style={[styles.priceCapsuleLabel, { color: colors.warning }]}>MIN</Text>
+                  <Text style={[styles.priceCapsuleValue, { color: colors.warning }]}>{money(item.minimumAllowedPrice)}</Text>
+               </View>
+             ) : null}
+             <Pressable onPress={onManageStock} style={styles.miniRestockBtn}>
+                <Icon source="plus-box" size={14} color={colors.primary} />
+                <Text style={styles.miniRestockText}>RESTOCK</Text>
+             </Pressable>
           </View>
         </View>
-        <View style={styles.itemActions}>
-           <StatusPill 
-             label={isOut ? "OUT OF STOCK" : isLow ? "LOW STOCK" : "IN STOCK"} 
-             tone={isOut ? "red" : isLow ? "amber" : "green"} 
-           />
-           <Pressable onPress={onEdit} style={[styles.actionButton, { backgroundColor: colors.surfaceOffset }]}>
-              <Icon source="pencil-outline" size={16} color={colors.textSecondary} />
-           </Pressable>
-        </View>
-      </View>
-      
-      <View style={styles.itemFooterGrid}>
-         <View style={styles.priceContainer}>
-            <Text style={styles.priceLabel}>SELLING PRICE</Text>
-            <Text style={styles.priceValue}>{money(item.defaultSellingPrice)}</Text>
-         </View>
-         <View style={styles.priceContainer}>
-            <Text style={styles.priceLabel}>MRP</Text>
-            <Text style={[styles.priceValueMrp, { textDecorationLine: 'none', color: colors.textSecondary }]}>{money(item.mrp)}</Text>
-         </View>
-         {item.minimumAllowedPrice ? (
-           <View style={styles.priceContainer}>
-              <Text style={styles.priceLabel}>MIN PRICE</Text>
-              <Text style={styles.priceValueMin}>{money(item.minimumAllowedPrice)}</Text>
-           </View>
-         ) : null}
-         <Pressable onPress={onManageStock} style={styles.miniRestockBtn}>
-            <Icon source="plus-box" size={16} color={colors.primary} />
-            <Text style={styles.miniRestockText}>RESTOCK</Text>
-         </Pressable>
-      </View>
+      )}
     </Pressable>
   );
 });
@@ -172,67 +175,81 @@ export function ItemList() {
             refreshing={itemsQuery.isFetching}
             ListHeaderComponent={
               <View style={styles.headerComponent}>
-                <ScrollView 
-                  horizontal 
-                  showsHorizontalScrollIndicator={false} 
-                  contentContainerStyle={styles.statsScroll}
-                >
-                  <View style={[styles.statCard, { backgroundColor: 'rgba(22, 163, 74, 0.03)', borderColor: 'rgba(22, 163, 74, 0.1)' }]}>
-                    <Text style={styles.statLabel}>STOCK VALUE</Text>
-                    <Text style={[styles.statValue, { color: colors.primary }]}>{money(totalStockValue)}</Text>
+                
+                {/* Premium Integrated Dashboard Summary Card */}
+                <View style={styles.statsContainer}>
+                  <View style={styles.statsMainRow}>
+                    <View style={styles.statsMainCol}>
+                      <Text style={styles.statsMainLabel}>TOTAL INVENTORY VALUE</Text>
+                      <Text style={styles.statsMainValue}>{money(totalStockValue)}</Text>
+                    </View>
+                    <View style={[styles.statsIconBadge, { backgroundColor: colors.primaryLight }]}>
+                      <Icon source="currency-inr" size={24} color={colors.primaryDark} />
+                    </View>
                   </View>
-
-                  <View style={styles.statCard}>
-                    <Text style={styles.statLabel}>CATALOG SIZE</Text>
-                    <Text style={styles.statValue}>{totalCount} Items</Text>
+                  
+                  <Divider style={styles.statsDivider} />
+                  
+                  <View style={styles.statsGrid}>
+                    <View style={styles.statsItem}>
+                      <Text style={styles.statsItemLabel}>CATALOG SIZE</Text>
+                      <Text style={styles.statsItemValue}>{totalCount} Items</Text>
+                    </View>
+                    <View style={styles.statsItemDivider} />
+                    <View style={styles.statsItem}>
+                      <Text style={[styles.statsItemLabel, outOfStockCount > 0 && { color: colors.danger }]}>OUT OF STOCK</Text>
+                      <Text style={[styles.statsItemValue, outOfStockCount > 0 && { color: colors.danger }]}>{outOfStockCount}</Text>
+                    </View>
+                    <View style={styles.statsItemDivider} />
+                    <View style={styles.statsItem}>
+                      <Text style={[styles.statsItemLabel, lowStockCount > 0 && { color: colors.warning }]}>LOW STOCK</Text>
+                      <Text style={[styles.statsItemValue, lowStockCount > 0 && { color: colors.warning }]}>{lowStockCount}</Text>
+                    </View>
                   </View>
+                </View>
 
-                  <View style={[styles.statCard, outOfStockCount > 0 && { borderColor: 'rgba(220, 38, 38, 0.25)', backgroundColor: 'rgba(220, 38, 38, 0.02)' }]}>
-                    <Text style={[styles.statLabel, outOfStockCount > 0 && { color: colors.danger }]}>OUT OF STOCK</Text>
-                    <Text style={[styles.statValue, outOfStockCount > 0 && { color: colors.danger }]}>{outOfStockCount}</Text>
-                  </View>
-
-                  <View style={[styles.statCard, lowStockCount > 0 && { borderColor: 'rgba(217, 119, 6, 0.25)', backgroundColor: 'rgba(217, 119, 6, 0.02)' }]}>
-                    <Text style={[styles.statLabel, lowStockCount > 0 && { color: colors.warning }]}>LOW STOCK</Text>
-                    <Text style={[styles.statValue, lowStockCount > 0 && { color: colors.warning }]}>{lowStockCount}</Text>
-                  </View>
-                </ScrollView>
-
+                {/* Sleek Search Console */}
                 <Searchbar 
                   value={search} 
                   onChangeText={setSearch} 
-                  placeholder="Search item or SKU" 
+                  placeholder="Search item name or SKU..." 
                   style={styles.searchBar} 
                   inputStyle={styles.searchInput}
                   iconColor={colors.textSecondary}
                 />
                 
-                <ScrollView 
-                  horizontal 
-                  showsHorizontalScrollIndicator={false} 
-                  contentContainerStyle={styles.filterChipsRow}
-                >
-                  <Pressable 
-                    onPress={() => setFilter("ALL")} 
-                    style={[styles.filterChip, filter === "ALL" && styles.filterChipActive]}
+                {/* Visual Active Filter Chips */}
+                <View style={styles.filterOuterContainer}>
+                  <ScrollView 
+                    horizontal 
+                    showsHorizontalScrollIndicator={false} 
+                    contentContainerStyle={styles.filterChipsRow}
                   >
-                    <Text style={[styles.filterChipText, filter === "ALL" && styles.filterChipTextActive]}>Total Stock</Text>
-                  </Pressable>
+                    <Pressable 
+                      onPress={() => setFilter("ALL")} 
+                      style={[styles.filterChip, filter === "ALL" && styles.filterChipActive]}
+                    >
+                      <Icon source="package-variant" size={14} color={filter === "ALL" ? colors.primary : colors.textSecondary} />
+                      <Text style={[styles.filterChipText, filter === "ALL" && styles.filterChipTextActive]}>Total Stock</Text>
+                    </Pressable>
 
-                  <Pressable 
-                    onPress={() => setFilter("OUT")} 
-                    style={[styles.filterChip, filter === "OUT" && styles.filterChipActive]}
-                  >
-                    <Text style={[styles.filterChipText, filter === "OUT" && styles.filterChipTextActive]}>Out of Stock</Text>
-                  </Pressable>
+                    <Pressable 
+                      onPress={() => setFilter("OUT")} 
+                      style={[styles.filterChip, filter === "OUT" && styles.filterChipActive]}
+                    >
+                      <Icon source="close-circle-outline" size={14} color={filter === "OUT" ? colors.danger : colors.textSecondary} />
+                      <Text style={[styles.filterChipText, filter === "OUT" && styles.filterChipTextActive]}>Out of Stock</Text>
+                    </Pressable>
 
-                  <Pressable 
-                    onPress={() => setFilter("LOW")} 
-                    style={[styles.filterChip, filter === "LOW" && styles.filterChipActive]}
-                  >
-                    <Text style={[styles.filterChipText, filter === "LOW" && styles.filterChipTextActive]}>Low Stock</Text>
-                  </Pressable>
-                </ScrollView>
+                    <Pressable 
+                      onPress={() => setFilter("LOW")} 
+                      style={[styles.filterChip, filter === "LOW" && styles.filterChipActive]}
+                    >
+                      <Icon source="alert-circle-outline" size={14} color={filter === "LOW" ? colors.warning : colors.textSecondary} />
+                      <Text style={[styles.filterChipText, filter === "LOW" && styles.filterChipTextActive]}>Low Stock</Text>
+                    </Pressable>
+                  </ScrollView>
+                </View>
               </View>
             }
             renderItem={({ item }: { item: Item }) => (
@@ -260,7 +277,7 @@ export function ItemList() {
         </View>
 
         <Pressable 
-          style={styles.fab} 
+          style={({ pressed }) => [styles.fab, pressed && styles.pressed]} 
           onPress={() => navigate("AddEditItem")}
         >
           <Icon source="plus" size={28} color={colors.textInverse} />
@@ -334,7 +351,8 @@ export function AddEditItem() {
       />
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: spacing.xxl }}>
         <View style={styles.formContainer}>
-          <Section title="Item details">
+          
+          <Section title="Basic details">
             <View style={styles.formCard}>
               {item && (
                 <TextInput
@@ -344,11 +362,36 @@ export function AddEditItem() {
                   disabled
                   style={styles.disabledInput}
                   outlineStyle={styles.inputOutline}
+                  left={<TextInput.Icon icon="warehouse" color={colors.textSecondary} />}
                 />
               )}
-              <TextInput mode="outlined" label="Name" value={form.name} onChangeText={(v) => set("name", v)} outlineStyle={styles.inputOutline} style={styles.input} />
-              <TextInput mode="outlined" label="SKU" value={form.sku ?? ""} onChangeText={(v) => set("sku", v)} outlineStyle={styles.inputOutline} style={styles.input} />
-              <TextInput mode="outlined" label="Unit" value={form.unit} onChangeText={(v) => set("unit", v)} outlineStyle={styles.inputOutline} style={styles.input} />
+              <TextInput 
+                mode="outlined" 
+                label="Name" 
+                value={form.name} 
+                onChangeText={(v) => set("name", v)} 
+                outlineStyle={styles.inputOutline} 
+                style={styles.input} 
+                left={<TextInput.Icon icon="pencil-outline" color={colors.primary} />}
+              />
+              <TextInput 
+                mode="outlined" 
+                label="SKU / Barcode" 
+                value={form.sku ?? ""} 
+                onChangeText={(v) => set("sku", v)} 
+                outlineStyle={styles.inputOutline} 
+                style={styles.input} 
+                left={<TextInput.Icon icon="barcode-scan" color={colors.textSecondary} />}
+              />
+              <TextInput 
+                mode="outlined" 
+                label="Unit of Measurement" 
+                value={form.unit} 
+                onChangeText={(v) => set("unit", v)} 
+                outlineStyle={styles.inputOutline} 
+                style={styles.input} 
+                left={<TextInput.Icon icon="weight-kilogram" color={colors.textSecondary} />}
+              />
               <TextInput 
                 mode="outlined" 
                 label={item ? "Stock Adjustment (+ to add, - to sub)" : "Opening Stock"} 
@@ -358,14 +401,73 @@ export function AddEditItem() {
                 outlineStyle={styles.inputOutline} 
                 style={styles.input} 
                 placeholder={item ? "e.g. 10 or -5" : "e.g. 100"}
+                left={<TextInput.Icon icon="plus-minus-box" color={colors.textSecondary} />}
               />
-              <TextInput mode="outlined" label="Default selling price" keyboardType="numeric" value={form.defaultSellingPrice} onChangeText={(v) => set("defaultSellingPrice", v)} outlineStyle={styles.inputOutline} style={styles.input} />
-              <TextInput mode="outlined" label="Minimum allowed price" keyboardType="numeric" value={form.minimumAllowedPrice} onChangeText={(v) => set("minimumAllowedPrice", v)} outlineStyle={styles.inputOutline} style={styles.input} />
-              <TextInput mode="outlined" label="Purchase price" keyboardType="numeric" value={form.purchasePrice} onChangeText={(v) => set("purchasePrice", v)} outlineStyle={styles.inputOutline} style={styles.input} />
-              <TextInput mode="outlined" label="MRP" keyboardType="numeric" value={form.mrp} onChangeText={(v) => set("mrp", v)} outlineStyle={styles.inputOutline} style={styles.input} />
-              <TextInput mode="outlined" label="Minimum stock alert" keyboardType="numeric" value={form.minimumStock} onChangeText={(v) => set("minimumStock", v)} outlineStyle={styles.inputOutline} style={styles.input} />
+              <TextInput 
+                mode="outlined" 
+                label="Minimum Stock Alert Level" 
+                keyboardType="numeric" 
+                value={form.minimumStock} 
+                onChangeText={(v) => set("minimumStock", v)} 
+                outlineStyle={styles.inputOutline} 
+                style={styles.input} 
+                left={<TextInput.Icon icon="bell-ring-outline" color={colors.warning} />}
+              />
             </View>
           </Section>
+
+          <Section title="Price structure matrix">
+            <View style={styles.formCard}>
+              <TextInput 
+                mode="outlined" 
+                label="Default Selling Price" 
+                keyboardType="numeric" 
+                value={form.defaultSellingPrice} 
+                onChangeText={(v) => set("defaultSellingPrice", v)} 
+                outlineStyle={styles.inputOutline} 
+                style={styles.input} 
+                left={<TextInput.Icon icon="currency-inr" color={colors.primary} />}
+              />
+              <TextInput 
+                mode="outlined" 
+                label="MRP" 
+                keyboardType="numeric" 
+                value={form.mrp} 
+                onChangeText={(v) => set("mrp", v)} 
+                outlineStyle={styles.inputOutline} 
+                style={styles.input} 
+                left={<TextInput.Icon icon="tag-outline" color={colors.textSecondary} />}
+              />
+              <TextInput 
+                mode="outlined" 
+                label="Minimum Allowed Price (Limit for Staff)" 
+                keyboardType="numeric" 
+                value={form.minimumAllowedPrice} 
+                onChangeText={(v) => set("minimumAllowedPrice", v)} 
+                outlineStyle={styles.inputOutline} 
+                style={styles.input} 
+                left={<TextInput.Icon icon="shield-alert-outline" color={colors.warning} />}
+              />
+              <TextInput 
+                mode="outlined" 
+                label="Purchase Price (Your Cost)" 
+                keyboardType="numeric" 
+                value={form.purchasePrice} 
+                onChangeText={(v) => set("purchasePrice", v)} 
+                outlineStyle={styles.inputOutline} 
+                style={styles.input} 
+                left={<TextInput.Icon icon="cash-register" color={colors.textSecondary} />}
+              />
+
+              <View style={styles.formTipCard}>
+                <Icon source="lightbulb-on-outline" size={16} color={colors.warning} />
+                <Text style={styles.formTipText}>
+                  MRP is printed price. Default selling price is standard shop rate. Minimum allowed price is the lowest rate staff can sell without owner rate approvals.
+                </Text>
+              </View>
+            </View>
+          </Section>
+
           <View style={styles.formFooter}>
             <Button 
               label="Save Item" 
@@ -384,7 +486,6 @@ export function AddEditItem() {
 
 export function ItemDetail() {
   const List = FlashList as any;
-  const activeShopId = useShopStore((state) => state.activeShopId);
   const itemId = (useRoute<any>().params as { itemId?: string } | undefined)?.itemId;
 
   const stockQuery = useItemStockQuery(itemId);
@@ -475,62 +576,99 @@ export function ItemDetail() {
             data={activeTab === "PRICE" ? (priceTab === 'PURCHASE' ? ((historyQuery.data as any)?.rows ?? []) : (priceChangeQuery.data ?? [])) : (movementsQuery.data ?? [])}
             ListHeaderComponent={
               <>
-                <View style={styles.detailCard}>
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Current stock</Text>
-                    <Text style={styles.detailHeaderValue}>
-                      {(stockQuery.data as any)?.currentQuantity ?? 0} {item.unit}
-                    </Text>
+                {/* Hero Stock Dial Summary Card */}
+                <View style={styles.detailHeroCard}>
+                  <View style={styles.detailHeroHeader}>
+                    <View style={[styles.itemAvatarLarge, { backgroundColor: getAvatarColor(item.name).bg }]}>
+                      <Text style={[styles.itemAvatarLargeText, { color: getAvatarColor(item.name).text }]}>
+                        {item.name[0].toUpperCase()}
+                      </Text>
+                    </View>
+                    <View style={styles.detailHeroTitleCol}>
+                      <Text style={styles.detailHeroName}>{item.name}</Text>
+                      <Text style={styles.detailHeroSku}>{item.sku ? `SKU: ${item.sku}` : "No SKU assigned"}</Text>
+                    </View>
                   </View>
-                  <Divider style={styles.divider} />
-                  <View style={styles.detailStats}>
-                    <View style={styles.detailStatItem}>
-                      <Text style={styles.statSubLabel}>SKU</Text>
-                      <Text style={styles.statSubValue}>{item.sku || "Not set"}</Text>
+
+                  <Divider style={styles.detailDivider} />
+
+                  <View style={styles.detailStockDialRow}>
+                    <View style={styles.detailStockDialInfo}>
+                      <Text style={styles.detailStockDialLabel}>CURRENT PHYSICAL STOCK</Text>
+                      <Text style={[styles.detailStockDialValue, { color: (stockQuery.data as any)?.currentQuantity <= 0 ? colors.danger : ((stockQuery.data as any)?.currentQuantity <= Number(item.minimumStock)) ? colors.warning : colors.success }]}>
+                        {(stockQuery.data as any)?.currentQuantity ?? 0} <Text style={styles.detailStockDialUnit}>{item.unit}</Text>
+                      </Text>
                     </View>
-                    <View style={styles.detailStatItem}>
-                      <Text style={styles.statSubLabel}>Default Selling Price</Text>
-                      <Text style={styles.statSubValue}>{money(item.defaultSellingPrice)}</Text>
+                    <StatusPill 
+                      label={(stockQuery.data as any)?.currentQuantity <= 0 ? "OUT OF STOCK" : ((stockQuery.data as any)?.currentQuantity <= Number(item.minimumStock)) ? "LOW STOCK" : "IN STOCK"} 
+                      tone={(stockQuery.data as any)?.currentQuantity <= 0 ? "red" : ((stockQuery.data as any)?.currentQuantity <= Number(item.minimumStock)) ? "amber" : "green"} 
+                    />
+                  </View>
+                </View>
+
+                {/* Pricing Structure Grid Container */}
+                <View style={styles.priceGridContainer}>
+                  <Text style={styles.priceGridTitle}>PRICING STRUCTURE</Text>
+                  
+                  <View style={styles.priceGridRow}>
+                    <View style={styles.priceGridItem}>
+                      <View style={styles.priceGridIconRow}>
+                        <Icon source="tag" size={14} color={colors.primary} />
+                        <Text style={styles.priceGridItemLabel}>SELLING PRICE</Text>
+                      </View>
+                      <Text style={styles.priceGridItemValue}>{money(item.defaultSellingPrice)}</Text>
                     </View>
-                    <View style={styles.detailStatItem}>
-                      <Text style={styles.statSubLabel}>Min Price limit</Text>
-                      <Text style={styles.statSubValue}>
+
+                    <View style={styles.priceGridItem}>
+                      <View style={styles.priceGridIconRow}>
+                        <Icon source="label-outline" size={14} color={colors.textSecondary} />
+                        <Text style={styles.priceGridItemLabel}>MRP RATE</Text>
+                      </View>
+                      <Text style={styles.priceGridItemValue}>{item.mrp && Number(item.mrp) > 0 ? money(item.mrp) : "Not set"}</Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.priceGridRow}>
+                    <View style={styles.priceGridItem}>
+                      <View style={styles.priceGridIconRow}>
+                        <Icon source="shield-alert-outline" size={14} color={colors.warning} />
+                        <Text style={styles.priceGridItemLabel}>MIN ALLOWED PRICE</Text>
+                      </View>
+                      <Text style={styles.priceGridItemValue}>
                         {item.minimumAllowedPrice && Number(item.minimumAllowedPrice) > 0 
                           ? money(item.minimumAllowedPrice) 
                           : "Not set"}
                       </Text>
                     </View>
-                    <View style={styles.detailStatItem}>
-                      <Text style={styles.statSubLabel}>MRP</Text>
-                      <Text style={styles.statSubValue}>
-                        {item.mrp && Number(item.mrp) > 0 
-                          ? money(item.mrp) 
-                          : "Not set"}
-                      </Text>
-                    </View>
-                    <View style={styles.detailStatItem}>
-                      <Text style={styles.statSubLabel}>Min Stock threshold</Text>
-                      <Text style={styles.statSubValue}>{item.minimumStock} {item.unit}</Text>
+
+                    <View style={styles.priceGridItem}>
+                      <View style={styles.priceGridIconRow}>
+                        <Icon source="alert-circle-outline" size={14} color={colors.danger} />
+                        <Text style={styles.priceGridItemLabel}>ALERT THRESHOLD</Text>
+                      </View>
+                      <Text style={styles.priceGridItemValue}>{item.minimumStock} {item.unit}</Text>
                     </View>
                   </View>
                 </View>
 
+                {/* Detail Quick Actions */}
                 <View style={styles.detailActions}>
                   <Button 
                     variant="secondary" 
                     label="Edit Item" 
                     icon={<Icon source="pencil" size={20} color={colors.primary} />} 
                     onPress={() => navigate("AddEditItem", { item })}
-                    style={{ flex: 1 }}
+                    style={styles.flex1}
                   />
                   <Button 
                     label="Manage Stock" 
                     icon={<Icon source="warehouse" size={20} color={colors.textInverse} />} 
                     onPress={() => navigate("StockEntry", { itemId: item.id })}
-                    style={{ flex: 1 }}
+                    style={styles.flex1}
                   />
                 </View>
 
+                {/* Tabs selection */}
                 <View style={{ marginHorizontal: spacing.lg, marginBottom: spacing.md }}>
                   <View style={styles.tabBarContainer}>
                     <Pressable 
@@ -564,39 +702,49 @@ export function ItemDetail() {
                 )}
               </>
             }
-            renderItem={({ item: row, index }: any) => {
+            renderItem={({ item: row }: any) => {
               if (activeTab === "PRICE") {
                 if (priceTab === 'PURCHASE') {
                   return (
-                    <View style={styles.historyRow}>
-                      <View style={styles.historyInfo}>
-                        <Text style={styles.historyTitle}>{row.recordNumber}</Text>
-                        <Text style={styles.historySubtitle}>
-                          {row.customer?.name ?? "Walk-in"} • Qty: {row.quantity}
-                        </Text>
+                    <View style={styles.timelineItemCard}>
+                      <View style={[styles.timelineIconContainer, { backgroundColor: 'rgba(22, 163, 74, 0.05)' }]}>
+                        <Icon source="currency-inr" size={16} color={colors.primary} />
                       </View>
-                      <View style={styles.historyRight}>
-                        <Text style={styles.historyPrice}>{money(row.rate)}</Text>
-                        <Text style={styles.historyDate}>
-                          {new Date(row.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-                        </Text>
+                      <View style={styles.timelineBody}>
+                        <View style={styles.timelineHeaderRow}>
+                          <Text style={styles.timelineTitle}>{row.recordNumber || "Invoice Record"}</Text>
+                          <Text style={styles.timelinePrice}>{money(row.rate)}</Text>
+                        </View>
+                        <View style={styles.timelineFooterRow}>
+                          <Text style={styles.timelineSubText}>
+                            {row.customer?.name ?? "Walk-in"} • Qty: {row.quantity} {item.unit}
+                          </Text>
+                          <Text style={styles.timelineDate}>
+                            {new Date(row.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                          </Text>
+                        </View>
                       </View>
                     </View>
                   );
                 } else {
                   return (
-                    <View style={styles.historyRow}>
-                      <View style={styles.historyInfo}>
-                        <Text style={styles.historyTitle}>{row.priceType} Price Updated</Text>
-                        <Text style={styles.historySubtitle}>
-                          By {row.changedBy?.name || "System"} • Prev: {money(row.oldPrice)}
-                        </Text>
+                    <View style={styles.timelineItemCard}>
+                      <View style={[styles.timelineIconContainer, { backgroundColor: 'rgba(37, 99, 235, 0.05)' }]}>
+                        <Icon source="update" size={16} color="#2563eb" />
                       </View>
-                      <View style={styles.historyRight}>
-                        <Text style={styles.historyPrice}>{money(row.newPrice)}</Text>
-                        <Text style={styles.historyDate}>
-                          {new Date(row.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-                        </Text>
+                      <View style={styles.timelineBody}>
+                        <View style={styles.timelineHeaderRow}>
+                          <Text style={styles.timelineTitle}>{row.priceType} Price Updated</Text>
+                          <Text style={styles.timelinePrice}>{money(row.newPrice)}</Text>
+                        </View>
+                        <View style={styles.timelineFooterRow}>
+                          <Text style={styles.timelineSubText}>
+                            By {row.changedBy?.name || "System"} • Prev: {money(row.oldPrice)}
+                          </Text>
+                          <Text style={styles.timelineDate}>
+                            {new Date(row.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                          </Text>
+                        </View>
                       </View>
                     </View>
                   );
@@ -606,23 +754,30 @@ export function ItemDetail() {
                 const movementQty = isIn ? Number(row.quantityIn) : Number(row.quantityOut);
                 const color = isIn ? colors.success : colors.danger;
                 const refLabel = row.sale ? `Sale ${row.sale.saleNumber}` : (row.deliveryMemo ? `DM ${row.deliveryMemo.dmNumber}` : (row.order ? `Order ${row.order.orderNumber}` : null));
+                const iconName = isIn ? "arrow-down-bold-circle-outline" : "arrow-up-bold-circle-outline";
+                const bgTint = isIn ? "rgba(22, 163, 74, 0.05)" : "rgba(220, 38, 38, 0.05)";
 
                 return (
                   <Pressable onPress={() => setSelectedMovement(row)}>
-                    <View style={styles.historyRow}>
-                      <View style={styles.historyInfo}>
-                        <Text style={styles.historyTitle}>{refLabel || row.reason || row.movementType}</Text>
-                        <Text style={styles.historySubtitle}>
-                          By {row.createdBy?.name || "System"} • {row.movementType}
-                        </Text>
+                    <View style={styles.timelineItemCard}>
+                      <View style={[styles.timelineIconContainer, { backgroundColor: bgTint }]}>
+                        <Icon source={iconName} size={16} color={color} />
                       </View>
-                      <View style={styles.historyRight}>
-                        <Text style={[styles.historyPrice, { color }]}>
-                          {isIn ? "+" : "-"}{movementQty} {item.unit}
-                        </Text>
-                        <Text style={styles.historyDate}>
-                          {new Date(row.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-                        </Text>
+                      <View style={styles.timelineBody}>
+                        <View style={styles.timelineHeaderRow}>
+                          <Text style={styles.timelineTitle}>{refLabel || row.reason || row.movementType}</Text>
+                          <Text style={[styles.timelinePrice, { color }]}>
+                            {isIn ? "+" : "-"}{movementQty} {item.unit}
+                          </Text>
+                        </View>
+                        <View style={styles.timelineFooterRow}>
+                          <Text style={styles.timelineSubText}>
+                            By {row.createdBy?.name || "System"} • {row.movementType}
+                          </Text>
+                          <Text style={styles.timelineDate}>
+                            {new Date(row.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                          </Text>
+                        </View>
                       </View>
                     </View>
                   </Pressable>
@@ -660,56 +815,103 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
     gap: spacing.md,
   },
-  statsScroll: {
-    gap: spacing.md,
-    paddingVertical: 4,
-    paddingRight: spacing.lg,
-  },
-  statCard: {
-    width: 140,
+  
+  // Unified dashboard summary layout
+  statsContainer: {
     backgroundColor: colors.surface,
-    padding: spacing.md,
-    borderRadius: 20,
+    borderRadius: radius.xxl,
     borderWidth: 1,
     borderColor: colors.border,
+    padding: spacing.lg,
     ...shadow.sm,
+    marginBottom: spacing.xs,
   },
-  statLabel: {
-    color: colors.textSecondary,
+  statsMainRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.md,
+  },
+  statsMainCol: {
+    gap: 4,
+  },
+  statsMainLabel: {
     fontSize: 10,
     fontWeight: fontWeight.black,
+    color: colors.textSecondary,
+    letterSpacing: 1,
+  },
+  statsMainValue: {
+    fontSize: 24,
+    fontWeight: fontWeight.black,
+    color: colors.primary,
+  },
+  statsIconBadge: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statsDivider: {
+    height: 1,
+    backgroundColor: colors.border,
+    marginVertical: spacing.sm,
+  },
+  statsGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  statsItem: {
+    flex: 1,
+    gap: 2,
+  },
+  statsItemLabel: {
+    fontSize: 9,
+    fontWeight: fontWeight.bold,
+    color: colors.textSecondary,
     letterSpacing: 0.5,
   },
-  statValue: {
-    fontSize: 16,
-    fontWeight: fontWeight.black,
+  statsItemValue: {
+    fontSize: 14,
+    fontWeight: fontWeight.extrabold,
     color: colors.textPrimary,
-    marginTop: 4,
   },
+  statsItemDivider: {
+    width: 1,
+    backgroundColor: colors.border,
+    marginHorizontal: spacing.sm,
+  },
+
   searchBar: {
     backgroundColor: colors.surface,
-    borderRadius: radius.md,
+    borderRadius: radius.xl,
     borderWidth: 1,
     borderColor: colors.border,
-    elevation: 0,
-    height: 44,
+    height: 46,
     justifyContent: 'center',
+    ...shadow.sm,
+    elevation: 0,
   },
   searchInput: {
     fontSize: 14,
   },
+  filterOuterContainer: {
+    paddingVertical: 2,
+  },
   filterChipsRow: {
-    paddingVertical: 4,
-    paddingRight: spacing.lg,
+    gap: spacing.sm,
   },
   filterChip: {
-    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 14,
     paddingVertical: 8,
-    borderRadius: 20,
+    borderRadius: radius.full,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
-    marginRight: spacing.sm,
+    gap: 6,
   },
   filterChipActive: {
     backgroundColor: 'rgba(22, 163, 74, 0.08)',
@@ -722,14 +924,20 @@ const styles = StyleSheet.create({
   },
   filterChipTextActive: {
     color: colors.primary,
+    fontWeight: fontWeight.black,
   },
   listContent: {
-    paddingBottom: 130, // Clears the floating bottom tab bar and the FAB safely
+    paddingBottom: 130, // Clears bottom bar and fab
     paddingHorizontal: spacing.lg,
+  },
+
+  // Premium product card
+  cardPressable: {
+    borderRadius: radius.xl,
   },
   itemCard: {
     backgroundColor: colors.surface,
-    borderRadius: 22,
+    borderRadius: radius.xl,
     padding: spacing.lg,
     marginBottom: spacing.md,
     borderWidth: 1,
@@ -737,8 +945,7 @@ const styles = StyleSheet.create({
     ...shadow.sm,
   },
   itemCardPressed: {
-    opacity: 0.72,
-    transform: [{ scale: 0.98 }],
+    opacity: 0.85,
   },
   itemCardRow: {
     flexDirection: 'row',
@@ -746,24 +953,22 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   itemAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
-    backgroundColor: colors.surfaceOffset,
+    width: 44,
+    height: 44,
+    borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
   },
   itemAvatarText: {
     fontSize: 16,
     fontWeight: fontWeight.extrabold,
-    color: colors.primary,
   },
   itemDetails: {
     flex: 1,
     gap: 2,
   },
   itemName: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: fontWeight.bold,
     color: colors.textPrimary,
   },
@@ -774,34 +979,23 @@ const styles = StyleSheet.create({
   itemStockCount: {
     fontSize: 12,
     color: colors.textSecondary,
-    marginTop: 2,
   },
   itemStockValue: {
     fontWeight: fontWeight.bold,
-    color: colors.textPrimary,
-  },
-  stockPill: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-  },
-  stockPillText: {
-    fontSize: 10,
-    fontWeight: fontWeight.bold,
   },
   itemActions: {
-    flexDirection: 'row',
+    flexDirection: 'column',
+    alignItems: 'flex-end',
     gap: spacing.sm,
   },
   actionButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+    width: 32,
+    height: 32,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.surfaceOffset,
   },
   itemStockCountContainer: {
     flexDirection: 'row',
@@ -819,28 +1013,44 @@ const styles = StyleSheet.create({
     borderWidth: 0.5,
     borderColor: colors.border,
   },
-  priceContainer: {
-    gap: 2,
-  },
+
+  // Footer pricing capsules inside product card
   itemFooterGrid: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginTop: spacing.md,
     backgroundColor: colors.surfaceOffset,
-    padding: spacing.md,
-    borderRadius: radius.md,
+    padding: 6,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: spacing.xs,
   },
-  priceValueMin: {
-    fontWeight: fontWeight.bold,
-    color: colors.textSecondary,
+  priceCapsule: {
+    flexDirection: 'column',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    minWidth: 60,
+  },
+  priceCapsuleLabel: {
+    fontSize: 8,
+    fontWeight: fontWeight.black,
+    letterSpacing: 0.5,
+    marginBottom: 1,
+  },
+  priceCapsuleValue: {
+    fontSize: 11,
+    fontWeight: fontWeight.extrabold,
   },
   miniRestockBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: colors.primaryLight,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs + 2,
+    paddingHorizontal: spacing.sm + 2,
+    paddingVertical: 6,
     borderRadius: radius.md,
     gap: 4,
   },
@@ -850,22 +1060,10 @@ const styles = StyleSheet.create({
     color: colors.primary,
     letterSpacing: 0.5,
   },
-  priceLabel: {
-    fontSize: 11,
-    color: colors.textSecondary,
-  },
-  priceValue: {
-    fontWeight: fontWeight.bold,
-    color: colors.textPrimary,
-  },
-  priceValueMrp: {
-    fontWeight: fontWeight.bold,
-    color: colors.textMuted,
-    textDecorationLine: 'line-through',
-  },
+
   fab: {
     position: 'absolute',
-    bottom: 104, // Hover safely above floating bottom tab capsule (68 height + 20 bottom offset)
+    bottom: 104, // Hover safely above bottom capsule (68 height + 20 bottom offset)
     right: 24,
     width: 56,
     height: 56,
@@ -883,10 +1081,11 @@ const styles = StyleSheet.create({
   formCard: {
     backgroundColor: colors.surface,
     padding: spacing.lg,
-    borderRadius: radius.lg,
+    borderRadius: radius.xl,
     borderWidth: 1,
     borderColor: colors.border,
     gap: spacing.md,
+    ...shadow.sm,
   },
   input: {
     backgroundColor: colors.surface,
@@ -897,6 +1096,23 @@ const styles = StyleSheet.create({
   inputOutline: {
     borderRadius: radius.md,
   },
+  formTipCard: {
+    flexDirection: 'row',
+    backgroundColor: colors.warningLight,
+    borderWidth: 1,
+    borderColor: 'rgba(217, 119, 6, 0.15)',
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  formTipText: {
+    fontSize: 11,
+    color: colors.warning,
+    fontWeight: fontWeight.bold,
+    lineHeight: 16,
+    flex: 1,
+  },
   formFooter: {
     paddingVertical: spacing.xl,
   },
@@ -905,97 +1121,190 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     textAlign: 'center',
   },
-  detailCard: {
+
+  // Premium Item Detail dashboard card styles
+  detailHeroCard: {
     margin: spacing.lg,
     padding: spacing.xl,
     backgroundColor: colors.surface,
     borderRadius: radius.xxl,
     borderWidth: 1,
     borderColor: colors.border,
-    ...shadow.md,
+    ...shadow.sm,
   },
-  detailRow: {
+  detailHeroHeader: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: spacing.md,
-  },
-  detailLabel: {
-    color: colors.textSecondary,
-    fontWeight: fontWeight.bold,
-    fontSize: fontSize.md,
-  },
-  detailHeaderValue: {
-    fontSize: fontSize.xxl,
-    fontWeight: fontWeight.black,
-    color: colors.textPrimary,
-  },
-  divider: {
-    backgroundColor: colors.border,
-    marginVertical: spacing.md,
-  },
-  detailStats: {
     gap: spacing.md,
   },
-  detailStatItem: {
+  itemAvatarLarge: {
+    width: 56,
+    height: 56,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  itemAvatarLargeText: {
+    fontSize: 22,
+    fontWeight: fontWeight.extrabold,
+  },
+  detailHeroTitleCol: {
+    flex: 1,
+    gap: 2,
+  },
+  detailHeroName: {
+    fontSize: 18,
+    fontWeight: fontWeight.extrabold,
+    color: colors.textPrimary,
+  },
+  detailHeroSku: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    fontWeight: fontWeight.medium,
+  },
+  detailDivider: {
+    backgroundColor: colors.border,
+    marginVertical: spacing.lg,
+  },
+  detailStockDialRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  statSubLabel: {
+  detailStockDialInfo: {
+    gap: 4,
+  },
+  detailStockDialLabel: {
     color: colors.textSecondary,
-    fontWeight: fontWeight.semibold,
-    fontSize: fontSize.sm,
+    fontWeight: fontWeight.black,
+    fontSize: 9,
+    letterSpacing: 1,
   },
-  statSubValue: {
-    color: colors.textPrimary,
+  detailStockDialValue: {
+    fontSize: 26,
+    fontWeight: fontWeight.black,
+  },
+  detailStockDialUnit: {
+    fontSize: 14,
+    color: colors.textSecondary,
     fontWeight: fontWeight.bold,
-    fontSize: fontSize.sm,
   },
+
+  // Premium grid-aligned pricing block
+  priceGridContainer: {
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.lg,
+    backgroundColor: colors.surface,
+    borderRadius: radius.xxl,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.lg,
+    gap: spacing.md,
+    ...shadow.sm,
+  },
+  priceGridTitle: {
+    fontSize: 10,
+    fontWeight: fontWeight.black,
+    color: colors.textSecondary,
+    letterSpacing: 1,
+    marginBottom: 2,
+  },
+  priceGridRow: {
+    flexDirection: 'row',
+    gap: spacing.md,
+  },
+  priceGridItem: {
+    flex: 1,
+    backgroundColor: colors.surfaceOffset,
+    borderRadius: radius.xl,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: 4,
+  },
+  priceGridIconRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  priceGridItemLabel: {
+    fontSize: 9,
+    fontWeight: fontWeight.bold,
+    color: colors.textSecondary,
+    letterSpacing: 0.5,
+  },
+  priceGridItemValue: {
+    fontSize: 14,
+    fontWeight: fontWeight.extrabold,
+    color: colors.textPrimary,
+  },
+
   detailActions: {
     flexDirection: 'row',
     paddingHorizontal: spacing.lg,
     gap: spacing.md,
     marginBottom: spacing.lg,
   },
-  historyRow: {
+
+  // Premium timeline lists styles
+  timelineItemCard: {
+    flexDirection: 'row',
+    backgroundColor: colors.surface,
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.sm,
+    padding: spacing.md,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    gap: spacing.md,
+    ...shadow.sm,
+  },
+  timelineIconContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  timelineBody: {
+    flex: 1,
+    gap: 4,
+  },
+  timelineHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: spacing.lg,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.surfaceOffset,
   },
-  historyInfo: {
-    flex: 1,
-    paddingRight: spacing.sm,
-  },
-  historyTitle: {
+  timelineTitle: {
+    fontSize: 13,
     fontWeight: fontWeight.bold,
     color: colors.textPrimary,
-    fontSize: fontSize.md,
   },
-  historySubtitle: {
-    fontSize: fontSize.xs,
-    color: colors.textSecondary,
-    marginTop: spacing.xs,
-  },
-  historyRight: {
-    alignItems: 'flex-end',
-  },
-  historyPrice: {
+  timelinePrice: {
+    fontSize: 13,
     fontWeight: fontWeight.black,
-    color: colors.primary,
-    fontSize: fontSize.md,
+    color: colors.primaryDark,
   },
-  historyDate: {
-    fontSize: fontSize.xs,
+  timelineFooterRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  timelineSubText: {
+    fontSize: 10,
+    color: colors.textSecondary,
+    fontWeight: fontWeight.medium,
+  },
+  timelineDate: {
+    fontSize: 10,
     color: colors.textMuted,
-    marginTop: spacing.xs,
   },
+
   detailListContent: {
     paddingBottom: 40,
   },
+  
   // Modal Styles
   modalOverlay: {
     flex: 1,
@@ -1048,7 +1357,6 @@ const styles = StyleSheet.create({
   segmentedBtn: {
     marginBottom: spacing.md,
   },
-  // Tab headers for ItemDetail
   tabBarContainer: {
     flexDirection: 'row',
     borderBottomWidth: 1,
@@ -1064,7 +1372,7 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.primary,
   },
   tabButtonText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: fontWeight.extrabold,
     color: colors.textSecondary,
     letterSpacing: 1,
@@ -1075,5 +1383,8 @@ const styles = StyleSheet.create({
   pressed: {
     opacity: 0.72,
     transform: [{ scale: 0.96 }],
+  },
+  flex1: {
+    flex: 1,
   },
 });
