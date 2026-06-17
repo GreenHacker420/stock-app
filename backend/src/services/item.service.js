@@ -195,7 +195,7 @@ export async function createItem(user, data) {
         data: {
           shopId: item.shopId,
           itemId: item.id,
-          movementType: "IN",
+          movementType: "OPENING_STOCK",
           quantityIn: Number(initialStock),
           quantityOut: 0,
           referenceType: "ADJUSTMENT",
@@ -272,7 +272,7 @@ export async function updateItem(user, id, data) {
         data: {
           shopId: item.shopId,
           itemId: item.id,
-          movementType: isPositive ? "IN" : "OUT",
+          movementType: isPositive ? "STOCK_IN" : "STOCK_OUT",
           quantityIn: isPositive ? Number(adjustmentStock) : 0,
           quantityOut: isPositive ? 0 : Math.abs(Number(adjustmentStock)),
           referenceType: "ADJUSTMENT",

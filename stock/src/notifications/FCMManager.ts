@@ -47,31 +47,43 @@ export const FCMManager = {
         return null;
       }
 
-      // Get project ID from constants (required for EAS push notifications)
-      const projectId =
-        Constants.expoConfig?.extra?.eas?.projectId ??
-        Constants.easConfig?.projectId;
+      let expoPushToken: string | null = null;
+      try {
+        // Get project ID from constants (required for EAS push notifications)
+        const projectId =
+          Constants.expoConfig?.extra?.eas?.projectId ??
+          Constants.easConfig?.projectId;
 
-      if (!projectId) {
-        console.warn("EAS Project ID not found in Constants.expoConfig");
+        if (!projectId) {
+          console.warn("EAS Project ID not found in Constants.expoConfig");
+        }
+
+        // 1. Get Expo Push Token (standard for EAS Push service)
+        expoPushToken = (await Notifications.getExpoPushTokenAsync({
+          projectId,
+        })).data;
+        console.log('Expo Push Token (EAS):', expoPushToken);
+      } catch (expoTokenErr) {
+        console.warn(
+          'Failed to retrieve Expo Push Token. On Android, this requires a Firebase project configured with google-services.json in app.json.',
+          expoTokenErr
+        );
       }
-
-      // 1. Get Expo Push Token (standard for EAS Push service)
-      const expoPushToken = (await Notifications.getExpoPushTokenAsync({
-        projectId,
-      })).data;
-      console.log('Expo Push Token (EAS):', expoPushToken);
 
       // 2. Also retrieve native FCM token if on Android or APNs if on iOS (agnostic device push token)
-      try {
-        const nativeDeviceToken = (await Notifications.getDevicePushTokenAsync()).data;
-        console.log('Native Device Push Token (FCM/APNS):', nativeDeviceToken);
-      } catch (nativeTokenErr) {
-        console.warn('Failed to retrieve native device token:', nativeTokenErr);
-      }
+      if (expoPushToken) {
+        try {
+          const nativeDeviceToken = (await Notifications.getDevicePushTokenAsync()).data;
+          console.log('Native Device Push Token (FCM/APNS):', nativeDeviceToken);
+        } catch (nativeTokenErr) {
+          console.warn('Failed to retrieve native device token:', nativeTokenErr);
+        }
 
-      console.log('Registering push token with backend server:', expoPushToken);
-      await registerPushToken(token, expoPushToken);
+        console.log('Registering push token with backend server:', expoPushToken);
+        await registerPushToken(token, expoPushToken);
+      } else {
+        console.log('No push token available. Bypassing backend registration.');
+      }
 
       // Configure Android-specific notification channel
       if (Platform.OS === 'android') {
