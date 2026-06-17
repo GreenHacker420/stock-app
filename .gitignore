@@ -10,6 +10,8 @@ backend/dist/
 stock/web-build/
 stock/.expo/
 
+stock/android
+
 # Configuration & Secrets
 .env
 .env.local
