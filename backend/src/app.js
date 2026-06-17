@@ -4,6 +4,7 @@ import helmet from "helmet";
 import morgan from "morgan";
 
 import authRoutes from "./routes/auth.routes.js";
+import userRoutes from "./routes/user.routes.js";
 import shopRoutes from "./routes/shop.routes.js";
 import customerRoutes from "./routes/customer.routes.js";
 import itemRoutes from "./routes/item.routes.js";
@@ -53,6 +54,7 @@ export function createApp() {
   });
 
   app.use("/auth", authRoutes);
+  app.use("/users", userRoutes);
   app.use("/shops", shopRoutes);
   app.use("/customers", customerRoutes);
   app.use("/items", itemRoutes);
