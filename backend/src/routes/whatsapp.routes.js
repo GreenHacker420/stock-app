@@ -5,7 +5,9 @@ import { whatsappController } from "../controllers/whatsapp.controller.js";
 const router = Router();
 
 // Public Webhook routes (called by Meta)
-// shopId is passed as path param for true multi-tenancy
+// shopId is passed as path param or query param for multi-tenancy
+router.get("/webhook", whatsappController.verifyWebhook);
+router.post("/webhook", whatsappController.handleWebhook);
 router.get("/webhook/:shopId", whatsappController.verifyWebhook);
 router.post("/webhook/:shopId", whatsappController.handleWebhook);
 
