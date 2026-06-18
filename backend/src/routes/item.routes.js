@@ -74,11 +74,13 @@ const updateItemSchema = z.object({
 
 router.use(requireAuth);
 
-router.get("/", requirePermission(PERMISSIONS.ITEM_VIEW), validate(listSchema), itemController.listItems);
+router.get("/summary", requirePermission(PERMISSIONS.ITEM_VIEW), validate(listCategoriesSchema), itemController.getItemSummary);
 router.get("/categories", requirePermission(PERMISSIONS.ITEM_VIEW), validate(listCategoriesSchema), itemController.listCategories);
 router.post("/categories", requirePermission(PERMISSIONS.ITEM_CREATE), validate(categorySchema), itemController.createCategory);
 router.patch("/categories/:id", requirePermission(PERMISSIONS.ITEM_UPDATE), validate(updateCategorySchema), itemController.updateCategory);
 router.delete("/categories/:id", requirePermission(PERMISSIONS.ITEM_UPDATE), validate(z.object({ params: idParams })), itemController.deleteCategory);
+
+router.get("/", requirePermission(PERMISSIONS.ITEM_VIEW), validate(listSchema), itemController.listItems);
 router.post("/", requirePermission(PERMISSIONS.ITEM_CREATE), validate(createItemSchema), itemController.createItem);
 router.get("/:id/stock", requirePermission(PERMISSIONS.ITEM_VIEW), validate(z.object({ params: idParams })), itemController.getItemStock);
 router.get(

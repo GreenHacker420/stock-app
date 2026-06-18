@@ -152,6 +152,105 @@ async function attachAvailableStock(shopId, itemsList) {
   });
 }
 
+export async function getItemSummary(user, { shopId }) {
+  await assertShopAccess(user, shopId);
+
+  // 1. Total items and categories
+  const [totalItems, totalCategories] = await Promise.all([
+    prisma.item.count({ where: { shopId, status: "ACTIVE" } }),
+    prisma.itemCategory.count({ where: { shopId, status: "ACTIVE" } }),
+  ]);
+
+  // 2. Fetch all items with their minimumStock to calculate low/out of stock
+  const items = await prisma.item.findMany({
+    where: { shopId, status: "ACTIVE" },
+    select: { id: true, minimumStock: true },
+  });
+
+  if (items.length === 0) {
+    return {
+      totalItems: 0,
+      totalCategories,
+      outOfStockCount: 0,
+      lowStockCount: 0,
+      countByCat: {},
+      uncategorisedCount: 0,
+    };
+  }
+
+  const itemIds = items.map(i => i.id);
+
+  // 3. Get physical stock from ledger
+  const ledgerSums = await prisma.stockLedger.groupBy({
+    by: ["itemId"],
+    where: { itemId: { in: itemIds }, shopId },
+    _sum: { quantityIn: true, quantityOut: true }
+  });
+
+  const physicalMap = new Map(
+    ledgerSums.map(row => [
+      row.itemId,
+      Number(row._sum.quantityIn || 0) - Number(row._sum.quantityOut || 0)
+    ])
+  );
+
+  // 4. Get reserved stock
+  const reservationSums = await prisma.stockReservation.groupBy({
+    by: ["itemId"],
+    where: { itemId: { in: itemIds }, shopId, status: "ACTIVE" },
+    _sum: { reservedQty: true }
+  });
+
+  const reservedMap = new Map(
+    reservationSums.map(row => [
+      row.itemId,
+      Number(row._sum.reservedQty || 0)
+    ])
+  );
+
+  // 5. Calculate stats
+  let outOfStockCount = 0;
+  let lowStockCount = 0;
+
+  items.forEach(item => {
+    const physical = physicalMap.get(item.id) || 0;
+    const reserved = reservedMap.get(item.id) || 0;
+    const available = Math.max(0, physical - reserved);
+
+    if (available <= 0) {
+      outOfStockCount++;
+    } else if (available <= Number(item.minimumStock)) {
+      lowStockCount++;
+    }
+  });
+
+  // 6. Get counts by category
+  const catCounts = await prisma.item.groupBy({
+    by: ["categoryId"],
+    where: { shopId, status: "ACTIVE" },
+    _count: { id: true }
+  });
+
+  const countByCat = {};
+  let uncategorisedCount = 0;
+  catCounts.forEach(c => {
+    if (c.categoryId) {
+      countByCat[c.categoryId] = c._count.id;
+    } else {
+      uncategorisedCount = c._count.id;
+    }
+  });
+
+  return {
+    totalItems,
+    totalCategories,
+    outOfStockCount,
+    lowStockCount,
+    countByCat,
+    uncategorisedCount,
+  };
+}
+
 export async function createCategory(user, data) {
   await assertShopAccess(user, data.shopId);
   return prisma.itemCategory.create({

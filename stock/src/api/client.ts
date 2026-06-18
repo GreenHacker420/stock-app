@@ -385,7 +385,20 @@ export async function setOpeningStock(token: string, shopId: string, entries: an
   return apiRequest(`/shops/${shopId}/set-opening-stock`, { method: "POST", token, body: JSON.stringify({ entries }) });
 }
 
+export interface ItemSummary {
+  totalItems: number;
+  totalCategories: number;
+  outOfStockCount: number;
+  lowStockCount: number;
+  countByCat: Record<string, number>;
+  uncategorisedCount: number;
+}
+
 // ITEMS & STOCK
+export async function fetchItemSummary(token: string, shopId: string) {
+  return apiRequest<ItemSummary>(`/items/summary?shopId=${encodeURIComponent(shopId)}`, { token });
+}
+
 export async function fetchItems(
   token: string,
   shopId: string,

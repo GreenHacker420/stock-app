@@ -6,6 +6,11 @@ export const listItems = asyncHandler(async (req, res) => {
   res.json({ success: true, data: items });
 });
 
+export const getItemSummary = asyncHandler(async (req, res) => {
+  const summary = await itemService.getItemSummary(req.user, req.validated.query);
+  res.json({ success: true, data: summary });
+});
+
 export const createCategory = asyncHandler(async (req, res) => {
   const category = await itemService.createCategory(req.user, req.validated.body);
   res.status(201).json({ success: true, data: category });

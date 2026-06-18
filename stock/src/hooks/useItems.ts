@@ -14,6 +14,7 @@ import {
   fetchItemPriceHistory,
   fetchItemPriceChangeHistory,
   fetchCategories,
+  fetchItemSummary,
   createCategory,
   updateCategory,
   deleteCategory,
@@ -21,7 +22,19 @@ import {
   UpdateItemPayload,
   StockEntryPayload,
   ItemCategory,
+  ItemSummary,
 } from "../api/client";
+
+export function useItemSummaryQuery() {
+  const token = useAuthStore((state) => state.token);
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  return useQuery({
+    queryKey: ["item-summary", activeShopId],
+    queryFn: () => fetchItemSummary(token ?? "", activeShopId ?? ""),
+    enabled: !!token && !!activeShopId,
+    staleTime: 10 * 60 * 1000, // 10 mins
+  });
+}
 
 export function useInfiniteItemsQuery(opts: { search?: string; limit?: number } = {}) {
   const token = useAuthStore((state) => state.token);
