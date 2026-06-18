@@ -2,10 +2,10 @@ import prisma from "../lib/db.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 import { writeAuditLog } from "../utils/auditLog.js";
-import { EntityType, AuditAction } from "../generated/prisma/index.js";
+import { EntityType, AuditAction, Prisma } from "../generated/prisma/index.js";
 import { generateEmbedding } from "../utils/embeddings.js";
 
-export async function listItems(user, { shopId, search, page = 1, limit = 50 }) {
+export async function listItems(user, { shopId, search, categoryId, page = 1, limit = 50 }) {
   await assertShopAccess(user, shopId);
 
   const skip = (page - 1) * limit;
@@ -30,13 +30,18 @@ export async function listItems(user, { shopId, search, page = 1, limit = 50 }) 
       FROM "Item" i
       LEFT JOIN "ItemCategory" c ON i."categoryId" = c.id
       WHERE i."shopId" = ${shopId} AND i.status = 'ACTIVE'
+        ${categoryId ? (categoryId === "__uncat__" ? Prisma.sql`AND i."categoryId" IS NULL` : Prisma.sql`AND i."categoryId" = ${categoryId}`) : Prisma.empty}
       ORDER BY score ASC
       LIMIT ${limit}
       OFFSET ${skip};
     `;
 
     const total = await prisma.item.count({
-      where: { shopId, status: "ACTIVE" }
+      where: { 
+        shopId, 
+        status: "ACTIVE",
+        ...(categoryId ? (categoryId === "__uncat__" ? { categoryId: null } : { categoryId }) : {})
+      }
     });
 
     const formattedItems = items.map(item => {
@@ -72,6 +77,7 @@ export async function listItems(user, { shopId, search, page = 1, limit = 50 }) 
     const where = {
       shopId,
       status: "ACTIVE",
+      ...(categoryId ? (categoryId === "__uncat__" ? { categoryId: null } : { categoryId }) : {})
     };
 
     const [items, total] = await Promise.all([

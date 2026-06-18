@@ -402,10 +402,11 @@ export async function fetchItemSummary(token: string, shopId: string) {
 export async function fetchItems(
   token: string,
   shopId: string,
-  opts: { search?: string; page?: number; limit?: number } = {}
+  opts: { search?: string; page?: number; limit?: number; categoryId?: string } = {}
 ) {
   const q = new URLSearchParams({ shopId });
   if (opts.search && opts.search.trim()) q.set('search', opts.search.trim());
+  if (opts.categoryId) q.set('categoryId', opts.categoryId);
   if (opts.page)  q.set('page',  String(opts.page));
   if (opts.limit) q.set('limit', String(opts.limit));
   return apiRequest<{ items: Item[]; total: number; hasMore: boolean; page: number }>(

@@ -13,6 +13,7 @@ const listSchema = z.object({
   query: z.object({
     shopId: z.string().min(1),
     search: z.string().optional(),
+    categoryId: z.string().optional(),
     page: z.coerce.number().int().positive().optional(),
     limit: z.coerce.number().int().positive().optional(),
   }),
@@ -74,14 +75,18 @@ const updateItemSchema = z.object({
 
 router.use(requireAuth);
 
+// SUMMARY & CATEGORIES (Must be before parameterized routes)
 router.get("/summary", requirePermission(PERMISSIONS.ITEM_VIEW), validate(listCategoriesSchema), itemController.getItemSummary);
 router.get("/categories", requirePermission(PERMISSIONS.ITEM_VIEW), validate(listCategoriesSchema), itemController.listCategories);
 router.post("/categories", requirePermission(PERMISSIONS.ITEM_CREATE), validate(categorySchema), itemController.createCategory);
 router.patch("/categories/:id", requirePermission(PERMISSIONS.ITEM_UPDATE), validate(updateCategorySchema), itemController.updateCategory);
 router.delete("/categories/:id", requirePermission(PERMISSIONS.ITEM_UPDATE), validate(z.object({ params: idParams })), itemController.deleteCategory);
 
+// ITEMS
 router.get("/", requirePermission(PERMISSIONS.ITEM_VIEW), validate(listSchema), itemController.listItems);
 router.post("/", requirePermission(PERMISSIONS.ITEM_CREATE), validate(createItemSchema), itemController.createItem);
+
+// INDIVIDUAL ITEM ROUTES
 router.get("/:id/stock", requirePermission(PERMISSIONS.ITEM_VIEW), validate(z.object({ params: idParams })), itemController.getItemStock);
 router.get(
   "/:id/price-history",
