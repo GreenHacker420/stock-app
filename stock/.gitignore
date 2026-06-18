@@ -10,7 +10,7 @@ web-build/
 expo-env.d.ts
 
 ios/
-
+google-services.json
 # Native
 *.orig.*
 *.jks
