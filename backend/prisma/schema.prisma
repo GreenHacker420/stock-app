@@ -347,6 +347,9 @@ model User {
   priceChanges           ItemPriceHistory[]
   attendance             Attendance[]
   leaveRequests          LeaveRequest[]
+
+  assignedWaConversations WaConversation[]
+  waBroadcasts            WaBroadcast[]
 }
 
 model Shop {
@@ -388,29 +391,37 @@ model Shop {
   approvalRequests ApprovalRequest[]
   attendance       Attendance[]
 
-  waConversations  WaConversation[]
-  waTemplates      WaTemplate[]
-  waFlows          WaFlow[]
-  waIntegration    WaIntegration?
+  waConversations WaConversation[]
+  waTemplates     WaTemplate[]
+  waFlows         WaFlow[]
+  waIntegration   WaIntegration?
+  waBroadcasts    WaBroadcast[]
 
   @@index([ownerId])
 }
 
 model WaIntegration {
-  id                    String   @id @default(cuid())
-  shopId                String   @unique
-  verifyToken           String
-  accessToken           String
-  appSecret             String?
-  businessAccountId     String
-  phoneNumberId         String
-  phoneNumber           String?
-  businessName          String?
-  status                WaIntegrationStatus @default(DISCONNECTED)
-  createdAt             DateTime            @default(now())
-  updatedAt             DateTime @updatedAt
+  id                 String                @id @default(cuid())
+  shopId             String                @unique
+  verifyToken        String
+  accessToken        String
+  appSecret          String?
+  businessAccountId  String
+  phoneNumberId      String
+  phoneNumber        String?
+  businessName       String?
+  status             WaIntegrationStatus   @default(DISCONNECTED)
+  messagingLimitTier WaMessagingLimitTier?
+  qualityRating      WaQualityRating?
+  callingEnabled     Boolean               @default(false)
+  connectedAt        DateTime?
+  lastWebhookAt      DateTime?
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
 
-  shop                  Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@index([phoneNumberId])
 }
 
 model StaffShopAccess {
@@ -446,15 +457,17 @@ model Customer {
   createdAt         DateTime     @default(now())
   updatedAt         DateTime     @updatedAt
 
-  shop             Shop              @relation(fields: [shopId], references: [id], onDelete: Restrict)
-  createdBy        User              @relation("CustomerCreatedBy", fields: [createdById], references: [id])
-  orders           Order[]
-  dispatches       Dispatch[]
-  sales            Sale[]
-  deliveryMemos    DeliveryMemo[]
-  payments         Payment[]
-  inventoryReturns InventoryReturn[]
-  waConversations  WaConversation[]
+  shop                  Shop                   @relation(fields: [shopId], references: [id], onDelete: Restrict)
+  createdBy             User                   @relation("CustomerCreatedBy", fields: [createdById], references: [id])
+  orders                Order[]
+  dispatches            Dispatch[]
+  sales                 Sale[]
+  deliveryMemos         DeliveryMemo[]
+  payments              Payment[]
+  inventoryReturns      InventoryReturn[]
+  waConversations       WaConversation[]
+  waFlowExecutions      WaFlowExecution[]
+  waBroadcastRecipients WaBroadcastRecipient[]
 
   @@index([shopId])
   @@index([phone])
@@ -478,22 +491,22 @@ model ItemCategory {
 }
 
 model Item {
-  id                  String       @id @default(cuid())
+  id                  String                      @id @default(cuid())
   shopId              String
   name                String
   sku                 String?
   categoryId          String?
   unit                String
-  defaultSellingPrice Decimal      @default(0) @db.Decimal(12, 2)
-  minimumAllowedPrice Decimal?     @db.Decimal(12, 2)
-  purchasePrice       Decimal?     @db.Decimal(12, 2)
-  mrp                 Decimal?     @db.Decimal(12, 2)
-  minimumStock        Decimal      @default(0) @db.Decimal(12, 3)
+  defaultSellingPrice Decimal                     @default(0) @db.Decimal(12, 2)
+  minimumAllowedPrice Decimal?                    @db.Decimal(12, 2)
+  purchasePrice       Decimal?                    @db.Decimal(12, 2)
+  mrp                 Decimal?                    @db.Decimal(12, 2)
+  minimumStock        Decimal                     @default(0) @db.Decimal(12, 3)
   imageUrl            String?
-  status              RecordStatus @default(ACTIVE)
+  status              RecordStatus                @default(ACTIVE)
   embedding           Unsupported("vector(384)")?
-  createdAt           DateTime     @default(now())
-  updatedAt           DateTime     @updatedAt
+  createdAt           DateTime                    @default(now())
+  updatedAt           DateTime                    @updatedAt
 
   shop                 Shop                  @relation(fields: [shopId], references: [id])
   category             ItemCategory?         @relation(fields: [categoryId], references: [id])
@@ -1139,6 +1152,11 @@ enum WaMessageType {
   STICKER
   TEMPLATE
   FLOW
+  INTERACTIVE
+  LOCATION
+  CONTACT_CARD
+  REACTION
+  UNSUPPORTED
 }
 
 enum WaMessageDirection {
@@ -1175,97 +1193,239 @@ enum WaTemplateStatus {
   IN_APPEAL
 }
 
-model WaConversation {
-  id                     String    @id @default(cuid())
-  shopId                 String
-  customerId             String?
-  phone                  String
-  contactName            String?
-  lastCustomerMessageAt  DateTime?
-  unreadCount            Int       @default(0)
-  createdAt              DateTime  @default(now())
-  updatedAt              DateTime  @updatedAt
+enum WaBroadcastStatus {
+  DRAFT
+  SCHEDULED
+  SENDING
+  COMPLETED
+  CANCELLED
+  FAILED
+}
 
-  shop          Shop      @relation(fields: [shopId], references: [id])
-  customer      Customer? @relation(fields: [customerId], references: [id])
-  messages      WaMessage[]
+enum WaBroadcastRecipientStatus {
+  PENDING
+  SENT
+  DELIVERED
+  READ
+  FAILED
+  SKIPPED
+}
+
+enum WaMessagingLimitTier {
+  TIER_250
+  TIER_1K
+  TIER_10K
+  TIER_100K
+  UNLIMITED
+}
+
+enum WaQualityRating {
+  GREEN
+  YELLOW
+  RED
+  UNKNOWN
+}
+
+enum WaTemplateCategory {
+  UTILITY
+  MARKETING
+  AUTHENTICATION
+}
+
+model WaConversation {
+  id                    String    @id @default(cuid())
+  shopId                String
+  customerId            String?
+  phone                 String
+  bsuid                 String?
+  contactName           String?
+  lastCustomerMessageAt DateTime?
+  unreadCount           Int       @default(0)
+  isArchived            Boolean   @default(false)
+  isPinned              Boolean   @default(false)
+  assignedToId          String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  shop           Shop              @relation(fields: [shopId], references: [id])
+  customer       Customer?         @relation(fields: [customerId], references: [id])
+  assignedTo     User?             @relation(fields: [assignedToId], references: [id])
+  messages       WaMessage[]
   flowExecutions WaFlowExecution[]
 
   @@unique([shopId, phone])
+  @@index([shopId, updatedAt])
+  @@index([shopId, customerId])
 }
 
 model WaMessage {
-  id                   String          @id @default(cuid())
+  id                   String             @id @default(cuid())
   conversationId       String
-  metaMessageId        String?         @unique
+  metaMessageId        String?            @unique
   replyToMetaMessageId String?
   direction            WaMessageDirection
-  status               WaMessageStatus @default(QUEUED)
-  type                 WaMessageType   @default(TEXT)
-  content              Json?           // Text content or media metadata
+  status               WaMessageStatus    @default(QUEUED)
+  type                 WaMessageType      @default(TEXT)
+  content              Json? // Text content or media metadata
+  payload              Json?
   mediaId              String?
   mediaUrl             String?
+  s3Key                String?
+  s3Bucket             String?
   mimeType             String?
   fileName             String?
   templateId           String?
+  templateName         String?
+  templateLanguage     String?
+  broadcastRecipientId String?
+  retryCount           Int                @default(0)
+  lastRetryAt          DateTime?
   deliveredAt          DateTime?
   readAt               DateTime?
   failedAt             DateTime?
   errorMessage         String?
-  createdAt            DateTime        @default(now())
+  createdAt            DateTime           @default(now())
 
-  conversation      WaConversation  @relation(fields: [conversationId], references: [id])
+  conversation WaConversation @relation(fields: [conversationId], references: [id])
+
+  @@index([conversationId, createdAt])
 }
 
 model WaWebhookEvent {
   id          String   @id // Composite or hash ID
+  shopId      String?
   eventType   String
   processedAt DateTime @default(now())
+
+  @@index([processedAt])
 }
 
 model WaTemplate {
-  id             String   @id @default(cuid())
-  shopId         String
-  name           String
-  language       String
-  status         WaTemplateStatus @default(PENDING)
-  category       String
-  components     Json
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id                  String             @id @default(cuid())
+  shopId              String
+  metaTemplateId      String?
+  name                String
+  language            String
+  status              WaTemplateStatus   @default(PENDING)
+  category            WaTemplateCategory
+  components          Json
+  headerVariables     Json?
+  bodyVariables       Json?
+  sentCount           Int                @default(0)
+  readCount           Int                @default(0)
+  metaRejectionReason String?
+  syncedAt            DateTime?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
 
-  shop           Shop     @relation(fields: [shopId], references: [id])
+  shop       Shop          @relation(fields: [shopId], references: [id])
+  broadcasts WaBroadcast[]
+
+  @@unique([shopId, name, language])
+  @@index([shopId, status])
 }
 
 model WaTemplateUsage {
-  id          String   @id @default(cuid())
-  templateId  String
-  sentCount   Int      @default(0)
-  readCount   Int      @default(0)
-  replyCount  Int      @default(0)
+  id         String @id @default(cuid())
+  templateId String
+  sentCount  Int    @default(0)
+  readCount  Int    @default(0)
+  replyCount Int    @default(0)
 }
 
 model WaFlow {
-  id          String       @id @default(cuid())
-  shopId      String
-  flowId      String?      @unique
-  name        String
-  status      WaFlowStatus @default(DRAFT)
-  flowJson    Json?
-  createdAt   DateTime     @default(now())
+  id                     String       @id @default(cuid())
+  shopId                 String
+  flowId                 String?
+  name                   String
+  description            String?
+  status                 WaFlowStatus @default(DRAFT)
+  flowJson               Json?
+  endpointEnabled        Boolean      @default(false)
+  rsaPublicKey           String?      @db.Text
+  rsaPrivateKeyEncrypted String?      @db.Text
+  previewUrl             String?
+  totalSent              Int          @default(0)
+  totalResponses         Int          @default(0)
+  syncedAt               DateTime?
+  createdAt              DateTime     @default(now())
+  updatedAt              DateTime     @updatedAt
 
-  shop        Shop     @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  shop       Shop              @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  executions WaFlowExecution[]
+
+  @@unique([shopId, flowId])
 }
 
 model WaFlowExecution {
   id             String                @id @default(cuid())
+  shopId         String
   flowId         String
   conversationId String
+  customerId     String?
+  flowToken      String?               @unique
   status         WaFlowExecutionStatus @default(STARTED)
   inputJson      Json?
   resultJson     Json?
+  sentAt         DateTime?
+  submittedAt    DateTime?
   startedAt      DateTime              @default(now())
   completedAt    DateTime?
 
-  conversation   WaConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  waFlow       WaFlow         @relation(fields: [flowId], references: [id])
+  conversation WaConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  customer     Customer?      @relation(fields: [customerId], references: [id])
+
+  @@index([shopId, flowId])
+  @@index([flowToken])
+}
+
+model WaBroadcast {
+  id                String            @id @default(cuid())
+  shopId            String
+  name              String
+  templateId        String?
+  templateVariables Json?
+  audienceFilter    Json?
+  audienceCount     Int               @default(0)
+  status            WaBroadcastStatus @default(DRAFT)
+  sentCount         Int               @default(0)
+  deliveredCount    Int               @default(0)
+  readCount         Int               @default(0)
+  failedCount       Int               @default(0)
+  skippedCount      Int               @default(0)
+  scheduledAt       DateTime?
+  startedAt         DateTime?
+  completedAt       DateTime?
+  createdById       String
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  shop       Shop                   @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  template   WaTemplate?            @relation(fields: [templateId], references: [id])
+  createdBy  User                   @relation(fields: [createdById], references: [id])
+  recipients WaBroadcastRecipient[]
+
+  @@index([shopId, status])
+}
+
+model WaBroadcastRecipient {
+  id            String                     @id @default(cuid())
+  broadcastId   String
+  customerId    String
+  customerName  String?
+  customerPhone String
+  status        WaBroadcastRecipientStatus @default(PENDING)
+  metaMessageId String?
+  errorMessage  String?
+  sentAt        DateTime?
+  deliveredAt   DateTime?
+  readAt        DateTime?
+  createdAt     DateTime                   @default(now())
+
+  broadcast WaBroadcast @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+  customer  Customer    @relation(fields: [customerId], references: [id])
+
+  @@unique([broadcastId, customerId])
+  @@index([broadcastId, status])
 }
