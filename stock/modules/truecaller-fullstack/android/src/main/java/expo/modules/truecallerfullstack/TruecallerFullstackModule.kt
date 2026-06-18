@@ -13,7 +13,7 @@ import expo.modules.kotlin.Promise
 
 class TruecallerFullstackModule : Module() {
   private val verificationCallback = object : VerificationCallback {
-    override fun onRequestSuccess(callbackType: Int, verificationDataBundle: VerificationDataBundle) {
+    override fun onRequestSuccess(callbackType: Int, verificationDataBundle: VerificationDataBundle?) {
       val callbackStr = when (callbackType) {
         VerificationCallback.TYPE_MISSED_CALL_INITIATED -> "MISSED_CALL_INITIATED"
         VerificationCallback.TYPE_MISSED_CALL_RECEIVED -> "MISSED_CALL_RECEIVED"
@@ -28,13 +28,15 @@ class TruecallerFullstackModule : Module() {
         "status" to callbackStr
       )
       
-      map["ttl"] = verificationDataBundle.getString(VerificationDataBundle.KEY_TTL)
-      map["requestNonce"] = verificationDataBundle.getString(VerificationDataBundle.KEY_REQUEST_NONCE)
+      if (verificationDataBundle != null) {
+        map["ttl"] = verificationDataBundle.getString(VerificationDataBundle.KEY_TTL)
+        map["requestNonce"] = verificationDataBundle.getString(VerificationDataBundle.KEY_REQUEST_NONCE)
+      }
       
       if (callbackType == VerificationCallback.TYPE_VERIFICATION_COMPLETE || 
           callbackType == VerificationCallback.TYPE_PROFILE_VERIFIED_BEFORE) {
         try {
-          val accessToken = verificationDataBundle.getString(VerificationDataBundle.KEY_ACCESS_TOKEN)
+          val accessToken = verificationDataBundle?.getString(VerificationDataBundle.KEY_ACCESS_TOKEN)
           map["accessToken"] = accessToken
         } catch (e: Exception) {
           Log.e("TruecallerFullstack", "Failed to get access token", e)
