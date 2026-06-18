@@ -11,6 +11,21 @@ export const createCategory = asyncHandler(async (req, res) => {
   res.status(201).json({ success: true, data: category });
 });
 
+export const listCategories = asyncHandler(async (req, res) => {
+  const categories = await itemService.listCategories(req.user, req.validated.query);
+  res.json({ success: true, data: categories });
+});
+
+export const updateCategory = asyncHandler(async (req, res) => {
+  const category = await itemService.updateCategory(req.user, req.validated.params.id, req.validated.body);
+  res.json({ success: true, data: category });
+});
+
+export const deleteCategory = asyncHandler(async (req, res) => {
+  await itemService.deleteCategory(req.user, req.validated.params.id);
+  res.json({ success: true, data: { success: true } });
+});
+
 export const createItem = asyncHandler(async (req, res) => {
   const item = await itemService.createItem(req.user, req.validated.body);
   res.status(201).json({ success: true, data: item });

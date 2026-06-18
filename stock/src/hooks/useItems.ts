@@ -13,9 +13,14 @@ import {
   fetchItemStock,
   fetchItemPriceHistory,
   fetchItemPriceChangeHistory,
+  fetchCategories,
+  createCategory,
+  updateCategory,
+  deleteCategory,
   CreateItemPayload,
   UpdateItemPayload,
   StockEntryPayload,
+  ItemCategory,
 } from "../api/client";
 
 export function useInfiniteItemsQuery(opts: { search?: string; limit?: number } = {}) {
@@ -165,5 +170,54 @@ export function useItemPriceChangeHistoryQuery(itemId?: string) {
     queryFn: () => fetchItemPriceChangeHistory(token ?? "", itemId ?? ""),
     enabled: !!token && !!itemId,
     staleTime: 5 * 60 * 1000, // 5 mins
+  });
+}
+
+export function useCategoriesQuery() {
+  const token = useAuthStore((state) => state.token);
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  return useQuery({
+    queryKey: queryKeys.categories(activeShopId ?? ""),
+    queryFn: () => fetchCategories(token ?? "", activeShopId ?? ""),
+    enabled: !!token && !!activeShopId,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useCreateCategoryMutation() {
+  const token = useAuthStore((state) => state.token);
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) => createCategory(token ?? "", activeShopId ?? "", name),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.categories(activeShopId ?? "") });
+    },
+  });
+}
+
+export function useUpdateCategoryMutation() {
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  const token = useAuthStore((state) => state.token);
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string }) => updateCategory(token ?? "", id, name),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.categories(activeShopId ?? "") });
+      // Also refresh items in case category names are shown inline
+      queryClient.invalidateQueries({ queryKey: ["items"] });
+    },
+  });
+}
+
+export function useDeleteCategoryMutation() {
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  const token = useAuthStore((state) => state.token);
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => deleteCategory(token ?? "", id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.categories(activeShopId ?? "") });
+    },
   });
 }

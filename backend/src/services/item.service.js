@@ -162,6 +162,50 @@ export async function createCategory(user, data) {
   });
 }
 
+export async function listCategories(user, { shopId }) {
+  await assertShopAccess(user, shopId);
+  return prisma.itemCategory.findMany({
+    where: {
+      shopId,
+      status: "ACTIVE",
+    },
+    orderBy: {
+      name: "asc",
+    },
+  });
+}
+
+export async function updateCategory(user, id, { name }) {
+  const existing = await prisma.itemCategory.findUnique({ where: { id } });
+  if (!existing) throw new ApiError(404, "Category not found");
+  await assertShopAccess(user, existing.shopId);
+
+  return prisma.itemCategory.update({
+    where: { id },
+    data: { name },
+  });
+}
+
+export async function deleteCategory(user, id) {
+  const existing = await prisma.itemCategory.findUnique({ where: { id } });
+  if (!existing) throw new ApiError(404, "Category not found");
+  await assertShopAccess(user, existing.shopId);
+
+  const itemCount = await prisma.item.count({
+    where: { categoryId: id, status: "ACTIVE" },
+  });
+
+  if (itemCount > 0) {
+    throw new ApiError(400, "Cannot delete category that contains active items");
+  }
+
+  // Soft delete or hard delete. Since schema has status, let's soft delete.
+  return prisma.itemCategory.update({
+    where: { id },
+    data: { status: "INACTIVE" },
+  });
+}
+
 export async function createItem(user, data) {
   await assertShopAccess(user, data.shopId);
 

@@ -26,4 +26,5 @@ export const queryKeys = {
   ownerDashboard: (shopId?: string, date?: string) => ["owner-dashboard", { shopId, date }] as const,
   staffTodaySummary: (shopId: string, date?: string) => ["staff-today-summary", shopId, { date }] as const,
   staff: () => ["staff"] as const,
+  categories: (shopId: string) => ["categories", shopId] as const,
 };

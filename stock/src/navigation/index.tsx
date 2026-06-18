@@ -47,6 +47,7 @@ import { StockMovementHistory } from "./screens/StockMovementHistory";
 import { DeliveryMemoList } from "./screens/DeliveryMemoList";
 import { CreateDeliveryMemo } from "./screens/CreateDeliveryMemo";
 import { DeliveryMemoDetail } from "./screens/DeliveryMemoDetail";
+import { ManageCategories } from "./screens/ManageCategories";
 
 import { colors } from "../theme";
 
@@ -477,6 +478,10 @@ const sharedStackScreens = {
     screen: Settings,
     options: { title: "Settings" },
   },
+  ManageCategories: {
+    screen: ManageCategories,
+    options: { title: "Manage categories" },
+  },
 };
 
 const StaffRootStack = createNativeStackNavigator({
@@ -579,6 +584,7 @@ export type RootStackParamList = {
   AuditLog: undefined;
   Settings: undefined;
   Home: undefined;
+  ManageCategories: undefined;
 };
 
 export type StaffStackParamList = RootStackParamList;

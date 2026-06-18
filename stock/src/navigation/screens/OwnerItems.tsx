@@ -1,1524 +1,1562 @@
-import React, { useMemo, useState, memo } from "react";
-import { View, StyleSheet, Pressable, ScrollView, TouchableWithoutFeedback, Modal as RNModal } from "react-native";
-import { Searchbar, Divider, Text, Icon, SegmentedButtons, TextInput } from "react-native-paper";
+import React, { useMemo, useState, memo, useCallback } from "react";
+import {
+  View,
+  StyleSheet,
+  Pressable,
+  ScrollView,
+  TextInput as RNTextInput,
+  Modal as RNModal,
+  TouchableWithoutFeedback,
+  KeyboardAvoidingView,
+  Platform,
+} from "react-native";
+import { Text, Divider, Icon, TextInput } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
 import { useQuery } from "@tanstack/react-query";
 import { useRoute } from "@react-navigation/native";
 import * as Haptics from "expo-haptics";
 
-import { 
-  fetchItems, 
-  Item 
+import {
+  fetchItems,
+  Item,
+  ItemCategory,
+  CreateItemPayload,
+  UpdateItemPayload,
 } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
-import { useItemsQuery, useCreateItemMutation, useUpdateItemMutation, useItemStockQuery, useItemPriceHistoryQuery, useItemPriceChangeHistoryQuery, useStockMovementsQuery } from "../../hooks/useItems";
+import {
+  useItemsQuery,
+  useCreateItemMutation,
+  useUpdateItemMutation,
+  useItemStockQuery,
+  useItemPriceHistoryQuery,
+  useItemPriceChangeHistoryQuery,
+  useStockMovementsQuery,
+  useCategoriesQuery,
+} from "../../hooks/useItems";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { StatusPill } from "../../components/ui/StatusPill";
 import { SkeletonList } from "../../components/ui/SkeletonCard";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { Button } from "../../components/ui/Button";
-import { Section } from "../../components/ui/Section";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { navigate, goBack } from "../navigation-ref";
 
-const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+const money = (value?: string | number | null) =>
+  `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 
-const getAvatarColor = (name: string) => {
-  const colorsList = [
-    { bg: "#eff6ff", text: "#2563eb" }, // Blue
-    { bg: "#ecfdf5", text: "#059669" }, // Emerald
-    { bg: "#fef3c7", text: "#d97706" }, // Amber
-    { bg: "#faf5ff", text: "#7c3aed" }, // Violet
-    { bg: "#fff1f2", text: "#e11d48" }, // Rose
-    { bg: "#f0fdfa", text: "#0d9488" }, // Teal
+const CAT_PALETTES = [
+  { bg: "#dcfce7", icon: "#16a34a", border: "#bbf7d0" }, // emerald
+  { bg: "#dbeafe", icon: "#2563eb", border: "#bfdbfe" }, // blue
+  { bg: "#fef3c7", icon: "#d97706", border: "#fde68a" }, // amber
+  { bg: "#fce7f3", icon: "#db2777", border: "#fbcfe8" }, // pink
+  { bg: "#ede9fe", icon: "#7c3aed", border: "#ddd6fe" }, // violet
+  { bg: "#ffedd5", icon: "#ea580c", border: "#fed7aa" }, // orange
+  { bg: "#ccfbf1", icon: "#0d9488", border: "#99f6e4" }, // teal
+  { bg: "#f0fdf4", icon: "#166534", border: "#bbf7d0" }, // forest
+];
+
+function getCatPalette(name: string) {
+  const sum = name.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
+  return CAT_PALETTES[sum % CAT_PALETTES.length];
+}
+
+const CAT_ICONS = [
+  "tag", "package-variant", "cube-outline", "basket-outline",
+  "star-outline", "lightning-bolt-outline", "leaf", "fire",
+];
+
+function getCatIcon(name: string) {
+  const sum = name.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
+  return CAT_ICONS[sum % CAT_ICONS.length];
+}
+
+function getAvatarColor(name: string) {
+  const colors_list = [
+    "#16a34a", "#2563eb", "#d97706", "#db2777", "#7c3aed", "#ea580c",
   ];
-  const charCodeSum = name.split("").reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  return colorsList[charCodeSum % colorsList.length];
-};
+  const sum = name.split("").reduce((a, c) => a + c.charCodeAt(0), 0);
+  return colors_list[sum % colors_list.length];
+}
 
-const formatItemName = (name: string) => {
-  return name
-    .split(/\s+/)
-    .map(word => {
-      if (!word) return "";
-      if (
-        /^\d/.test(word) ||
-        ["SKU", "RC", "N/A", "3D", "103D", "1043D", "104A/1104", "1053", "109/1710", "MTR", "HDMI", "USB", "RAM", "SSD"].includes(
-          word.toUpperCase()
-        )
-      ) {
-        return word.toUpperCase();
-      }
-      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
-    })
-    .join(" ");
-};
+// ─────────────────────────────────────────────────────────────────────────────
+// Stock Badge
+// ─────────────────────────────────────────────────────────────────────────────
+function StockBadge({ stock, min }: { stock: number; min: number }) {
+  if (stock <= 0)
+    return (
+      <View style={[badge.pill, { backgroundColor: colors.dangerLight }]}>
+        <Text style={[badge.text, { color: colors.danger }]}>OUT</Text>
+      </View>
+    );
+  if (stock <= min)
+    return (
+      <View style={[badge.pill, { backgroundColor: colors.warningLight }]}>
+        <Text style={[badge.text, { color: colors.warning }]}>LOW</Text>
+      </View>
+    );
+  return (
+    <View style={[badge.pill, { backgroundColor: colors.primaryLight }]}>
+      <Text style={[badge.text, { color: colors.primary }]}>IN STOCK</Text>
+    </View>
+  );
+}
 
-const ItemCard = memo(({ 
-  item, 
-  stock, 
-  onEdit, 
-  onManageStock, 
-  onPress 
-}: { 
-  item: Item, 
-  stock: number, 
-  onEdit: () => void, 
-  onManageStock: () => void, 
-  onPress: () => void 
+const badge = StyleSheet.create({
+  pill: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: radius.full,
+  },
+  text: {
+    fontSize: 9,
+    fontWeight: fontWeight.black,
+    letterSpacing: 0.6,
+  },
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Item Card
+// ─────────────────────────────────────────────────────────────────────────────
+const ItemCard = memo(({
+  item,
+  stock,
+  onPress,
+  onEdit,
+  onManageStock,
+}: {
+  item: Item;
+  stock: number;
+  onPress: () => void;
+  onEdit: () => void;
+  onManageStock: () => void;
 }) => {
-  const isLow = stock <= Number(item.minimumStock);
-  const isOut = stock <= 0;
-  const statusColor = isOut ? colors.danger : isLow ? colors.warning : colors.success;
+  const avatarColor = getAvatarColor(item.name);
+  const minStock = Number(item.minimumStock ?? 0);
+  const initials = item.name
+    .split(" ")
+    .map((w) => w[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
 
   return (
-    <Pressable 
+    <Pressable
       onPress={onPress}
-      style={styles.cardPressable}
+      style={({ pressed }) => [styles.itemCard, pressed && styles.itemCardPressed]}
     >
-      {({ pressed }) => (
-        <View style={[
-          styles.itemCard,
-          { borderLeftWidth: 5, borderLeftColor: statusColor },
-          pressed && styles.itemCardPressed
-        ]}>
-          <View style={styles.itemCardRow}>
-            <View style={styles.itemDetails}>
-              <Text style={styles.itemName} numberOfLines={1}>{formatItemName(item.name)}</Text>
-              <Text style={styles.itemSubtitle}>{item.sku ? `SKU: ${item.sku}` : "No SKU"} • {item.unit}</Text>
-              
-              <View style={styles.itemStockCountContainer}>
-                <Text style={styles.itemStockCount}>
-                  Stock: <Text style={[styles.itemStockValue, { color: statusColor, fontSize: 13, fontWeight: fontWeight.extrabold }]}>{stock} {item.unit}</Text>
-                </Text>
-                {item.minimumStock ? (
-                  <Text style={styles.minStockText}>Alert Min: {item.minimumStock}</Text>
-                ) : null}
-              </View>
-            </View>
-            <View style={styles.itemActions}>
-               <StatusPill 
-                 label={isOut ? "OUT OF STOCK" : isLow ? "LOW STOCK" : "IN STOCK"} 
-                 tone={isOut ? "red" : isLow ? "amber" : "green"} 
-               />
-               <Pressable 
-                 onPress={() => {
-                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                   onEdit();
-                 }} 
-                 style={[styles.actionButton, { backgroundColor: colors.surfaceOffset }]}
-               >
-                  <Icon source="pencil-outline" size={16} color={colors.textSecondary} />
-               </Pressable>
-            </View>
-          </View>
-          
-          <View style={styles.itemFooterRow}>
-             <View style={styles.priceRow}>
-                <Text style={styles.priceText}>
-                  Sell: <Text style={styles.priceBold}>{money(item.defaultSellingPrice)}</Text>
-                </Text>
-                <Text style={styles.priceDivider}>•</Text>
-                <Text style={styles.priceText}>
-                  MRP: <Text style={styles.priceValue}>{money(item.mrp)}</Text>
-                </Text>
-                {item.minimumAllowedPrice ? (
-                  <>
-                    <Text style={styles.priceDivider}>•</Text>
-                    <Text style={styles.priceText}>
-                      Min: <Text style={[styles.priceValue, { color: colors.warning }]}>{money(item.minimumAllowedPrice)}</Text>
-                    </Text>
-                  </>
-                ) : null}
-             </View>
-             <Pressable 
-               onPress={() => {
-                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                 onManageStock();
-               }} 
-               style={styles.restockButton}
-             >
-                <Icon source="plus" size={14} color={colors.primary} />
-                <Text style={styles.restockButtonText}>RESTOCK</Text>
-             </Pressable>
-          </View>
+      {/* Avatar */}
+      <View style={[styles.itemAvatar, { backgroundColor: avatarColor + "22" }]}>
+        <Text style={[styles.itemAvatarText, { color: avatarColor }]}>{initials}</Text>
+      </View>
+
+      {/* Info */}
+      <View style={styles.itemInfo}>
+        <Text style={styles.itemName} numberOfLines={1}>{item.name}</Text>
+        <View style={styles.itemMeta}>
+          {item.category && (
+            <Text style={styles.itemCategory}>{item.category.name}</Text>
+          )}
+          {item.sku && (
+            <Text style={styles.itemSku}>{item.sku}</Text>
+          )}
         </View>
-      )}
+        <View style={styles.itemPriceRow}>
+          <Text style={styles.itemPrice}>{money(item.defaultSellingPrice)}</Text>
+          <Text style={styles.itemUnit}>/ {item.unit}</Text>
+          {item.mrp && Number(item.mrp) > Number(item.defaultSellingPrice ?? 0) && (
+            <Text style={styles.itemMrp}>{money(item.mrp)}</Text>
+          )}
+        </View>
+      </View>
+
+      {/* Right: stock info */}
+      <View style={styles.itemRight}>
+        <StockBadge stock={stock} min={minStock} />
+        <Text style={[
+          styles.itemStockQty,
+          stock <= 0 ? { color: colors.danger } :
+          stock <= minStock ? { color: colors.warning } :
+          { color: colors.primary }
+        ]}>
+          {stock}
+          <Text style={styles.itemStockUnit}> {item.unit}</Text>
+        </Text>
+        <View style={styles.itemActions}>
+          <Pressable
+            onPress={onEdit}
+            style={({ pressed }) => [styles.itemActionBtn, pressed && { opacity: 0.6 }]}
+          >
+            <Icon source="pencil-outline" size={14} color={colors.textSecondary} />
+          </Pressable>
+          <Pressable
+            onPress={onManageStock}
+            style={({ pressed }) => [styles.itemActionBtn, styles.itemActionBtnPrimary, pressed && { opacity: 0.6 }]}
+          >
+            <Icon source="plus" size={14} color={colors.primary} />
+          </Pressable>
+        </View>
+      </View>
     </Pressable>
   );
 });
 
-export function ItemList() {
-  const token = useAuthStore((state) => state.token);
-  const { activeShopId } = useShopStore();
-  const [search, setSearch] = useState("");
-  const [debouncedSearch] = useDebounce(search, 300);
-  const [filter, setFilter] = useState<"ALL" | "LOW" | "OUT">("ALL");
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-
-  const itemsQuery = useItemsQuery({ search: debouncedSearch, limit: 20 });
-  const stockQuery = useQuery({
-    queryKey: ["all-stock", activeShopId],
-    queryFn: () => fetchItems(token ?? "", activeShopId ?? "", { limit: 1000 }),
-    enabled: !!activeShopId && !!token,
-  });
-
-  const stockByItem = useMemo(() => {
-    const map = new Map<string, number>();
-    (stockQuery.data as any)?.items?.forEach((i: any) => {
-       map.set(i.id, i.currentStock || 0);
-    });
-    return map;
-  }, [stockQuery.data]);
-
-  const categories = useMemo(() => {
-    const map = new Map<string, { id: string; name: string }>();
-    (stockQuery.data as any)?.items?.forEach((i: any) => {
-      if (i.category) {
-        map.set(i.category.id, i.category);
-      }
-    });
-    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
-  }, [stockQuery.data]);
-
-  const filteredItems = useMemo(() => {
-    let all = itemsQuery.data?.items ?? [];
-    
-    // If search is empty, browse using stockQuery (which fetches up to 1000 items)
-    // so we don't truncate category lists or browse lists to just 20 items.
-    if (!debouncedSearch.trim() && (stockQuery.data as any)?.items) {
-      all = (stockQuery.data as any).items;
-    }
-
-    let result = all.filter(item => {
-       const stock = stockByItem.get(item.id) ?? 0;
-       if (filter === "OUT") return stock <= 0;
-       if (filter === "LOW") return stock <= Number(item.minimumStock) && stock > 0;
-       return true;
-    });
-
-    if (selectedCategory) {
-      result = result.filter(item => item.category?.id === selectedCategory);
-    }
-
-    return result;
-  }, [itemsQuery.data, stockQuery.data, debouncedSearch, filter, stockByItem, selectedCategory]);
-
-  const totalCount = itemsQuery.data?.total ?? 0;
-  const outOfStockCount = Array.from(stockByItem.values()).filter(v => v <= 0).length;
-  const lowStockCount = (stockQuery.data as any)?.items?.filter((i: any) => i.currentStock > 0 && i.currentStock <= Number(i.minimumStock)).length || 0;
-  const totalStockValue = (stockQuery.data as any)?.items?.reduce((sum: number, i: any) => sum + ((i.currentStock || 0) * Number(i.defaultSellingPrice || 0)), 0) || 0;
-
-  const List = FlashList as any;
-
+// ─────────────────────────────────────────────────────────────────────────────
+// Category Card (grid tile)
+// ─────────────────────────────────────────────────────────────────────────────
+const CategoryCard = memo(({
+  category,
+  itemCount,
+  onPress,
+}: {
+  category: ItemCategory;
+  itemCount: number;
+  onPress: () => void;
+}) => {
+  const pal = getCatPalette(category.name);
+  const icon = getCatIcon(category.name);
   return (
-    <Screen edges={['top', 'left', 'right']} scroll={false}>
-      <AppHeader title="Products Catalog" subtitle="Inventory management and pricing" />
-      
-      <View style={styles.container}>
-        <View style={styles.listWrapper}>
-          <List
-            data={filteredItems}
-            keyExtractor={(item: Item) => item.id}
-            estimatedItemSize={160}
-            onRefresh={() => {
-              itemsQuery.refetch();
-              stockQuery.refetch();
-            }}
-            refreshing={itemsQuery.isFetching || stockQuery.isFetching}
-            ListHeaderComponent={
-              <View style={styles.headerComponent}>
-                
-                {/* Premium Integrated Dashboard Summary Card */}
-                <View style={styles.statsContainer}>
-                  <View style={styles.statsMainRow}>
-                    <View style={styles.statsMainCol}>
-                      <Text style={styles.statsMainLabel}>TOTAL INVENTORY VALUE</Text>
-                      <Text style={styles.statsMainValue}>{money(totalStockValue)}</Text>
-                    </View>
-                    <View style={[styles.statsIconBadge, { backgroundColor: colors.primaryLight }]}>
-                      <Icon source="currency-inr" size={24} color={colors.primaryDark} />
-                    </View>
-                  </View>
-                  
-                  <Divider style={styles.statsDivider} />
-                  
-                  <View style={styles.statsGrid}>
-                    <View style={styles.statsItem}>
-                      <Text style={styles.statsItemLabel}>CATALOG SIZE</Text>
-                      <Text style={styles.statsItemValue}>{totalCount} Items</Text>
-                    </View>
-                    <View style={styles.statsItemDivider} />
-                    <View style={styles.statsItem}>
-                      <Text style={[styles.statsItemLabel, outOfStockCount > 0 && { color: colors.danger }]}>OUT OF STOCK</Text>
-                      <Text style={[styles.statsItemValue, outOfStockCount > 0 && { color: colors.danger }]}>{outOfStockCount}</Text>
-                    </View>
-                    <View style={styles.statsItemDivider} />
-                    <View style={styles.statsItem}>
-                      <Text style={[styles.statsItemLabel, lowStockCount > 0 && { color: colors.warning }]}>LOW STOCK</Text>
-                      <Text style={[styles.statsItemValue, lowStockCount > 0 && { color: colors.warning }]}>{lowStockCount}</Text>
-                    </View>
-                  </View>
-                </View>
-
-                {/* Sleek Search Console */}
-                <Searchbar 
-                  value={search} 
-                  onChangeText={(text) => {
-                    setSearch(text);
-                    if (text.trim() !== "") {
-                      setSelectedCategory(null); // Clear category filter when searching on backend
-                    }
-                  }} 
-                  placeholder="Search item name or SKU..." 
-                  style={styles.searchBar} 
-                  inputStyle={styles.searchInput}
-                  iconColor={colors.textSecondary}
-                />
-                
-                {/* Category Filter Chips */}
-                {categories.length > 0 && (
-                  <View style={styles.categoryChipsOuter}>
-                    <ScrollView 
-                      horizontal 
-                      showsHorizontalScrollIndicator={false} 
-                      contentContainerStyle={styles.categoryChipsRow}
-                    >
-                      <Pressable 
-                        onPress={() => {
-                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                          setSelectedCategory(null);
-                        }}
-                        style={[styles.categoryChip, !selectedCategory && styles.categoryChipActive]}
-                      >
-                        <Text style={[styles.categoryChipText, !selectedCategory && styles.categoryChipTextActive]}>
-                          All Categories
-                        </Text>
-                      </Pressable>
-
-                      {categories.map((cat) => {
-                        const isSelected = selectedCategory === cat.id;
-                        return (
-                          <Pressable 
-                            key={cat.id}
-                            onPress={() => {
-                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                              setSelectedCategory(cat.id);
-                              setSearch(""); // Clear search when switching categories to browse category items
-                            }}
-                            style={[styles.categoryChip, isSelected && styles.categoryChipActive]}
-                          >
-                            <Text style={[styles.categoryChipText, isSelected && styles.categoryChipTextActive]}>
-                              {cat.name}
-                            </Text>
-                          </Pressable>
-                        );
-                      })}
-                    </ScrollView>
-                  </View>
-                )}
-
-                {/* Visual Active Filter Chips */}
-                <View style={styles.filterOuterContainer}>
-                  <ScrollView 
-                    horizontal 
-                    showsHorizontalScrollIndicator={false} 
-                    contentContainerStyle={styles.filterChipsRow}
-                  >
-                    <Pressable 
-                      onPress={() => setFilter("ALL")} 
-                      style={[styles.filterChip, filter === "ALL" && styles.filterChipActive]}
-                    >
-                      <Icon source="package-variant" size={14} color={filter === "ALL" ? colors.primary : colors.textSecondary} />
-                      <Text style={[styles.filterChipText, filter === "ALL" && styles.filterChipTextActive]}>Total Stock</Text>
-                    </Pressable>
-
-                    <Pressable 
-                      onPress={() => setFilter("OUT")} 
-                      style={[styles.filterChip, filter === "OUT" && styles.filterChipActive]}
-                    >
-                      <Icon source="close-circle-outline" size={14} color={filter === "OUT" ? colors.danger : colors.textSecondary} />
-                      <Text style={[styles.filterChipText, filter === "OUT" && styles.filterChipTextActive]}>Out of Stock</Text>
-                    </Pressable>
-
-                    <Pressable 
-                      onPress={() => setFilter("LOW")} 
-                      style={[styles.filterChip, filter === "LOW" && styles.filterChipActive]}
-                    >
-                      <Icon source="alert-circle-outline" size={14} color={filter === "LOW" ? colors.warning : colors.textSecondary} />
-                      <Text style={[styles.filterChipText, filter === "LOW" && styles.filterChipTextActive]}>Low Stock</Text>
-                    </Pressable>
-                  </ScrollView>
-                </View>
-              </View>
-            }
-            renderItem={({ item }: { item: Item }) => (
-              <ItemCard 
-                item={item} 
-                stock={stockByItem.get(item.id) ?? 0} 
-                onEdit={() => navigate("AddEditItem", { item })}
-                onManageStock={() => navigate("StockEntry", { itemId: item.id })}
-                onPress={() => navigate("ItemDetail", { itemId: item.id })}
-              />
-            )}
-            ListEmptyComponent={
-              itemsQuery.isLoading ? (
-                <SkeletonList count={8} itemHeight={96} />
-              ) : (
-                <EmptyState 
-                  icon="package-variant-closed" 
-                  title="No items found" 
-                  subtitle="Try a different search term or add a new item." 
-                />
-              )
-            }
-            contentContainerStyle={styles.listContent}
-          />
-        </View>
-
-        <Pressable 
-          style={({ pressed }) => [styles.fab, pressed && styles.pressed]} 
-          onPress={() => navigate("AddEditItem")}
-        >
-          <Icon source="plus" size={28} color={colors.textInverse} />
-        </Pressable>
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [styles.catCard, { borderColor: pal.border }, pressed && styles.catCardPressed]}
+    >
+      <View style={[styles.catIconBg, { backgroundColor: pal.bg }]}>
+        <Icon source={icon} size={24} color={pal.icon} />
       </View>
-    </Screen>
+      <Text style={styles.catName} numberOfLines={2}>{category.name}</Text>
+      <Text style={styles.catCount}>
+        <Text style={[styles.catCountNum, { color: pal.icon }]}>{itemCount}</Text>
+        <Text style={styles.catCountLabel}> items</Text>
+      </Text>
+    </Pressable>
+  );
+});
+
+// All Items card
+const AllItemsCard = memo(({ count, onPress }: { count: number; onPress: () => void }) => (
+  <Pressable
+    onPress={onPress}
+    style={({ pressed }) => [styles.catCard, styles.catCardAll, pressed && styles.catCardPressed]}
+  >
+    <View style={[styles.catIconBg, { backgroundColor: colors.primaryLight }]}>
+      <Icon source="package-variant-closed" size={24} color={colors.primary} />
+    </View>
+    <Text style={styles.catName}>All Items</Text>
+    <Text style={styles.catCount}>
+      <Text style={[styles.catCountNum, { color: colors.primary }]}>{count}</Text>
+      <Text style={styles.catCountLabel}> total</Text>
+    </Text>
+  </Pressable>
+));
+
+// Uncategorised card
+const UncatCard = memo(({ count, onPress }: { count: number; onPress: () => void }) => (
+  <Pressable
+    onPress={onPress}
+    style={({ pressed }) => [styles.catCard, { borderColor: colors.border }, pressed && styles.catCardPressed]}
+  >
+    <View style={[styles.catIconBg, { backgroundColor: colors.surfaceOffset }]}>
+      <Icon source="tag-off-outline" size={24} color={colors.textMuted} />
+    </View>
+    <Text style={styles.catName}>Uncategorised</Text>
+    <Text style={styles.catCount}>
+      <Text style={[styles.catCountNum, { color: colors.textSecondary }]}>{count}</Text>
+      <Text style={styles.catCountLabel}> items</Text>
+    </Text>
+  </Pressable>
+));
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Search bar component
+// ─────────────────────────────────────────────────────────────────────────────
+function SearchBar({
+  value,
+  onChange,
+  placeholder = "Search products…",
+  autoFocus = false,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  placeholder?: string;
+  autoFocus?: boolean;
+}) {
+  return (
+    <View style={styles.searchBar}>
+      <Icon source="magnify" size={18} color={colors.textMuted} />
+      <RNTextInput
+        value={value}
+        onChangeText={onChange}
+        placeholder={placeholder}
+        placeholderTextColor={colors.textMuted}
+        style={styles.searchInput}
+        autoFocus={autoFocus}
+        returnKeyType="search"
+        clearButtonMode="while-editing"
+      />
+      {value.length > 0 && (
+        <Pressable onPress={() => onChange("")}>
+          <Icon source="close-circle" size={16} color={colors.textMuted} />
+        </Pressable>
+      )}
+    </View>
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Stock filter chips
+// ─────────────────────────────────────────────────────────────────────────────
+function FilterChips({
+  value,
+  onChange,
+}: {
+  value: "ALL" | "IN" | "LOW" | "OUT";
+  onChange: (v: "ALL" | "IN" | "LOW" | "OUT") => void;
+}) {
+  const chips: { id: "ALL" | "IN" | "LOW" | "OUT"; label: string; icon: string; color: string }[] = [
+    { id: "ALL", label: "All", icon: "package-variant", color: colors.primary },
+    { id: "IN", label: "In Stock", icon: "check-circle-outline", color: colors.primary },
+    { id: "LOW", label: "Low", icon: "alert-circle-outline", color: colors.warning },
+    { id: "OUT", label: "Out", icon: "close-circle-outline", color: colors.danger },
+  ];
+  return (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
+      {chips.map((c) => {
+        const active = value === c.id;
+        return (
+          <Pressable
+            key={c.id}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              onChange(c.id);
+            }}
+            style={[styles.filterChip, active && { backgroundColor: c.color + "18", borderColor: c.color }]}
+          >
+            <Icon source={c.icon} size={13} color={active ? c.color : colors.textMuted} />
+            <Text style={[styles.filterChipText, active && { color: c.color, fontWeight: fontWeight.bold }]}>
+              {c.label}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </ScrollView>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AddEditItem screen (modal sheet style)
+// ─────────────────────────────────────────────────────────────────────────────
 export function AddEditItem() {
   const route = useRoute();
-  const item = (route.params as { item?: Item } | undefined)?.item;
-  
-  const [form, setForm] = useState({
-    name: item?.name ?? "",
-    sku: item?.sku ?? "",
-    unit: item?.unit ?? "pcs",
-    defaultSellingPrice: String(item?.defaultSellingPrice ?? "0"),
-    minimumAllowedPrice: String(item?.minimumAllowedPrice ?? ""),
-    purchasePrice: String(item?.purchasePrice ?? ""),
-    mrp: String(item?.mrp ?? ""),
-    minimumStock: String(item?.minimumStock ?? "0"),
-    stock: "0",
-  });
+  const existingItem: Item | undefined = (route.params as any)?.item;
+
+  const categoriesQuery = useCategoriesQuery();
+  const categories: ItemCategory[] = categoriesQuery.data ?? [];
 
   const createMutation = useCreateItemMutation();
   const updateMutation = useUpdateItemMutation();
 
-  const handleSave = () => {
-    const payload = {
-      name: form.name.trim(),
-      sku: form.sku.trim() || null,
-      unit: form.unit.trim(),
-      defaultSellingPrice: Number(form.defaultSellingPrice || 0),
-      minimumAllowedPrice: form.minimumAllowedPrice.trim() ? Number(form.minimumAllowedPrice) : null,
-      minimumStock: Number(form.minimumStock || 0),
-      purchasePrice: form.purchasePrice.trim() ? Number(form.purchasePrice) : null,
-      mrp: form.mrp.trim() ? Number(form.mrp) : null,
-    };
+  const [form, setForm] = useState({
+    name: existingItem?.name ?? "",
+    sku: existingItem?.sku ?? "",
+    unit: existingItem?.unit ?? "pcs",
+    defaultSellingPrice: existingItem?.defaultSellingPrice?.toString() ?? "",
+    minimumAllowedPrice: existingItem?.minimumAllowedPrice?.toString() ?? "",
+    mrp: existingItem?.mrp?.toString() ?? "",
+    purchasePrice: existingItem?.purchasePrice?.toString() ?? "",
+    minimumStock: existingItem?.minimumStock?.toString() ?? "0",
+    categoryId: existingItem?.category?.id ?? "",
+  });
 
-    if (item) {
-      updateMutation.mutate({ 
-        id: item.id, 
-        data: { ...payload, adjustmentStock: Number(form.stock) } 
-      }, {
-        onSuccess: () => goBack()
-      });
+  const [showCatPicker, setShowCatPicker] = useState(false);
+  const { activeShopId } = useShopStore();
+
+  const set = (key: string) => (v: string) => setForm((f) => ({ ...f, [key]: v }));
+
+  const selectedCat = categories.find((c) => c.id === form.categoryId);
+
+  const handleSave = async () => {
+    if (!form.name.trim() || !form.unit.trim()) return;
+    const payload: CreateItemPayload = {
+      shopId: activeShopId ?? "",
+      name: form.name.trim(),
+      unit: form.unit.trim(),
+      sku: form.sku.trim() || null,
+      categoryId: form.categoryId || null,
+      defaultSellingPrice: form.defaultSellingPrice ? Number(form.defaultSellingPrice) : 0,
+      minimumAllowedPrice: form.minimumAllowedPrice ? Number(form.minimumAllowedPrice) : null,
+      mrp: form.mrp ? Number(form.mrp) : null,
+      purchasePrice: form.purchasePrice ? Number(form.purchasePrice) : null,
+      minimumStock: form.minimumStock ? Number(form.minimumStock) : 0,
+    };
+    if (existingItem) {
+      updateMutation.mutate({ id: existingItem.id, data: payload as UpdateItemPayload }, { onSuccess: () => goBack() });
     } else {
-      createMutation.mutate({ 
-        ...payload, 
-        initialStock: Number(form.stock) 
-      } as any, {
-        onSuccess: () => goBack()
-      });
+      createMutation.mutate(payload, { onSuccess: () => goBack() });
     }
   };
 
   const isPending = createMutation.isPending || updateMutation.isPending;
+  const isValid = !!form.name.trim() && !!form.unit.trim();
 
-  const stockQuery = useItemStockQuery(item?.id);
-  const currentQuantity = (stockQuery.data as any)?.currentQuantity ?? 0;
-
-  const set = (key: keyof typeof form, value: string) => setForm((prev) => ({ ...prev, [key]: value }));
+  const inputProps = (key: string, label: string, keyboardType?: any, placeholder?: string) => ({
+    mode: "outlined" as const,
+    label,
+    value: (form as any)[key],
+    onChangeText: set(key),
+    outlineStyle: styles.aeiOutline,
+    style: styles.aeiInput,
+    keyboardType: keyboardType ?? "default",
+    placeholder,
+  });
 
   return (
-    <Screen edges={['top', 'left', 'right']}>
-      <AppHeader 
-        title={item ? "Edit Item" : "Add Item"} 
-        subtitle="Maintain item catalog and prices." 
+    <Screen edges={["top", "left", "right"]}>
+      <AppHeader
+        title={existingItem ? "Edit Product" : "New Product"}
+        subtitle={existingItem ? "Update product details" : "Add to your catalogue"}
         fallbackRoute="ItemList"
       />
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: spacing.xxl }}>
-        <View style={styles.formContainer}>
-          
-          <Section title="Basic details">
-            <View style={styles.formCard}>
-              {item && (
-                <TextInput
-                  mode="outlined"
-                  label="Current Stock"
-                  value={`${currentQuantity} ${item.unit}`}
-                  disabled
-                  style={styles.disabledInput}
-                  outlineStyle={styles.inputOutline}
-                  left={<TextInput.Icon icon="warehouse" color={colors.textSecondary} />}
-                />
-              )}
-              <TextInput 
-                mode="outlined" 
-                label="Name" 
-                value={form.name} 
-                onChangeText={(v) => set("name", v)} 
-                outlineStyle={styles.inputOutline} 
-                style={styles.input} 
-                left={<TextInput.Icon icon="pencil-outline" color={colors.primary} />}
-              />
-              <TextInput 
-                mode="outlined" 
-                label="SKU / Barcode" 
-                value={form.sku ?? ""} 
-                onChangeText={(v) => set("sku", v)} 
-                outlineStyle={styles.inputOutline} 
-                style={styles.input} 
-                left={<TextInput.Icon icon="barcode-scan" color={colors.textSecondary} />}
-              />
-              <TextInput 
-                mode="outlined" 
-                label="Unit of Measurement" 
-                value={form.unit} 
-                onChangeText={(v) => set("unit", v)} 
-                outlineStyle={styles.inputOutline} 
-                style={styles.input} 
-                left={<TextInput.Icon icon="weight-kilogram" color={colors.textSecondary} />}
-              />
-              <TextInput 
-                mode="outlined" 
-                label={item ? "Stock Adjustment (+ to add, - to sub)" : "Opening Stock"} 
-                keyboardType="numeric" 
-                value={form.stock} 
-                onChangeText={(v) => set("stock", v)} 
-                outlineStyle={styles.inputOutline} 
-                style={styles.input} 
-                placeholder={item ? "e.g. 10 or -5" : "e.g. 100"}
-                left={<TextInput.Icon icon="plus-minus-box" color={colors.textSecondary} />}
-              />
-              <TextInput 
-                mode="outlined" 
-                label="Minimum Stock Alert Level" 
-                keyboardType="numeric" 
-                value={form.minimumStock} 
-                onChangeText={(v) => set("minimumStock", v)} 
-                outlineStyle={styles.inputOutline} 
-                style={styles.input} 
-                left={<TextInput.Icon icon="bell-ring-outline" color={colors.warning} />}
-              />
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        style={{ flex: 1 }}
+      >
+        <ScrollView
+          contentContainerStyle={styles.aeiScroll}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          {/* Basic Info */}
+          <View style={styles.aeiCard}>
+            <Text style={styles.aeiSectionLabel}>PRODUCT DETAILS</Text>
+            <TextInput {...inputProps("name", "Product Name *")} />
+            <View style={styles.aeiRow}>
+              <TextInput {...inputProps("sku", "SKU / Code")} style={[styles.aeiInput, { flex: 1 }]} />
+              <TextInput {...inputProps("unit", "Unit *")} style={[styles.aeiInput, { flex: 1 }]} placeholder="pcs / kg / box" />
             </View>
-          </Section>
 
-          <Section title="Price structure matrix">
-            <View style={styles.formCard}>
-              <TextInput 
-                mode="outlined" 
-                label="Default Selling Price" 
-                keyboardType="numeric" 
-                value={form.defaultSellingPrice} 
-                onChangeText={(v) => set("defaultSellingPrice", v)} 
-                outlineStyle={styles.inputOutline} 
-                style={styles.input} 
-                left={<TextInput.Icon icon="currency-inr" color={colors.primary} />}
-              />
-              <TextInput 
-                mode="outlined" 
-                label="MRP" 
-                keyboardType="numeric" 
-                value={form.mrp} 
-                onChangeText={(v) => set("mrp", v)} 
-                outlineStyle={styles.inputOutline} 
-                style={styles.input} 
-                left={<TextInput.Icon icon="tag-outline" color={colors.textSecondary} />}
-              />
-              <TextInput 
-                mode="outlined" 
-                label="Minimum Allowed Price (Limit for Staff)" 
-                keyboardType="numeric" 
-                value={form.minimumAllowedPrice} 
-                onChangeText={(v) => set("minimumAllowedPrice", v)} 
-                outlineStyle={styles.inputOutline} 
-                style={styles.input} 
-                left={<TextInput.Icon icon="shield-alert-outline" color={colors.warning} />}
-              />
-              <TextInput 
-                mode="outlined" 
-                label="Purchase Price (Your Cost)" 
-                keyboardType="numeric" 
-                value={form.purchasePrice} 
-                onChangeText={(v) => set("purchasePrice", v)} 
-                outlineStyle={styles.inputOutline} 
-                style={styles.input} 
-                left={<TextInput.Icon icon="cash-register" color={colors.textSecondary} />}
-              />
+            {/* Category selector */}
+            <Pressable
+              onPress={() => setShowCatPicker(true)}
+              style={styles.catSelector}
+            >
+              <Icon source="tag-outline" size={18} color={selectedCat ? colors.primary : colors.textMuted} />
+              <Text style={[styles.catSelectorText, !selectedCat && { color: colors.textMuted }]}>
+                {selectedCat ? selectedCat.name : "Select Category (optional)"}
+              </Text>
+              <Icon source="chevron-down" size={18} color={colors.textMuted} />
+            </Pressable>
+          </View>
 
-              <View style={styles.formTipCard}>
-                <Icon source="lightbulb-on-outline" size={16} color={colors.warning} />
-                <Text style={styles.formTipText}>
-                  MRP is printed price. Default selling price is standard shop rate. Minimum allowed price is the lowest rate staff can sell without owner rate approvals.
+          {/* Pricing */}
+          <View style={styles.aeiCard}>
+            <Text style={styles.aeiSectionLabel}>PRICING</Text>
+            <TextInput {...inputProps("mrp", "MRP", "numeric")} />
+            <TextInput {...inputProps("defaultSellingPrice", "Selling Price", "numeric")} />
+            <TextInput {...inputProps("minimumAllowedPrice", "Min Allowed Price", "numeric")} />
+            <TextInput {...inputProps("purchasePrice", "Purchase / Cost Price", "numeric")} />
+          </View>
+
+          {/* Stock */}
+          <View style={styles.aeiCard}>
+            <Text style={styles.aeiSectionLabel}>STOCK SETTINGS</Text>
+            <TextInput {...inputProps("minimumStock", "Low Stock Alert Below", "numeric")} />
+            {!existingItem && (
+              <View style={styles.aeiInfoTip}>
+                <Icon source="information-outline" size={14} color={colors.info} />
+                <Text style={styles.aeiInfoTipText}>
+                  You can add opening stock after creating the product via Stock Entry.
                 </Text>
               </View>
-            </View>
-          </Section>
-
-          <View style={styles.formFooter}>
-            <Button 
-              label="Save Item" 
-              onPress={handleSave} 
-              loading={isPending} 
-              disabled={!form.name.trim() || !form.unit.trim()}
-              fullWidth
-              size="lg"
-            />
+            )}
           </View>
+
+          <Button
+            label={existingItem ? "Save Changes" : "Create Product"}
+            onPress={handleSave}
+            loading={isPending}
+            disabled={!isValid || isPending}
+          />
+        </ScrollView>
+      </KeyboardAvoidingView>
+
+      {/* Category picker modal */}
+      <RNModal visible={showCatPicker} transparent animationType="slide" onRequestClose={() => setShowCatPicker(false)}>
+        <TouchableWithoutFeedback onPress={() => setShowCatPicker(false)}>
+          <View style={styles.catPickerOverlay}>
+            <TouchableWithoutFeedback>
+              <View style={styles.catPickerSheet}>
+                <View style={styles.catPickerHandle} />
+                <Text style={styles.catPickerTitle}>Select Category</Text>
+                <ScrollView showsVerticalScrollIndicator={false}>
+                  {/* None */}
+                  <Pressable
+                    onPress={() => { setForm((f) => ({ ...f, categoryId: "" })); setShowCatPicker(false); }}
+                    style={[styles.catPickerRow, !form.categoryId && styles.catPickerRowActive]}
+                  >
+                    <Icon source="tag-off-outline" size={18} color={colors.textMuted} />
+                    <Text style={[styles.catPickerRowText, !form.categoryId && { color: colors.primary }]}>None</Text>
+                    {!form.categoryId && <Icon source="check" size={16} color={colors.primary} />}
+                  </Pressable>
+                  {categories.map((cat) => (
+                    <Pressable
+                      key={cat.id}
+                      onPress={() => { setForm((f) => ({ ...f, categoryId: cat.id })); setShowCatPicker(false); }}
+                      style={[styles.catPickerRow, form.categoryId === cat.id && styles.catPickerRowActive]}
+                    >
+                      <Icon source={getCatIcon(cat.name)} size={18} color={getCatPalette(cat.name).icon} />
+                      <Text style={[styles.catPickerRowText, form.categoryId === cat.id && { color: colors.primary }]}>{cat.name}</Text>
+                      {form.categoryId === cat.id && <Icon source="check" size={16} color={colors.primary} />}
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </RNModal>
+    </Screen>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ItemDetail screen
+// ─────────────────────────────────────────────────────────────────────────────
+export function ItemDetail() {
+  const route = useRoute();
+  const itemId: string = (route.params as any)?.itemId;
+  const [activeTab, setActiveTab] = useState<"overview" | "stock" | "pricing" | "history">("overview");
+
+  const stockQuery = useItemStockQuery(itemId);
+  const priceHistoryQuery = useItemPriceHistoryQuery(itemId);
+  const priceChangeHistoryQuery = useItemPriceChangeHistoryQuery(itemId);
+  const movementsQuery = useStockMovementsQuery(itemId);
+
+  const itemData = (stockQuery.data as any)?.item;
+  const stock = (stockQuery.data as any)?.currentStock ?? 0;
+  const minStock = Number(itemData?.minimumStock ?? 0);
+
+  const tabs = [
+    { id: "overview", label: "Overview", icon: "information-outline" },
+    { id: "stock", label: "Movements", icon: "transfer" },
+    { id: "pricing", label: "Pricing", icon: "currency-inr" },
+    { id: "history", label: "History", icon: "history" },
+  ] as const;
+
+  if (!itemData)
+    return (
+      <Screen edges={["top", "left", "right"]}>
+        <AppHeader title="Product Details" fallbackRoute="ItemList" />
+        <SkeletonList count={6} itemHeight={60} />
+      </Screen>
+    );
+
+  return (
+    <Screen edges={["top", "left", "right"]} scroll={false}>
+      <AppHeader title={itemData.name} subtitle={itemData.category?.name ?? "No Category"} fallbackRoute="ItemList" />
+
+      {/* Hero strip */}
+      <View style={styles.detailHero}>
+        <View style={styles.detailHeroLeft}>
+          <View style={[styles.detailAvatar, { backgroundColor: getAvatarColor(itemData.name) + "22" }]}>
+            <Text style={[styles.detailAvatarText, { color: getAvatarColor(itemData.name) }]}>
+              {itemData.name.split(" ").map((w: string) => w[0]).slice(0, 2).join("").toUpperCase()}
+            </Text>
+          </View>
+          <View>
+            <Text style={styles.detailName}>{itemData.name}</Text>
+            <Text style={styles.detailSku}>{itemData.sku || "No SKU"}</Text>
+          </View>
+        </View>
+        <View style={styles.detailHeroRight}>
+          <StockBadge stock={stock} min={minStock} />
+          <Text style={[styles.detailStockNum, { color: stock <= 0 ? colors.danger : stock <= minStock ? colors.warning : colors.primary }]}>
+            {stock}
+          </Text>
+          <Text style={styles.detailStockUnit}>{itemData.unit}</Text>
+        </View>
+      </View>
+
+      {/* Tabs */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabRow}>
+        {tabs.map((t) => (
+          <Pressable
+            key={t.id}
+            onPress={() => { Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light); setActiveTab(t.id); }}
+            style={[styles.tab, activeTab === t.id && styles.tabActive]}
+          >
+            <Icon source={t.icon} size={14} color={activeTab === t.id ? colors.primary : colors.textMuted} />
+            <Text style={[styles.tabText, activeTab === t.id && styles.tabTextActive]}>{t.label}</Text>
+          </Pressable>
+        ))}
+      </ScrollView>
+
+      <ScrollView contentContainerStyle={styles.detailContent} showsVerticalScrollIndicator={false}>
+        {activeTab === "overview" && (
+          <View style={styles.detailCard}>
+            {[
+              { label: "Unit", value: itemData.unit },
+              { label: "Category", value: itemData.category?.name ?? "—" },
+              { label: "MRP", value: money(itemData.mrp) },
+              { label: "Selling Price", value: money(itemData.defaultSellingPrice) },
+              { label: "Min Allowed Price", value: money(itemData.minimumAllowedPrice) },
+              { label: "Purchase Price", value: money(itemData.purchasePrice) },
+              { label: "Low Stock Alert", value: `${itemData.minimumStock ?? 0} ${itemData.unit}` },
+            ].map((row, i, arr) => (
+              <React.Fragment key={row.label}>
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailRowLabel}>{row.label}</Text>
+                  <Text style={styles.detailRowValue}>{row.value}</Text>
+                </View>
+                {i < arr.length - 1 && <Divider style={styles.rowDivider} />}
+              </React.Fragment>
+            ))}
+          </View>
+        )}
+
+        {activeTab === "stock" && (
+          <View style={styles.detailCard}>
+            {movementsQuery.isLoading ? (
+              <SkeletonList count={4} itemHeight={52} />
+            ) : !(movementsQuery.data as any)?.length ? (
+              <EmptyState icon="transfer" title="No stock movements" subtitle="Stock entries will appear here." />
+            ) : (
+              (movementsQuery.data as any[]).map((m: any, i: number, arr: any[]) => (
+                <React.Fragment key={m.id}>
+                  <View style={styles.movRow}>
+                    <View style={[styles.movDot, { backgroundColor: m.type === "IN" ? colors.primary : colors.danger }]} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.movType}>{m.type === "IN" ? "Stock In" : "Stock Out"}</Text>
+                      <Text style={styles.movDate}>{new Date(m.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</Text>
+                    </View>
+                    <Text style={[styles.movQty, { color: m.type === "IN" ? colors.primary : colors.danger }]}>
+                      {m.type === "IN" ? "+" : "-"}{m.quantity} {itemData.unit}
+                    </Text>
+                  </View>
+                  {i < arr.length - 1 && <Divider style={styles.rowDivider} />}
+                </React.Fragment>
+              ))
+            )}
+          </View>
+        )}
+
+        {activeTab === "pricing" && (
+          <View style={styles.detailCard}>
+            <View style={styles.priceGrid}>
+              {[
+                { label: "MRP", value: money(itemData.mrp), color: colors.textSecondary },
+                { label: "Selling", value: money(itemData.defaultSellingPrice), color: colors.primary },
+                { label: "Min Price", value: money(itemData.minimumAllowedPrice), color: colors.warning },
+                { label: "Purchase", value: money(itemData.purchasePrice), color: colors.textPrimary },
+              ].map((p) => (
+                <View key={p.label} style={styles.priceCard}>
+                  <Text style={styles.priceCardLabel}>{p.label}</Text>
+                  <Text style={[styles.priceCardValue, { color: p.color }]}>{p.value}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
+
+        {activeTab === "history" && (
+          <View style={styles.detailCard}>
+            {priceChangeHistoryQuery.isLoading ? (
+              <SkeletonList count={3} itemHeight={52} />
+            ) : !priceChangeHistoryQuery.data?.length ? (
+              <EmptyState icon="history" title="No price changes" subtitle="Price change history will appear here." />
+            ) : (
+              priceChangeHistoryQuery.data.map((h: any, i: number, arr: any[]) => (
+                <React.Fragment key={h.id}>
+                  <View style={styles.movRow}>
+                    <View style={styles.detailCard}>
+                      <Text style={styles.movType}>{h.field}</Text>
+                      <Text style={styles.movDate}>{new Date(h.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}</Text>
+                    </View>
+                    <Text style={styles.movQty}>
+                      {money(h.oldValue)} → {money(h.newValue)}
+                    </Text>
+                  </View>
+                  {i < arr.length - 1 && <Divider style={styles.rowDivider} />}
+                </React.Fragment>
+              ))
+            )}
+          </View>
+        )}
+
+        <View style={styles.detailActions}>
+          <Button
+            label="Edit Product"
+            variant="secondary"
+            onPress={() => navigate("AddEditItem", { item: itemData })}
+            style={{ flex: 1 }}
+          />
+          <Button
+            label="Stock Entry"
+            onPress={() => navigate("StockEntry", { itemId })}
+            style={{ flex: 1 }}
+          />
         </View>
       </ScrollView>
     </Screen>
   );
 }
 
-export function ItemDetail() {
+// ─────────────────────────────────────────────────────────────────────────────
+// ItemList — main screen  (CATEGORY GRID → ITEM LIST)
+// ─────────────────────────────────────────────────────────────────────────────
+export function ItemList() {
+  const token = useAuthStore((s) => s.token);
+  const { activeShopId } = useShopStore();
+
+  const [search, setSearch] = useState("");
+  const [debouncedSearch] = useDebounce(search, 300);
+  const [filter, setFilter] = useState<"ALL" | "IN" | "LOW" | "OUT">("ALL");
+  // null = grid mode; "ALL" = all items list; categoryId = specific category list
+  const [selectedCat, setSelectedCat] = useState<string | "ALL" | null>(null);
+
+  // All items (up to 1000, used for grid and category lists)
+  const bulkQuery = useQuery({
+    queryKey: ["all-items-bulk", activeShopId],
+    queryFn: () => fetchItems(token ?? "", activeShopId ?? "", { limit: 1000 }),
+    enabled: !!token && !!activeShopId,
+    staleTime: 60_000,
+  });
+  // Search query (backend search when user types)
+  const searchQuery = useItemsQuery({ search: debouncedSearch, limit: 50 });
+  // Categories from dedicated endpoint
+  const categoriesQuery = useCategoriesQuery();
+
+  const allItems: Item[] = useMemo(() => (bulkQuery.data as any)?.items ?? [], [bulkQuery.data]);
+  const categories: ItemCategory[] = categoriesQuery.data ?? [];
+
+  const stockByItem = useMemo(() => {
+    const m = new Map<string, number>();
+    allItems.forEach((i: any) => m.set(i.id, Number(i.currentStock ?? 0)));
+    return m;
+  }, [allItems]);
+
+  const countByCat = useMemo(() => {
+    const m = new Map<string, number>();
+    allItems.forEach((i: any) => {
+      if (i.category?.id) m.set(i.category.id, (m.get(i.category.id) ?? 0) + 1);
+    });
+    return m;
+  }, [allItems]);
+
+  const uncategorisedCount = useMemo(
+    () => allItems.filter((i: any) => !i.category?.id).length,
+    [allItems]
+  );
+
+  // Stats
+  const totalCount = allItems.length;
+  const outCount = Array.from(stockByItem.values()).filter((v) => v <= 0).length;
+  const lowCount = allItems.filter((i: any) => {
+    const s = stockByItem.get(i.id) ?? 0;
+    return s > 0 && s <= Number(i.minimumStock ?? 0);
+  }).length;
+
+  // Derived flags
+  const isSearchActive = debouncedSearch.trim().length > 0;
+  const isGridMode = !isSearchActive && selectedCat === null;
+
+  // Filtered items for list mode
+  const displayItems: Item[] = useMemo(() => {
+    let base: Item[];
+    if (isSearchActive) {
+      base = searchQuery.data?.items ?? [];
+    } else {
+      base = allItems;
+      if (selectedCat && selectedCat !== "ALL") {
+        if (selectedCat === "__uncat__") {
+          base = base.filter((i: any) => !i.category?.id);
+        } else {
+          base = base.filter((i: any) => i.category?.id === selectedCat);
+        }
+      }
+    }
+    return base.filter((i: any) => {
+      const s = stockByItem.get(i.id) ?? 0;
+      if (filter === "OUT") return s <= 0;
+      if (filter === "LOW") return s > 0 && s <= Number(i.minimumStock ?? 0);
+      if (filter === "IN") return s > 0;
+      return true;
+    });
+  }, [allItems, searchQuery.data, isSearchActive, selectedCat, filter, stockByItem]);
+
+  const enterCat = useCallback((id: string | "ALL") => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setSelectedCat(id);
+    setSearch("");
+    setFilter("ALL");
+  }, []);
+
+  const exitGrid = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    setSelectedCat(null);
+    setSearch("");
+    setFilter("ALL");
+  }, []);
+
+  const activeCatName =
+    selectedCat === "ALL"
+      ? "All Items"
+      : selectedCat === "__uncat__"
+      ? "Uncategorised"
+      : categories.find((c) => c.id === selectedCat)?.name ?? "Items";
+
   const List = FlashList as any;
-  const itemId = (useRoute<any>().params as { itemId?: string } | undefined)?.itemId;
 
-  const stockQuery = useItemStockQuery(itemId);
-  const historyQuery = useItemPriceHistoryQuery(itemId);
-  const priceChangeQuery = useItemPriceChangeHistoryQuery(itemId);
-  const movementsQuery = useStockMovementsQuery(itemId);
-
-  const [activeTab, setActiveTab] = useState("PRICE");
-  const [priceTab, setPriceTab] = useState("PURCHASE");
-  const [selectedMovement, setSelectedMovement] = useState<any>(null);
-
-  const item = (stockQuery.data as any)?.item;
-
-  const renderMovementDetail = () => {
-    if (!selectedMovement) return null;
-    const m = selectedMovement;
-    const isIn = Number(m.quantityIn) > 0;
-    
+  // ───────────────────────────────────────────────────────────────────────────
+  // GRID MODE
+  // ───────────────────────────────────────────────────────────────────────────
+  if (isGridMode) {
     return (
-      <RNModal visible={!!selectedMovement} transparent animationType="fade" onRequestClose={() => setSelectedMovement(null)}>
-        <TouchableWithoutFeedback onPress={() => setSelectedMovement(null)}>
-          <View style={styles.modalOverlay}>
-            <TouchableWithoutFeedback>
-              <View style={styles.modalContent}>
-                <View style={styles.modalHeader}>
-                  <Text style={styles.modalTitle}>Movement Details</Text>
-                  <Pressable onPress={() => setSelectedMovement(null)}>
-                    <Icon source="close" size={24} color={colors.textSecondary} />
-                  </Pressable>
-                </View>
-                
-                <View style={styles.modalBody}>
-                  <View style={styles.modalRow}>
-                    <Text style={styles.modalLabel}>Type</Text>
-                    <Text style={styles.modalValue}>{m.movementType}</Text>
-                  </View>
-                  <View style={styles.modalRow}>
-                    <Text style={styles.modalLabel}>Quantity</Text>
-                    <Text style={[styles.modalValue, { color: isIn ? colors.success : colors.danger }]}>
-                      {isIn ? "+" : "-"}{isIn ? m.quantityIn : m.quantityOut} {item?.unit}
-                    </Text>
-                  </View>
-                  <View style={styles.modalRow}>
-                    <Text style={styles.modalLabel}>Reason</Text>
-                    <Text style={styles.modalValue}>{m.reason || "No reason provided"}</Text>
-                  </View>
-                  <View style={styles.modalRow}>
-                    <Text style={styles.modalLabel}>Created By</Text>
-                    <Text style={styles.modalValue}>{m.createdBy?.name || "System"}</Text>
-                  </View>
-                  <View style={styles.modalRow}>
-                    <Text style={styles.modalLabel}>Date</Text>
-                    <Text style={styles.modalValue}>{new Date(m.createdAt).toLocaleString()}</Text>
-                  </View>
-
-                  {m.sale && (
-                    <Button 
-                      variant="secondary" 
-                      label={`View Sale ${m.sale.saleNumber}`} 
-                      onPress={() => {
-                        setSelectedMovement(null);
-                        navigate("SaleDetail", { id: m.sale.id });
-                      }}
-                      style={{ marginTop: spacing.md }}
-                    />
-                  )}
-                </View>
-              </View>
-            </TouchableWithoutFeedback>
+      <Screen edges={["top", "left", "right"]} scroll={false}>
+        <AppHeader title="Products" subtitle="Tap a category to browse" />
+        <ScrollView
+          contentContainerStyle={styles.gridScroll}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          {/* Summary pills */}
+          <View style={styles.summaryRow}>
+            <View style={styles.summaryPill}>
+              <Text style={styles.summaryPillNum}>{totalCount}</Text>
+              <Text style={styles.summaryPillLabel}>ITEMS</Text>
+            </View>
+            <View style={styles.summaryPill}>
+              <Text style={[styles.summaryPillNum, outCount > 0 && { color: colors.danger }]}>{outCount}</Text>
+              <Text style={styles.summaryPillLabel}>OUT</Text>
+            </View>
+            <View style={styles.summaryPill}>
+              <Text style={[styles.summaryPillNum, lowCount > 0 && { color: colors.warning }]}>{lowCount}</Text>
+              <Text style={styles.summaryPillLabel}>LOW</Text>
+            </View>
+            <View style={styles.summaryPill}>
+              <Text style={styles.summaryPillNum}>{categories.length}</Text>
+              <Text style={styles.summaryPillLabel}>CATS</Text>
+            </View>
           </View>
-        </TouchableWithoutFeedback>
-      </RNModal>
-    );
-  };
 
-  return (
-    <Screen edges={['top', 'left', 'right']}>
-      <View style={styles.container}>
-        <AppHeader 
-          title={item?.name ?? "Item Detail"} 
-          subtitle="Stock and price settings." 
-          fallbackRoute="ItemList"
-        />
-        {!itemId ? <Text style={styles.errorText}>Missing item id.</Text> : null}
-        
-        {item ? (
-          <List
-            data={activeTab === "PRICE" ? (priceTab === 'PURCHASE' ? ((historyQuery.data as any)?.rows ?? []) : (priceChangeQuery.data ?? [])) : (movementsQuery.data ?? [])}
-            ListHeaderComponent={
-              <>
-                {/* Hero Stock Dial Summary Card */}
-                <View style={styles.detailHeroCard}>
-                  <View style={styles.detailHeroHeader}>
-                    <View style={[styles.itemAvatarLarge, { backgroundColor: getAvatarColor(item.name).bg }]}>
-                      <Text style={[styles.itemAvatarLargeText, { color: getAvatarColor(item.name).text }]}>
-                        {item.name[0].toUpperCase()}
-                      </Text>
-                    </View>
-                    <View style={styles.detailHeroTitleCol}>
-                      <Text style={styles.detailHeroName}>{item.name}</Text>
-                      <Text style={styles.detailHeroSku}>{item.sku ? `SKU: ${item.sku}` : "No SKU assigned"}</Text>
-                    </View>
-                  </View>
-
-                  <Divider style={styles.detailDivider} />
-
-                  <View style={styles.detailStockDialRow}>
-                    <View style={styles.detailStockDialInfo}>
-                      <Text style={styles.detailStockDialLabel}>CURRENT PHYSICAL STOCK</Text>
-                      <Text style={[styles.detailStockDialValue, { color: (stockQuery.data as any)?.currentQuantity <= 0 ? colors.danger : ((stockQuery.data as any)?.currentQuantity <= Number(item.minimumStock)) ? colors.warning : colors.success }]}>
-                        {(stockQuery.data as any)?.currentQuantity ?? 0} <Text style={styles.detailStockDialUnit}>{item.unit}</Text>
-                      </Text>
-                    </View>
-                    <StatusPill 
-                      label={(stockQuery.data as any)?.currentQuantity <= 0 ? "OUT OF STOCK" : ((stockQuery.data as any)?.currentQuantity <= Number(item.minimumStock)) ? "LOW STOCK" : "IN STOCK"} 
-                      tone={(stockQuery.data as any)?.currentQuantity <= 0 ? "red" : ((stockQuery.data as any)?.currentQuantity <= Number(item.minimumStock)) ? "amber" : "green"} 
-                    />
-                  </View>
-                </View>
-
-                {/* Pricing Structure Grid Container */}
-                <View style={styles.priceGridContainer}>
-                  <Text style={styles.priceGridTitle}>PRICING STRUCTURE</Text>
-                  
-                  <View style={styles.priceGridRow}>
-                    <View style={styles.priceGridItem}>
-                      <View style={styles.priceGridIconRow}>
-                        <Icon source="tag" size={14} color={colors.primary} />
-                        <Text style={styles.priceGridItemLabel}>SELLING PRICE</Text>
-                      </View>
-                      <Text style={styles.priceGridItemValue}>{money(item.defaultSellingPrice)}</Text>
-                    </View>
-
-                    <View style={styles.priceGridItem}>
-                      <View style={styles.priceGridIconRow}>
-                        <Icon source="label-outline" size={14} color={colors.textSecondary} />
-                        <Text style={styles.priceGridItemLabel}>MRP RATE</Text>
-                      </View>
-                      <Text style={styles.priceGridItemValue}>{item.mrp && Number(item.mrp) > 0 ? money(item.mrp) : "Not set"}</Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.priceGridRow}>
-                    <View style={styles.priceGridItem}>
-                      <View style={styles.priceGridIconRow}>
-                        <Icon source="shield-alert-outline" size={14} color={colors.warning} />
-                        <Text style={styles.priceGridItemLabel}>MIN ALLOWED PRICE</Text>
-                      </View>
-                      <Text style={styles.priceGridItemValue}>
-                        {item.minimumAllowedPrice && Number(item.minimumAllowedPrice) > 0 
-                          ? money(item.minimumAllowedPrice) 
-                          : "Not set"}
-                      </Text>
-                    </View>
-
-                    <View style={styles.priceGridItem}>
-                      <View style={styles.priceGridIconRow}>
-                        <Icon source="alert-circle-outline" size={14} color={colors.danger} />
-                        <Text style={styles.priceGridItemLabel}>ALERT THRESHOLD</Text>
-                      </View>
-                      <Text style={styles.priceGridItemValue}>{item.minimumStock} {item.unit}</Text>
-                    </View>
-                  </View>
-                </View>
-
-                {/* Detail Quick Actions */}
-                <View style={styles.detailActions}>
-                  <Button 
-                    variant="secondary" 
-                    label="Edit Item" 
-                    icon={<Icon source="pencil" size={20} color={colors.primary} />} 
-                    onPress={() => navigate("AddEditItem", { item })}
-                    style={styles.flex1}
-                  />
-                  <Button 
-                    label="Manage Stock" 
-                    icon={<Icon source="warehouse" size={20} color={colors.textInverse} />} 
-                    onPress={() => navigate("StockEntry", { itemId: item.id })}
-                    style={styles.flex1}
-                  />
-                </View>
-
-                {/* Tabs selection */}
-                <View style={{ marginHorizontal: spacing.lg, marginBottom: spacing.md }}>
-                  <View style={styles.tabBarContainer}>
-                    <Pressable 
-                      onPress={() => setActiveTab('PRICE')}
-                      style={[styles.tabButton, activeTab === 'PRICE' && styles.tabButtonActive]}
-                    >
-                      <Text style={[styles.tabButtonText, activeTab === 'PRICE' && styles.tabButtonTextActive]}>PRICE HISTORY</Text>
-                    </Pressable>
-                    <Pressable 
-                      onPress={() => setActiveTab('MOVEMENT')}
-                      style={[styles.tabButton, activeTab === 'MOVEMENT' && styles.tabButtonActive]}
-                    >
-                      <Text style={[styles.tabButtonText, activeTab === 'MOVEMENT' && styles.tabButtonTextActive]}>STOCK LEDGER</Text>
-                    </Pressable>
-                  </View>
-                </View>
-
-                {activeTab === 'PRICE' && (
-                  <View style={{ marginHorizontal: spacing.lg, marginBottom: spacing.md }}>
-                    <SegmentedButtons
-                      value={priceTab}
-                      onValueChange={setPriceTab}
-                      buttons={[
-                        { value: 'PURCHASE', label: 'Sale Rates' },
-                        { value: 'MANUAL', label: 'Price Updates' },
-                      ]}
-                      style={styles.segmentedBtn}
-                      theme={{ colors: { primary: colors.primary } }}
-                    />
-                  </View>
-                )}
-              </>
-            }
-            renderItem={({ item: row }: any) => {
-              if (activeTab === "PRICE") {
-                if (priceTab === 'PURCHASE') {
-                  return (
-                    <View style={styles.timelineItemCard}>
-                      <View style={[styles.timelineIconContainer, { backgroundColor: 'rgba(22, 163, 74, 0.05)' }]}>
-                        <Icon source="currency-inr" size={16} color={colors.primary} />
-                      </View>
-                      <View style={styles.timelineBody}>
-                        <View style={styles.timelineHeaderRow}>
-                          <Text style={styles.timelineTitle}>{row.recordNumber || "Invoice Record"}</Text>
-                          <Text style={styles.timelinePrice}>{money(row.rate)}</Text>
-                        </View>
-                        <View style={styles.timelineFooterRow}>
-                          <Text style={styles.timelineSubText}>
-                            {row.customer?.name ?? "Walk-in"} • Qty: {row.quantity} {item.unit}
-                          </Text>
-                          <Text style={styles.timelineDate}>
-                            {new Date(row.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-                          </Text>
-                        </View>
-                      </View>
-                    </View>
-                  );
-                } else {
-                  return (
-                    <View style={styles.timelineItemCard}>
-                      <View style={[styles.timelineIconContainer, { backgroundColor: 'rgba(37, 99, 235, 0.05)' }]}>
-                        <Icon source="update" size={16} color="#2563eb" />
-                      </View>
-                      <View style={styles.timelineBody}>
-                        <View style={styles.timelineHeaderRow}>
-                          <Text style={styles.timelineTitle}>{row.priceType} Price Updated</Text>
-                          <Text style={styles.timelinePrice}>{money(row.newPrice)}</Text>
-                        </View>
-                        <View style={styles.timelineFooterRow}>
-                          <Text style={styles.timelineSubText}>
-                            By {row.changedBy?.name || "System"} • Prev: {money(row.oldPrice)}
-                          </Text>
-                          <Text style={styles.timelineDate}>
-                            {new Date(row.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-                          </Text>
-                        </View>
-                      </View>
-                    </View>
-                  );
-                }
-              } else {
-                const isIn = Number(row.quantityIn) > 0;
-                const movementQty = isIn ? Number(row.quantityIn) : Number(row.quantityOut);
-                const color = isIn ? colors.success : colors.danger;
-                const refLabel = row.sale ? `Sale ${row.sale.saleNumber}` : (row.deliveryMemo ? `DM ${row.deliveryMemo.dmNumber}` : (row.order ? `Order ${row.order.orderNumber}` : null));
-                const iconName = isIn ? "arrow-down-bold-circle-outline" : "arrow-up-bold-circle-outline";
-                const bgTint = isIn ? "rgba(22, 163, 74, 0.05)" : "rgba(220, 38, 38, 0.05)";
-
-                return (
-                  <Pressable onPress={() => setSelectedMovement(row)}>
-                    <View style={styles.timelineItemCard}>
-                      <View style={[styles.timelineIconContainer, { backgroundColor: bgTint }]}>
-                        <Icon source={iconName} size={16} color={color} />
-                      </View>
-                      <View style={styles.timelineBody}>
-                        <View style={styles.timelineHeaderRow}>
-                          <Text style={styles.timelineTitle}>{refLabel || row.reason || row.movementType}</Text>
-                          <Text style={[styles.timelinePrice, { color }]}>
-                            {isIn ? "+" : "-"}{movementQty} {item.unit}
-                          </Text>
-                        </View>
-                        <View style={styles.timelineFooterRow}>
-                          <Text style={styles.timelineSubText}>
-                            By {row.createdBy?.name || "System"} • {row.movementType}
-                          </Text>
-                          <Text style={styles.timelineDate}>
-                            {new Date(row.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-                          </Text>
-                        </View>
-                      </View>
-                    </View>
-                  </Pressable>
-                );
-              }
+          {/* Search — typing auto-exits to list */}
+          <SearchBar
+            value={search}
+            onChange={(v) => {
+              setSearch(v);
+              if (v.trim()) setSelectedCat("ALL");
             }}
-            estimatedItemSize={100}
-            ListEmptyComponent={
-              <EmptyState 
-                icon={activeTab === "PRICE" ? "tag-outline" : "history"} 
-                title="No records found" 
-              />
-            }
-            contentContainerStyle={styles.detailListContent}
           />
-        ) : (
-          <SkeletonList count={5} />
-        )}
+
+          {/* Category grid */}
+          <View style={styles.gridLabelRow}>
+            <Text style={styles.gridLabel}>BROWSE BY CATEGORY</Text>
+            <Pressable
+              onPress={() => navigate("ManageCategories")}
+              style={({ pressed }) => [styles.manageBtn, pressed && { opacity: 0.7 }]}
+            >
+              <Icon source="cog-outline" size={13} color={colors.primary} />
+              <Text style={styles.manageBtnText}>Manage</Text>
+            </Pressable>
+          </View>
+
+          {categoriesQuery.isLoading || bulkQuery.isLoading ? (
+            <SkeletonList count={4} itemHeight={120} />
+          ) : (
+            <View style={styles.catGrid}>
+              <AllItemsCard count={totalCount} onPress={() => enterCat("ALL")} />
+              {categories.map((cat) => (
+                <CategoryCard
+                  key={cat.id}
+                  category={cat}
+                  itemCount={countByCat.get(cat.id) ?? 0}
+                  onPress={() => enterCat(cat.id)}
+                />
+              ))}
+              {uncategorisedCount > 0 && (
+                <UncatCard count={uncategorisedCount} onPress={() => enterCat("__uncat__")} />
+              )}
+            </View>
+          )}
+        </ScrollView>
+
+        {/* FAB */}
+        <Pressable
+          onPress={() => navigate("AddEditItem")}
+          style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}
+        >
+          <Icon source="plus" size={26} color="#fff" />
+        </Pressable>
+      </Screen>
+    );
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // LIST MODE
+  // ───────────────────────────────────────────────────────────────────────────
+  return (
+    <Screen edges={["top", "left", "right"]} scroll={false}>
+      <AppHeader title="Products" subtitle={activeCatName} />
+      <View style={{ flex: 1 }}>
+        <List
+          data={displayItems}
+          keyExtractor={(item: Item) => item.id}
+          estimatedItemSize={110}
+          onRefresh={() => { bulkQuery.refetch(); searchQuery.refetch(); }}
+          refreshing={bulkQuery.isFetching}
+          ListHeaderComponent={
+            <View style={styles.listHeader}>
+              {/* Back to grid breadcrumb */}
+              {!isSearchActive && (
+                <Pressable onPress={exitGrid} style={styles.breadcrumb}>
+                  <Icon source="arrow-left" size={16} color={colors.primary} />
+                  <Text style={styles.breadcrumbText}>
+                    {activeCatName}
+                    <Text style={styles.breadcrumbCount}> · {displayItems.length}</Text>
+                  </Text>
+                </Pressable>
+              )}
+
+              <SearchBar value={search} onChange={setSearch} />
+              <FilterChips value={filter} onChange={setFilter} />
+            </View>
+          }
+          renderItem={({ item }: { item: Item }) => (
+            <ItemCard
+              item={item}
+              stock={stockByItem.get(item.id) ?? 0}
+              onPress={() => navigate("ItemDetail", { itemId: item.id })}
+              onEdit={() => navigate("AddEditItem", { item })}
+              onManageStock={() => navigate("StockEntry", { itemId: item.id })}
+            />
+          )}
+          ListEmptyComponent={
+            bulkQuery.isLoading || searchQuery.isLoading ? (
+              <SkeletonList count={6} itemHeight={110} />
+            ) : (
+              <EmptyState
+                icon="package-variant-closed"
+                title="No items found"
+                subtitle="Adjust filters or add a new product."
+              />
+            )
+          }
+          contentContainerStyle={styles.listContent}
+        />
+
+        {/* FAB */}
+        <Pressable
+          onPress={() => navigate("AddEditItem")}
+          style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}
+        >
+          <Icon source="plus" size={26} color="#fff" />
+        </Pressable>
       </View>
-      {renderMovementDetail()}
     </Screen>
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Styles
+// ─────────────────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.bg,
-  },
-  listWrapper: {
-    flex: 1,
-  },
-  headerComponent: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-    gap: spacing.md,
-  },
-  
-  // Unified dashboard summary layout
-  statsContainer: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.xxl,
-    borderWidth: 1,
-    borderColor: colors.border,
+  // ── Grid ──────────────────────────────────────────────────────────────────
+  gridScroll: {
     padding: spacing.lg,
-    ...shadow.sm,
-    marginBottom: spacing.xs,
+    paddingBottom: 120,
+    gap: spacing.lg,
   },
-  statsMainRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: spacing.md,
-  },
-  statsMainCol: {
-    gap: 4,
-  },
-  statsMainLabel: {
-    fontSize: 10,
-    fontWeight: fontWeight.black,
-    color: colors.textSecondary,
-    letterSpacing: 1,
-  },
-  statsMainValue: {
-    fontSize: 24,
-    fontWeight: fontWeight.black,
-    color: colors.primary,
-  },
-  statsIconBadge: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  statsDivider: {
-    height: 1,
-    backgroundColor: colors.border,
-    marginVertical: spacing.sm,
-  },
-  statsGrid: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  statsItem: {
-    flex: 1,
-    gap: 2,
-  },
-  statsItemLabel: {
-    fontSize: 9,
-    fontWeight: fontWeight.bold,
-    color: colors.textSecondary,
-    letterSpacing: 0.5,
-  },
-  statsItemValue: {
-    fontSize: 14,
-    fontWeight: fontWeight.extrabold,
-    color: colors.textPrimary,
-  },
-  statsItemDivider: {
-    width: 1,
-    backgroundColor: colors.border,
-    marginHorizontal: spacing.sm,
-  },
-
-  searchBar: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    borderColor: colors.border,
-    height: 46,
-    justifyContent: 'center',
-    ...shadow.sm,
-    elevation: 0,
-  },
-  searchInput: {
-    fontSize: 14,
-  },
-  filterOuterContainer: {
-    paddingVertical: 2,
-  },
-  filterChipsRow: {
+  summaryRow: {
+    flexDirection: "row",
     gap: spacing.sm,
   },
-  filterChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: radius.full,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    gap: 6,
-  },
-  filterChipActive: {
-    backgroundColor: 'rgba(22, 163, 74, 0.08)',
-    borderColor: colors.primary,
-  },
-  filterChipText: {
-    fontSize: 12,
-    fontWeight: fontWeight.bold,
-    color: colors.textSecondary,
-  },
-  filterChipTextActive: {
-    color: colors.primary,
-    fontWeight: fontWeight.black,
-  },
-  categoryChipsOuter: {
-    paddingVertical: 2,
-    marginTop: spacing.xs,
-  },
-  categoryChipsRow: {
-    gap: spacing.xs,
-  },
-  categoryChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: radius.full,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceOffset,
-  },
-  categoryChipActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  categoryChipText: {
-    fontSize: 11,
-    fontWeight: fontWeight.bold,
-    color: colors.textSecondary,
-  },
-  categoryChipTextActive: {
-    color: '#ffffff',
-    fontWeight: fontWeight.black,
-  },
-  listContent: {
-    paddingBottom: 130, // Clears bottom bar and fab
-    paddingHorizontal: spacing.lg,
-  },
-
-  // Premium product card
-  cardPressable: {
-    borderRadius: radius.xl,
-  },
-  itemCard: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.xl,
-    padding: spacing.lg,
-    marginBottom: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    ...shadow.sm,
-  },
-  itemCardPressed: {
-    opacity: 0.85,
-  },
-  itemCardRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  itemAvatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  itemAvatarText: {
-    fontSize: 16,
-    fontWeight: fontWeight.extrabold,
-  },
-  itemDetails: {
+  summaryPill: {
     flex: 1,
-    gap: 2,
-  },
-  itemName: {
-    fontSize: 15,
-    fontWeight: fontWeight.bold,
-    color: colors.textPrimary,
-  },
-  itemSubtitle: {
-    fontSize: 11,
-    color: colors.textSecondary,
-  },
-  itemStockCount: {
-    fontSize: 12,
-    color: colors.textSecondary,
-  },
-  itemStockValue: {
-    fontWeight: fontWeight.bold,
-  },
-  itemActions: {
-    flexDirection: 'column',
-    alignItems: 'flex-end',
-    gap: spacing.sm,
-  },
-  actionButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  itemStockCountContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    marginTop: 2,
-  },
-  minStockText: {
-    fontSize: 10,
-    color: colors.textSecondary,
-    backgroundColor: colors.surfaceOffset,
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: radius.sm,
-    borderWidth: 0.5,
-    borderColor: colors.border,
-  },
-
-  // Footer pricing inside product card
-  itemFooterRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: spacing.sm,
-    paddingTop: spacing.sm,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  priceRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs + 2,
-    flexWrap: 'wrap',
-    flex: 1,
-  },
-  priceText: {
-    fontSize: 11,
-    color: colors.textSecondary,
-    fontWeight: fontWeight.medium,
-  },
-  priceBold: {
-    fontWeight: fontWeight.bold,
-    color: colors.primary,
-  },
-  priceValue: {
-    fontWeight: fontWeight.bold,
-    color: colors.textPrimary,
-  },
-  priceDivider: {
-    fontSize: 10,
-    color: colors.textMuted,
-  },
-  restockButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.primaryLight,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: radius.md,
-    gap: 3,
-  },
-  restockButtonText: {
-    fontSize: 9,
-    fontWeight: fontWeight.black,
-    color: colors.primary,
-    letterSpacing: 0.5,
-  },
-
-  fab: {
-    position: 'absolute',
-    bottom: 104, // Hover safely above bottom capsule (68 height + 20 bottom offset)
-    right: 24,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...shadow.lg,
-    zIndex: 10,
-  },
-  formContainer: {
-    flex: 1,
-    paddingHorizontal: spacing.lg,
-  },
-  formCard: {
     backgroundColor: colors.surface,
-    padding: spacing.lg,
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: spacing.md,
-    ...shadow.sm,
-  },
-  input: {
-    backgroundColor: colors.surface,
-  },
-  disabledInput: {
-    backgroundColor: colors.surfaceOffset,
-  },
-  inputOutline: {
-    borderRadius: radius.md,
-  },
-  formTipCard: {
-    flexDirection: 'row',
-    backgroundColor: colors.warningLight,
-    borderWidth: 1,
-    borderColor: 'rgba(217, 119, 6, 0.15)',
     borderRadius: radius.lg,
-    padding: spacing.md,
-    gap: spacing.sm,
-    marginTop: spacing.xs,
-  },
-  formTipText: {
-    fontSize: 11,
-    color: colors.warning,
-    fontWeight: fontWeight.bold,
-    lineHeight: 16,
-    flex: 1,
-  },
-  formFooter: {
-    paddingVertical: spacing.xl,
-  },
-  errorText: {
-    color: colors.danger,
-    padding: spacing.lg,
-    textAlign: 'center',
-  },
-
-  // Premium Item Detail dashboard card styles
-  detailHeroCard: {
-    margin: spacing.lg,
-    padding: spacing.xl,
-    backgroundColor: colors.surface,
-    borderRadius: radius.xxl,
     borderWidth: 1,
     borderColor: colors.border,
-    ...shadow.sm,
-  },
-  detailHeroHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  itemAvatarLarge: {
-    width: 56,
-    height: 56,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  itemAvatarLargeText: {
-    fontSize: 22,
-    fontWeight: fontWeight.extrabold,
-  },
-  detailHeroTitleCol: {
-    flex: 1,
+    alignItems: "center",
+    paddingVertical: spacing.md,
     gap: 2,
-  },
-  detailHeroName: {
-    fontSize: 18,
-    fontWeight: fontWeight.extrabold,
-    color: colors.textPrimary,
-  },
-  detailHeroSku: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    fontWeight: fontWeight.medium,
-  },
-  detailDivider: {
-    backgroundColor: colors.border,
-    marginVertical: spacing.lg,
-  },
-  detailStockDialRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  detailStockDialInfo: {
-    gap: 4,
-  },
-  detailStockDialLabel: {
-    color: colors.textSecondary,
-    fontWeight: fontWeight.black,
-    fontSize: 9,
-    letterSpacing: 1,
-  },
-  detailStockDialValue: {
-    fontSize: 26,
-    fontWeight: fontWeight.black,
-  },
-  detailStockDialUnit: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    fontWeight: fontWeight.bold,
-  },
-
-  // Premium grid-aligned pricing block
-  priceGridContainer: {
-    marginHorizontal: spacing.lg,
-    marginBottom: spacing.lg,
-    backgroundColor: colors.surface,
-    borderRadius: radius.xxl,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.lg,
-    gap: spacing.md,
     ...shadow.sm,
   },
-  priceGridTitle: {
-    fontSize: 10,
-    fontWeight: fontWeight.black,
-    color: colors.textSecondary,
-    letterSpacing: 1,
-    marginBottom: 2,
-  },
-  priceGridRow: {
-    flexDirection: 'row',
-    gap: spacing.md,
-  },
-  priceGridItem: {
-    flex: 1,
-    backgroundColor: colors.surfaceOffset,
-    borderRadius: radius.xl,
-    padding: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: 4,
-  },
-  priceGridIconRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  priceGridItemLabel: {
-    fontSize: 9,
-    fontWeight: fontWeight.bold,
-    color: colors.textSecondary,
-    letterSpacing: 0.5,
-  },
-  priceGridItemValue: {
-    fontSize: 14,
-    fontWeight: fontWeight.extrabold,
-    color: colors.textPrimary,
-  },
-
-  detailActions: {
-    flexDirection: 'row',
-    paddingHorizontal: spacing.lg,
-    gap: spacing.md,
-    marginBottom: spacing.lg,
-  },
-
-  // Premium timeline lists styles
-  timelineItemCard: {
-    flexDirection: 'row',
-    backgroundColor: colors.surface,
-    marginHorizontal: spacing.lg,
-    marginBottom: spacing.sm,
-    padding: spacing.md,
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-    gap: spacing.md,
-    ...shadow.sm,
-  },
-  timelineIconContainer: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  timelineBody: {
-    flex: 1,
-    gap: 4,
-  },
-  timelineHeaderRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  timelineTitle: {
-    fontSize: 13,
-    fontWeight: fontWeight.bold,
-    color: colors.textPrimary,
-  },
-  timelinePrice: {
-    fontSize: 13,
-    fontWeight: fontWeight.black,
-    color: colors.primaryDark,
-  },
-  timelineFooterRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  timelineSubText: {
-    fontSize: 10,
-    color: colors.textSecondary,
-    fontWeight: fontWeight.medium,
-  },
-  timelineDate: {
-    fontSize: 10,
-    color: colors.textMuted,
-  },
-
-  detailListContent: {
-    paddingBottom: 40,
-  },
-  
-  // Modal Styles
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: spacing.xl,
-  },
-  modalContent: {
-    width: '100%',
-    maxWidth: 340,
-    backgroundColor: colors.surface,
-    borderRadius: radius.xxl,
-    padding: spacing.xl,
-    ...shadow.lg,
-  },
-  modalHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: spacing.xl,
-  },
-  modalTitle: {
+  summaryPillNum: {
     fontSize: fontSize.lg,
     fontWeight: fontWeight.black,
     color: colors.textPrimary,
   },
-  modalBody: {
-    gap: spacing.md,
-  },
-  modalRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    paddingVertical: 2,
-  },
-  modalLabel: {
-    fontSize: fontSize.sm,
+  summaryPillLabel: {
+    fontSize: 9,
+    fontWeight: fontWeight.black,
     color: colors.textSecondary,
-    fontWeight: fontWeight.medium,
-    flex: 1,
+    letterSpacing: 0.8,
   },
-  modalValue: {
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.bold,
-    color: colors.textPrimary,
-    flex: 1.5,
-    textAlign: 'right',
+  gridLabelRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
-  segmentedBtn: {
-    marginBottom: spacing.md,
-  },
-  tabBarContainer: {
-    flexDirection: 'row',
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    gap: spacing.lg,
-  },
-  tabButton: {
-    paddingVertical: spacing.md,
-    borderBottomWidth: 2,
-    borderBottomColor: 'transparent',
-  },
-  tabButtonActive: {
-    borderBottomColor: colors.primary,
-  },
-  tabButtonText: {
-    fontSize: 11,
-    fontWeight: fontWeight.extrabold,
+  gridLabel: {
+    fontSize: 10,
+    fontWeight: fontWeight.black,
     color: colors.textSecondary,
     letterSpacing: 1,
   },
-  tabButtonTextActive: {
+  manageBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: colors.primaryLight,
+    borderRadius: radius.full,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 5,
+  },
+  manageBtnText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
     color: colors.primary,
   },
-  pressed: {
-    opacity: 0.72,
-    transform: [{ scale: 0.96 }],
+  catGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.md,
   },
-  flex1: {
+  catCard: {
+    width: "47%",
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
+    borderWidth: 1.5,
+    padding: spacing.md,
+    gap: spacing.sm,
+    ...shadow.sm,
+  },
+  catCardAll: {
+    borderColor: colors.primary,
+  },
+  catCardPressed: {
+    opacity: 0.82,
+    transform: [{ scale: 0.97 }],
+  },
+  catIconBg: {
+    width: 46,
+    height: 46,
+    borderRadius: radius.lg,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  catName: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+    lineHeight: 18,
+  },
+  catCount: {
+    fontSize: fontSize.xs,
+  },
+  catCountNum: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.black,
+  },
+  catCountLabel: {
+    fontSize: 10,
+    color: colors.textSecondary,
+    fontWeight: fontWeight.medium,
+  },
+
+  // ── Search bar ────────────────────────────────────────────────────────────
+  searchBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    gap: spacing.sm,
+    ...shadow.sm,
+  },
+  searchInput: {
     flex: 1,
+    fontSize: fontSize.sm,
+    color: colors.textPrimary,
+    paddingVertical: 4,
+  },
+
+  // ── Filter chips ──────────────────────────────────────────────────────────
+  filterRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    paddingVertical: 2,
+  },
+  filterChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    borderRadius: radius.full,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  filterChipText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.medium,
+    color: colors.textMuted,
+  },
+
+  // ── List mode ─────────────────────────────────────────────────────────────
+  listHeader: {
+    padding: spacing.lg,
+    gap: spacing.md,
+  },
+  listContent: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: 120,
+  },
+  breadcrumb: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: colors.primaryLight,
+    borderRadius: radius.full,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    alignSelf: "flex-start",
+    borderWidth: 1,
+    borderColor: colors.primary + "40",
+  },
+  breadcrumbText: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.primary,
+  },
+  breadcrumbCount: {
+    fontWeight: fontWeight.medium,
+    color: colors.primaryDark,
+  },
+
+  // ── Item card ─────────────────────────────────────────────────────────────
+  itemCard: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+    gap: spacing.md,
+    ...shadow.sm,
+  },
+  itemCardPressed: {
+    opacity: 0.85,
+    transform: [{ scale: 0.985 }],
+  },
+  itemAvatar: {
+    width: 42,
+    height: 42,
+    borderRadius: radius.lg,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  itemAvatarText: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.black,
+  },
+  itemInfo: {
+    flex: 1,
+    gap: 3,
+    minWidth: 0,
+  },
+  itemName: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  itemMeta: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    flexWrap: "wrap",
+  },
+  itemCategory: {
+    fontSize: 10,
+    color: colors.primary,
+    fontWeight: fontWeight.semibold,
+    backgroundColor: colors.primaryLight,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: radius.full,
+  },
+  itemSku: {
+    fontSize: 10,
+    color: colors.textMuted,
+    fontWeight: fontWeight.medium,
+  },
+  itemPriceRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 4,
+    marginTop: 2,
+  },
+  itemPrice: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.black,
+    color: colors.textPrimary,
+  },
+  itemUnit: {
+    fontSize: 10,
+    color: colors.textSecondary,
+  },
+  itemMrp: {
+    fontSize: 10,
+    color: colors.textMuted,
+    textDecorationLine: "line-through",
+  },
+  itemRight: {
+    alignItems: "flex-end",
+    gap: 4,
+    flexShrink: 0,
+  },
+  itemStockQty: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.black,
+  },
+  itemStockUnit: {
+    fontSize: 10,
+    fontWeight: fontWeight.regular,
+    color: colors.textSecondary,
+  },
+  itemActions: {
+    flexDirection: "row",
+    gap: spacing.xs,
+    marginTop: 2,
+  },
+  itemActionBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceOffset,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  itemActionBtnPrimary: {
+    backgroundColor: colors.primaryLight,
+    borderColor: colors.primary + "40",
+  },
+
+  // ── FAB ───────────────────────────────────────────────────────────────────
+  fab: {
+    position: "absolute",
+    bottom: spacing.xxl,
+    right: spacing.lg,
+    width: 56,
+    height: 56,
+    borderRadius: radius.full,
+    backgroundColor: colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+    ...shadow.lg,
+  },
+  fabPressed: {
+    transform: [{ scale: 0.92 }],
+    opacity: 0.9,
+  },
+
+  // ── ItemDetail ────────────────────────────────────────────────────────────
+  detailHero: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: colors.surface,
+    marginHorizontal: spacing.lg,
+    marginTop: spacing.sm,
+    marginBottom: spacing.xs,
+    borderRadius: radius.xxl,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.lg,
+    ...shadow.sm,
+  },
+  detailHeroLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    flex: 1,
+  },
+  detailAvatar: {
+    width: 48,
+    height: 48,
+    borderRadius: radius.lg,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  detailAvatarText: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.black,
+  },
+  detailName: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.black,
+    color: colors.textPrimary,
+    maxWidth: 140,
+  },
+  detailSku: {
+    fontSize: fontSize.xs,
+    color: colors.textMuted,
+    marginTop: 2,
+  },
+  detailHeroRight: {
+    alignItems: "flex-end",
+    gap: 2,
+  },
+  detailStockNum: {
+    fontSize: fontSize.xxxl,
+    fontWeight: fontWeight.black,
+    lineHeight: 36,
+  },
+  detailStockUnit: {
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+  },
+  tabRow: {
+    paddingHorizontal: spacing.lg,
+    gap: spacing.sm,
+    paddingBottom: spacing.sm,
+  },
+  tab: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 7,
+    borderRadius: radius.full,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  tabActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primaryLight,
+  },
+  tabText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.medium,
+    color: colors.textMuted,
+  },
+  tabTextActive: {
+    color: colors.primary,
+    fontWeight: fontWeight.bold,
+  },
+  detailContent: {
+    padding: spacing.lg,
+    paddingBottom: 100,
+    gap: spacing.md,
+  },
+  detailCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.xxl,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: "hidden",
+    ...shadow.sm,
+  },
+  detailRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+  },
+  detailRowLabel: {
+    fontSize: fontSize.sm,
+    color: colors.textSecondary,
+    fontWeight: fontWeight.medium,
+  },
+  detailRowValue: {
+    fontSize: fontSize.sm,
+    color: colors.textPrimary,
+    fontWeight: fontWeight.bold,
+  },
+  rowDivider: {
+    backgroundColor: colors.border,
+    height: 0.5,
+    marginLeft: spacing.lg,
+  },
+  priceGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    padding: spacing.md,
+    gap: spacing.md,
+  },
+  priceCard: {
+    width: "47%",
+    backgroundColor: colors.surfaceOffset,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    gap: 4,
+  },
+  priceCardLabel: {
+    fontSize: 10,
+    fontWeight: fontWeight.black,
+    color: colors.textSecondary,
+    letterSpacing: 0.5,
+  },
+  priceCardValue: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.black,
+  },
+  movRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    gap: spacing.md,
+  },
+  movDot: {
+    width: 8,
+    height: 8,
+    borderRadius: radius.full,
+  },
+  movType: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  movDate: {
+    fontSize: fontSize.xs,
+    color: colors.textMuted,
+    marginTop: 2,
+  },
+  movQty: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.black,
+    color: colors.textPrimary,
+  },
+  detailActions: {
+    flexDirection: "row",
+    gap: spacing.md,
+  },
+
+  // ── AddEditItem ───────────────────────────────────────────────────────────
+  aeiScroll: {
+    padding: spacing.lg,
+    paddingBottom: 100,
+    gap: spacing.md,
+  },
+  aeiCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.xxl,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.lg,
+    gap: spacing.md,
+    ...shadow.sm,
+  },
+  aeiSectionLabel: {
+    fontSize: 10,
+    fontWeight: fontWeight.black,
+    color: colors.textSecondary,
+    letterSpacing: 1,
+  },
+  aeiRow: {
+    flexDirection: "row",
+    gap: spacing.md,
+  },
+  aeiInput: {
+    backgroundColor: colors.surface,
+  },
+  aeiOutline: {
+    borderRadius: radius.md,
+  },
+  catSelector: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 14,
+    backgroundColor: colors.surface,
+  },
+  catSelectorText: {
+    flex: 1,
+    fontSize: fontSize.sm,
+    color: colors.textPrimary,
+    fontWeight: fontWeight.medium,
+  },
+  aeiInfoTip: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    backgroundColor: colors.infoLight,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    alignItems: "flex-start",
+  },
+  aeiInfoTipText: {
+    flex: 1,
+    fontSize: fontSize.xs,
+    color: colors.info,
+    lineHeight: 17,
+  },
+  catPickerOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "flex-end",
+  },
+  catPickerSheet: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.xxl,
+    borderTopRightRadius: radius.xxl,
+    paddingTop: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: 40,
+    maxHeight: "70%",
+    ...shadow.lg,
+  },
+  catPickerHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: radius.full,
+    backgroundColor: colors.border,
+    alignSelf: "center",
+    marginBottom: spacing.md,
+  },
+  catPickerTitle: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.black,
+    color: colors.textPrimary,
+    marginBottom: spacing.md,
+  },
+  catPickerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 0.5,
+    borderBottomColor: colors.border,
+  },
+  catPickerRowActive: {
+    backgroundColor: colors.primaryLight,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.sm,
+    marginHorizontal: -spacing.sm,
+  },
+  catPickerRowText: {
+    flex: 1,
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.medium,
+    color: colors.textPrimary,
   },
 });

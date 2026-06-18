@@ -29,6 +29,22 @@ const categorySchema = z.object({
   query: z.object({}).optional(),
 });
 
+const listCategoriesSchema = z.object({
+  query: z.object({
+    shopId: z.string().min(1),
+  }),
+  params: z.object({}).optional(),
+  body: z.object({}).optional(),
+});
+
+const updateCategorySchema = z.object({
+  params: idParams,
+  body: z.object({
+    name: z.string().min(1),
+  }),
+  query: z.object({}).optional(),
+});
+
 const createItemSchema = z.object({
   body: z.object({
     shopId: z.string().min(1),
@@ -59,7 +75,10 @@ const updateItemSchema = z.object({
 router.use(requireAuth);
 
 router.get("/", requirePermission(PERMISSIONS.ITEM_VIEW), validate(listSchema), itemController.listItems);
+router.get("/categories", requirePermission(PERMISSIONS.ITEM_VIEW), validate(listCategoriesSchema), itemController.listCategories);
 router.post("/categories", requirePermission(PERMISSIONS.ITEM_CREATE), validate(categorySchema), itemController.createCategory);
+router.patch("/categories/:id", requirePermission(PERMISSIONS.ITEM_UPDATE), validate(updateCategorySchema), itemController.updateCategory);
+router.delete("/categories/:id", requirePermission(PERMISSIONS.ITEM_UPDATE), validate(z.object({ params: idParams })), itemController.deleteCategory);
 router.post("/", requirePermission(PERMISSIONS.ITEM_CREATE), validate(createItemSchema), itemController.createItem);
 router.get("/:id/stock", requirePermission(PERMISSIONS.ITEM_VIEW), validate(z.object({ params: idParams })), itemController.getItemStock);
 router.get(

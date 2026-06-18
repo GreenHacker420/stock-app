@@ -409,6 +409,33 @@ export async function updateItem(token: string, id: string, data: UpdateItemPayl
   return apiRequest<Item>(`/items/${id}`, { method: "PATCH", token, body: JSON.stringify(data) });
 }
 
+export async function fetchCategories(token: string, shopId: string) {
+  return apiRequest<ItemCategory[]>(`/items/categories?shopId=${encodeURIComponent(shopId)}`, { token });
+}
+
+export async function createCategory(token: string, shopId: string, name: string) {
+  return apiRequest<ItemCategory>("/items/categories", {
+    method: "POST",
+    token,
+    body: JSON.stringify({ shopId, name }),
+  });
+}
+
+export async function updateCategory(token: string, id: string, name: string) {
+  return apiRequest<ItemCategory>(`/items/categories/${id}`, {
+    method: "PATCH",
+    token,
+    body: JSON.stringify({ name }),
+  });
+}
+
+export async function deleteCategory(token: string, id: string) {
+  return apiRequest<{ success: boolean }>(`/items/categories/${id}`, {
+    method: "DELETE",
+    token,
+  });
+}
+
 export async function fetchCurrentStock(token: string, shopId: string, itemId?: string) {
   let url = `/stock/current?shopId=${encodeURIComponent(shopId)}`;
   if (itemId) url += `&itemId=${encodeURIComponent(itemId)}`;
