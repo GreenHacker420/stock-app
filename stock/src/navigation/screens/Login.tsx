@@ -6,13 +6,16 @@ import {
   ScrollView, 
   View, 
   StyleSheet,
-  Animated
+  Animated,
+  Modal,
+  ActivityIndicator
 } from "react-native";
 import * as LocalAuthentication from "expo-local-authentication";
 import * as Haptics from "expo-haptics";
 import { Divider, Icon, Text, TextInput as PaperInput } from "react-native-paper";
 import { z } from "zod";
 import { initializeAsync, verifyUserAsync, TruecallerErrorCodes } from "expo-truecaller";
+import TruecallerFullstack from "../../../modules/truecaller-fullstack";
 
 import { getToken } from "../../auth/token-storage";
 import { useAuthStore } from "../../auth/auth-store";
@@ -28,6 +31,7 @@ export function Login() {
   const signIn = useAuthStore((state) => state.signIn);
   const signInWithSavedToken = useAuthStore((state) => state.signInWithSavedToken);
   const signInWithTruecaller = useAuthStore((state) => state.signInWithTruecaller);
+  const signInWithTruecallerOtp = useAuthStore((state) => state.signInWithTruecallerOtp);
   
   const [mode, setMode] = useState<LoginMode>("PASSWORD");
   const [identifier, setIdentifier] = useState("");
@@ -84,13 +88,161 @@ export function Login() {
       if (err.code === TruecallerErrorCodes.USER_CANCELLED || err.message?.includes("cancelled")) {
         setInfo("Truecaller login was cancelled.");
       } else {
-        setError(err instanceof Error ? err.message : "Truecaller authentication failed.");
+        const msg = err instanceof Error ? err.message : "Truecaller authentication failed.";
+        setError(msg + " (Ensure com.stock package & SHA1 are registered on Truecaller console)");
         console.error("Truecaller error:", err);
       }
     } finally {
       setIsTruecallerLoading(false);
     }
   }, [signInWithTruecaller, isTruecallerUsable]);
+
+  // Non-Truecaller flow states
+  const [showOtpModal, setShowOtpModal] = useState(false);
+  const [verificationStatus, setVerificationStatus] = useState<string>("IDLE"); // IDLE, INITIATING, CALL_INITIATED, CALL_RECEIVED, OTP_INITIATED, OTP_RECEIVED, COMPLETE, ERROR
+  const [otpTtl, setOtpTtl] = useState<number>(60);
+  const [otpCode, setOtpCode] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
+  const countdownTimer = useRef<any>(null);
+
+  useEffect(() => {
+    if (Platform.OS !== "android") return;
+
+    const successSub = TruecallerFullstack.addListener("onVerificationSuccess", async (event) => {
+      console.log("Truecaller success event:", event);
+      
+      switch (event.status) {
+        case "MISSED_CALL_INITIATED":
+          setVerificationStatus("CALL_INITIATED");
+          if (event.ttl) {
+            setOtpTtl(parseInt(event.ttl, 10));
+          }
+          break;
+        case "MISSED_CALL_RECEIVED":
+          setVerificationStatus("CALL_RECEIVED");
+          break;
+        case "IM_OTP_INITIATED":
+          setVerificationStatus("OTP_INITIATED");
+          if (event.ttl) {
+            setOtpTtl(parseInt(event.ttl, 10));
+          }
+          break;
+        case "IM_OTP_RECEIVED":
+          setVerificationStatus("OTP_RECEIVED");
+          break;
+        case "VERIFICATION_COMPLETE":
+        case "PROFILE_VERIFIED_BEFORE":
+          setVerificationStatus("COMPLETE");
+          if (event.accessToken) {
+            try {
+              setIsVerifyingOtp(true);
+              await signInWithTruecallerOtp(event.accessToken);
+              setShowOtpModal(false);
+            } catch (err: any) {
+              setError(err instanceof Error ? err.message : "Backend validation failed");
+              setVerificationStatus("ERROR");
+            } finally {
+              setIsVerifyingOtp(false);
+            }
+          }
+          break;
+      }
+    });
+
+    const failureSub = TruecallerFullstack.addListener("onVerificationFailure", (event) => {
+      console.error("Truecaller failure event:", event);
+      setError(event.errorMessage || `Verification failed (Code ${event.errorCode})`);
+      setVerificationStatus("ERROR");
+    });
+
+    return () => {
+      successSub.remove();
+      failureSub.remove();
+    };
+  }, [signInWithTruecallerOtp]);
+
+  useEffect(() => {
+    if (showOtpModal && otpTtl > 0 && (verificationStatus === "CALL_INITIATED" || verificationStatus === "OTP_INITIATED")) {
+      countdownTimer.current = setInterval(() => {
+        setOtpTtl((prev) => {
+          if (prev <= 1) {
+            clearInterval(countdownTimer.current);
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => {
+      if (countdownTimer.current) {
+        clearInterval(countdownTimer.current);
+      }
+    };
+  }, [showOtpModal, verificationStatus, otpTtl]);
+
+  const handleTriggerDropCall = useCallback(async () => {
+    setError(null);
+    setInfo(null);
+    const cleanPhone = identifier.replace(/\D/g, "");
+    if (cleanPhone.length !== 10) {
+      setError("Please enter a valid 10-digit mobile number.");
+      return;
+    }
+
+    setVerificationStatus("INITIATING");
+    setShowOtpModal(true);
+    setOtpTtl(60);
+    setOtpCode("");
+    setFirstName("");
+    setLastName("");
+
+    try {
+      await TruecallerFullstack.requestVerification(cleanPhone);
+    } catch (err: any) {
+      setError(err instanceof Error ? err.message : "Failed to initiate verification");
+      setVerificationStatus("ERROR");
+    }
+  }, [identifier]);
+
+  const handleCompleteMissedCallVerification = useCallback(async () => {
+    if (!firstName.trim()) {
+      setError("First Name is required.");
+      return;
+    }
+    setIsVerifyingOtp(true);
+    setError(null);
+    try {
+      await TruecallerFullstack.verifyMissedCall(firstName.trim(), lastName.trim());
+    } catch (err: any) {
+      setError(err instanceof Error ? err.message : "Verification failed");
+      setVerificationStatus("ERROR");
+    } finally {
+      setIsVerifyingOtp(false);
+    }
+  }, [firstName, lastName]);
+
+  const handleCompleteOtpVerification = useCallback(async () => {
+    if (!firstName.trim()) {
+      setError("First Name is required.");
+      return;
+    }
+    if (!otpCode.trim()) {
+      setError("OTP Code is required.");
+      return;
+    }
+    setIsVerifyingOtp(true);
+    setError(null);
+    try {
+      await TruecallerFullstack.verifyOtp(firstName.trim(), lastName.trim(), otpCode.trim());
+    } catch (err: any) {
+      setError(err instanceof Error ? err.message : "OTP verification failed");
+      setVerificationStatus("ERROR");
+    } finally {
+      setIsVerifyingOtp(false);
+    }
+  }, [firstName, lastName, otpCode]);
 
   const handleBiometricLogin = useCallback(async () => {
     setError(null);
@@ -521,15 +673,26 @@ export function Login() {
                   style={styles.submitBtn}
                 />
                 {!isForgot && Platform.OS === "android" && (
-                  <Button
-                    label="SIGN IN WITH TRUECALLER"
-                    onPress={handleTruecallerLogin}
-                    loading={isTruecallerLoading}
-                    size="lg"
-                    fullWidth
-                    style={[styles.truecallerBtn, { backgroundColor: '#0087FF' }]}
-                    icon="phone"
-                  />
+                  <>
+                    <Button
+                      label="SIGN IN WITH TRUECALLER"
+                      onPress={handleTruecallerLogin}
+                      loading={isTruecallerLoading}
+                      size="lg"
+                      fullWidth
+                      style={[styles.truecallerBtn, { backgroundColor: '#0087FF' }]}
+                      icon="phone"
+                    />
+                    <Button
+                      variant="ghost"
+                      label="VERIFY WITH PHONE (DROP CALL)"
+                      onPress={handleTriggerDropCall}
+                      size="lg"
+                      fullWidth
+                      style={styles.otpBtn}
+                      icon="phone-incoming"
+                    />
+                  </>
                 )}
               </View>
             )}
@@ -550,6 +713,159 @@ export function Login() {
               </>
             )}
           </View>
+
+          <Modal
+            visible={showOtpModal}
+            transparent={true}
+            animationType="fade"
+            onRequestClose={() => {
+              if (!isVerifyingOtp) setShowOtpModal(false);
+            }}
+          >
+            <View style={styles.modalOverlay}>
+              <View style={styles.modalContent}>
+                <Text style={styles.modalTitle}>Truecaller Verification</Text>
+                
+                {verificationStatus === "INITIATING" && (
+                  <View style={styles.modalBody}>
+                    <ActivityIndicator size="large" color={colors.primary} />
+                    <Text style={styles.modalText}>Contacting Truecaller servers...</Text>
+                  </View>
+                )}
+
+                {verificationStatus === "CALL_INITIATED" && (
+                  <View style={styles.modalBody}>
+                    <ActivityIndicator size="large" color={colors.primary} />
+                    <Text style={styles.modalText}>Triggering drop call verification...</Text>
+                    <Text style={styles.timerText}>Time remaining: {otpTtl}s</Text>
+                  </View>
+                )}
+
+                {verificationStatus === "OTP_INITIATED" && (
+                  <View style={styles.modalBody}>
+                    <ActivityIndicator size="large" color={colors.primary} />
+                    <Text style={styles.modalText}>Triggering SMS verification...</Text>
+                    <Text style={styles.timerText}>Time remaining: {otpTtl}s</Text>
+                  </View>
+                )}
+
+                {verificationStatus === "CALL_RECEIVED" && (
+                  <View style={styles.modalBody}>
+                    <Text style={styles.modalSubText}>Drop call received successfully! Please enter your name to complete registration:</Text>
+                    
+                    <PaperInput
+                      mode="outlined"
+                      label="First Name"
+                      placeholder="Enter first name"
+                      value={firstName}
+                      onChangeText={setFirstName}
+                      outlineStyle={styles.inputOutline}
+                      activeOutlineColor={colors.primary}
+                      style={styles.modalInput}
+                    />
+                    
+                    <PaperInput
+                      mode="outlined"
+                      label="Last Name"
+                      placeholder="Enter last name (optional)"
+                      value={lastName}
+                      onChangeText={setLastName}
+                      outlineStyle={styles.inputOutline}
+                      activeOutlineColor={colors.primary}
+                      style={styles.modalInput}
+                    />
+
+                    <Button
+                      label="COMPLETE VERIFICATION"
+                      onPress={handleCompleteMissedCallVerification}
+                      loading={isVerifyingOtp}
+                      fullWidth
+                      size="md"
+                    />
+                  </View>
+                )}
+
+                {(verificationStatus === "OTP_RECEIVED" || verificationStatus === "OTP_INITIATED") && (
+                  <View style={styles.modalBody}>
+                    <Text style={styles.modalSubText}>Please enter details to verify:</Text>
+                    
+                    <PaperInput
+                      mode="outlined"
+                      label="First Name"
+                      placeholder="Enter first name"
+                      value={firstName}
+                      onChangeText={setFirstName}
+                      outlineStyle={styles.inputOutline}
+                      activeOutlineColor={colors.primary}
+                      style={styles.modalInput}
+                    />
+                    
+                    <PaperInput
+                      mode="outlined"
+                      label="Last Name"
+                      placeholder="Enter last name (optional)"
+                      value={lastName}
+                      onChangeText={setLastName}
+                      outlineStyle={styles.inputOutline}
+                      activeOutlineColor={colors.primary}
+                      style={styles.modalInput}
+                    />
+
+                    <PaperInput
+                      mode="outlined"
+                      label="OTP Code"
+                      placeholder="Enter SMS OTP"
+                      value={otpCode}
+                      keyboardType="number-pad"
+                      onChangeText={setOtpCode}
+                      outlineStyle={styles.inputOutline}
+                      activeOutlineColor={colors.primary}
+                      style={styles.modalInput}
+                    />
+
+                    <Button
+                      label="VERIFY OTP"
+                      onPress={handleCompleteOtpVerification}
+                      loading={isVerifyingOtp}
+                      fullWidth
+                      size="md"
+                    />
+                  </View>
+                )}
+
+                {verificationStatus === "COMPLETE" && (
+                  <View style={styles.modalBody}>
+                    <ActivityIndicator size="large" color={colors.primary} />
+                    <Text style={styles.modalText}>Verification complete! Logging in...</Text>
+                  </View>
+                )}
+
+                {verificationStatus === "ERROR" && (
+                  <View style={styles.modalBody}>
+                    <Icon source="alert-circle" size={40} color={colors.danger} />
+                    <Text style={[styles.modalText, { color: colors.danger }]}>{error || "Verification failed."}</Text>
+                    
+                    <Button
+                      label="CLOSE"
+                      onPress={() => setShowOtpModal(false)}
+                      fullWidth
+                      size="md"
+                      variant="ghost"
+                    />
+                  </View>
+                )}
+
+                {verificationStatus !== "COMPLETE" && verificationStatus !== "INITIATING" && (
+                  <Pressable
+                    onPress={() => setShowOtpModal(false)}
+                    style={styles.modalCloseBtn}
+                  >
+                    <Text style={styles.modalCloseText}>Cancel</Text>
+                  </Pressable>
+                )}
+              </View>
+            </View>
+          </Modal>
         </ScrollView>
       </KeyboardAvoidingView>
     </Screen>
@@ -822,5 +1138,65 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.7,
+  },
+  otpBtn: {
+    minHeight: 56,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: spacing.xl,
+  },
+  modalContent: {
+    width: "100%",
+    maxWidth: 400,
+    backgroundColor: colors.surface,
+    borderRadius: radius.xxl,
+    padding: spacing.xl,
+    gap: spacing.lg,
+    ...shadow.lg,
+  },
+  modalTitle: {
+    fontSize: fontSize.xl,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+    textAlign: "center",
+  },
+  modalBody: {
+    alignItems: "center",
+    gap: spacing.md,
+    width: "100%",
+  },
+  modalText: {
+    fontSize: fontSize.md,
+    color: colors.textPrimary,
+    textAlign: "center",
+    marginTop: spacing.sm,
+  },
+  modalSubText: {
+    fontSize: fontSize.sm,
+    color: colors.textSecondary,
+    textAlign: "center",
+    marginBottom: spacing.xs,
+  },
+  timerText: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.warning,
+  },
+  modalInput: {
+    width: "100%",
+    backgroundColor: colors.surface,
+  },
+  modalCloseBtn: {
+    alignItems: "center",
+    paddingVertical: spacing.sm,
+  },
+  modalCloseText: {
+    color: colors.textSecondary,
+    fontWeight: fontWeight.semibold,
+    fontSize: fontSize.sm,
   },
 });

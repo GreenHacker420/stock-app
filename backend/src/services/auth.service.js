@@ -279,3 +279,67 @@ export async function truecallerLogin({ authorizationCode, codeVerifier }) {
     },
   };
 }
+
+export async function truecallerOtpLogin({ accessToken }) {
+  const clientId = process.env.TRUECALLER_CLIENT_ID;
+  if (!clientId) {
+    throw new ApiError(500, "Truecaller Client ID is not configured on the server");
+  }
+
+  // 1. Validate token with Truecaller server
+  const response = await fetch(
+    `https://sdk-otp-verification-noneu.truecaller.com/v1/otp/client/installation/phoneNumberDetail/${accessToken}`,
+    {
+      method: "GET",
+      headers: {
+        clientId: clientId,
+      },
+    }
+  );
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    console.error("Truecaller OTP validation failed:", errorText);
+    throw new ApiError(401, "Truecaller OTP validation failed");
+  }
+
+  const profileData = await response.json();
+  const phoneVal = profileData.phoneNumber || profileData.phone_number;
+  if (!phoneVal) {
+    throw new ApiError(400, "Truecaller response did not contain a phone number");
+  }
+
+  const phoneStr = String(phoneVal);
+  const cleanPhone = phoneStr.slice(-10);
+
+  // 2. Find matching active user in DB
+  const user = await prisma.user.findFirst({
+    where: {
+      OR: [
+        { mobile: phoneStr },
+        { mobile: { endsWith: cleanPhone } }
+      ],
+      status: "ACTIVE",
+    },
+  });
+
+  if (!user) {
+    throw new ApiError(401, `Mobile number ${phoneStr} is not registered in ShopControl`);
+  }
+
+  // 3. Sign session token
+  const token = signToken(user);
+  const permissions = user.role === "OWNER" ? OWNER_PERMISSIONS : STAFF_PERMISSIONS;
+
+  return {
+    token,
+    user: {
+      id: user.id,
+      name: user.name,
+      mobile: user.mobile,
+      email: user.email,
+      role: user.role,
+      permissions,
+    },
+  };
+}

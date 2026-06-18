@@ -42,3 +42,8 @@ export const truecallerLogin = asyncHandler(async (req, res) => {
   const result = await authService.truecallerLogin(req.validated.body);
   res.json({ success: true, data: result });
 });
+
+export const truecallerOtpLogin = asyncHandler(async (req, res) => {
+  const result = await authService.truecallerOtpLogin(req.validated.body);
+  res.json({ success: true, data: result });
+});

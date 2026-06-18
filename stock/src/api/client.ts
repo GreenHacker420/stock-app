@@ -329,6 +329,13 @@ export async function truecallerLogin(authorizationCode: string, codeVerifier: s
   });
 }
 
+export async function truecallerOtpLogin(accessToken: string) {
+  return apiRequest<{ token: string; user: ApiUser }>("/auth/truecaller-otp", {
+    method: "POST",
+    body: JSON.stringify({ accessToken }),
+  });
+}
+
 export async function logout(token: string) {
   return apiRequest("/auth/logout", { method: "POST", token });
 }

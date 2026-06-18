@@ -59,8 +59,17 @@ const truecallerSchema = z.object({
   query: z.object({}).optional(),
 });
 
+const truecallerOtpSchema = z.object({
+  body: z.object({
+    accessToken: z.string().min(1),
+  }),
+  params: z.object({}).optional(),
+  query: z.object({}).optional(),
+});
+
 router.post("/login", validate(loginSchema), authController.login);
 router.post("/truecaller", validate(truecallerSchema), authController.truecallerLogin);
+router.post("/truecaller-otp", validate(truecallerOtpSchema), authController.truecallerOtpLogin);
 router.post("/logout", requireAuth, authController.logout);
 router.post("/refresh", requireAuth, authController.refresh);
 router.get("/me", requireAuth, authController.me);

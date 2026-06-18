@@ -58,7 +58,8 @@
     "socket.io-client": "^4.8.3",
     "use-debounce": "^10.1.1",
     "zod": "^4.4.3",
-    "zustand": "^5.0.13"
+    "zustand": "^5.0.13",
+    "truecaller-fullstack": "file:./modules/truecaller-fullstack"
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",
