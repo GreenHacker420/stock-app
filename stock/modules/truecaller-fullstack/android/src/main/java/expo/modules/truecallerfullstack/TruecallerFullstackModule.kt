@@ -1,19 +1,19 @@
 package expo.modules.truecallerfullstack
 
-import android.app.Activity
 import android.util.Log
-import com.truecaller.android.sdk.clients.VerificationCallback
-import com.truecaller.android.sdk.clients.VerificationDataBundle
-import com.truecaller.android.sdk.clients.TrueProfile
-import com.truecaller.android.sdk.clients.TrueException
-import com.truecaller.android.sdk.clients.TcSdk
+import androidx.fragment.app.FragmentActivity
+import com.truecaller.android.sdk.common.VerificationCallback
+import com.truecaller.android.sdk.common.VerificationDataBundle
+import com.truecaller.android.sdk.common.models.TrueProfile
+import com.truecaller.android.sdk.common.TrueException
+import com.truecaller.android.sdk.oAuth.TcSdk
 import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import expo.modules.kotlin.Promise
 
 class TruecallerFullstackModule : Module() {
   private val verificationCallback = object : VerificationCallback {
-    override fun onRequestSuccess(callbackType: Int, verificationDataBundle: VerificationDataBundle?) {
+    override fun onRequestSuccess(callbackType: Int, verificationDataBundle: VerificationDataBundle) {
       val callbackStr = when (callbackType) {
         VerificationCallback.TYPE_MISSED_CALL_INITIATED -> "MISSED_CALL_INITIATED"
         VerificationCallback.TYPE_MISSED_CALL_RECEIVED -> "MISSED_CALL_RECEIVED"
@@ -27,15 +27,14 @@ class TruecallerFullstackModule : Module() {
         "callbackType" to callbackType,
         "status" to callbackStr
       )
-      if (verificationDataBundle != null) {
-        map["ttl"] = verificationDataBundle.getString(VerificationDataBundle.KEY_TTL)
-        map["requestNonce"] = verificationDataBundle.getString(VerificationDataBundle.KEY_REQUEST_NONCE)
-      }
+      
+      map["ttl"] = verificationDataBundle.getString(VerificationDataBundle.KEY_TTL)
+      map["requestNonce"] = verificationDataBundle.getString(VerificationDataBundle.KEY_REQUEST_NONCE)
       
       if (callbackType == VerificationCallback.TYPE_VERIFICATION_COMPLETE || 
           callbackType == VerificationCallback.TYPE_PROFILE_VERIFIED_BEFORE) {
         try {
-          val accessToken = TcSdk.getInstance().accessTokenForOTPVerification()
+          val accessToken = verificationDataBundle.getString(VerificationDataBundle.KEY_ACCESS_TOKEN)
           map["accessToken"] = accessToken
         } catch (e: Exception) {
           Log.e("TruecallerFullstack", "Failed to get access token", e)
@@ -48,8 +47,8 @@ class TruecallerFullstackModule : Module() {
     override fun onRequestFailure(requestCode: Int, e: TrueException) {
       val map = mapOf(
         "requestCode" to requestCode,
-        "errorCode" to e.exceptionType,
-        "errorMessage" to e.message
+        "errorCode" to e.getExceptionType(),
+        "errorMessage" to e.getExceptionMessage()
       )
       sendEvent("onVerificationFailure", map)
     }
@@ -69,9 +68,9 @@ class TruecallerFullstackModule : Module() {
     }
 
     AsyncFunction("requestVerification") { phoneNumber: String, promise: Promise ->
-      val activity = appContext.currentActivity
+      val activity = appContext.currentActivity as? FragmentActivity
       if (activity == null) {
-        promise.reject("ERR_NO_ACTIVITY", "Current activity is null", null)
+        promise.reject("ERR_NO_ACTIVITY", "Current activity is null or not a FragmentActivity", null)
         return@AsyncFunction
       }
       try {
