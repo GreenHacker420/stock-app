@@ -28,6 +28,7 @@ This dossier contains the complete architecture investigation, design decisions,
 | 08 | [Database Schema Design](./08-database-schema-design.md) | Full Prisma schema: WaIntegration, WaConversation, WaMessage, WaBroadcast, WaCall |
 | 09 | [Architecture Decisions](./09-architecture-decisions.md) | 15 answered design questions: Redis choice, idempotency, caching, BSUID, etc. |
 | 10 | [Implementation Roadmap](./10-implementation-roadmap.md) | Phase 1-3 plan, file changes, dependencies, success criteria |
+| 11 | [Embedded Signup Onboarding](./11-embedded-signup-onboarding.md) | Integrated Facebook Login for Business flow, token exchange, and automatic WABA registration |
 
 ---
 

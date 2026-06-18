@@ -222,13 +222,14 @@ export async function startAllWorkers() {
 
 ---
 
-#### 1.13 — S3 Media Download Worker & S3 Library
+#### 1.13 — S3 Media Download Worker & S3 Library (Pre-signed S3 URLs)
 
 **New file:** `backend/src/lib/wa-media.js`
 - Contains utility functions for interacting with AWS S3 using `@aws-sdk/client-s3`.
+- Bucket configuration: Private by default for security.
 - Exports:
   - `uploadToS3(streamOrBuffer, key, mimeType)`: Uploads binary to the S3 bucket.
-  - `getSignedMediaUrl(key)`: Generates a pre-signed URL for private media delivery (expires in 1 hour).
+  - `getSignedMediaUrl(key)`: Generates a pre-signed S3 URL for private media delivery (expires in 1 hour). All media served to the frontend (e.g. when querying `/whatsapp/conversations/:id/messages`) must deliver dynamically generated S3 pre-signed URLs.
 
 **New file:** `backend/src/workers/whatsapp/media-download.worker.js`
 - Worker: `whatsapp-media-download`
@@ -238,14 +239,26 @@ export async function startAllWorkers() {
   1. Retrieves Meta media URL from Graph API using cached shop credentials.
   2. Downloads media binary from Meta's endpoint.
   3. Uploads media to Amazon S3 bucket under `shops/${shopId}/media/${mediaId}`.
-  4. Updates `WaMessage` with S3 URL (`mediaUrl`), `s3Key`, and `s3Bucket`.
-  5. Triggers real-time Socket.IO emission to update UI.
+  4. Updates `WaMessage` with the S3 key (`s3Key`), S3 bucket (`s3Bucket`), and the private S3 URI (`mediaUrl`).
+  5. The API controller will wrap this `mediaUrl` (or `s3Key`) in a dynamically generated pre-signed URL when queried.
+  6. Triggers real-time Socket.IO emission to update UI.
 
 ---
 
 #### 1.14 — Standalone Platform Layer Endpoint Architecture
 
 The WhatsApp Platform Layer serves as a standalone component that exposes clean APIs. ERP modules (Sales, Payments, DMs, etc.) interact with it purely by calling service methods or POST routes. No hardcoded domain-specific ERP triggers reside inside the WhatsApp Platform codebase.
+
+---
+
+#### 1.15 — Integrated Onboarding Flow (Embedded Signup v25.0)
+
+**Endpoint:** `POST /whatsapp/fb-embedded-signup`
+- Exchanges short-lived OAuth `code` returned by the Meta Login dialog popup for a long-lived Access Token.
+- Inspects the WABA account ID and retrieves the associated phone number ID from the Graph API.
+- Automatically registers the phone number on Meta using a system-generated 6-digit registration PIN (`POST /{phoneNumberId}/register`).
+- Subscribes the Meta Developer App to the user's WABA events (`POST /{businessAccountId}/subscribed_apps`) to receive automated updates.
+- Stores coordinates in `WaIntegration` and immediately warms the tenant resolution cache in Redis.
 
 ---
 
