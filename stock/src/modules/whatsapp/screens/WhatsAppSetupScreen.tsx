@@ -7,7 +7,7 @@ import { useShopStore } from "../../../auth/shop-store";
 import { whatsappSetupApi } from "../../../api/whatsapp-setup.api";
 import { Screen } from "../../../components/Screen";
 import { Section } from "../../../components/ui/Section";
-import { Colors } from "../../../theme/colors";
+import { colors as Colors } from "../../../theme";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -148,7 +148,7 @@ export const WhatsAppSetupScreen = () => {
                 {status || "DISCONNECTED"}
               </Text>
               {status === "CONNECTED" && businessName ? (
-                <Text style={{ marginTop: 5, color: Colors.grey }}>Connected to: {businessName}</Text>
+                <Text style={{ marginTop: 5, color: Colors.textSecondary }}>Connected to: {businessName}</Text>
               ) : null}
             </View>
             <View style={styles.webhookUrlBox}>
@@ -159,7 +159,7 @@ export const WhatsAppSetupScreen = () => {
 
           <Section title="1-Click Connect (Embedded Signup)">
             <View style={styles.formCard}>
-              <Text style={{ marginBottom: 15, color: Colors.grey }}>
+              <Text style={{ marginBottom: 15, color: Colors.textSecondary }}>
                 Connect your WhatsApp Business Account instantly using Facebook Embedded Signup.
               </Text>
               <Button 
@@ -174,7 +174,7 @@ export const WhatsAppSetupScreen = () => {
               
               <Divider style={{ marginVertical: 15 }} />
               
-              <Text style={{ marginBottom: 10, fontSize: 12, color: Colors.grey }}>
+              <Text style={{ marginBottom: 10, fontSize: 12, color: Colors.textSecondary }}>
                 Or, if you already have the OAuth code:
               </Text>
               <TextInput
@@ -192,7 +192,7 @@ export const WhatsAppSetupScreen = () => {
 
           <Section title="Manual Configuration">
             <View style={styles.formCard}>
-              <Text style={{ marginBottom: 15, color: Colors.grey }}>
+              <Text style={{ marginBottom: 15, color: Colors.textSecondary }}>
                 Advanced: Manually enter Meta Cloud API credentials.
               </Text>
               <TextInput
@@ -264,11 +264,11 @@ const styles = StyleSheet.create({
   flex1: { flex: 1 },
   scrollContent: { paddingBottom: 40 },
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
-  formCard: { backgroundColor: Colors.white, padding: 15, borderRadius: 8, marginHorizontal: 15, marginBottom: 15 },
-  input: { marginBottom: 10, backgroundColor: Colors.white },
+  formCard: { backgroundColor: "#fff", padding: 15, borderRadius: 8, marginHorizontal: 15, marginBottom: 15 },
+  input: { marginBottom: 10, backgroundColor: "#fff" },
   saveBtn: { marginTop: 10, backgroundColor: Colors.primary },
-  statusBox: { padding: 15, marginHorizontal: 15, backgroundColor: Colors.white, borderRadius: 8, alignItems: "center", marginBottom: 10 },
+  statusBox: { padding: 15, marginHorizontal: 15, backgroundColor: "#fff", borderRadius: 8, alignItems: "center", marginBottom: 10 },
   webhookUrlBox: { padding: 15, marginHorizontal: 15, backgroundColor: "#f0f0f0", borderRadius: 8, marginBottom: 15 },
-  webhookText: { fontSize: 12, color: Colors.grey, marginBottom: 5 },
+  webhookText: { fontSize: 12, color: Colors.textSecondary, marginBottom: 5 },
   webhookValue: { fontSize: 14, fontWeight: "500", color: Colors.primaryDark },
 });

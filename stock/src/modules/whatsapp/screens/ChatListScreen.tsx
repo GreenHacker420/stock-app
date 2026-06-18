@@ -1,24 +1,24 @@
 import React, { useEffect, useState } from "react";
 import { FlatList, TouchableOpacity, View, Text, StyleSheet, RefreshControl } from "react-native";
 import { useNavigation } from "@react-navigation/native";
-import { whatsappApi, WaConversation } from "../../../api/whatsapp.api";
+import { fetchWaConversations, WaConversation } from "../../../api/whatsapp.api";
 import { useShopStore } from "../../../auth/shop-store";
-import { Colors } from "../../../theme/colors";
+import { useAuthStore } from "../../../auth/auth-store";
+import { colors as Colors } from "../../../theme";
 import { formatDistanceToNow } from "date-fns";
 
 export const ChatListScreen = () => {
   const navigation = useNavigation<any>();
   const activeShopId = useShopStore((state) => state.activeShopId);
+  const token = useAuthStore((state) => state.token);
   const [conversations, setConversations] = useState<WaConversation[]>([]);
   const [refreshing, setRefreshing] = useState(false);
 
   const fetchConversations = async () => {
-    if (!activeShopId) return;
+    if (!activeShopId || !token) return;
     try {
-      const res = await whatsappApi.getConversations(activeShopId);
-      if (res.data.success) {
-        setConversations(res.data.data);
-      }
+      const data = await fetchWaConversations(token, activeShopId);
+      setConversations(data);
     } catch (error) {
       console.error("Failed to fetch conversations", error);
     }
@@ -26,7 +26,7 @@ export const ChatListScreen = () => {
 
   useEffect(() => {
     fetchConversations();
-  }, [activeShopId]);
+  }, [activeShopId, token]);
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -81,16 +81,16 @@ export const ChatListScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: Colors.white },
+  container: { flex: 1, backgroundColor: "#fff" },
   item: { flexDirection: "row", padding: 15, borderBottomWidth: 1, borderBottomColor: Colors.border, alignItems: "center" },
   avatar: { width: 50, height: 50, borderRadius: 25, backgroundColor: Colors.primary, justifyContent: "center", alignItems: "center", marginRight: 15 },
-  avatarText: { color: Colors.white, fontSize: 18, fontWeight: "bold" },
+  avatarText: { color: "#fff", fontSize: 18, fontWeight: "bold" },
   content: { flex: 1 },
   row: { flexDirection: "row", justifyContent: "space-between", marginBottom: 5 },
   name: { fontSize: 16, fontWeight: "bold" },
-  time: { fontSize: 12, color: Colors.grey },
-  lastMessage: { fontSize: 14, color: Colors.grey },
+  time: { fontSize: 12, color: Colors.textSecondary },
+  lastMessage: { fontSize: 14, color: Colors.textSecondary },
   badge: { backgroundColor: Colors.success, borderRadius: 10, minWidth: 20, height: 20, justifyContent: "center", alignItems: "center", paddingHorizontal: 5 },
-  badgeText: { color: Colors.white, fontSize: 12, fontWeight: "bold" },
+  badgeText: { color: "#fff", fontSize: 12, fontWeight: "bold" },
   empty: { padding: 50, alignItems: "center" },
 });

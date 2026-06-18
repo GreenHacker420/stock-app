@@ -1,9 +1,10 @@
 import React, { useEffect, useState, useRef } from "react";
 import { FlatList, View, Text, StyleSheet, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, Image } from "react-native";
 import { useRoute } from "@react-navigation/native";
-import { whatsappApi, WaMessage } from "../../../api/whatsapp.api";
+import { fetchWaMessages, sendWaMessage, WaMessage } from "../../../api/whatsapp.api";
 import { useShopStore } from "../../../auth/shop-store";
-import { Colors } from "../../../theme/colors";
+import { useAuthStore } from "../../../auth/auth-store";
+import { colors as Colors } from "../../../theme";
 import { format } from "date-fns";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 
@@ -11,17 +12,17 @@ export const ChatDetailScreen = () => {
   const route = useRoute<any>();
   const { conversationId, phone } = route.params;
   const activeShopId = useShopStore((state) => state.activeShopId);
+  const token = useAuthStore((state) => state.token);
   
   const [messages, setMessages] = useState<WaMessage[]>([]);
   const [inputText, setInputText] = useState("");
   const flatListRef = useRef<FlatList>(null);
 
   const fetchMessages = async () => {
+    if (!token) return;
     try {
-      const res = await whatsappApi.getMessages(conversationId);
-      if (res.data.success) {
-        setMessages(res.data.data);
-      }
+      const data = await fetchWaMessages(token, conversationId);
+      setMessages(data);
     } catch (error) {
       console.error("Failed to fetch messages", error);
     }
@@ -30,16 +31,16 @@ export const ChatDetailScreen = () => {
   useEffect(() => {
     fetchMessages();
     // TODO: Setup Socket.IO listener for real-time messages
-  }, [conversationId]);
+  }, [conversationId, token]);
 
   const handleSend = async () => {
-    if (!inputText.trim() || !activeShopId) return;
+    if (!inputText.trim() || !activeShopId || !token) return;
 
     const tempText = inputText;
     setInputText("");
 
     try {
-      const res = await whatsappApi.sendMessage({
+      const data = await sendWaMessage(token, {
         shopId: activeShopId,
         conversationId,
         to: phone,
@@ -47,10 +48,8 @@ export const ChatDetailScreen = () => {
         content: { text: tempText },
       });
 
-      if (res.data.success) {
-        setMessages((prev) => [...prev, res.data.data]);
-        setTimeout(() => flatListRef.current?.scrollToEnd(), 100);
-      }
+      setMessages((prev) => [...prev, data]);
+      setTimeout(() => flatListRef.current?.scrollToEnd(), 100);
     } catch (error) {
       console.error("Failed to send message", error);
     }
@@ -63,7 +62,7 @@ export const ChatDetailScreen = () => {
       <View style={[styles.messageContainer, isOutbound ? styles.outboundContainer : styles.inboundContainer]}>
         <View style={[styles.bubble, isOutbound ? styles.outboundBubble : styles.inboundBubble]}>
           {item.type === "TEXT" && <Text style={styles.messageText}>{item.content?.text}</Text>}
-          {item.type === "IMAGE" && <Image source={{ uri: item.mediaUrl || item.mediaId }} style={styles.messageImage} />}
+          {item.type === "IMAGE" && <Image source={{ uri: item.mediaUrl }} style={styles.messageImage} />}
           
           <View style={styles.messageFooter}>
             <Text style={styles.messageTime}>{format(new Date(item.createdAt), "HH:mm")}</Text>
@@ -71,7 +70,7 @@ export const ChatDetailScreen = () => {
               <MaterialCommunityIcons 
                 name={item.status === "READ" ? "check-all" : item.status === "DELIVERED" ? "check-all" : "check"} 
                 size={16} 
-                color={item.status === "READ" ? Colors.info : Colors.grey} 
+                color={item.status === "READ" ? Colors.info : Colors.textSecondary} 
                 style={{ marginLeft: 5 }}
               />
             )}
@@ -105,7 +104,7 @@ export const ChatDetailScreen = () => {
           multiline
         />
         <TouchableOpacity style={styles.sendButton} onPress={handleSend}>
-          <MaterialCommunityIcons name="send" size={24} color={Colors.white} />
+          <MaterialCommunityIcons name="send" size={24} color={"#fff"} />
         </TouchableOpacity>
       </View>
     </KeyboardAvoidingView>
@@ -119,13 +118,13 @@ const styles = StyleSheet.create({
   inboundContainer: { alignSelf: "flex-start" },
   outboundContainer: { alignSelf: "flex-end" },
   bubble: { padding: 8, borderRadius: 10, elevation: 1 },
-  inboundBubble: { backgroundColor: Colors.white },
+  inboundBubble: { backgroundColor: "#fff" },
   outboundBubble: { backgroundColor: "#DCF8C6" },
   messageText: { fontSize: 16 },
   messageImage: { width: 200, height: 200, borderRadius: 5, marginBottom: 5 },
   messageFooter: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", marginTop: 2 },
-  messageTime: { fontSize: 11, color: Colors.grey },
-  inputToolbar: { flexDirection: "row", padding: 10, backgroundColor: Colors.white, alignItems: "center" },
+  messageTime: { fontSize: 11, color: Colors.textSecondary },
+  inputToolbar: { flexDirection: "row", padding: 10, backgroundColor: "#fff", alignItems: "center" },
   input: { flex: 1, backgroundColor: "#f0f0f0", borderRadius: 20, paddingHorizontal: 15, paddingVertical: 8, fontSize: 16, maxHeight: 100 },
   sendButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: Colors.primary, justifyContent: "center", alignItems: "center", marginLeft: 10 },
 });
