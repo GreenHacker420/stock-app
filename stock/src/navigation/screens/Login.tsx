@@ -69,6 +69,10 @@ export function Login() {
   const handleTruecallerLogin = useCallback(async () => {
     setError(null);
     setInfo(null);
+    if (!isTruecallerUsable) {
+      setError("Truecaller app is not installed or logged in on this device.");
+      return;
+    }
     setIsTruecallerLoading(true);
     if (Platform.OS !== "web") {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
@@ -86,7 +90,7 @@ export function Login() {
     } finally {
       setIsTruecallerLoading(false);
     }
-  }, [signInWithTruecaller]);
+  }, [signInWithTruecaller, isTruecallerUsable]);
 
   const handleBiometricLogin = useCallback(async () => {
     setError(null);
@@ -516,7 +520,7 @@ export function Login() {
                   fullWidth
                   style={styles.submitBtn}
                 />
-                {!isForgot && isTruecallerUsable && (
+                {!isForgot && Platform.OS === "android" && (
                   <Button
                     label="SIGN IN WITH TRUECALLER"
                     onPress={handleTruecallerLogin}
