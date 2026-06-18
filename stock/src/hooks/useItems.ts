@@ -54,7 +54,7 @@ export function useInfiniteItemsQuery(opts: { search?: string; limit?: number } 
   });
 }
 
-export function useItemsQuery(opts: { search?: string; page?: number; limit?: number } = {}) {
+export function useItemsQuery(opts: { search?: string; page?: number; limit?: number; enabled?: boolean } = {}) {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
   return useQuery({
@@ -65,10 +65,11 @@ export function useItemsQuery(opts: { search?: string; page?: number; limit?: nu
         page: opts.page,
         limit: opts.limit,
       }),
-    enabled: !!token && !!activeShopId,
-    staleTime: 10 * 60 * 1000, // 10 mins
+    enabled: (opts.enabled ?? true) && !!token && !!activeShopId,
+    staleTime: 30 * 60 * 1000, // 30 mins for offline-first
   });
 }
+
 
 export function useCurrentStockQuery(itemId?: string) {
   const token = useAuthStore((state) => state.token);

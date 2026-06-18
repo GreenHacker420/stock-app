@@ -735,6 +735,7 @@ export function ItemList() {
   const listQuery = useItemsQuery({
     search: isSearchActive ? debouncedSearch : undefined,
     limit: 1000, 
+    enabled: !isGridMode,
   });
 
   const allItems: Item[] = useMemo(() => {

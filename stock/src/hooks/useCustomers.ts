@@ -11,7 +11,7 @@ export function useCustomersQuery() {
     queryKey: queryKeys.customers(activeShopId ?? ""),
     queryFn: () => fetchCustomers(token ?? "", activeShopId ?? ""),
     enabled: !!token && !!activeShopId,
-    staleTime: 5 * 60 * 1000, // 5 mins
+    staleTime: 15 * 60 * 1000, // 15 mins
   });
 }
 
@@ -21,7 +21,7 @@ export function useCustomerDetailQuery(id: string) {
     queryKey: queryKeys.customer(id),
     queryFn: () => fetchCustomer(token ?? "", id),
     enabled: !!token && !!id,
-    staleTime: 5 * 60 * 1000, // 5 mins
+    staleTime: 15 * 60 * 1000, // 15 mins
   });
 }
 
