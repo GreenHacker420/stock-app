@@ -34,11 +34,11 @@ class WhatsAppController {
   }
 
   /**
-   * Meta Webhook Verification (GET /whatsapp/webhook/:shopId)
+   * Meta Webhook Verification (GET /whatsapp/webhook or /whatsapp/webhook/:shopId)
    */
   async verifyWebhook(req, res) {
     try {
-      const { shopId } = req.params;
+      const shopId = req.params.shopId || req.query.shopId;
       const mode = req.query["hub.mode"];
       const token = req.query["hub.verify_token"];
       const challenge = req.query["hub.challenge"];
@@ -50,11 +50,11 @@ class WhatsAppController {
     }
   }
 
-  //  Meta Webhook Payload (POST /whatsapp/webhook/:shopId)
+  //  Meta Webhook Payload (POST /whatsapp/webhook or /whatsapp/webhook/:shopId)
 
   async handleWebhook(req, res) {
     try {
-      const { shopId } = req.params;
+      const shopId = req.params.shopId || req.query.shopId;
       if (!shopId) return res.status(400).send("shopId missing");
 
       // 1. Validate Signature
