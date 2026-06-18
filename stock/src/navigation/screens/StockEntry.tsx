@@ -11,6 +11,7 @@ import { useRoute } from "@react-navigation/native";
 import { Searchbar, Text, Icon } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
+import * as Haptics from "expo-haptics";
 
 import { Item } from "../../api/client";
 import { useItemsQuery, useAddStockMutation, useItemStockQuery } from "../../hooks/useItems";
@@ -24,6 +25,24 @@ import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../the
 import { SuccessModal } from "../../components/ui/SuccessModal";
 import { navigate, goBack } from "../navigation-ref";
 
+const formatItemName = (name: string) => {
+  return name
+    .split(/\s+/)
+    .map(word => {
+      if (!word) return "";
+      if (
+        /^\d/.test(word) ||
+        ["SKU", "RC", "N/A", "3D", "103D", "1043D", "104A/1104", "1053", "109/1710", "MTR", "HDMI", "USB", "RAM", "SSD"].includes(
+          word.toUpperCase()
+        )
+      ) {
+        return word.toUpperCase();
+      }
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    })
+    .join(" ");
+};
+
 const StockEntryRow = memo(({ 
   item, 
   quantity, 
@@ -33,46 +52,80 @@ const StockEntryRow = memo(({
   quantity: string, 
   onChange: (val: string) => void 
 }) => {
-  const numericVal = Number(quantity);
+  const numericVal = Number(quantity) || 0;
   const color = numericVal > 0 ? colors.success : numericVal < 0 ? colors.danger : colors.textPrimary;
-  const prefix = numericVal > 0 ? "+" : "";
+  
+  const handleIncrement = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const currentVal = Number(quantity) || 0;
+    onChange(String(currentVal + 1));
+  };
+
+  const handleDecrement = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    const currentVal = Number(quantity) || 0;
+    onChange(String(currentVal - 1));
+  };
 
   return (
-    <View style={styles.row}>
-      <View style={styles.rowInfo}>
-        <Text style={styles.itemName}>{item.name}</Text>
-        <View style={styles.stockBadge}>
-          <Text style={styles.stockBadgeText}>Unit: {item.unit} • SKU: {item.sku || "N/A"}</Text>
+    <View style={[
+      styles.row,
+      numericVal > 0 && styles.rowPositive,
+      numericVal < 0 && styles.rowNegative,
+      { borderLeftColor: numericVal > 0 ? colors.success : numericVal < 0 ? colors.danger : 'transparent' }
+    ]}>
+      <View style={styles.rowLeft}>
+        <View style={styles.rowIconBg}>
+          <Icon source="package-variant-closed" size={20} color={colors.textSecondary} />
+        </View>
+        <View style={styles.rowInfo}>
+          <Text style={styles.itemName} numberOfLines={2}>{formatItemName(item.name)}</Text>
+          <View style={styles.stockBadge}>
+            <Text style={styles.stockBadgeText}>Unit: {item.unit} • SKU: {item.sku || "N/A"}</Text>
+          </View>
         </View>
       </View>
       
-      <View style={styles.inputContainer}>
-        <View style={styles.inputWrapper}>
-          <TextInput
-            style={[styles.qtyInput, { color }]}
-            value={quantity}
-            onChangeText={(text) => {
-              // Allow minus sign for typing negative numbers
-              if (text === "-" || text === "") {
-                onChange(text);
-                return;
-              }
-              const num = Number(text);
-              if (!isNaN(num)) {
-                onChange(text);
-              }
-            }}
-            keyboardType="numeric"
-            placeholder="0"
-            placeholderTextColor={colors.textMuted}
-            selectTextOnFocus
-            autoFocus={true}
-            returnKeyType="done"
-          />
-          {numericVal !== 0 && (
-            <Text style={[styles.prefixOverlay, { color }]}>{prefix}</Text>
-          )}
-        </View>
+      <View style={styles.counterContainer}>
+        <Pressable 
+          onPress={handleDecrement}
+          style={({ pressed }) => [
+            styles.counterBtn,
+            pressed && styles.pressed
+          ]}
+        >
+          <Icon source="minus" size={16} color={colors.textSecondary} />
+        </Pressable>
+
+        <TextInput
+          style={[styles.qtyInput, { color }]}
+          value={quantity}
+          onChangeText={(text) => {
+            if (text === "-" || text === "") {
+              onChange(text);
+              return;
+            }
+            const num = Number(text);
+            if (!isNaN(num)) {
+              onChange(text);
+            }
+          }}
+          keyboardType="numeric"
+          placeholder="0"
+          placeholderTextColor={colors.textMuted}
+          selectTextOnFocus
+          returnKeyType="done"
+        />
+
+        <Pressable 
+          onPress={handleIncrement}
+          style={({ pressed }) => [
+            styles.counterBtn,
+            pressed && styles.pressed
+          ]}
+        >
+          <Icon source="plus" size={16} color={colors.textSecondary} />
+        </Pressable>
       </View>
     </View>
   );
@@ -260,17 +313,42 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: spacing.lg,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.surfaceOffset,
-    backgroundColor: colors.bg,
+    padding: spacing.md,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    marginBottom: spacing.sm,
+    borderLeftWidth: 4,
     gap: spacing.md,
+  },
+  rowPositive: {
+    backgroundColor: "rgba(22, 163, 74, 0.04)",
+    borderColor: "rgba(22, 163, 74, 0.2)",
+  },
+  rowNegative: {
+    backgroundColor: "rgba(220, 38, 38, 0.04)",
+    borderColor: "rgba(220, 38, 38, 0.2)",
+  },
+  rowLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  rowIconBg: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: colors.surfaceOffset,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   rowInfo: {
     flex: 1,
   },
   itemName: {
-    fontSize: fontSize.lg,
+    fontSize: fontSize.md,
     fontWeight: fontWeight.bold,
     color: colors.textPrimary,
   },
@@ -280,37 +358,43 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     paddingVertical: 2,
     borderRadius: radius.sm,
-    marginTop: spacing.xs,
+    marginTop: 4,
   },
   stockBadgeText: {
-    fontSize: fontSize.xs,
+    fontSize: 10,
     color: colors.textSecondary,
     fontWeight: fontWeight.medium,
   },
-  inputContainer: {
-    width: 110,
+  counterContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surfaceOffset,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 18,
+    width: 120,
+    height: 38,
+    overflow: 'hidden',
   },
-  inputWrapper: {
-    position: 'relative',
+  counterBtn: {
+    width: 32,
+    height: '100%',
+    alignItems: 'center',
     justifyContent: 'center',
   },
-  prefixOverlay: {
-    position: 'absolute',
-    left: 10,
-    fontSize: fontSize.xl,
-    fontWeight: fontWeight.black,
-  },
   qtyInput: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
-    borderRadius: radius.md,
-    height: 48,
+    flex: 1,
+    height: '100%',
     textAlign: 'center',
-    fontSize: fontSize.xl,
-    fontWeight: fontWeight.black,
-    color: colors.primary,
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+    backgroundColor: colors.surface,
+    padding: 0,
     fontVariant: ['tabular-nums'],
+  },
+  pressed: {
+    opacity: 0.5,
   },
   footer: {
     backgroundColor: colors.surface,

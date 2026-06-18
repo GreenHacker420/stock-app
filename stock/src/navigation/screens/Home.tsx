@@ -1,6 +1,8 @@
-import React, { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { ScrollView, View, Pressable, StyleSheet, ActivityIndicator, Dimensions, useWindowDimensions } from "react-native";
 import { Text, Icon, Button } from "react-native-paper";
+import * as Haptics from "expo-haptics";
+import { LinearGradient } from "expo-linear-gradient";
 
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
@@ -123,15 +125,188 @@ export function Home() {
   );
 }
 
+type AlertCardProps = {
+  title: string;
+  desc: string;
+  count: number;
+  icon: string;
+  color: string;
+  bgColor: string;
+  borderColor: string;
+  onPress: () => void;
+  width: number;
+};
+
+function AlertCard({ title, desc, count, icon, color, bgColor, borderColor, onPress, width }: AlertCardProps) {
+  const isPending = count > 0;
+
+  const handlePress = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft);
+    onPress();
+  };
+
+  return (
+    <Pressable
+      onPress={handlePress}
+      style={[
+        styles.alertCard,
+        {
+          width,
+          backgroundColor: isPending ? bgColor : colors.surface,
+          borderColor: isPending ? borderColor : colors.border,
+        }
+      ]}
+    >
+      {({ pressed }) => (
+        <View style={StyleSheet.flatten([styles.alertCardInner, pressed && styles.pressed])}>
+          <View style={styles.alertCardHeader}>
+            <View style={[
+              styles.alertIconBg,
+              { backgroundColor: isPending ? 'rgba(255,255,255,0.7)' : colors.surfaceOffset }
+            ]}>
+              <Icon source={icon} size={20} color={isPending ? color : colors.textMuted} />
+            </View>
+            <View style={[
+              styles.alertBadge,
+              { backgroundColor: isPending ? color : colors.surfaceOffset }
+            ]}>
+              <Text style={[
+                styles.alertBadgeText,
+                { color: isPending ? '#ffffff' : colors.textSecondary }
+              ]}>
+                {count}
+              </Text>
+            </View>
+          </View>
+          <Text style={styles.alertCardLabel}>{title.toUpperCase()}</Text>
+          <Text style={styles.alertCardDesc} numberOfLines={1}>
+            {isPending ? desc : "All caught up"}
+          </Text>
+        </View>
+      )}
+    </Pressable>
+  );
+}
+
+type QuickActionCardProps = {
+  title: string;
+  desc: string;
+  icon: string;
+  onPress: () => void;
+  width: number;
+};
+
+function QuickActionCard({ title, desc, icon, onPress, width }: QuickActionCardProps) {
+  const handlePress = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    onPress();
+  };
+
+  return (
+    <Pressable
+      onPress={handlePress}
+      style={[
+        styles.actionCard,
+        { width, margin: spacing.md / 2 }
+      ]}
+    >
+      {({ pressed }) => (
+        <View style={StyleSheet.flatten([styles.actionCardInner, pressed && styles.pressed])}>
+          <View style={styles.actionCardIconBg}>
+            <Icon source={icon} size={24} color={colors.primary} />
+          </View>
+          <View style={styles.actionCardContent}>
+            <Text style={styles.actionCardTitle} numberOfLines={1}>{title}</Text>
+            <Text style={styles.actionCardDesc} numberOfLines={2}>{desc}</Text>
+          </View>
+        </View>
+      )}
+    </Pressable>
+  );
+}
+
 function OwnerHome({ navigate }: { navigate: (s: any, params?: any) => void }) {
   const user = useAuthStore((state) => state.user);
+  const { activeShopId } = useShopStore();
+  const shopsQuery = useShopsQuery();
   const dashboardQuery = useOwnerDashboardQuery();
   const dashboard = dashboardQuery.data as any;
 
   const { width: windowWidth } = useWindowDimensions();
-  const cardWidth = (windowWidth - spacing.lg * 2 - spacing.md) / 2;
+  const alertCardWidth = (windowWidth - spacing.lg * 2 - spacing.md) / 2;
+  const actionCardWidth = (windowWidth - spacing.lg * 2 - spacing.md) / 2;
 
   const [activeCategory, setActiveCategory] = useState<'sales' | 'inventory' | 'reports'>('sales');
+
+  const selectedShop = useMemo(() => 
+    shopsQuery.data?.find(s => s.id === activeShopId), 
+    [shopsQuery.data, activeShopId]
+  );
+
+  const alertCards = useMemo(() => [
+    {
+      id: "verifications",
+      title: "Verifications",
+      desc: "Verify adjustments & costs",
+      count: dashboard?.pendingVerifications ?? 0,
+      icon: "shield-check-outline",
+      route: "VerificationQueue",
+      params: undefined,
+      color: colors.success,
+      bgColor: "rgba(22, 163, 74, 0.08)",
+      borderColor: "rgba(22, 163, 74, 0.25)",
+    },
+    {
+      id: "gst",
+      title: "Pending GST",
+      desc: "Bills to enter in Tally",
+      count: dashboard?.gstInvoicesPendingCount ?? 0,
+      icon: "file-percent-outline",
+      route: "SalesList",
+      params: { filter: 'gst_pending' },
+      color: colors.warning,
+      bgColor: "rgba(217, 119, 6, 0.08)",
+      borderColor: "rgba(217, 119, 6, 0.25)",
+    },
+    {
+      id: "stock",
+      title: "Low Stock",
+      desc: "Products below limit",
+      count: dashboard?.lowStockAlerts ?? 0,
+      icon: "alert-circle-outline",
+      route: "StockDashboard",
+      params: undefined,
+      color: colors.danger,
+      bgColor: "rgba(220, 38, 38, 0.08)",
+      borderColor: "rgba(220, 38, 38, 0.25)",
+    },
+    {
+      id: "payments",
+      title: "Payment Approvals",
+      desc: "Verify collections queue",
+      count: dashboard?.paymentVerificationPending ?? 0,
+      icon: "check-decagram-outline",
+      color: colors.info,
+      bgColor: "rgba(2, 132, 199, 0.08)",
+      borderColor: "rgba(2, 132, 199, 0.25)",
+      route: "PaymentVerification",
+      params: undefined,
+    },
+    {
+      id: "reconciliations",
+      title: "Cash Mismatch",
+      desc: "Session differences",
+      count: dashboard?.cashMismatch ?? 0,
+      icon: "cash-register",
+      color: "#8b5cf6",
+      bgColor: "rgba(139, 92, 246, 0.08)",
+      borderColor: "rgba(139, 92, 246, 0.25)",
+      route: "CashClosingReview",
+      params: undefined,
+    }
+  ], [dashboard]);
+
+  const activeAlerts = useMemo(() => alertCards.filter(card => card.count > 0), [alertCards]);
 
   if (dashboardQuery.isLoading) {
     return (
@@ -147,28 +322,107 @@ function OwnerHome({ navigate }: { navigate: (s: any, params?: any) => void }) {
       case 'sales':
         return (
           <View style={styles.gridContainer}>
-            <CategoryCard title="Walk-In Sale" icon="basket-outline" onPress={() => navigate("WalkInSale")} />
-            <CategoryCard title="Create Order" icon="package-variant" onPress={() => navigate("CreateOrder")} />
-            <CategoryCard title="Take Payment" icon="cash-register" onPress={() => navigate("TakePayment")} />
-            <CategoryCard title="Verify Payments" icon="check-decagram-outline" onPress={() => navigate("PaymentVerification")} />
-            <CategoryCard title="Customers" icon="account-group-outline" onPress={() => navigate("CustomerList")} />
+            <QuickActionCard 
+              title="Walk-In Sale" 
+              desc="Fast counter billing" 
+              icon="basket-plus" 
+              onPress={() => navigate("WalkInSale")} 
+              width={actionCardWidth}
+            />
+            <QuickActionCard 
+              title="Create Order" 
+              desc="Book customer order" 
+              icon="package-variant" 
+              onPress={() => navigate("CreateOrder")} 
+              width={actionCardWidth}
+            />
+            <QuickActionCard 
+              title="Take Payment" 
+              desc="Collect cash/UPI/cheque" 
+              icon="cash-register" 
+              onPress={() => navigate("TakePayment")} 
+              width={actionCardWidth}
+            />
+            <QuickActionCard 
+              title="Verify Payments" 
+              desc="Verify collections queue" 
+              icon="check-decagram-outline" 
+              onPress={() => navigate("PaymentVerification")} 
+              width={actionCardWidth}
+            />
+            <QuickActionCard 
+              title="Customers" 
+              desc="View profiles & dues" 
+              icon="account-group-outline" 
+              onPress={() => navigate("CustomerList")} 
+              width={actionCardWidth}
+            />
           </View>
         );
       case 'inventory':
         return (
           <View style={styles.gridContainer}>
-            <CategoryCard title="Products Catalog" icon="warehouse" onPress={() => navigate("ItemList")} />
-            <CategoryCard title="Stock Entry" icon="plus-box-outline" onPress={() => navigate("StockEntry")} />
-            <CategoryCard title="Orders to Pack" icon="package-variant-closed" onPress={() => navigate("OrdersToPack")} />
+            <QuickActionCard 
+              title="Products Catalog" 
+              desc="Browse item list" 
+              icon="format-list-bulleted" 
+              onPress={() => navigate("ItemList")} 
+              width={actionCardWidth}
+            />
+            <QuickActionCard 
+              title="Stock Entry" 
+              desc="Add incoming stock" 
+              icon="plus-box-outline" 
+              onPress={() => navigate("StockEntry")} 
+              width={actionCardWidth}
+            />
+            <QuickActionCard 
+              title="Orders to Pack" 
+              desc="Process & pack orders" 
+              icon="package-variant-closed" 
+              onPress={() => navigate("OrdersToPack")} 
+              width={actionCardWidth}
+            />
+            <QuickActionCard 
+              title="Stock History" 
+              desc="Audit stock movements" 
+              icon="history" 
+              onPress={() => navigate("StockMovementHistory")} 
+              width={actionCardWidth}
+            />
           </View>
         );
       case 'reports':
         return (
           <View style={styles.gridContainer}>
-            <CategoryCard title="Sales History" icon="receipt" onPress={() => navigate("SalesList")} />
-            <CategoryCard title="Daily Summary" icon="file-chart-outline" onPress={() => navigate("DailySummary")} />
-            <CategoryCard title="Staff Members" icon="account-tie-outline" onPress={() => navigate("StaffManagement")} />
-            <CategoryCard title="Manage Shops" icon="storefront-outline" onPress={() => navigate("Updates")} />
+            <QuickActionCard 
+              title="Sales History" 
+              desc="Invoices & GST status" 
+              icon="receipt" 
+              onPress={() => navigate("SalesList")} 
+              width={actionCardWidth}
+            />
+            <QuickActionCard 
+              title="Daily Summary" 
+              desc="Day sales & collections" 
+              icon="file-chart-outline" 
+              onPress={() => navigate("DailySummaryList")} 
+              width={actionCardWidth}
+            />
+            <QuickActionCard 
+              title="Staff Members" 
+              desc="Attendance & activity" 
+              icon="account-tie-outline" 
+              onPress={() => navigate("StaffManagement")} 
+              width={actionCardWidth}
+            />
+            <QuickActionCard 
+              title="Manage Shops" 
+              desc="Switch or add profiles" 
+              icon="storefront-outline" 
+              onPress={() => navigate("Updates")} 
+              width={actionCardWidth}
+            />
           </View>
         );
     }
@@ -179,128 +433,135 @@ function OwnerHome({ navigate }: { navigate: (s: any, params?: any) => void }) {
       {/* Greeting Header */}
       <View style={styles.greetingHeader}>
         <Text style={styles.greetingTitle}>Hello, {user?.name.split(/\s+/)[0] || 'Owner'}</Text>
-        <View style={styles.greetingSubtitleRow}>
-          <Text style={styles.greetingSubtitle}>You have pending operational tasks today</Text>
-        </View>
+        <Text style={styles.greetingSubtitle}>Here's the summary of your shop operations today</Text>
       </View>
 
-      {/* Actionable Pending Tasks Section */}
+      {/* Hero Performance Banner */}
+      <View style={styles.heroCardContainer}>
+        <LinearGradient
+          colors={['#14532d', '#22c55e']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.heroGradient}
+        >
+          <View style={styles.heroHeader}>
+            <View style={styles.heroHeaderLeft}>
+              <Icon source="storefront" size={18} color="#ffffff" />
+              <Text style={styles.heroShopName}>{selectedShop?.name || 'Active Shop'}</Text>
+            </View>
+            <View style={styles.heroHeaderRight}>
+              <Text style={styles.heroDateText}>
+                {new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.heroMetricsGrid}>
+            <View style={styles.heroMetricItem}>
+              <Text style={styles.heroMetricLabel}>TODAY'S SALES</Text>
+              <Text style={styles.heroMetricValue}>
+                ₹{Number(dashboard?.todaySales ?? 0).toLocaleString("en-IN")}
+              </Text>
+              <Text style={styles.heroMetricSub}>
+                {dashboard?.salesCount ?? 0} invoices
+              </Text>
+            </View>
+
+            <View style={styles.heroDivider} />
+
+            <View style={styles.heroMetricItem}>
+              <Text style={styles.heroMetricLabel}>EXPENSES</Text>
+              <Text style={styles.heroMetricValue}>
+                ₹{Number(dashboard?.todayExpenses ?? 0).toLocaleString("en-IN")}
+              </Text>
+              <Text style={styles.heroMetricSub}>
+                operational costs
+              </Text>
+            </View>
+
+            <View style={styles.heroDivider} />
+
+            <View style={styles.heroMetricItem}>
+              <Text style={styles.heroMetricLabel}>PENDING DMs</Text>
+              <Text style={styles.heroMetricValue}>
+                ₹{Number(dashboard?.pendingDmAmount ?? 0).toLocaleString("en-IN")}
+              </Text>
+              <Text style={styles.heroMetricSub}>
+                delivery memos
+              </Text>
+            </View>
+          </View>
+        </LinearGradient>
+      </View>
+
+      {/* Actionable Alerts Section */}
       <View style={styles.categoryHeader}>
         <Text style={styles.sectionTitleText}>PENDING WORK & ALERTS</Text>
       </View>
 
-      <View style={styles.gridContainer}>
-        {/* Verification Queue Card */}
-        <Pressable 
-          onPress={() => navigate("VerificationQueue")} 
-          style={[
-            styles.taskCard,
-            { width: cardWidth, margin: spacing.md / 2 },
-            (dashboard?.pendingVerifications ?? 0) > 0 ? styles.taskCardAlert : undefined,
-          ]}
-        >
-          {({ pressed }) => (
-            <View style={StyleSheet.flatten([styles.taskCardInner, pressed && styles.pressed])}>
-              <View style={styles.taskHeader}>
-                <Icon 
-                  source="shield-check-outline" 
-                  size={24} 
-                  color={(dashboard?.pendingVerifications ?? 0) > 0 ? colors.primary : colors.textMuted} 
-                />
-                <Text style={[
-                  styles.taskBadge, 
-                  (dashboard?.pendingVerifications ?? 0) > 0 ? styles.taskBadgeAlert : styles.taskBadgeClean
-                ]}>
-                  {dashboard?.pendingVerifications ?? 0}
-                </Text>
-              </View>
-              <Text style={styles.taskLabel}>VERIFICATIONS</Text>
-              <Text style={styles.taskDesc}>Expenses & adjustments</Text>
-            </View>
-          )}
-        </Pressable>
+      {activeAlerts.length === 0 ? (
+        <View style={styles.allClearCard}>
+          <Icon source="check-circle-outline" size={24} color={colors.success} />
+          <View style={styles.allClearContent}>
+            <Text style={styles.allClearTitle}>All caught up!</Text>
+            <Text style={styles.allClearDesc}>No pending verifications, GST bills, or stock alerts.</Text>
+          </View>
+        </View>
+      ) : (
+        <View style={styles.alertsGrid}>
+          {activeAlerts.map((card, index) => {
+            const isLastOdd = index === activeAlerts.length - 1 && activeAlerts.length % 2 !== 0;
+            const cardWidth = isLastOdd ? (windowWidth - spacing.lg * 2) : alertCardWidth;
+            return (
+              <AlertCard 
+                key={card.id}
+                title={card.title}
+                desc={card.desc}
+                count={card.count}
+                icon={card.icon}
+                color={card.color}
+                bgColor={card.bgColor}
+                borderColor={card.borderColor}
+                onPress={() => navigate(card.route, card.params)}
+                width={cardWidth}
+              />
+            );
+          })}
+        </View>
+      )}
 
-        {/* GST Pending Card */}
-        <Pressable 
-          onPress={() => navigate("SalesList", { filter: 'gst_pending' })} 
-          style={[
-            styles.taskCard,
-            { width: cardWidth, margin: spacing.md / 2 },
-            (dashboard?.gstInvoicesPendingCount ?? 0) > 0 ? styles.taskCardWarning : undefined,
-          ]}
-        >
-          {({ pressed }) => (
-            <View style={StyleSheet.flatten([styles.taskCardInner, pressed && styles.pressed])}>
-              <View style={styles.taskHeader}>
-                <Icon 
-                  source="file-percent-outline" 
-                  size={24} 
-                  color={(dashboard?.gstInvoicesPendingCount ?? 0) > 0 ? colors.warning : colors.textMuted} 
-                />
-                <Text style={[
-                  styles.taskBadge, 
-                  (dashboard?.gstInvoicesPendingCount ?? 0) > 0 ? styles.taskBadgeWarning : styles.taskBadgeClean
-                ]}>
-                  {dashboard?.gstInvoicesPendingCount ?? 0}
-                </Text>
-              </View>
-              <Text style={styles.taskLabel}>PENDING GST</Text>
-              <Text style={styles.taskDesc}>Bills to enter in Tally</Text>
-            </View>
-          )}
-        </Pressable>
-
-        {/* Low Stock Alerts Card */}
-        <Pressable 
-          onPress={() => navigate("StockDashboard")} 
-          style={[
-            styles.taskCard,
-            { width: cardWidth, margin: spacing.md / 2 },
-            (dashboard?.lowStockAlerts ?? 0) > 0 ? styles.taskCardDanger : undefined,
-          ]}
-        >
-          {({ pressed }) => (
-            <View style={StyleSheet.flatten([styles.taskCardInner, pressed && styles.pressed])}>
-              <View style={styles.taskHeader}>
-                <Icon 
-                  source="alert-circle-outline" 
-                  size={24} 
-                  color={(dashboard?.lowStockAlerts ?? 0) > 0 ? colors.danger : colors.textMuted} 
-                />
-                <Text style={[
-                  styles.taskBadge, 
-                  (dashboard?.lowStockAlerts ?? 0) > 0 ? styles.taskBadgeDanger : styles.taskBadgeClean
-                ]}>
-                  {dashboard?.lowStockAlerts ?? 0}
-                </Text>
-              </View>
-              <Text style={styles.taskLabel}>LOW STOCK</Text>
-              <Text style={styles.taskDesc}>Products below limit</Text>
-            </View>
-          )}
-        </Pressable>
-      </View>
-
-      {/* Category Wise Tab Selector */}
-      <View style={styles.categoryHeader}>
-        <View style={styles.tabBarContainer}>
+      {/* Segmented Category Switcher */}
+      <View style={styles.tabContainer}>
+        <View style={styles.segmentedControl}>
           <Pressable 
-            onPress={() => setActiveCategory('sales')}
-            style={[styles.tabButton, activeCategory === 'sales' && styles.tabButtonActive]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setActiveCategory('sales');
+            }}
+            style={[styles.segmentButton, activeCategory === 'sales' && styles.segmentButtonActive]}
           >
-            <Text style={[styles.tabButtonText, activeCategory === 'sales' && styles.tabButtonTextActive]}>SALES</Text>
+            <Icon source="basket-outline" size={18} color={activeCategory === 'sales' ? colors.primary : colors.textMuted} />
+            <Text style={[styles.segmentButtonText, activeCategory === 'sales' && styles.segmentButtonTextActive]}>Sales</Text>
           </Pressable>
           <Pressable 
-            onPress={() => setActiveCategory('inventory')}
-            style={[styles.tabButton, activeCategory === 'inventory' && styles.tabButtonActive]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setActiveCategory('inventory');
+            }}
+            style={[styles.segmentButton, activeCategory === 'inventory' && styles.segmentButtonActive]}
           >
-            <Text style={[styles.tabButtonText, activeCategory === 'inventory' && styles.tabButtonTextActive]}>INVENTORY</Text>
+            <Icon source="warehouse" size={18} color={activeCategory === 'inventory' ? colors.primary : colors.textMuted} />
+            <Text style={[styles.segmentButtonText, activeCategory === 'inventory' && styles.segmentButtonTextActive]}>Inventory</Text>
           </Pressable>
           <Pressable 
-            onPress={() => setActiveCategory('reports')}
-            style={[styles.tabButton, activeCategory === 'reports' && styles.tabButtonActive]}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setActiveCategory('reports');
+            }}
+            style={[styles.segmentButton, activeCategory === 'reports' && styles.segmentButtonActive]}
           >
-            <Text style={[styles.tabButtonText, activeCategory === 'reports' && styles.tabButtonTextActive]}>REPORTS</Text>
+            <Icon source="file-chart-outline" size={18} color={activeCategory === 'reports' ? colors.primary : colors.textMuted} />
+            <Text style={[styles.segmentButtonText, activeCategory === 'reports' && styles.segmentButtonTextActive]}>Reports</Text>
           </Pressable>
         </View>
       </View>
@@ -714,5 +975,220 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
     fontWeight: fontWeight.bold,
     color: colors.textPrimary,
+  },
+  // Redesigned Owner Dashboard Styles
+  heroCardContainer: {
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.xs,
+  },
+  heroGradient: {
+    borderRadius: 24,
+    padding: spacing.xl,
+    gap: spacing.lg,
+    ...shadow.md,
+  },
+  heroHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.12)',
+    paddingBottom: spacing.md,
+  },
+  heroHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  heroShopName: {
+    color: '#ffffff',
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.extrabold,
+    letterSpacing: 0.5,
+  },
+  heroHeaderRight: {
+    alignItems: 'flex-end',
+  },
+  heroDateText: {
+    color: 'rgba(255, 255, 255, 0.75)',
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.semibold,
+  },
+  heroMetricsGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  heroMetricItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  heroMetricLabel: {
+    color: 'rgba(255, 255, 255, 0.6)',
+    fontSize: 9,
+    fontWeight: fontWeight.black,
+    letterSpacing: 0.5,
+  },
+  heroMetricValue: {
+    color: '#ffffff',
+    fontSize: fontSize.xl,
+    fontWeight: fontWeight.black,
+    marginVertical: 2,
+  },
+  heroMetricSub: {
+    color: 'rgba(255, 255, 255, 0.7)',
+    fontSize: 9,
+    fontWeight: fontWeight.medium,
+  },
+  heroDivider: {
+    width: 1,
+    height: 36,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+  },
+  alertsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    paddingHorizontal: spacing.lg - (spacing.md / 2),
+  },
+  alertCard: {
+    borderWidth: 1.5,
+    borderRadius: 20,
+    minHeight: 110,
+    margin: spacing.md / 2,
+    ...shadow.sm,
+  },
+  alertCardInner: {
+    flex: 1,
+    padding: spacing.md,
+    justifyContent: 'space-between',
+  },
+  alertCardHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  alertIconBg: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  alertBadge: {
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    minWidth: 20,
+    alignItems: 'center',
+  },
+  alertBadgeText: {
+    fontSize: 10,
+    fontWeight: fontWeight.bold,
+  },
+  alertCardLabel: {
+    fontSize: 10,
+    fontWeight: fontWeight.black,
+    color: colors.textPrimary,
+    letterSpacing: 0.5,
+    marginTop: spacing.md,
+  },
+  alertCardDesc: {
+    fontSize: 9,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  tabContainer: {
+    paddingHorizontal: spacing.lg,
+    marginTop: spacing.lg,
+  },
+  segmentedControl: {
+    flexDirection: 'row',
+    backgroundColor: '#e2e8f0',
+    borderRadius: 24,
+    padding: 4,
+    gap: 4,
+  },
+  segmentButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 20,
+  },
+  segmentButtonActive: {
+    backgroundColor: colors.surface,
+    ...shadow.sm,
+  },
+  segmentButtonText: {
+    fontSize: 12.5,
+    fontWeight: fontWeight.bold,
+    color: colors.textSecondary,
+  },
+  segmentButtonTextActive: {
+    color: colors.primary,
+  },
+  actionCard: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 20,
+    minHeight: 120,
+    ...shadow.sm,
+  },
+  actionCardInner: {
+    flex: 1,
+    padding: spacing.lg,
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  actionCardIconBg: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: colors.primaryLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionCardContent: {
+    width: '100%',
+  },
+  actionCardTitle: {
+    fontSize: 13.5,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+    marginTop: spacing.xs,
+  },
+  actionCardDesc: {
+    fontSize: 10,
+    color: colors.textSecondary,
+    lineHeight: 14,
+    marginTop: 2,
+  },
+  allClearCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.primaryLight,
+    borderWidth: 1,
+    borderColor: 'rgba(22, 163, 74, 0.2)',
+    borderRadius: 20,
+    padding: spacing.lg,
+    marginHorizontal: spacing.lg,
+    gap: spacing.md,
+  },
+  allClearContent: {
+    flex: 1,
+  },
+  allClearTitle: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.bold,
+    color: colors.primaryDark,
+  },
+  allClearDesc: {
+    fontSize: fontSize.xs,
+    color: colors.primaryDark,
+    opacity: 0.8,
+    marginTop: 2,
   },
 });
