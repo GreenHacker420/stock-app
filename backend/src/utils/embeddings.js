@@ -1,10 +1,13 @@
-import { pipeline } from '@xenova/transformers';
+import { pipeline, env } from '@xenova/transformers';
+
+// Configure cache directory to use writable /tmp in containerized environment
+env.cacheDir = '/tmp/transformers-cache';
 
 let extractorInstance = null;
 
 async function getExtractor() {
   if (!extractorInstance) {
-    // Disable local model check warnings and default cache configuration if needed
+    // Disable local model check warnings and default cache configuration
     extractorInstance = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
   }
   return extractorInstance;
