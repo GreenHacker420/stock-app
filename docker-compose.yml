@@ -17,6 +17,7 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - JWT_SECRET=${JWT_SECRET}
       - CORS_ORIGIN=${CORS_ORIGIN}
+      - REDIS_URL=${REDIS_URL}
       - NODE_ENV=production
       - PORT=6600
     networks:
