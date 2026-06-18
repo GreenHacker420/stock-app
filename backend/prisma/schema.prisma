@@ -387,6 +387,10 @@ model Shop {
   approvalRequests ApprovalRequest[]
   attendance       Attendance[]
 
+  waConversations  WaConversation[]
+  waTemplates      WaTemplate[]
+  waFlows          WaFlow[]
+
   @@index([ownerId])
 }
 
@@ -431,6 +435,7 @@ model Customer {
   deliveryMemos    DeliveryMemo[]
   payments         Payment[]
   inventoryReturns InventoryReturn[]
+  waConversations  WaConversation[]
 
   @@index([shopId])
   @@index([phone])
@@ -1094,4 +1099,122 @@ model LeaveRequest {
   staff User @relation(fields: [staffId], references: [id])
 
   @@index([staffId])
+}
+
+// --- WHATSAPP MODELS ---
+
+enum WaMessageStatus {
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+enum WaMessageType {
+  TEXT
+  IMAGE
+  DOCUMENT
+  AUDIO
+  VIDEO
+  STICKER
+  TEMPLATE
+  FLOW
+}
+
+enum WaMessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+model WaConversation {
+  id                     String    @id @default(cuid())
+  shopId                 String
+  customerId             String?
+  phone                  String
+  contactName            String?
+  lastCustomerMessageAt  DateTime?
+  unreadCount            Int       @default(0)
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  shop          Shop      @relation(fields: [shopId], references: [id])
+  customer      Customer? @relation(fields: [customerId], references: [id])
+  messages      WaMessage[]
+  flowExecutions WaFlowExecution[]
+
+  @@unique([shopId, phone])
+}
+
+model WaMessage {
+  id                String          @id @default(cuid())
+  conversationId    String
+  metaMessageId     String?         @unique
+  direction         WaMessageDirection
+  status            WaMessageStatus @default(QUEUED)
+  type              WaMessageType   @default(TEXT)
+  content           Json?           // Text content or media metadata
+  mediaUrl          String?
+  mimeType          String?
+  fileName          String?
+  templateId        String?
+  deliveredAt       DateTime?
+  readAt            DateTime?
+  failedAt          DateTime?
+  errorMessage      String?
+  createdAt         DateTime        @default(now())
+
+  conversation      WaConversation  @relation(fields: [conversationId], references: [id])
+}
+
+model WaWebhookEvent {
+  id          String   @id // Meta's WAMID or event ID
+  processedAt DateTime @default(now())
+}
+
+model WaTemplate {
+  id             String   @id @default(cuid())
+  shopId         String
+  name           String
+  language       String
+  status         String
+  category       String
+  components     Json
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  shop           Shop     @relation(fields: [shopId], references: [id])
+}
+
+model WaTemplateUsage {
+  id          String   @id @default(cuid())
+  templateId  String
+  sentCount   Int      @default(0)
+  readCount   Int      @default(0)
+  replyCount  Int      @default(0)
+}
+
+model WaFlow {
+  id          String   @id @default(cuid())
+  shopId      String
+  flowId      String?  @unique
+  name        String
+  status      String
+  flowJson    Json?
+  createdAt   DateTime @default(now())
+
+  shop        Shop     @relation(fields: [shopId], references: [id])
+}
+
+model WaFlowExecution {
+  id             String   @id @default(cuid())
+  flowId         String
+  conversationId String
+  status         String   // STARTED, COMPLETED, CANCELLED
+  inputJson      Json?
+  resultJson     Json?
+  startedAt      DateTime @default(now())
+  completedAt    DateTime?
+
+  conversation   WaConversation @relation(fields: [conversationId], references: [id])
 }
