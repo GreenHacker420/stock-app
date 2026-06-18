@@ -493,43 +493,6 @@ function OwnerHome({ navigate }: { navigate: (s: any, params?: any) => void }) {
           </View>
         </LinearGradient>
       </View>
-
-      {/* Actionable Alerts Section */}
-      <View style={styles.categoryHeader}>
-        <Text style={styles.sectionTitleText}>PENDING WORK & ALERTS</Text>
-      </View>
-
-      {activeAlerts.length === 0 ? (
-        <View style={styles.allClearCard}>
-          <Icon source="check-circle-outline" size={24} color={colors.success} />
-          <View style={styles.allClearContent}>
-            <Text style={styles.allClearTitle}>All caught up!</Text>
-            <Text style={styles.allClearDesc}>No pending verifications, GST bills, or stock alerts.</Text>
-          </View>
-        </View>
-      ) : (
-        <View style={styles.alertsGrid}>
-          {activeAlerts.map((card, index) => {
-            const isLastOdd = index === activeAlerts.length - 1 && activeAlerts.length % 2 !== 0;
-            const cardWidth = isLastOdd ? (windowWidth - spacing.lg * 2) : alertCardWidth;
-            return (
-              <AlertCard 
-                key={card.id}
-                title={card.title}
-                desc={card.desc}
-                count={card.count}
-                icon={card.icon}
-                color={card.color}
-                bgColor={card.bgColor}
-                borderColor={card.borderColor}
-                onPress={() => navigate(card.route, card.params)}
-                width={cardWidth}
-              />
-            );
-          })}
-        </View>
-      )}
-
       {/* Segmented Category Switcher */}
       <View style={styles.tabContainer}>
         <View style={styles.segmentedControl}>

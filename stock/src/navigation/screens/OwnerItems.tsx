@@ -5,6 +5,7 @@ import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
 import { useQuery } from "@tanstack/react-query";
 import { useRoute } from "@react-navigation/native";
+import * as Haptics from "expo-haptics";
 
 import { 
   fetchItems, 
@@ -38,6 +39,24 @@ const getAvatarColor = (name: string) => {
   return colorsList[charCodeSum % colorsList.length];
 };
 
+const formatItemName = (name: string) => {
+  return name
+    .split(/\s+/)
+    .map(word => {
+      if (!word) return "";
+      if (
+        /^\d/.test(word) ||
+        ["SKU", "RC", "N/A", "3D", "103D", "1043D", "104A/1104", "1053", "109/1710", "MTR", "HDMI", "USB", "RAM", "SSD"].includes(
+          word.toUpperCase()
+        )
+      ) {
+        return word.toUpperCase();
+      }
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    })
+    .join(" ");
+};
+
 const ItemCard = memo(({ 
   item, 
   stock, 
@@ -53,7 +72,6 @@ const ItemCard = memo(({
 }) => {
   const isLow = stock <= Number(item.minimumStock);
   const isOut = stock <= 0;
-  const avatarColors = getAvatarColor(item.name);
   const statusColor = isOut ? colors.danger : isLow ? colors.warning : colors.success;
 
   return (
@@ -68,11 +86,8 @@ const ItemCard = memo(({
           pressed && styles.itemCardPressed
         ]}>
           <View style={styles.itemCardRow}>
-            <View style={[styles.itemAvatar, { backgroundColor: avatarColors.bg }]}>
-              <Text style={[styles.itemAvatarText, { color: avatarColors.text }]}>{item.name[0].toUpperCase()}</Text>
-            </View>
             <View style={styles.itemDetails}>
-              <Text style={styles.itemName} numberOfLines={1}>{item.name}</Text>
+              <Text style={styles.itemName} numberOfLines={1}>{formatItemName(item.name)}</Text>
               <Text style={styles.itemSubtitle}>{item.sku ? `SKU: ${item.sku}` : "No SKU"} • {item.unit}</Text>
               
               <View style={styles.itemStockCountContainer}>
@@ -89,30 +104,45 @@ const ItemCard = memo(({
                  label={isOut ? "OUT OF STOCK" : isLow ? "LOW STOCK" : "IN STOCK"} 
                  tone={isOut ? "red" : isLow ? "amber" : "green"} 
                />
-               <Pressable onPress={onEdit} style={[styles.actionButton, { backgroundColor: colors.surfaceOffset }]}>
+               <Pressable 
+                 onPress={() => {
+                   Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                   onEdit();
+                 }} 
+                 style={[styles.actionButton, { backgroundColor: colors.surfaceOffset }]}
+               >
                   <Icon source="pencil-outline" size={16} color={colors.textSecondary} />
                </Pressable>
             </View>
           </View>
           
-          <View style={styles.itemFooterGrid}>
-             <View style={[styles.priceCapsule, { backgroundColor: colors.primaryLight }]}>
-                <Text style={[styles.priceCapsuleLabel, { color: colors.primaryDark }]}>SELL</Text>
-                <Text style={[styles.priceCapsuleValue, { color: colors.primaryDark }]}>{money(item.defaultSellingPrice)}</Text>
+          <View style={styles.itemFooterRow}>
+             <View style={styles.priceRow}>
+                <Text style={styles.priceText}>
+                  Sell: <Text style={styles.priceBold}>{money(item.defaultSellingPrice)}</Text>
+                </Text>
+                <Text style={styles.priceDivider}>•</Text>
+                <Text style={styles.priceText}>
+                  MRP: <Text style={styles.priceValue}>{money(item.mrp)}</Text>
+                </Text>
+                {item.minimumAllowedPrice ? (
+                  <>
+                    <Text style={styles.priceDivider}>•</Text>
+                    <Text style={styles.priceText}>
+                      Min: <Text style={[styles.priceValue, { color: colors.warning }]}>{money(item.minimumAllowedPrice)}</Text>
+                    </Text>
+                  </>
+                ) : null}
              </View>
-             <View style={[styles.priceCapsule, { backgroundColor: colors.surface }]}>
-                <Text style={[styles.priceCapsuleLabel, { color: colors.textSecondary }]}>MRP</Text>
-                <Text style={[styles.priceCapsuleValue, { color: colors.textPrimary }]}>{money(item.mrp)}</Text>
-             </View>
-             {item.minimumAllowedPrice ? (
-               <View style={[styles.priceCapsule, { backgroundColor: 'rgba(217, 119, 6, 0.08)', borderColor: 'rgba(217, 119, 6, 0.15)', borderWidth: 1 }]}>
-                  <Text style={[styles.priceCapsuleLabel, { color: colors.warning }]}>MIN</Text>
-                  <Text style={[styles.priceCapsuleValue, { color: colors.warning }]}>{money(item.minimumAllowedPrice)}</Text>
-               </View>
-             ) : null}
-             <Pressable onPress={onManageStock} style={styles.miniRestockBtn}>
-                <Icon source="plus-box" size={14} color={colors.primary} />
-                <Text style={styles.miniRestockText}>RESTOCK</Text>
+             <Pressable 
+               onPress={() => {
+                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                 onManageStock();
+               }} 
+               style={styles.restockButton}
+             >
+                <Icon source="plus" size={14} color={colors.primary} />
+                <Text style={styles.restockButtonText}>RESTOCK</Text>
              </Pressable>
           </View>
         </View>
@@ -127,11 +157,12 @@ export function ItemList() {
   const [search, setSearch] = useState("");
   const [debouncedSearch] = useDebounce(search, 300);
   const [filter, setFilter] = useState<"ALL" | "LOW" | "OUT">("ALL");
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
 
   const itemsQuery = useItemsQuery({ search: debouncedSearch, limit: 20 });
   const stockQuery = useQuery({
     queryKey: ["all-stock", activeShopId],
-    queryFn: () => fetchItems(token ?? "", activeShopId ?? ""),
+    queryFn: () => fetchItems(token ?? "", activeShopId ?? "", { limit: 1000 }),
     enabled: !!activeShopId && !!token,
   });
 
@@ -143,16 +174,38 @@ export function ItemList() {
     return map;
   }, [stockQuery.data]);
 
+  const categories = useMemo(() => {
+    const map = new Map<string, { id: string; name: string }>();
+    (stockQuery.data as any)?.items?.forEach((i: any) => {
+      if (i.category) {
+        map.set(i.category.id, i.category);
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name));
+  }, [stockQuery.data]);
+
   const filteredItems = useMemo(() => {
-    const all = itemsQuery.data?.items ?? [];
-    if (filter === "ALL") return all;
-    return all.filter(item => {
+    let all = itemsQuery.data?.items ?? [];
+    
+    // If search is empty, browse using stockQuery (which fetches up to 1000 items)
+    // so we don't truncate category lists or browse lists to just 20 items.
+    if (!debouncedSearch.trim() && (stockQuery.data as any)?.items) {
+      all = (stockQuery.data as any).items;
+    }
+
+    let result = all.filter(item => {
        const stock = stockByItem.get(item.id) ?? 0;
        if (filter === "OUT") return stock <= 0;
        if (filter === "LOW") return stock <= Number(item.minimumStock) && stock > 0;
        return true;
     });
-  }, [itemsQuery.data, filter, stockByItem]);
+
+    if (selectedCategory) {
+      result = result.filter(item => item.category?.id === selectedCategory);
+    }
+
+    return result;
+  }, [itemsQuery.data, stockQuery.data, debouncedSearch, filter, stockByItem, selectedCategory]);
 
   const totalCount = itemsQuery.data?.total ?? 0;
   const outOfStockCount = Array.from(stockByItem.values()).filter(v => v <= 0).length;
@@ -171,8 +224,11 @@ export function ItemList() {
             data={filteredItems}
             keyExtractor={(item: Item) => item.id}
             estimatedItemSize={160}
-            onRefresh={itemsQuery.refetch}
-            refreshing={itemsQuery.isFetching}
+            onRefresh={() => {
+              itemsQuery.refetch();
+              stockQuery.refetch();
+            }}
+            refreshing={itemsQuery.isFetching || stockQuery.isFetching}
             ListHeaderComponent={
               <View style={styles.headerComponent}>
                 
@@ -211,13 +267,60 @@ export function ItemList() {
                 {/* Sleek Search Console */}
                 <Searchbar 
                   value={search} 
-                  onChangeText={setSearch} 
+                  onChangeText={(text) => {
+                    setSearch(text);
+                    if (text.trim() !== "") {
+                      setSelectedCategory(null); // Clear category filter when searching on backend
+                    }
+                  }} 
                   placeholder="Search item name or SKU..." 
                   style={styles.searchBar} 
                   inputStyle={styles.searchInput}
                   iconColor={colors.textSecondary}
                 />
                 
+                {/* Category Filter Chips */}
+                {categories.length > 0 && (
+                  <View style={styles.categoryChipsOuter}>
+                    <ScrollView 
+                      horizontal 
+                      showsHorizontalScrollIndicator={false} 
+                      contentContainerStyle={styles.categoryChipsRow}
+                    >
+                      <Pressable 
+                        onPress={() => {
+                          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                          setSelectedCategory(null);
+                        }}
+                        style={[styles.categoryChip, !selectedCategory && styles.categoryChipActive]}
+                      >
+                        <Text style={[styles.categoryChipText, !selectedCategory && styles.categoryChipTextActive]}>
+                          All Categories
+                        </Text>
+                      </Pressable>
+
+                      {categories.map((cat) => {
+                        const isSelected = selectedCategory === cat.id;
+                        return (
+                          <Pressable 
+                            key={cat.id}
+                            onPress={() => {
+                              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                              setSelectedCategory(cat.id);
+                              setSearch(""); // Clear search when switching categories to browse category items
+                            }}
+                            style={[styles.categoryChip, isSelected && styles.categoryChipActive]}
+                          >
+                            <Text style={[styles.categoryChipText, isSelected && styles.categoryChipTextActive]}>
+                              {cat.name}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </ScrollView>
+                  </View>
+                )}
+
                 {/* Visual Active Filter Chips */}
                 <View style={styles.filterOuterContainer}>
                   <ScrollView 
@@ -926,6 +1029,34 @@ const styles = StyleSheet.create({
     color: colors.primary,
     fontWeight: fontWeight.black,
   },
+  categoryChipsOuter: {
+    paddingVertical: 2,
+    marginTop: spacing.xs,
+  },
+  categoryChipsRow: {
+    gap: spacing.xs,
+  },
+  categoryChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: radius.full,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceOffset,
+  },
+  categoryChipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  categoryChipText: {
+    fontSize: 11,
+    fontWeight: fontWeight.bold,
+    color: colors.textSecondary,
+  },
+  categoryChipTextActive: {
+    color: '#ffffff',
+    fontWeight: fontWeight.black,
+  },
   listContent: {
     paddingBottom: 130, // Clears bottom bar and fab
     paddingHorizontal: spacing.lg,
@@ -1014,49 +1145,52 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
 
-  // Footer pricing capsules inside product card
-  itemFooterGrid: {
+  // Footer pricing inside product card
+  itemFooterRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: spacing.md,
-    backgroundColor: colors.surfaceOffset,
-    padding: 6,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    gap: spacing.xs,
+    marginTop: spacing.sm,
+    paddingTop: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
   },
-  priceCapsule: {
-    flexDirection: 'column',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: radius.md,
+  priceRow: {
+    flexDirection: 'row',
     alignItems: 'center',
-    minWidth: 60,
+    gap: spacing.xs + 2,
+    flexWrap: 'wrap',
+    flex: 1,
   },
-  priceCapsuleLabel: {
-    fontSize: 8,
-    fontWeight: fontWeight.black,
-    letterSpacing: 0.5,
-    marginBottom: 1,
-  },
-  priceCapsuleValue: {
+  priceText: {
     fontSize: 11,
-    fontWeight: fontWeight.extrabold,
+    color: colors.textSecondary,
+    fontWeight: fontWeight.medium,
   },
-  miniRestockBtn: {
+  priceBold: {
+    fontWeight: fontWeight.bold,
+    color: colors.primary,
+  },
+  priceValue: {
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  priceDivider: {
+    fontSize: 10,
+    color: colors.textMuted,
+  },
+  restockButton: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: colors.primaryLight,
-    paddingHorizontal: spacing.sm + 2,
-    paddingVertical: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
     borderRadius: radius.md,
-    gap: 4,
+    gap: 3,
   },
-  miniRestockText: {
-    fontSize: 10,
-    fontWeight: fontWeight.extrabold,
+  restockButtonText: {
+    fontSize: 9,
+    fontWeight: fontWeight.black,
     color: colors.primary,
     letterSpacing: 0.5,
   },

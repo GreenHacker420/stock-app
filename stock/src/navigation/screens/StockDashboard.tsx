@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 import { View, StyleSheet, Pressable, ScrollView, ActivityIndicator } from "react-native";
 import { Searchbar, Divider, Text, Icon } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
+import * as Haptics from "expo-haptics";
 
 import { useCurrentStockQuery } from "../../hooks/useItems";
 import { type StockLevel } from "../../api/client";
@@ -16,7 +17,7 @@ import { navigate } from "../navigation-ref";
 
 export function StockDashboard() {
   const [search, setSearch] = useState("");
-  const [activeTab, setActiveTab] = useState<"all" | "low" | "out">("all");
+  const [activeTab, setActiveTab] = useState<"all" | "in_stock" | "low" | "out">("all");
 
   const stockQuery = useCurrentStockQuery();
 
@@ -35,6 +36,11 @@ export function StockDashboard() {
     [allRecords]
   );
 
+  const inStockCount = useMemo(() => 
+    allRecords.filter(r => r.currentQuantity > Number(r.item?.minimumStock ?? 0)).length,
+    [allRecords]
+  );
+
   // 2. Filter records by search and active tab
   const filteredRecords = useMemo(() => {
     return allRecords.filter((record) => {
@@ -46,6 +52,7 @@ export function StockDashboard() {
 
       if (!matchesSearch) return false;
 
+      if (activeTab === "in_stock") return record.currentQuantity > Number(record.item?.minimumStock ?? 0);
       if (activeTab === "low") return record.isLowStock && record.currentQuantity > 0;
       if (activeTab === "out") return record.currentQuantity <= 0;
 
@@ -75,7 +82,10 @@ export function StockDashboard() {
         {/* Quick Summary Metrics */}
         <View style={styles.statsRow}>
           <Pressable 
-            onPress={() => setActiveTab("all")}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setActiveTab("all");
+            }}
             style={[styles.statCard, activeTab === "all" && styles.statCardSelected]}
           >
             <Text style={styles.statLabel}>ALL PRODUCTS</Text>
@@ -83,7 +93,10 @@ export function StockDashboard() {
           </Pressable>
           
           <Pressable 
-            onPress={() => setActiveTab("low")}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setActiveTab("low");
+            }}
             style={[
               styles.statCard, 
               activeTab === "low" && styles.statCardSelected,
@@ -95,7 +108,10 @@ export function StockDashboard() {
           </Pressable>
 
           <Pressable 
-            onPress={() => setActiveTab("out")}
+            onPress={() => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              setActiveTab("out");
+            }}
             style={[
               styles.statCard, 
               activeTab === "out" && styles.statCardSelected,
@@ -138,12 +154,15 @@ export function StockDashboard() {
         {/* Tab Selection */}
         <View style={styles.tabContainer}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabScroll}>
-            {(["all", "low", "out"] as const).map((tab) => {
-              const label = tab === "all" ? "All Items" : tab === "low" ? "Low Stock" : "Out of Stock";
+            {(["all", "in_stock", "low", "out"] as const).map((tab) => {
+              const label = tab === "all" ? "All Items" : tab === "in_stock" ? "In Stock" : tab === "low" ? "Low Stock" : "Out of Stock";
               return (
                 <Pressable
                   key={tab}
-                  onPress={() => setActiveTab(tab)}
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    setActiveTab(tab);
+                  }}
                   style={[styles.tabButton, activeTab === tab && styles.tabButtonActive]}
                 >
                   <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>

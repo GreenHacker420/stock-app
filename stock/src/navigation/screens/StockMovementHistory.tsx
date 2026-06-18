@@ -1,6 +1,9 @@
 import React, { useState } from "react";
-import { View, StyleSheet, ScrollView, Pressable, ActivityIndicator, RefreshControl } from "react-native";
-import { Text, Card, Icon } from "react-native-paper";
+import { View, StyleSheet, ScrollView, Pressable, ActivityIndicator } from "react-native";
+import { Text, Icon } from "react-native-paper";
+import { FlashList } from "@shopify/flash-list";
+import * as Haptics from "expo-haptics";
+
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { StatusPill } from "../../components/ui/StatusPill";
@@ -13,6 +16,86 @@ const qty = (val?: string | number | null) => {
   return num % 1 === 0 ? num.toString() : num.toFixed(3);
 };
 
+const formatItemName = (name: string) => {
+  return name
+    .split(/\s+/)
+    .map(word => {
+      if (!word) return "";
+      if (
+        /^\d/.test(word) ||
+        ["SKU", "RC", "N/A", "3D", "103D", "1043D", "104A/1104", "1053", "109/1710", "MTR", "HDMI", "USB", "RAM", "SSD"].includes(
+          word.toUpperCase()
+        )
+      ) {
+        return word.toUpperCase();
+      }
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    })
+    .join(" ");
+};
+
+const getMovementTone = (type?: string) => {
+  switch (type) {
+    case "STOCK_IN":
+    case "RETURN":
+    case "OPENING_STOCK":
+      return "green";
+    case "SALE":
+    case "DM":
+    case "STOCK_OUT":
+    case "ORDER_DISPATCH":
+      return "blue";
+    case "DAMAGE_LOSS":
+      return "red";
+    case "MANUAL_ADJUSTMENT":
+    default:
+      return "neutral";
+  }
+};
+
+const getMovementLabel = (type?: string) => {
+  return (type || "MOVEMENT").replace("_", " ").toLowerCase().split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+};
+
+const getMovementStyle = (type: string) => {
+  switch (type) {
+    case "STOCK_IN":
+    case "RETURN":
+    case "OPENING_STOCK":
+      return {
+        borderColor: colors.success,
+        bgTint: "rgba(22, 163, 74, 0.02)",
+        badgeBg: "rgba(22, 163, 74, 0.08)",
+        textColor: colors.success,
+      };
+    case "DAMAGE_LOSS":
+    case "STOCK_OUT":
+      return {
+        borderColor: colors.danger,
+        bgTint: "rgba(220, 38, 38, 0.02)",
+        badgeBg: "rgba(220, 38, 38, 0.08)",
+        textColor: colors.danger,
+      };
+    case "SALE":
+    case "DM":
+    case "ORDER_DISPATCH":
+      return {
+        borderColor: colors.primary,
+        bgTint: "rgba(37, 99, 235, 0.02)",
+        badgeBg: "rgba(37, 99, 235, 0.08)",
+        textColor: colors.primary,
+      };
+    case "MANUAL_ADJUSTMENT":
+    default:
+      return {
+        borderColor: colors.warning,
+        bgTint: "rgba(217, 119, 6, 0.02)",
+        badgeBg: "rgba(217, 119, 6, 0.08)",
+        textColor: colors.warning,
+      };
+  }
+};
+
 export function StockMovementHistory() {
   const [filterType, setFilterType] = useState<string | undefined>(undefined);
   const { data: movements, isLoading, isFetching, refetch } = useStockMovementsQuery(undefined, filterType);
@@ -22,33 +105,14 @@ export function StockMovementHistory() {
     { label: "STOCK IN", value: "STOCK_IN" },
     { label: "SALES", value: "SALE" },
     { label: "MEMOS", value: "DM" },
-    { label: "ADJUST", value: "ADJUSTMENT" },
-    { label: "DAMAGE", value: "DAMAGE" },
+    { label: "ADJUST", value: "MANUAL_ADJUSTMENT" },
+    { label: "DAMAGE", value: "DAMAGE_LOSS" },
   ];
 
-  const getMovementTone = (type?: string) => {
-    switch (type) {
-      case "STOCK_IN":
-      case "RETURN":
-        return "green";
-      case "SALE":
-      case "DM":
-      case "STOCK_OUT":
-        return "blue";
-      case "DAMAGE":
-        return "red";
-      case "ADJUSTMENT":
-      default:
-        return "neutral";
-    }
-  };
-
-  const getMovementLabel = (type?: string) => {
-    return (type || "MOVEMENT").replace("_", " ");
-  };
+  const List = FlashList as any;
 
   return (
-    <Screen edges={["top", "left", "right"]}>
+    <Screen edges={["top", "left", "right"]} scroll={false}>
       <AppHeader 
         title="Stock Ledger" 
         subtitle="Physical inventory transactions & audit logs." 
@@ -67,7 +131,10 @@ export function StockMovementHistory() {
             return (
               <Pressable
                 key={tab.label}
-                onPress={() => setFilterType(tab.value)}
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setFilterType(tab.value);
+                }}
                 style={[
                   styles.filterPill,
                   isActive && styles.filterPillActive
@@ -85,57 +152,61 @@ export function StockMovementHistory() {
         </ScrollView>
       </View>
 
-      {isLoading ? (
-        <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
-        </View>
-      ) : movements && movements.length > 0 ? (
-        <ScrollView 
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl 
-              refreshing={isFetching} 
-              onRefresh={refetch} 
-              colors={[colors.primary]} 
-            />
-          }
-        >
-          {movements.map((move: any) => {
-            const hasIn = Number(move.quantityIn || 0) > 0;
-            const quantity = hasIn ? move.quantityIn : move.quantityOut;
-            const dateStr = new Date(move.createdAt).toLocaleDateString("en-IN", {
-              day: "numeric",
-              month: "short",
-              hour: "2-digit",
-              minute: "2-digit"
-            });
-            const itemTitle = move.item?.name || "Unknown Item";
-            const operator = move.createdBy?.name || "System";
+      <View style={styles.listWrapper}>
+        {isLoading ? (
+          <View style={styles.centerContainer}>
+            <ActivityIndicator size="large" color={colors.primary} />
+          </View>
+        ) : (
+          <List
+            data={movements}
+            keyExtractor={(item: any) => item.id}
+            estimatedItemSize={115}
+            onRefresh={refetch}
+            refreshing={isFetching}
+            renderItem={({ item: move }: { item: any }) => {
+              const hasIn = Number(move.quantityIn || 0) > 0;
+              const quantity = hasIn ? move.quantityIn : move.quantityOut;
+              const dateStr = new Date(move.createdAt).toLocaleDateString("en-IN", {
+                day: "numeric",
+                month: "short",
+                hour: "2-digit",
+                minute: "2-digit"
+              });
+              const itemTitle = move.item?.name ? formatItemName(move.item.name) : "Unknown Item";
+              const operator = move.createdBy?.name || "System";
+              const mvStyle = getMovementStyle(move.movementType);
 
-            // Reference logic
-            let referenceLabel = "Internal Entry";
-            let referenceIcon = "file-document-outline";
-            if (move.sale) {
-              referenceLabel = `Invoice #${move.sale.saleNumber}`;
-              referenceIcon = "receipt";
-            } else if (move.deliveryMemo) {
-              referenceLabel = `DM #${move.deliveryMemo.dmNumber}`;
-              referenceIcon = "truck-delivery";
-            } else if (move.order) {
-              referenceLabel = `Order #${move.order.orderNumber}`;
-              referenceIcon = "cart-outline";
-            }
+              // Reference logic
+              let referenceLabel = "Internal Entry";
+              let referenceIcon = "file-document-outline";
+              if (move.sale) {
+                referenceLabel = `Invoice #${move.sale.saleNumber}`;
+                referenceIcon = "receipt";
+              } else if (move.deliveryMemo) {
+                referenceLabel = `DM #${move.deliveryMemo.dmNumber}`;
+                referenceIcon = "truck-delivery";
+              } else if (move.order) {
+                referenceLabel = `Order #${move.order.orderNumber}`;
+                referenceIcon = "cart-outline";
+              }
 
-            return (
-              <Card key={move.id} style={styles.ledgerCard}>
-                <Card.Content style={styles.cardContent}>
-                  {/* Left row / main details */}
-                  <View style={styles.cardBody}>
+              return (
+                <View style={[
+                  styles.ledgerCard,
+                  { borderLeftColor: mvStyle.borderColor, backgroundColor: colors.surface }
+                ]}>
+                  <View style={styles.cardInner}>
+                    {/* Left details */}
                     <View style={styles.detailsCol}>
                       <Text style={styles.itemText} numberOfLines={1}>{itemTitle}</Text>
                       
                       <View style={styles.metaRow}>
+                        <StatusPill 
+                          label={getMovementLabel(move.movementType)} 
+                          tone={getMovementTone(move.movementType)}
+                          style={styles.typePill}
+                        />
                         <View style={styles.iconLabel}>
                           <Icon source="account-circle-outline" size={14} color={colors.textMuted} />
                           <Text style={styles.metaText}>{operator}</Text>
@@ -158,43 +229,43 @@ export function StockMovementHistory() {
                       )}
                     </View>
 
-                    {/* Right row / quantities & type */}
+                    {/* Right quantities */}
                     <View style={styles.qtyCol}>
                       <View style={[
                         styles.qtyBadge,
-                        hasIn ? styles.qtyBadgeIn : styles.qtyBadgeOut
+                        { backgroundColor: mvStyle.badgeBg }
                       ]}>
                         <Text style={[
                           styles.qtyText,
-                          hasIn ? styles.qtyTextIn : styles.qtyTextOut
+                          { color: mvStyle.textColor }
                         ]}>
                           {hasIn ? "+" : "-"}{qty(quantity)}
                         </Text>
                       </View>
-                      <StatusPill 
-                        label={getMovementLabel(move.movementType)} 
-                        tone={getMovementTone(move.movementType)}
-                        style={styles.typePill}
-                      />
                     </View>
                   </View>
-                </Card.Content>
-              </Card>
-            );
-          })}
-        </ScrollView>
-      ) : (
-        <EmptyState 
-          title="No transactions found" 
-          subtitle="Physical stock movements will log automatically when items are sold, returned, or restocked."
-          icon="swap-horizontal"
-        />
-      )}
+                </View>
+              );
+            }}
+            ListEmptyComponent={
+              <EmptyState 
+                title="No transactions found" 
+                subtitle="Physical stock movements will log automatically when items are sold, returned, or restocked."
+                icon="swap-horizontal"
+              />
+            }
+            contentContainerStyle={styles.listContent}
+          />
+        )}
+      </View>
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
+  listWrapper: {
+    flex: 1,
+  },
   centerContainer: {
     flex: 1,
     alignItems: "center",
@@ -231,26 +302,24 @@ const styles = StyleSheet.create({
   filterPillTextActive: {
     color: "#ffffff",
   },
-  scrollContent: {
-    padding: spacing.lg,
-    paddingBottom: 100,
-    gap: spacing.sm,
+  listContent: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: 120,
   },
   ledgerCard: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
+    borderRadius: radius.xl,
     borderWidth: 1,
     borderColor: colors.border,
+    borderLeftWidth: 5,
+    marginBottom: spacing.sm,
     ...shadow.sm,
-    elevation: 1,
   },
-  cardContent: {
-    padding: spacing.md,
-  },
-  cardBody: {
+  cardInner: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+    padding: spacing.lg,
     gap: spacing.md,
   },
   detailsCol: {
@@ -259,7 +328,7 @@ const styles = StyleSheet.create({
   },
   itemText: {
     fontSize: fontSize.md,
-    fontWeight: fontWeight.extrabold,
+    fontWeight: fontWeight.bold,
     color: colors.textPrimary,
   },
   metaRow: {
@@ -297,7 +366,7 @@ const styles = StyleSheet.create({
   },
   qtyCol: {
     alignItems: "flex-end",
-    gap: 8,
+    justifyContent: "center",
     minWidth: 80,
   },
   qtyBadge: {
@@ -307,21 +376,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  qtyBadgeIn: {
-    backgroundColor: "rgba(22, 163, 74, 0.08)",
-  },
-  qtyBadgeOut: {
-    backgroundColor: "rgba(220, 38, 38, 0.08)",
-  },
   qtyText: {
     fontSize: fontSize.md,
     fontWeight: fontWeight.black,
-  },
-  qtyTextIn: {
-    color: colors.success,
-  },
-  qtyTextOut: {
-    color: colors.danger,
+    fontVariant: ['tabular-nums'],
   },
   typePill: {
     paddingHorizontal: 8,

@@ -143,6 +143,8 @@ export function StockEntry() {
   const [search, setSearch] = useState("");
   const [debouncedSearch] = useDebounce(search, 300);
   const [entries, setEntries] = useState<Record<string, string>>({});
+  const [editedItemsMap, setEditedItemsMap] = useState<Record<string, Item>>({});
+  const [showOnlyEdited, setShowOnlyEdited] = useState(false);
   const [successVisible, setSuccessVisible] = useState(false);
 
   // If specific item, fetch its details
@@ -158,19 +160,38 @@ export function StockEntry() {
     if (specificItemId) {
       return specificItem ? [specificItem] : [];
     }
+    if (showOnlyEdited) {
+      const allEdited = Object.values(editedItemsMap).filter(item => {
+        const qty = entries[item.id];
+        const num = Number(qty);
+        return qty !== undefined && qty !== "" && !isNaN(num) && num !== 0;
+      });
+      if (!search.trim()) return allEdited;
+      return allEdited.filter(item => 
+        item.name.toLowerCase().includes(search.toLowerCase()) ||
+        item.sku?.toLowerCase().includes(search.toLowerCase())
+      );
+    }
     return itemsQuery.data?.items ?? [];
-  }, [specificItemId, specificItem, itemsQuery.data]);
+  }, [specificItemId, specificItem, itemsQuery.data, showOnlyEdited, editedItemsMap, entries, search]);
 
   const entryItems = useMemo(() => {
     return Object.entries(entries)
-      .filter(([_, qty]) => Number(qty) !== 0) // Allow negative for correction if needed, though bulk usually positive
+      .filter(([_, qty]) => {
+        const num = Number(qty);
+        return !isNaN(num) && num !== 0;
+      })
       .map(([id, qty]) => ({ itemId: id, quantity: Number(qty) }));
   }, [entries]);
 
   const entryCount = entryItems.length;
 
-  const updateEntry = useCallback((id: string, val: string) => {
+  const updateEntry = useCallback((item: Item, val: string) => {
+    const id = item.id;
     setEntries(prev => ({ ...prev, [id]: val }));
+    if (val !== "" && val !== "0" && val !== "-") {
+      setEditedItemsMap(prev => ({ ...prev, [id]: item }));
+    }
   }, []);
 
   const stockMutation = useAddStockMutation();
@@ -211,6 +232,45 @@ export function StockEntry() {
               inputStyle={styles.searchInput}
               elevation={0}
             />
+
+            <View style={styles.filterChipsRow}>
+              <Pressable
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setShowOnlyEdited(false);
+                }}
+                style={[styles.filterChip, !showOnlyEdited && styles.filterChipActive]}
+              >
+                <Icon source="package-variant" size={14} color={!showOnlyEdited ? colors.primary : colors.textSecondary} />
+                <Text style={[styles.filterChipText, !showOnlyEdited && styles.filterChipTextActive]}>All Items</Text>
+              </Pressable>
+
+              <Pressable
+                onPress={() => {
+                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  setShowOnlyEdited(true);
+                }}
+                style={[styles.filterChip, showOnlyEdited && styles.filterChipActive]}
+              >
+                <Icon source="pencil-box-multiple-outline" size={14} color={showOnlyEdited ? colors.primary : colors.textSecondary} />
+                <Text style={[styles.filterChipText, showOnlyEdited && styles.filterChipTextActive]}>Edited ({entryCount})</Text>
+              </Pressable>
+
+              {entryCount > 0 && (
+                <Pressable
+                  onPress={() => {
+                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                    setEntries({});
+                    setEditedItemsMap({});
+                    setShowOnlyEdited(false);
+                  }}
+                  style={styles.clearBtn}
+                >
+                  <Icon source="trash-can-outline" size={14} color={colors.danger} />
+                  <Text style={styles.clearBtnText}>Clear All</Text>
+                </Pressable>
+              )}
+            </View>
           </View>
         )}
 
@@ -229,14 +289,14 @@ export function StockEntry() {
                   <StockEntryRow 
                     item={item} 
                     quantity={entries[item.id] || ""}
-                    onChange={(val) => updateEntry(item.id, val)}
+                    onChange={(val) => updateEntry(item, val)}
                   />
                 )}
                 ListEmptyComponent={
                   <EmptyState 
                     icon="package-variant-closed" 
-                    title="No items found" 
-                    subtitle={specificItemId ? "Failed to load the specific item." : "Try searching for a different item name"} 
+                    title={showOnlyEdited ? "No edited items" : "No items found"} 
+                    subtitle={specificItemId ? "Failed to load the specific item." : (showOnlyEdited ? "Select 'All Items' and modify a quantity to edit." : "Try searching for a different item name")} 
                   />
                 }
                 contentContainerStyle={styles.listContent}
@@ -277,6 +337,7 @@ export function StockEntry() {
         onClose={() => {
           setSuccessVisible(false);
           setEntries({});
+          setEditedItemsMap({});
           goBack();
         }}
       />
@@ -301,6 +362,47 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     fontSize: fontSize.md,
+  },
+  filterChipsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  filterChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: radius.full,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  filterChipActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primaryLight,
+  },
+  filterChipText: {
+    fontSize: 11,
+    fontWeight: fontWeight.bold,
+    color: colors.textSecondary,
+  },
+  filterChipTextActive: {
+    color: colors.primary,
+  },
+  clearBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginLeft: 'auto',
+    paddingVertical: 6,
+  },
+  clearBtnText: {
+    fontSize: 11,
+    fontWeight: fontWeight.bold,
+    color: colors.danger,
   },
   listContainer: {
     flex: 1,
