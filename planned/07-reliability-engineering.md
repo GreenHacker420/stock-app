@@ -14,6 +14,7 @@ WhatsApp webhook delivery and message sending must be treated as a **distributed
 3. **Async processing** — Never block Meta's webhook in synchronous processing.
 4. **Explicit failure handling** — Failed messages must be persisted, not lost.
 5. **Bounded retries** — Limit retries, then route to DLQ with alerting.
+6. **Amazon S3 Media Storage** — All incoming media must be copied to AWS S3 immediately because Meta media links expire after 30 days. Amazon S3 is the *only* media storage backend. Do not use local disk, R2, GCS, Azure Blob, or MinIO.
 
 ---
 
@@ -378,21 +379,14 @@ const shouldUpdate = nextStatusRank > currentStatusRank ||
 
 ---
 
-## 8. Health Monitoring & Alerts
+## 8. Health Monitoring & Audit Trails (Observability Scope Out)
 
-### Metrics to Track
-
-| Metric | Alert Threshold |
-|--------|----------------|
-| Inbound queue depth | > 1000 jobs → WARN |
-| Outbound queue depth | > 5000 jobs → WARN |
-| DLQ depth | > 0 → ALERT (owner) |
-| Meta API error rate | > 5% → ALERT |
-| Message send latency P99 | > 10 seconds → WARN |
-| Webhook processing lag | > 30 seconds → ALERT |
+Dedicated observability dashboards, custom monitoring platforms, and Super Admin UI portals are **strictly out of scope** for the current WhatsApp integration layer. Monitoring is handled via:
+1. **Structured Logging:** Standard structured console logging (JSON in production, dev logging in development) capturing key queue activities, job failures, API latency, and authentication statuses.
+2. **Operational Audit Trails:** Audit trails stored directly in PostgreSQL (via Prisma models) documenting key status transitions and errors.
+3. **Queue Health Endpoint:** A basic JSON health-check endpoint for integration awareness.
 
 ### Integration Health Check Endpoint
-
 ```
 GET /api/whatsapp/health?shopId=<shopId>
 
@@ -420,12 +414,14 @@ Response:
 Meta Webhook
      ↓
 [whatsapp-inbound] ── Workers (10 concurrent) ─→ DB writes + pub/sub
+     ↓ (on inbound media message)
+[whatsapp-media-download] ── Worker (5 concurrent) ─→ Download from Meta → Upload to AWS S3 → Update DB
 
 Owner/Staff Action  
      ↓
 [whatsapp-outbound] ── Workers (20 concurrent, rate limited) ─→ Meta API
      ↓ (on failure after N retries)
-[whatsapp-dlq] ── DLQ dashboard + owner alerts
+[whatsapp-dlq] ── Operational queue retries + owner alerts
 
 Broadcast Action
      ↓
@@ -435,11 +431,12 @@ Broadcast Action
 
 ---
 
-## 10. BullBoard (Queue Dashboard)
+## 10. Queue Debugging (Development-Only)
 
-For development and debugging, install BullBoard:
+For local development and testing, BullBoard is installed as a development-only helper. Production deployments **will not** expose this dashboard.
 
 ```javascript
+// Local dev only helper (if process.env.NODE_ENV === 'development')
 import { createBullBoard } from '@bull-board/api';
 import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
 import { ExpressAdapter } from '@bull-board/express';
@@ -459,7 +456,7 @@ createBullBoard({
 });
 
 app.use('/admin/queues', 
-  ownerAuthMiddleware, // Protect with auth
+  devAuthMiddleware, // Protect with dev-only credentials
   serverAdapter.getRouter()
 );
 ```
@@ -476,7 +473,7 @@ Single process: API + Workers
 ### Production
 ```
 Process 1: API server (webhook receiver, REST API)
-Process 2: WhatsApp Worker (inbound + outbound + broadcast workers)
+Process 2: WhatsApp Worker (inbound + outbound + broadcast + media workers)
 ```
 
 Starting workers:
@@ -493,3 +490,36 @@ if (process.env.ROLE === 'api') startAPI();
 if (process.env.ROLE === 'worker') startWorkers();
 if (!process.env.ROLE) { startAPI(); startWorkers(); } // Development
 ```
+
+---
+
+## 12. Media Storage Architecture (Amazon S3 Only)
+
+Amazon S3 is the **only** supported media storage backend. No other storage options (R2, MinIO, GCS, Azure Blob, or local filesystem) are designed or permitted.
+
+### Inbound Media Flow
+1. **Inbound Webhook Event**: An incoming message containing media (`IMAGE`, `DOCUMENT`, `AUDIO`, `VIDEO`) is parsed. It contains a Meta `mediaId`.
+2. **Enqueue Download Job**: The inbound queue processor inserts a job into the `whatsapp-media-download` queue containing `{ shopId, messageId, mediaId, mimeType }`.
+3. **Execute Download**: The media-download worker:
+   - Fetches the media URL from Meta using the shop's Graph API credentials: `GET /v25.0/<mediaId>`
+   - Downloads the binary stream from Meta's URL.
+   - Uploads the stream to the configured Amazon S3 bucket using the AWS SDK (`@aws-sdk/client-s3`) under the path `shops/${shopId}/media/${mediaId}`.
+   - Updates the corresponding `WaMessage` record in the database with the S3 URL, `s3Key`, and `s3Bucket`.
+   - Emits a Socket.IO event notifying the frontend that media has successfully loaded.
+
+### Outbound Media Flow
+1. **Upload to S3**: The frontend uploads a file to a general S3 upload route. The backend uploads directly to the Amazon S3 bucket and returns the S3 URL.
+2. **Queue Outbound Message**: When sending the outbound message, the backend stores the S3 URL in `WaMessage.mediaUrl` and enqueues the job in `whatsapp-outbound`.
+3. **Send to Meta**: The outbound worker fetches the message, reads `mediaUrl`, generates a pre-signed S3 URL if the bucket is private (using `@aws-sdk/s3-request-presigner`), and calls Meta's Graph API `/messages` endpoint using the link:
+   ```json
+   {
+     "messaging_product": "whatsapp",
+     "recipient_type": "individual",
+     "to": "...",
+     "type": "image",
+     "image": {
+       "link": "https://s3.amazonaws.com/your-bucket/shops/123/media/abc.jpg?Signature=..."
+     }
+   }
+   ```
+4. **Link Expiry**: Presigned URLs must be valid for at least 1 hour to ensure Meta's CDN has ample time to ingest the media.

@@ -117,6 +117,8 @@ This dossier contains the complete architecture investigation, design decisions,
 | Pub/Sub | Redis (via Socket.IO adapter) | Unified Redis infrastructure |
 | Deduplication | `WaWebhookEvent` hash table | DB-backed, survives restarts |
 | Encryption (Flows) | Node.js built-in crypto (RSA-OAEP + AES-128-GCM) | No new dependencies |
+| Media Storage | Amazon S3 | Only supported backend; handles downloaded media expiration. |
+| AI / Observability | Out of Scope | Basic logging, local BullBoard only; no AI or custom dashboard. |
 
 ---
 

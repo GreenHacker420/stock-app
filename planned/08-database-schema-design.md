@@ -244,7 +244,9 @@ model WaMessage {
   
   // Media
   mediaId              String?            // Meta media ID (expires 30 days)
-  mediaUrl             String?            // Downloaded & stored URL
+  mediaUrl             String?            // Downloaded S3 URL
+  s3Key                String?            // NEW: S3 key
+  s3Bucket             String?            // NEW: S3 bucket
   mimeType             String?
   fileName             String?
   
@@ -576,7 +578,7 @@ Migrations will be split into phases to avoid breaking changes:
 - Fix `WaTemplate.@@unique([shopId, name, language])`
 - Fix `WaFlow.@@unique([shopId, flowId])` — drop global unique, add composite
 - Add `WaConversation.bsuid`, `isArchived`, `isPinned`, `assignedToId`
-- Add `WaMessage.payload`, `broadcastRecipientId`, `retryCount`, `lastRetryAt`
+- Add `WaMessage.payload`, `broadcastRecipientId`, `retryCount`, `lastRetryAt`, `s3Key`, `s3Bucket`
 - Add new `WaMessageType` enum values (INTERACTIVE, CALL, LOCATION, CONTACT_CARD, REACTION, UNSUPPORTED)
 - Add `WaWebhookEvent.shopId`, index
 

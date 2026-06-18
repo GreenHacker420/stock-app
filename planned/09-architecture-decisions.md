@@ -327,3 +327,7 @@ socket.on('conversation:join', ({ conversationId }) => {
 | Flow encryption | RSA + AES-GCM, per-shop | Meta-required specification |
 | Outbox pattern | Skip V1 | Complexity/benefit tradeoff |
 | Idempotency | Dual-layer (WaWebhookEvent + status rank) | Belt-and-suspenders |
+| Media Storage | Amazon S3 Only | Meta media IDs expire in 30 days; S3 is the only supported media store. |
+| AI Infrastructure | Out of Scope | Exposes clean, pluggable REST and Event-based APIs for future AI layers. |
+| Observability | Structured Logs + DB Logs | Basic local queue debugging via BullBoard; dashboard and admin portal out of scope. |
+| ERP Decoupling | Decoupled Standalone Layer | ERP modules (Sales, Payments, DMs, etc.) consume APIs; no embedded business workflows. |

@@ -34,7 +34,7 @@ The WhatsApp platform implementation is divided into **3 phases**, each deliveri
 3. Fix `WaTemplate.@@unique([shopId, name, language])` (removes duplicate sync bug)
 4. Fix `WaFlow.@@unique([shopId, flowId])` → drop global `flowId @unique`, add composite
 5. Add `WaConversation.isArchived`, `isPinned`, `assignedToId`
-6. Add `WaMessage.payload`, `retryCount`, `lastRetryAt`
+6. Add `WaMessage.payload`, `retryCount`, `lastRetryAt`, `s3Key`, `s3Bucket`
 7. Add new `WaMessageType` enum values: `INTERACTIVE`, `LOCATION`, `CONTACT_CARD`, `REACTION`, `UNSUPPORTED`
 8. Add `WaWebhookEvent.shopId` + `@@index([processedAt])`
 9. Create `WaBroadcast` model
@@ -209,14 +209,43 @@ import { startInboundWorker } from './whatsapp/inbound.worker.js';
 import { startOutboundWorker } from './whatsapp/outbound.worker.js';
 import { startBroadcastDispatcherWorker } from './whatsapp/broadcast-dispatcher.worker.js';
 import { startBroadcastSendWorker } from './whatsapp/broadcast-send.worker.js';
+import { startMediaDownloadWorker } from './whatsapp/media-download.worker.js';
 
 export async function startAllWorkers() {
   await startInboundWorker();
   await startOutboundWorker();
   await startBroadcastDispatcherWorker();
   await startBroadcastSendWorker();
+  await startMediaDownloadWorker();
 }
 ```
+
+---
+
+#### 1.13 — S3 Media Download Worker & S3 Library
+
+**New file:** `backend/src/lib/wa-media.js`
+- Contains utility functions for interacting with AWS S3 using `@aws-sdk/client-s3`.
+- Exports:
+  - `uploadToS3(streamOrBuffer, key, mimeType)`: Uploads binary to the S3 bucket.
+  - `getSignedMediaUrl(key)`: Generates a pre-signed URL for private media delivery (expires in 1 hour).
+
+**New file:** `backend/src/workers/whatsapp/media-download.worker.js`
+- Worker: `whatsapp-media-download`
+- Concurrency: 5
+- Listens to jobs queued by the inbound webhook worker when media messages are received.
+- Processes:
+  1. Retrieves Meta media URL from Graph API using cached shop credentials.
+  2. Downloads media binary from Meta's endpoint.
+  3. Uploads media to Amazon S3 bucket under `shops/${shopId}/media/${mediaId}`.
+  4. Updates `WaMessage` with S3 URL (`mediaUrl`), `s3Key`, and `s3Bucket`.
+  5. Triggers real-time Socket.IO emission to update UI.
+
+---
+
+#### 1.14 — Standalone Platform Layer Endpoint Architecture
+
+The WhatsApp Platform Layer serves as a standalone component that exposes clean APIs. ERP modules (Sales, Payments, DMs, etc.) interact with it purely by calling service methods or POST routes. No hardcoded domain-specific ERP triggers reside inside the WhatsApp Platform codebase.
 
 ---
 
@@ -357,9 +386,11 @@ For WebRTC calling:
 | `backend/src/services/whatsapp.service.js` | MODIFY | HIGH |
 | `backend/src/services/whatsapp.queue.js` | MODIFY | HIGH |
 | `backend/src/lib/wa-cache.js` | NEW | HIGH |
+| `backend/src/lib/wa-media.js` | NEW | HIGH |
 | `backend/src/workers/index.js` | NEW | HIGH |
 | `backend/src/workers/whatsapp/inbound.worker.js` | NEW | HIGH |
 | `backend/src/workers/whatsapp/outbound.worker.js` | NEW | HIGH |
+| `backend/src/workers/whatsapp/media-download.worker.js` | NEW | HIGH |
 | `backend/src/workers/whatsapp/broadcast-dispatcher.worker.js` | NEW | MEDIUM |
 | `backend/src/workers/whatsapp/broadcast-send.worker.js` | NEW | MEDIUM |
 | `backend/src/services/whatsapp.broadcast.service.js` | NEW | MEDIUM |
@@ -386,8 +417,8 @@ npm install @socket.io/redis-adapter
 # LRU cache for in-process memory tier
 npm install lru-cache
 
-# For Flow RSA/AES encryption (Phase 2)
-# Node.js built-in crypto is sufficient — no additional package needed
+# Amazon S3 SDK (for media storage backend)
+npm install @aws-sdk/client-s3 @aws-sdk/s3-request-presigner
 ```
 
 ---
@@ -395,11 +426,17 @@ npm install lru-cache
 ## Environment Variables Required
 
 ```bash
-# Phase 1
+# Phase 1 - Redis & Encryption
 REDIS_URL=redis://localhost:6379
 MASTER_ENCRYPTION_KEY=<32-byte random hex>   # For future token encryption
 
-# Phase 2
+# Phase 1 - Amazon S3 Media Storage (Only supported backend)
+AWS_ACCESS_KEY_ID=<your_aws_access_key_id>
+AWS_SECRET_ACCESS_KEY=<your_aws_secret_access_key>
+AWS_REGION=<your_aws_region>
+AWS_S3_BUCKET_NAME=<your_aws_s3_bucket_name>
+
+# Phase 2 - WebRTC TURN
 CLOUDFLARE_TURN_KEY_ID=<key_id>
 CLOUDFLARE_TURN_API_TOKEN=<token>
 ```
@@ -408,25 +445,29 @@ CLOUDFLARE_TURN_API_TOKEN=<token>
 
 ## Non-Goals (Will NOT be built)
 
-These were explicitly out of scope per GEMINI.md:
+These were explicitly out of scope per user requirements and GEMINI.md:
 
-| Feature | Reason |
-|---------|--------|
+| Feature | Reason / Decision |
+|---------|-------------------|
 | GST filing via WhatsApp | Tally's responsibility |
 | Double-entry bookkeeping messages | Not operations |
-| WhatsApp AI chatbot | Not in V1 scope |
-| Contact center routing | Not in V1 scope |
-| WhatsApp Commerce / Catalog | Not in V1 scope |
-| SIP calling protocol | Too complex, webhook-based is sufficient |
+| WhatsApp AI chatbot / Agents / RAG | Strictly out of scope. Platform is AI-pluggable but implements zero AI logic. |
+| Observability Dashboards / Admin UIs | Strictly out of scope. Telemetry is limited to structured logging + audit trails. |
+| ERP Integration / Automations | Out of scope. Exposing clean, reusable endpoints only; ERP modules consume later. |
+| Non-S3 Storage (Local disk, GCS, R2) | Out of scope. Amazon S3 is the *only* media storage backend. |
+| SIP calling protocol | Too complex, WebRTC / RTC Lite is sufficient |
 
 ---
 
 ## Success Criteria for Phase 1
 
-1. **Zero synchronous webhook processing** — all events go through BullMQ
-2. **Webhook returns 200 in < 100ms** — measured via logs
-3. **Tenant resolved without URL param** — `phone_number_id` based
-4. **Signature validation always enforced** — no bypass
-5. **Template sync works on fresh shop** — no crash
-6. **Broadcast sends to 100 customers** — tested end-to-end
-7. **Socket.IO events work across 2 instances** — tested with multiple Node processes
+1. **Zero synchronous webhook processing** — all events go through BullMQ.
+2. **Webhook returns 200 in < 100ms** — validated via logs.
+3. **Tenant resolved without URL param** — `phone_number_id` based resolution.
+4. **Signature validation always enforced** — appSecret check blocks unauthorized requests.
+5. **Template sync works on fresh shop** — correct upsert composite key query.
+6. **Broadcast sends to 100 customers** — tested via dispatcher/sender BullMQ fan-out.
+7. **Socket.IO events work across multiple instances** — verified using Redis adapter.
+8. **Amazon S3 Inbound Media Uploads** — inbound images/documents downloaded from Meta, uploaded to AWS S3, and the URL is updated successfully in the message.
+9. **Amazon S3 Outbound Media Sending** — outbound media is read from S3 and successfully sent to Meta.
+

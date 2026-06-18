@@ -500,3 +500,21 @@ prisma.waMessage.findMany({
 ```
 
 **Middleware enforcement:** Every WhatsApp route must have `requireShopAccess` middleware that verifies the requesting user has access to the `shopId` being accessed.
+
+---
+
+## 12. Standalone Platform Layer & AI Pluggability (AI/ERP Scope Out)
+
+The WhatsApp integration layer is built as a standalone operations platform layer. It provides generic capabilities for template syncing, message routing, media downloading, and broadcast dispatching, but it implements no domain-specific business logic for ERP workflows and contains no AI components.
+
+### Standalone Platform Boundaries
+1. **Exposed REST & Service APIs**: The platform exposes clean service methods (e.g., `whatsappService.sendMessage()`, `whatsappBroadcastService.createBroadcast()`) and standard REST endpoints.
+2. **ERP Decoupling**: ERP modules (Sales, Payments, Delivery Memos, Orders, Customer Management) are responsible for initiating message requests (like sending invoice links or receipt PDFs). The WhatsApp Platform Layer has no knowledge of these business objects and only accepts raw message payloads (text, templates, or media URLs).
+3. **No Embedded Workflows**: No automatic triggers (e.g., "send invoice when sale is marked paid") are hardcoded in the WhatsApp layer.
+
+### AI-Pluggable Interface (AI Infrastructure Scope Out)
+AI infrastructure—including LLM integrations, RAG pipelines, conversation memory, and automated responders—is **strictly out of scope**. However, the platform remains AI-pluggable:
+- **Inbound Event Hook**: The BullMQ inbound worker publishes parsed events (`wa:message_received`) via Redis Pub/Sub. A separate AI routing service can subscribe to these events to monitor and intercept customer conversations.
+- **Outbound Direct Trigger**: External AI agents or services can reply to conversations in real-time by invoking the standard `sendMessage` service or REST route.
+- **No Automated Responders**: No automated auto-replies, intent routing, or fallback bots are implemented in this codebase.
+
