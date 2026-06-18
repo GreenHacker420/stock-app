@@ -322,6 +322,13 @@ export async function login(identifier: string, password: string) {
   });
 }
 
+export async function truecallerLogin(authorizationCode: string, codeVerifier: string) {
+  return apiRequest<{ token: string; user: ApiUser }>("/auth/truecaller", {
+    method: "POST",
+    body: JSON.stringify({ authorizationCode, codeVerifier }),
+  });
+}
+
 export async function logout(token: string) {
   return apiRequest("/auth/logout", { method: "POST", token });
 }

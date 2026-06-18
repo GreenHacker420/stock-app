@@ -190,3 +190,92 @@ export async function updateStaff(currentUser, staffId, data) {
     },
   });
 }
+
+export async function truecallerLogin({ authorizationCode, codeVerifier }) {
+  const clientId = process.env.TRUECALLER_CLIENT_ID;
+  if (!clientId) {
+    throw new ApiError(500, "Truecaller Client ID is not configured on the server");
+  }
+
+  // 1. Exchange authorization code for token
+  const tokenResponse = await fetch("https://oauth-account-noneu.truecaller.com/v1/token", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      client_id: clientId,
+      code: authorizationCode,
+      code_verifier: codeVerifier,
+    }).toString(),
+  });
+
+  if (!tokenResponse.ok) {
+    const errorText = await tokenResponse.text();
+    console.error("Truecaller token exchange failed:", errorText);
+    throw new ApiError(401, "Truecaller authentication failed during token exchange");
+  }
+
+  const tokenData = await tokenResponse.json();
+  const accessToken = tokenData.access_token;
+
+  if (!accessToken) {
+    throw new ApiError(401, "No access token received from Truecaller");
+  }
+
+  // 2. Fetch user profile
+  const profileResponse = await fetch("https://oauth-account-noneu.truecaller.com/v1/userinfo", {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+
+  if (!profileResponse.ok) {
+    const errorText = await profileResponse.text();
+    console.error("Truecaller userinfo fetch failed:", errorText);
+    throw new ApiError(401, "Truecaller authentication failed during user profile fetch");
+  }
+
+  const profileData = await profileResponse.json();
+  const phone = profileData.phone_number;
+
+  if (!phone) {
+    throw new ApiError(400, "Truecaller response did not contain a phone number");
+  }
+
+  // Extract last 10 digits to match database formats (e.g. 91xxxxxxxxxx vs xxxxxxxxxx)
+  const cleanPhone = phone.slice(-10);
+
+  // 3. Find matching active user in DB
+  const user = await prisma.user.findFirst({
+    where: {
+      OR: [
+        { mobile: phone },
+        { mobile: { endsWith: cleanPhone } }
+      ],
+      status: "ACTIVE",
+    },
+  });
+
+  if (!user) {
+    throw new ApiError(401, `Mobile number ${phone} is not registered in ShopControl`);
+  }
+
+  // 4. Sign session token
+  const token = signToken(user);
+  const permissions = user.role === "OWNER" ? OWNER_PERMISSIONS : STAFF_PERMISSIONS;
+
+  return {
+    token,
+    user: {
+      id: user.id,
+      name: user.name,
+      mobile: user.mobile,
+      email: user.email,
+      role: user.role,
+      permissions,
+    },
+  };
+}

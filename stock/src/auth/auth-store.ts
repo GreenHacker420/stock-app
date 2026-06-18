@@ -1,6 +1,6 @@
 import { create, type StoreApi, type UseBoundStore } from "zustand";
 import * as Crypto from "expo-crypto";
-import { ApiUser, fetchMe, login } from "../api/client";
+import { ApiUser, fetchMe, login, truecallerLogin } from "../api/client";
 import { useShopStore } from "./shop-store";
 import { deleteToken, getToken, setToken } from "./token-storage";
 
@@ -15,6 +15,7 @@ type AuthState = {
   isBootstrapping: boolean;
   signIn: (identifier: string, password: string) => Promise<void>;
   signInWithSavedToken: (pin?: string) => Promise<void>;
+  signInWithTruecaller: (authorizationCode: string, codeVerifier: string) => Promise<void>;
   restoreSession: () => Promise<void>;
   signOut: () => Promise<void>;
 };
@@ -35,6 +36,21 @@ function createAuthStore() {
     await setToken(TOKEN_KEY, result.token);
     await setToken(QUICK_TOKEN_KEY, result.token);
     await setToken(LAST_IDENTIFIER_KEY, identifier);
+    await deleteToken(QUICK_PIN_HASH_KEY);
+    await deleteToken("shopcontrol_pin_set");
+    if (result.user.name) {
+      await setToken("shopcontrol_last_user_name", result.user.name);
+    }
+    if (result.user.mobile) {
+      await setToken("shopcontrol_last_user_phone", result.user.mobile);
+    }
+    set({ token: result.token, user: result.user, isBootstrapping: false });
+  },
+  async signInWithTruecaller(authorizationCode, codeVerifier) {
+    const result = await truecallerLogin(authorizationCode, codeVerifier);
+    await setToken(TOKEN_KEY, result.token);
+    await setToken(QUICK_TOKEN_KEY, result.token);
+    await setToken(LAST_IDENTIFIER_KEY, result.user.mobile);
     await deleteToken(QUICK_PIN_HASH_KEY);
     await deleteToken("shopcontrol_pin_set");
     if (result.user.name) {

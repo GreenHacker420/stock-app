@@ -37,3 +37,8 @@ export const updateStaff = asyncHandler(async (req, res) => {
   const staff = await authService.updateStaff(req.user, req.validated.params.id, req.validated.body);
   res.json({ success: true, data: staff });
 });
+
+export const truecallerLogin = asyncHandler(async (req, res) => {
+  const result = await authService.truecallerLogin(req.validated.body);
+  res.json({ success: true, data: result });
+});

@@ -51,7 +51,13 @@
           "faceIDPermission": "Allow ShopControl to use Face ID for quick login."
         }
       ],
-      "expo-sharing"
+      "expo-sharing",
+      [
+        "expo-truecaller",
+        {
+          "androidClientId": "ksaranwfztxrftq7zzf5rqy7gp2olcdj6s6s0pneolw"
+        }
+      ]
     ],
     "extra": {
       "eas": {

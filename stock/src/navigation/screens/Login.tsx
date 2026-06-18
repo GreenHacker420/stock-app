@@ -12,6 +12,7 @@ import * as LocalAuthentication from "expo-local-authentication";
 import * as Haptics from "expo-haptics";
 import { Divider, Icon, Text, TextInput as PaperInput } from "react-native-paper";
 import { z } from "zod";
+import { initializeAsync, verifyUserAsync, TruecallerErrorCodes } from "expo-truecaller";
 
 import { getToken } from "../../auth/token-storage";
 import { useAuthStore } from "../../auth/auth-store";
@@ -26,6 +27,7 @@ type LoginMode = "PASSWORD" | "PIN" | "FORGOT";
 export function Login() {
   const signIn = useAuthStore((state) => state.signIn);
   const signInWithSavedToken = useAuthStore((state) => state.signInWithSavedToken);
+  const signInWithTruecaller = useAuthStore((state) => state.signInWithTruecaller);
   
   const [mode, setMode] = useState<LoginMode>("PASSWORD");
   const [identifier, setIdentifier] = useState("");
@@ -44,6 +46,47 @@ export function Login() {
   const [failedAttempts, setFailedAttempts] = useState(0);
   const [lockoutTimeLeft, setLockoutTimeLeft] = useState(0);
   const biometricTriggered = useRef(false);
+  const [isTruecallerUsable, setIsTruecallerUsable] = useState(false);
+  const [isTruecallerLoading, setIsTruecallerLoading] = useState(false);
+
+  useEffect(() => {
+    async function initTruecaller() {
+      if (Platform.OS !== "android") return;
+      try {
+        const { isUsable } = await initializeAsync({
+          consentMode: "bottomsheet",
+          heading: "logInTo",
+          theme: "light",
+        });
+        setIsTruecallerUsable(isUsable);
+      } catch (err) {
+        console.warn("Failed to initialize Truecaller SDK:", err);
+      }
+    }
+    initTruecaller();
+  }, []);
+
+  const handleTruecallerLogin = useCallback(async () => {
+    setError(null);
+    setInfo(null);
+    setIsTruecallerLoading(true);
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    }
+    try {
+      const { authorizationCode, codeVerifier } = await verifyUserAsync();
+      await signInWithTruecaller(authorizationCode, codeVerifier);
+    } catch (err: any) {
+      if (err.code === TruecallerErrorCodes.USER_CANCELLED || err.message?.includes("cancelled")) {
+        setInfo("Truecaller login was cancelled.");
+      } else {
+        setError(err instanceof Error ? err.message : "Truecaller authentication failed.");
+        console.error("Truecaller error:", err);
+      }
+    } finally {
+      setIsTruecallerLoading(false);
+    }
+  }, [signInWithTruecaller]);
 
   const handleBiometricLogin = useCallback(async () => {
     setError(null);
@@ -464,14 +507,27 @@ export function Login() {
             )}
 
             {mode !== "PIN" && (
-              <Button 
-                label={isForgot ? "BACK TO LOGIN" : "SIGN IN TO CONTROL"} 
-                onPress={isForgot ? () => setMode(hasSavedLogin ? "PIN" : "PASSWORD") : handleSubmit} 
-                loading={isSubmitting} 
-                size="lg"
-                fullWidth
-                style={styles.submitBtn}
-              />
+              <View style={{ gap: spacing.md, width: "100%" }}>
+                <Button 
+                  label={isForgot ? "BACK TO LOGIN" : "SIGN IN TO CONTROL"} 
+                  onPress={isForgot ? () => setMode(hasSavedLogin ? "PIN" : "PASSWORD") : handleSubmit} 
+                  loading={isSubmitting} 
+                  size="lg"
+                  fullWidth
+                  style={styles.submitBtn}
+                />
+                {!isForgot && isTruecallerUsable && (
+                  <Button
+                    label="SIGN IN WITH TRUECALLER"
+                    onPress={handleTruecallerLogin}
+                    loading={isTruecallerLoading}
+                    size="lg"
+                    fullWidth
+                    style={[styles.truecallerBtn, { backgroundColor: '#0087FF' }]}
+                    icon="phone"
+                  />
+                )}
+              </View>
             )}
 
             {!isForgot && mode !== "PIN" && (
@@ -676,6 +732,9 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
   },
   submitBtn: {
+    minHeight: 56,
+  },
+  truecallerBtn: {
     minHeight: 56,
   },
   divider: {

@@ -50,7 +50,17 @@ const updateStaffSchema = z.object({
   query: z.object({}).optional(),
 });
 
+const truecallerSchema = z.object({
+  body: z.object({
+    authorizationCode: z.string().min(1),
+    codeVerifier: z.string().min(1),
+  }),
+  params: z.object({}).optional(),
+  query: z.object({}).optional(),
+});
+
 router.post("/login", validate(loginSchema), authController.login);
+router.post("/truecaller", validate(truecallerSchema), authController.truecallerLogin);
 router.post("/logout", requireAuth, authController.logout);
 router.post("/refresh", requireAuth, authController.refresh);
 router.get("/me", requireAuth, authController.me);
