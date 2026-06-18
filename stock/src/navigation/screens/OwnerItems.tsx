@@ -35,6 +35,7 @@ import {
   useItemPriceChangeHistoryQuery,
   useStockMovementsQuery,
   useCategoriesQuery,
+  useItemSummaryQuery,
 } from "../../hooks/useItems";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
@@ -719,20 +720,33 @@ export function ItemList() {
   // null = grid mode; "ALL" = all items list; categoryId = specific category list
   const [selectedCat, setSelectedCat] = useState<string | "ALL" | null>(null);
 
-  // All items (up to 1000, used for grid and category lists)
-  const bulkQuery = useQuery({
-    queryKey: ["all-items-bulk", activeShopId],
-    queryFn: () => fetchItems(token ?? "", activeShopId ?? "", { limit: 1000 }),
-    enabled: !!token && !!activeShopId,
-    staleTime: 60_000,
-  });
-  // Search query (backend search when user types)
-  const searchQuery = useItemsQuery({ search: debouncedSearch, limit: 50 });
+  // Summary data (fast!)
+  const summaryQuery = useItemSummaryQuery();
+  const summary = summaryQuery.data;
+
   // Categories from dedicated endpoint
   const categoriesQuery = useCategoriesQuery();
-
-  const allItems: Item[] = useMemo(() => (bulkQuery.data as any)?.items ?? [], [bulkQuery.data]);
   const categories: ItemCategory[] = categoriesQuery.data ?? [];
+
+  // Items for the current view (only fetched when in list mode)
+  const isSearchActive = debouncedSearch.trim().length > 0;
+  const isGridMode = !isSearchActive && selectedCat === null;
+
+  const listQuery = useItemsQuery({
+    search: isSearchActive ? debouncedSearch : undefined,
+    limit: 1000, 
+  });
+
+  const allItems: Item[] = useMemo(() => {
+    if (isSearchActive) return listQuery.data?.items ?? [];
+    if (selectedCat) {
+      const items = listQuery.data?.items ?? [];
+      if (selectedCat === "ALL") return items;
+      if (selectedCat === "__uncat__") return items.filter((i: any) => !i.category?.id);
+      return items.filter((i: any) => i.category?.id === selectedCat);
+    }
+    return [];
+  }, [listQuery.data, isSearchActive, selectedCat]);
 
   const stockByItem = useMemo(() => {
     const m = new Map<string, number>();
@@ -740,54 +754,30 @@ export function ItemList() {
     return m;
   }, [allItems]);
 
+  // Stats from summary
+  const totalCount = summary?.totalItems ?? 0;
+  const outCount = summary?.outOfStockCount ?? 0;
+  const lowCount = summary?.lowStockCount ?? 0;
   const countByCat = useMemo(() => {
     const m = new Map<string, number>();
-    allItems.forEach((i: any) => {
-      if (i.category?.id) m.set(i.category.id, (m.get(i.category.id) ?? 0) + 1);
-    });
+    if (summary?.countByCat) {
+      Object.entries(summary.countByCat).forEach(([id, count]) => m.set(id, count as number));
+    }
     return m;
-  }, [allItems]);
+  }, [summary]);
 
-  const uncategorisedCount = useMemo(
-    () => allItems.filter((i: any) => !i.category?.id).length,
-    [allItems]
-  );
-
-  // Stats
-  const totalCount = allItems.length;
-  const outCount = Array.from(stockByItem.values()).filter((v) => v <= 0).length;
-  const lowCount = allItems.filter((i: any) => {
-    const s = stockByItem.get(i.id) ?? 0;
-    return s > 0 && s <= Number(i.minimumStock ?? 0);
-  }).length;
-
-  // Derived flags
-  const isSearchActive = debouncedSearch.trim().length > 0;
-  const isGridMode = !isSearchActive && selectedCat === null;
+  const uncategorisedCount = summary?.uncategorisedCount ?? 0;
 
   // Filtered items for list mode
   const displayItems: Item[] = useMemo(() => {
-    let base: Item[];
-    if (isSearchActive) {
-      base = searchQuery.data?.items ?? [];
-    } else {
-      base = allItems;
-      if (selectedCat && selectedCat !== "ALL") {
-        if (selectedCat === "__uncat__") {
-          base = base.filter((i: any) => !i.category?.id);
-        } else {
-          base = base.filter((i: any) => i.category?.id === selectedCat);
-        }
-      }
-    }
-    return base.filter((i: any) => {
+    return allItems.filter((i: any) => {
       const s = stockByItem.get(i.id) ?? 0;
       if (filter === "OUT") return s <= 0;
       if (filter === "LOW") return s > 0 && s <= Number(i.minimumStock ?? 0);
       if (filter === "IN") return s > 0;
       return true;
     });
-  }, [allItems, searchQuery.data, isSearchActive, selectedCat, filter, stockByItem]);
+  }, [allItems, filter, stockByItem]);
 
   const enterCat = useCallback((id: string | "ALL") => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -865,7 +855,7 @@ export function ItemList() {
             </Pressable>
           </View>
 
-          {categoriesQuery.isLoading || bulkQuery.isLoading ? (
+          {categoriesQuery.isLoading || summaryQuery.isLoading ? (
             <SkeletonList count={4} itemHeight={120} />
           ) : (
             <View style={styles.catGrid}>
@@ -907,8 +897,8 @@ export function ItemList() {
           data={displayItems}
           keyExtractor={(item: Item) => item.id}
           estimatedItemSize={110}
-          onRefresh={() => { bulkQuery.refetch(); searchQuery.refetch(); }}
-          refreshing={bulkQuery.isFetching}
+          onRefresh={() => { listQuery.refetch(); summaryQuery.refetch(); categoriesQuery.refetch(); }}
+          refreshing={listQuery.isFetching || summaryQuery.isFetching || categoriesQuery.isFetching}
           ListHeaderComponent={
             <View style={styles.listHeader}>
               {/* Back to grid breadcrumb */}
@@ -936,7 +926,7 @@ export function ItemList() {
             />
           )}
           ListEmptyComponent={
-            bulkQuery.isLoading || searchQuery.isLoading ? (
+            listQuery.isLoading ? (
               <SkeletonList count={6} itemHeight={110} />
             ) : (
               <EmptyState
