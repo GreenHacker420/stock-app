@@ -73,29 +73,63 @@ export function Login() {
   const handleTruecallerLogin = useCallback(async () => {
     setError(null);
     setInfo(null);
-    if (!isTruecallerUsable) {
-      setError("Truecaller app is not installed or logged in on this device.");
-      return;
-    }
-    setIsTruecallerLoading(true);
-    if (Platform.OS !== "web") {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-    }
-    try {
-      const { authorizationCode, codeVerifier } = await verifyUserAsync();
-      await signInWithTruecaller(authorizationCode, codeVerifier);
-    } catch (err: any) {
-      if (err.code === TruecallerErrorCodes.USER_CANCELLED || err.message?.includes("cancelled")) {
-        setInfo("Truecaller login was cancelled.");
-      } else {
-        const msg = err instanceof Error ? err.message : "Truecaller authentication failed.";
-        setError(msg + " (Ensure com.stock package & SHA1 are registered on Truecaller console)");
-        console.error("Truecaller error:", err);
+    
+    if (isTruecallerUsable) {
+      setIsTruecallerLoading(true);
+      if (Platform.OS !== "web") {
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
       }
-    } finally {
-      setIsTruecallerLoading(false);
+      try {
+        const { authorizationCode, codeVerifier } = await verifyUserAsync();
+        await signInWithTruecaller(authorizationCode, codeVerifier);
+      } catch (err: any) {
+        if (err.code === TruecallerErrorCodes.USER_CANCELLED || err.message?.includes("cancelled")) {
+          setInfo("Truecaller login was cancelled.");
+        } else {
+          console.warn("Truecaller 1-tap failed, falling back to drop-call verification:", err);
+          const cleanPhone = identifier.replace(/\D/g, "");
+          if (cleanPhone.length === 10) {
+            setVerificationStatus("INITIATING");
+            setShowOtpModal(true);
+            setOtpTtl(60);
+            setOtpCode("");
+            setFirstName("");
+            setLastName("");
+            try {
+              await TruecallerFullstack.requestVerification(cleanPhone);
+            } catch (fallbackErr: any) {
+              setError(fallbackErr instanceof Error ? fallbackErr.message : "Failed to initiate verification");
+              setVerificationStatus("ERROR");
+            }
+          } else {
+            const msg = err instanceof Error ? err.message : "Truecaller authentication failed.";
+            setError(msg + " (Please enter your 10-digit mobile number in the input field above to verify via call instead)");
+          }
+        }
+      } finally {
+        setIsTruecallerLoading(false);
+      }
+    } else {
+      const cleanPhone = identifier.replace(/\D/g, "");
+      if (cleanPhone.length !== 10) {
+        setError("Please enter your 10-digit mobile number in the input field above to verify.");
+        return;
+      }
+      
+      setVerificationStatus("INITIATING");
+      setShowOtpModal(true);
+      setOtpTtl(60);
+      setOtpCode("");
+      setFirstName("");
+      setLastName("");
+      try {
+        await TruecallerFullstack.requestVerification(cleanPhone);
+      } catch (err: any) {
+        setError(err instanceof Error ? err.message : "Failed to initiate verification");
+        setVerificationStatus("ERROR");
+      }
     }
-  }, [signInWithTruecaller, isTruecallerUsable]);
+  }, [isTruecallerUsable, identifier, signInWithTruecaller]);
 
   // Non-Truecaller flow states
   const [showOtpModal, setShowOtpModal] = useState(false);
@@ -181,30 +215,6 @@ export function Login() {
       }
     };
   }, [showOtpModal, verificationStatus, otpTtl]);
-
-  const handleTriggerDropCall = useCallback(async () => {
-    setError(null);
-    setInfo(null);
-    const cleanPhone = identifier.replace(/\D/g, "");
-    if (cleanPhone.length !== 10) {
-      setError("Please enter a valid 10-digit mobile number.");
-      return;
-    }
-
-    setVerificationStatus("INITIATING");
-    setShowOtpModal(true);
-    setOtpTtl(60);
-    setOtpCode("");
-    setFirstName("");
-    setLastName("");
-
-    try {
-      await TruecallerFullstack.requestVerification(cleanPhone);
-    } catch (err: any) {
-      setError(err instanceof Error ? err.message : "Failed to initiate verification");
-      setVerificationStatus("ERROR");
-    }
-  }, [identifier]);
 
   const handleCompleteMissedCallVerification = useCallback(async () => {
     if (!firstName.trim()) {
@@ -673,26 +683,15 @@ export function Login() {
                   style={styles.submitBtn}
                 />
                 {!isForgot && Platform.OS === "android" && (
-                  <>
-                    <Button
-                      label="SIGN IN WITH TRUECALLER"
-                      onPress={handleTruecallerLogin}
-                      loading={isTruecallerLoading}
-                      size="lg"
-                      fullWidth
-                      style={[styles.truecallerBtn, { backgroundColor: '#0087FF' }]}
-                      icon="phone"
-                    />
-                    <Button
-                      variant="ghost"
-                      label="VERIFY WITH PHONE (DROP CALL)"
-                      onPress={handleTriggerDropCall}
-                      size="lg"
-                      fullWidth
-                      style={styles.otpBtn}
-                      icon="phone-incoming"
-                    />
-                  </>
+                  <Button
+                    label="SIGN IN WITH TRUECALLER"
+                    onPress={handleTruecallerLogin}
+                    loading={isTruecallerLoading || verificationStatus === "INITIATING"}
+                    size="lg"
+                    fullWidth
+                    style={[styles.truecallerBtn, { backgroundColor: '#0087FF' }]}
+                    icon="phone"
+                  />
                 )}
               </View>
             )}
