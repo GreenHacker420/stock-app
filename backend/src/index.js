@@ -3,6 +3,7 @@ import { createServer } from "http";
 import { Server } from "socket.io";
 import { createApp } from "./app.js";
 import { configureRealtime } from "./utils/realtime.js";
+import "./services/whatsapp.queue.js";
 
 const app = createApp();
 

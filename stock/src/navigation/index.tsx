@@ -48,6 +48,9 @@ import { DeliveryMemoList } from "./screens/DeliveryMemoList";
 import { CreateDeliveryMemo } from "./screens/CreateDeliveryMemo";
 import { DeliveryMemoDetail } from "./screens/DeliveryMemoDetail";
 import { ManageCategories } from "./screens/ManageCategories";
+import { ChatListScreen } from "../modules/whatsapp/screens/ChatListScreen";
+import { ChatDetailScreen } from "../modules/whatsapp/screens/ChatDetailScreen";
+import { WhatsAppSetupScreen } from "../modules/whatsapp/screens/WhatsAppSetupScreen";
 
 import { colors } from "../theme";
 
@@ -93,6 +96,8 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
             iconName = isFocused ? "cash-register" : "cash-register";
           } else if (route.name === "Notifications" || route.name === "OwnerAlerts") {
             iconName = isFocused ? "bell" : "bell-outline";
+          } else if (route.name === "StaffChats" || route.name === "OwnerChats") {
+            iconName = isFocused ? "whatsapp" : "whatsapp";
           } else if (route.name === "Profile") {
             iconName = isFocused ? "account-circle" : "account-circle-outline";
           }
@@ -208,6 +213,12 @@ const StaffTabs = createBottomTabNavigator({
         title: "POS",
       },
     },
+    StaffChats: {
+      screen: ChatListScreen,
+      options: {
+        title: "Chats",
+      },
+    },
     Notifications: {
       screen: Notifications,
       options: {
@@ -243,6 +254,12 @@ const OwnerTabs = createBottomTabNavigator({
       screen: OwnerStock,
       options: {
         title: "Stock",
+      },
+    },
+    OwnerChats: {
+      screen: ChatListScreen,
+      options: {
+        title: "Chats",
       },
     },
     OwnerAlerts: {
@@ -390,6 +407,14 @@ const sharedStackScreens = {
     screen: CreateOrder,
     options: { title: "Create order" },
   },
+  ChatDetail: {
+    screen: ChatDetailScreen,
+    options: { title: "Chat" },
+  },
+  WhatsAppSetup: {
+    screen: WhatsAppSetupScreen,
+    options: { title: "WhatsApp Setup" },
+  },
   OrderList: {
     screen: OrderList,
     options: { title: "Orders" },
@@ -521,16 +546,20 @@ export type RootStackParamList = {
   StaffHome: undefined;
   StaffWork: undefined;
   StaffPayments: undefined;
+  StaffChats: undefined;
   Notifications: undefined;
   Profile: undefined;
   OwnerDashboard: undefined;
   OwnerRecords: undefined;
   OwnerStock: undefined;
+  OwnerChats: undefined;
   OwnerAlerts: undefined;
 
   // Shared Stack Screens
   NotFound: undefined;
   NotificationHistory: undefined;
+  ChatDetail: { conversationId: string; phone: string };
+  WhatsAppSetup: undefined;
   WalkInSale: undefined;
   NewSaleType: undefined;
   RegularSale: undefined;

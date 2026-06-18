@@ -22,7 +22,7 @@ export function useOrdersQuery(options: { search?: string } = {}) {
     queryKey: [...queryKeys.orders(activeShopId ?? ""), options.search],
     queryFn: () => fetchOrders(token ?? "", activeShopId ?? ""), // Note: API currently doesn't take search, but we might filter in UI or update API
     enabled: !!token && !!activeShopId,
-    staleTime: 3 * 60 * 1000, // 3 mins
+    staleTime: 10 * 60 * 1000, // 10 mins
   });
 }
 
@@ -32,7 +32,7 @@ export function useOrderDetailQuery(id: string) {
     queryKey: queryKeys.order(id),
     queryFn: () => fetchOrder(token ?? "", id),
     enabled: !!token && !!id,
-    staleTime: 3 * 60 * 1000, // 3 mins
+    staleTime: 10 * 60 * 1000, // 10 mins
   });
 }
 

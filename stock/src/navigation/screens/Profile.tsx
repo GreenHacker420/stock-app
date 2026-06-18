@@ -258,6 +258,15 @@ export function Profile() {
                     title="Staff Management" 
                     subtitle="Assign permissions and PINs"
                     onPress={() => navigate("StaffManagement")}
+                    isLast={false}
+                  />
+                )}
+                {user?.role === 'OWNER' && (
+                  <SettingItem 
+                    icon="whatsapp" 
+                    title="WhatsApp Setup" 
+                    subtitle="Configure Meta Cloud API"
+                    onPress={() => navigate("WhatsAppSetup")}
                     isLast={true}
                   />
                 )}

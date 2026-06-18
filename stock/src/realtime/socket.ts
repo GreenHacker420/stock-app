@@ -11,7 +11,11 @@ export type RealtimeEvent =
   | "stock:updated"
   | "daily-summary:updated"
   | "shop:updated"
-  | "notification:created";
+  | "notification:created"
+  | "wa:message_received"
+  | "wa:message_sent"
+  | "wa:status_updated"
+  | "wa:message_failed";
 
 export function createRealtimeSocket(token: string): Socket {
   return io(SOCKET_URL, {

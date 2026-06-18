@@ -11,7 +11,7 @@ export function useSalesQuery() {
     queryKey: queryKeys.sales(activeShopId ?? ""),
     queryFn: () => fetchSales(token ?? "", activeShopId ?? ""),
     enabled: !!token && !!activeShopId,
-    staleTime: 2 * 60 * 1000, // 2 mins
+    staleTime: 10 * 60 * 1000, // 10 mins
   });
 }
 
@@ -21,7 +21,7 @@ export function useSaleQuery(id: string) {
     queryKey: ["sale", id],
     queryFn: () => fetchSale(token ?? "", id),
     enabled: !!token && !!id,
-    staleTime: 5 * 60 * 1000,
+    staleTime: 10 * 60 * 1000, // 10 mins
   });
 }
 

@@ -50,7 +50,7 @@ export function useInfiniteItemsQuery(opts: { search?: string; limit?: number } 
     initialPageParam: 1,
     getNextPageParam: (lastPage) => (lastPage.hasMore ? lastPage.page + 1 : undefined),
     enabled: !!token && !!activeShopId,
-    staleTime: 10 * 60 * 1000, // 10 mins
+    staleTime: 30 * 60 * 1000, // 30 mins
   });
 }
 
@@ -79,7 +79,7 @@ export function useCurrentStockQuery(itemId?: string) {
     queryKey: queryKeys.currentStock(activeShopId ?? "", itemId),
     queryFn: () => fetchCurrentStock(token ?? "", activeShopId ?? "", itemId),
     enabled: !!token && !!activeShopId,
-    staleTime: 2 * 60 * 1000, // 2 mins
+    staleTime: 5 * 60 * 1000, // 5 mins
   });
 }
 
