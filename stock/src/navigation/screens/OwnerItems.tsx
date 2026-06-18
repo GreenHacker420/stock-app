@@ -734,20 +734,14 @@ export function ItemList() {
 
   const listQuery = useItemsQuery({
     search: isSearchActive ? debouncedSearch : undefined,
+    categoryId: selectedCat && selectedCat !== "ALL" ? selectedCat : undefined,
     limit: 1000, 
     enabled: !isGridMode,
   });
 
   const allItems: Item[] = useMemo(() => {
-    if (isSearchActive) return listQuery.data?.items ?? [];
-    if (selectedCat) {
-      const items = listQuery.data?.items ?? [];
-      if (selectedCat === "ALL") return items;
-      if (selectedCat === "__uncat__") return items.filter((i: any) => !i.category?.id);
-      return items.filter((i: any) => i.category?.id === selectedCat);
-    }
-    return [];
-  }, [listQuery.data, isSearchActive, selectedCat]);
+    return listQuery.data?.items ?? [];
+  }, [listQuery.data]);
 
   const stockByItem = useMemo(() => {
     const m = new Map<string, number>();

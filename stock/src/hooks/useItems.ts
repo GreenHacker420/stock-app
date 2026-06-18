@@ -54,14 +54,15 @@ export function useInfiniteItemsQuery(opts: { search?: string; limit?: number } 
   });
 }
 
-export function useItemsQuery(opts: { search?: string; page?: number; limit?: number; enabled?: boolean } = {}) {
+export function useItemsQuery(opts: { search?: string; categoryId?: string; page?: number; limit?: number; enabled?: boolean } = {}) {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
   return useQuery({
-    queryKey: queryKeys.items(activeShopId ?? "", opts.search),
+    queryKey: [...queryKeys.items(activeShopId ?? "", opts.search), opts.categoryId],
     queryFn: () =>
       fetchItems(token ?? "", activeShopId ?? "", {
         search: opts.search,
+        categoryId: opts.categoryId,
         page: opts.page,
         limit: opts.limit,
       }),
