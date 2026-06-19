@@ -19,9 +19,10 @@ import { FlashList } from "@shopify/flash-list";
 const FlashListAny = FlashList as any;
 import { Card, Button } from "react-native-paper";
 import * as Clipboard from "expo-clipboard";
+import * as Location from "expo-location";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { fetchWaMessages, sendWaMessage, whatsappApi, WaMessage, WaSendCommand } from "../../../api/whatsapp.api";
+import { fetchWaMessages, sendWaMessage, whatsappApi, WaMessage, WaOutboundMessage, WaSendCommand } from "../../../api/whatsapp.api";
 import { useShopStore } from "../../../auth/shop-store";
 import { useAuthStore } from "../../../auth/auth-store";
 import { useCustomersQuery } from "../../../hooks/useCustomers";
@@ -30,6 +31,7 @@ import { format } from "date-fns";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useWhatsAppRealtime } from "../hooks/useWhatsAppRealtime";
 import { variableResolverRegistry } from "../services/variableResolver";
+import { MessageActionSheet } from "../components/MessageActionSheet";
 
 
 
@@ -48,6 +50,8 @@ export const ChatDetailScreen = () => {
   const [selectedMessage, setSelectedMessage] = useState<WaMessage | null>(null);
   const [reactionMenuVisible, setReactionMenuVisible] = useState(false);
   const [customEmojiVisible, setCustomEmojiVisible] = useState(false);
+  const [showMessageActions, setShowMessageActions] = useState(false);
+  const [locating, setLocating] = useState(false);
 
   // Template Picker State
   const [showTemplateSheet, setShowTemplateSheet] = useState(false);
@@ -230,6 +234,67 @@ export const ChatDetailScreen = () => {
     });
 
     setInputText("");
+  };
+
+  const sendStructuredMessage = (message: WaOutboundMessage) => {
+    if (!activeShopId) return;
+    sendMutation.mutate({
+      shopId: activeShopId,
+      conversationId,
+      to: phone,
+      message,
+      replyToMessageId: replyingTo?.id,
+    });
+  };
+
+  const shareLinkedContact = () => {
+    if (!customerRecord?.name || !customerRecord?.phone) {
+      Alert.alert("Contact unavailable", "Link this conversation to a customer with a phone number first.");
+      return;
+    }
+
+    sendStructuredMessage({
+      kind: "contacts",
+      contacts: [{
+        name: { formatted_name: customerRecord.name },
+        phones: [{ phone: customerRecord.phone, type: "WORK" }],
+      }],
+    });
+  };
+
+  const shareCurrentLocation = async () => {
+    if (!activeShopId || locating) return false;
+
+    setLocating(true);
+    try {
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (permission.status !== Location.PermissionStatus.GRANTED) {
+        Alert.alert(
+          "Location permission required",
+          "Allow location access to share your current position in this conversation.",
+        );
+        return false;
+      }
+
+      const position = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+
+      sendStructuredMessage({
+        kind: "location",
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+      });
+      return true;
+    } catch (error) {
+      Alert.alert(
+        "Location unavailable",
+        error instanceof Error ? error.message : "Could not determine your current location.",
+      );
+      return false;
+    } finally {
+      setLocating(false);
+    }
   };
 
   const handleLongPress = (message: WaMessage) => {
@@ -495,8 +560,10 @@ export const ChatDetailScreen = () => {
                 <View style={styles.docRow}>
                   <MaterialCommunityIcons name="account-box-outline" size={28} color={Colors.primary} />
                   <Text style={styles.docText}>
-                    {Array.isArray(item.content) && item.content.length > 1
-                      ? `${item.content.length} contacts`
+                    {Array.isArray(item.content?.contacts) && item.content.contacts.length > 1
+                      ? `${item.content.contacts.length} contacts`
+                      : Array.isArray(item.content) && item.content.length > 1
+                        ? `${item.content.length} contacts`
                       : "Shared contact"}
                   </Text>
                 </View>
@@ -505,7 +572,7 @@ export const ChatDetailScreen = () => {
                 <View style={styles.docRow}>
                   <MaterialCommunityIcons name="gesture-tap-button" size={28} color={Colors.primary} />
                   <Text style={styles.docText} numberOfLines={2}>
-                    {item.content?.title || item.content?.text || "Interactive response"}
+                    {item.content?.body || item.content?.title || item.content?.text || "Interactive response"}
                   </Text>
                 </View>
               )}
@@ -613,9 +680,9 @@ export const ChatDetailScreen = () => {
       <View style={styles.inputToolbar}>
         <TouchableOpacity
           style={styles.templateToolbarBtn}
-          onPress={() => setShowTemplateSheet(true)}
+          onPress={() => setShowMessageActions(true)}
         >
-          <MaterialCommunityIcons name="card-text-outline" size={24} color={Colors.primary} />
+          <MaterialCommunityIcons name="plus" size={26} color={Colors.primary} />
         </TouchableOpacity>
         <TextInput
           style={styles.input}
@@ -632,6 +699,18 @@ export const ChatDetailScreen = () => {
           <MaterialCommunityIcons name="send" size={20} color={"#fff"} />
         </TouchableOpacity>
       </View>
+
+      <MessageActionSheet
+        visible={showMessageActions}
+        canShareContact={Boolean(customerRecord?.name && customerRecord?.phone)}
+        locating={locating}
+        sending={sendMutation.isPending}
+        onClose={() => setShowMessageActions(false)}
+        onOpenTemplates={() => setShowTemplateSheet(true)}
+        onShareContact={shareLinkedContact}
+        onShareLocation={shareCurrentLocation}
+        onSend={sendStructuredMessage}
+      />
 
       {/* Long Press Reaction Overlay Modal */}
       <Modal

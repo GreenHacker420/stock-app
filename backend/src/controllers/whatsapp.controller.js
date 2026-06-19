@@ -256,7 +256,7 @@ class WhatsAppController {
   async sendMessage(req, res) {
     try {
       const { shopId, to } = req.body;
-      if (!shopId || !to || (!req.body.message && !req.body.type)) {
+      if (!shopId || !to || !req.body.message) {
         return res.status(400).json({ success: false, message: "Missing required fields" });
       }
 

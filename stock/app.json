@@ -72,6 +72,12 @@
         {
           "contactsPermission": "Allow ShopControl to access your contacts to link conversations with your customers."
         }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow ShopControl to share your current location in WhatsApp conversations."
+        }
       ]
     ],
     "extra": {
