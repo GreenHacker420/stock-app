@@ -546,6 +546,26 @@ class WhatsAppController {
   }
 
   /**
+   * Mark Conversation as Read (POST /whatsapp/conversations/:id/read)
+   */
+  async markConversationRead(req, res) {
+    try {
+      const { id } = req.params;
+      const { shopId } = req.body;
+      if (!shopId) {
+        return res.status(400).json({ success: false, message: "shopId is required" });
+      }
+      const conversation = await prisma.waConversation.update({
+        where: { id, shopId },
+        data: { unreadCount: 0 }
+      });
+      res.json({ success: true, data: conversation });
+    } catch (error) {
+      res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
+  /**
    * Delete Conversation (DELETE /whatsapp/conversations/:id)
    */
   async deleteConversation(req, res) {

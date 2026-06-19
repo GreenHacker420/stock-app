@@ -130,6 +130,22 @@ export async function syncWaFlows(token: string, shopId: string) {
   });
 }
 
+export async function markWaConversationRead(token: string, shopId: string, conversationId: string) {
+  return apiRequest<WaConversation>(`/whatsapp/conversations/${conversationId}/read`, {
+    method: "POST",
+    token,
+    body: JSON.stringify({ shopId }),
+  });
+}
+
+export async function syncWaPhoneContacts(token: string, shopId: string, contacts: any[], mergeStrategy: "MERGE" | "OVERWRITE") {
+  return apiRequest<any>("/whatsapp/sync-phone-contacts", {
+    method: "POST",
+    token,
+    body: JSON.stringify({ shopId, contacts, mergeStrategy }),
+  });
+}
+
 export const whatsappApi = {
   getConversations: async (shopId: string) => {
     const token = useAuthStore.getState().token || "";
@@ -188,6 +204,16 @@ export const whatsappApi = {
   syncFlows: async (shopId: string) => {
     const token = useAuthStore.getState().token || "";
     const res = await syncWaFlows(token, shopId);
+    return { data: { success: true, data: res } };
+  },
+  markConversationRead: async (shopId: string, conversationId: string) => {
+    const token = useAuthStore.getState().token || "";
+    const res = await markWaConversationRead(token, shopId, conversationId);
+    return { data: { success: true, data: res } };
+  },
+  syncPhoneContacts: async (shopId: string, contacts: any[], mergeStrategy: "MERGE" | "OVERWRITE" = "MERGE") => {
+    const token = useAuthStore.getState().token || "";
+    const res = await syncWaPhoneContacts(token, shopId, contacts, mergeStrategy);
     return { data: { success: true, data: res } };
   }
 };

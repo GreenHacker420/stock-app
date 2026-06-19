@@ -23,6 +23,7 @@ router.post("/send", requireAuth, whatsappController.sendMessage);
 router.post("/react", requireAuth, whatsappController.reactToMessage);
 router.delete("/messages/:id", requireAuth, whatsappController.deleteMessage);
 router.post("/conversations/:id/archive", requireAuth, whatsappController.archiveConversation);
+router.post("/conversations/:id/read", requireAuth, whatsappController.markConversationRead);
 router.delete("/conversations/:id", requireAuth, whatsappController.deleteConversation);
 router.post("/sync-phone-contacts", requireAuth, whatsappController.syncPhoneContacts);
 
