@@ -54,6 +54,74 @@ function componentByType(template, type) {
     ?.find((component) => component.type?.toUpperCase() === type);
 }
 
+function exampleValues(value) {
+  if (value == null) return [];
+  if (Array.isArray(value?.[0])) return value[0];
+  return Array.isArray(value) ? value : [value];
+}
+
+function inferMappingsFromComponents(components) {
+  const mappings = [];
+  const header = components.find((component) => component.type?.toUpperCase() === "HEADER");
+  const body = components.find((component) => component.type?.toUpperCase() === "BODY");
+  exampleValues(header?.example?.header_text).forEach((sampleValue, index) => {
+    mappings.push({ component: "HEADER", position: index + 1, sampleValue: String(sampleValue) });
+  });
+  exampleValues(body?.example?.body_text).forEach((sampleValue, index) => {
+    mappings.push({ component: "BODY", position: index + 1, sampleValue: String(sampleValue) });
+  });
+
+  const buttons = components.find((component) => component.type?.toUpperCase() === "BUTTONS");
+  (buttons?.buttons || []).forEach((button, buttonIndex) => {
+    exampleValues(button.example).forEach((sampleValue, index) => {
+      mappings.push({
+        component: "BUTTON",
+        buttonIndex,
+        position: index + 1,
+        sampleValue: String(sampleValue),
+      });
+    });
+  });
+
+  const carousel = components.find((component) => component.type?.toUpperCase() === "CAROUSEL");
+  (carousel?.cards || []).forEach((card, cardIndex) => {
+    const cardBody = card.components?.find((component) => component.type?.toUpperCase() === "BODY");
+    exampleValues(cardBody?.example?.body_text).forEach((sampleValue, index) => {
+      mappings.push({
+        component: "CARD",
+        cardIndex,
+        position: index + 1,
+        sampleValue: String(sampleValue),
+      });
+    });
+    const cardButtons = card.components?.find((component) => component.type?.toUpperCase() === "BUTTONS");
+    (cardButtons?.buttons || []).forEach((button, buttonIndex) => {
+      exampleValues(button.example).forEach((sampleValue, index) => {
+        mappings.push({
+          component: "CARD",
+          cardIndex,
+          buttonIndex,
+          position: index + 1,
+          sampleValue: String(sampleValue),
+        });
+      });
+    });
+  });
+  return mappings;
+}
+
+function inferSubtype(components) {
+  if (components.some((component) => component.type?.toUpperCase() === "CALL_PERMISSION_REQUEST")) {
+    return "CALL_PERMISSION_REQUEST";
+  }
+  const carousel = components.find((component) => component.type?.toUpperCase() === "CAROUSEL");
+  if (!carousel) return null;
+  const format = carousel.cards?.[0]?.components
+    ?.find((component) => component.type?.toUpperCase() === "HEADER")
+    ?.format?.toUpperCase();
+  return format === "PRODUCT" ? "PRODUCT_CAROUSEL" : "MEDIA_CAROUSEL";
+}
+
 class WhatsAppTemplateService {
   async listAttributes(shopId) {
     return prisma.waTemplateAttribute.findMany({
@@ -267,12 +335,8 @@ class WhatsAppTemplateService {
         include: { variableMappings: true },
       });
       const components = item.components || [];
-      const headerVariables = components.find((component) => component.type === "HEADER")?.example?.header_text || [];
-      const bodyVariables = components.find((component) => component.type === "BODY")?.example?.body_text?.[0] || [];
-      const inferredMappings = [
-        ...headerVariables.map((sampleValue, index) => ({ component: "HEADER", position: index + 1, sampleValue })),
-        ...bodyVariables.map((sampleValue, index) => ({ component: "BODY", position: index + 1, sampleValue })),
-      ];
+      const inferredMappings = inferMappingsFromComponents(components);
+      const subtype = inferSubtype(components);
 
       const template = await prisma.waTemplate.upsert({
         where: { shopId_name_language: { shopId, name: item.name, language: item.language } },
@@ -283,6 +347,8 @@ class WhatsAppTemplateService {
           language: item.language,
           status: normalizeStatus(item.status),
           category: item.category,
+          subtype,
+          parameterFormat: item.parameter_format?.toUpperCase() || "POSITIONAL",
           components,
           rawMeta: item,
           metaRejectionReason: item.rejected_reason,
@@ -294,6 +360,8 @@ class WhatsAppTemplateService {
           metaTemplateId: item.id,
           status: normalizeStatus(item.status),
           category: item.category,
+          subtype,
+          parameterFormat: item.parameter_format?.toUpperCase() || "POSITIONAL",
           components,
           rawMeta: item,
           metaRejectionReason: item.rejected_reason,
