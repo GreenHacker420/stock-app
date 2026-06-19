@@ -255,25 +255,20 @@ class WhatsAppController {
    */
   async sendMessage(req, res) {
     try {
-      const { shopId, conversationId, to, type, content, template, mediaUrl, replyToMessageId } = req.body;
-
-      if (!shopId || !to || !type) {
+      const { shopId, to } = req.body;
+      if (!shopId || !to || (!req.body.message && !req.body.type)) {
         return res.status(400).json({ success: false, message: "Missing required fields" });
       }
 
-      const message = await whatsappService.sendMessage(shopId, {
-        conversationId,
-        to,
-        type,
-        content,
-        template,
-        mediaUrl,
-        replyToMessageId
-      });
+      const message = await whatsappService.sendMessage(req.body);
 
       res.json({ success: true, data: message });
     } catch (error) {
-      res.status(400).json({ success: false, message: error.message });
+      res.status(400).json({
+        success: false,
+        message: error.issues?.[0]?.message || error.message,
+        details: error.issues || undefined,
+      });
     }
   }
 

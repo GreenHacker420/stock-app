@@ -21,7 +21,7 @@ import { Card, Button } from "react-native-paper";
 import * as Clipboard from "expo-clipboard";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { fetchWaMessages, sendWaMessage, whatsappApi, WaMessage } from "../../../api/whatsapp.api";
+import { fetchWaMessages, sendWaMessage, whatsappApi, WaMessage, WaSendCommand } from "../../../api/whatsapp.api";
 import { useShopStore } from "../../../auth/shop-store";
 import { useAuthStore } from "../../../auth/auth-store";
 import { useCustomersQuery } from "../../../hooks/useCustomers";
@@ -162,15 +162,7 @@ export const ChatDetailScreen = () => {
 
   // Send Message Mutation
   const sendMutation = useMutation({
-    mutationFn: async (payload: {
-      shopId: string;
-      conversationId: string;
-      to: string;
-      type: "TEXT" | "TEMPLATE";
-      content?: { text: string };
-      template?: any;
-      replyToMessageId?: string;
-    }) => {
+    mutationFn: async (payload: WaSendCommand) => {
       if (!token) throw new Error("No auth token");
       return sendWaMessage(token, payload);
     },
@@ -229,8 +221,11 @@ export const ChatDetailScreen = () => {
       shopId: activeShopId,
       conversationId,
       to: phone,
-      type: "TEXT",
-      content: { text: inputText.trim() },
+      message: {
+        kind: "text",
+        text: inputText.trim(),
+        previewUrl: /https?:\/\/\S+/i.test(inputText),
+      },
       replyToMessageId: replyingTo?.id,
     });
 
@@ -344,18 +339,20 @@ export const ChatDetailScreen = () => {
       shopId: activeShopId,
       conversationId,
       to: phone,
-      type: "TEMPLATE" as const,
-      template: {
-        name: selectedTemplate.name,
-        language: {
-          code: selectedTemplate.language,
-        },
-        components: parameters.length > 0 ? [
-          {
-            type: "body",
-            parameters: parameters,
+      message: {
+        kind: "template" as const,
+        template: {
+          name: selectedTemplate.name,
+          language: {
+            code: selectedTemplate.language,
           },
-        ] : [],
+          components: parameters.length > 0 ? [
+            {
+              type: "body",
+              parameters: parameters,
+            },
+          ] : [],
+        },
       },
     };
 

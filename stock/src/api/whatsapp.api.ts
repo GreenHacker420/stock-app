@@ -20,6 +20,68 @@ export type WaMessageType =
   | "UNSUPPORTED";
 export type WaMessageDirection = "INBOUND" | "OUTBOUND";
 
+export type WaContact = {
+  name: {
+    formatted_name: string;
+    first_name?: string;
+    last_name?: string;
+  };
+  phones?: Array<{ phone: string; type?: string; wa_id?: string }>;
+  emails?: Array<{ email: string; type?: string }>;
+  org?: { company?: string; department?: string; title?: string };
+};
+
+export type WaOutboundMessage =
+  | { kind: "text"; text: string; previewUrl?: boolean }
+  | { kind: "image"; link: string; caption?: string }
+  | { kind: "video"; link: string; caption?: string }
+  | { kind: "audio"; link: string; voice?: boolean }
+  | { kind: "document"; link: string; caption?: string; filename?: string }
+  | { kind: "sticker"; link: string }
+  | { kind: "location"; latitude: number; longitude: number; name?: string; address?: string }
+  | { kind: "contacts"; contacts: WaContact[] }
+  | {
+      kind: "reply_buttons";
+      body: string;
+      header?: string;
+      footer?: string;
+      buttons: Array<{ id: string; title: string }>;
+    }
+  | {
+      kind: "list";
+      body: string;
+      button: string;
+      header?: string;
+      footer?: string;
+      sections: Array<{
+        title?: string;
+        rows: Array<{ id: string; title: string; description?: string }>;
+      }>;
+    }
+  | { kind: "template"; template: any }
+  | {
+      kind: "flow";
+      flowId: string;
+      flowToken: string;
+      cta: string;
+      body: string;
+      header?: string;
+      footer?: string;
+      mode?: "draft" | "published";
+      action?: "navigate" | "data_exchange";
+      initialScreen?: string;
+      data?: Record<string, unknown>;
+    };
+
+export interface WaSendCommand {
+  shopId: string;
+  conversationId?: string;
+  to: string;
+  message: WaOutboundMessage;
+  replyToMessageId?: string;
+  replyToMetaMessageId?: string;
+}
+
 export interface WaMessage {
   id: string;
   conversationId: string;
@@ -88,17 +150,8 @@ export async function fetchWaMessages(token: string, conversationId: string, lim
   );
 }
 
-export async function sendWaMessage(token: string, payload: {
-  shopId: string;
-  conversationId?: string;
-  to: string;
-  type: WaMessageType;
-  content?: { text: string };
-  template?: any;
-  mediaUrl?: string;
-  replyToMessageId?: string;
-}) {
-  return apiRequest<WaMessage>("/whatsapp/send", {
+export async function sendWaMessage(token: string, payload: WaSendCommand) {
+  return apiRequest<WaMessage>("/whatsapp/messages", {
     method: "POST",
     token,
     body: JSON.stringify(payload),
@@ -187,16 +240,7 @@ export const whatsappApi = {
     const res = await fetchWaMessages(token, conversationId, limit, cursor);
     return { data: { success: true, data: res } };
   },
-  sendMessage: async (payload: {
-    shopId: string;
-    conversationId?: string;
-    to: string;
-    type: WaMessageType;
-    content?: { text: string };
-    template?: any;
-    mediaUrl?: string;
-    replyToMessageId?: string;
-  }) => {
+  sendMessage: async (payload: WaSendCommand) => {
     const token = useAuthStore.getState().token || "";
     const res = await sendWaMessage(token, payload);
     return { data: { success: true, data: res } };

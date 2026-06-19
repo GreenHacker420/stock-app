@@ -6,6 +6,12 @@ import { connection as redis } from "./whatsapp.queue.js";
 import crypto from "crypto";
 import { encrypt, decrypt } from "../lib/wa-crypto.js";
 import { normalizePhone } from "./whatsapp.phone.js";
+import {
+  adaptLegacyMessage,
+  compileMetaMessage,
+  getLocalMessageProjection,
+  requiresServiceWindow,
+} from "./whatsapp.message-compiler.js";
 
 const API_VERSION = "v25.0";
 const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
@@ -65,14 +71,35 @@ class WhatsAppService {
   }
 
   // Queues a message for sending.
-  async sendMessage(shopId, { conversationId, to, type, content, template, mediaUrl, replyToMetaMessageId, replyToMessageId }) {
+  async sendMessage(input) {
+    const command = adaptLegacyMessage(input);
+    const {
+      shopId,
+      conversationId,
+      to,
+      message: outboundMessage,
+      replyToMetaMessageId,
+      replyToMessageId,
+    } = command;
+
     // Ensure integration exists before queuing
     await this.getIntegration(shopId);
 
     const normalizedPhone = normalizePhone(to);
     let resolvedConversationId = conversationId;
 
-    if (!resolvedConversationId) {
+    if (resolvedConversationId) {
+      const conversation = await prisma.waConversation.findFirst({
+        where: { id: resolvedConversationId, shopId },
+        select: { id: true, phone: true },
+      });
+      if (!conversation) {
+        throw new Error("Conversation not found for this shop");
+      }
+      if (normalizePhone(conversation.phone) !== normalizedPhone) {
+        throw new Error("Conversation recipient does not match the requested phone number");
+      }
+    } else {
       let conversation = await prisma.waConversation.findUnique({
         where: { shopId_phone: { shopId, phone: normalizedPhone } },
       });
@@ -100,26 +127,49 @@ class WhatsAppService {
       resolvedReplyToMetaId = parentMsg?.metaMessageId || null;
     }
 
+    const projection = getLocalMessageProjection(outboundMessage);
+
     // 1. Initial local record
     const message = await prisma.waMessage.create({
       data: {
         conversationId: resolvedConversationId,
         direction: "OUTBOUND",
         status: "QUEUED",
-        type,
-        content: content || template || {},
-        mediaUrl,
+        type: projection.type,
+        content: projection.content,
+        payload: projection.payload,
+        mediaUrl: projection.mediaUrl,
+        fileName: projection.fileName,
+        templateName: projection.templateName,
+        templateLanguage: projection.templateLanguage,
         replyToMetaMessageId: resolvedReplyToMetaId,
       },
     });
 
     // 2. Add to queue
-    const { whatsappQueue } = await import("./whatsapp.queue.js");
-    await whatsappQueue.add("send-message", {
-      shopId,
-      messageId: message.id,
-      payload: { conversationId: resolvedConversationId, to: normalizedPhone, type, content, template, mediaUrl, replyToMetaMessageId: resolvedReplyToMetaId }
-    });
+    try {
+      const { whatsappQueue } = await import("./whatsapp.queue.js");
+      await whatsappQueue.add("send-message", {
+        shopId,
+        messageId: message.id,
+        payload: {
+          conversationId: resolvedConversationId,
+          to: normalizedPhone,
+          message: outboundMessage,
+          replyToMetaMessageId: resolvedReplyToMetaId,
+        },
+      });
+    } catch (error) {
+      await prisma.waMessage.update({
+        where: { id: message.id },
+        data: {
+          status: "FAILED",
+          failedAt: new Date(),
+          errorMessage: error.message,
+        },
+      });
+      throw error;
+    }
 
     return message;
   }
@@ -127,42 +177,21 @@ class WhatsAppService {
 
   // Low-level method called by worker to actually hit Meta API.
   async _sendDirect(shopId, { messageId, payload: p }) {
-    const { conversationId, to, type, content, template, mediaUrl, replyToMetaMessageId } = p;
+    const normalizedCommand = p.message
+      ? p
+      : adaptLegacyMessage({ shopId, ...p });
+    const { conversationId, to, message, replyToMetaMessageId } = normalizedCommand;
     const integration = await this.getIntegration(shopId);
 
     try {
-      const payload = {
-        messaging_product: "whatsapp",
-        recipient_type: "individual",
-        to,
-      };
-
-      // Handle Context replies
-      if (replyToMetaMessageId) {
-        payload.context = {
-          message_id: replyToMetaMessageId,
-        };
-      }
-
-      if (type === "TEMPLATE") {
-        payload.type = "template";
-        payload.template = template;
-      } else if (type === "TEXT") {
+      if (requiresServiceWindow(message)) {
         const isWithinWindow = await this.canSendFreeText(conversationId);
         if (!isWithinWindow) {
           throw new Error("Outside 24-hour window. Please use a template.");
         }
-        payload.type = "text";
-        payload.text = { body: content.text };
-      } else if (["IMAGE", "DOCUMENT", "AUDIO", "VIDEO"].includes(type)) {
-        const isWithinWindow = await this.canSendFreeText(conversationId);
-        if (!isWithinWindow) {
-          throw new Error("Outside 24-hour window. Please use a template.");
-        }
-        const mediaType = type.toLowerCase();
-        payload.type = mediaType;
-        payload[mediaType] = { link: mediaUrl };
       }
+
+      const payload = compileMetaMessage({ to, message, replyToMetaMessageId });
 
       const response = await axios.post(
         `${BASE_URL}/${integration.phoneNumberId}/messages`,
