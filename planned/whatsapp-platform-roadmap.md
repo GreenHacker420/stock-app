@@ -9,7 +9,7 @@
 | Workstream | Approximate completion | Current state |
 |---|---:|---|
 | Platform foundation | 70% | Durable webhooks, management projection, typed commands, queues, assets, and tenant routing exist; replay UI, quarantine operations, idempotency, metrics, and broadcast reconciliation remain |
-| Messaging types | 75% | Text, replies, image/video/document media, voice recording/playback, location, contacts, buttons, lists, templates, and Flow sends exist; stickers, location request, richer renderers, and policy-aware retry remain |
+| Messaging types | 80% | Text, replies, typed renderers, image/video/document media, voice recording/playback, location, contacts, buttons, lists, templates, and Flow sends exist; outbound stickers, location request, and policy-aware retry remain |
 | Templates | 30% | Sync and basic variable sending exist; pagination, lifecycle administration, typed headers/buttons/carousels/coupons/OTP, previews, and quality handling remain |
 | Flows | 25% | Sync, send contract, execution schema, and E2EE endpoint exist; CRUD, validation, deployment, registered handlers, retries, and execution UI remain |
 | Inbox and assignment | 25% | Conversation views, archive, assignment field, filters, and realtime updates exist; assignment commands/history, ownership permissions, workflow status, and notes remain |
@@ -25,14 +25,15 @@ Completed after the audit:
 - React Native structured-message actions for templates, contacts, location, reply buttons, and lists.
 - Tenant-authorized image, video, document, and voice-note upload to private storage and Meta media, including preview, recording, playback, progress, cancellation, captions, and queued sends by Meta media ID.
 - Generic tenant-scoped `Asset` registry owns S3 identity, Meta identity, checksums, lifecycle state, signed delivery URLs, and reusable message linkage; mobile contracts use only internal asset IDs.
+- Typed React Native renderer registry covers every normalized message kind with image preview, native video playback, audio controls, document opening, map actions, contact actions, and asset lifecycle fallbacks.
 
 Next dependency-ordered work:
 
-1. Dedicated renderer registry and media open/play actions.
-2. Complete typed template components, previews, and lifecycle sync.
-3. Flow CRUD, validation, deployment, and execution tracking.
-4. Device registry and presence foundation before inbound calling.
-5. Assignment commands and ownership history.
+1. Complete typed template components, previews, and lifecycle sync.
+2. Flow CRUD, validation, deployment, and execution tracking.
+3. Device registry and presence foundation before inbound calling.
+4. Assignment commands and ownership history.
+5. Outbound stickers, location requests, and policy-aware retry.
 
 ## Architecture Direction
 

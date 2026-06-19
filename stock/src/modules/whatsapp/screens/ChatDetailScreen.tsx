@@ -7,7 +7,6 @@ import {
   TouchableOpacity,
   KeyboardAvoidingView,
   Platform,
-  Image,
   Modal,
   Alert,
   Dimensions,
@@ -44,8 +43,8 @@ import { useWhatsAppRealtime } from "../hooks/useWhatsAppRealtime";
 import { variableResolverRegistry } from "../services/variableResolver";
 import { MessageActionSheet } from "../components/MessageActionSheet";
 import { MediaAttachmentSheet } from "../components/MediaAttachmentSheet";
-import { AudioMessagePlayer } from "../components/AudioMessagePlayer";
 import { VoiceRecorderSheet } from "../components/VoiceRecorderSheet";
+import { MessageContentRenderer } from "../components/MessageContentRenderer";
 
 
 
@@ -699,120 +698,13 @@ export const ChatDetailScreen = () => {
             </TouchableOpacity>
           )}
 
-          {/* Main Message Content */}
           {isDeleted ? (
             <View style={styles.deletedRow}>
               <MaterialCommunityIcons name="block-helper" size={15} color={Colors.textSecondary} style={{ marginRight: 6 }} />
               <Text style={styles.deletedText}>This message was deleted</Text>
             </View>
           ) : (
-            <>
-              {item.type === "TEXT" && <Text style={styles.messageText}>{item.content?.text}</Text>}
-              {item.type === "IMAGE" && (
-                <>
-                  <Image source={{ uri: item.asset?.url }} style={styles.messageImage} resizeMode="cover" />
-                  {!!(item.content?.caption || item.content?.text) && (
-                    <Text style={styles.messageText}>{item.content.caption || item.content.text}</Text>
-                  )}
-                </>
-              )}
-              {item.type === "DOCUMENT" && (
-                <>
-                  <View style={styles.docRow}>
-                    <MaterialCommunityIcons name="file-document-outline" size={28} color={Colors.primary} />
-                    <Text style={styles.docText} numberOfLines={1}>
-                      {item.asset?.fileName || item.content?.filename || "Document"}
-                    </Text>
-                  </View>
-                  {!!item.content?.caption && <Text style={styles.messageText}>{item.content.caption}</Text>}
-                </>
-              )}
-              {item.type === "STICKER" && (
-                <Image source={{ uri: item.asset?.url }} style={styles.messageImage} resizeMode="contain" />
-              )}
-              {item.type === "AUDIO" && (
-                <AudioMessagePlayer
-                  url={item.asset?.url}
-                  voice={item.payload?.voice}
-                  fallbackDurationMs={item.asset?.durationMs}
-                />
-              )}
-              {item.type === "VIDEO" && (
-                <>
-                  <View style={styles.docRow}>
-                    <MaterialCommunityIcons name="video-outline" size={28} color={Colors.primary} />
-                    <Text style={styles.docText}>Video message</Text>
-                  </View>
-                  {!!item.content?.caption && <Text style={styles.messageText}>{item.content.caption}</Text>}
-                </>
-              )}
-              {item.type === "LOCATION" && (
-                <View style={styles.docRow}>
-                  <MaterialCommunityIcons name="map-marker-outline" size={28} color={Colors.primary} />
-                  <Text style={styles.docText} numberOfLines={2}>
-                    {item.content?.name || item.content?.address || "Shared location"}
-                  </Text>
-                </View>
-              )}
-              {item.type === "CONTACT_CARD" && (
-                <View style={styles.docRow}>
-                  <MaterialCommunityIcons name="account-box-outline" size={28} color={Colors.primary} />
-                  <Text style={styles.docText}>
-                    {Array.isArray(item.content?.contacts) && item.content.contacts.length > 1
-                      ? `${item.content.contacts.length} contacts`
-                      : Array.isArray(item.content) && item.content.length > 1
-                        ? `${item.content.length} contacts`
-                      : "Shared contact"}
-                  </Text>
-                </View>
-              )}
-              {item.type === "INTERACTIVE" && (
-                <View style={styles.docRow}>
-                  <MaterialCommunityIcons name="gesture-tap-button" size={28} color={Colors.primary} />
-                  <Text style={styles.docText} numberOfLines={2}>
-                    {item.content?.body || item.content?.title || item.content?.text || "Interactive response"}
-                  </Text>
-                </View>
-              )}
-              {item.type === "FLOW" && (
-                <View style={styles.docRow}>
-                  <MaterialCommunityIcons name="form-select" size={28} color={Colors.primary} />
-                  <Text style={styles.docText}>Flow response</Text>
-                </View>
-              )}
-              {item.type === "ORDER" && (
-                <View style={styles.docRow}>
-                  <MaterialCommunityIcons name="cart-outline" size={28} color={Colors.primary} />
-                  <Text style={styles.docText}>
-                    {Array.isArray(item.content?.product_items)
-                      ? `Order with ${item.content.product_items.length} item${item.content.product_items.length === 1 ? "" : "s"}`
-                      : "WhatsApp order"}
-                  </Text>
-                </View>
-              )}
-              {item.type === "SYSTEM" && (
-                <View style={styles.docRow}>
-                  <MaterialCommunityIcons name="information-outline" size={28} color={Colors.textSecondary} />
-                  <Text style={styles.docText} numberOfLines={2}>
-                    {item.content?.body || item.content?.type || "WhatsApp system message"}
-                  </Text>
-                </View>
-              )}
-              {item.type === "TEMPLATE" && (
-                <View style={styles.docRow}>
-                  <MaterialCommunityIcons name="card-text-outline" size={28} color={Colors.primary} />
-                  <Text style={styles.docText} numberOfLines={2}>
-                    {item.templateName || item.content?.template?.name || "Template message"}
-                  </Text>
-                </View>
-              )}
-              {item.type === "UNSUPPORTED" && (
-                <View style={styles.docRow}>
-                  <MaterialCommunityIcons name="alert-circle-outline" size={28} color={Colors.textSecondary} />
-                  <Text style={styles.docText}>Unsupported WhatsApp message</Text>
-                </View>
-              )}
-            </>
+            <MessageContentRenderer message={item} />
           )}
 
           <View style={styles.messageFooter}>
@@ -1185,8 +1077,6 @@ export const ChatDetailScreen = () => {
   );
 };
 
-const { width } = Dimensions.get("window");
-
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#E5DDD5" },
   listContent: { padding: 10, paddingBottom: 20 },
@@ -1205,10 +1095,6 @@ const styles = StyleSheet.create({
   inboundBubble: { backgroundColor: "#fff" },
   outboundBubble: { backgroundColor: "#DCF8C6" },
   deletedBubble: { backgroundColor: "#E1E1E6", borderStyle: "dashed" },
-  messageText: { fontSize: 16, color: "#1F2937" },
-  messageImage: { width: 220, height: 220, borderRadius: 8, marginBottom: 5 },
-  docRow: { flexDirection: "row", alignItems: "center", backgroundColor: "rgba(0,0,0,0.05)", padding: 8, borderRadius: 8, maxWidth: 220 },
-  docText: { marginLeft: 8, fontSize: 14, fontWeight: "500", flex: 1 },
   messageFooter: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", marginTop: 4 },
   messageTime: { fontSize: 10, color: Colors.textSecondary },
   deletedRow: { flexDirection: "row", alignItems: "center" },
