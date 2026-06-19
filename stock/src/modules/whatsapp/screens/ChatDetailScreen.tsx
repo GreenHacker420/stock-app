@@ -1,6 +1,5 @@
 import { useEffect, useState, useRef, useMemo } from "react";
 import {
-  FlatList,
   View,
   Text,
   StyleSheet,
@@ -15,6 +14,9 @@ import {
   ScrollView,
   ActivityIndicator
 } from "react-native";
+import { FlashList } from "@shopify/flash-list";
+
+const FlashListAny = FlashList as any;
 import { Card, Button } from "react-native-paper";
 import * as Clipboard from "expo-clipboard";
 import { useRoute, useNavigation } from "@react-navigation/native";
@@ -52,7 +54,7 @@ export const ChatDetailScreen = () => {
   const [selectedTemplate, setSelectedTemplate] = useState<any | null>(null);
   const [templateParams, setTemplateParams] = useState<Record<string, string>>({});
 
-  const flatListRef = useRef<FlatList>(null);
+  const flatListRef = useRef<any>(null);
   const emojiInputRef = useRef<TextInput>(null);
 
   // Mark conversation as read on focus / load
@@ -500,11 +502,12 @@ export const ChatDetailScreen = () => {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
     >
-      <FlatList
+      <FlashListAny
         ref={flatListRef}
         data={messages}
         renderItem={renderMessage}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item: any) => item.id}
+        estimatedItemSize={100}
         contentContainerStyle={styles.listContent}
         onLayout={() => flatListRef.current?.scrollToEnd({ animated: false })}
       />
@@ -763,7 +766,7 @@ export const ChatDetailScreen = () => {
                     <Text style={styles.emptyTemplatesSub}>Sync templates in the settings screen.</Text>
                   </View>
                 ) : (
-                  <FlatList
+                  <FlashListAny
                     data={templates}
                     keyExtractor={(item: any) => item.id}
                     renderItem={({ item }: { item: any }) => {
@@ -789,6 +792,7 @@ export const ChatDetailScreen = () => {
                         </TouchableOpacity>
                       );
                     }}
+                    estimatedItemSize={72}
                     contentContainerStyle={{ paddingBottom: 40 }}
                   />
                 )}

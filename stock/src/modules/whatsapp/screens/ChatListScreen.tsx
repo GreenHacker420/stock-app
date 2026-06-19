@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { FlatList, TouchableOpacity, View, Text, StyleSheet, RefreshControl, Modal, Alert } from "react-native";
+import { TouchableOpacity, View, Text, StyleSheet, RefreshControl, Modal, Alert } from "react-native";
+import { FlashList } from "@shopify/flash-list";
+
+const FlashListAny = FlashList as any;
 import { useNavigation } from "@react-navigation/native";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { fetchWaConversations, whatsappApi, WaConversation } from "../../../api/whatsapp.api";
@@ -225,7 +228,7 @@ export const ChatListScreen = () => {
 
       {/* Assignee Filters Scrollable */}
       <View style={styles.filterWrapper}>
-        <FlatList
+        <FlashListAny
           horizontal
           showsHorizontalScrollIndicator={false}
           data={[
@@ -233,8 +236,8 @@ export const ChatListScreen = () => {
             { id: "ME", label: "Assigned to Me", icon: "account-check-outline" },
             { id: "UNASSIGNED", label: "Unassigned", icon: "account-question-outline" }
           ]}
-          keyExtractor={(item) => item.id}
-          renderItem={({ item }) => {
+          keyExtractor={(item: any) => item.id}
+          renderItem={({ item }: any) => {
             const isActive = assigneeFilter === item.id;
             return (
               <TouchableOpacity
@@ -254,14 +257,16 @@ export const ChatListScreen = () => {
               </TouchableOpacity>
             );
           }}
+          estimatedItemSize={120}
           contentContainerStyle={styles.filterScroll}
         />
       </View>
 
-      <FlatList
+      <FlashListAny
         data={filteredConversations}
         renderItem={renderItem}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item: any) => item.id}
+        estimatedItemSize={76}
         refreshControl={
           <RefreshControl refreshing={isLoading || isRefetching} onRefresh={refetch} colors={[Colors.primary]} />
         }

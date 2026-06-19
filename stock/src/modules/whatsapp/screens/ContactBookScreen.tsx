@@ -6,7 +6,6 @@ import {
   Alert,
   ActivityIndicator,
   Modal,
-  FlatList, // Keep for customers modal list if needed
 } from "react-native";
 import {
   Text,
@@ -828,21 +827,18 @@ export const ContactBookScreen = () => {
               inputStyle={styles.searchInput}
             />
 
-            <FlatList
+            <FlashListAny
               data={visibleCustomers}
-              keyExtractor={(item) => item.id}
+              keyExtractor={(item: any) => item.id}
               style={styles.customerScroll}
-              initialNumToRender={15}
-              maxToRenderPerBatch={15}
-              windowSize={5}
-              removeClippedSubviews={true}
+              estimatedItemSize={60}
               onEndReached={() => {
                 if (customerLimit < filteredCustomersForLink.length) {
                   setCustomerLimit((prev) => prev + 50);
                 }
               }}
               onEndReachedThreshold={0.5}
-              renderItem={({ item: c }) => {
+              renderItem={({ item: c }: any) => {
                 const hasPhone = !!c.phone;
                 return (
                   <TouchableOpacity
