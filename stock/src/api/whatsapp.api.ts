@@ -33,11 +33,8 @@ export type WaContact = {
 
 export type WaMediaKind = "image" | "video" | "audio" | "document" | "sticker";
 export type WaMediaReference = {
-  id?: string;
+  assetId?: string;
   link?: string;
-  localUrl?: string;
-  storageKey?: string;
-  storageBucket?: string;
   mimeType?: string;
 };
 
@@ -114,10 +111,19 @@ export interface WaMessage {
       timestamp: string;
     }>;
   };
-  mediaId?: string;
-  mediaUrl?: string;
-  mimeType?: string;
-  fileName?: string;
+  assetId?: string;
+  asset?: {
+    id: string;
+    kind: "IMAGE" | "VIDEO" | "AUDIO" | "DOCUMENT" | "STICKER" | "OTHER";
+    status: "UPLOADING" | "READY" | "FAILED" | "DELETED";
+    mimeType: string;
+    fileName?: string;
+    size?: number;
+    width?: number;
+    height?: number;
+    durationMs?: number;
+    url?: string;
+  } | null;
   templateId?: string;
   templateName?: string;
   templateLanguage?: string;
@@ -141,13 +147,15 @@ export type WaLocalMedia = {
 
 export type WaMediaUpload = {
   id: string;
-  kind: WaMediaKind;
+  kind: "IMAGE" | "VIDEO" | "AUDIO" | "DOCUMENT" | "STICKER" | "OTHER";
+  status: "UPLOADING" | "READY" | "FAILED" | "DELETED";
   mimeType: string;
-  fileName: string;
-  size: number;
-  storageKey: string;
-  storageBucket: string;
-  previewUrl: string;
+  fileName?: string;
+  size?: number;
+  width?: number;
+  height?: number;
+  durationMs?: number;
+  url?: string;
 };
 
 export interface WaConversation {

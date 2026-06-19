@@ -416,22 +416,14 @@ export const ChatDetailScreen = () => {
       if (selectedMedia.kind === "document") {
         sendStructuredMessage({
           kind: "document",
-          id: uploaded.id,
-          mimeType: uploaded.mimeType,
-          localUrl: uploaded.previewUrl,
-          storageKey: uploaded.storageKey,
-          storageBucket: uploaded.storageBucket,
-          filename: uploaded.fileName,
+          assetId: uploaded.id,
+          filename: uploaded.fileName || selectedMedia.name,
           caption: mediaCaption.trim() || undefined,
         });
       } else {
         sendStructuredMessage({
           kind: selectedMedia.kind,
-          id: uploaded.id,
-          mimeType: uploaded.mimeType,
-          localUrl: uploaded.previewUrl,
-          storageKey: uploaded.storageKey,
-          storageBucket: uploaded.storageBucket,
+          assetId: uploaded.id,
           caption: mediaCaption.trim() || undefined,
         });
       }
@@ -681,7 +673,7 @@ export const ChatDetailScreen = () => {
               {item.type === "TEXT" && <Text style={styles.messageText}>{item.content?.text}</Text>}
               {item.type === "IMAGE" && (
                 <>
-                  <Image source={{ uri: item.mediaUrl }} style={styles.messageImage} resizeMode="cover" />
+                  <Image source={{ uri: item.asset?.url }} style={styles.messageImage} resizeMode="cover" />
                   {!!(item.content?.caption || item.content?.text) && (
                     <Text style={styles.messageText}>{item.content.caption || item.content.text}</Text>
                   )}
@@ -691,13 +683,15 @@ export const ChatDetailScreen = () => {
                 <>
                   <View style={styles.docRow}>
                     <MaterialCommunityIcons name="file-document-outline" size={28} color={Colors.primary} />
-                    <Text style={styles.docText} numberOfLines={1}>{item.fileName || "Document"}</Text>
+                    <Text style={styles.docText} numberOfLines={1}>
+                      {item.asset?.fileName || item.content?.filename || "Document"}
+                    </Text>
                   </View>
                   {!!item.content?.caption && <Text style={styles.messageText}>{item.content.caption}</Text>}
                 </>
               )}
               {item.type === "STICKER" && (
-                <Image source={{ uri: item.mediaUrl }} style={styles.messageImage} resizeMode="contain" />
+                <Image source={{ uri: item.asset?.url }} style={styles.messageImage} resizeMode="contain" />
               )}
               {item.type === "AUDIO" && (
                 <View style={styles.docRow}>

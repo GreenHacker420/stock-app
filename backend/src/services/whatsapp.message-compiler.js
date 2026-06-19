@@ -7,11 +7,8 @@ const textSchema = z.object({
 });
 
 const mediaMetadata = {
-  id: z.string().trim().min(1).optional(),
+  assetId: z.string().trim().min(1).optional(),
   link: z.string().url().optional(),
-  localUrl: z.string().url().optional(),
-  storageKey: z.string().trim().min(1).optional(),
-  storageBucket: z.string().trim().min(1).optional(),
   mimeType: z.string().trim().min(1).optional(),
   caption: z.string().max(1024).optional(),
 };
@@ -28,11 +25,8 @@ const videoSchema = z.object({
 
 const audioSchema = z.object({
   kind: z.literal("audio"),
-  id: z.string().trim().min(1).optional(),
+  assetId: z.string().trim().min(1).optional(),
   link: z.string().url().optional(),
-  localUrl: z.string().url().optional(),
-  storageKey: z.string().trim().min(1).optional(),
-  storageBucket: z.string().trim().min(1).optional(),
   mimeType: z.string().trim().min(1).optional(),
   voice: z.boolean().optional().default(false),
 });
@@ -45,11 +39,8 @@ const documentSchema = z.object({
 
 const stickerSchema = z.object({
   kind: z.literal("sticker"),
-  id: z.string().trim().min(1).optional(),
+  assetId: z.string().trim().min(1).optional(),
   link: z.string().url().optional(),
-  localUrl: z.string().url().optional(),
-  storageKey: z.string().trim().min(1).optional(),
-  storageBucket: z.string().trim().min(1).optional(),
   mimeType: z.string().trim().min(1).optional(),
 });
 
@@ -173,11 +164,12 @@ export const outboundMessageSchema = z.discriminatedUnion("kind", [
   flowSchema,
 ]).superRefine((message, ctx) => {
   if (!["image", "video", "audio", "document", "sticker"].includes(message.kind)) return;
-  if (Boolean(message.id) === Boolean(message.link)) {
+  const references = [message.assetId, message.link].filter(Boolean);
+  if (references.length !== 1) {
     ctx.addIssue({
       code: "custom",
-      message: "Media messages require exactly one of id or link",
-      path: ["id"],
+      message: "Media messages require exactly one of assetId or link",
+      path: ["assetId"],
     });
   }
 });
@@ -329,25 +321,30 @@ export function compileMetaMessage({ to, message, replyToMetaMessageId }) {
 
 export function getLocalMessageProjection(message) {
   const type = TYPE_BY_KIND[message.kind];
-  const mediaUrl = ["image", "video", "audio", "document", "sticker"].includes(message.kind)
-    ? message.localUrl || message.link || null
-    : null;
-  const mediaId = ["image", "video", "audio", "document", "sticker"].includes(message.kind)
-    ? message.id || null
-    : null;
+  const isMedia = ["image", "video", "audio", "document", "sticker"].includes(message.kind);
 
   if (message.kind === "text") {
-    return { type, content: { text: message.text, previewUrl: message.previewUrl }, payload: { subtype: "text" }, mediaUrl, mediaId };
+    return { type, content: { text: message.text, previewUrl: message.previewUrl }, payload: { subtype: "text" } };
   }
   if (message.kind === "template") {
     return {
       type,
       content: { template: message.template },
       payload: { subtype: "template" },
-      mediaUrl,
-      mediaId,
       templateName: message.template.name,
       templateLanguage: message.template.language.code,
+    };
+  }
+
+  if (isMedia) {
+    return {
+      type,
+      content: {
+        ...(message.caption ? { caption: message.caption } : {}),
+        ...(message.kind === "document" && message.filename ? { filename: message.filename } : {}),
+      },
+      payload: { subtype: message.kind, ...(message.voice ? { voice: true } : {}) },
+      assetId: message.assetId,
     };
   }
 
@@ -355,12 +352,6 @@ export function getLocalMessageProjection(message) {
     type,
     content: message,
     payload: { subtype: message.kind, ...(message.voice ? { voice: true } : {}) },
-    mediaUrl,
-    mediaId,
-    mimeType: message.mimeType,
-    s3Key: message.storageKey,
-    s3Bucket: message.storageBucket,
-    fileName: message.kind === "document" ? message.filename : undefined,
   };
 }
 

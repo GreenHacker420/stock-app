@@ -353,6 +353,7 @@ model User {
 
   assignedWaConversations WaConversation[]
   waBroadcasts            WaBroadcast[]
+  assetsCreated           Asset[]          @relation("AssetCreatedBy")
 }
 
 model Shop {
@@ -399,6 +400,7 @@ model Shop {
   waFlows         WaFlow[]
   waIntegration   WaIntegration?
   waBroadcasts    WaBroadcast[]
+  assets          Asset[]
 
   @@index([ownerId])
 }
@@ -1246,6 +1248,69 @@ enum WaTemplateCategory {
   AUTHENTICATION
 }
 
+enum AssetKind {
+  IMAGE
+  VIDEO
+  AUDIO
+  DOCUMENT
+  STICKER
+  OTHER
+}
+
+enum AssetStatus {
+  UPLOADING
+  READY
+  FAILED
+  DELETED
+}
+
+enum AssetSource {
+  WHATSAPP_INBOUND
+  WHATSAPP_OUTBOUND
+  INTERNAL
+}
+
+enum AssetStorageProvider {
+  S3
+}
+
+model Asset {
+  id               String                @id @default(cuid())
+  shopId           String
+  createdById      String?
+  kind             AssetKind
+  source           AssetSource
+  status           AssetStatus           @default(UPLOADING)
+  storageProvider  AssetStorageProvider?
+  storageBucket    String?
+  storageKey       String?
+  remoteUrl        String?
+  externalProvider String?
+  externalId       String?
+  mimeType         String
+  fileName         String?
+  sizeBytes        BigInt?
+  checksumSha256   String?
+  width            Int?
+  height           Int?
+  durationMs       Int?
+  metadata         Json?
+  errorMessage     String?
+  createdAt        DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+  readyAt          DateTime?
+  deletedAt        DateTime?
+
+  shop       Shop        @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  createdBy  User?       @relation("AssetCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  waMessages WaMessage[]
+
+  @@unique([shopId, storageProvider, storageBucket, storageKey])
+  @@unique([shopId, externalProvider, externalId])
+  @@index([shopId, status, createdAt])
+  @@index([createdById])
+}
+
 model WaConversation {
   id                    String    @id @default(cuid())
   shopId                String
@@ -1282,12 +1347,7 @@ model WaMessage {
   type                 WaMessageType      @default(TEXT)
   content              Json? // Text content or media metadata
   payload              Json?
-  mediaId              String?
-  mediaUrl             String?
-  s3Key                String?
-  s3Bucket             String?
-  mimeType             String?
-  fileName             String?
+  assetId              String?
   templateId           String?
   templateName         String?
   templateLanguage     String?
@@ -1301,8 +1361,10 @@ model WaMessage {
   createdAt            DateTime           @default(now())
 
   conversation WaConversation @relation(fields: [conversationId], references: [id])
+  asset        Asset?         @relation(fields: [assetId], references: [id], onDelete: SetNull)
 
   @@index([conversationId, createdAt])
+  @@index([assetId])
 }
 
 enum WaWebhookEventType {

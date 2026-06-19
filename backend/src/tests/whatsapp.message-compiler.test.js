@@ -62,7 +62,7 @@ test("compiles media metadata without leaking unsupported fields", () => {
     },
   });
   assert.equal(getLocalMessageProjection(document).type, "DOCUMENT");
-  assert.equal(getLocalMessageProjection(document).fileName, "INV-100.pdf");
+  assert.equal(getLocalMessageProjection(document).content.filename, "INV-100.pdf");
 
   const voice = outboundCommandSchema.parse({
     shopId: "shop-1",
@@ -78,21 +78,17 @@ test("compiles media metadata without leaking unsupported fields", () => {
     voice: true,
   });
 
-  const image = outboundCommandSchema.parse({
-    shopId: "shop-1",
-    to: "919876543210",
-    message: {
-      kind: "image",
-      id: "meta-media-1",
-      mimeType: "image/jpeg",
-      caption: "Stock photo",
-    },
-  }).message;
+  const image = {
+    kind: "image",
+    id: "meta-media-1",
+    mimeType: "image/jpeg",
+    caption: "Stock photo",
+  };
   assert.deepEqual(compileMetaMessage({ to: "919876543210", message: image }).image, {
     id: "meta-media-1",
     caption: "Stock photo",
   });
-  assert.equal(getLocalMessageProjection(image).mediaId, "meta-media-1");
+  assert.equal(getLocalMessageProjection(image).type, "IMAGE");
 });
 
 test("requires exactly one media reference", () => {
@@ -107,10 +103,23 @@ test("requires exactly one media reference", () => {
     ...base,
     message: {
       ...base.message,
-      id: "meta-media-1",
+      assetId: "asset-1",
       link: "https://cdn.example.com/image.jpg",
     },
   }).success, false);
+
+  const assetMessage = outboundCommandSchema.parse({
+    ...base,
+    message: {
+      ...base.message,
+      assetId: "asset-1",
+      caption: "Stock photo",
+    },
+  }).message;
+  assert.equal(getLocalMessageProjection(assetMessage).assetId, "asset-1");
+  assert.deepEqual(getLocalMessageProjection(assetMessage).content, {
+    caption: "Stock photo",
+  });
 });
 
 test("compiles reply buttons and removes absent optional sections", () => {

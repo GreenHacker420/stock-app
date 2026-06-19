@@ -243,6 +243,48 @@ async function handleInboundMessage(event, shopId, eventId) {
     if (event.voice) messagePayload.voice = true;
     if (event.animated) messagePayload.animated = true;
     if (event.raw) messagePayload.raw = event.raw;
+    let asset = null;
+    if (event.mediaId) {
+      asset = await tx.asset.findUnique({
+        where: {
+          shopId_externalProvider_externalId: {
+            shopId,
+            externalProvider: "META_WHATSAPP",
+            externalId: event.mediaId,
+          },
+        },
+      });
+
+      if (!asset) {
+        asset = await tx.asset.create({
+          data: {
+            shopId,
+            kind: {
+              image: "IMAGE",
+              video: "VIDEO",
+              audio: "AUDIO",
+              document: "DOCUMENT",
+              sticker: "STICKER",
+            }[event.type] || "OTHER",
+            source: "WHATSAPP_INBOUND",
+            status: "UPLOADING",
+            externalProvider: "META_WHATSAPP",
+            externalId: event.mediaId,
+            mimeType: event.mimeType || "application/octet-stream",
+            fileName: event.fileName,
+          },
+        });
+      } else if (asset.status === "FAILED") {
+        asset = await tx.asset.update({
+          where: { id: asset.id },
+          data: {
+            status: "UPLOADING",
+            errorMessage: null,
+          },
+        });
+      }
+    }
+
     const message = await tx.waMessage.create({
       data: {
         conversationId: conversation.id,
@@ -253,20 +295,19 @@ async function handleInboundMessage(event, shopId, eventId) {
         type: messageType,
         content: event.content ? { text: event.content } : (event.payload || event.raw || {}),
         payload: messagePayload,
-        mediaId: event.mediaId,
-        mimeType: event.mimeType,
-        fileName: event.fileName,
+        assetId: asset?.id,
         createdAt: new Date(Number(event.timestamp) * 1000),
       },
     });
 
     // 5. If it is a media message, queue for download
-    if (event.mediaId) {
+    if (event.mediaId && asset?.status !== "READY") {
       try {
         const { mediaDownloadQueue } = await import("./whatsapp.queue.js");
         await mediaDownloadQueue.add("download-media", {
           shopId,
           messageId: message.id,
+          assetId: asset.id,
           mediaId: event.mediaId,
           mimeType: event.mimeType,
           fileName: event.fileName,

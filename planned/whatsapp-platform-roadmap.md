@@ -10,6 +10,7 @@ Completed after the audit:
 - Typed outbound `/whatsapp/messages` contract with text, replies, media, location, contacts, buttons, lists, templates, and Flows.
 - React Native structured-message actions for templates, contacts, location, reply buttons, and lists.
 - Tenant-authorized image, video, and document upload to private storage and Meta media, including preview, progress, cancellation, captions, and queued sends by Meta media ID.
+- Generic tenant-scoped `Asset` registry owns S3 identity, Meta identity, checksums, lifecycle state, signed delivery URLs, and reusable message linkage; mobile contracts use only internal asset IDs.
 
 Next dependency-ordered work:
 

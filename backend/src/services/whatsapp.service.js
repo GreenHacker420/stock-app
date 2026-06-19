@@ -12,6 +12,7 @@ import {
   outboundCommandSchema,
   requiresServiceWindow,
 } from "./whatsapp.message-compiler.js";
+import { resolveOutboundMediaAsset } from "./whatsapp.media.service.js";
 
 const API_VERSION = "v25.0";
 const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
@@ -77,7 +78,7 @@ class WhatsAppService {
       shopId,
       conversationId,
       to,
-      message: outboundMessage,
+      message: requestedMessage,
       replyToMetaMessageId,
       replyToMessageId,
     } = command;
@@ -127,7 +128,15 @@ class WhatsAppService {
       resolvedReplyToMetaId = parentMsg?.metaMessageId || null;
     }
 
-    const projection = getLocalMessageProjection(outboundMessage);
+    const resolvedMedia = await resolveOutboundMediaAsset({
+      shopId,
+      message: requestedMessage,
+    });
+    const outboundMessage = resolvedMedia.message;
+    const projection = getLocalMessageProjection({
+      ...requestedMessage,
+      ...(resolvedMedia.assetId ? { assetId: resolvedMedia.assetId } : {}),
+    });
 
     // 1. Initial local record
     const message = await prisma.waMessage.create({
@@ -138,12 +147,7 @@ class WhatsAppService {
         type: projection.type,
         content: projection.content,
         payload: projection.payload,
-        mediaId: projection.mediaId,
-        mediaUrl: projection.mediaUrl,
-        s3Key: projection.s3Key,
-        s3Bucket: projection.s3Bucket,
-        mimeType: projection.mimeType,
-        fileName: projection.fileName,
+        assetId: projection.assetId,
         templateName: projection.templateName,
         templateLanguage: projection.templateLanguage,
         replyToMetaMessageId: resolvedReplyToMetaId,

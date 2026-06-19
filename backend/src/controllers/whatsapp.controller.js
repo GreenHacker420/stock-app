@@ -4,11 +4,13 @@ import { whatsappService } from "../services/whatsapp.service.js";
 import { whatsappBroadcastService } from "../services/whatsapp.broadcast.service.js";
 import { getWaCredentials, getTenantByPhoneNumberId, invalidateWaCredentials } from "../lib/wa-cache.js";
 import { inboundQueue } from "../services/whatsapp.queue.js";
-import { getSignedMediaUrl } from "../lib/wa-media.js";
 import { encrypt } from "../lib/wa-crypto.js";
 import prisma from "../lib/db.js";
 import { persistWebhookEnvelopes } from "../services/whatsapp.webhook.service.js";
-import { uploadWhatsAppMedia } from "../services/whatsapp.media.service.js";
+import {
+  serializeMessageWithAsset,
+  uploadWhatsAppMedia,
+} from "../services/whatsapp.media.service.js";
 
 async function getPublicIntegration(shopId) {
   const integration = await prisma.waIntegration.findUnique({
@@ -224,28 +226,16 @@ class WhatsAppController {
 
       const messages = await prisma.waMessage.findMany({
         where: { conversationId: id },
+        include: { asset: true },
         take: Number(limit),
         skip: cursor ? 1 : 0,
         cursor: cursor ? { id: cursor } : undefined,
         orderBy: { createdAt: "desc" }
       });
 
-      // Dynamically generate 1-hour pre-signed URLs for any private media stored on S3
-      const messagesWithPresignedUrls = await Promise.all(
-        messages.map(async (msg) => {
-          if (msg.s3Key) {
-            try {
-              const presignedUrl = await getSignedMediaUrl(msg.s3Key);
-              return { ...msg, mediaUrl: presignedUrl };
-            } catch (err) {
-              console.error(`[WhatsApp Controller] Failed to sign media URL for key ${msg.s3Key}:`, err.message);
-            }
-          }
-          return msg;
-        })
-      );
+      const messagesWithAssets = await Promise.all(messages.map(serializeMessageWithAsset));
 
-      res.json({ success: true, data: messagesWithPresignedUrls.reverse() });
+      res.json({ success: true, data: messagesWithAssets.reverse() });
     } catch (error) {
       res.status(500).json({ success: false, message: error.message });
     }
@@ -280,6 +270,7 @@ class WhatsAppController {
     try {
       const result = await uploadWhatsAppMedia({
         shopId: req.shop.id,
+        createdById: req.user.id,
         kind: req.body.kind,
         file: req.file,
       });
