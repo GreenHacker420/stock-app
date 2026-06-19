@@ -526,6 +526,7 @@ class WhatsAppService {
             data: {
               phone: rawPhone,
               email: (mergeStrategy === "MERGE" && !customer.email) ? c.email : customer.email,
+              type: (c.tag === "BUSINESS" || c.tag === "REGULAR") ? c.tag : customer.type,
             },
           });
           mergedCount++;
@@ -544,6 +545,7 @@ class WhatsAppService {
             const updateData = {};
             if (!customer.email && c.email) updateData.email = c.email;
             if (!customer.contactPerson && c.name) updateData.contactPerson = c.name;
+            if (c.tag === "BUSINESS" || c.tag === "REGULAR") updateData.type = c.tag;
 
             if (Object.keys(updateData).length > 0) {
               customer = await prisma.customer.update({
@@ -561,7 +563,7 @@ class WhatsAppService {
               name: c.name || `Contact ${phoneSuffix}`,
               phone: rawPhone,
               email: c.email || null,
-              type: "REGULAR",
+              type: (c.tag === "BUSINESS" || c.tag === "REGULAR") ? c.tag : "REGULAR",
               createdById: userId,
             },
           });

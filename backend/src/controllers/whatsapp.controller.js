@@ -239,6 +239,23 @@ class WhatsAppController {
   }
 
   /**
+   * Get Synced Templates (GET /whatsapp/templates)
+   */
+  async getTemplates(req, res) {
+    try {
+      const { shopId } = req.query;
+      if (!shopId) return res.status(400).json({ success: false, message: "shopId is required" });
+      const templates = await prisma.waTemplate.findMany({
+        where: { shopId, status: "APPROVED" },
+        orderBy: { name: "asc" }
+      });
+      res.json({ success: true, data: templates });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  }
+
+  /**
    * Sync Flows (POST /whatsapp/sync-flows)
    */
   async syncFlows(req, res) {

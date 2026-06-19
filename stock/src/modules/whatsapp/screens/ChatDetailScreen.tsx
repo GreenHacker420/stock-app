@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import {
   FlatList,
   View,
@@ -11,14 +11,18 @@ import {
   Image,
   Modal,
   Alert,
-  Dimensions
+  Dimensions,
+  ScrollView,
+  ActivityIndicator
 } from "react-native";
+import { Card, Button } from "react-native-paper";
 import * as Clipboard from "expo-clipboard";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { fetchWaMessages, sendWaMessage, whatsappApi, WaMessage } from "../../../api/whatsapp.api";
 import { useShopStore } from "../../../auth/shop-store";
 import { useAuthStore } from "../../../auth/auth-store";
+import { useCustomersQuery } from "../../../hooks/useCustomers";
 import { colors as Colors } from "../../../theme";
 import { format } from "date-fns";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
@@ -41,8 +45,49 @@ export const ChatDetailScreen = () => {
   const [reactionMenuVisible, setReactionMenuVisible] = useState(false);
   const [customEmojiVisible, setCustomEmojiVisible] = useState(false);
 
+  // Template Picker State
+  const [showTemplateSheet, setShowTemplateSheet] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] = useState<any | null>(null);
+  const [templateParams, setTemplateParams] = useState<Record<string, string>>({});
+
   const flatListRef = useRef<FlatList>(null);
   const emojiInputRef = useRef<TextInput>(null);
+
+  // Mark conversation as read on focus / load
+  useEffect(() => {
+    if (activeShopId && conversationId) {
+      whatsappApi.markConversationRead(activeShopId, conversationId)
+        .then(() => {
+          queryClient.invalidateQueries({ queryKey: ["wa-conversations", activeShopId] });
+        })
+        .catch((err) => {
+          console.warn("Failed to mark conversation read", err);
+        });
+    }
+  }, [activeShopId, conversationId]);
+
+  // Load wa-conversations cache to find active conversation metadata
+  const { data: conversations = [] } = useQuery<any[]>({
+    queryKey: ["wa-conversations", activeShopId],
+    enabled: false,
+  });
+
+  const conversation = conversations.find((c: any) => c.id === conversationId);
+
+  // Load server-side customers to resolve dynamic variables (e.g. outstandingAmount)
+  const { data: customers = [] } = useCustomersQuery();
+  const customerRecord = customers.find((c: any) => c.id === conversation?.customerId);
+
+  // Synced Templates Query
+  const { data: templates = [], isLoading: loadingTemplates } = useQuery({
+    queryKey: ["wa-templates", activeShopId],
+    queryFn: async () => {
+      if (!activeShopId) return [];
+      const res = await whatsappApi.getTemplates(activeShopId);
+      return res.data?.data || [];
+    },
+    enabled: !!activeShopId,
+  });
 
   // Subscribe to real-time events for this conversation
   useWhatsAppRealtime(conversationId);
@@ -73,8 +118,9 @@ export const ChatDetailScreen = () => {
       shopId: string;
       conversationId: string;
       to: string;
-      type: "TEXT";
-      content: { text: string };
+      type: "TEXT" | "TEMPLATE";
+      content?: { text: string };
+      template?: any;
       replyToMessageId?: string;
     }) => {
       if (!token) throw new Error("No auth token");
@@ -85,7 +131,7 @@ export const ChatDetailScreen = () => {
       queryClient.invalidateQueries({ queryKey: ["wa-conversations", activeShopId] });
       setReplyingTo(null);
     },
-    onError: (err) => {
+    onError: (err: any) => {
       Alert.alert("Send Error", err.message || "Failed to send message");
     }
   });
@@ -199,6 +245,80 @@ export const ChatDetailScreen = () => {
         },
       ]
     );
+  };
+
+  // Helper to extract body placeholders sorted numerically
+  const templatePlaceholders = useMemo(() => {
+    if (!selectedTemplate) return [];
+    const bodyComp = selectedTemplate.components?.find((c: any) => c.type === "BODY");
+    const bodyText = bodyComp?.text || "";
+    const matches: string[] = [];
+    const regex = /\{\{(\d+)\}\}/g;
+    let match;
+    while ((match = regex.exec(bodyText)) !== null) {
+      if (!matches.includes(match[1])) {
+        matches.push(match[1]);
+      }
+    }
+    return matches.sort((a, b) => Number(a) - Number(b));
+  }, [selectedTemplate]);
+
+  const autofillParam = (paramNum: string, type: "name" | "phone" | "outstanding") => {
+    let value = "";
+    if (type === "name") {
+      value = conversation?.contactName || customerRecord?.name || "";
+    } else if (type === "phone") {
+      value = phone || "";
+    } else if (type === "outstanding") {
+      value = customerRecord?.outstandingAmount ? String(customerRecord.outstandingAmount) : "0.00";
+    }
+    
+    setTemplateParams((prev) => ({
+      ...prev,
+      [paramNum]: value,
+    }));
+  };
+
+  const handleSendTemplate = () => {
+    if (!selectedTemplate || !activeShopId || !token) return;
+
+    // Check if any variable is missing
+    const missing = templatePlaceholders.some((p: string) => !(templateParams[p] || "").trim());
+    if (missing) {
+      Alert.alert("Missing Parameters", "Please fill in all template parameters.");
+      return;
+    }
+
+    const parameters = templatePlaceholders.map((p: string) => ({
+      type: "text",
+      text: templateParams[p] || "",
+    }));
+
+    const payload = {
+      shopId: activeShopId,
+      conversationId,
+      to: phone,
+      type: "TEMPLATE" as const,
+      template: {
+        name: selectedTemplate.name,
+        language: {
+          code: selectedTemplate.language,
+        },
+        components: parameters.length > 0 ? [
+          {
+            type: "body",
+            parameters: parameters,
+          },
+        ] : [],
+      },
+    };
+
+    sendMutation.mutate(payload);
+
+    // Reset template sheet and selection states
+    setSelectedTemplate(null);
+    setTemplateParams({});
+    setShowTemplateSheet(false);
   };
 
   const scrollToParent = (replyToMetaId: string) => {
@@ -365,6 +485,12 @@ export const ChatDetailScreen = () => {
 
       {/* Message Input Bar */}
       <View style={styles.inputToolbar}>
+        <TouchableOpacity
+          style={styles.templateToolbarBtn}
+          onPress={() => setShowTemplateSheet(true)}
+        >
+          <MaterialCommunityIcons name="card-text-outline" size={24} color={Colors.primary} />
+        </TouchableOpacity>
         <TextInput
           style={styles.input}
           placeholder="Type a message..."
@@ -476,6 +602,162 @@ export const ChatDetailScreen = () => {
             >
               <Text style={styles.nativeEmojiCloseBtnText}>Cancel</Text>
             </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Template Picker & Variable Editor Bottom Sheet Modal */}
+      <Modal
+        visible={showTemplateSheet}
+        transparent
+        animationType="slide"
+        onRequestClose={() => {
+          setShowTemplateSheet(false);
+          setSelectedTemplate(null);
+          setTemplateParams({});
+        }}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => {
+            setShowTemplateSheet(false);
+            setSelectedTemplate(null);
+            setTemplateParams({});
+          }}
+        >
+          <View style={styles.bottomSheetContainer}>
+            {selectedTemplate ? (
+              // Variables Form Editor
+              <View style={styles.formContainer}>
+                <View style={styles.sheetHeader}>
+                  <TouchableOpacity onPress={() => setSelectedTemplate(null)}>
+                    <MaterialCommunityIcons name="arrow-left" size={24} color={Colors.textPrimary} />
+                  </TouchableOpacity>
+                  <Text style={styles.sheetTitle} numberOfLines={1}>{selectedTemplate.name}</Text>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setShowTemplateSheet(false);
+                      setSelectedTemplate(null);
+                      setTemplateParams({});
+                    }}
+                  >
+                    <MaterialCommunityIcons name="close" size={24} color={Colors.textPrimary} />
+                  </TouchableOpacity>
+                </View>
+
+                <ScrollView contentContainerStyle={styles.sheetContent}>
+                  <Text style={styles.formHeading}>Resolve Template Variables</Text>
+                  <Text style={styles.formSub}>Fill parameters for dynamic placeholders.</Text>
+                  
+                  {/* Template body preview */}
+                  <Card style={styles.previewCard}>
+                    <Card.Content>
+                      <Text style={styles.previewLabel}>Template Body:</Text>
+                      <Text style={styles.previewText}>
+                        {selectedTemplate.components?.find((c: any) => c.type === "BODY")?.text || ""}
+                      </Text>
+                    </Card.Content>
+                  </Card>
+
+                  {templatePlaceholders.map((num: string) => (
+                    <View key={num} style={styles.paramInputGroup}>
+                      <Text style={styles.paramLabel}>Variable {"{{"}{num}{"}}"}</Text>
+                      <TextInput
+                        style={styles.paramInput}
+                        value={templateParams[num] || ""}
+                        onChangeText={(val) =>
+                          setTemplateParams((prev) => ({ ...prev, [num]: val }))
+                        }
+                        placeholder={`Value for {{${num}}}`}
+                      />
+                      {/* Autofill tags */}
+                      <View style={styles.autofillRow}>
+                        <TouchableOpacity
+                          style={styles.autofillPill}
+                          onPress={() => autofillParam(num, "name")}
+                        >
+                          <Text style={styles.autofillPillText}>Autofill Name</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.autofillPill}
+                          onPress={() => autofillParam(num, "phone")}
+                        >
+                          <Text style={styles.autofillPillText}>Autofill Phone</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.autofillPill}
+                          onPress={() => autofillParam(num, "outstanding")}
+                        >
+                          <Text style={styles.autofillPillText}>Autofill Outstanding</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ))}
+
+                  <Button
+                    mode="contained"
+                    style={styles.sendTemplateBtn}
+                    textColor="#fff"
+                    onPress={handleSendTemplate}
+                    loading={sendMutation.isPending}
+                  >
+                    Send Template Message
+                  </Button>
+                </ScrollView>
+              </View>
+            ) : (
+              // Synced Templates List
+              <View style={styles.listContainer}>
+                <View style={styles.sheetHeader}>
+                  <Text style={styles.sheetTitle}>Select Template</Text>
+                  <TouchableOpacity
+                    onPress={() => setShowTemplateSheet(false)}
+                  >
+                    <MaterialCommunityIcons name="close" size={24} color={Colors.textPrimary} />
+                  </TouchableOpacity>
+                </View>
+
+                {loadingTemplates ? (
+                  <ActivityIndicator size="large" color={Colors.primary} style={{ margin: 40 }} />
+                ) : templates.length === 0 ? (
+                  <View style={styles.emptyTemplates}>
+                    <MaterialCommunityIcons name="card-text-outline" size={48} color={Colors.textSecondary} />
+                    <Text style={styles.emptyTemplatesText}>No approved templates synced.</Text>
+                    <Text style={styles.emptyTemplatesSub}>Sync templates in the settings screen.</Text>
+                  </View>
+                ) : (
+                  <FlatList
+                    data={templates}
+                    keyExtractor={(item: any) => item.id}
+                    renderItem={({ item }: { item: any }) => {
+                      const bodyComp = item.components?.find((c: any) => c.type === "BODY");
+                      const preview = bodyComp?.text || "";
+                      return (
+                        <TouchableOpacity
+                          style={styles.templateItem}
+                          onPress={() => {
+                            setSelectedTemplate(item);
+                            setTemplateParams({});
+                          }}
+                        >
+                          <View style={styles.templateItemHeader}>
+                            <Text style={styles.templateItemName} numberOfLines={1}>{item.name}</Text>
+                            <View style={styles.templateCategoryBadge}>
+                              <Text style={styles.templateCategoryBadgeText}>{item.category}</Text>
+                            </View>
+                          </View>
+                          <Text style={styles.templateItemPreview} numberOfLines={2}>
+                            {preview}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    }}
+                    contentContainerStyle={{ paddingBottom: 40 }}
+                  />
+                )}
+              </View>
+            )}
           </View>
         </TouchableOpacity>
       </Modal>
@@ -683,5 +965,163 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     fontSize: 16,
     fontWeight: "600",
+  },
+  templateToolbarBtn: {
+    padding: 6,
+    marginRight: 4,
+  },
+  bottomSheetContainer: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    height: "80%",
+    width: "100%",
+  },
+  formContainer: {
+    flex: 1,
+  },
+  listContainer: {
+    flex: 1,
+    padding: 15,
+  },
+  sheetHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  sheetTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: Colors.textPrimary,
+    flex: 1,
+    textAlign: "center",
+    marginHorizontal: 10,
+  },
+  sheetContent: {
+    padding: 15,
+  },
+  formHeading: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: Colors.textPrimary,
+  },
+  formSub: {
+    fontSize: 13,
+    color: Colors.textSecondary,
+    marginBottom: 15,
+  },
+  previewCard: {
+    backgroundColor: "#F9FAFB",
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  previewLabel: {
+    fontSize: 11,
+    fontWeight: "bold",
+    color: Colors.textSecondary,
+    textTransform: "uppercase",
+    marginBottom: 4,
+  },
+  previewText: {
+    fontSize: 14,
+    color: Colors.textPrimary,
+  },
+  paramInputGroup: {
+    marginBottom: 20,
+  },
+  paramLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: Colors.textPrimary,
+    marginBottom: 6,
+  },
+  paramInput: {
+    backgroundColor: "#F3F4F6",
+    borderRadius: 8,
+    padding: 10,
+    fontSize: 15,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    color: Colors.textPrimary,
+  },
+  autofillRow: {
+    flexDirection: "row",
+    marginTop: 8,
+    flexWrap: "wrap",
+  },
+  autofillPill: {
+    backgroundColor: Colors.primaryLight,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 12,
+    marginRight: 6,
+    marginBottom: 6,
+  },
+  autofillPillText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: Colors.primaryDark,
+  },
+  sendTemplateBtn: {
+    backgroundColor: Colors.primary,
+    borderRadius: 8,
+    marginTop: 10,
+    paddingVertical: 4,
+    marginBottom: 40,
+  },
+  emptyTemplates: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 40,
+  },
+  emptyTemplatesText: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: Colors.textPrimary,
+    marginTop: 10,
+  },
+  emptyTemplatesSub: {
+    fontSize: 13,
+    color: Colors.textSecondary,
+    marginTop: 4,
+    textAlign: "center",
+  },
+  templateItem: {
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  templateItemHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 6,
+  },
+  templateItemName: {
+    fontSize: 15,
+    fontWeight: "bold",
+    color: Colors.textPrimary,
+    flex: 1,
+    marginRight: 10,
+  },
+  templateCategoryBadge: {
+    backgroundColor: "#E0F2FE",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  templateCategoryBadgeText: {
+    fontSize: 10,
+    fontWeight: "bold",
+    color: "#0369A1",
+  },
+  templateItemPreview: {
+    fontSize: 13,
+    color: Colors.textSecondary,
   },
 });

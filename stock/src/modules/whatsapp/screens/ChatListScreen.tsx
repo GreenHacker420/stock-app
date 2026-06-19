@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { FlatList, TouchableOpacity, View, Text, StyleSheet, RefreshControl, Modal, Alert } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -14,11 +14,29 @@ export const ChatListScreen = () => {
   const navigation = useNavigation<any>();
   const activeShopId = useShopStore((state) => state.activeShopId);
   const token = useAuthStore((state) => state.token);
+  const currentUser = useAuthStore((state) => state.user);
   const queryClient = useQueryClient();
 
   const [showArchived, setShowArchived] = useState(false);
+  const [assigneeFilter, setAssigneeFilter] = useState<"ALL" | "ME" | "UNASSIGNED">("ALL");
   const [selectedChat, setSelectedChat] = useState<WaConversation | null>(null);
   const [menuVisible, setMenuVisible] = useState(false);
+
+  // Set navigation options to show Contact Book button in header
+  useEffect(() => {
+    navigation.setOptions({
+      headerShown: true,
+      headerTitle: "Chats",
+      headerRight: () => (
+        <TouchableOpacity
+          onPress={() => navigation.navigate("ContactBook")}
+          style={{ marginRight: 15 }}
+        >
+          <MaterialCommunityIcons name="contacts" size={24} color={Colors.primary} />
+        </TouchableOpacity>
+      )
+    });
+  }, [navigation]);
 
   // Subscribe to real-time events to auto-invalidate conversations list
   useWhatsAppRealtime("");
@@ -95,9 +113,16 @@ export const ChatListScreen = () => {
     );
   };
 
-  const filteredConversations = conversations.filter(
-    (c) => !!c.isArchived === showArchived
-  );
+  const filteredConversations = conversations.filter((c) => {
+    if (!!c.isArchived !== showArchived) return false;
+    if (assigneeFilter === "ME") {
+      return c.assignedToId === currentUser?.id;
+    }
+    if (assigneeFilter === "UNASSIGNED") {
+      return !c.assignedToId;
+    }
+    return true;
+  });
 
   const renderItem = ({ item }: { item: WaConversation }) => {
     const lastMsg = item.messages?.[0];
@@ -177,6 +202,36 @@ export const ChatListScreen = () => {
           />
           <Text style={[styles.tabText, showArchived && styles.activeTabText]}>
             Archived
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Assignee Filters */}
+      <View style={styles.filterContainer}>
+        <TouchableOpacity
+          style={[styles.filterChip, assigneeFilter === "ALL" && styles.activeFilterChip]}
+          onPress={() => setAssigneeFilter("ALL")}
+        >
+          <Text style={[styles.filterChipText, assigneeFilter === "ALL" && styles.activeFilterChipText]}>
+            All
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.filterChip, assigneeFilter === "ME" && styles.activeFilterChip]}
+          onPress={() => setAssigneeFilter("ME")}
+        >
+          <Text style={[styles.filterChipText, assigneeFilter === "ME" && styles.activeFilterChipText]}>
+            Assigned to Me
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.filterChip, assigneeFilter === "UNASSIGNED" && styles.activeFilterChip]}
+          onPress={() => setAssigneeFilter("UNASSIGNED")}
+        >
+          <Text style={[styles.filterChipText, assigneeFilter === "UNASSIGNED" && styles.activeFilterChipText]}>
+            Unassigned
           </Text>
         </TouchableOpacity>
       </View>
@@ -350,5 +405,34 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginLeft: 15,
     color: Colors.textPrimary,
+  },
+  filterContainer: {
+    flexDirection: "row",
+    paddingHorizontal: 15,
+    paddingBottom: 10,
+    backgroundColor: "#fff",
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  filterChip: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 16,
+    backgroundColor: "#F0F0F3",
+    marginRight: 8,
+  },
+  activeFilterChip: {
+    backgroundColor: Colors.primaryLight,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+  },
+  filterChipText: {
+    fontSize: 13,
+    color: Colors.textSecondary,
+    fontWeight: "500",
+  },
+  activeFilterChipText: {
+    color: Colors.primaryDark,
+    fontWeight: "700",
   },
 });

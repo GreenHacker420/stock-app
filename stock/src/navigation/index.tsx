@@ -51,6 +51,7 @@ import { ManageCategories } from "./screens/ManageCategories";
 import { ChatListScreen } from "../modules/whatsapp/screens/ChatListScreen";
 import { ChatDetailScreen } from "../modules/whatsapp/screens/ChatDetailScreen";
 import { WhatsAppSetupScreen } from "../modules/whatsapp/screens/WhatsAppSetupScreen";
+import { ContactBookScreen } from "../modules/whatsapp/screens/ContactBookScreen";
 
 import { colors } from "../theme";
 
@@ -415,6 +416,10 @@ const sharedStackScreens = {
     screen: WhatsAppSetupScreen,
     options: { title: "WhatsApp Setup" },
   },
+  ContactBook: {
+    screen: ContactBookScreen,
+    options: { title: "Contact Book" },
+  },
   OrderList: {
     screen: OrderList,
     options: { title: "Orders" },
@@ -560,6 +565,7 @@ export type RootStackParamList = {
   NotificationHistory: undefined;
   ChatDetail: { conversationId: string; phone: string };
   WhatsAppSetup: undefined;
+  ContactBook: undefined;
   WalkInSale: undefined;
   NewSaleType: undefined;
   RegularSale: undefined;

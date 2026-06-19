@@ -46,6 +46,7 @@ export interface WaConversation {
     name: string;
     phone: string;
   };
+  assignedToId?: string | null;
   messages?: WaMessage[];
 }
 
@@ -128,6 +129,10 @@ export async function syncWaFlows(token: string, shopId: string) {
     token,
     body: JSON.stringify({ shopId }),
   });
+}
+
+export async function fetchWaTemplates(token: string, shopId: string) {
+  return apiRequest<any[]>(`/whatsapp/templates?shopId=${encodeURIComponent(shopId)}`, { token });
 }
 
 export async function markWaConversationRead(token: string, shopId: string, conversationId: string) {
@@ -214,6 +219,11 @@ export const whatsappApi = {
   syncPhoneContacts: async (shopId: string, contacts: any[], mergeStrategy: "MERGE" | "OVERWRITE" = "MERGE") => {
     const token = useAuthStore.getState().token || "";
     const res = await syncWaPhoneContacts(token, shopId, contacts, mergeStrategy);
+    return { data: { success: true, data: res } };
+  },
+  getTemplates: async (shopId: string) => {
+    const token = useAuthStore.getState().token || "";
+    const res = await fetchWaTemplates(token, shopId);
     return { data: { success: true, data: res } };
   }
 };
