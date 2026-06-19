@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, TouchableOpacity } from "react-native";
+import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, TouchableOpacity, DeviceEventEmitter } from "react-native";
 import { Button, TextInput, Text, Divider, Card, HelperText } from "react-native-paper";
 import * as WebBrowser from "expo-web-browser";
 import * as AuthSession from "expo-auth-session";
@@ -33,6 +33,13 @@ export const WhatsAppSetupScreen = () => {
   const [status, setStatus] = useState("DISCONNECTED");
   const [rotatingKeys, setRotatingKeys] = useState(false);
   const [rsaPublicKey, setRsaPublicKey] = useState("");
+  const [qualityRating, setQualityRating] = useState("UNKNOWN");
+  const [messagingLimitTier, setMessagingLimitTier] = useState("");
+  const [accountStatus, setAccountStatus] = useState("");
+  const [accountReviewStatus, setAccountReviewStatus] = useState("");
+  const [displayNameStatus, setDisplayNameStatus] = useState("");
+  const [lastWebhookAt, setLastWebhookAt] = useState("");
+  const [lastManagementEventField, setLastManagementEventField] = useState("");
 
   // Embedded Signup State
   const [oauthCode, setOauthCode] = useState("");
@@ -48,15 +55,19 @@ export const WhatsAppSetupScreen = () => {
       const res = await whatsappSetupApi.getSetupInfo(activeShopId);
       if (res.data.success && res.data.data) {
         const { data } = res.data;
-        setVerifyToken(data.verifyToken || "");
-        setAccessToken(data.accessToken || "");
-        setAppSecret(data.appSecret || "");
         setBusinessAccountId(data.businessAccountId || "");
         setPhoneNumberId(data.phoneNumberId || "");
         setPhoneNumber(data.phoneNumber || "");
         setBusinessName(data.businessName || "");
         setStatus(data.status || "DISCONNECTED");
         setRsaPublicKey(data.rsaPublicKey || "");
+        setQualityRating(data.qualityRating || "UNKNOWN");
+        setMessagingLimitTier(data.messagingLimitTier || "");
+        setAccountStatus(data.accountStatus || "");
+        setAccountReviewStatus(data.accountReviewStatus || "");
+        setDisplayNameStatus(data.displayNameStatus || "");
+        setLastWebhookAt(data.lastWebhookAt || "");
+        setLastManagementEventField(data.lastManagementEventField || "");
       } else {
         resetFormState();
       }
@@ -78,11 +89,23 @@ export const WhatsAppSetupScreen = () => {
     setBusinessName("");
     setStatus("DISCONNECTED");
     setRsaPublicKey("");
+    setQualityRating("UNKNOWN");
+    setMessagingLimitTier("");
+    setAccountStatus("");
+    setAccountReviewStatus("");
+    setDisplayNameStatus("");
+    setLastWebhookAt("");
+    setLastManagementEventField("");
   };
 
 
   useEffect(() => {
     fetchSetup();
+  }, [activeShopId]);
+
+  useEffect(() => {
+    const subscription = DeviceEventEmitter.addListener("wa:integration_health_updated", fetchSetup);
+    return () => subscription.remove();
   }, [activeShopId]);
 
   const handleManualSave = async () => {
@@ -268,12 +291,59 @@ export const WhatsAppSetupScreen = () => {
                   <Text style={styles.detailLabel}>Phone ID:</Text>
                   <Text style={styles.detailValue} numberOfLines={1}>{phoneNumberId}</Text>
                 </View>
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Quality:</Text>
+                  <Text style={[
+                    styles.detailValue,
+                    qualityRating === "GREEN" && { color: Colors.success },
+                    qualityRating === "YELLOW" && { color: "#B7791F" },
+                    qualityRating === "RED" && { color: "#DC2626" },
+                  ]}>
+                    {qualityRating}
+                  </Text>
+                </View>
+                {!!messagingLimitTier && (
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Messaging Limit:</Text>
+                    <Text style={styles.detailValue}>{messagingLimitTier.replace(/_/g, " ")}</Text>
+                  </View>
+                )}
+                {!!displayNameStatus && (
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Display Name:</Text>
+                    <Text style={styles.detailValue}>{displayNameStatus.replace(/_/g, " ")}</Text>
+                  </View>
+                )}
+                {!!accountReviewStatus && (
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Account Review:</Text>
+                    <Text style={styles.detailValue}>{accountReviewStatus.replace(/_/g, " ")}</Text>
+                  </View>
+                )}
+                {!!accountStatus && (
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Account Event:</Text>
+                    <Text style={styles.detailValue}>{accountStatus.replace(/_/g, " ")}</Text>
+                  </View>
+                )}
+                {!!lastWebhookAt && (
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Last Webhook:</Text>
+                    <Text style={styles.detailValue}>{new Date(lastWebhookAt).toLocaleString()}</Text>
+                  </View>
+                )}
+                {!!lastManagementEventField && (
+                  <View style={styles.detailRow}>
+                    <Text style={styles.detailLabel}>Last Health Event:</Text>
+                    <Text style={styles.detailValue}>{lastManagementEventField.replace(/_/g, " ")}</Text>
+                  </View>
+                )}
                 
                 <Divider style={styles.metaDivider} />
                 <View style={styles.webhookUrlBox}>
-                  <Text style={styles.webhookText}>Dynamic Webhook Endpoint (for Meta):</Text>
+                  <Text style={styles.webhookText}>Unified Webhook Endpoint (for Meta):</Text>
                   <Text selectable style={styles.webhookValue}>
-                    https://your-api-url.com/whatsapp/webhook/{activeShopId}
+                    https://your-api-url.com/whatsapp/webhook
                   </Text>
                 </View>
                 
@@ -749,4 +819,3 @@ const styles = StyleSheet.create({
     borderColor: Colors.primary,
   },
 });
-

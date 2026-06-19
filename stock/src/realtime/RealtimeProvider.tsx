@@ -21,6 +21,7 @@ const realtimeEvents: RealtimeEvent[] = [
   "wa:message_sent",
   "wa:status_updated",
   "wa:message_failed",
+  "wa:integration_health_updated",
 ];
 
 export function RealtimeProvider({ children }: PropsWithChildren) {
@@ -51,6 +52,7 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
       "wa:message_sent": [["wa-messages"], ["wa-conversations"]],
       "wa:status_updated": [["wa-messages"]],
       "wa:message_failed": [["wa-messages"]],
+      "wa:integration_health_updated": [["wa-integration-health", activeShopId]],
     }),
     [activeShopId],
   );

@@ -9,11 +9,46 @@ import { encrypt } from "../lib/wa-crypto.js";
 import prisma from "../lib/db.js";
 import { persistWebhookEnvelopes } from "../services/whatsapp.webhook.service.js";
 
+async function getPublicIntegration(shopId) {
+  const integration = await prisma.waIntegration.findUnique({
+    where: { shopId },
+    select: {
+      id: true,
+      shopId: true,
+      appSecret: true,
+      accessToken: true,
+      businessAccountId: true,
+      phoneNumberId: true,
+      phoneNumber: true,
+      businessName: true,
+      status: true,
+      accountStatus: true,
+      accountReviewStatus: true,
+      displayNameStatus: true,
+      capabilities: true,
+      messagingLimitTier: true,
+      qualityRating: true,
+      callingEnabled: true,
+      rsaPublicKey: true,
+      connectedAt: true,
+      lastWebhookAt: true,
+      lastManagementEventAt: true,
+      lastManagementEventField: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+
+  if (!integration) return null;
+  const { appSecret, accessToken, ...safeIntegration } = integration;
+  return {
+    ...safeIntegration,
+    hasAppSecret: Boolean(appSecret),
+    hasAccessToken: Boolean(accessToken),
+  };
+}
+
 class WhatsAppController {
-  /**
-   * Validates Meta Webhook Signature using shop-specific App Secret.
-   * Signature is always validated against the raw body buffer.
-   */
   async #validateSignature(req, shopId) {
     const signature = req.headers["x-hub-signature-256"];
     if (!signature) return false;
@@ -48,9 +83,6 @@ class WhatsAppController {
     }
   }
 
-  /**
-   * Meta Webhook Verification (GET /whatsapp/webhook or /whatsapp/webhook/:shopId)
-   */
   async verifyWebhook(req, res) {
     try {
       const mode = req.query["hub.mode"];
@@ -423,9 +455,7 @@ class WhatsAppController {
       await invalidateWaCredentials(shopId);
       await getWaCredentials(shopId);
 
-      const finalSetup = await prisma.waIntegration.findUnique({
-        where: { shopId }
-      });
+      const finalSetup = await getPublicIntegration(shopId);
 
       res.json({ success: true, data: finalSetup });
     } catch (error) {
@@ -442,9 +472,7 @@ class WhatsAppController {
       const { shopId } = req.query;
       if (!shopId) return res.status(400).json({ success: false, message: "shopId required" });
 
-      const setup = await prisma.waIntegration.findUnique({
-        where: { shopId }
-      });
+      const setup = await getPublicIntegration(shopId);
 
       res.json({ success: true, data: setup });
     } catch (error) {
@@ -500,9 +528,7 @@ class WhatsAppController {
       await invalidateWaCredentials(shopId);
       await getWaCredentials(shopId);
 
-      const finalSetup = await prisma.waIntegration.findUnique({
-        where: { shopId }
-      });
+      const finalSetup = await getPublicIntegration(shopId);
 
       res.json({ success: true, data: finalSetup });
     } catch (error) {

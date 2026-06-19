@@ -2,8 +2,20 @@ import crypto from "crypto";
 import prisma from "../lib/db.js";
 import { processWhatsAppEvent } from "./whatsapp.processor.js";
 import { parseWebhookPayload, splitWebhookPayload } from "./whatsapp.webhook-parser.js";
+import { processManagementWebhook } from "./whatsapp.management.service.js";
 
-const SUPPORTED_FIELDS = new Set(["messages"]);
+const MANAGEMENT_FIELDS = new Set([
+  "message_template_status_update",
+  "template_status_update",
+  "message_template_quality_update",
+  "template_quality_update",
+  "phone_number_quality_update",
+  "phone_number_name_update",
+  "business_capability_update",
+  "account_review_update",
+  "account_update",
+  "account_alerts",
+]);
 
 function hashPayload(payload) {
   return crypto
@@ -54,7 +66,10 @@ export async function processWebhookEnvelope(envelopeId) {
     },
   });
 
-  if (!SUPPORTED_FIELDS.has(envelope.field)) {
+  const isMessagesField = envelope.field === "messages";
+  const isManagementField = MANAGEMENT_FIELDS.has(envelope.field);
+
+  if (!isMessagesField && !isManagementField) {
     return prisma.waWebhookEnvelope.update({
       where: { id: envelope.id },
       data: {
@@ -67,9 +82,13 @@ export async function processWebhookEnvelope(envelopeId) {
   }
 
   try {
-    const events = parseWebhookPayload(envelope.payloadJson);
-    for (const event of events) {
-      await processWhatsAppEvent(event, envelope.shopId);
+    if (isMessagesField) {
+      const events = parseWebhookPayload(envelope.payloadJson);
+      for (const event of events) {
+        await processWhatsAppEvent(event, envelope.shopId);
+      }
+    } else {
+      await processManagementWebhook(envelope);
     }
 
     return await prisma.$transaction(async (tx) => {

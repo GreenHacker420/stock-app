@@ -15,7 +15,8 @@ export type RealtimeEvent =
   | "wa:message_received"
   | "wa:message_sent"
   | "wa:status_updated"
-  | "wa:message_failed";
+  | "wa:message_failed"
+  | "wa:integration_health_updated";
 
 export function createRealtimeSocket(token: string): Socket {
   return io(SOCKET_URL, {

@@ -7,7 +7,7 @@
   "type": "module",
   "main": "src/index.js",
   "scripts": {
-    "test": "node --test src/tests/whatsapp.webhook-parser.test.js",
+    "test": "node --test src/tests/whatsapp.*.test.js",
     "test:integration": "node --test src/tests/integration.test.js",
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",

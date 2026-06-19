@@ -404,25 +404,31 @@ model Shop {
 }
 
 model WaIntegration {
-  id                 String                @id @default(cuid())
-  shopId             String                @unique
-  verifyToken        String
-  accessToken        String
-  appSecret          String?
-  businessAccountId  String
-  phoneNumberId      String
-  phoneNumber        String?
-  businessName       String?
-  status             WaIntegrationStatus   @default(DISCONNECTED)
-  messagingLimitTier WaMessagingLimitTier?
-  qualityRating          WaQualityRating?
-  callingEnabled         Boolean               @default(false)
-  rsaPublicKey           String?               @db.Text
-  rsaPrivateKeyEncrypted String?               @db.Text
-  connectedAt            DateTime?
-  lastWebhookAt          DateTime?
-  createdAt              DateTime              @default(now())
-  updatedAt              DateTime              @updatedAt
+  id                       String                @id @default(cuid())
+  shopId                   String                @unique
+  verifyToken              String
+  accessToken              String
+  appSecret                String?
+  businessAccountId        String
+  phoneNumberId            String
+  phoneNumber              String?
+  businessName             String?
+  status                   WaIntegrationStatus   @default(DISCONNECTED)
+  accountStatus            String?
+  accountReviewStatus      String?
+  displayNameStatus        String?
+  capabilities             Json?
+  messagingLimitTier       WaMessagingLimitTier?
+  qualityRating            WaQualityRating?
+  callingEnabled           Boolean               @default(false)
+  rsaPublicKey             String?               @db.Text
+  rsaPrivateKeyEncrypted   String?               @db.Text
+  connectedAt              DateTime?
+  lastWebhookAt            DateTime?
+  lastManagementEventAt    DateTime?
+  lastManagementEventField String?
+  createdAt                DateTime              @default(now())
+  updatedAt                DateTime              @updatedAt
 
   shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
 
@@ -1353,9 +1359,12 @@ model WaTemplate {
   components          Json
   headerVariables     Json?
   bodyVariables       Json?
+  qualityScore        String?
   sentCount           Int                @default(0)
   readCount           Int                @default(0)
   metaRejectionReason String?
+  statusUpdatedAt     DateTime?
+  qualityUpdatedAt    DateTime?
   syncedAt            DateTime?
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
@@ -1376,21 +1385,21 @@ model WaTemplateUsage {
 }
 
 model WaFlow {
-  id                     String       @id @default(cuid())
-  shopId                 String
-  flowId                 String?
-  name                   String
-  description            String?
-  status                 WaFlowStatus @default(DRAFT)
-  flowJson               Json?
-  endpointEnabled        Boolean      @default(false)
-  endpointUrl            String?
-  previewUrl             String?
-  totalSent              Int          @default(0)
-  totalResponses         Int          @default(0)
-  syncedAt               DateTime?
-  createdAt              DateTime     @default(now())
-  updatedAt              DateTime     @updatedAt
+  id              String       @id @default(cuid())
+  shopId          String
+  flowId          String?
+  name            String
+  description     String?
+  status          WaFlowStatus @default(DRAFT)
+  flowJson        Json?
+  endpointEnabled Boolean      @default(false)
+  endpointUrl     String?
+  previewUrl      String?
+  totalSent       Int          @default(0)
+  totalResponses  Int          @default(0)
+  syncedAt        DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
 
   shop       Shop              @relation(fields: [shopId], references: [id], onDelete: Cascade)
   executions WaFlowExecution[]
