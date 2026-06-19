@@ -107,13 +107,20 @@ export function TemplateEditorScreen() {
   const requiredVariables = useMemo(() => [
     ...positions(definition.header?.text).map((position) => ({ component: "HEADER" as const, position })),
     ...positions(definition.body.text).map((position) => ({ component: "BODY" as const, position })),
-  ], [definition.header?.text, definition.body.text]);
+    ...(definition.buttons || []).flatMap((button, buttonIndex) => (
+      button.type === "URL"
+        ? positions(button.url).map((position) => ({ component: "BUTTON" as const, position, buttonIndex }))
+        : []
+    )),
+  ], [definition.header?.text, definition.body.text, definition.buttons]);
 
   useEffect(() => {
     setDefinition((current) => {
       const nextMappings = requiredVariables.map((required) => {
         return current.mappings?.find(
-          (mapping) => mapping.component === required.component && mapping.position === required.position,
+          (mapping) => mapping.component === required.component
+            && mapping.position === required.position
+            && mapping.buttonIndex === ("buttonIndex" in required ? required.buttonIndex : undefined),
         ) || {
           ...required,
           sampleValue: "",
@@ -318,7 +325,18 @@ export function TemplateEditorScreen() {
                   { value: "NONE", label: "None" },
                   { value: "TEXT", label: "Text" },
                   { value: "IMAGE", label: "Image" },
+                ]}
+              />
+              <SegmentedButtons
+                value={definition.header?.format || "NONE"}
+                onValueChange={(format) => setDefinition((current) => ({
+                  ...current,
+                  header: { ...current.header, format: format as any },
+                }))}
+                buttons={[
+                  { value: "VIDEO", label: "Video" },
                   { value: "DOCUMENT", label: "File" },
+                  { value: "LOCATION", label: "Location" },
                 ]}
               />
               {definition.header?.format === "TEXT" && (
@@ -372,7 +390,7 @@ export function TemplateEditorScreen() {
             action={<Button compact icon="plus" onPress={() => setAttributeDialog(true)}>Attribute</Button>}
           >
             {definition.mappings?.map((mapping, index) => {
-              const menuKey = `${mapping.component}-${mapping.position}`;
+              const menuKey = `${mapping.component}-${mapping.buttonIndex ?? ""}-${mapping.position}`;
               const selected = attributesQuery.data?.find((attribute) => attribute.id === mapping.attributeId);
               return (
                 <View key={menuKey} style={styles.mapping}>
@@ -433,6 +451,7 @@ export function TemplateEditorScreen() {
                       text: "Button",
                       ...(type === "URL" ? { url: "https://example.com" } : {}),
                       ...(type === "PHONE_NUMBER" ? { phoneNumber: "" } : {}),
+                      ...(type === "FLOW" ? { flowId: "", flowAction: "NAVIGATE" } : {}),
                     })}
                     buttons={[
                       { value: "QUICK_REPLY", label: "Reply" },
@@ -448,6 +467,18 @@ export function TemplateEditorScreen() {
                     }))}
                   />
                 </View>
+                <SegmentedButtons
+                  value={button.type}
+                  onValueChange={(type) => updateButton(index, {
+                    type,
+                    text: "Button",
+                    ...(type === "FLOW" ? { flowId: "", flowAction: "NAVIGATE" } : {}),
+                  })}
+                  buttons={[
+                    { value: "FLOW", label: "Flow" },
+                    { value: "COPY_CODE", label: "Copy code" },
+                  ]}
+                />
                 <TextInput
                   mode="outlined"
                   label="Button text"
@@ -464,6 +495,32 @@ export function TemplateEditorScreen() {
                     keyboardType="phone-pad"
                     value={button.phoneNumber}
                     onChangeText={(phoneNumber) => updateButton(index, { phoneNumber })}
+                  />
+                )}
+                {button.type === "FLOW" && (
+                  <>
+                    <TextInput
+                      mode="outlined"
+                      label="Flow ID"
+                      value={button.flowId}
+                      onChangeText={(flowId) => updateButton(index, { flowId })}
+                    />
+                    <SegmentedButtons
+                      value={button.flowAction || "NAVIGATE"}
+                      onValueChange={(flowAction) => updateButton(index, { flowAction })}
+                      buttons={[
+                        { value: "NAVIGATE", label: "Navigate" },
+                        { value: "DATA_EXCHANGE", label: "Data exchange" },
+                      ]}
+                    />
+                  </>
+                )}
+                {button.type === "COPY_CODE" && (
+                  <TextInput
+                    mode="outlined"
+                    label="Example coupon code"
+                    value={button.example || ""}
+                    onChangeText={(example) => updateButton(index, { example })}
                   />
                 )}
               </View>
@@ -529,6 +586,19 @@ export function TemplateEditorScreen() {
                 value={newAttribute.key}
                 onChangeText={(key) => setNewAttribute((current) => ({ ...current, key }))}
               />
+              <SegmentedButtons
+                value={newAttribute.type}
+                onValueChange={(type) => setNewAttribute((current) => ({
+                  ...current,
+                  type: type as WaTemplateAttribute["type"],
+                }))}
+                buttons={[
+                  { value: "TEXT", label: "Text" },
+                  { value: "NUMBER", label: "Number" },
+                  { value: "CURRENCY", label: "Money" },
+                  { value: "DATE", label: "Date" },
+                ]}
+              />
               <TextInput
                 mode="outlined"
                 label="Fallback value"
@@ -573,6 +643,7 @@ function validateDefinition(definition: WaTemplateDefinition) {
     return "Every variable needs an attribute or fallback value.";
   }
   if (definition.category === "AUTHENTICATION" && !definition.authentication) return "Choose an authentication mode.";
+  if (definition.buttons?.some((button) => button.type === "FLOW" && !button.flowId)) return "Every Flow button needs a Flow ID.";
   return "";
 }
 

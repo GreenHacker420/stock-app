@@ -51,7 +51,17 @@ export function WhatsAppTemplatePreview({ definition }: Props) {
         {buttons.map((button, index) => (
           <View key={`${button.type}-${index}`} style={styles.button}>
             <MaterialCommunityIcons
-              name={button.type === "PHONE_NUMBER" ? "phone-outline" : button.type === "URL" ? "open-in-new" : "reply-outline"}
+              name={
+                button.type === "PHONE_NUMBER"
+                  ? "phone-outline"
+                  : button.type === "URL"
+                    ? "open-in-new"
+                    : button.type === "FLOW"
+                      ? "form-select"
+                      : button.type === "COPY_CODE"
+                        ? "content-copy"
+                        : "reply-outline"
+              }
               size={16}
               color="#027EB5"
             />

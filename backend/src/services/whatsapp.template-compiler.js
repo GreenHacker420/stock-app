@@ -87,10 +87,17 @@ function validateMappings(definition) {
   const expected = [
     ...extractVariables(definition.header?.text).map((position) => ({ component: "HEADER", position })),
     ...extractVariables(definition.body.text).map((position) => ({ component: "BODY", position })),
+    ...definition.buttons.flatMap((button, buttonIndex) => (
+      button.type === "URL"
+        ? extractVariables(button.url).map((position) => ({ component: "BUTTON", position, buttonIndex }))
+        : []
+    )),
   ];
   for (const item of expected) {
     const mapping = definition.mappings.find(
-      (candidate) => candidate.component === item.component && candidate.position === item.position,
+      (candidate) => candidate.component === item.component
+        && candidate.position === item.position
+        && candidate.buttonIndex === item.buttonIndex,
     );
     if (!mapping) throw new Error(`Missing ${item.component.toLowerCase()} mapping for {{${item.position}}}`);
   }
@@ -116,13 +123,19 @@ function compileButtons(definition) {
     return [button];
   }
 
-  return definition.buttons.map((button) => {
+  return definition.buttons.map((button, buttonIndex) => {
     if (button.type === "URL") {
+      const mappingExamples = definition.mappings
+        .filter((mapping) => mapping.component === "BUTTON" && mapping.buttonIndex === buttonIndex)
+        .sort((a, b) => a.position - b.position)
+        .map((mapping) => mapping.sampleValue);
       return {
         type: "URL",
         text: button.text,
         url: button.url,
-        ...(button.example ? { example: [button.example] } : {}),
+        ...(button.example || mappingExamples.length
+          ? { example: [button.example || mappingExamples.join("")] }
+          : {}),
       };
     }
     if (button.type === "PHONE_NUMBER") {

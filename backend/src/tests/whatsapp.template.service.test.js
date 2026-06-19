@@ -29,6 +29,7 @@ test("compiles a mapped utility template definition", () => {
       { component: "HEADER", position: 1, sampleValue: "ABC-100", fallbackValue: "your order" },
       { component: "BODY", position: 1, sampleValue: "Asha", fallbackValue: "Customer" },
       { component: "BODY", position: 2, sampleValue: "ABC-100", fallbackValue: "your order" },
+      { component: "BUTTON", buttonIndex: 0, position: 1, sampleValue: "ABC-100", fallbackValue: "order" },
     ],
   });
 
@@ -36,6 +37,7 @@ test("compiles a mapped utility template definition", () => {
   assert.deepEqual(result.metaPayload.components[0].example.header_text, ["ABC-100"]);
   assert.deepEqual(result.metaPayload.components[1].example.body_text, [["Asha", "ABC-100"]]);
   assert.equal(result.metaPayload.components[3].buttons[0].type, "URL");
+  assert.deepEqual(result.metaPayload.components[3].buttons[0].example, ["ABC-100"]);
 });
 
 test("rejects missing mappings and invalid authentication configuration", () => {
