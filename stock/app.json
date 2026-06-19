@@ -90,7 +90,8 @@
         {
           "microphonePermission": "Allow ShopControl to record voice messages for WhatsApp conversations."
         }
-      ]
+      ],
+      "expo-video"
     ],
     "extra": {
       "eas": {
