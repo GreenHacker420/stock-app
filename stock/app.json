@@ -57,7 +57,8 @@
         {
           "androidClientId": "ksaranwfztxrftq7zzf5rqy7gp2olcdj6s6s0pneolw"
         }
-      ]
+      ],
+      "expo-sqlite"
     ],
     "extra": {
       "eas": {

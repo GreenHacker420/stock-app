@@ -377,11 +377,20 @@ class WhatsAppController {
         }
       });
 
+      // Generate RSA key pair if not already present
+      if (!setup.rsaPublicKey) {
+        await whatsappService.generateRsaKeyPair(shopId);
+      }
+
       // Warm cache
       await invalidateWaCredentials(shopId);
       await getWaCredentials(shopId);
 
-      res.json({ success: true, data: setup });
+      const finalSetup = await prisma.waIntegration.findUnique({
+        where: { shopId }
+      });
+
+      res.json({ success: true, data: finalSetup });
     } catch (error) {
       console.error("Embedded Signup Error:", error.response?.data || error.message);
       res.status(500).json({ success: false, message: error.response?.data?.error?.message || error.message });
@@ -445,11 +454,20 @@ class WhatsAppController {
         }
       });
 
+      // Generate RSA key pair if not already present
+      if (!setup.rsaPublicKey) {
+        await whatsappService.generateRsaKeyPair(shopId);
+      }
+
       // Warm cache
       await invalidateWaCredentials(shopId);
       await getWaCredentials(shopId);
 
-      res.json({ success: true, data: setup });
+      const finalSetup = await prisma.waIntegration.findUnique({
+        where: { shopId }
+      });
+
+      res.json({ success: true, data: finalSetup });
     } catch (error) {
       res.status(500).json({ success: false, message: error.message });
     }
@@ -670,6 +688,28 @@ class WhatsAppController {
       });
 
       res.json({ success: true, data: recipients });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  }
+
+  /**
+   * Sync Phone Contacts (POST /whatsapp/sync-phone-contacts)
+   */
+  async syncPhoneContacts(req, res) {
+    try {
+      const { shopId, mergeStrategy, contacts } = req.body;
+      if (!shopId || !Array.isArray(contacts)) {
+        return res.status(400).json({ success: false, message: "shopId and contacts array are required" });
+      }
+
+      const userId = req.user?.id;
+      if (!userId) {
+        return res.status(401).json({ success: false, message: "Unauthorized" });
+      }
+
+      const result = await whatsappService.syncPhoneContacts(shopId, contacts, mergeStrategy, userId);
+      res.json({ success: true, data: result });
     } catch (error) {
       res.status(500).json({ success: false, message: error.message });
     }

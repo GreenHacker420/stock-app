@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { requireAuth } from "../middleware/auth.middleware.js";
 import { whatsappController } from "../controllers/whatsapp.controller.js";
+import { whatsappFlowEndpointController } from "../controllers/whatsapp.flow-endpoint.controller.js";
 
 const router = Router();
 
@@ -11,6 +12,10 @@ router.post("/webhook", whatsappController.handleWebhook);
 router.get("/webhook/:shopId", whatsappController.verifyWebhook);
 router.post("/webhook/:shopId", whatsappController.handleWebhook);
 
+// Flows E2EE Endpoints (Public, called by Meta)
+router.get("/flow-endpoint/:shopId", whatsappFlowEndpointController.verifyWebhook);
+router.post("/flow-endpoint/:shopId", whatsappFlowEndpointController.handleFlowRequest);
+
 // Protected UI routes
 router.get("/conversations", requireAuth, whatsappController.getConversations);
 router.get("/conversations/:id/messages", requireAuth, whatsappController.getMessages);
@@ -19,6 +24,7 @@ router.post("/react", requireAuth, whatsappController.reactToMessage);
 router.delete("/messages/:id", requireAuth, whatsappController.deleteMessage);
 router.post("/conversations/:id/archive", requireAuth, whatsappController.archiveConversation);
 router.delete("/conversations/:id", requireAuth, whatsappController.deleteConversation);
+router.post("/sync-phone-contacts", requireAuth, whatsappController.syncPhoneContacts);
 
 // Use a simple middleware to check if user is OWNER instead of missing authorize
 const requireOwner = (req, res, next) => {

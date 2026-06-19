@@ -415,12 +415,14 @@ model WaIntegration {
   businessName       String?
   status             WaIntegrationStatus   @default(DISCONNECTED)
   messagingLimitTier WaMessagingLimitTier?
-  qualityRating      WaQualityRating?
-  callingEnabled     Boolean               @default(false)
-  connectedAt        DateTime?
-  lastWebhookAt      DateTime?
-  createdAt          DateTime              @default(now())
-  updatedAt          DateTime              @updatedAt
+  qualityRating          WaQualityRating?
+  callingEnabled         Boolean               @default(false)
+  rsaPublicKey           String?               @db.Text
+  rsaPrivateKeyEncrypted String?               @db.Text
+  connectedAt            DateTime?
+  lastWebhookAt          DateTime?
+  createdAt              DateTime              @default(now())
+  updatedAt              DateTime              @updatedAt
 
   shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
 
@@ -1351,8 +1353,7 @@ model WaFlow {
   status                 WaFlowStatus @default(DRAFT)
   flowJson               Json?
   endpointEnabled        Boolean      @default(false)
-  rsaPublicKey           String?      @db.Text
-  rsaPrivateKeyEncrypted String?      @db.Text
+  endpointUrl            String?
   previewUrl             String?
   totalSent              Int          @default(0)
   totalResponses         Int          @default(0)

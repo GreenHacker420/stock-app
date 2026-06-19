@@ -3,6 +3,8 @@ import prisma from "../lib/db.js";
 import { publishWhatsAppEvent } from "../utils/realtime.js";
 import { getWaCredentials } from "../lib/wa-cache.js";
 import { connection as redis } from "./whatsapp.queue.js";
+import crypto from "crypto";
+import { encrypt, decrypt } from "../lib/wa-crypto.js";
 
 const API_VERSION = "v25.0";
 const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
@@ -468,6 +470,135 @@ class WhatsAppService {
         where: { id: conversationId, shopId }
       });
     });
+  }
+
+  // Generates RSA Key Pair for Flows E2EE per integration (shop)
+  async generateRsaKeyPair(shopId) {
+    const { publicKey, privateKey } = crypto.generateKeyPairSync("rsa", {
+      modulusLength: 2048,
+      publicKeyEncoding: {
+        type: "spki",
+        format: "pem",
+      },
+      privateKeyEncoding: {
+        type: "pkcs8",
+        format: "pem",
+      },
+    });
+
+    const encryptedPrivateKey = encrypt(privateKey);
+
+    return await prisma.waIntegration.update({
+      where: { shopId },
+      data: {
+        rsaPublicKey: publicKey,
+        rsaPrivateKeyEncrypted: encryptedPrivateKey,
+      },
+    });
+  }
+
+  // Bulk synchronizes phone contacts locally cached to DB (asynchronously)
+  async syncPhoneContacts(shopId, contacts, mergeStrategy, userId) {
+    let newCustomersCount = 0;
+    let mergedCount = 0;
+    let conversationsCount = 0;
+
+    for (const c of contacts) {
+      if (!c.phone) continue;
+
+      const rawPhone = c.phone.replace(/\D/g, "");
+      if (!rawPhone || rawPhone.length < 10) continue;
+
+      // Extract last 10 digits suffix
+      const phoneSuffix = rawPhone.slice(-10);
+
+      let customer = null;
+
+      if (c.customerId) {
+        // Link to existing customer manually
+        customer = await prisma.customer.findUnique({
+          where: { id: c.customerId },
+        });
+
+        if (customer && customer.shopId === shopId) {
+          customer = await prisma.customer.update({
+            where: { id: customer.id },
+            data: {
+              phone: rawPhone,
+              email: (mergeStrategy === "MERGE" && !customer.email) ? c.email : customer.email,
+            },
+          });
+          mergedCount++;
+        }
+      } else {
+        // Try match by last 10 digits suffix
+        customer = await prisma.customer.findFirst({
+          where: {
+            shopId,
+            phone: { endsWith: phoneSuffix },
+          },
+        });
+
+        if (customer) {
+          if (mergeStrategy === "MERGE") {
+            const updateData = {};
+            if (!customer.email && c.email) updateData.email = c.email;
+            if (!customer.contactPerson && c.name) updateData.contactPerson = c.name;
+
+            if (Object.keys(updateData).length > 0) {
+              customer = await prisma.customer.update({
+                where: { id: customer.id },
+                data: updateData,
+              });
+              mergedCount++;
+            }
+          }
+        } else {
+          // Create new Customer
+          customer = await prisma.customer.create({
+            data: {
+              shopId,
+              name: c.name || `Contact ${phoneSuffix}`,
+              phone: rawPhone,
+              email: c.email || null,
+              type: "REGULAR",
+              createdById: userId,
+            },
+          });
+          newCustomersCount++;
+        }
+      }
+
+      if (customer) {
+        // Ensure WaConversation exists
+        const existingConv = await prisma.waConversation.findUnique({
+          where: { shopId_phone: { shopId, phone: rawPhone } },
+        });
+
+        if (!existingConv) {
+          await prisma.waConversation.create({
+            data: {
+              shopId,
+              phone: rawPhone,
+              contactName: customer.name,
+              customerId: customer.id,
+            },
+          });
+          conversationsCount++;
+        } else if (!existingConv.customerId) {
+          await prisma.waConversation.update({
+            where: { id: existingConv.id },
+            data: { customerId: customer.id },
+          });
+        }
+      }
+    }
+
+    return {
+      newCustomersCount,
+      mergedCount,
+      conversationsCount,
+    };
   }
 }
 
