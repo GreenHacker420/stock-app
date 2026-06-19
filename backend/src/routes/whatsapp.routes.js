@@ -66,6 +66,13 @@ router.post(
   mediaUpload.single("file"),
   whatsappController.uploadMedia,
 );
+router.post(
+  "/template-media",
+  requireAuth,
+  requireShopAccess((req) => req.headers["x-shop-id"]),
+  mediaUpload.single("file"),
+  whatsappController.uploadTemplateExample,
+);
 router.post("/react", requireAuth, whatsappController.reactToMessage);
 router.delete("/messages/:id", requireAuth, whatsappController.deleteMessage);
 router.post("/conversations/:id/archive", requireAuth, whatsappController.archiveConversation);

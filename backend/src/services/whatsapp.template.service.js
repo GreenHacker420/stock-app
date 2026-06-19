@@ -122,6 +122,17 @@ function inferSubtype(components) {
   return format === "PRODUCT" ? "PRODUCT_CAROUSEL" : "MEDIA_CAROUSEL";
 }
 
+async function assertTemplateCapabilities(shopId, definition) {
+  if (!definition.callPermissionRequest) return;
+  const integration = await prisma.waIntegration.findUnique({
+    where: { shopId },
+    select: { callingEnabled: true },
+  });
+  if (!integration?.callingEnabled) {
+    throw new Error("WhatsApp calling must be enabled before creating a call permission template");
+  }
+}
+
 class WhatsAppTemplateService {
   async listAttributes(shopId) {
     return prisma.waTemplateAttribute.findMany({
@@ -193,6 +204,7 @@ class WhatsAppTemplateService {
 
   async createTemplate(shopId, userId, input) {
     const { definition, metaPayload } = compileTemplateDefinition(input);
+    await assertTemplateCapabilities(shopId, definition);
     const integration = await getWaCredentials(shopId);
     if (!integration) throw new Error("WhatsApp integration not connected");
 
@@ -246,6 +258,7 @@ class WhatsAppTemplateService {
     if (current.status === "DELETED") throw new Error("Deleted templates cannot be updated");
     const merged = { ...(current.draftDefinition || {}), ...input, name: current.name, language: current.language };
     const { definition, metaPayload } = compileTemplateDefinition(merged);
+    await assertTemplateCapabilities(shopId, definition);
     const integration = await getWaCredentials(shopId);
     if (!integration) throw new Error("WhatsApp integration not connected");
 
@@ -486,6 +499,17 @@ class WhatsAppTemplateService {
       || componentByType(template, "HEADER")?.format;
     if (headerFormat === "LOCATION") {
       if (!input.header?.location) throw new Error("Template location header is required");
+      const { latitude, longitude } = input.header.location;
+      if (
+        !Number.isFinite(latitude)
+        || !Number.isFinite(longitude)
+        || latitude < -90
+        || latitude > 90
+        || longitude < -180
+        || longitude > 180
+      ) {
+        throw new Error("Template location coordinates are invalid");
+      }
       components.push({
         type: "header",
         parameters: [{ type: "location", location: input.header.location }],

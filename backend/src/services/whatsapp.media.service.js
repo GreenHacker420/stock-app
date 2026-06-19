@@ -192,3 +192,90 @@ export async function uploadWhatsAppMedia({ shopId, createdById, kind, file, met
     throw error;
   }
 }
+
+export async function uploadWhatsAppTemplateExample({ shopId, createdById, kind, file, metadata = {} }) {
+  const parsedKind = validateWhatsAppMedia({ kind, file });
+  if (!["image", "video", "document"].includes(parsedKind)) {
+    throw new Error("Template examples support image, video, or document files");
+  }
+  const integration = await getWaCredentials(shopId);
+  if (!integration) throw new Error("WhatsApp integration not connected for this shop");
+  const appId = process.env.WHATSAPP_APP_ID;
+  if (!appId) throw new Error("WHATSAPP_APP_ID is required for template media uploads");
+
+  const safeName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const storageKey = `shops/${shopId}/template-examples/${crypto.randomUUID()}-${safeName}`;
+  const checksumSha256 = crypto.createHash("sha256").update(file.buffer).digest("hex");
+  const asset = await prisma.asset.create({
+    data: {
+      shopId,
+      createdById,
+      kind: ASSET_KIND_BY_MESSAGE_KIND[parsedKind],
+      source: "INTERNAL",
+      status: "UPLOADING",
+      mimeType: file.mimetype,
+      fileName: file.originalname,
+      sizeBytes: BigInt(file.size),
+      checksumSha256,
+      width: optionalPositiveInteger(metadata.width),
+      height: optionalPositiveInteger(metadata.height),
+      durationMs: optionalPositiveInteger(metadata.durationMs),
+    },
+  });
+
+  try {
+    const stored = await uploadToS3(file.buffer, storageKey, file.mimetype);
+    const session = await axios.post(
+      `${BASE_URL}/${appId}/uploads`,
+      null,
+      {
+        params: {
+          file_name: file.originalname,
+          file_length: file.size,
+          file_type: file.mimetype,
+        },
+        headers: { Authorization: `Bearer ${integration.accessToken}` },
+      },
+    );
+    const uploaded = await axios.post(
+      `${BASE_URL}/${session.data.id}`,
+      file.buffer,
+      {
+        headers: {
+          Authorization: `OAuth ${integration.accessToken}`,
+          file_offset: "0",
+          "Content-Type": "application/octet-stream",
+        },
+        maxBodyLength: Infinity,
+      },
+    );
+    if (!uploaded.data.h) throw new Error("Meta did not return a template example handle");
+
+    const readyAsset = await prisma.asset.update({
+      where: { id: asset.id },
+      data: {
+        status: "READY",
+        storageProvider: "S3",
+        storageKey: stored.key,
+        storageBucket: stored.bucket,
+        externalProvider: "META_WHATSAPP_TEMPLATE_EXAMPLE",
+        externalId: uploaded.data.h,
+        metadata: { templateExampleHandle: uploaded.data.h },
+        readyAt: new Date(),
+      },
+    });
+    return {
+      ...(await getPublicAsset(readyAsset)),
+      exampleHandle: uploaded.data.h,
+    };
+  } catch (error) {
+    await prisma.asset.update({
+      where: { id: asset.id },
+      data: {
+        status: "FAILED",
+        errorMessage: error.response?.data?.error?.message || error.message,
+      },
+    });
+    throw error;
+  }
+}

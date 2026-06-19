@@ -2,7 +2,9 @@ import { useState } from "react";
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { ActivityIndicator, Button, IconButton, Searchbar, Text, TextInput } from "react-native-paper";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
+import * as Location from "expo-location";
 import {
   fetchWaTemplates,
   sendWaTemplate,
@@ -43,6 +45,15 @@ export function TemplateSendSheet({
     productRetailerId?: string;
   }>>([]);
   const [uploadingCard, setUploadingCard] = useState<number | null>(null);
+  const [headerAsset, setHeaderAsset] = useState<{ assetId?: string; assetName?: string }>({});
+  const [headerLocation, setHeaderLocation] = useState({
+    latitude: "",
+    longitude: "",
+    name: "",
+    address: "",
+  });
+  const [uploadingHeader, setUploadingHeader] = useState(false);
+  const [locating, setLocating] = useState(false);
 
   const query = useQuery({
     queryKey: ["wa-template-send", shopId, search],
@@ -60,6 +71,17 @@ export function TemplateSendSheet({
       conversationId,
       to,
       values,
+      header: {
+        ...(headerAsset.assetId ? { assetId: headerAsset.assetId } : {}),
+        ...(headerLocation.latitude && headerLocation.longitude ? {
+          location: {
+            latitude: Number(headerLocation.latitude),
+            longitude: Number(headerLocation.longitude),
+            name: headerLocation.name || undefined,
+            address: headerLocation.address || undefined,
+          },
+        } : {}),
+      },
       cards: cards.map(({ assetName: _assetName, ...card }) => card),
       replyToMessageId,
     }),
@@ -75,14 +97,94 @@ export function TemplateSendSheet({
     setSelected(null);
     setValues({});
     setCards([]);
+    setHeaderAsset({});
+    setHeaderLocation({ latitude: "", longitude: "", name: "", address: "" });
     setSearch("");
     onClose();
   };
 
   const selectTemplate = (template: WaTemplate) => {
     setSelected(template);
+    setHeaderAsset({});
+    setHeaderLocation({ latitude: "", longitude: "", name: "", address: "" });
     const carousel = getCarouselDefinition(template);
     setCards(carousel?.cards.map(() => ({})) || []);
+  };
+
+  const pickHeaderMedia = async (format: "IMAGE" | "VIDEO" | "DOCUMENT") => {
+    try {
+      let media;
+      if (format === "DOCUMENT") {
+        const result = await DocumentPicker.getDocumentAsync({
+          copyToCacheDirectory: true,
+          multiple: false,
+        });
+        if (result.canceled) return;
+        const asset = result.assets[0];
+        media = {
+          kind: "document" as const,
+          uri: asset.uri,
+          name: asset.name,
+          mimeType: asset.mimeType || "application/octet-stream",
+          size: asset.size,
+        };
+      } else {
+        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!permission.granted) {
+          Alert.alert("Photo access required", "Allow photo library access to select template media.");
+          return;
+        }
+        const kind: "image" | "video" = format === "VIDEO" ? "video" : "image";
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: [kind === "image" ? "images" : "videos"],
+          allowsMultipleSelection: false,
+          quality: 1,
+        });
+        if (result.canceled) return;
+        const asset = result.assets[0];
+        media = {
+          kind,
+          uri: asset.uri,
+          name: asset.fileName || `template-header.${kind === "image" ? "jpg" : "mp4"}`,
+          mimeType: asset.mimeType || (kind === "image" ? "image/jpeg" : "video/mp4"),
+          size: asset.fileSize,
+          width: asset.width,
+          height: asset.height,
+          durationMs: asset.duration ? Math.round(asset.duration) : undefined,
+        };
+      }
+      setUploadingHeader(true);
+      const uploaded = await uploadWaMedia(token, shopId!, media);
+      setHeaderAsset({
+        assetId: uploaded.id,
+        assetName: uploaded.fileName || "Template header media",
+      });
+    } catch (error) {
+      Alert.alert("Header upload failed", error instanceof Error ? error.message : "Could not upload media.");
+    } finally {
+      setUploadingHeader(false);
+    }
+  };
+
+  const useCurrentLocation = async () => {
+    try {
+      setLocating(true);
+      const permission = await Location.requestForegroundPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert("Location required", "Allow location access to use your current position.");
+        return;
+      }
+      const result = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      setHeaderLocation((current) => ({
+        ...current,
+        latitude: String(result.coords.latitude),
+        longitude: String(result.coords.longitude),
+      }));
+    } catch (error) {
+      Alert.alert("Location unavailable", error instanceof Error ? error.message : "Could not determine location.");
+    } finally {
+      setLocating(false);
+    }
   };
 
   const pickCarouselMedia = async (cardIndex: number, format: "IMAGE" | "VIDEO") => {
@@ -148,6 +250,60 @@ export function TemplateSendSheet({
                 body: { text: selected.components?.find((component: any) => component.type === "BODY")?.text || "" },
                 mappings: selected.variableMappings,
               }} />
+              {["IMAGE", "VIDEO", "DOCUMENT"].includes(getHeaderFormat(selected) || "") && (
+                <View style={styles.mapping}>
+                  <Text style={styles.mappingTitle}>Header media</Text>
+                  <Button
+                    mode="outlined"
+                    icon="paperclip"
+                    loading={uploadingHeader}
+                    disabled={uploadingHeader}
+                    onPress={() => pickHeaderMedia(getHeaderFormat(selected) as "IMAGE" | "VIDEO" | "DOCUMENT")}
+                  >
+                    {headerAsset.assetName || `Choose ${getHeaderFormat(selected)?.toLowerCase()}`}
+                  </Button>
+                </View>
+              )}
+              {getHeaderFormat(selected) === "LOCATION" && (
+                <View style={styles.mapping}>
+                  <View style={styles.mappingHeader}>
+                    <Text style={styles.mappingTitle}>Location header</Text>
+                    <Button compact icon="crosshairs-gps" loading={locating} onPress={useCurrentLocation}>
+                      Current
+                    </Button>
+                  </View>
+                  <View style={styles.locationRow}>
+                    <TextInput
+                      mode="outlined"
+                      label="Latitude"
+                      keyboardType="numbers-and-punctuation"
+                      style={styles.locationCoordinate}
+                      value={headerLocation.latitude}
+                      onChangeText={(latitude) => setHeaderLocation((current) => ({ ...current, latitude }))}
+                    />
+                    <TextInput
+                      mode="outlined"
+                      label="Longitude"
+                      keyboardType="numbers-and-punctuation"
+                      style={styles.locationCoordinate}
+                      value={headerLocation.longitude}
+                      onChangeText={(longitude) => setHeaderLocation((current) => ({ ...current, longitude }))}
+                    />
+                  </View>
+                  <TextInput
+                    mode="outlined"
+                    label="Location name"
+                    value={headerLocation.name}
+                    onChangeText={(name) => setHeaderLocation((current) => ({ ...current, name }))}
+                  />
+                  <TextInput
+                    mode="outlined"
+                    label="Address"
+                    value={headerLocation.address}
+                    onChangeText={(address) => setHeaderLocation((current) => ({ ...current, address }))}
+                  />
+                </View>
+              )}
               {selected.variableMappings.map((mapping) => (
                 <View key={mapping.id} style={styles.mapping}>
                   <View style={styles.mappingHeader}>
@@ -214,6 +370,7 @@ export function TemplateSendSheet({
                 disabled={
                   sendMutation.isPending
                   || selected.mappingStatus !== "VALID"
+                  || !templateHeaderReady(selected, headerAsset, headerLocation)
                   || !carouselCardsReady(selected, cards)
                 }
                 onPress={() => sendMutation.mutate()}
@@ -285,6 +442,29 @@ function getCarouselDefinition(template: WaTemplate): WaTemplateDefinition["caro
   };
 }
 
+function getHeaderFormat(template: WaTemplate) {
+  return template.draftDefinition?.header?.format
+    || template.components?.find((component: any) => component.type?.toUpperCase() === "HEADER")?.format?.toUpperCase()
+    || "NONE";
+}
+
+function templateHeaderReady(
+  template: WaTemplate,
+  headerAsset: { assetId?: string },
+  location: { latitude: string; longitude: string },
+) {
+  const format = getHeaderFormat(template);
+  if (["IMAGE", "VIDEO", "DOCUMENT"].includes(format)) return Boolean(headerAsset.assetId);
+  if (format === "LOCATION") {
+    const latitude = Number(location.latitude);
+    const longitude = Number(location.longitude);
+    return Number.isFinite(latitude) && Number.isFinite(longitude)
+      && latitude >= -90 && latitude <= 90
+      && longitude >= -180 && longitude <= 180;
+  }
+  return true;
+}
+
 function carouselCardsReady(template: WaTemplate, cards: Array<{
   assetId?: string;
   catalogId?: string;
@@ -333,4 +513,6 @@ const styles = StyleSheet.create({
   carouselTitle: { color: waColors.text, fontSize: 14, fontWeight: "700" },
   cardInput: { gap: 8, padding: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: waColors.border, borderRadius: 8 },
   cardTitle: { color: waColors.greenDark, fontSize: 12, fontWeight: "700" },
+  locationRow: { flexDirection: "row", gap: 8 },
+  locationCoordinate: { flex: 1 },
 });

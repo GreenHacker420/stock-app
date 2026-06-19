@@ -13,11 +13,14 @@ import {
 } from "react-native-paper";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import * as DocumentPicker from "expo-document-picker";
+import * as ImagePicker from "expo-image-picker";
 import {
   createWaTemplate,
   createWaTemplateAttribute,
   fetchWaTemplate,
   fetchWaTemplateAttributes,
+  uploadWaTemplateExample,
   updateWaTemplate,
   WaTemplateAttribute,
   WaTemplateDefinition,
@@ -60,6 +63,7 @@ export function TemplateEditorScreen() {
   const [definition, setDefinition] = useState<WaTemplateDefinition>(EMPTY_DEFINITION);
   const [attributeMenu, setAttributeMenu] = useState<string | null>(null);
   const [attributeDialog, setAttributeDialog] = useState(false);
+  const [uploadingExample, setUploadingExample] = useState<"HEADER" | number | null>(null);
   const [newAttribute, setNewAttribute] = useState({
     key: "",
     label: "",
@@ -211,6 +215,79 @@ export function TemplateEditorScreen() {
         buttonIndex === index ? { ...button, ...patch } as any : button
       )),
     }));
+  };
+
+  const pickTemplateExample = async (
+    format: "IMAGE" | "VIDEO" | "DOCUMENT",
+    cardIndex?: number,
+  ) => {
+    try {
+      let media;
+      if (format === "DOCUMENT") {
+        const result = await DocumentPicker.getDocumentAsync({
+          copyToCacheDirectory: true,
+          multiple: false,
+        });
+        if (result.canceled) return;
+        const asset = result.assets[0];
+        media = {
+          kind: "document" as const,
+          uri: asset.uri,
+          name: asset.name,
+          mimeType: asset.mimeType || "application/octet-stream",
+          size: asset.size,
+        };
+      } else {
+        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!permission.granted) {
+          Alert.alert("Photo access required", "Allow photo library access to upload Meta review examples.");
+          return;
+        }
+        const kind: "image" | "video" = format === "VIDEO" ? "video" : "image";
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: [kind === "image" ? "images" : "videos"],
+          allowsMultipleSelection: false,
+          quality: 1,
+        });
+        if (result.canceled) return;
+        const asset = result.assets[0];
+        media = {
+          kind,
+          uri: asset.uri,
+          name: asset.fileName || `template-example.${kind === "image" ? "jpg" : "mp4"}`,
+          mimeType: asset.mimeType || (kind === "image" ? "image/jpeg" : "video/mp4"),
+          size: asset.fileSize,
+          width: asset.width,
+          height: asset.height,
+          durationMs: asset.duration ? Math.round(asset.duration) : undefined,
+        };
+      }
+      setUploadingExample(cardIndex ?? "HEADER");
+      const uploaded = await uploadWaTemplateExample(token, shopId, media);
+      setDefinition((current) => {
+        if (cardIndex == null) {
+          return {
+            ...current,
+            header: { ...current.header!, exampleHandle: uploaded.exampleHandle },
+          };
+        }
+        return {
+          ...current,
+          carousel: current.carousel ? {
+            ...current.carousel,
+            cards: current.carousel.cards.map((card, index) => (
+              index === cardIndex
+                ? { ...card, header: { ...card.header, exampleHandle: uploaded.exampleHandle } }
+                : card
+            )),
+          } : undefined,
+        };
+      });
+    } catch (error) {
+      Alert.alert("Example upload failed", error instanceof Error ? error.message : "Could not upload review media.");
+    } finally {
+      setUploadingExample(null);
+    }
   };
 
   const validationError = validateDefinition(definition);
@@ -429,15 +506,26 @@ export function TemplateEditorScreen() {
                 />
               )}
               {definition.header && ["IMAGE", "VIDEO", "DOCUMENT"].includes(definition.header.format) && (
-                <TextInput
-                  mode="outlined"
-                  label="Meta example handle"
-                  value={definition.header.exampleHandle || ""}
-                  onChangeText={(exampleHandle) => setDefinition((current) => ({
-                    ...current,
-                    header: { ...current.header!, exampleHandle },
-                  }))}
-                />
+                <>
+                  <TextInput
+                    mode="outlined"
+                    label="Meta example handle"
+                    value={definition.header.exampleHandle || ""}
+                    onChangeText={(exampleHandle) => setDefinition((current) => ({
+                      ...current,
+                      header: { ...current.header!, exampleHandle },
+                    }))}
+                  />
+                  <Button
+                    mode="outlined"
+                    icon="upload"
+                    loading={uploadingExample === "HEADER"}
+                    disabled={uploadingExample != null}
+                    onPress={() => pickTemplateExample(definition.header!.format as "IMAGE" | "VIDEO" | "DOCUMENT")}
+                  >
+                    Upload review example
+                  </Button>
+                </>
               )}
               </Section>
             )}
@@ -470,6 +558,8 @@ export function TemplateEditorScreen() {
                     category: "MARKETING",
                     subtype: carousel.type === "PRODUCT" ? "PRODUCT_CAROUSEL" : "MEDIA_CAROUSEL",
                   }))}
+                  uploadingCardIndex={typeof uploadingExample === "number" ? uploadingExample : null}
+                  onUploadExample={(cardIndex, format) => pickTemplateExample(format, cardIndex)}
                 />
               </Section>
             )}

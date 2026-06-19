@@ -9,6 +9,7 @@ import prisma from "../lib/db.js";
 import { persistWebhookEnvelopes } from "../services/whatsapp.webhook.service.js";
 import {
   serializeMessageWithAsset,
+  uploadWhatsAppTemplateExample,
   uploadWhatsAppMedia,
 } from "../services/whatsapp.media.service.js";
 import { whatsappTemplateService } from "../services/whatsapp.template.service.js";
@@ -270,6 +271,28 @@ class WhatsAppController {
   async uploadMedia(req, res) {
     try {
       const result = await uploadWhatsAppMedia({
+        shopId: req.shop.id,
+        createdById: req.user.id,
+        kind: req.body.kind,
+        file: req.file,
+        metadata: {
+          width: req.body.width,
+          height: req.body.height,
+          durationMs: req.body.durationMs,
+        },
+      });
+      res.status(201).json({ success: true, data: result });
+    } catch (error) {
+      const message = error.response?.data?.error?.message
+        || error.issues?.[0]?.message
+        || error.message;
+      res.status(400).json({ success: false, message });
+    }
+  }
+
+  async uploadTemplateExample(req, res) {
+    try {
+      const result = await uploadWhatsAppTemplateExample({
         shopId: req.shop.id,
         createdById: req.user.id,
         kind: req.body.kind,

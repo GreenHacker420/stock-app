@@ -10,6 +10,8 @@ type CarouselButton = CarouselCard["buttons"][number];
 type Props = {
   value: Carousel;
   onChange: (value: Carousel) => void;
+  onUploadExample?: (cardIndex: number, format: "IMAGE" | "VIDEO") => void;
+  uploadingCardIndex?: number | null;
 };
 
 function createCard(type: Carousel["type"], format: "IMAGE" | "VIDEO" = "IMAGE"): CarouselCard {
@@ -33,7 +35,12 @@ export function createDefaultCarousel(type: Carousel["type"] = "MEDIA"): Carouse
   };
 }
 
-export function TemplateCarouselEditor({ value, onChange }: Props) {
+export function TemplateCarouselEditor({
+  value,
+  onChange,
+  onUploadExample,
+  uploadingCardIndex,
+}: Props) {
   const updateCard = (cardIndex: number, updater: (card: CarouselCard) => CarouselCard) => {
     onChange({
       ...value,
@@ -132,6 +139,15 @@ export function TemplateCarouselEditor({ value, onChange }: Props) {
                   header: { ...current.header, exampleHandle },
                 }))}
               />
+              <Button
+                mode="outlined"
+                icon="upload"
+                loading={uploadingCardIndex === cardIndex}
+                disabled={uploadingCardIndex != null}
+                onPress={() => onUploadExample?.(cardIndex, card.header.format as "IMAGE" | "VIDEO")}
+              >
+                Upload review example
+              </Button>
             </>
           )}
 

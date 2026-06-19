@@ -97,6 +97,17 @@ export const templateDefinitionSchema = z.object({
   }).optional(),
   mappings: z.array(variableMappingSchema).optional().default([]),
 }).superRefine((definition, ctx) => {
+  if (
+    definition.header
+    && ["IMAGE", "VIDEO", "DOCUMENT"].includes(definition.header.format)
+    && !definition.header.exampleHandle
+  ) {
+    ctx.addIssue({
+      code: "custom",
+      message: "Media template headers require an uploaded example handle",
+      path: ["header", "exampleHandle"],
+    });
+  }
   if (definition.callPermissionRequest && (
     definition.category === "AUTHENTICATION"
     || definition.buttons.length

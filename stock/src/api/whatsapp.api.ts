@@ -359,6 +359,49 @@ export function uploadWaMedia(
   });
 }
 
+export function uploadWaTemplateExample(
+  token: string,
+  shopId: string,
+  media: WaLocalMedia,
+  onProgress?: (progress: number) => void,
+) {
+  return new Promise<WaMediaUpload & { exampleHandle: string }>((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open("POST", `${API_BASE_URL}/whatsapp/template-media`);
+    request.setRequestHeader("Authorization", `Bearer ${token}`);
+    request.setRequestHeader("X-Shop-Id", shopId);
+    request.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress?.(event.loaded / event.total);
+    };
+    request.onerror = () => reject(new Error("Network error while uploading template media"));
+    request.onload = () => {
+      let payload: { data?: WaMediaUpload & { exampleHandle: string }; message?: string } = {};
+      try {
+        payload = JSON.parse(request.responseText);
+      } catch {
+        reject(new Error("Invalid template media response"));
+        return;
+      }
+      if (request.status < 200 || request.status >= 300 || !payload.data?.exampleHandle) {
+        reject(new Error(payload.message || "Template media upload failed"));
+        return;
+      }
+      resolve(payload.data);
+    };
+    const form = new FormData();
+    form.append("kind", media.kind);
+    if (media.width) form.append("width", String(media.width));
+    if (media.height) form.append("height", String(media.height));
+    if (media.durationMs) form.append("durationMs", String(media.durationMs));
+    form.append("file", {
+      uri: media.uri,
+      name: media.name,
+      type: media.mimeType,
+    } as any);
+    request.send(form);
+  });
+}
+
 export async function sendWaReaction(token: string, payload: {
   shopId: string;
   to: string;
