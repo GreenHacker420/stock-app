@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
 import {
   FlatList,
   View,
@@ -10,10 +10,10 @@ import {
   Platform,
   Image,
   Modal,
-  Clipboard,
   Alert,
   Dimensions
 } from "react-native";
+import * as Clipboard from "expo-clipboard";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { fetchWaMessages, sendWaMessage, whatsappApi, WaMessage } from "../../../api/whatsapp.api";
@@ -24,11 +24,6 @@ import { format } from "date-fns";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useWhatsAppRealtime } from "../hooks/useWhatsAppRealtime";
 
-const EMOJI_PICKER_LIST = [
-  "🔥", "👏", "🎉", "🚀", "👀", "💯", "🤔", "😭",
-  "💀", "💩", "🤷", "🤦", "🎈", "✨", "💔", "❤️‍🔥",
-  "✅", "❌", "💰", "📦"
-];
 
 const STANDARD_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
 
@@ -47,6 +42,7 @@ export const ChatDetailScreen = () => {
   const [customEmojiVisible, setCustomEmojiVisible] = useState(false);
 
   const flatListRef = useRef<FlatList>(null);
+  const emojiInputRef = useRef<TextInput>(null);
 
   // Subscribe to real-time events for this conversation
   useWhatsAppRealtime(conversationId);
@@ -153,9 +149,9 @@ export const ChatDetailScreen = () => {
     setReactionMenuVisible(true);
   };
 
-  const handleCopyText = () => {
+  const handleCopyText = async () => {
     if (selectedMessage?.content?.text) {
-      Clipboard.setString(selectedMessage.content.text);
+      await Clipboard.setStringAsync(selectedMessage.content.text);
     }
     setReactionMenuVisible(false);
     setSelectedMessage(null);
@@ -443,31 +439,43 @@ export const ChatDetailScreen = () => {
         </TouchableOpacity>
       </Modal>
 
-      {/* Custom Emoji Picker Grid Modal */}
+      {/* Native Emoji Picker Input Modal */}
       <Modal
         visible={customEmojiVisible}
         transparent
-        animationType="slide"
+        animationType="fade"
         onRequestClose={() => setCustomEmojiVisible(false)}
+        onShow={() => {
+          setTimeout(() => emojiInputRef.current?.focus(), 150);
+        }}
       >
         <TouchableOpacity
           style={styles.modalOverlay}
           activeOpacity={1}
           onPress={() => setCustomEmojiVisible(false)}
         >
-          <View style={styles.customEmojiContainer}>
-            <Text style={styles.customEmojiHeader}>Select Reaction</Text>
-            <View style={styles.emojiGrid}>
-              {EMOJI_PICKER_LIST.map((emoji) => (
-                <TouchableOpacity
-                  key={emoji}
-                  style={styles.emojiGridItem}
-                  onPress={() => handleCustomEmojiSelect(emoji)}
-                >
-                  <Text style={styles.emojiGridText}>{emoji}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+          <View style={styles.nativeEmojiContainer}>
+            <Text style={styles.nativeEmojiHeader}>React with Emoji</Text>
+            <Text style={styles.nativeEmojiSub}>Use your system keyboard's emoji key to select any emoji</Text>
+            <TextInput
+              ref={emojiInputRef}
+              style={styles.nativeEmojiInput}
+              placeholder="😊"
+              maxLength={4}
+              onChangeText={(text) => {
+                if (text.trim()) {
+                  handleCustomEmojiSelect(text.trim());
+                  setCustomEmojiVisible(false);
+                }
+              }}
+              autoFocus
+            />
+            <TouchableOpacity
+              style={styles.nativeEmojiCloseBtn}
+              onPress={() => setCustomEmojiVisible(false)}
+            >
+              <Text style={styles.nativeEmojiCloseBtnText}>Cancel</Text>
+            </TouchableOpacity>
           </View>
         </TouchableOpacity>
       </Modal>
@@ -636,32 +644,44 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
 
-  // Custom Emoji Grid Picker
-  customEmojiContainer: {
+  // Native Emoji Picker Input
+  nativeEmojiContainer: {
     backgroundColor: "#fff",
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     padding: 20,
-    maxHeight: "50%",
+    alignItems: "center",
     paddingBottom: Platform.OS === "ios" ? 40 : 20,
   },
-  customEmojiHeader: {
+  nativeEmojiHeader: {
     fontSize: 18,
     fontWeight: "bold",
-    marginBottom: 15,
+    marginBottom: 5,
     color: Colors.textPrimary,
+  },
+  nativeEmojiSub: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    marginBottom: 20,
     textAlign: "center",
   },
-  emojiGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    justifyContent: "center",
+  nativeEmojiInput: {
+    width: 80,
+    height: 80,
+    backgroundColor: "#F3F4F6",
+    borderRadius: 40,
+    textAlign: "center",
+    fontSize: 40,
+    color: "#000",
+    marginBottom: 20,
   },
-  emojiGridItem: {
-    width: (width - 60) / 5,
-    height: 60,
-    justifyContent: "center",
-    alignItems: "center",
+  nativeEmojiCloseBtn: {
+    paddingVertical: 10,
+    paddingHorizontal: 20,
   },
-  emojiGridText: { fontSize: 32 },
+  nativeEmojiCloseBtnText: {
+    color: Colors.textSecondary,
+    fontSize: 16,
+    fontWeight: "600",
+  },
 });

@@ -24,7 +24,7 @@ async function checkRateLimit(shopId, jobId) {
 
     const count = results[1][1];
     if (count < 75) {
-      await connection.zadd(key, now, `${now}:${jobId}`);
+      await connection.zadd(key, now, `${now}-${jobId}`);
       await connection.pexpire(key, 2000);
       return true;
     }
