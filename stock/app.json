@@ -85,7 +85,12 @@
           "photosPermission": "Allow ShopControl to select photos and videos for WhatsApp conversations."
         }
       ],
-      "expo-audio"
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow ShopControl to record voice messages for WhatsApp conversations."
+        }
+      ]
     ],
     "extra": {
       "eas": {

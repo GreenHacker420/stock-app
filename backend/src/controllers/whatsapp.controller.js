@@ -273,6 +273,11 @@ class WhatsAppController {
         createdById: req.user.id,
         kind: req.body.kind,
         file: req.file,
+        metadata: {
+          width: req.body.width,
+          height: req.body.height,
+          durationMs: req.body.durationMs,
+        },
       });
       res.status(201).json({ success: true, data: result });
     } catch (error) {

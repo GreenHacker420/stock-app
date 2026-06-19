@@ -16,6 +16,12 @@ const ASSET_KIND_BY_MESSAGE_KIND = {
   sticker: "STICKER",
 };
 
+function optionalPositiveInteger(value) {
+  if (value == null || value === "") return undefined;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
 export async function getPublicAsset(asset) {
   if (!asset) return null;
 
@@ -106,7 +112,7 @@ export async function resolveOutboundMediaAsset({ shopId, message }) {
   };
 }
 
-export async function uploadWhatsAppMedia({ shopId, createdById, kind, file }) {
+export async function uploadWhatsAppMedia({ shopId, createdById, kind, file, metadata = {} }) {
   const parsedKind = validateWhatsAppMedia({ kind, file });
   const integration = await getWaCredentials(shopId);
   if (!integration) {
@@ -127,6 +133,9 @@ export async function uploadWhatsAppMedia({ shopId, createdById, kind, file }) {
       fileName: file.originalname,
       sizeBytes: BigInt(file.size),
       checksumSha256,
+      width: optionalPositiveInteger(metadata.width),
+      height: optionalPositiveInteger(metadata.height),
+      durationMs: optionalPositiveInteger(metadata.durationMs),
     },
   });
 

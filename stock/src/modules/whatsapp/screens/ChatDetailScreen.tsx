@@ -44,6 +44,8 @@ import { useWhatsAppRealtime } from "../hooks/useWhatsAppRealtime";
 import { variableResolverRegistry } from "../services/variableResolver";
 import { MessageActionSheet } from "../components/MessageActionSheet";
 import { MediaAttachmentSheet } from "../components/MediaAttachmentSheet";
+import { AudioMessagePlayer } from "../components/AudioMessagePlayer";
+import { VoiceRecorderSheet } from "../components/VoiceRecorderSheet";
 
 
 
@@ -65,6 +67,7 @@ export const ChatDetailScreen = () => {
   const [showMessageActions, setShowMessageActions] = useState(false);
   const [locating, setLocating] = useState(false);
   const [selectedMedia, setSelectedMedia] = useState<WaLocalMedia | null>(null);
+  const [showVoiceRecorder, setShowVoiceRecorder] = useState(false);
   const [mediaCaption, setMediaCaption] = useState("");
   const [mediaUploadProgress, setMediaUploadProgress] = useState(0);
   const [uploadingMedia, setUploadingMedia] = useState(false);
@@ -442,6 +445,40 @@ export const ChatDetailScreen = () => {
     }
   };
 
+  const uploadAndSendVoice = async (media: WaLocalMedia) => {
+    if (!activeShopId || !token || uploadingMedia) return;
+
+    setUploadingMedia(true);
+    setMediaUploadProgress(0);
+    const controller = new AbortController();
+    mediaUploadControllerRef.current = controller;
+    try {
+      const uploaded = await uploadWaMedia(
+        token,
+        activeShopId,
+        media,
+        setMediaUploadProgress,
+        controller.signal,
+      );
+      sendStructuredMessage({
+        kind: "audio",
+        assetId: uploaded.id,
+        voice: true,
+      });
+      setShowVoiceRecorder(false);
+      setMediaUploadProgress(0);
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      Alert.alert(
+        "Upload failed",
+        error instanceof Error ? error.message : "Could not upload this voice message.",
+      );
+    } finally {
+      mediaUploadControllerRef.current = null;
+      setUploadingMedia(false);
+    }
+  };
+
   const cancelMediaUpload = () => {
     mediaUploadControllerRef.current?.abort();
     setMediaUploadProgress(0);
@@ -694,10 +731,11 @@ export const ChatDetailScreen = () => {
                 <Image source={{ uri: item.asset?.url }} style={styles.messageImage} resizeMode="contain" />
               )}
               {item.type === "AUDIO" && (
-                <View style={styles.docRow}>
-                  <MaterialCommunityIcons name={item.payload?.voice ? "microphone" : "volume-high"} size={28} color={Colors.primary} />
-                  <Text style={styles.docText}>{item.payload?.voice ? "Voice message" : "Audio message"}</Text>
-                </View>
+                <AudioMessagePlayer
+                  url={item.asset?.url}
+                  voice={item.payload?.voice}
+                  fallbackDurationMs={item.asset?.durationMs}
+                />
               )}
               {item.type === "VIDEO" && (
                 <>
@@ -868,6 +906,7 @@ export const ChatDetailScreen = () => {
         onClose={() => setShowMessageActions(false)}
         onOpenTemplates={() => setShowTemplateSheet(true)}
         onPickMedia={pickMedia}
+        onRecordVoice={() => setShowVoiceRecorder(true)}
         onShareContact={shareLinkedContact}
         onShareLocation={shareCurrentLocation}
         onSend={sendStructuredMessage}
@@ -882,6 +921,17 @@ export const ChatDetailScreen = () => {
         onCancelUpload={cancelMediaUpload}
         onClose={closeMediaPreview}
         onSend={uploadAndSendMedia}
+      />
+
+      <VoiceRecorderSheet
+        visible={showVoiceRecorder}
+        uploading={uploadingMedia}
+        uploadProgress={mediaUploadProgress}
+        onClose={() => {
+          if (!uploadingMedia) setShowVoiceRecorder(false);
+        }}
+        onCancelUpload={cancelMediaUpload}
+        onSend={uploadAndSendVoice}
       />
 
       {/* Long Press Reaction Overlay Modal */}

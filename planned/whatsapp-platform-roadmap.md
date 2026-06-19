@@ -9,7 +9,7 @@
 | Workstream | Approximate completion | Current state |
 |---|---:|---|
 | Platform foundation | 70% | Durable webhooks, management projection, typed commands, queues, assets, and tenant routing exist; replay UI, quarantine operations, idempotency, metrics, and broadcast reconciliation remain |
-| Messaging types | 65% | Text, replies, image/video/document media, location, contacts, buttons, lists, templates, and Flow sends exist; voice recording/playback, stickers, location request, richer renderers, and policy-aware retry remain |
+| Messaging types | 75% | Text, replies, image/video/document media, voice recording/playback, location, contacts, buttons, lists, templates, and Flow sends exist; stickers, location request, richer renderers, and policy-aware retry remain |
 | Templates | 30% | Sync and basic variable sending exist; pagination, lifecycle administration, typed headers/buttons/carousels/coupons/OTP, previews, and quality handling remain |
 | Flows | 25% | Sync, send contract, execution schema, and E2EE endpoint exist; CRUD, validation, deployment, registered handlers, retries, and execution UI remain |
 | Inbox and assignment | 25% | Conversation views, archive, assignment field, filters, and realtime updates exist; assignment commands/history, ownership permissions, workflow status, and notes remain |
@@ -23,16 +23,16 @@ Completed after the audit:
 - Immutable webhook envelopes, management event normalization, and integration health projection.
 - Typed outbound `/whatsapp/messages` contract with text, replies, media, location, contacts, buttons, lists, templates, and Flows.
 - React Native structured-message actions for templates, contacts, location, reply buttons, and lists.
-- Tenant-authorized image, video, and document upload to private storage and Meta media, including preview, progress, cancellation, captions, and queued sends by Meta media ID.
+- Tenant-authorized image, video, document, and voice-note upload to private storage and Meta media, including preview, recording, playback, progress, cancellation, captions, and queued sends by Meta media ID.
 - Generic tenant-scoped `Asset` registry owns S3 identity, Meta identity, checksums, lifecycle state, signed delivery URLs, and reusable message linkage; mobile contracts use only internal asset IDs.
 
 Next dependency-ordered work:
 
-1. Audio and voice-note recording/playback.
-2. Dedicated renderer registry and media open/play actions.
-3. Complete typed template components, previews, and lifecycle sync.
-4. Flow CRUD, validation, deployment, and execution tracking.
-5. Device registry and presence foundation before inbound calling.
+1. Dedicated renderer registry and media open/play actions.
+2. Complete typed template components, previews, and lifecycle sync.
+3. Flow CRUD, validation, deployment, and execution tracking.
+4. Device registry and presence foundation before inbound calling.
+5. Assignment commands and ownership history.
 
 ## Architecture Direction
 

@@ -136,13 +136,14 @@ export interface WaMessage {
 }
 
 export type WaLocalMedia = {
-  kind: "image" | "video" | "document";
+  kind: "image" | "video" | "audio" | "document";
   uri: string;
   name: string;
   mimeType: string;
   size?: number;
   width?: number;
   height?: number;
+  durationMs?: number;
 };
 
 export type WaMediaUpload = {
@@ -236,6 +237,9 @@ export function uploadWaMedia(
     const form = new FormData();
     form.append("shopId", shopId);
     form.append("kind", media.kind);
+    if (media.width) form.append("width", String(media.width));
+    if (media.height) form.append("height", String(media.height));
+    if (media.durationMs) form.append("durationMs", String(media.durationMs));
     form.append("file", {
       uri: media.uri,
       name: media.name,
