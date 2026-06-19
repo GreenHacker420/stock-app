@@ -21,7 +21,7 @@ import {
   RadioButton,
   Checkbox,
 } from "react-native-paper";
-import * as Contacts from "expo-contacts";
+import { Contact, ContactField, requestPermissionsAsync } from "expo-contacts";
 import { contactsDb, LocalContact } from "../services/contactsDb";
 import { whatsappApi } from "../../../api/whatsapp.api";
 import { useCustomersQuery } from "../../../hooks/useCustomers";
@@ -81,7 +81,7 @@ export const ContactBookScreen = () => {
   const importDeviceContacts = async () => {
     setLoading(true);
     try {
-      const { status } = await Contacts.requestPermissionsAsync();
+      const { status } = await requestPermissionsAsync();
       if (status !== "granted") {
         Alert.alert(
           "Permission Denied",
@@ -90,25 +90,23 @@ export const ContactBookScreen = () => {
         return;
       }
 
-      const { data } = await Contacts.getContactsAsync({
-        fields: [
-          Contacts.Fields.Name,
-          Contacts.Fields.PhoneNumbers,
-          Contacts.Fields.Emails,
-        ],
-      });
+      const data = await Contact.getAllDetails([
+        ContactField.FULL_NAME,
+        ContactField.PHONES,
+        ContactField.EMAILS,
+      ]);
 
       if (data && data.length > 0) {
         const formatted = data
           .map((c) => {
-            const phone = c.phoneNumbers?.[0]?.number || "";
+            const phone = c.phones?.[0]?.number || "";
             // Clean phone number (remove spaces, symbols)
             const cleanPhone = phone.replace(/\D/g, "");
             return {
               id: c.id || "",
-              name: c.name || "",
+              name: c.fullName || "",
               phone: cleanPhone,
-              email: c.emails?.[0]?.email || undefined,
+              email: c.emails?.[0]?.address || undefined,
             };
           })
           .filter((c) => c.phone.length >= 10);

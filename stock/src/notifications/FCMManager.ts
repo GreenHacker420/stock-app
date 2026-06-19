@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { Platform } from "react-native";
 import * as Notifications from "expo-notifications";
 import * as Device from "expo-device";
-import * as Contacts from "expo-contacts";
+import { requestPermissionsAsync } from "expo-contacts";
 import Constants from "expo-constants";
 import { useAuthStore } from "../auth/auth-store";
 import { registerPushToken } from "../api/client";
@@ -125,7 +125,7 @@ export function useNotificationSetup() {
     FCMManager.setupBackgroundNotificationHandlers();
 
     // Trigger contacts permissions request immediately on login/mount
-    Contacts.requestPermissionsAsync().then(({ status }) => {
+    requestPermissionsAsync().then(({ status }) => {
       console.log('Contacts permission request on startup status:', status);
     }).catch((contactsErr) => {
       console.warn('Failed to auto-request contacts permission on startup:', contactsErr);
