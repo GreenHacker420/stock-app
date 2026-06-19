@@ -1,11 +1,25 @@
-import { Queue, Worker } from "bullmq";
+import { Queue } from "bullmq";
 import Redis from "ioredis";
-import { whatsappService } from "./whatsapp.service.js";
 
 const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
-const connection = new Redis(REDIS_URL, { maxRetriesPerRequest: null });
+export const connection = new Redis(REDIS_URL, { maxRetriesPerRequest: null });
 
+// Outbound Message Queue
 export const whatsappQueue = new Queue("whatsapp-outbound", {
+  connection,
+  defaultJobOptions: {
+    attempts: 3,
+    backoff: {
+      type: "exponential",
+      delay: 2000,
+    },
+    removeOnComplete: true,
+    removeOnFail: { count: 100 },
+  },
+});
+
+// Inbound Webhook Payload Queue
+export const inboundQueue = new Queue("whatsapp-inbound", {
   connection,
   defaultJobOptions: {
     attempts: 3,
@@ -13,30 +27,49 @@ export const whatsappQueue = new Queue("whatsapp-outbound", {
       type: "exponential",
       delay: 1000,
     },
+    removeOnComplete: true,
+    removeOnFail: { count: 100 },
   },
 });
 
-export const whatsappWorker = new Worker(
-  "whatsapp-outbound",
-  async (job) => {
-    const { shopId, payload, messageId } = job.data;
-    console.log(`[WhatsApp Worker] Processing job ${job.id} for message ${messageId} in shop ${shopId}`);
-    
-    try {
-      const result = await whatsappService._sendDirect(shopId, { messageId, payload });
-      return result;
-    } catch (error) {
-      console.error(`[WhatsApp Worker] Job ${job.id} failed:`, error.message);
-      throw error; // Let BullMQ handle retries based on backoff
-    }
+// Inbound Media Download Queue
+export const mediaDownloadQueue = new Queue("whatsapp-media-download", {
+  connection,
+  defaultJobOptions: {
+    attempts: 3,
+    backoff: {
+      type: "exponential",
+      delay: 2000,
+    },
+    removeOnComplete: true,
+    removeOnFail: { count: 100 },
   },
-  { connection }
-);
-
-whatsappWorker.on("completed", (job) => {
-  console.log(`WhatsApp job ${job.id} completed`);
 });
 
-whatsappWorker.on("failed", (job, err) => {
-  console.error(`WhatsApp job ${job.id} failed:`, err);
+// Broadcast Campaign Dispatcher Queue (Stage 1)
+export const broadcastQueue = new Queue("whatsapp-broadcast-dispatcher", {
+  connection,
+  defaultJobOptions: {
+    attempts: 3,
+    backoff: {
+      type: "exponential",
+      delay: 5000,
+    },
+    removeOnComplete: true,
+    removeOnFail: { count: 100 },
+  },
+});
+
+// Broadcast Campaign Individual Message Sender Queue (Stage 2)
+export const broadcastSendQueue = new Queue("whatsapp-broadcast-send", {
+  connection,
+  defaultJobOptions: {
+    attempts: 3,
+    backoff: {
+      type: "exponential",
+      delay: 2000,
+    },
+    removeOnComplete: true,
+    removeOnFail: { count: 100 },
+  },
 });

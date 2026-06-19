@@ -31,7 +31,14 @@ export function createApp() {
 
   app.use(helmet());
   app.use(cors({ origin: process.env.CORS_ORIGIN || "*" }));
-  app.use(express.json({ limit: "2mb" }));
+  app.use(express.json({
+    limit: "2mb",
+    verify: (req, res, buf) => {
+      if (req.originalUrl && req.originalUrl.includes("/whatsapp/webhook")) {
+        req.rawBody = buf;
+      }
+    }
+  }));
 
   if (process.env.NODE_ENV !== "test") {
     app.use(morgan("dev"));

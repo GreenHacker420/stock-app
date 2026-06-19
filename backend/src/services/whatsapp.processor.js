@@ -1,6 +1,6 @@
 import crypto from "crypto";
 import prisma from "../lib/db.js";
-import { emitShopEvent } from "../utils/realtime.js";
+import { publishWhatsAppEvent } from "../utils/realtime.js";
 
 const MESSAGE_STATUS_RANK = {
   QUEUED: 0,
@@ -114,9 +114,9 @@ export function parseWebhookPayload(payload) {
  * Processes a single normalized event.
  * Handles database saving, idempotency, and Socket.IO emission.
  */
-export async function processWhatsAppEvent(event, shopId, io) {
+export async function processWhatsAppEvent(event, shopId) {
   // 1. Idempotency Check (Event level)
-  const eventId = `${event.type}:${event.metaMessageId || event.timestamp}:${event.timestamp}`;
+  const eventId = `${shopId}:${event.type}:${event.metaMessageId || event.timestamp}:${event.timestamp}`;
   const hashedEventId = crypto.createHash("sha256").update(eventId).digest("hex");
 
   const existingEvent = await prisma.waWebhookEvent.findUnique({
@@ -127,17 +127,17 @@ export async function processWhatsAppEvent(event, shopId, io) {
 
   // 2. Route based on type
   if (event.type === "status") {
-    return handleStatusUpdate(event, shopId, io, hashedEventId);
+    return handleStatusUpdate(event, shopId, hashedEventId);
   }
 
-  return handleInboundMessage(event, shopId, io, hashedEventId);
+  return handleInboundMessage(event, shopId, hashedEventId);
 }
 
-async function handleStatusUpdate(event, shopId, io, eventId) {
+async function handleStatusUpdate(event, shopId, eventId) {
   return await prisma.$transaction(async (tx) => {
     // Save event idempotency
     await tx.waWebhookEvent.create({
-      data: { id: eventId, eventType: "status" }
+      data: { id: eventId, eventType: "STATUS", shopId }
     });
 
     const message = await tx.waMessage.findUnique({
@@ -170,25 +170,23 @@ async function handleStatusUpdate(event, shopId, io, eventId) {
       data: updateData,
     });
 
-    // Notify UI via Socket.IO
-    if (io) {
-      io.to(`shop:${shopId}`).emit("wa:status_updated", {
-        messageId: updatedMessage.id,
-        conversationId: updatedMessage.conversationId,
-        status: nextStatus,
-        timestamp: nextTimestamp,
-      });
-    }
+    // Notify UI via Pub/Sub socket bridge
+    await publishWhatsAppEvent(shopId, "wa:status_updated", {
+      messageId: updatedMessage.id,
+      conversationId: updatedMessage.conversationId,
+      status: nextStatus,
+      timestamp: nextTimestamp,
+    });
 
     return updatedMessage;
   });
 }
 
-async function handleInboundMessage(event, shopId, io, eventId) {
+async function handleInboundMessage(event, shopId, eventId) {
   return await prisma.$transaction(async (tx) => {
     // 1. Save event idempotency
     await tx.waWebhookEvent.create({
-      data: { id: eventId, eventType: "message" }
+      data: { id: eventId, eventType: "MESSAGE", shopId }
     });
 
     // 2. Find or Create Conversation (Race condition safe)
@@ -240,13 +238,35 @@ async function handleInboundMessage(event, shopId, io, eventId) {
       },
     });
 
-    // 5. Notify UI via Socket.IO
-    if (io) {
-      io.to(`shop:${shopId}`).emit("wa:message_received", {
-        message,
-        conversationId: conversation.id,
-      });
+    // 5. If it is a media message, queue for download
+    if (event.mediaId) {
+      try {
+        const { mediaDownloadQueue } = await import("./whatsapp.queue.js");
+        await mediaDownloadQueue.add("download-media", {
+          shopId,
+          messageId: message.id,
+          mediaId: event.mediaId,
+          mimeType: event.mimeType,
+          fileName: event.fileName,
+        });
+      } catch (err) {
+        console.error(`[WhatsApp Processor] Failed to queue media download:`, err.message);
+      }
     }
+
+    // Set 24-hour window key in Redis
+    try {
+      const { connection: redis } = await import("./whatsapp.queue.js");
+      await redis.setex(`wa:window:${conversation.id}`, 24 * 60 * 60, "active");
+    } catch (err) {
+      console.error(`[WhatsApp Processor] Failed to set 24h window key:`, err.message);
+    }
+
+    // 6. Notify UI via Pub/Sub socket bridge
+    await publishWhatsAppEvent(shopId, "wa:message_received", {
+      message,
+      conversationId: conversation.id,
+    });
 
     return message;
   });

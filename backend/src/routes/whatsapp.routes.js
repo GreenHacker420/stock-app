@@ -30,4 +30,13 @@ router.get("/setup", requireAuth, requireOwner, whatsappController.getSetup);
 router.post("/setup", requireAuth, requireOwner, whatsappController.saveSetup);
 router.post("/fb-embedded-signup", requireAuth, requireOwner, whatsappController.fbEmbeddedSignup);
 
+// Campaign / Broadcast routes (Owner Only)
+router.get("/broadcasts", requireAuth, requireOwner, whatsappController.getBroadcasts);
+router.post("/broadcasts", requireAuth, requireOwner, whatsappController.createBroadcast);
+router.get("/broadcasts/:id", requireAuth, requireOwner, whatsappController.getBroadcast);
+router.post("/broadcasts/:id/send", requireAuth, requireOwner, whatsappController.sendBroadcast);
+router.post("/broadcasts/:id/schedule", requireAuth, requireOwner, whatsappController.scheduleBroadcast);
+router.post("/broadcasts/:id/cancel", requireAuth, requireOwner, whatsappController.cancelBroadcast);
+router.get("/broadcasts/:id/recipients", requireAuth, requireOwner, whatsappController.getBroadcastRecipients);
+
 export default router;

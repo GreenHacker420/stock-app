@@ -1,5 +1,10 @@
 import jwt from "jsonwebtoken";
 import prisma from "../lib/db.js";
+import Redis from "ioredis";
+
+const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
+let redisPub;
+let redisSub;
 
 export const REALTIME_EVENTS = {
   ORDER_UPDATED: "order:updated",
@@ -53,6 +58,33 @@ async function canAccessShop(user, shopId) {
 }
 
 export function configureRealtime(io) {
+  // Initialize Redis pub/sub clients
+  if (!redisSub) {
+    redisSub = new Redis(REDIS_URL, { maxRetriesPerRequest: null });
+    redisSub.subscribe("whatsapp:events", (err) => {
+      if (err) {
+        console.error("[Realtime] Failed to subscribe to whatsapp:events channel:", err.message);
+      } else {
+        console.log("[Realtime] Subscribed to whatsapp:events channel");
+      }
+    });
+
+    redisSub.on("message", (channel, message) => {
+      if (channel === "whatsapp:events") {
+        try {
+          const { shopId, event, data } = JSON.parse(message);
+          io.to(`shop:${shopId}`).emit(event, data);
+        } catch (err) {
+          console.error("[Realtime] Error processing pub/sub message:", err.message);
+        }
+      }
+    });
+  }
+
+  if (!redisPub) {
+    redisPub = new Redis(REDIS_URL, { maxRetriesPerRequest: null });
+  }
+
   io.use(async (socket, next) => {
     try {
       const token = socket.handshake.auth?.token;
@@ -91,4 +123,15 @@ export function emitShopEvent(req, shopId, event, payload = {}) {
     shopId,
     emittedAt: new Date().toISOString(),
   });
+}
+
+export async function publishWhatsAppEvent(shopId, event, data) {
+  try {
+    if (!redisPub) {
+      redisPub = new Redis(REDIS_URL, { maxRetriesPerRequest: null });
+    }
+    await redisPub.publish("whatsapp:events", JSON.stringify({ shopId, event, data }));
+  } catch (err) {
+    console.error("[Realtime] Failed to publish whatsapp event:", err.message);
+  }
 }

@@ -1,20 +1,20 @@
 import axios from "axios";
 import prisma from "../lib/db.js";
-import { emitShopEvent } from "../utils/realtime.js";
+import { publishWhatsAppEvent } from "../utils/realtime.js";
+import { getWaCredentials } from "../lib/wa-cache.js";
+import { connection as redis } from "./whatsapp.queue.js";
 
 const API_VERSION = "v25.0";
 const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
 
 class WhatsAppService {
-  // Fetches the WhatsApp integration details for a shop.
+  // Fetches the WhatsApp integration details for a shop (Cache-backed).
   async getIntegration(shopId) {
-    const integration = await prisma.waIntegration.findUnique({
-      where: { shopId },
-    });
-    if (!integration || integration.status !== "CONNECTED") {
+    const credentials = await getWaCredentials(shopId);
+    if (!credentials) {
       throw new Error("WhatsApp integration not connected for this shop");
     }
-    return integration;
+    return credentials;
   }
 
   // Verification for Meta Webhook setup.
@@ -28,8 +28,16 @@ class WhatsAppService {
     throw new Error("Verification failed");
   }
 
-  // Checks if a conversation is within the 24-hour service window.
+  // Checks if a conversation is within the 24-hour service window (Redis first, fallback to DB).
   async canSendFreeText(conversationId) {
+    try {
+      const windowKey = `wa:window:${conversationId}`;
+      const active = await redis.get(windowKey);
+      if (active) return true;
+    } catch (err) {
+      console.error("[WhatsApp Service] Redis read error (window):", err.message);
+    }
+
     const conversation = await prisma.waConversation.findUnique({
       where: { id: conversationId },
     });
@@ -37,10 +45,20 @@ class WhatsAppService {
     if (!conversation?.lastCustomerMessageAt) return false;
 
     const lastMessageTime = new Date(conversation.lastCustomerMessageAt).getTime();
-    const now = new Date().getTime();
+    const now = Date.now();
     const twentyFourHoursInMs = 24 * 60 * 60 * 1000;
 
-    return (now - lastMessageTime) <= twentyFourHoursInMs;
+    const isValid = (now - lastMessageTime) <= twentyFourHoursInMs;
+
+    if (isValid) {
+      try {
+        await redis.setex(`wa:window:${conversationId}`, 24 * 60 * 60, "active");
+      } catch (err) {
+        console.error("[WhatsApp Service] Redis write error (window):", err.message);
+      }
+    }
+
+    return isValid;
   }
 
   // Queues a message for sending.
@@ -124,7 +142,7 @@ class WhatsAppService {
         },
       });
 
-      emitShopEvent({ app: { get: () => global.io } }, shopId, "wa:status_updated", {
+      await publishWhatsAppEvent(shopId, "wa:status_updated", {
         messageId: updatedMessage.id,
         conversationId,
         status: "SENT",
@@ -143,7 +161,7 @@ class WhatsAppService {
         },
       });
 
-      emitShopEvent({ app: { get: () => global.io } }, shopId, "wa:status_updated", {
+      await publishWhatsAppEvent(shopId, "wa:status_updated", {
         messageId: failedMessage.id,
         conversationId,
         status: "FAILED",
@@ -155,7 +173,6 @@ class WhatsAppService {
   }
 
   // Syncs templates from Meta.
-
   async syncTemplates(shopId) {
     const integration = await this.getIntegration(shopId);
 
@@ -174,15 +191,17 @@ class WhatsAppService {
       for (const t of metaTemplates) {
         await prisma.waTemplate.upsert({
           where: {
-            // We'll use finding first since there's no easy unique constraint on multi-fields in upsert without a unique index
-            id: (await prisma.waTemplate.findFirst({
-              where: { shopId, name: t.name, language: t.language }
-            }))?.id || "new-id"
+            shopId_name_language: {
+              shopId,
+              name: t.name,
+              language: t.language,
+            },
           },
           update: {
             status: t.status,
             category: t.category,
             components: t.components,
+            syncedAt: new Date(),
           },
           create: {
             shopId,
@@ -191,6 +210,7 @@ class WhatsAppService {
             status: t.status,
             category: t.category,
             components: t.components,
+            syncedAt: new Date(),
           }
         });
       }
@@ -220,16 +240,23 @@ class WhatsAppService {
 
       for (const f of metaFlows) {
         await prisma.waFlow.upsert({
-          where: { flowId: f.id },
+          where: {
+            shopId_flowId: {
+              shopId,
+              flowId: f.id,
+            },
+          },
           update: {
             name: f.name,
             status: f.status,
+            syncedAt: new Date(),
           },
           create: {
             shopId,
             flowId: f.id,
             name: f.name,
             status: f.status,
+            syncedAt: new Date(),
           }
         });
       }

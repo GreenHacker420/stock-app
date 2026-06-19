@@ -256,6 +256,8 @@ enum EntityType {
   STAFF_SHOP_ACCESS
   STOCK_BALANCE
   STOCK_RESERVATION
+  WHATSAPP
+  WHATSAPP_BROADCAST
 }
 
 enum NotificationEvent {
@@ -265,6 +267,7 @@ enum NotificationEvent {
   CHEQUE_BOUNCED
   LOW_STOCK
   PAYMENT_MISMATCH
+  WHATSAPP_DLQ
 }
 
 enum OrderEventType {
@@ -1291,11 +1294,16 @@ model WaMessage {
   @@index([conversationId, createdAt])
 }
 
+enum WaWebhookEventType {
+  STATUS
+  MESSAGE
+}
+
 model WaWebhookEvent {
-  id          String   @id // Composite or hash ID
+  id          String             @id // Composite or hash ID
   shopId      String?
-  eventType   String
-  processedAt DateTime @default(now())
+  eventType   WaWebhookEventType
+  processedAt DateTime           @default(now())
 
   @@index([processedAt])
 }

@@ -1,36 +1,49 @@
 import crypto from "crypto";
+import axios from "axios";
 import { whatsappService } from "../services/whatsapp.service.js";
-import { parseWebhookPayload, processWhatsAppEvent } from "../services/whatsapp.processor.js";
+import { whatsappBroadcastService } from "../services/whatsapp.broadcast.service.js";
+import { getWaCredentials, getTenantByPhoneNumberId } from "../lib/wa-cache.js";
+import { inboundQueue } from "../services/whatsapp.queue.js";
+import { getSignedMediaUrl } from "../lib/wa-media.js";
 import prisma from "../lib/db.js";
 
 class WhatsAppController {
-  //  Validates Meta Webhook Signature using shop-specific App Secret.
-
+  /**
+   * Validates Meta Webhook Signature using shop-specific App Secret.
+   * Signature is always validated against the raw body buffer.
+   */
   async #validateSignature(req, shopId) {
     const signature = req.headers["x-hub-signature-256"];
     if (!signature) return false;
 
-    const integration = await prisma.waIntegration.findUnique({
-      where: { shopId },
-      select: { appSecret: true }
-    });
-
-    const secret = integration?.appSecret || process.env.WHATSAPP_APP_SECRET;
+    // Get credentials from cache
+    const creds = await getWaCredentials(shopId);
+    const secret = creds?.appSecret || process.env.WHATSAPP_APP_SECRET;
     if (!secret) {
-      console.warn(`No App Secret found for shop ${shopId}, skipping validation`);
-      return true; 
+      console.warn(`[WhatsApp Controller] No App Secret configured for shop ${shopId}, rejecting signature`);
+      return false; // Strict validation: reject unsigned or unconfigured webhooks
     }
 
-    const [algo, hash] = signature.split("=");
-    if (algo !== "sha256") return false;
+    const parts = signature.split("=");
+    if (parts.length !== 2 || parts[0] !== "sha256") return false;
+    const hash = parts[1];
 
-    const rawBody = req.rawBody || JSON.stringify(req.body);
+    const rawBody = req.rawBody;
+    if (!rawBody) {
+      console.warn("[WhatsApp Controller] rawBody is missing, cannot validate signature");
+      return false;
+    }
+
     const expectedHash = crypto
       .createHmac("sha256", secret)
       .update(rawBody)
       .digest("hex");
 
-    return crypto.timingSafeEqual(Buffer.from(hash), Buffer.from(expectedHash));
+    try {
+      return crypto.timingSafeEqual(Buffer.from(hash, "hex"), Buffer.from(expectedHash, "hex"));
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -38,45 +51,84 @@ class WhatsAppController {
    */
   async verifyWebhook(req, res) {
     try {
-      const shopId = req.params.shopId || req.query.shopId;
       const mode = req.query["hub.mode"];
       const token = req.query["hub.verify_token"];
       const challenge = req.query["hub.challenge"];
 
-      const result = await whatsappService.verifyWebhook(shopId, mode, token, challenge);
-      res.status(200).send(result);
+      if (mode !== "subscribe" || !token) {
+        return res.status(400).send("Invalid verification request");
+      }
+
+      // Try legacy path-based verification if shopId is provided
+      const shopId = req.params.shopId || req.query.shopId;
+      if (shopId) {
+        const result = await whatsappService.verifyWebhook(shopId, mode, token, challenge);
+        return res.status(200).send(result);
+      }
+
+      // Unified single-webhook URL: search database/cache for matching verifyToken
+      const integration = await prisma.waIntegration.findFirst({
+        where: { verifyToken: token, status: "CONNECTED" },
+        select: { shopId: true },
+      });
+
+      if (integration) {
+        return res.status(200).send(challenge);
+      }
+
+      console.warn(`[WhatsApp Controller] Webhook verification failed for token: ${token}`);
+      res.status(403).send("Forbidden");
     } catch (error) {
+      console.error("[WhatsApp Controller] Webhook verification error:", error);
       res.status(403).send("Forbidden");
     }
   }
 
-  //  Meta Webhook Payload (POST /whatsapp/webhook or /whatsapp/webhook/:shopId)
-
+  /**
+   * Meta Webhook Payload (POST /whatsapp/webhook or /whatsapp/webhook/:shopId)
+   */
   async handleWebhook(req, res) {
     try {
-      const shopId = req.params.shopId || req.query.shopId;
-      if (!shopId) return res.status(400).send("shopId missing");
+      const payload = req.body;
+      if (!payload || payload.object !== "whatsapp_business_account") {
+        return res.status(200).send("Ignored");
+      }
 
-      // 1. Validate Signature
+      // Resolve phone_number_id from payload metadata
+      const phoneNumberId = payload.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id;
+      if (!phoneNumberId) {
+        console.warn("[WhatsApp Controller] Webhook payload missing phone_number_id metadata");
+        return res.status(200).send("Ignored");
+      }
+
+      // Resolve shopId using the tenant cache
+      const tenant = await getTenantByPhoneNumberId(phoneNumberId);
+      if (!tenant || !tenant.shopId) {
+        console.warn(`[WhatsApp Controller] No shop resolved for phone_number_id: ${phoneNumberId}`);
+        return res.status(200).send("Ignored"); // Return 200 so Meta doesn't retry
+      }
+
+      const shopId = tenant.shopId;
+
+      // Validate HMAC signature
       const isValid = await this.#validateSignature(req, shopId);
       if (!isValid) {
-        console.warn(`Invalid signature for shop ${shopId}`);
-        // return res.status(401).send("Invalid signature");
+        console.warn(`[WhatsApp Controller] Invalid signature for shop ${shopId}`);
+        return res.status(401).send("Invalid signature");
       }
 
-      const payload = req.body;
-      const io = req.app.get("io");
+      // Push payload to inbound queue for async processing
+      await inboundQueue.add("webhook-payload", {
+        shopId,
+        rawPayload: payload,
+        receivedAt: new Date().toISOString(),
+      });
 
-      const events = parseWebhookPayload(payload);
-
-      for (const event of events) {
-        await processWhatsAppEvent(event, shopId, io);
-      }
-
+      // Acknowledge immediately to Meta
       res.status(200).json({ success: true });
     } catch (error) {
-      console.error("Webhook error:", error);
-      res.status(200).json({ success: true }); 
+      console.error("[WhatsApp Controller] Webhook error:", error);
+      res.status(200).json({ success: true }); // Return 200 to prevent retry storms
     }
   }
 
@@ -124,7 +176,22 @@ class WhatsAppController {
         orderBy: { createdAt: "desc" }
       });
 
-      res.json({ success: true, data: messages.reverse() });
+      // Dynamically generate 1-hour pre-signed URLs for any private media stored on S3
+      const messagesWithPresignedUrls = await Promise.all(
+        messages.map(async (msg) => {
+          if (msg.s3Key) {
+            try {
+              const presignedUrl = await getSignedMediaUrl(msg.s3Key);
+              return { ...msg, mediaUrl: presignedUrl };
+            } catch (err) {
+              console.error(`[WhatsApp Controller] Failed to sign media URL for key ${msg.s3Key}:`, err.message);
+            }
+          }
+          return msg;
+        })
+      );
+
+      res.json({ success: true, data: messagesWithPresignedUrls.reverse() });
     } catch (error) {
       res.status(500).json({ success: false, message: error.message });
     }
@@ -336,6 +403,137 @@ class WhatsAppController {
       });
 
       res.json({ success: true, data: setup });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  }
+
+  /**
+   * List Broadcasts (GET /whatsapp/broadcasts)
+   */
+  async getBroadcasts(req, res) {
+    try {
+      const { shopId } = req.query;
+      if (!shopId) return res.status(400).json({ success: false, message: "shopId required" });
+
+      const broadcasts = await prisma.waBroadcast.findMany({
+        where: { shopId },
+        include: {
+          template: { select: { name: true } }
+        },
+        orderBy: { createdAt: "desc" },
+      });
+
+      res.json({ success: true, data: broadcasts });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  }
+
+  /**
+   * Create Broadcast Campaign (POST /whatsapp/broadcasts)
+   */
+  async createBroadcast(req, res) {
+    try {
+      const { shopId, name, templateId, templateVariables, audienceFilter } = req.body;
+      const createdById = req.user?.id;
+
+      if (!shopId || !name || !templateId) {
+        return res.status(400).json({ success: false, message: "Missing required fields" });
+      }
+
+      if (!createdById) {
+        return res.status(401).json({ success: false, message: "Unauthorized" });
+      }
+
+      const broadcast = await whatsappBroadcastService.createBroadcast(shopId, {
+        name,
+        templateId,
+        templateVariables,
+        audienceFilter,
+        createdById,
+      });
+
+      res.json({ success: true, data: broadcast });
+    } catch (error) {
+      res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
+  /**
+   * Get Broadcast Stats & Info (GET /whatsapp/broadcasts/:id)
+   */
+  async getBroadcast(req, res) {
+    try {
+      const { id } = req.params;
+      const stats = await whatsappBroadcastService.getBroadcastStats(id);
+      res.json({ success: true, data: stats });
+    } catch (error) {
+      res.status(404).json({ success: false, message: error.message });
+    }
+  }
+
+  /**
+   * Dispatch Broadcast immediately (POST /whatsapp/broadcasts/:id/send)
+   */
+  async sendBroadcast(req, res) {
+    try {
+      const { id } = req.params;
+      await whatsappBroadcastService.dispatchBroadcast(id);
+      res.json({ success: true, message: "Broadcast dispatch started" });
+    } catch (error) {
+      res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
+  /**
+   * Schedule Broadcast (POST /whatsapp/broadcasts/:id/schedule)
+   */
+  async scheduleBroadcast(req, res) {
+    try {
+      const { id } = req.params;
+      const { scheduledAt } = req.body;
+
+      if (!scheduledAt) {
+        return res.status(400).json({ success: false, message: "scheduledAt required" });
+      }
+
+      const broadcast = await whatsappBroadcastService.scheduleBroadcast(id, scheduledAt);
+      res.json({ success: true, data: broadcast });
+    } catch (error) {
+      res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
+  /**
+   * Cancel Broadcast (DELETE /whatsapp/broadcasts/:id/cancel)
+   */
+  async cancelBroadcast(req, res) {
+    try {
+      const { id } = req.params;
+      const broadcast = await whatsappBroadcastService.cancelBroadcast(id);
+      res.json({ success: true, data: broadcast });
+    } catch (error) {
+      res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
+  /**
+   * Get Broadcast Recipients list (GET /whatsapp/broadcasts/:id/recipients)
+   */
+  async getBroadcastRecipients(req, res) {
+    try {
+      const { id } = req.params;
+      const { limit = 50, page = 1 } = req.query;
+
+      const recipients = await prisma.waBroadcastRecipient.findMany({
+        where: { broadcastId: id },
+        take: Number(limit),
+        skip: (Number(page) - 1) * Number(limit),
+        orderBy: { createdAt: "desc" },
+      });
+
+      res.json({ success: true, data: recipients });
     } catch (error) {
       res.status(500).json({ success: false, message: error.message });
     }
