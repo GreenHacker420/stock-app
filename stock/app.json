@@ -29,11 +29,6 @@
         "android.permission.RECEIVE_BOOT_COMPLETED"
       ]
     },
-    "androidNavigationBar": {
-      "visible": true,
-      "backgroundColor": "#fbfcfb",
-      "barStyle": "dark-content"
-    },
     "web": {
       "bundler": "metro",
       "favicon": "./assets/favicon.png"
@@ -42,6 +37,12 @@
       "reactCompiler": true
     },
     "plugins": [
+      [
+        "expo-navigation-bar",
+        {
+          "style": "dark"
+        }
+      ],
       "expo-notifications",
       "expo-asset",
       [
