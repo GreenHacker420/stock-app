@@ -165,7 +165,7 @@ class WhatsAppFlowEndpointController {
       const items = await prisma.item.findMany({
         take: 10,
         where: { shopId, status: "ACTIVE" },
-        select: { id: true, name: true, sellingPrice: true },
+        select: { id: true, name: true, defaultSellingPrice: true },
       });
 
       responsePayload = {
@@ -174,7 +174,7 @@ class WhatsAppFlowEndpointController {
           items: items.map((i) => ({
             id: i.id,
             title: i.name,
-            description: `Price: ₹${i.sellingPrice}`,
+            description: `Price: ₹${i.defaultSellingPrice}`,
           })),
         },
       };
