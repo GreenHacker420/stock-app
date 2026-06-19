@@ -33,4 +33,14 @@ export const whatsappSetupApi = {
     });
     return { data: res };
   },
+  rotateKeys: async (shopId: string) => {
+    const token = useAuthStore.getState().token || "";
+    const res = await apiRequest<any>(`/whatsapp/rotate-keys`, {
+      method: "POST",
+      token,
+      body: JSON.stringify({ shopId }),
+    });
+    return { data: res };
+  },
 };
+

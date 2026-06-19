@@ -498,11 +498,15 @@ class WhatsAppController {
       const shopId = req.query.shopId || req.body.shopId;
       if (!shopId) return res.status(400).json({ success: false, message: "shopId is required" });
 
-      await prisma.waIntegration.delete({
-        where: { shopId }
+      await prisma.waIntegration.update({
+        where: { shopId },
+        data: {
+          status: "DISCONNECTED",
+          accessToken: "", // clear token for security
+        }
       });
 
-      // Warm cache after deleting
+      // Warm cache after disconnecting
       await invalidateWaCredentials(shopId);
 
       res.json({ success: true, message: "WhatsApp integration disconnected successfully" });
@@ -510,6 +514,7 @@ class WhatsAppController {
       res.status(500).json({ success: false, message: error.message });
     }
   }
+
 
   /**
    * React to Message (POST /whatsapp/react)
@@ -751,6 +756,32 @@ class WhatsAppController {
       res.status(500).json({ success: false, message: error.message });
     }
   }
+
+  /**
+   * Rotate E2EE Keys (POST /whatsapp/rotate-keys)
+   */
+  async rotateKeys(req, res) {
+    try {
+      const { shopId } = req.body;
+      if (!shopId) return res.status(400).json({ success: false, message: "shopId is required" });
+
+      const updated = await whatsappService.generateRsaKeyPair(shopId);
+      
+      // Invalidate cache
+      await invalidateWaCredentials(shopId);
+
+      res.json({
+        success: true,
+        message: "E2EE RSA Key pair rotated successfully",
+        data: {
+          rsaPublicKey: updated.rsaPublicKey,
+        }
+      });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  }
 }
 
 export const whatsappController = new WhatsAppController();
+

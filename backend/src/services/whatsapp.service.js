@@ -5,9 +5,34 @@ import { getWaCredentials } from "../lib/wa-cache.js";
 import { connection as redis } from "./whatsapp.queue.js";
 import crypto from "crypto";
 import { encrypt, decrypt } from "../lib/wa-crypto.js";
+import { parsePhoneNumberFromString } from "libphonenumber-js";
 
 const API_VERSION = "v25.0";
 const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
+
+/**
+ * Normalizes phone numbers to standard E.164 format.
+ */
+export function normalizePhone(phone) {
+  if (!phone) return "";
+  const parsed = parsePhoneNumberFromString(phone, "IN");
+  if (parsed && parsed.isValid()) {
+    return parsed.number;
+  }
+  const cleaned = phone.replace(/[^\d+]/g, "");
+  if (cleaned.startsWith("+")) {
+    return cleaned;
+  }
+  if (cleaned.length === 10) {
+    return `+91${cleaned}`;
+  }
+  if (cleaned.length > 10) {
+    return `+${cleaned}`;
+  }
+  return cleaned;
+}
+
+
 
 class WhatsAppService {
   // Fetches the WhatsApp integration details for a shop (Cache-backed).
@@ -68,6 +93,28 @@ class WhatsAppService {
     // Ensure integration exists before queuing
     await this.getIntegration(shopId);
 
+    const normalizedPhone = normalizePhone(to);
+    let resolvedConversationId = conversationId;
+
+    if (!resolvedConversationId) {
+      let conversation = await prisma.waConversation.findUnique({
+        where: { shopId_phone: { shopId, phone: normalizedPhone } },
+      });
+
+      if (!conversation) {
+        const customer = await this.findCustomerByPhone(shopId, normalizedPhone);
+        conversation = await prisma.waConversation.create({
+          data: {
+            shopId,
+            phone: normalizedPhone,
+            contactName: customer?.name || null,
+            customerId: customer?.id || null,
+          },
+        });
+      }
+      resolvedConversationId = conversation.id;
+    }
+
     let resolvedReplyToMetaId = replyToMetaMessageId;
     if (replyToMessageId && !resolvedReplyToMetaId) {
       const parentMsg = await prisma.waMessage.findUnique({
@@ -80,7 +127,7 @@ class WhatsAppService {
     // 1. Initial local record
     const message = await prisma.waMessage.create({
       data: {
-        conversationId,
+        conversationId: resolvedConversationId,
         direction: "OUTBOUND",
         status: "QUEUED",
         type,
@@ -95,11 +142,12 @@ class WhatsAppService {
     await whatsappQueue.add("send-message", {
       shopId,
       messageId: message.id,
-      payload: { conversationId, to, type, content, template, mediaUrl, replyToMetaMessageId: resolvedReplyToMetaId }
+      payload: { conversationId: resolvedConversationId, to: normalizedPhone, type, content, template, mediaUrl, replyToMetaMessageId: resolvedReplyToMetaId }
     });
 
     return message;
   }
+
 
   // Low-level method called by worker to actually hit Meta API.
   async _sendDirect(shopId, { messageId, payload: p }) {
@@ -497,20 +545,66 @@ class WhatsAppService {
     });
   }
 
+  // Finds customer by phone number using fallback: normalized (E.164) -> national -> last10 digits suffix
+  async findCustomerByPhone(shopId, phone) {
+    if (!phone) return null;
+    const normalized = normalizePhone(phone);
+
+    // 1. Exact match (normalized E.164)
+    let customer = await prisma.customer.findFirst({
+      where: {
+        shopId,
+        phone: normalized,
+        status: "ACTIVE",
+      },
+    });
+    if (customer) return customer;
+
+    // 2. National format fallback
+    let subscriberNumber = normalized;
+    if (normalized.startsWith("+91")) {
+      subscriberNumber = normalized.slice(3); // last 10 digits
+    } else if (normalized.startsWith("+")) {
+      subscriberNumber = normalized.slice(1);
+    }
+
+    if (subscriberNumber !== normalized) {
+      customer = await prisma.customer.findFirst({
+        where: {
+          shopId,
+          phone: { in: [subscriberNumber, `0${subscriberNumber}`] },
+          status: "ACTIVE",
+        },
+      });
+      if (customer) return customer;
+    }
+
+    // 3. Suffix match (last 10 digits endsWith)
+    const suffix = normalized.slice(-10);
+    if (suffix.length === 10) {
+      customer = await prisma.customer.findFirst({
+        where: {
+          shopId,
+          phone: { endsWith: suffix },
+          status: "ACTIVE",
+        },
+      });
+      if (customer) return customer;
+    }
+
+    return null;
+  }
+
   // Bulk synchronizes phone contacts locally cached to DB (asynchronously)
   async syncPhoneContacts(shopId, contacts, mergeStrategy, userId) {
     let newCustomersCount = 0;
     let mergedCount = 0;
-    let conversationsCount = 0;
 
     for (const c of contacts) {
       if (!c.phone) continue;
 
-      const rawPhone = c.phone.replace(/\D/g, "");
-      if (!rawPhone || rawPhone.length < 10) continue;
-
-      // Extract last 10 digits suffix
-      const phoneSuffix = rawPhone.slice(-10);
+      const normalizedPhone = normalizePhone(c.phone);
+      if (!normalizedPhone) continue;
 
       let customer = null;
 
@@ -524,7 +618,7 @@ class WhatsAppService {
           customer = await prisma.customer.update({
             where: { id: customer.id },
             data: {
-              phone: rawPhone,
+              phone: normalizedPhone,
               email: (mergeStrategy === "MERGE" && !customer.email) ? c.email : customer.email,
               type: (c.tag === "BUSINESS" || c.tag === "REGULAR") ? c.tag : customer.type,
             },
@@ -532,17 +626,13 @@ class WhatsAppService {
           mergedCount++;
         }
       } else {
-        // Try match by last 10 digits suffix
-        customer = await prisma.customer.findFirst({
-          where: {
-            shopId,
-            phone: { endsWith: phoneSuffix },
-          },
-        });
+        // Try match by normalized -> national -> last10 suffix fallback matching
+        customer = await this.findCustomerByPhone(shopId, normalizedPhone);
 
         if (customer) {
           if (mergeStrategy === "MERGE") {
             const updateData = {};
+            if (!customer.phone) updateData.phone = normalizedPhone;
             if (!customer.email && c.email) updateData.email = c.email;
             if (!customer.contactPerson && c.name) updateData.contactPerson = c.name;
             if (c.tag === "BUSINESS" || c.tag === "REGULAR") updateData.type = c.tag;
@@ -560,8 +650,8 @@ class WhatsAppService {
           customer = await prisma.customer.create({
             data: {
               shopId,
-              name: c.name || `Contact ${phoneSuffix}`,
-              phone: rawPhone,
+              name: c.name || `Contact ${normalizedPhone.slice(-10)}`,
+              phone: normalizedPhone,
               email: c.email || null,
               type: (c.tag === "BUSINESS" || c.tag === "REGULAR") ? c.tag : "REGULAR",
               createdById: userId,
@@ -570,38 +660,15 @@ class WhatsAppService {
           newCustomersCount++;
         }
       }
-
-      if (customer) {
-        // Ensure WaConversation exists
-        const existingConv = await prisma.waConversation.findUnique({
-          where: { shopId_phone: { shopId, phone: rawPhone } },
-        });
-
-        if (!existingConv) {
-          await prisma.waConversation.create({
-            data: {
-              shopId,
-              phone: rawPhone,
-              contactName: customer.name,
-              customerId: customer.id,
-            },
-          });
-          conversationsCount++;
-        } else if (!existingConv.customerId) {
-          await prisma.waConversation.update({
-            where: { id: existingConv.id },
-            data: { customerId: customer.id },
-          });
-        }
-      }
     }
 
     return {
       newCustomersCount,
       mergedCount,
-      conversationsCount,
+      conversationsCount: 0,
     };
   }
 }
+
 
 export const whatsappService = new WhatsAppService();

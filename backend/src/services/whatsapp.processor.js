@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import prisma from "../lib/db.js";
 import { publishWhatsAppEvent } from "../utils/realtime.js";
+import { normalizePhone } from "./whatsapp.service.js";
 
 const MESSAGE_STATUS_RANK = {
   QUEUED: 0,
@@ -11,13 +12,7 @@ const MESSAGE_STATUS_RANK = {
   DELETED: 5,
 };
 
-/**
- * Normalizes phone numbers to E.164-like format (digits only).
- */
-export function normalizePhone(phone) {
-  if (!phone) return "";
-  return phone.replace(/\D/g, "");
-}
+
 
 /**
  * Normalizes Meta's nested webhook payload into a flat array of events.

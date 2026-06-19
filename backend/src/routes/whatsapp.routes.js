@@ -42,6 +42,8 @@ router.get("/setup", requireAuth, requireOwner, whatsappController.getSetup);
 router.post("/setup", requireAuth, requireOwner, whatsappController.saveSetup);
 router.delete("/setup", requireAuth, requireOwner, whatsappController.deleteSetup);
 router.post("/fb-embedded-signup", requireAuth, requireOwner, whatsappController.fbEmbeddedSignup);
+router.post("/rotate-keys", requireAuth, requireOwner, whatsappController.rotateKeys);
+
 
 // Campaign / Broadcast routes (Owner Only)
 router.get("/broadcasts", requireAuth, requireOwner, whatsappController.getBroadcasts);

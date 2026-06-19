@@ -27,6 +27,8 @@ import { colors as Colors } from "../../../theme";
 import { format } from "date-fns";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useWhatsAppRealtime } from "../hooks/useWhatsAppRealtime";
+import { variableResolverRegistry } from "../services/variableResolver";
+
 
 
 const STANDARD_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
@@ -263,21 +265,19 @@ export const ChatDetailScreen = () => {
     return matches.sort((a, b) => Number(a) - Number(b));
   }, [selectedTemplate]);
 
-  const autofillParam = (paramNum: string, type: "name" | "phone" | "outstanding") => {
-    let value = "";
-    if (type === "name") {
-      value = conversation?.contactName || customerRecord?.name || "";
-    } else if (type === "phone") {
-      value = phone || "";
-    } else if (type === "outstanding") {
-      value = customerRecord?.outstandingAmount ? String(customerRecord.outstandingAmount) : "0.00";
-    }
+  const autofillParam = (paramNum: string, key: string) => {
+    const value = variableResolverRegistry.resolve(key, {
+      conversation,
+      customerRecord,
+      phone,
+    });
     
     setTemplateParams((prev) => ({
       ...prev,
       [paramNum]: value,
     }));
   };
+
 
   const handleSendTemplate = () => {
     if (!selectedTemplate || !activeShopId || !token) return;
@@ -673,25 +673,17 @@ export const ChatDetailScreen = () => {
                       />
                       {/* Autofill tags */}
                       <View style={styles.autofillRow}>
-                        <TouchableOpacity
-                          style={styles.autofillPill}
-                          onPress={() => autofillParam(num, "name")}
-                        >
-                          <Text style={styles.autofillPillText}>Autofill Name</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={styles.autofillPill}
-                          onPress={() => autofillParam(num, "phone")}
-                        >
-                          <Text style={styles.autofillPillText}>Autofill Phone</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={styles.autofillPill}
-                          onPress={() => autofillParam(num, "outstanding")}
-                        >
-                          <Text style={styles.autofillPillText}>Autofill Outstanding</Text>
-                        </TouchableOpacity>
+                        {variableResolverRegistry.getVariables().map((v) => (
+                          <TouchableOpacity
+                            key={v.key}
+                            style={styles.autofillPill}
+                            onPress={() => autofillParam(num, v.key)}
+                          >
+                            <Text style={styles.autofillPillText}>Autofill {v.label}</Text>
+                          </TouchableOpacity>
+                        ))}
                       </View>
+
                     </View>
                   ))}
 

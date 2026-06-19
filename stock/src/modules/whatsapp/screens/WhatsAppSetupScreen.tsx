@@ -3,6 +3,7 @@ import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Alert, Ac
 import { Button, TextInput, Text, Divider, Card, HelperText } from "react-native-paper";
 import * as WebBrowser from "expo-web-browser";
 import * as AuthSession from "expo-auth-session";
+import * as Clipboard from "expo-clipboard";
 import { useShopStore } from "../../../auth/shop-store";
 import { whatsappSetupApi } from "../../../api/whatsapp-setup.api";
 import { Screen } from "../../../components/Screen";
@@ -30,6 +31,8 @@ export const WhatsAppSetupScreen = () => {
   const [phoneNumber, setPhoneNumber] = useState("");
   const [businessName, setBusinessName] = useState("");
   const [status, setStatus] = useState("DISCONNECTED");
+  const [rotatingKeys, setRotatingKeys] = useState(false);
+  const [rsaPublicKey, setRsaPublicKey] = useState("");
 
   // Embedded Signup State
   const [oauthCode, setOauthCode] = useState("");
@@ -53,6 +56,7 @@ export const WhatsAppSetupScreen = () => {
         setPhoneNumber(data.phoneNumber || "");
         setBusinessName(data.businessName || "");
         setStatus(data.status || "DISCONNECTED");
+        setRsaPublicKey(data.rsaPublicKey || "");
       } else {
         resetFormState();
       }
@@ -73,7 +77,9 @@ export const WhatsAppSetupScreen = () => {
     setPhoneNumber("");
     setBusinessName("");
     setStatus("DISCONNECTED");
+    setRsaPublicKey("");
   };
+
 
   useEffect(() => {
     fetchSetup();
@@ -130,7 +136,39 @@ export const WhatsAppSetupScreen = () => {
     );
   };
 
+  const handleRotateKeys = async () => {
+    if (!activeShopId) return;
+    Alert.alert(
+      "Rotate E2EE Keys",
+      "Are you sure you want to rotate your WhatsApp Flows RSA encryption keys? Already published flows will need to be re-saved/updated with the new public key on Meta Business Manager.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Rotate Keys",
+          style: "destructive",
+          onPress: async () => {
+            setRotatingKeys(true);
+            try {
+              const res = await whatsappSetupApi.rotateKeys(activeShopId);
+              if (res.data.success) {
+                Alert.alert("Success", "E2EE RSA Key pair rotated successfully. Please update your Flow configuration on Meta with the new public key.");
+                await fetchSetup();
+              } else {
+                Alert.alert("Error", res.data.message || "Failed to rotate keys");
+              }
+            } catch (err: any) {
+              Alert.alert("Error", err.message || "Failed to rotate keys");
+            } finally {
+              setRotatingKeys(false);
+            }
+          }
+        }
+      ]
+    );
+  };
+
   const handleEmbeddedSignup = async () => {
+
     if (!activeShopId) return;
     
     const appIdToUse = fbAppId.trim();
@@ -238,6 +276,41 @@ export const WhatsAppSetupScreen = () => {
                     https://your-api-url.com/whatsapp/webhook/{activeShopId}
                   </Text>
                 </View>
+                
+                <Divider style={styles.metaDivider} />
+                {rsaPublicKey ? (
+                  <View style={styles.rsaKeyBox}>
+                    <Text style={styles.webhookText}>Flows E2EE Public Key (PEM):</Text>
+                    <Text selectable numberOfLines={3} style={styles.rsaKeyValue}>
+                      {rsaPublicKey}
+                    </Text>
+                    <Button
+                      mode="outlined"
+                      compact
+                      style={styles.copyKeyBtn}
+                      onPress={async () => {
+                        await Clipboard.setStringAsync(rsaPublicKey);
+                        Alert.alert("Copied", "Public key copied to clipboard.");
+                      }}
+                      icon="content-copy"
+                    >
+                      Copy Public Key
+                    </Button>
+                  </View>
+                ) : (
+                  <Text style={[styles.webhookText, { color: "#EF4444", marginVertical: 10 }]}>E2EE Key pair not generated</Text>
+                )}
+
+                <Button
+                  mode="outlined"
+                  onPress={handleRotateKeys}
+                  loading={rotatingKeys}
+                  style={styles.rotateKeyBtn}
+                  textColor={Colors.primary}
+                  icon="key"
+                >
+                  Rotate E2EE Keys
+                </Button>
 
                 <Button
                   mode="outlined"
@@ -249,6 +322,7 @@ export const WhatsAppSetupScreen = () => {
                   Disconnect Integration
                 </Button>
               </View>
+
             )}
           </Card.Content>
         </Card>
@@ -651,4 +725,28 @@ const styles = StyleSheet.create({
   saveManualBtn: {
     marginTop: 10,
   },
+  rsaKeyBox: {
+    padding: 10,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: 8,
+    marginBottom: 10,
+  },
+  rsaKeyValue: {
+    fontSize: 11,
+    fontFamily: Platform.OS === "ios" ? "CourierNewPSMT" : "monospace",
+    color: Colors.textPrimary,
+    marginBottom: 6,
+  },
+  copyKeyBtn: {
+    alignSelf: "flex-start",
+    marginTop: 4,
+  },
+  rotateKeyBtn: {
+    marginTop: 5,
+    marginBottom: 15,
+    borderColor: Colors.primary,
+  },
 });
+
