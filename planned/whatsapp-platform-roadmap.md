@@ -4,6 +4,20 @@
 
 ## Implementation Checkpoint
 
+### Current Completion
+
+| Workstream | Approximate completion | Current state |
+|---|---:|---|
+| Platform foundation | 70% | Durable webhooks, management projection, typed commands, queues, assets, and tenant routing exist; replay UI, quarantine operations, idempotency, metrics, and broadcast reconciliation remain |
+| Messaging types | 65% | Text, replies, image/video/document media, location, contacts, buttons, lists, templates, and Flow sends exist; voice recording/playback, stickers, location request, richer renderers, and policy-aware retry remain |
+| Templates | 30% | Sync and basic variable sending exist; pagination, lifecycle administration, typed headers/buttons/carousels/coupons/OTP, previews, and quality handling remain |
+| Flows | 25% | Sync, send contract, execution schema, and E2EE endpoint exist; CRUD, validation, deployment, registered handlers, retries, and execution UI remain |
+| Inbox and assignment | 25% | Conversation views, archive, assignment field, filters, and realtime updates exist; assignment commands/history, ownership permissions, workflow status, and notes remain |
+| Inbound calling | 5% | Capability flag and architecture plan exist; device registry, presence, call models, routing, signaling, WebRTC, native call UI, and history remain |
+| Phase 3 overall | ~35% | Messaging foundation is usable, but calling and lifecycle management are major unfinished workstreams |
+| Phase 4 | <5% | Commerce and outbound calling remain planning-only |
+| Phase 5 | 15% | Embedded Signup prototype exists; durable onboarding, partner lifecycle, and business profile remain |
+
 Completed after the audit:
 
 - Immutable webhook envelopes, management event normalization, and integration health projection.

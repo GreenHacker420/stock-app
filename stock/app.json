@@ -84,7 +84,8 @@
         {
           "photosPermission": "Allow ShopControl to select photos and videos for WhatsApp conversations."
         }
-      ]
+      ],
+      "expo-audio"
     ],
     "extra": {
       "eas": {
