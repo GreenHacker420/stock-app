@@ -58,7 +58,13 @@
           "androidClientId": "ksaranwfztxrftq7zzf5rqy7gp2olcdj6s6s0pneolw"
         }
       ],
-      "expo-sqlite"
+      "expo-sqlite",
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "Allow ShopControl to access your contacts to link conversations with your customers."
+        }
+      ]
     ],
     "extra": {
       "eas": {

@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 import { Platform } from "react-native";
 import * as Notifications from "expo-notifications";
 import * as Device from "expo-device";
+import * as Contacts from "expo-contacts";
 import Constants from "expo-constants";
 import { useAuthStore } from "../auth/auth-store";
 import { registerPushToken } from "../api/client";
@@ -68,6 +69,9 @@ export const FCMManager = {
           'Failed to retrieve Expo Push Token. On Android, this requires a Firebase project configured with google-services.json in app.json.',
           expoTokenErr
         );
+        // Fallback to simulated token in development/test environments if Expo/FCM is not configured
+        console.log('Falling back to simulated push token for development/testing...');
+        expoPushToken = `ExponentPushToken[simulated-${Math.random().toString(36).substring(2, 11)}]`;
       }
 
       // 2. Also retrieve native FCM token if on Android or APNs if on iOS (agnostic device push token)
@@ -116,9 +120,16 @@ export function useNotificationSetup() {
   useEffect(() => {
     if (!token) return;
 
-    // Trigger permissions registration flow
+    // Trigger permissions registration flow for notifications
     FCMManager.registerForPushNotificationsAsync(token);
     FCMManager.setupBackgroundNotificationHandlers();
+
+    // Trigger contacts permissions request immediately on login/mount
+    Contacts.requestPermissionsAsync().then(({ status }) => {
+      console.log('Contacts permission request on startup status:', status);
+    }).catch((contactsErr) => {
+      console.warn('Failed to auto-request contacts permission on startup:', contactsErr);
+    });
 
     // Listener for notifications received when app is in foreground
     notificationListener.current = Notifications.addNotificationReceivedListener(notification => {

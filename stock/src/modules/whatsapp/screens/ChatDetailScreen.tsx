@@ -80,6 +80,50 @@ export const ChatDetailScreen = () => {
   const { data: customers = [] } = useCustomersQuery();
   const customerRecord = customers.find((c: any) => c.id === conversation?.customerId);
 
+  // Set custom header with contact name, avatar, and linked customer shortcut
+  useEffect(() => {
+    const contactName = conversation?.contactName || `+${phone}`;
+    const initials = conversation?.contactName
+      ? conversation.contactName.split(" ").map((n: string) => n.charAt(0)).join("").toUpperCase().slice(0, 2)
+      : phone.slice(-2);
+
+    navigation.setOptions({
+      headerShown: true,
+      headerTitle: () => (
+        <View style={{ flexDirection: "row", alignItems: "center" }}>
+          <View style={{
+            width: 36,
+            height: 36,
+            borderRadius: 18,
+            backgroundColor: Colors.primaryLight,
+            justifyContent: "center",
+            alignItems: "center",
+            marginRight: 10,
+          }}>
+            <Text style={{ color: Colors.primaryDark, fontWeight: "bold", fontSize: 13 }}>{initials}</Text>
+          </View>
+          <View style={{ maxWidth: Dimensions.get("window").width * 0.5 }}>
+            <Text style={{ fontWeight: "bold", fontSize: 15, color: Colors.textPrimary }} numberOfLines={1}>
+              {contactName}
+            </Text>
+            <Text style={{ fontSize: 11, color: Colors.textSecondary }}>
+              {conversation?.customer ? "Linked Customer" : `+${phone}`}
+            </Text>
+          </View>
+        </View>
+      ),
+      headerRight: () => conversation?.customerId ? (
+        <TouchableOpacity
+          onPress={() => (navigation as any).navigate("CustomerDetail", { customerId: conversation.customerId })}
+          style={{ marginRight: 10 }}
+        >
+          <MaterialCommunityIcons name="account-details" size={24} color={Colors.primary} />
+        </TouchableOpacity>
+      ) : null,
+      headerTitleAlign: "left",
+    });
+  }, [navigation, conversation, phone]);
+
   // Synced Templates Query
   const { data: templates = [], isLoading: loadingTemplates } = useQuery({
     queryKey: ["wa-templates", activeShopId],
