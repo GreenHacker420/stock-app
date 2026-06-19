@@ -230,6 +230,23 @@ export type WaTemplateDefinition = {
     signatureHash?: string;
     zeroTapTermsAccepted?: boolean;
   };
+  callPermissionRequest?: boolean;
+  carousel?: {
+    type: "MEDIA" | "PRODUCT";
+    cards: Array<{
+      header: {
+        format: "IMAGE" | "VIDEO" | "PRODUCT";
+        exampleHandle?: string;
+      };
+      body?: { text: string };
+      buttons: Array<
+        | { type: "QUICK_REPLY"; text: string }
+        | { type: "URL"; text: string; url: string; example?: string }
+        | { type: "PHONE_NUMBER"; text: string; phoneNumber: string }
+        | { type: "SPM"; text: string }
+      >;
+    }>;
+  };
   mappings?: Array<{
     component: "HEADER" | "BODY" | "BUTTON" | "CARD";
     position: number;
@@ -482,6 +499,21 @@ export async function sendWaTemplate(
     conversationId: string;
     to: string;
     values?: Record<string, string>;
+    header?: {
+      assetId?: string;
+      location?: {
+        latitude: number;
+        longitude: number;
+        name?: string;
+        address?: string;
+      };
+    };
+    cards?: Array<{
+      assetId?: string;
+      catalogId?: string;
+      productRetailerId?: string;
+      quickReplyPayloads?: Record<string, string>;
+    }>;
     replyToMessageId?: string;
   },
 ) {

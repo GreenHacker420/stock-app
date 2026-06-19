@@ -1,4 +1,4 @@
-import { StyleSheet, View } from "react-native";
+import { ScrollView, StyleSheet, View } from "react-native";
 import { Text } from "react-native-paper";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import type { WaTemplateDefinition } from "../../../api/whatsapp.api";
@@ -12,6 +12,21 @@ function replaceSamples(text: string, definition: Partial<WaTemplateDefinition>,
   let output = text;
   const mappings = (definition.mappings || [])
     .filter((mapping) => mapping.component === component)
+    .sort((a, b) => a.position - b.position);
+  mappings.forEach((mapping) => {
+    output = output.replace(`{{${mapping.position}}}`, mapping.sampleValue || mapping.fallbackValue || `{{${mapping.position}}}`);
+  });
+  return output;
+}
+
+function replaceCardSamples(text: string, definition: Partial<WaTemplateDefinition>, cardIndex: number, buttonIndex?: number) {
+  let output = text;
+  const mappings = (definition.mappings || [])
+    .filter((mapping) => (
+      mapping.component === "CARD"
+      && mapping.cardIndex === cardIndex
+      && mapping.buttonIndex === buttonIndex
+    ))
     .sort((a, b) => a.position - b.position);
   mappings.forEach((mapping) => {
     output = output.replace(`{{${mapping.position}}}`, mapping.sampleValue || mapping.fallbackValue || `{{${mapping.position}}}`);
@@ -48,7 +63,7 @@ export function WhatsAppTemplatePreview({ definition }: Props) {
         <Text style={styles.body}>{replaceSamples(body, definition, "BODY")}</Text>
         {!!definition.footer?.text && <Text style={styles.footer}>{definition.footer.text}</Text>}
         <Text style={styles.time}>12:34</Text>
-        {buttons.map((button, index) => (
+        {!definition.carousel && buttons.map((button, index) => (
           <View key={`${button.type}-${index}`} style={styles.button}>
             <MaterialCommunityIcons
               name={
@@ -68,7 +83,45 @@ export function WhatsAppTemplatePreview({ definition }: Props) {
             <Text style={styles.buttonText}>{"text" in button ? button.text : "Copy code"}</Text>
           </View>
         ))}
+        {definition.callPermissionRequest && (
+          <View style={styles.button}>
+            <MaterialCommunityIcons name="phone-check-outline" size={16} color="#027EB5" />
+            <Text style={styles.buttonText}>Allow business calls</Text>
+          </View>
+        )}
       </View>
+      {definition.carousel && (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.carousel}>
+          {definition.carousel.cards.map((card, cardIndex) => (
+            <View key={cardIndex} style={styles.carouselCard}>
+              <View style={styles.carouselMedia}>
+                <MaterialCommunityIcons
+                  name={card.header.format === "VIDEO"
+                    ? "video-outline"
+                    : card.header.format === "PRODUCT"
+                      ? "shopping-outline"
+                      : "image-outline"}
+                  size={32}
+                  color={waColors.textSecondary}
+                />
+                <Text style={styles.mediaLabel}>{card.header.format.toLowerCase()}</Text>
+              </View>
+              {!!card.body?.text && (
+                <Text style={styles.carouselBody}>
+                  {replaceCardSamples(card.body.text, definition, cardIndex)}
+                </Text>
+              )}
+              {card.buttons.map((button, buttonIndex) => (
+                <View key={buttonIndex} style={styles.carouselButton}>
+                  <Text style={styles.buttonText}>
+                    {replaceCardSamples(button.text, definition, cardIndex, buttonIndex)}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          ))}
+        </ScrollView>
+      )}
     </View>
   );
 }
@@ -115,4 +168,9 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   buttonText: { color: "#027EB5", fontSize: 14, fontWeight: "600" },
+  carousel: { gap: 8, paddingTop: 10, paddingRight: 18 },
+  carouselCard: { width: 190, overflow: "hidden", borderRadius: 8, backgroundColor: waColors.surface },
+  carouselMedia: { height: 112, alignItems: "center", justifyContent: "center", gap: 5, backgroundColor: waColors.surfaceMuted },
+  carouselBody: { minHeight: 44, color: waColors.text, fontSize: 13, lineHeight: 18, padding: 8 },
+  carouselButton: { height: 38, alignItems: "center", justifyContent: "center", borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: waColors.border },
 });

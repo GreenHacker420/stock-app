@@ -33,6 +33,27 @@ function formatAttributeValue(value, type) {
   return String(value);
 }
 
+async function resolveMetaAssetId(shopId, assetId, expectedKinds) {
+  if (!assetId) throw new Error("A tenant media asset is required");
+  const asset = await prisma.asset.findFirst({
+    where: {
+      id: assetId,
+      shopId,
+      status: "READY",
+      kind: { in: expectedKinds },
+    },
+  });
+  if (!asset?.externalId || asset.externalProvider !== "META_WHATSAPP") {
+    throw new Error("Media asset is not available in WhatsApp");
+  }
+  return asset.externalId;
+}
+
+function componentByType(template, type) {
+  return (template.draftDefinition?.carousel ? null : template.components)
+    ?.find((component) => component.type?.toUpperCase() === type);
+}
+
 class WhatsAppTemplateService {
   async listAttributes(shopId) {
     return prisma.waTemplateAttribute.findMany({
@@ -363,20 +384,25 @@ class WhatsAppTemplateService {
         throw new Error(`Value required for ${mapping.component.toLowerCase()} variable {{${mapping.position}}}`);
       }
       if (!value) continue;
-      const key = `${mapping.component}:${mapping.buttonIndex ?? ""}:${mapping.cardIndex ?? ""}`;
+      const key = JSON.stringify({
+        component: mapping.component,
+        buttonIndex: mapping.buttonIndex ?? null,
+        cardIndex: mapping.cardIndex ?? null,
+      });
       if (!grouped.has(key)) grouped.set(key, []);
       grouped.get(key).push({ position: mapping.position, value: String(value) });
     }
 
     const components = [];
     for (const [key, entries] of grouped.entries()) {
-      const [component, buttonIndex] = key.split(":");
+      const { component, buttonIndex, cardIndex } = JSON.parse(key);
+      if (component === "CARD") continue;
       entries.sort((a, b) => a.position - b.position);
       if (component === "BUTTON") {
         components.push({
           type: "button",
           sub_type: "url",
-          index: buttonIndex,
+          index: String(buttonIndex),
           parameters: entries.map((entry) => ({ type: "text", text: entry.value })),
         });
       } else if (component === "HEADER" || component === "BODY") {
@@ -385,6 +411,126 @@ class WhatsAppTemplateService {
           parameters: entries.map((entry) => ({ type: "text", text: entry.value })),
         });
       }
+    }
+
+    const definition = template.draftDefinition || {};
+    const headerFormat = definition.header?.format
+      || componentByType(template, "HEADER")?.format;
+    if (headerFormat === "LOCATION") {
+      if (!input.header?.location) throw new Error("Template location header is required");
+      components.push({
+        type: "header",
+        parameters: [{ type: "location", location: input.header.location }],
+      });
+    } else if (["IMAGE", "VIDEO", "DOCUMENT"].includes(headerFormat)) {
+      const metaAssetId = await resolveMetaAssetId(
+        shopId,
+        input.header?.assetId,
+        headerFormat === "IMAGE" ? ["IMAGE"] : headerFormat === "VIDEO" ? ["VIDEO"] : ["DOCUMENT"],
+      );
+      const type = headerFormat.toLowerCase();
+      components.push({
+        type: "header",
+        parameters: [{ type, [type]: { id: metaAssetId } }],
+      });
+    }
+
+    const carouselDefinition = definition.carousel;
+    const syncedCarousel = componentByType(template, "CAROUSEL");
+    if (carouselDefinition || syncedCarousel) {
+      const cardDefinitions = carouselDefinition?.cards || syncedCarousel.cards.map((card) => {
+        const header = card.components.find((component) => component.type?.toUpperCase() === "HEADER");
+        const body = card.components.find((component) => component.type?.toUpperCase() === "BODY");
+        const buttons = card.components.find((component) => component.type?.toUpperCase() === "BUTTONS");
+        return {
+          header: { format: header?.format },
+          body,
+          buttons: buttons?.buttons || [],
+        };
+      });
+      const carouselType = carouselDefinition?.type
+        || (cardDefinitions[0]?.header.format === "PRODUCT" ? "PRODUCT" : "MEDIA");
+      const cards = input.cards || [];
+      const minimumCards = carouselType === "PRODUCT" ? 2 : cardDefinitions.length;
+      const maximumCards = carouselType === "PRODUCT" ? 10 : cardDefinitions.length;
+      if (cards.length < minimumCards || cards.length > maximumCards) {
+        throw new Error(`Template requires ${minimumCards === maximumCards ? minimumCards : `${minimumCards}-${maximumCards}`} carousel cards`);
+      }
+
+      components.push({
+        type: "carousel",
+        cards: await Promise.all(cards.map(async (cardInput, cardIndex) => {
+          const cardDefinition = cardDefinitions[Math.min(cardIndex, cardDefinitions.length - 1)];
+          const cardComponents = [];
+          const cardFormat = cardDefinition.header.format?.toUpperCase();
+          if (cardFormat === "PRODUCT") {
+            if (!cardInput.catalogId || !cardInput.productRetailerId) {
+              throw new Error(`Catalog and product are required for carousel card ${cardIndex + 1}`);
+            }
+            cardComponents.push({
+              type: "header",
+              parameters: [{
+                type: "product",
+                product: {
+                  catalog_id: cardInput.catalogId,
+                  product_retailer_id: cardInput.productRetailerId,
+                },
+              }],
+            });
+          } else {
+            const mediaType = cardFormat?.toLowerCase();
+            const metaAssetId = await resolveMetaAssetId(
+              shopId,
+              cardInput.assetId,
+              cardFormat === "VIDEO" ? ["VIDEO"] : ["IMAGE"],
+            );
+            cardComponents.push({
+              type: "header",
+              parameters: [{ type: mediaType, [mediaType]: { id: metaAssetId } }],
+            });
+          }
+
+          const bodyEntries = grouped.get(JSON.stringify({
+            component: "CARD",
+            buttonIndex: null,
+            cardIndex,
+          }));
+          if (bodyEntries?.length) {
+            bodyEntries.sort((a, b) => a.position - b.position);
+            cardComponents.push({
+              type: "body",
+              parameters: bodyEntries.map((entry) => ({ type: "text", text: entry.value })),
+            });
+          }
+
+          (cardDefinition.buttons || []).forEach((button, buttonIndex) => {
+            const buttonType = button.type?.toUpperCase();
+            const urlEntries = grouped.get(JSON.stringify({
+              component: "CARD",
+              buttonIndex,
+              cardIndex,
+            }));
+            if (buttonType === "URL" && urlEntries?.length) {
+              urlEntries.sort((a, b) => a.position - b.position);
+              cardComponents.push({
+                type: "button",
+                sub_type: "url",
+                index: String(buttonIndex),
+                parameters: urlEntries.map((entry) => ({ type: "text", text: entry.value })),
+              });
+            } else if (buttonType === "QUICK_REPLY" && cardInput.quickReplyPayloads?.[buttonIndex]) {
+              cardComponents.push({
+                type: "button",
+                sub_type: "quick_reply",
+                index: String(buttonIndex),
+                parameters: [{ type: "payload", payload: cardInput.quickReplyPayloads[buttonIndex] }],
+              });
+            }
+          });
+
+          return { card_index: cardIndex, components: cardComponents };
+        })),
+      });
     }
 
     return {

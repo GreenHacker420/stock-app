@@ -24,6 +24,10 @@ import {
 } from "../../../api/whatsapp.api";
 import { useAuthStore } from "../../../auth/auth-store";
 import { useShopStore } from "../../../auth/shop-store";
+import {
+  createDefaultCarousel,
+  TemplateCarouselEditor,
+} from "../components/TemplateCarouselEditor";
 import { WhatsAppTemplatePreview } from "../components/WhatsAppTemplatePreview";
 import { waColors } from "../whatsapp-ui";
 
@@ -112,7 +116,24 @@ export function TemplateEditorScreen() {
         ? positions(button.url).map((position) => ({ component: "BUTTON" as const, position, buttonIndex }))
         : []
     )),
-  ], [definition.header?.text, definition.body.text, definition.buttons]);
+    ...(definition.carousel?.cards || []).flatMap((card, cardIndex) => [
+      ...positions(card.body?.text).map((position) => ({
+        component: "CARD" as const,
+        position,
+        cardIndex,
+      })),
+      ...card.buttons.flatMap((button, buttonIndex) => (
+        button.type === "URL"
+          ? positions(button.url).map((position) => ({
+              component: "CARD" as const,
+              position,
+              cardIndex,
+              buttonIndex,
+            }))
+          : []
+      )),
+    ]),
+  ], [definition.header?.text, definition.body.text, definition.buttons, definition.carousel]);
 
   useEffect(() => {
     setDefinition((current) => {
@@ -120,7 +141,8 @@ export function TemplateEditorScreen() {
         return current.mappings?.find(
           (mapping) => mapping.component === required.component
             && mapping.position === required.position
-            && mapping.buttonIndex === ("buttonIndex" in required ? required.buttonIndex : undefined),
+            && mapping.buttonIndex === ("buttonIndex" in required ? required.buttonIndex : undefined)
+            && mapping.cardIndex === ("cardIndex" in required ? required.cardIndex : undefined),
         ) || {
           ...required,
           sampleValue: "",
@@ -192,6 +214,44 @@ export function TemplateEditorScreen() {
   };
 
   const validationError = validateDefinition(definition);
+  const templateMode = definition.callPermissionRequest
+    ? "CALL_PERMISSION"
+    : definition.carousel
+      ? "CAROUSEL"
+      : "STANDARD";
+
+  const setTemplateMode = (mode: string) => {
+    setDefinition((current) => {
+      if (mode === "CALL_PERMISSION") {
+        return {
+          ...current,
+          category: current.category === "AUTHENTICATION" ? "UTILITY" : current.category,
+          header: { format: "NONE" },
+          buttons: [],
+          carousel: undefined,
+          callPermissionRequest: true,
+          subtype: "CALL_PERMISSION_REQUEST",
+        };
+      }
+      if (mode === "CAROUSEL") {
+        return {
+          ...current,
+          category: "MARKETING",
+          header: { format: "NONE" },
+          buttons: [],
+          carousel: current.carousel || createDefaultCarousel(),
+          callPermissionRequest: false,
+          subtype: "MEDIA_CAROUSEL",
+        };
+      }
+      return {
+        ...current,
+        carousel: undefined,
+        callPermissionRequest: false,
+        subtype: undefined,
+      };
+    });
+  };
 
   return (
     <>
@@ -227,6 +287,8 @@ export function TemplateEditorScreen() {
                       body: { ...current.body, text: "{{1}}" },
                       buttons: [{ type: "COPY_CODE", text: "Copy code" }],
                       authentication: current.authentication || { otpType: "COPY_CODE" },
+                      carousel: undefined,
+                      callPermissionRequest: false,
                     };
                   }
                   return {
@@ -250,6 +312,20 @@ export function TemplateEditorScreen() {
             disabled={Boolean(templateId)}
             onChangeText={(language) => setDefinition((current) => ({ ...current, language }))}
           />
+          {definition.category !== "AUTHENTICATION" && (
+            <>
+              <Text style={styles.label}>Template type</Text>
+              <SegmentedButtons
+                value={templateMode}
+                onValueChange={setTemplateMode}
+                buttons={[
+                  { value: "STANDARD", label: "Standard" },
+                  { value: "CAROUSEL", label: "Carousel" },
+                  { value: "CALL_PERMISSION", label: "Call request" },
+                ]}
+              />
+            </>
+          )}
         </Section>
 
         {definition.category === "AUTHENTICATION" ? (
@@ -314,7 +390,8 @@ export function TemplateEditorScreen() {
           </Section>
         ) : (
           <>
-            <Section title="Header">
+            {templateMode === "STANDARD" && (
+              <Section title="Header">
               <SegmentedButtons
                 value={definition.header?.format || "NONE"}
                 onValueChange={(format) => setDefinition((current) => ({
@@ -362,7 +439,8 @@ export function TemplateEditorScreen() {
                   }))}
                 />
               )}
-            </Section>
+              </Section>
+            )}
 
             <Section title="Message">
               <TextInput
@@ -381,6 +459,36 @@ export function TemplateEditorScreen() {
                 onChangeText={(text) => setDefinition((current) => ({ ...current, footer: { ...current.footer, text } }))}
               />
             </Section>
+
+            {definition.carousel && (
+              <Section title="Carousel cards">
+                <TemplateCarouselEditor
+                  value={definition.carousel}
+                  onChange={(carousel) => setDefinition((current) => ({
+                    ...current,
+                    carousel,
+                    category: "MARKETING",
+                    subtype: carousel.type === "PRODUCT" ? "PRODUCT_CAROUSEL" : "MEDIA_CAROUSEL",
+                  }))}
+                />
+              </Section>
+            )}
+
+            {definition.callPermissionRequest && (
+              <Section title="Call permission">
+                <View style={styles.permissionRow}>
+                  <View style={styles.permissionIcon}>
+                    <IconButton icon="phone-check-outline" iconColor={waColors.greenDark} />
+                  </View>
+                  <View style={styles.permissionBody}>
+                    <Text style={styles.permissionTitle}>Request permission to call</Text>
+                    <Text style={styles.permissionText}>
+                      WhatsApp adds the permission action. It cannot be combined with other buttons or a carousel.
+                    </Text>
+                  </View>
+                </View>
+              </Section>
+            )}
           </>
         )}
 
@@ -390,11 +498,16 @@ export function TemplateEditorScreen() {
             action={<Button compact icon="plus" onPress={() => setAttributeDialog(true)}>Attribute</Button>}
           >
             {definition.mappings?.map((mapping, index) => {
-              const menuKey = `${mapping.component}-${mapping.buttonIndex ?? ""}-${mapping.position}`;
+              const menuKey = `${mapping.component}-${mapping.cardIndex ?? ""}-${mapping.buttonIndex ?? ""}-${mapping.position}`;
               const selected = attributesQuery.data?.find((attribute) => attribute.id === mapping.attributeId);
               return (
                 <View key={menuKey} style={styles.mapping}>
-                  <Text style={styles.mappingTitle}>{mapping.component} {"{{"}{mapping.position}{"}}"}</Text>
+                  <Text style={styles.mappingTitle}>
+                    {mapping.component}
+                    {mapping.cardIndex != null ? ` ${mapping.cardIndex + 1}` : ""}
+                    {mapping.buttonIndex != null ? ` button ${mapping.buttonIndex + 1}` : ""}
+                    {" {{"}{mapping.position}{"}}"}
+                  </Text>
                   <Menu
                     visible={attributeMenu === menuKey}
                     onDismiss={() => setAttributeMenu(null)}
@@ -438,7 +551,7 @@ export function TemplateEditorScreen() {
           </Section>
         )}
 
-        {definition.category !== "AUTHENTICATION" && (
+        {definition.category !== "AUTHENTICATION" && templateMode === "STANDARD" && (
           <Section title="Buttons" action={<IconButton icon="plus" onPress={addButton} />}>
             {definition.buttons?.map((button, index) => (
               <View key={index} style={styles.buttonEditor}>
@@ -644,6 +757,9 @@ function validateDefinition(definition: WaTemplateDefinition) {
   }
   if (definition.category === "AUTHENTICATION" && !definition.authentication) return "Choose an authentication mode.";
   if (definition.buttons?.some((button) => button.type === "FLOW" && !button.flowId)) return "Every Flow button needs a Flow ID.";
+  if (definition.carousel?.type === "MEDIA" && definition.carousel.cards.some((card) => !card.header.exampleHandle)) {
+    return "Every media carousel card needs a Meta resumable-upload handle.";
+  }
   return "";
 }
 
@@ -651,6 +767,15 @@ function fromComponents(template: any): WaTemplateDefinition {
   const header = template.components?.find((component: any) => component.type === "HEADER");
   const body = template.components?.find((component: any) => component.type === "BODY");
   const footer = template.components?.find((component: any) => component.type === "FOOTER");
+  const buttonsComponent = template.components?.find((component: any) => component.type === "BUTTONS");
+  const carouselComponent = template.components?.find((component: any) => component.type === "CAROUSEL");
+  const callPermissionRequest = template.components?.some((component: any) => component.type === "CALL_PERMISSION_REQUEST");
+  const mapButton = (button: any): any => {
+    if (button.type === "URL") return { type: "URL", text: button.text, url: button.url, example: button.example?.[0] };
+    if (button.type === "PHONE_NUMBER") return { type: "PHONE_NUMBER", text: button.text, phoneNumber: button.phone_number };
+    if (button.type === "SPM") return { type: "SPM", text: button.text || "View" };
+    return { type: "QUICK_REPLY", text: button.text };
+  };
   return {
     name: template.name,
     language: template.language,
@@ -659,7 +784,26 @@ function fromComponents(template: any): WaTemplateDefinition {
     header: { format: header?.format || "NONE", text: header?.text || "" },
     body: { text: body?.text || "" },
     footer: { text: footer?.text || "" },
-    buttons: [],
+    buttons: buttonsComponent?.buttons?.map(mapButton) || [],
+    callPermissionRequest,
+    carousel: carouselComponent ? {
+      type: carouselComponent.cards?.[0]?.components?.find((component: any) => component.type === "HEADER")?.format === "PRODUCT"
+        ? "PRODUCT"
+        : "MEDIA",
+      cards: carouselComponent.cards.map((card: any) => {
+        const cardHeader = card.components.find((component: any) => component.type === "HEADER");
+        const cardBody = card.components.find((component: any) => component.type === "BODY");
+        const cardButtons = card.components.find((component: any) => component.type === "BUTTONS");
+        return {
+          header: {
+            format: cardHeader?.format,
+            exampleHandle: cardHeader?.example?.header_handle?.[0],
+          },
+          ...(cardBody ? { body: { text: cardBody.text || "" } } : {}),
+          buttons: cardButtons?.buttons?.map(mapButton) || [],
+        };
+      }),
+    } : undefined,
     mappings: [],
   };
 }
@@ -680,6 +824,11 @@ const styles = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center", gap: 10 },
   flex: { flex: 1 },
   switchRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  permissionRow: { minHeight: 72, flexDirection: "row", alignItems: "center" },
+  permissionIcon: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center", backgroundColor: waColors.greenPale },
+  permissionBody: { flex: 1, minWidth: 0, paddingLeft: 12 },
+  permissionTitle: { color: waColors.text, fontSize: 14, fontWeight: "700" },
+  permissionText: { color: waColors.textSecondary, fontSize: 12, lineHeight: 17, paddingTop: 3 },
   mapping: { gap: 8, padding: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: waColors.border, borderRadius: 8 },
   mappingTitle: { color: waColors.greenDark, fontWeight: "700" },
   buttonEditor: { gap: 8, paddingBottom: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: waColors.border },

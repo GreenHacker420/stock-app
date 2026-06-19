@@ -2,10 +2,13 @@ import { useState } from "react";
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { ActivityIndicator, Button, IconButton, Searchbar, Text, TextInput } from "react-native-paper";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import * as ImagePicker from "expo-image-picker";
 import {
   fetchWaTemplates,
   sendWaTemplate,
+  uploadWaMedia,
   WaTemplate,
+  WaTemplateDefinition,
 } from "../../../api/whatsapp.api";
 import { useAuthStore } from "../../../auth/auth-store";
 import { WhatsAppTemplatePreview } from "./WhatsAppTemplatePreview";
@@ -33,6 +36,13 @@ export function TemplateSendSheet({
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<WaTemplate | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
+  const [cards, setCards] = useState<Array<{
+    assetId?: string;
+    assetName?: string;
+    catalogId?: string;
+    productRetailerId?: string;
+  }>>([]);
+  const [uploadingCard, setUploadingCard] = useState<number | null>(null);
 
   const query = useQuery({
     queryKey: ["wa-template-send", shopId, search],
@@ -50,6 +60,7 @@ export function TemplateSendSheet({
       conversationId,
       to,
       values,
+      cards: cards.map(({ assetName: _assetName, ...card }) => card),
       replyToMessageId,
     }),
     onSuccess: () => {
@@ -63,8 +74,53 @@ export function TemplateSendSheet({
   const close = () => {
     setSelected(null);
     setValues({});
+    setCards([]);
     setSearch("");
     onClose();
+  };
+
+  const selectTemplate = (template: WaTemplate) => {
+    setSelected(template);
+    const carousel = getCarouselDefinition(template);
+    setCards(carousel?.cards.map(() => ({})) || []);
+  };
+
+  const pickCarouselMedia = async (cardIndex: number, format: "IMAGE" | "VIDEO") => {
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert("Photo access required", "Allow photo library access to select carousel media.");
+        return;
+      }
+      const kind = format === "VIDEO" ? "video" : "image";
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: [kind === "image" ? "images" : "videos"],
+        allowsMultipleSelection: false,
+        quality: 1,
+      });
+      if (result.canceled) return;
+      const asset = result.assets[0];
+      setUploadingCard(cardIndex);
+      const uploaded = await uploadWaMedia(token, shopId!, {
+        kind,
+        uri: asset.uri,
+        name: asset.fileName || `carousel-${cardIndex + 1}.${kind === "image" ? "jpg" : "mp4"}`,
+        mimeType: asset.mimeType || (kind === "image" ? "image/jpeg" : "video/mp4"),
+        size: asset.fileSize,
+        width: asset.width,
+        height: asset.height,
+        durationMs: asset.duration ? Math.round(asset.duration) : undefined,
+      });
+      setCards((current) => current.map((card, index) => (
+        index === cardIndex
+          ? { ...card, assetId: uploaded.id, assetName: uploaded.fileName || `Card ${cardIndex + 1} media` }
+          : card
+      )));
+    } catch (error) {
+      Alert.alert("Carousel upload failed", error instanceof Error ? error.message : "Could not upload media.");
+    } finally {
+      setUploadingCard(null);
+    }
   };
 
   return (
@@ -111,11 +167,55 @@ export function TemplateSendSheet({
                   />
                 </View>
               ))}
+              {!!getCarouselDefinition(selected) && (
+                <View style={styles.carouselInputs}>
+                  <Text style={styles.carouselTitle}>Carousel content</Text>
+                  {getCarouselDefinition(selected)!.cards.map((cardDefinition, cardIndex) => (
+                    <View key={cardIndex} style={styles.cardInput}>
+                      <Text style={styles.cardTitle}>Card {cardIndex + 1}</Text>
+                      {cardDefinition.header.format === "PRODUCT" ? (
+                        <>
+                          <TextInput
+                            mode="outlined"
+                            label="Catalog ID"
+                            value={cards[cardIndex]?.catalogId || ""}
+                            onChangeText={(catalogId) => setCards((current) => current.map((card, index) => (
+                              index === cardIndex ? { ...card, catalogId } : card
+                            )))}
+                          />
+                          <TextInput
+                            mode="outlined"
+                            label="Product retailer ID"
+                            value={cards[cardIndex]?.productRetailerId || ""}
+                            onChangeText={(productRetailerId) => setCards((current) => current.map((card, index) => (
+                              index === cardIndex ? { ...card, productRetailerId } : card
+                            )))}
+                          />
+                        </>
+                      ) : (
+                        <Button
+                          mode="outlined"
+                          icon={cardDefinition.header.format === "VIDEO" ? "video-plus-outline" : "image-plus"}
+                          loading={uploadingCard === cardIndex}
+                          disabled={uploadingCard != null}
+                          onPress={() => pickCarouselMedia(cardIndex, cardDefinition.header.format as "IMAGE" | "VIDEO")}
+                        >
+                          {cards[cardIndex]?.assetName || `Choose ${cardDefinition.header.format.toLowerCase()}`}
+                        </Button>
+                      )}
+                    </View>
+                  ))}
+                </View>
+              )}
               <Button
                 mode="contained"
                 icon="send"
                 loading={sendMutation.isPending}
-                disabled={sendMutation.isPending || selected.mappingStatus !== "VALID"}
+                disabled={
+                  sendMutation.isPending
+                  || selected.mappingStatus !== "VALID"
+                  || !carouselCardsReady(selected, cards)
+                }
                 onPress={() => sendMutation.mutate()}
                 style={styles.send}
               >
@@ -140,7 +240,7 @@ export function TemplateSendSheet({
                   {(query.data?.data || []).map((template) => (
                     <Pressable
                       key={template.id}
-                      onPress={() => setSelected(template)}
+                      onPress={() => selectTemplate(template)}
                       style={styles.templateRow}
                     >
                       <View style={styles.templateIcon}>
@@ -165,6 +265,38 @@ export function TemplateSendSheet({
       </View>
     </Modal>
   );
+}
+
+function getCarouselDefinition(template: WaTemplate): WaTemplateDefinition["carousel"] | null {
+  if (template.draftDefinition?.carousel) return template.draftDefinition.carousel;
+  const carousel = template.components?.find((component: any) => component.type?.toUpperCase() === "CAROUSEL");
+  if (!carousel) return null;
+  return {
+    type: carousel.cards?.[0]?.components?.find((component: any) => component.type?.toUpperCase() === "HEADER")?.format === "PRODUCT"
+      ? "PRODUCT" as const
+      : "MEDIA" as const,
+    cards: carousel.cards.map((card: any) => {
+      const header = card.components.find((component: any) => component.type?.toUpperCase() === "HEADER");
+      return {
+        header: { format: header?.format?.toUpperCase() as "IMAGE" | "VIDEO" | "PRODUCT" },
+        buttons: [],
+      };
+    }),
+  };
+}
+
+function carouselCardsReady(template: WaTemplate, cards: Array<{
+  assetId?: string;
+  catalogId?: string;
+  productRetailerId?: string;
+}>) {
+  const definition = getCarouselDefinition(template);
+  if (!definition) return true;
+  return definition.cards.every((card: NonNullable<WaTemplateDefinition["carousel"]>["cards"][number], index: number) => (
+    card.header.format === "PRODUCT"
+      ? Boolean(cards[index]?.catalogId && cards[index]?.productRetailerId)
+      : Boolean(cards[index]?.assetId)
+  ));
 }
 
 const styles = StyleSheet.create({
@@ -197,4 +329,8 @@ const styles = StyleSheet.create({
   mappingTitle: { color: waColors.greenDark, fontWeight: "700" },
   attribute: { color: waColors.textSecondary, fontSize: 12 },
   send: { backgroundColor: waColors.green },
+  carouselInputs: { gap: 10 },
+  carouselTitle: { color: waColors.text, fontSize: 14, fontWeight: "700" },
+  cardInput: { gap: 8, padding: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: waColors.border, borderRadius: 8 },
+  cardTitle: { color: waColors.greenDark, fontSize: 12, fontWeight: "700" },
 });
