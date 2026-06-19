@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useMemo } from "react";
+import { useEffect, useState, useRef } from "react";
 import {
   View,
   Text,
@@ -9,14 +9,10 @@ import {
   Platform,
   Modal,
   Alert,
-  Dimensions,
-  ScrollView,
-  ActivityIndicator
 } from "react-native";
 import { FlashList } from "@shopify/flash-list";
 
 const FlashListAny = FlashList as any;
-import { Card, Button } from "react-native-paper";
 import * as Clipboard from "expo-clipboard";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
@@ -40,13 +36,12 @@ import { colors as Colors } from "../../../theme";
 import { format } from "date-fns";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useWhatsAppRealtime } from "../hooks/useWhatsAppRealtime";
-import { variableResolverRegistry } from "../services/variableResolver";
 import { MessageActionSheet } from "../components/MessageActionSheet";
 import { MediaAttachmentSheet } from "../components/MediaAttachmentSheet";
 import { VoiceRecorderSheet } from "../components/VoiceRecorderSheet";
 import { MessageContentRenderer } from "../components/MessageContentRenderer";
-
-
+import { TemplateSendSheet } from "../components/TemplateSendSheet";
+import { initialsFor, waColors } from "../whatsapp-ui";
 
 const STANDARD_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
 
@@ -73,8 +68,6 @@ export const ChatDetailScreen = () => {
 
   // Template Picker State
   const [showTemplateSheet, setShowTemplateSheet] = useState(false);
-  const [selectedTemplate, setSelectedTemplate] = useState<any | null>(null);
-  const [templateParams, setTemplateParams] = useState<Record<string, string>>({});
 
   const flatListRef = useRef<any>(null);
   const emojiInputRef = useRef<TextInput>(null);
@@ -108,30 +101,31 @@ export const ChatDetailScreen = () => {
   // Set custom header with contact name, avatar, and linked customer shortcut
   useEffect(() => {
     const contactName = conversation?.contactName || `+${phone}`;
-    const initials = conversation?.contactName
-      ? conversation.contactName.split(" ").map((n: string) => n.charAt(0)).join("").toUpperCase().slice(0, 2)
-      : phone.slice(-2);
+    const initials = initialsFor(conversation?.contactName || phone);
 
     navigation.setOptions({
       headerShown: true,
+      headerStyle: { backgroundColor: waColors.greenDark },
+      headerTintColor: "#fff",
+      headerShadowVisible: false,
       headerTitle: () => (
         <View style={{ flexDirection: "row", alignItems: "center" }}>
           <View style={{
             width: 36,
             height: 36,
             borderRadius: 18,
-            backgroundColor: Colors.primaryLight,
+            backgroundColor: "rgba(255,255,255,0.2)",
             justifyContent: "center",
             alignItems: "center",
             marginRight: 10,
           }}>
-            <Text style={{ color: Colors.primaryDark, fontWeight: "bold", fontSize: 13 }}>{initials}</Text>
+            <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>{initials}</Text>
           </View>
-          <View style={{ maxWidth: Dimensions.get("window").width * 0.5 }}>
-            <Text style={{ fontWeight: "bold", fontSize: 15, color: Colors.textPrimary }} numberOfLines={1}>
+          <View style={{ maxWidth: 190 }}>
+            <Text style={{ fontWeight: "700", fontSize: 16, color: "#fff" }} numberOfLines={1}>
               {contactName}
             </Text>
-            <Text style={{ fontSize: 11, color: Colors.textSecondary }}>
+            <Text style={{ fontSize: 11, color: "rgba(255,255,255,0.78)" }} numberOfLines={1}>
               {conversation?.customer ? "Linked Customer" : `+${phone}`}
             </Text>
           </View>
@@ -140,25 +134,14 @@ export const ChatDetailScreen = () => {
       headerRight: () => conversation?.customerId ? (
         <TouchableOpacity
           onPress={() => (navigation as any).navigate("CustomerDetail", { customerId: conversation.customerId })}
-          style={{ marginRight: 10 }}
+          style={{ marginRight: 12, padding: 4 }}
         >
-          <MaterialCommunityIcons name="account-details" size={24} color={Colors.primary} />
+          <MaterialCommunityIcons name="account-details" size={23} color="#fff" />
         </TouchableOpacity>
       ) : null,
       headerTitleAlign: "left",
     });
   }, [navigation, conversation, phone]);
-
-  // Synced Templates Query
-  const { data: templates = [], isLoading: loadingTemplates } = useQuery({
-    queryKey: ["wa-templates", activeShopId],
-    queryFn: async () => {
-      if (!activeShopId) return [];
-      const res = await whatsappApi.getTemplates(activeShopId);
-      return res.data?.data || [];
-    },
-    enabled: !!activeShopId,
-  });
 
   // Subscribe to real-time events for this conversation
   useWhatsAppRealtime(conversationId);
@@ -541,80 +524,6 @@ export const ChatDetailScreen = () => {
     );
   };
 
-  // Helper to extract body placeholders sorted numerically
-  const templatePlaceholders = useMemo(() => {
-    if (!selectedTemplate) return [];
-    const bodyComp = selectedTemplate.components?.find((c: any) => c.type === "BODY");
-    const bodyText = bodyComp?.text || "";
-    const matches: string[] = [];
-    const regex = /\{\{(\d+)\}\}/g;
-    let match;
-    while ((match = regex.exec(bodyText)) !== null) {
-      if (!matches.includes(match[1])) {
-        matches.push(match[1]);
-      }
-    }
-    return matches.sort((a, b) => Number(a) - Number(b));
-  }, [selectedTemplate]);
-
-  const autofillParam = (paramNum: string, key: string) => {
-    const value = variableResolverRegistry.resolve(key, {
-      conversation,
-      customerRecord,
-      phone,
-    });
-    
-    setTemplateParams((prev) => ({
-      ...prev,
-      [paramNum]: value,
-    }));
-  };
-
-
-  const handleSendTemplate = () => {
-    if (!selectedTemplate || !activeShopId || !token) return;
-
-    // Check if any variable is missing
-    const missing = templatePlaceholders.some((p: string) => !(templateParams[p] || "").trim());
-    if (missing) {
-      Alert.alert("Missing Parameters", "Please fill in all template parameters.");
-      return;
-    }
-
-    const parameters = templatePlaceholders.map((p: string) => ({
-      type: "text",
-      text: templateParams[p] || "",
-    }));
-
-    const payload = {
-      shopId: activeShopId,
-      conversationId,
-      to: phone,
-      message: {
-        kind: "template" as const,
-        template: {
-          name: selectedTemplate.name,
-          language: {
-            code: selectedTemplate.language,
-          },
-          components: parameters.length > 0 ? [
-            {
-              type: "body",
-              parameters: parameters,
-            },
-          ] : [],
-        },
-      },
-    };
-
-    sendMutation.mutate(payload);
-
-    // Reset template sheet and selection states
-    setSelectedTemplate(null);
-    setTemplateParams({});
-    setShowTemplateSheet(false);
-  };
-
   const scrollToParent = (replyToMetaId: string) => {
     const index = messages.findIndex((m) => m.metaMessageId === replyToMetaId);
     if (index !== -1) {
@@ -761,7 +670,7 @@ export const ChatDetailScreen = () => {
             </Text>
           </View>
           <TouchableOpacity onPress={() => setReplyingTo(null)} style={styles.replyingClose}>
-            <MaterialCommunityIcons name="close-circle" size={20} color={Colors.textSecondary} />
+            <MaterialCommunityIcons name="close" size={20} color={waColors.textSecondary} />
           </TouchableOpacity>
         </View>
       )}
@@ -772,17 +681,18 @@ export const ChatDetailScreen = () => {
           style={styles.templateToolbarBtn}
           onPress={() => setShowMessageActions(true)}
         >
-          <MaterialCommunityIcons name="plus" size={26} color={Colors.primary} />
+          <MaterialCommunityIcons name="plus" size={26} color={waColors.textSecondary} />
         </TouchableOpacity>
         <TextInput
           style={styles.input}
           placeholder="Type a message..."
+          placeholderTextColor={waColors.textMuted}
           value={inputText}
           onChangeText={setInputText}
           multiline
         />
         <TouchableOpacity
-          style={[styles.sendButton, !inputText.trim() && { backgroundColor: Colors.borderStrong }]}
+          style={[styles.sendButton, !inputText.trim() && styles.sendButtonDisabled]}
           onPress={handleSend}
           disabled={!inputText.trim()}
         >
@@ -925,176 +835,32 @@ export const ChatDetailScreen = () => {
         </TouchableOpacity>
       </Modal>
 
-      {/* Template Picker & Variable Editor Bottom Sheet Modal */}
-      <Modal
+      <TemplateSendSheet
         visible={showTemplateSheet}
-        transparent
-        animationType="slide"
-        onRequestClose={() => {
-          setShowTemplateSheet(false);
-          setSelectedTemplate(null);
-          setTemplateParams({});
-        }}
-      >
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => {
-            setShowTemplateSheet(false);
-            setSelectedTemplate(null);
-            setTemplateParams({});
-          }}
-        >
-          <View style={styles.bottomSheetContainer}>
-            {selectedTemplate ? (
-              // Variables Form Editor
-              <View style={styles.formContainer}>
-                <View style={styles.sheetHeader}>
-                  <TouchableOpacity onPress={() => setSelectedTemplate(null)}>
-                    <MaterialCommunityIcons name="arrow-left" size={24} color={Colors.textPrimary} />
-                  </TouchableOpacity>
-                  <Text style={styles.sheetTitle} numberOfLines={1}>{selectedTemplate.name}</Text>
-                  <TouchableOpacity
-                    onPress={() => {
-                      setShowTemplateSheet(false);
-                      setSelectedTemplate(null);
-                      setTemplateParams({});
-                    }}
-                  >
-                    <MaterialCommunityIcons name="close" size={24} color={Colors.textPrimary} />
-                  </TouchableOpacity>
-                </View>
-
-                <ScrollView contentContainerStyle={styles.sheetContent}>
-                  <Text style={styles.formHeading}>Resolve Template Variables</Text>
-                  <Text style={styles.formSub}>Fill parameters for dynamic placeholders.</Text>
-                  
-                  {/* Template body preview */}
-                  <Card style={styles.previewCard}>
-                    <Card.Content>
-                      <Text style={styles.previewLabel}>Template Body:</Text>
-                      <Text style={styles.previewText}>
-                        {selectedTemplate.components?.find((c: any) => c.type === "BODY")?.text || ""}
-                      </Text>
-                    </Card.Content>
-                  </Card>
-
-                  {templatePlaceholders.map((num: string) => (
-                    <View key={num} style={styles.paramInputGroup}>
-                      <Text style={styles.paramLabel}>Variable {"{{"}{num}{"}}"}</Text>
-                      <TextInput
-                        style={styles.paramInput}
-                        value={templateParams[num] || ""}
-                        onChangeText={(val) =>
-                          setTemplateParams((prev) => ({ ...prev, [num]: val }))
-                        }
-                        placeholder={`Value for {{${num}}}`}
-                      />
-                      {/* Autofill tags */}
-                      <View style={styles.autofillRow}>
-                        {variableResolverRegistry.getVariables().map((v) => (
-                          <TouchableOpacity
-                            key={v.key}
-                            style={styles.autofillPill}
-                            onPress={() => autofillParam(num, v.key)}
-                          >
-                            <Text style={styles.autofillPillText}>Autofill {v.label}</Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-
-                    </View>
-                  ))}
-
-                  <Button
-                    mode="contained"
-                    style={styles.sendTemplateBtn}
-                    textColor="#fff"
-                    onPress={handleSendTemplate}
-                    loading={sendMutation.isPending}
-                  >
-                    Send Template Message
-                  </Button>
-                </ScrollView>
-              </View>
-            ) : (
-              // Synced Templates List
-              <View style={styles.listContainer}>
-                <View style={styles.sheetHeader}>
-                  <Text style={styles.sheetTitle}>Select Template</Text>
-                  <TouchableOpacity
-                    onPress={() => setShowTemplateSheet(false)}
-                  >
-                    <MaterialCommunityIcons name="close" size={24} color={Colors.textPrimary} />
-                  </TouchableOpacity>
-                </View>
-
-                {loadingTemplates ? (
-                  <ActivityIndicator size="large" color={Colors.primary} style={{ margin: 40 }} />
-                ) : templates.length === 0 ? (
-                  <View style={styles.emptyTemplates}>
-                    <MaterialCommunityIcons name="card-text-outline" size={48} color={Colors.textSecondary} />
-                    <Text style={styles.emptyTemplatesText}>No approved templates synced.</Text>
-                    <Text style={styles.emptyTemplatesSub}>Sync templates in the settings screen.</Text>
-                  </View>
-                ) : (
-                  <FlashListAny
-                    data={templates}
-                    keyExtractor={(item: any) => item.id}
-                    renderItem={({ item }: { item: any }) => {
-                      const bodyComp = item.components?.find((c: any) => c.type === "BODY");
-                      const preview = bodyComp?.text || "";
-                      return (
-                        <TouchableOpacity
-                          style={styles.templateItem}
-                          onPress={() => {
-                            setSelectedTemplate(item);
-                            setTemplateParams({});
-                          }}
-                        >
-                          <View style={styles.templateItemHeader}>
-                            <Text style={styles.templateItemName} numberOfLines={1}>{item.name}</Text>
-                            <View style={styles.templateCategoryBadge}>
-                              <Text style={styles.templateCategoryBadgeText}>{item.category}</Text>
-                            </View>
-                          </View>
-                          <Text style={styles.templateItemPreview} numberOfLines={2}>
-                            {preview}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    }}
-                    estimatedItemSize={72}
-                    contentContainerStyle={{ paddingBottom: 40 }}
-                  />
-                )}
-              </View>
-            )}
-          </View>
-        </TouchableOpacity>
-      </Modal>
+        shopId={activeShopId}
+        conversationId={conversationId}
+        to={phone}
+        replyToMessageId={replyingTo?.id}
+        onClose={() => setShowTemplateSheet(false)}
+      />
     </KeyboardAvoidingView>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#E5DDD5" },
-  listContent: { padding: 10, paddingBottom: 20 },
+  container: { flex: 1, backgroundColor: waColors.chatBackground },
+  listContent: { paddingHorizontal: 8, paddingVertical: 10, paddingBottom: 14 },
   messageRow: { flexDirection: "row", width: "100%" },
   bubble: {
-    padding: 10,
-    borderRadius: 12,
-    marginVertical: 4,
-    maxWidth: "80%",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 1,
-    elevation: 1,
+    paddingHorizontal: 9,
+    paddingVertical: 7,
+    borderRadius: 8,
+    marginVertical: 2,
+    maxWidth: "82%",
   },
   inboundBubble: { backgroundColor: "#fff" },
-  outboundBubble: { backgroundColor: "#DCF8C6" },
-  deletedBubble: { backgroundColor: "#E1E1E6", borderStyle: "dashed" },
+  outboundBubble: { backgroundColor: waColors.greenPale },
+  deletedBubble: { backgroundColor: waColors.surfaceMuted, borderStyle: "dashed" },
   messageFooter: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", marginTop: 4 },
   messageTime: { fontSize: 10, color: Colors.textSecondary },
   deletedRow: { flexDirection: "row", alignItems: "center" },
@@ -1110,12 +876,12 @@ const styles = StyleSheet.create({
   },
   replyQuoteBorder: {
     width: 4,
-    backgroundColor: Colors.primary,
+    backgroundColor: waColors.green,
     borderTopLeftRadius: 4,
     borderBottomLeftRadius: 4,
     marginRight: 6,
   },
-  replyQuoteSender: { fontSize: 12, fontWeight: "bold", color: Colors.primary },
+  replyQuoteSender: { fontSize: 12, fontWeight: "bold", color: waColors.greenDark },
   replyQuoteText: { fontSize: 13, color: Colors.textSecondary },
 
   // Reaction Badge Layout on Bubble Corner
@@ -1124,7 +890,7 @@ const styles = StyleSheet.create({
     bottom: -10,
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#fff",
+    backgroundColor: waColors.surface,
     borderRadius: 12,
     paddingHorizontal: 5,
     paddingVertical: 1.5,
@@ -1148,39 +914,39 @@ const styles = StyleSheet.create({
     padding: 10,
     alignItems: "center",
   },
-  replyingBorder: { width: 4, height: "100%", backgroundColor: Colors.primary, borderRadius: 2 },
-  replyingTitle: { fontSize: 12, fontWeight: "bold", color: Colors.primary },
+  replyingBorder: { width: 4, height: "100%", backgroundColor: waColors.green, borderRadius: 2 },
+  replyingTitle: { fontSize: 12, fontWeight: "bold", color: waColors.greenDark },
   replyingText: { fontSize: 13, color: Colors.textSecondary },
   replyingClose: { padding: 4 },
 
   // Input Toolbar
   inputToolbar: {
     flexDirection: "row",
-    padding: 10,
-    backgroundColor: "#fff",
+    paddingHorizontal: 7,
+    paddingVertical: 6,
+    backgroundColor: waColors.chatBackground,
     alignItems: "center",
-    borderTopWidth: 1,
-    borderTopColor: Colors.border,
   },
   input: {
     flex: 1,
-    backgroundColor: "#F3F4F6",
-    borderRadius: 22,
+    backgroundColor: "#fff",
+    borderRadius: 24,
     paddingHorizontal: 15,
-    paddingVertical: 8,
+    paddingVertical: 9,
     fontSize: 16,
     maxHeight: 100,
-    color: "#1F2937",
+    color: waColors.textPrimary,
   },
   sendButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: Colors.primary,
+    backgroundColor: waColors.green,
     justifyContent: "center",
     alignItems: "center",
-    marginLeft: 10,
+    marginLeft: 7,
   },
+  sendButtonDisabled: { backgroundColor: waColors.textMuted },
 
   // Modal Overlays
   modalOverlay: {

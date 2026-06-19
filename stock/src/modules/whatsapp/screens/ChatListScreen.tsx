@@ -1,635 +1,249 @@
-import React, { useState, useEffect } from "react";
-import { TouchableOpacity, View, Text, StyleSheet, RefreshControl, Modal, Alert } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { Alert, Modal, Pressable, RefreshControl, StyleSheet, View } from "react-native";
 import { FlashList } from "@shopify/flash-list";
-
-const FlashListAny = FlashList as any;
+import { FAB, IconButton, Searchbar, Text } from "react-native-paper";
 import { useNavigation } from "@react-navigation/native";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { formatDistanceToNowStrict } from "date-fns";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { fetchWaConversations, whatsappApi, WaConversation } from "../../../api/whatsapp.api";
 import { useShopStore } from "../../../auth/shop-store";
 import { useAuthStore } from "../../../auth/auth-store";
-import { colors as Colors, spacing, radius, fontSize, fontWeight, shadow } from "../../../theme";
-import { formatDistanceToNow } from "date-fns";
-import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useWhatsAppRealtime } from "../hooks/useWhatsAppRealtime";
+import { initials, waColors } from "../whatsapp-ui";
 
 export const ChatListScreen = () => {
   const navigation = useNavigation<any>();
-  const activeShopId = useShopStore((state) => state.activeShopId);
+  const shopId = useShopStore((state) => state.activeShopId);
   const token = useAuthStore((state) => state.token);
   const currentUser = useAuthStore((state) => state.user);
   const queryClient = useQueryClient();
-
+  const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<"ALL" | "UNREAD" | "ME">("ALL");
   const [showArchived, setShowArchived] = useState(false);
-  const [assigneeFilter, setAssigneeFilter] = useState<"ALL" | "ME" | "UNASSIGNED">("ALL");
-  const [selectedChat, setSelectedChat] = useState<WaConversation | null>(null);
-  const [menuVisible, setMenuVisible] = useState(false);
+  const [selected, setSelected] = useState<WaConversation | null>(null);
 
-  // Set navigation options to show Contact Book button in header
   useEffect(() => {
     navigation.setOptions({
       headerShown: true,
-      headerTitle: "Chats",
+      headerTitle: "ShopControl",
+      headerStyle: { backgroundColor: waColors.greenDark },
+      headerTintColor: "#fff",
+      headerTitleStyle: { fontWeight: "700" },
       headerRight: () => (
-        <TouchableOpacity
-          onPress={() => navigation.navigate("ContactBook")}
-          style={{ marginRight: 15 }}
-        >
-          <MaterialCommunityIcons name="contacts" size={24} color={Colors.primary} />
-        </TouchableOpacity>
-      )
+        <View style={styles.headerActions}>
+          <IconButton icon="contacts-outline" iconColor="#fff" onPress={() => navigation.navigate("ContactBook")} />
+          <IconButton icon="card-text-outline" iconColor="#fff" onPress={() => navigation.navigate("TemplateLibrary")} />
+          <IconButton icon="cog-outline" iconColor="#fff" onPress={() => navigation.navigate("WhatsAppSetup")} />
+        </View>
+      ),
     });
   }, [navigation]);
 
-  // Subscribe to real-time events to auto-invalidate conversations list
   useWhatsAppRealtime("");
 
-  // React Query Fetching (Persisted automatically by PersistQueryClientProvider in App.tsx)
-  const { data: conversations = [], isLoading, refetch, isRefetching } = useQuery({
-    queryKey: ["wa-conversations", activeShopId],
-    queryFn: async () => {
-      if (!activeShopId || !token) return [];
-      const res = await fetchWaConversations(token, activeShopId);
-      return res;
-    },
-    enabled: !!activeShopId && !!token,
+  const query = useQuery({
+    queryKey: ["wa-conversations", shopId],
+    enabled: Boolean(shopId && token),
+    queryFn: () => fetchWaConversations(token!, shopId!),
   });
 
-  // Archive Mutation
   const archiveMutation = useMutation({
-    mutationFn: async ({ conversationId, archive }: { conversationId: string; archive: boolean }) => {
-      if (!activeShopId) return;
-      return whatsappApi.archiveConversation(activeShopId, conversationId, archive);
-    },
+    mutationFn: ({ id, archive }: { id: string; archive: boolean }) => whatsappApi.archiveConversation(shopId!, id, archive),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["wa-conversations", activeShopId] });
-      setMenuVisible(false);
-      setSelectedChat(null);
+      queryClient.invalidateQueries({ queryKey: ["wa-conversations", shopId] });
+      setSelected(null);
     },
-    onError: (err: any) => {
-      Alert.alert("Error", err.message || "Failed to update archive status");
-    }
+    onError: (error) => Alert.alert("Archive failed", error.message),
   });
 
-  // Delete Mutation
   const deleteMutation = useMutation({
-    mutationFn: async (conversationId: string) => {
-      if (!activeShopId) return;
-      return whatsappApi.deleteConversation(activeShopId, conversationId);
-    },
+    mutationFn: (id: string) => whatsappApi.deleteConversation(shopId!, id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["wa-conversations", activeShopId] });
-      setMenuVisible(false);
-      setSelectedChat(null);
+      queryClient.invalidateQueries({ queryKey: ["wa-conversations", shopId] });
+      setSelected(null);
     },
-    onError: (err: any) => {
-      Alert.alert("Error", err.message || "Failed to delete conversation");
-    }
+    onError: (error) => Alert.alert("Delete failed", error.message),
   });
 
-  const handleLongPress = (chat: WaConversation) => {
-    setSelectedChat(chat);
-    setMenuVisible(true);
-  };
-
-  const handleArchiveToggle = () => {
-    if (!selectedChat) return;
-    archiveMutation.mutate({
-      conversationId: selectedChat.id,
-      archive: !selectedChat.isArchived,
+  const conversations = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    return (query.data || []).filter((conversation) => {
+      if (Boolean(conversation.isArchived) !== showArchived) return false;
+      if (filter === "UNREAD" && conversation.unreadCount === 0) return false;
+      if (filter === "ME" && conversation.assignedToId !== currentUser?.id) return false;
+      if (needle && !(conversation.contactName || conversation.phone).toLowerCase().includes(needle)) return false;
+      return true;
     });
-  };
-
-  const handleDeletePress = () => {
-    if (!selectedChat) return;
-    Alert.alert(
-      "Delete Chat",
-      `Are you sure you want to delete the chat with ${selectedChat.contactName || selectedChat.phone}? This will permanently delete all local messages.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: () => deleteMutation.mutate(selectedChat.id),
-        },
-      ]
-    );
-  };
-
-  const filteredConversations = conversations.filter((c) => {
-    if (!!c.isArchived !== showArchived) return false;
-    if (assigneeFilter === "ME") {
-      return c.assignedToId === currentUser?.id;
-    }
-    if (assigneeFilter === "UNASSIGNED") {
-      return !c.assignedToId;
-    }
-    return true;
-  });
-
-  const renderItem = ({ item }: { item: WaConversation }) => {
-    const lastMsg = item.messages?.[0];
-    const isDeleted = lastMsg?.status === "DELETED";
-    const hasUnread = item.unreadCount > 0;
-    
-    // Parse name or default
-    const displayName = item.contactName || `+${item.phone}`;
-    
-    // Initials for avatar
-    const initials = item.contactName
-      ? item.contactName.split(" ").map(n => n.charAt(0)).join("").toUpperCase().slice(0, 2)
-      : item.phone.slice(-2);
-    
-    return (
-      <TouchableOpacity
-        style={[styles.itemCard, hasUnread && styles.itemCardUnread]}
-        onPress={() => navigation.navigate("ChatDetail", { conversationId: item.id, phone: item.phone })}
-        onLongPress={() => handleLongPress(item)}
-        delayLongPress={400}
-        activeOpacity={0.7}
-      >
-        <View style={[styles.avatarContainer, hasUnread && styles.avatarContainerUnread]}>
-          <Text style={styles.avatarText}>
-            {initials}
-          </Text>
-          {hasUnread && <View style={styles.unreadDot} />}
-        </View>
-
-        <View style={styles.content}>
-          <View style={styles.headerRow}>
-            <View style={styles.nameContainer}>
-              <Text style={[styles.name, hasUnread && styles.nameUnread]} numberOfLines={1}>
-                {displayName}
-              </Text>
-              {item.customer && (
-                <View style={styles.linkedBadge}>
-                  <MaterialCommunityIcons name="link-variant" size={10} color="#0369A1" />
-                  <Text style={styles.linkedBadgeText}>Linked</Text>
-                </View>
-              )}
-            </View>
-            {item.lastCustomerMessageAt && (
-              <Text style={[styles.time, hasUnread && styles.timeUnread]}>
-                {formatDistanceToNow(new Date(item.lastCustomerMessageAt), { addSuffix: false })}
-              </Text>
-            )}
-          </View>
-
-          <View style={styles.messageRow}>
-            <Text style={[styles.lastMessage, hasUnread && styles.lastMessageUnread, isDeleted && styles.deletedText]} numberOfLines={1}>
-              {isDeleted ? "This message was deleted" : lastMsg?.content?.text || "No messages"}
-            </Text>
-            {hasUnread && (
-              <View style={styles.badge}>
-                <Text style={styles.badgeText}>{item.unreadCount}</Text>
-              </View>
-            )}
-            <MaterialCommunityIcons name="chevron-right" size={18} color="#C7C7CC" style={{ marginLeft: 4 }} />
-          </View>
-        </View>
-      </TouchableOpacity>
-    );
-  };
+  }, [query.data, search, showArchived, filter, currentUser?.id]);
 
   return (
-    <View style={styles.container}>
-      {/* Premium Segmented Control Tabs */}
-      <View style={styles.segmentedControl}>
-        <TouchableOpacity
-          style={[styles.controlTab, !showArchived && styles.activeControlTab]}
-          onPress={() => setShowArchived(false)}
-          activeOpacity={0.8}
-        >
-          <MaterialCommunityIcons
-            name="message-text"
-            size={16}
-            color={!showArchived ? Colors.primary : Colors.textSecondary}
-          />
-          <Text style={[styles.controlTabText, !showArchived && styles.activeControlTabText]}>
-            Active
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.controlTab, showArchived && styles.activeControlTab]}
-          onPress={() => setShowArchived(true)}
-          activeOpacity={0.8}
-        >
-          <MaterialCommunityIcons
-            name="archive"
-            size={16}
-            color={showArchived ? Colors.primary : Colors.textSecondary}
-          />
-          <Text style={[styles.controlTabText, showArchived && styles.activeControlTabText]}>
-            Archived
-          </Text>
-        </TouchableOpacity>
+    <View style={styles.screen}>
+      <Searchbar
+        value={search}
+        onChangeText={setSearch}
+        placeholder="Ask Meta AI or Search"
+        style={styles.search}
+        inputStyle={styles.searchInput}
+      />
+      <View style={styles.filters}>
+        {(["ALL", "UNREAD", "ME"] as const).map((item) => (
+          <Pressable key={item} onPress={() => setFilter(item)} style={[styles.filter, filter === item && styles.filterActive]}>
+            <Text style={[styles.filterText, filter === item && styles.filterTextActive]}>
+              {item === "ALL" ? "All" : item === "UNREAD" ? "Unread" : "Assigned"}
+            </Text>
+          </Pressable>
+        ))}
       </View>
 
-      {/* Assignee Filters Scrollable */}
-      <View style={styles.filterWrapper}>
-        <FlashListAny
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          data={[
-            { id: "ALL", label: "All Chats", icon: "forum-outline" },
-            { id: "ME", label: "Assigned to Me", icon: "account-check-outline" },
-            { id: "UNASSIGNED", label: "Unassigned", icon: "account-question-outline" }
-          ]}
-          keyExtractor={(item: any) => item.id}
-          renderItem={({ item }: any) => {
-            const isActive = assigneeFilter === item.id;
-            return (
-              <TouchableOpacity
-                style={[styles.filterChip, isActive && styles.activeFilterChip]}
-                onPress={() => setAssigneeFilter(item.id as any)}
-                activeOpacity={0.8}
-              >
-                <MaterialCommunityIcons
-                  name={item.icon as any}
-                  size={16}
-                  color={isActive ? Colors.primaryDark : Colors.textSecondary}
-                  style={{ marginRight: 6 }}
-                />
-                <Text style={[styles.filterChipText, isActive && styles.activeFilterChipText]}>
-                  {item.label}
-                </Text>
-              </TouchableOpacity>
-            );
-          }}
-          estimatedItemSize={120}
-          contentContainerStyle={styles.filterScroll}
-        />
-      </View>
+      {!showArchived && (query.data || []).some((item) => item.isArchived) && (
+        <Pressable style={styles.archivedRow} onPress={() => setShowArchived(true)}>
+          <MaterialCommunityIcons name="archive-outline" size={22} color={waColors.green} />
+          <Text style={styles.archivedText}>Archived</Text>
+          <Text style={styles.archivedCount}>{(query.data || []).filter((item) => item.isArchived).length}</Text>
+        </Pressable>
+      )}
+      {showArchived && (
+        <Pressable style={styles.archivedRow} onPress={() => setShowArchived(false)}>
+          <MaterialCommunityIcons name="arrow-left" size={22} color={waColors.green} />
+          <Text style={styles.archivedText}>Back to chats</Text>
+        </Pressable>
+      )}
 
-      <FlashListAny
-        data={filteredConversations}
-        renderItem={renderItem}
-        keyExtractor={(item: any) => item.id}
-        estimatedItemSize={76}
-        refreshControl={
-          <RefreshControl refreshing={isLoading || isRefetching} onRefresh={refetch} colors={[Colors.primary]} />
-        }
+      <FlashList
+        data={conversations}
+        keyExtractor={(item) => item.id}
+        refreshControl={<RefreshControl refreshing={query.isRefetching} onRefresh={query.refetch} />}
+        contentContainerStyle={styles.list}
         ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <View style={styles.emptyIconCircle}>
-              <MaterialCommunityIcons
-                name={showArchived ? "archive-outline" : "chat-processing-outline"}
-                size={48}
-                color={Colors.primary}
-              />
-            </View>
-            <Text style={styles.emptyTitle}>
-              {showArchived ? "No Archived Chats" : "No Active Chats"}
-            </Text>
-            <Text style={styles.emptyDescription}>
-              {showArchived
-                ? "Chats you archive will appear here to keep your main inbox clean."
-                : "When customers message your WhatsApp number, they will show up here."}
-            </Text>
-            {!showArchived && (
-              <TouchableOpacity
-                style={styles.emptyButton}
-                onPress={() => navigation.navigate("ContactBook")}
-              >
-                <MaterialCommunityIcons name="contacts" size={16} color="#fff" style={{ marginRight: 6 }} />
-                <Text style={styles.emptyButtonText}>Open Contact Book</Text>
-              </TouchableOpacity>
-            )}
+          <View style={styles.empty}>
+            <MaterialCommunityIcons name="message-text-outline" size={54} color="#AEBAC1" />
+            <Text variant="titleMedium" style={styles.emptyTitle}>No conversations</Text>
+            <Text style={styles.emptyText}>Customer messages and new chats will appear here.</Text>
           </View>
         }
+        renderItem={({ item }) => {
+          const lastMessage = item.messages?.[0];
+          const name = item.contactName || item.customer?.name || `+${item.phone}`;
+          const preview = lastMessage?.status === "DELETED"
+            ? "This message was deleted"
+            : lastMessage?.content?.text
+              || lastMessage?.content?.caption
+              || messageTypeLabel(lastMessage?.type)
+              || "No messages yet";
+          return (
+            <Pressable
+              onPress={() => navigation.navigate("ChatDetail", { conversationId: item.id, phone: item.phone })}
+              onLongPress={() => setSelected(item)}
+              style={styles.chatRow}
+            >
+              <View style={styles.avatar}>
+                <Text style={styles.avatarText}>{initials(name) || item.phone.slice(-2)}</Text>
+              </View>
+              <View style={styles.chatBody}>
+                <View style={styles.titleRow}>
+                  <Text style={[styles.name, item.unreadCount > 0 && styles.unreadName]} numberOfLines={1}>{name}</Text>
+                  <Text style={[styles.time, item.unreadCount > 0 && styles.unreadTime]}>
+                    {item.lastCustomerMessageAt
+                      ? formatDistanceToNowStrict(new Date(item.lastCustomerMessageAt), { addSuffix: false })
+                      : ""}
+                  </Text>
+                </View>
+                <View style={styles.previewRow}>
+                  {lastMessage?.direction === "OUTBOUND" && (
+                    <MaterialCommunityIcons name="check-all" size={16} color={lastMessage.status === "READ" ? waColors.blue : waColors.textSecondary} />
+                  )}
+                  <Text style={[styles.preview, item.unreadCount > 0 && styles.unreadPreview]} numberOfLines={1}>{preview}</Text>
+                  {item.unreadCount > 0 && (
+                    <View style={styles.unreadBadge}>
+                      <Text style={styles.unreadBadgeText}>{Math.min(item.unreadCount, 99)}</Text>
+                    </View>
+                  )}
+                </View>
+              </View>
+            </Pressable>
+          );
+        }}
       />
 
-      {/* Long Press Action Modal */}
-      <Modal
-        visible={menuVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setMenuVisible(false)}
-      >
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setMenuVisible(false)}
-        >
-          <View style={styles.modalMenu}>
-            <Text style={styles.modalHeader}>
-              {selectedChat?.contactName || `+${selectedChat?.phone}`}
-            </Text>
-            
-            <TouchableOpacity style={styles.menuItem} onPress={handleArchiveToggle}>
-              <MaterialCommunityIcons
-                name={selectedChat?.isArchived ? "archive-arrow-up" : "archive-arrow-down"}
-                size={22}
-                color={Colors.textPrimary}
-              />
-              <Text style={styles.menuItemText}>
-                {selectedChat?.isArchived ? "Unarchive Chat" : "Archive Chat"}
-              </Text>
-            </TouchableOpacity>
+      <FAB icon="message-plus-outline" color="#fff" style={styles.fab} onPress={() => navigation.navigate("ContactBook")} />
 
-            <TouchableOpacity style={styles.menuItem} onPress={handleDeletePress}>
-              <MaterialCommunityIcons name="trash-can-outline" size={22} color="#DC2626" />
-              <Text style={[styles.menuItemText, { color: "#DC2626" }]}>Delete Chat</Text>
-            </TouchableOpacity>
+      <Modal visible={Boolean(selected)} transparent animationType="fade" onRequestClose={() => setSelected(null)}>
+        <Pressable style={styles.overlay} onPress={() => setSelected(null)}>
+          <View style={styles.menu}>
+            <Text style={styles.menuTitle}>{selected?.contactName || selected?.phone}</Text>
+            <Pressable
+              style={styles.menuItem}
+              onPress={() => archiveMutation.mutate({ id: selected!.id, archive: !selected!.isArchived })}
+            >
+              <MaterialCommunityIcons name={selected?.isArchived ? "archive-arrow-up-outline" : "archive-arrow-down-outline"} size={22} />
+              <Text style={styles.menuText}>{selected?.isArchived ? "Unarchive chat" : "Archive chat"}</Text>
+            </Pressable>
+            <Pressable
+              style={styles.menuItem}
+              onPress={() => Alert.alert("Delete chat", "Delete all local messages in this conversation?", [
+                { text: "Cancel", style: "cancel" },
+                { text: "Delete", style: "destructive", onPress: () => deleteMutation.mutate(selected!.id) },
+              ])}
+            >
+              <MaterialCommunityIcons name="trash-can-outline" size={22} color={waColors.danger} />
+              <Text style={[styles.menuText, { color: waColors.danger }]}>Delete chat</Text>
+            </Pressable>
           </View>
-        </TouchableOpacity>
+        </Pressable>
       </Modal>
     </View>
   );
 };
 
+function messageTypeLabel(type?: string) {
+  return {
+    IMAGE: "Photo",
+    VIDEO: "Video",
+    AUDIO: "Audio",
+    DOCUMENT: "Document",
+    LOCATION: "Location",
+    CONTACT_CARD: "Contact",
+    TEMPLATE: "Template message",
+    INTERACTIVE: "Interactive message",
+  }[type || ""];
+}
+
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#F9FAFB" },
-  
-  // Segmented Control Tabs
-  segmentedControl: {
-    flexDirection: "row",
-    backgroundColor: "#F3F4F6",
-    borderRadius: 12,
-    padding: 4,
-    marginHorizontal: 16,
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  controlTab: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 10,
-    borderRadius: 10,
-  },
-  activeControlTab: {
-    backgroundColor: "#ffffff",
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 2,
-  },
-  controlTabText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: Colors.textSecondary,
-    marginLeft: 6,
-  },
-  activeControlTabText: {
-    color: Colors.primaryDark,
-    fontWeight: "700",
-  },
-
-  // Assignee Filters Scrollable
-  filterWrapper: {
-    backgroundColor: "#fff",
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-    paddingVertical: 10,
-  },
-  filterScroll: {
-    paddingHorizontal: 16,
-    alignItems: "center",
-  },
-  filterChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-    borderRadius: 20,
-    backgroundColor: "#F3F4F6",
-    marginRight: 8,
-  },
-  activeFilterChip: {
-    backgroundColor: Colors.primaryLight,
-    borderWidth: 1,
-    borderColor: Colors.primary,
-  },
-  filterChipText: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-    fontWeight: "500",
-  },
-  activeFilterChipText: {
-    color: Colors.primaryDark,
-    fontWeight: "700",
-  },
-
-  // Chat Item Cards
-  itemCard: {
-    flexDirection: "row",
-    padding: 16,
-    backgroundColor: "#ffffff",
-    alignItems: "center",
-    marginHorizontal: 16,
-    marginVertical: 6,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#F3F4F6",
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.02,
-    shadowRadius: 3,
-    elevation: 1,
-  },
-  itemCardUnread: {
-    borderColor: Colors.primaryLight,
-    backgroundColor: "#FCFDF9",
-  },
-  avatarContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "#F0FDF4",
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 14,
-    position: "relative",
-    borderWidth: 1,
-    borderColor: "#E8F5E9",
-  },
-  avatarContainerUnread: {
-    backgroundColor: Colors.primaryLight,
-    borderColor: Colors.primaryMid,
-  },
-  avatarText: {
-    color: Colors.primaryDark,
-    fontSize: 15,
-    fontWeight: "700",
-  },
-  unreadDot: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: Colors.primaryMid,
-    borderWidth: 2,
-    borderColor: "#ffffff",
-  },
-  content: { flex: 1 },
-  headerRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 4,
-  },
-  nameContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-    marginRight: 8,
-  },
-  name: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: Colors.textPrimary,
-  },
-  nameUnread: {
-    fontWeight: "700",
-    color: Colors.primaryDark,
-  },
-  linkedBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#E0F2FE",
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-    marginLeft: 8,
-  },
-  linkedBadgeText: {
-    fontSize: 9,
-    fontWeight: "700",
-    color: "#0369A1",
-    marginLeft: 2,
-  },
-  time: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-  },
-  timeUnread: {
-    color: Colors.primaryMid,
-    fontWeight: "600",
-  },
-  messageRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  lastMessage: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    flex: 1,
-    marginRight: 8,
-  },
-  lastMessageUnread: {
-    color: Colors.textPrimary,
-    fontWeight: "600",
-  },
-  deletedText: {
-    fontStyle: "italic",
-    color: Colors.textMuted,
-  },
-  badge: {
-    backgroundColor: Colors.primaryMid,
-    borderRadius: 10,
-    minWidth: 20,
-    height: 20,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 6,
-  },
-  badgeText: {
-    color: "#fff",
-    fontSize: 11,
-    fontWeight: "700",
-  },
-
-  // Empty State Illustrated
-  emptyContainer: {
-    paddingVertical: 80,
-    paddingHorizontal: 32,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  emptyIconCircle: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
-    backgroundColor: "#F0FDF4",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 20,
-  },
-  emptyTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: Colors.textPrimary,
-    marginBottom: 8,
-    textAlign: "center",
-  },
-  emptyDescription: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    textAlign: "center",
-    lineHeight: 20,
-    marginBottom: 24,
-  },
-  emptyButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: Colors.primary,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    borderRadius: 24,
-    shadowColor: Colors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 6,
-    elevation: 3,
-  },
-  emptyButtonText: {
-    color: "#ffffff",
-    fontSize: 14,
-    fontWeight: "600",
-  },
-
-  // Modals & Action Menu
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.4)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  modalMenu: {
-    width: "80%",
-    backgroundColor: "#fff",
-    borderRadius: 16,
-    padding: 20,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.15,
-    shadowRadius: 16,
-    elevation: 6,
-  },
-  modalHeader: {
-    fontSize: 18,
-    fontWeight: "bold",
-    marginBottom: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-    paddingBottom: 10,
-    color: Colors.textPrimary,
-  },
-  menuItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 12,
-  },
-  menuItemText: {
-    fontSize: 16,
-    marginLeft: 15,
-    color: Colors.textPrimary,
-  },
+  screen: { flex: 1, backgroundColor: waColors.surface },
+  headerActions: { flexDirection: "row", marginRight: -8 },
+  search: { height: 44, margin: 10, borderRadius: 22, backgroundColor: waColors.surfaceMuted },
+  searchInput: { minHeight: 44, fontSize: 15 },
+  filters: { height: 40, flexDirection: "row", gap: 7, paddingHorizontal: 12 },
+  filter: { height: 32, justifyContent: "center", paddingHorizontal: 14, borderRadius: 16, borderWidth: 1, borderColor: waColors.border },
+  filterActive: { backgroundColor: waColors.greenPale, borderColor: waColors.greenPale },
+  filterText: { color: waColors.textSecondary, fontSize: 13 },
+  filterTextActive: { color: waColors.greenDark, fontWeight: "700" },
+  archivedRow: { height: 50, flexDirection: "row", alignItems: "center", gap: 18, paddingHorizontal: 28 },
+  archivedText: { flex: 1, color: waColors.text, fontSize: 15, fontWeight: "600" },
+  archivedCount: { color: waColors.green, fontSize: 13 },
+  list: { paddingBottom: 90 },
+  chatRow: { minHeight: 74, flexDirection: "row", paddingLeft: 12, paddingTop: 9 },
+  avatar: { width: 52, height: 52, borderRadius: 26, alignItems: "center", justifyContent: "center", backgroundColor: "#D7DBDE" },
+  avatarText: { color: "#fff", fontSize: 18, fontWeight: "700" },
+  chatBody: { flex: 1, minWidth: 0, marginLeft: 12, paddingRight: 12, paddingBottom: 11, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: waColors.border },
+  titleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  name: { flex: 1, color: waColors.text, fontSize: 16, fontWeight: "500" },
+  unreadName: { fontWeight: "700" },
+  time: { color: waColors.textSecondary, fontSize: 11 },
+  unreadTime: { color: waColors.green, fontWeight: "700" },
+  previewRow: { flexDirection: "row", alignItems: "center", gap: 3, paddingTop: 5 },
+  preview: { flex: 1, color: waColors.textSecondary, fontSize: 14 },
+  unreadPreview: { color: waColors.text, fontWeight: "500" },
+  unreadBadge: { minWidth: 20, height: 20, paddingHorizontal: 5, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: waColors.greenBright },
+  unreadBadgeText: { color: "#fff", fontSize: 10, fontWeight: "700", fontVariant: ["tabular-nums"] },
+  empty: { paddingTop: 90, alignItems: "center", gap: 7, paddingHorizontal: 40 },
+  emptyTitle: { color: waColors.text },
+  emptyText: { color: waColors.textSecondary, textAlign: "center" },
+  fab: { position: "absolute", right: 18, bottom: 20, backgroundColor: waColors.green },
+  overlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.35)" },
+  menu: { padding: 16, paddingBottom: 28, backgroundColor: waColors.surface, borderTopLeftRadius: 16, borderTopRightRadius: 16 },
+  menuTitle: { color: waColors.text, fontSize: 16, fontWeight: "700", padding: 10 },
+  menuItem: { minHeight: 50, flexDirection: "row", alignItems: "center", gap: 16, paddingHorizontal: 10 },
+  menuText: { color: waColors.text, fontSize: 15 },
 });

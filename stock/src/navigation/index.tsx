@@ -52,6 +52,8 @@ import { ChatListScreen } from "../modules/whatsapp/screens/ChatListScreen";
 import { ChatDetailScreen } from "../modules/whatsapp/screens/ChatDetailScreen";
 import { WhatsAppSetupScreen } from "../modules/whatsapp/screens/WhatsAppSetupScreen";
 import { ContactBookScreen } from "../modules/whatsapp/screens/ContactBookScreen";
+import { TemplateLibraryScreen } from "../modules/whatsapp/screens/TemplateLibraryScreen";
+import { TemplateEditorScreen } from "../modules/whatsapp/screens/TemplateEditorScreen";
 
 import { colors } from "../theme";
 
@@ -420,6 +422,14 @@ const sharedStackScreens = {
     screen: ContactBookScreen,
     options: { title: "Contact Book" },
   },
+  TemplateLibrary: {
+    screen: TemplateLibraryScreen,
+    options: { title: "Message templates" },
+  },
+  TemplateEditor: {
+    screen: TemplateEditorScreen,
+    options: { title: "Template" },
+  },
   OrderList: {
     screen: OrderList,
     options: { title: "Orders" },
@@ -566,6 +576,8 @@ export type RootStackParamList = {
   ChatDetail: { conversationId: string; phone: string };
   WhatsAppSetup: undefined;
   ContactBook: undefined;
+  TemplateLibrary: undefined;
+  TemplateEditor: { templateId?: string };
   WalkInSale: undefined;
   NewSaleType: undefined;
   RegularSale: undefined;

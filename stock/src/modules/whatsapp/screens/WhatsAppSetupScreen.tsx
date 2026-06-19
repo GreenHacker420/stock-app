@@ -9,10 +9,13 @@ import { whatsappSetupApi } from "../../../api/whatsapp-setup.api";
 import { Screen } from "../../../components/Screen";
 import { colors as Colors } from "../../../theme";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useNavigation } from "@react-navigation/native";
+import { waColors } from "../whatsapp-ui";
 
 WebBrowser.maybeCompleteAuthSession();
 
 export const WhatsAppSetupScreen = () => {
+  const navigation = useNavigation();
   const activeShopId = useShopStore((state) => state.activeShopId);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -43,6 +46,17 @@ export const WhatsAppSetupScreen = () => {
 
   // Embedded Signup State
   const [oauthCode, setOauthCode] = useState("");
+
+  useEffect(() => {
+    navigation.setOptions({
+      headerShown: true,
+      headerTitle: "WhatsApp settings",
+      headerStyle: { backgroundColor: waColors.greenDark },
+      headerTintColor: "#fff",
+      headerShadowVisible: false,
+      headerTitleStyle: { fontWeight: "700" },
+    });
+  }, [navigation]);
 
   const redirectUri = AuthSession.makeRedirectUri({
     scheme: "shopcontrol"
@@ -596,26 +610,27 @@ export const WhatsAppSetupScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  flex1: { flex: 1, backgroundColor: "#F7F7FA" },
+  flex1: { flex: 1, backgroundColor: waColors.surface },
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
   scrollContent: { paddingBottom: 40 },
   
   // Status Banner
   statusCard: {
-    margin: 15,
-    borderRadius: 12,
-    borderWidth: 1,
+    margin: 0,
+    borderRadius: 0,
+    borderWidth: 0,
+    elevation: 0,
   },
   cardConnected: {
-    backgroundColor: "#F0FDF4",
-    borderColor: "#DCFCE7",
+    backgroundColor: waColors.greenPale,
+    borderColor: waColors.greenPale,
   },
   cardDisconnected: {
     backgroundColor: "#FEF2F2",
     borderColor: "#FEE2E2",
   },
   statusCardContent: {
-    padding: 15,
+    padding: 18,
   },
   statusHeaderRow: {
     flexDirection: "row",
@@ -628,11 +643,11 @@ const styles = StyleSheet.create({
   statusTitle: {
     fontSize: 18,
     fontWeight: "bold",
-    color: Colors.textPrimary,
+    color: waColors.text,
   },
   statusSubtitle: {
     fontSize: 14,
-    color: Colors.textSecondary,
+    color: waColors.textSecondary,
     marginTop: 2,
   },
   
@@ -663,9 +678,9 @@ const styles = StyleSheet.create({
   },
   webhookUrlBox: {
     padding: 10,
-    backgroundColor: "#fff",
+    backgroundColor: waColors.surface,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: waColors.border,
     borderRadius: 8,
     marginBottom: 10,
   },
@@ -677,7 +692,7 @@ const styles = StyleSheet.create({
   webhookValue: {
     fontSize: 13,
     fontWeight: "600",
-    color: Colors.primaryDark,
+    color: waColors.greenDark,
   },
   disconnectBtn: {
     marginTop: 10,
@@ -687,9 +702,9 @@ const styles = StyleSheet.create({
   // Tabs
   tabBar: {
     flexDirection: "row",
-    backgroundColor: "#fff",
+    backgroundColor: waColors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    borderBottomColor: waColors.border,
   },
   tab: {
     flex: 1,
@@ -701,7 +716,7 @@ const styles = StyleSheet.create({
     borderBottomColor: "transparent",
   },
   activeTab: {
-    borderBottomColor: Colors.primary,
+    borderBottomColor: waColors.green,
   },
   tabText: {
     fontSize: 14,
@@ -710,31 +725,30 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   activeTabText: {
-    color: Colors.primary,
+    color: waColors.green,
   },
 
   // Form layouts
   tabContent: {
-    padding: 15,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
   formCard: {
-    borderRadius: 12,
-    backgroundColor: "#fff",
-    elevation: 2,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
+    borderRadius: 8,
+    backgroundColor: waColors.surface,
+    elevation: 0,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: waColors.border,
   },
   sectionHeader: {
     fontSize: 18,
     fontWeight: "bold",
-    color: Colors.textPrimary,
+    color: waColors.text,
     marginBottom: 4,
   },
   sectionSub: {
     fontSize: 14,
-    color: Colors.textSecondary,
+    color: waColors.textSecondary,
     marginBottom: 20,
   },
   
@@ -751,7 +765,7 @@ const styles = StyleSheet.create({
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: Colors.primary,
+    backgroundColor: waColors.green,
     justifyContent: "center",
     alignItems: "center",
   },
@@ -763,23 +777,23 @@ const styles = StyleSheet.create({
   stepText: {
     marginLeft: 15,
     fontSize: 14,
-    color: Colors.textPrimary,
+    color: waColors.text,
     flex: 1,
   },
   timelineLine: {
     width: 2,
     height: 15,
-    backgroundColor: Colors.borderStrong,
+    backgroundColor: waColors.border,
     marginLeft: 11,
     marginVertical: 4,
   },
 
   input: {
     marginBottom: 4,
-    backgroundColor: "#fff",
+    backgroundColor: waColors.surface,
   },
   fbButton: {
-    backgroundColor: "#1877F2",
+    backgroundColor: waColors.green,
     marginTop: 15,
     paddingVertical: 4,
   },
@@ -797,16 +811,16 @@ const styles = StyleSheet.create({
   },
   rsaKeyBox: {
     padding: 10,
-    backgroundColor: "#fff",
+    backgroundColor: waColors.surface,
     borderWidth: 1,
-    borderColor: Colors.border,
+    borderColor: waColors.border,
     borderRadius: 8,
     marginBottom: 10,
   },
   rsaKeyValue: {
     fontSize: 11,
     fontFamily: Platform.OS === "ios" ? "CourierNewPSMT" : "monospace",
-    color: Colors.textPrimary,
+    color: waColors.text,
     marginBottom: 6,
   },
   copyKeyBtn: {
@@ -816,6 +830,6 @@ const styles = StyleSheet.create({
   rotateKeyBtn: {
     marginTop: 5,
     marginBottom: 15,
-    borderColor: Colors.primary,
+    borderColor: waColors.green,
   },
 });

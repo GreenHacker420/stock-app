@@ -258,6 +258,13 @@ export type WaTemplate = {
   syncedAt?: string;
   updatedAt: string;
   variableMappings: WaTemplateMapping[];
+  versions?: Array<{
+    id: string;
+    version: number;
+    definition: WaTemplateDefinition;
+    metaStatus?: string;
+    createdAt: string;
+  }>;
 };
 
 export async function fetchWaConversations(token: string, shopId: string) {
@@ -445,6 +452,26 @@ export async function createWaTemplateAttribute(
     token,
     body: JSON.stringify({ ...attribute, shopId }),
   });
+}
+
+export async function updateWaTemplateAttribute(
+  token: string,
+  shopId: string,
+  id: string,
+  attribute: Partial<Pick<WaTemplateAttribute, "label" | "type" | "sourcePath" | "fallbackValue" | "description" | "isActive">>,
+) {
+  return apiRequest<WaTemplateAttribute>(`/whatsapp/template-attributes/${id}`, {
+    method: "PATCH",
+    token,
+    body: JSON.stringify({ ...attribute, shopId }),
+  });
+}
+
+export async function deleteWaTemplateAttribute(token: string, shopId: string, id: string) {
+  return apiRequest<{ success: boolean }>(
+    `/whatsapp/template-attributes/${id}?shopId=${encodeURIComponent(shopId)}`,
+    { method: "DELETE", token },
+  );
 }
 
 export async function sendWaTemplate(

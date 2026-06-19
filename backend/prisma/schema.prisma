@@ -351,9 +351,9 @@ model User {
   attendance             Attendance[]
   leaveRequests          LeaveRequest[]
 
-  assignedWaConversations WaConversation[]
-  waBroadcasts            WaBroadcast[]
-  assetsCreated           Asset[]          @relation("AssetCreatedBy")
+  assignedWaConversations     WaConversation[]
+  waBroadcasts                WaBroadcast[]
+  assetsCreated               Asset[]               @relation("AssetCreatedBy")
   waTemplateAttributesCreated WaTemplateAttribute[] @relation("WaTemplateAttributeCreatedBy")
   waTemplateVersionsCreated   WaTemplateVersion[]   @relation("WaTemplateVersionCreatedBy")
 }
@@ -397,12 +397,12 @@ model Shop {
   approvalRequests ApprovalRequest[]
   attendance       Attendance[]
 
-  waConversations WaConversation[]
-  waTemplates     WaTemplate[]
-  waFlows         WaFlow[]
-  waIntegration   WaIntegration?
-  waBroadcasts    WaBroadcast[]
-  assets          Asset[]
+  waConversations      WaConversation[]
+  waTemplates          WaTemplate[]
+  waFlows              WaFlow[]
+  waIntegration        WaIntegration?
+  waBroadcasts         WaBroadcast[]
+  assets               Asset[]
   waTemplateAttributes WaTemplateAttribute[]
 
   @@index([ownerId])
@@ -1441,32 +1441,32 @@ model WaWebhookEvent {
 }
 
 model WaTemplate {
-  id                  String             @id @default(cuid())
+  id                  String                  @id @default(cuid())
   shopId              String
   metaTemplateId      String?
   name                String
   language            String
-  status              WaTemplateStatus   @default(PENDING)
+  status              WaTemplateStatus        @default(PENDING)
   category            WaTemplateCategory
   components          Json
   headerVariables     Json?
   bodyVariables       Json?
   qualityScore        String?
-  sentCount           Int                @default(0)
-  readCount           Int                @default(0)
+  sentCount           Int                     @default(0)
+  readCount           Int                     @default(0)
   metaRejectionReason String?
   statusUpdatedAt     DateTime?
   qualityUpdatedAt    DateTime?
   syncedAt            DateTime?
   subtype             String?
-  parameterFormat     String             @default("POSITIONAL")
+  parameterFormat     String                  @default("POSITIONAL")
   mappingStatus       WaTemplateMappingStatus @default(INCOMPLETE)
   draftDefinition     Json?
   rawMeta             Json?
   syncError           String?
   deletedAt           DateTime?
-  createdAt           DateTime           @default(now())
-  updatedAt           DateTime           @updatedAt
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
 
   shop             Shop                        @relation(fields: [shopId], references: [id])
   broadcasts       WaBroadcast[]
@@ -1493,9 +1493,9 @@ model WaTemplateAttribute {
   createdAt     DateTime                  @default(now())
   updatedAt     DateTime                  @updatedAt
 
-  shop       Shop                        @relation(fields: [shopId], references: [id], onDelete: Cascade)
-  createdBy  User?                       @relation("WaTemplateAttributeCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
-  mappings   WaTemplateVariableMapping[]
+  shop      Shop                        @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  createdBy User?                       @relation("WaTemplateAttributeCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  mappings  WaTemplateVariableMapping[]
 
   @@unique([shopId, key])
   @@index([shopId, isActive])

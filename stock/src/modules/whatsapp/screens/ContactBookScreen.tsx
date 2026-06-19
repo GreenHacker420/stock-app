@@ -47,6 +47,8 @@ import {
 } from "../hooks/useContactsLocal";
 import { useContactsSync } from "../hooks/useContactsSync";
 import { useDebounce } from "use-debounce";
+import { useNavigation } from "@react-navigation/native";
+import { waColors } from "../whatsapp-ui";
 
 // -------------------------------------------------------------
 // COMPACT BOTTOM SHEET UTILITY COMPONENT
@@ -291,6 +293,7 @@ const EmptyState = ({ type, onAction }: EmptyStateProps) => {
 // MAIN CONTACT BOOK SCREEN
 // -------------------------------------------------------------
 export const ContactBookScreen = () => {
+  const navigation = useNavigation();
   const activeShopId = useShopStore((state) => state.activeShopId);
   const queryClient = useQueryClient();
 
@@ -315,6 +318,17 @@ export const ContactBookScreen = () => {
   // Sync Dialog State
   const [showSyncDialog, setShowSyncDialog] = useState(false);
   const [mergeStrategy, setMergeStrategy] = useState<"MERGE" | "OVERWRITE">("MERGE");
+
+  useEffect(() => {
+    navigation.setOptions({
+      headerShown: true,
+      headerTitle: "Contacts",
+      headerStyle: { backgroundColor: waColors.greenDark },
+      headerTintColor: "#fff",
+      headerShadowVisible: false,
+      headerTitleStyle: { fontWeight: "700" },
+    });
+  }, [navigation]);
 
   // Load server customers
   const { data: customers = [], isLoading: loadingCustomers } = useCustomersQuery();
@@ -926,7 +940,7 @@ export const ContactBookScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F4F6F4", // Sleek gray-green offset background
+    backgroundColor: waColors.surface,
   },
   loaderCenter: {
     flex: 1,
@@ -940,16 +954,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
     alignItems: "center",
-    backgroundColor: "#fff",
+    backgroundColor: waColors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    borderBottomColor: waColors.border,
   },
   searchbar: {
     flex: 1,
     elevation: 0,
-    backgroundColor: "#F0F2F0",
-    borderRadius: radius.md,
-    height: 38,
+    backgroundColor: waColors.surfaceMuted,
+    borderRadius: 20,
+    height: 40,
   },
   searchInput: {
     fontSize: fontSize.sm,
@@ -959,8 +973,8 @@ const styles = StyleSheet.create({
   headerActionBtn: {
     marginLeft: spacing.xs,
     marginRight: 0,
-    backgroundColor: "#F0F2F0",
-    borderRadius: radius.sm,
+    backgroundColor: waColors.surfaceMuted,
+    borderRadius: 20,
     width: 38,
     height: 38,
     justifyContent: "center",
@@ -970,9 +984,9 @@ const styles = StyleSheet.create({
   // Stats Summary Strip
   statsSummaryStrip: {
     flexDirection: "row",
-    backgroundColor: "#fff",
+    backgroundColor: waColors.surface,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    borderBottomColor: waColors.border,
     paddingVertical: spacing.xs,
     paddingHorizontal: spacing.md,
     justifyContent: "space-between",
@@ -1001,11 +1015,11 @@ const styles = StyleSheet.create({
 
   // Double-Row Segmented Filters Panel
   filterControlPanel: {
-    backgroundColor: "#fff",
+    backgroundColor: waColors.surface,
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    borderBottomColor: waColors.border,
   },
   categorySegment: {
     marginBottom: spacing.xs,
@@ -1035,9 +1049,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.xs,
-    backgroundColor: "#f4f6f4",
+    backgroundColor: waColors.surfaceMuted,
     borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
+    borderBottomColor: waColors.border,
   },
   selectionLabelText: {
     fontSize: 11,
@@ -1076,24 +1090,25 @@ const styles = StyleSheet.create({
 
   // Contacts List
   listContent: {
-    paddingHorizontal: spacing.md,
-    paddingTop: spacing.xs,
+    paddingHorizontal: 0,
+    paddingTop: 0,
     paddingBottom: 120, // Space for sticky sync footer
   },
 
   // Compact Contact Card (Vertical height reduced by 45%)
   contactCard: {
-    marginBottom: 4,
-    backgroundColor: "#fff",
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: Colors.border,
+    marginBottom: 0,
+    backgroundColor: waColors.surface,
+    borderRadius: 0,
+    borderWidth: 0,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: waColors.border,
     elevation: 0,
     shadowOpacity: 0,
   },
   selectedCard: {
-    borderColor: Colors.primary,
-    backgroundColor: "#F0FDF4", // Emerald green tint
+    borderColor: waColors.green,
+    backgroundColor: waColors.greenPale,
   },
   mutatedCard: {
     borderColor: Colors.warningLight,
@@ -1102,8 +1117,8 @@ const styles = StyleSheet.create({
   cardLayout: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 6, // Reduced padding for compactness
+    paddingHorizontal: spacing.md,
+    paddingVertical: 9,
   },
   checkboxTouch: {
     padding: 6,
@@ -1128,7 +1143,7 @@ const styles = StyleSheet.create({
   contactName: {
     fontSize: fontSize.sm,
     fontWeight: fontWeight.bold,
-    color: Colors.textPrimary,
+    color: waColors.text,
     maxWidth: "50%",
   },
   badgeWrapper: {
