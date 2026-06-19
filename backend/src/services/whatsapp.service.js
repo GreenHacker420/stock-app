@@ -16,21 +16,9 @@ const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
 export function normalizePhone(phone) {
   if (!phone) return "";
   const parsed = parsePhoneNumberFromString(phone, "IN");
-  if (parsed && parsed.isValid()) {
-    return parsed.number;
-  }
-  const cleaned = phone.replace(/[^\d+]/g, "");
-  if (cleaned.startsWith("+")) {
-    return cleaned;
-  }
-  if (cleaned.length === 10) {
-    return `+91${cleaned}`;
-  }
-  if (cleaned.length > 10) {
-    return `+${cleaned}`;
-  }
-  return cleaned;
+  return parsed ? parsed.number : phone.replace(/[^\d+]/g, "");
 }
+
 
 
 
