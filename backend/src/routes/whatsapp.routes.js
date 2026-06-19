@@ -28,7 +28,36 @@ router.post("/flow-endpoint/:shopId", whatsappFlowEndpointController.handleFlowR
 // Protected UI routes
 router.get("/conversations", requireAuth, whatsappController.getConversations);
 router.get("/conversations/:id/messages", requireAuth, whatsappController.getMessages);
-router.get("/templates", requireAuth, whatsappController.getTemplates);
+router.get(
+  "/templates",
+  requireAuth,
+  requireShopAccess((req) => req.query.shopId),
+  whatsappController.getTemplates,
+);
+router.get(
+  "/templates/:id",
+  requireAuth,
+  requireShopAccess((req) => req.query.shopId),
+  whatsappController.getTemplate,
+);
+router.post(
+  "/templates/:id/preview",
+  requireAuth,
+  requireShopAccess((req) => req.body.shopId),
+  whatsappController.previewTemplate,
+);
+router.post(
+  "/templates/:id/send",
+  requireAuth,
+  requireShopAccess((req) => req.body.shopId),
+  whatsappController.sendTemplate,
+);
+router.get(
+  "/template-attributes",
+  requireAuth,
+  requireShopAccess((req) => req.query.shopId),
+  whatsappController.getTemplateAttributes,
+);
 router.post("/messages", requireAuth, whatsappController.sendMessage);
 router.post(
   "/media",
@@ -50,7 +79,55 @@ const requireOwner = (req, res, next) => {
   next();
 };
 
-router.post("/sync-templates", requireAuth, requireOwner, whatsappController.syncTemplates);
+router.post(
+  "/sync-templates",
+  requireAuth,
+  requireOwner,
+  requireShopAccess((req) => req.body.shopId),
+  whatsappController.syncTemplates,
+);
+router.post(
+  "/templates",
+  requireAuth,
+  requireOwner,
+  requireShopAccess((req) => req.body.shopId),
+  whatsappController.createTemplate,
+);
+router.patch(
+  "/templates/:id",
+  requireAuth,
+  requireOwner,
+  requireShopAccess((req) => req.body.shopId),
+  whatsappController.updateTemplate,
+);
+router.delete(
+  "/templates/:id",
+  requireAuth,
+  requireOwner,
+  requireShopAccess((req) => req.query.shopId),
+  whatsappController.deleteTemplate,
+);
+router.post(
+  "/template-attributes",
+  requireAuth,
+  requireOwner,
+  requireShopAccess((req) => req.body.shopId),
+  whatsappController.createTemplateAttribute,
+);
+router.patch(
+  "/template-attributes/:id",
+  requireAuth,
+  requireOwner,
+  requireShopAccess((req) => req.body.shopId),
+  whatsappController.updateTemplateAttribute,
+);
+router.delete(
+  "/template-attributes/:id",
+  requireAuth,
+  requireOwner,
+  requireShopAccess((req) => req.query.shopId),
+  whatsappController.deleteTemplateAttribute,
+);
 router.post("/sync-flows", requireAuth, requireOwner, whatsappController.syncFlows);
 router.post("/sync-contacts", requireAuth, requireOwner, whatsappController.syncContacts);
 

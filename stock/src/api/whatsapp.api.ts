@@ -177,6 +177,89 @@ export interface WaConversation {
   messages?: WaMessage[];
 }
 
+export type WaTemplateStatus = "APPROVED" | "REJECTED" | "PENDING" | "PAUSED" | "DISABLED" | "IN_APPEAL" | "DELETED";
+export type WaTemplateMapping = {
+  id: string;
+  component: "HEADER" | "BODY" | "BUTTON" | "CARD";
+  position: number;
+  buttonIndex?: number;
+  cardIndex?: number;
+  attributeId?: string;
+  sampleValue: string;
+  fallbackValue?: string;
+  required: boolean;
+  attribute?: WaTemplateAttribute | null;
+};
+export type WaTemplateAttribute = {
+  id: string;
+  key: string;
+  label: string;
+  type: "TEXT" | "NUMBER" | "CURRENCY" | "DATE" | "DATETIME" | "BOOLEAN" | "URL" | "PHONE" | "EMAIL";
+  source: "SYSTEM" | "CUSTOMER" | "CONVERSATION" | "SHOP" | "CUSTOM";
+  sourcePath?: string;
+  fallbackValue?: string;
+  description?: string;
+  isSystem: boolean;
+  isActive: boolean;
+};
+export type WaTemplateDefinition = {
+  name: string;
+  language: string;
+  category: "MARKETING" | "UTILITY" | "AUTHENTICATION";
+  subtype?: string;
+  parameterFormat?: "POSITIONAL" | "NAMED";
+  allowCategoryChange?: boolean;
+  header?: {
+    format: "NONE" | "TEXT" | "IMAGE" | "VIDEO" | "DOCUMENT" | "LOCATION";
+    text?: string;
+    exampleHandle?: string;
+    documentFileName?: string;
+  };
+  body: { text: string; addSecurityRecommendation?: boolean };
+  footer?: { text?: string; codeExpirationMinutes?: number };
+  buttons?: Array<
+    | { type: "QUICK_REPLY"; text: string }
+    | { type: "URL"; text: string; url: string; example?: string }
+    | { type: "PHONE_NUMBER"; text: string; phoneNumber: string }
+    | { type: "COPY_CODE"; text?: string; example?: string }
+    | { type: "FLOW"; text: string; flowId: string; flowAction?: "NAVIGATE" | "DATA_EXCHANGE" }
+  >;
+  authentication?: {
+    otpType: "COPY_CODE" | "ONE_TAP" | "ZERO_TAP";
+    packageName?: string;
+    signatureHash?: string;
+    zeroTapTermsAccepted?: boolean;
+  };
+  mappings?: Array<{
+    component: "HEADER" | "BODY" | "BUTTON" | "CARD";
+    position: number;
+    buttonIndex?: number;
+    cardIndex?: number;
+    attributeId?: string | null;
+    sampleValue: string;
+    fallbackValue?: string | null;
+    required?: boolean;
+  }>;
+};
+export type WaTemplate = {
+  id: string;
+  metaTemplateId?: string;
+  name: string;
+  language: string;
+  status: WaTemplateStatus;
+  category: "MARKETING" | "UTILITY" | "AUTHENTICATION";
+  subtype?: string;
+  parameterFormat: string;
+  mappingStatus: "VALID" | "INCOMPLETE" | "INVALID";
+  components: any[];
+  draftDefinition?: WaTemplateDefinition;
+  metaRejectionReason?: string;
+  qualityScore?: string;
+  syncedAt?: string;
+  updatedAt: string;
+  variableMappings: WaTemplateMapping[];
+};
+
 export async function fetchWaConversations(token: string, shopId: string) {
   return apiRequest<WaConversation[]>(`/whatsapp/conversations?shopId=${encodeURIComponent(shopId)}`, { token });
 }
@@ -303,8 +386,83 @@ export async function syncWaFlows(token: string, shopId: string) {
   });
 }
 
-export async function fetchWaTemplates(token: string, shopId: string) {
-  return apiRequest<any[]>(`/whatsapp/templates?shopId=${encodeURIComponent(shopId)}`, { token });
+export async function fetchWaTemplates(
+  token: string,
+  shopId: string,
+  filters: { status?: string; category?: string; search?: string; page?: number; pageSize?: number } = {},
+) {
+  const query = new URLSearchParams({ shopId });
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value != null && value !== "") query.set(key, String(value));
+  });
+  return apiRequest<{ data: WaTemplate[]; meta: { page: number; pageSize: number; total: number; pages: number } }>(
+    `/whatsapp/templates?${query.toString()}`,
+    { token },
+  );
+}
+
+export async function fetchWaTemplate(token: string, shopId: string, id: string) {
+  return apiRequest<WaTemplate>(`/whatsapp/templates/${id}?shopId=${encodeURIComponent(shopId)}`, { token });
+}
+
+export async function createWaTemplate(token: string, shopId: string, definition: WaTemplateDefinition) {
+  return apiRequest<WaTemplate>("/whatsapp/templates", {
+    method: "POST",
+    token,
+    body: JSON.stringify({ ...definition, shopId }),
+  });
+}
+
+export async function updateWaTemplate(token: string, shopId: string, id: string, definition: Partial<WaTemplateDefinition>) {
+  return apiRequest<WaTemplate>(`/whatsapp/templates/${id}`, {
+    method: "PATCH",
+    token,
+    body: JSON.stringify({ ...definition, shopId }),
+  });
+}
+
+export async function deleteWaTemplate(token: string, shopId: string, id: string) {
+  return apiRequest<WaTemplate>(`/whatsapp/templates/${id}?shopId=${encodeURIComponent(shopId)}`, {
+    method: "DELETE",
+    token,
+  });
+}
+
+export async function fetchWaTemplateAttributes(token: string, shopId: string) {
+  return apiRequest<WaTemplateAttribute[]>(
+    `/whatsapp/template-attributes?shopId=${encodeURIComponent(shopId)}`,
+    { token },
+  );
+}
+
+export async function createWaTemplateAttribute(
+  token: string,
+  shopId: string,
+  attribute: Omit<WaTemplateAttribute, "id" | "isSystem" | "isActive">,
+) {
+  return apiRequest<WaTemplateAttribute>("/whatsapp/template-attributes", {
+    method: "POST",
+    token,
+    body: JSON.stringify({ ...attribute, shopId }),
+  });
+}
+
+export async function sendWaTemplate(
+  token: string,
+  id: string,
+  payload: {
+    shopId: string;
+    conversationId: string;
+    to: string;
+    values?: Record<string, string>;
+    replyToMessageId?: string;
+  },
+) {
+  return apiRequest<WaMessage>(`/whatsapp/templates/${id}/send`, {
+    method: "POST",
+    token,
+    body: JSON.stringify(payload),
+  });
 }
 
 export async function markWaConversationRead(token: string, shopId: string, conversationId: string) {
@@ -387,6 +545,6 @@ export const whatsappApi = {
   getTemplates: async (shopId: string) => {
     const token = useAuthStore.getState().token || "";
     const res = await fetchWaTemplates(token, shopId);
-    return { data: { success: true, data: res } };
+    return { data: { success: true, data: res.data, meta: res.meta } };
   }
 };

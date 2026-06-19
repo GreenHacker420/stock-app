@@ -354,6 +354,8 @@ model User {
   assignedWaConversations WaConversation[]
   waBroadcasts            WaBroadcast[]
   assetsCreated           Asset[]          @relation("AssetCreatedBy")
+  waTemplateAttributesCreated WaTemplateAttribute[] @relation("WaTemplateAttributeCreatedBy")
+  waTemplateVersionsCreated   WaTemplateVersion[]   @relation("WaTemplateVersionCreatedBy")
 }
 
 model Shop {
@@ -401,6 +403,7 @@ model Shop {
   waIntegration   WaIntegration?
   waBroadcasts    WaBroadcast[]
   assets          Asset[]
+  waTemplateAttributes WaTemplateAttribute[]
 
   @@index([ownerId])
 }
@@ -1207,6 +1210,7 @@ enum WaTemplateStatus {
   PAUSED
   DISABLED
   IN_APPEAL
+  DELETED
 }
 
 enum WaBroadcastStatus {
@@ -1246,6 +1250,32 @@ enum WaTemplateCategory {
   UTILITY
   MARKETING
   AUTHENTICATION
+}
+
+enum WaTemplateAttributeType {
+  TEXT
+  NUMBER
+  CURRENCY
+  DATE
+  DATETIME
+  BOOLEAN
+  URL
+  PHONE
+  EMAIL
+}
+
+enum WaTemplateAttributeSource {
+  SYSTEM
+  CUSTOMER
+  CONVERSATION
+  SHOP
+  CUSTOM
+}
+
+enum WaTemplateMappingStatus {
+  VALID
+  INCOMPLETE
+  INVALID
 }
 
 enum AssetKind {
@@ -1428,14 +1458,85 @@ model WaTemplate {
   statusUpdatedAt     DateTime?
   qualityUpdatedAt    DateTime?
   syncedAt            DateTime?
+  subtype             String?
+  parameterFormat     String             @default("POSITIONAL")
+  mappingStatus       WaTemplateMappingStatus @default(INCOMPLETE)
+  draftDefinition     Json?
+  rawMeta             Json?
+  syncError           String?
+  deletedAt           DateTime?
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
 
-  shop       Shop          @relation(fields: [shopId], references: [id])
-  broadcasts WaBroadcast[]
+  shop             Shop                        @relation(fields: [shopId], references: [id])
+  broadcasts       WaBroadcast[]
+  variableMappings WaTemplateVariableMapping[]
+  versions         WaTemplateVersion[]
 
   @@unique([shopId, name, language])
   @@index([shopId, status])
+}
+
+model WaTemplateAttribute {
+  id            String                    @id @default(cuid())
+  shopId        String
+  key           String
+  label         String
+  type          WaTemplateAttributeType   @default(TEXT)
+  source        WaTemplateAttributeSource @default(CUSTOM)
+  sourcePath    String?
+  fallbackValue String?
+  description   String?
+  isSystem      Boolean                   @default(false)
+  isActive      Boolean                   @default(true)
+  createdById   String?
+  createdAt     DateTime                  @default(now())
+  updatedAt     DateTime                  @updatedAt
+
+  shop       Shop                        @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  createdBy  User?                       @relation("WaTemplateAttributeCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  mappings   WaTemplateVariableMapping[]
+
+  @@unique([shopId, key])
+  @@index([shopId, isActive])
+}
+
+model WaTemplateVariableMapping {
+  id            String   @id @default(cuid())
+  templateId    String
+  component     String
+  position      Int
+  buttonIndex   Int?
+  cardIndex     Int?
+  attributeId   String?
+  sampleValue   String
+  fallbackValue String?
+  required      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  template  WaTemplate           @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  attribute WaTemplateAttribute? @relation(fields: [attributeId], references: [id], onDelete: SetNull)
+
+  @@unique([templateId, component, position, buttonIndex, cardIndex])
+  @@index([templateId])
+  @@index([attributeId])
+}
+
+model WaTemplateVersion {
+  id          String   @id @default(cuid())
+  templateId  String
+  version     Int
+  definition  Json
+  metaStatus  String?
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  template  WaTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  createdBy User?      @relation("WaTemplateVersionCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@unique([templateId, version])
+  @@index([templateId, createdAt])
 }
 
 model WaTemplateUsage {

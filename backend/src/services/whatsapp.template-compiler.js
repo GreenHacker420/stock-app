@@ -1,0 +1,207 @@
+import { z } from "zod";
+
+const variableMappingSchema = z.object({
+  component: z.enum(["HEADER", "BODY", "BUTTON", "CARD"]),
+  position: z.number().int().min(1),
+  buttonIndex: z.number().int().min(0).optional(),
+  cardIndex: z.number().int().min(0).optional(),
+  attributeId: z.string().min(1).optional().nullable(),
+  sampleValue: z.string().min(1).max(500),
+  fallbackValue: z.string().max(500).optional().nullable(),
+  required: z.boolean().optional().default(true),
+});
+
+const buttonSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("QUICK_REPLY"), text: z.string().trim().min(1).max(25) }),
+  z.object({
+    type: z.literal("URL"),
+    text: z.string().trim().min(1).max(25),
+    url: z.string().url().max(2000),
+    example: z.string().max(2000).optional(),
+  }),
+  z.object({
+    type: z.literal("PHONE_NUMBER"),
+    text: z.string().trim().min(1).max(25),
+    phoneNumber: z.string().trim().min(5).max(32),
+  }),
+  z.object({
+    type: z.literal("COPY_CODE"),
+    text: z.string().trim().min(1).max(25).optional(),
+    example: z.string().max(20).optional(),
+  }),
+  z.object({
+    type: z.literal("FLOW"),
+    text: z.string().trim().min(1).max(25),
+    flowId: z.string().trim().min(1),
+    flowAction: z.enum(["NAVIGATE", "DATA_EXCHANGE"]).optional(),
+  }),
+]);
+
+export const templateDefinitionSchema = z.object({
+  name: z.string().trim().min(1).max(512).regex(/^[a-z0-9_]+$/),
+  language: z.string().trim().min(2).max(20).default("en_US"),
+  category: z.enum(["MARKETING", "UTILITY", "AUTHENTICATION"]),
+  subtype: z.string().max(80).optional(),
+  parameterFormat: z.enum(["POSITIONAL", "NAMED"]).default("POSITIONAL"),
+  allowCategoryChange: z.boolean().optional().default(false),
+  header: z.object({
+    format: z.enum(["NONE", "TEXT", "IMAGE", "VIDEO", "DOCUMENT", "LOCATION"]).default("NONE"),
+    text: z.string().max(60).optional(),
+    exampleHandle: z.string().optional(),
+    documentFileName: z.string().max(240).optional(),
+  }).optional(),
+  body: z.object({
+    text: z.string().min(1).max(1024),
+    addSecurityRecommendation: z.boolean().optional(),
+  }),
+  footer: z.object({
+    text: z.string().max(60).optional(),
+    codeExpirationMinutes: z.number().int().min(1).max(90).optional(),
+  }).optional(),
+  buttons: z.array(buttonSchema).max(10).optional().default([]),
+  authentication: z.object({
+    otpType: z.enum(["COPY_CODE", "ONE_TAP", "ZERO_TAP"]),
+    packageName: z.string().optional(),
+    signatureHash: z.string().optional(),
+    zeroTapTermsAccepted: z.boolean().optional(),
+  }).optional(),
+  mappings: z.array(variableMappingSchema).optional().default([]),
+});
+
+export const attributeSchema = z.object({
+  key: z.string().trim().min(1).max(120).regex(/^[a-zA-Z0-9_.]+$/),
+  label: z.string().trim().min(1).max(120),
+  type: z.enum(["TEXT", "NUMBER", "CURRENCY", "DATE", "DATETIME", "BOOLEAN", "URL", "PHONE", "EMAIL"]).default("TEXT"),
+  source: z.enum(["CUSTOMER", "CONVERSATION", "SHOP", "CUSTOM"]).default("CUSTOM"),
+  sourcePath: z.string().trim().max(200).optional().nullable(),
+  fallbackValue: z.string().max(500).optional().nullable(),
+  description: z.string().max(500).optional().nullable(),
+});
+
+function extractVariables(text = "") {
+  return [...new Set([...text.matchAll(/\{\{(\d+)\}\}/g)].map((match) => Number(match[1])))]
+    .sort((a, b) => a - b);
+}
+
+function validateMappings(definition) {
+  const expected = [
+    ...extractVariables(definition.header?.text).map((position) => ({ component: "HEADER", position })),
+    ...extractVariables(definition.body.text).map((position) => ({ component: "BODY", position })),
+  ];
+  for (const item of expected) {
+    const mapping = definition.mappings.find(
+      (candidate) => candidate.component === item.component && candidate.position === item.position,
+    );
+    if (!mapping) throw new Error(`Missing ${item.component.toLowerCase()} mapping for {{${item.position}}}`);
+  }
+}
+
+function compileButtons(definition) {
+  if (definition.category === "AUTHENTICATION") {
+    const authentication = definition.authentication;
+    if (!authentication) throw new Error("Authentication settings are required");
+    const button = { type: "OTP", otp_type: authentication.otpType };
+    if (["ONE_TAP", "ZERO_TAP"].includes(authentication.otpType)) {
+      if (!authentication.packageName || !authentication.signatureHash) {
+        throw new Error("Android package name and signature hash are required");
+      }
+      button.supported_apps = [{
+        package_name: authentication.packageName,
+        signature_hash: authentication.signatureHash,
+      }];
+    }
+    if (authentication.otpType === "ZERO_TAP") {
+      button.zero_tap_terms_accepted = authentication.zeroTapTermsAccepted === true;
+    }
+    return [button];
+  }
+
+  return definition.buttons.map((button) => {
+    if (button.type === "URL") {
+      return {
+        type: "URL",
+        text: button.text,
+        url: button.url,
+        ...(button.example ? { example: [button.example] } : {}),
+      };
+    }
+    if (button.type === "PHONE_NUMBER") {
+      return { type: "PHONE_NUMBER", text: button.text, phone_number: button.phoneNumber };
+    }
+    if (button.type === "COPY_CODE") {
+      return { type: "COPY_CODE", text: button.text || "Copy code", ...(button.example ? { example: button.example } : {}) };
+    }
+    if (button.type === "FLOW") {
+      return {
+        type: "FLOW",
+        text: button.text,
+        flow_id: button.flowId,
+        flow_action: button.flowAction || "NAVIGATE",
+      };
+    }
+    return { type: "QUICK_REPLY", text: button.text };
+  });
+}
+
+export function compileTemplateDefinition(input) {
+  const definition = templateDefinitionSchema.parse(input);
+  validateMappings(definition);
+  const components = [];
+
+  if (definition.category === "AUTHENTICATION") {
+    components.push({
+      type: "BODY",
+      ...(definition.body.addSecurityRecommendation ? { add_security_recommendation: true } : {}),
+    });
+    if (definition.footer?.codeExpirationMinutes) {
+      components.push({ type: "FOOTER", code_expiration_minutes: definition.footer.codeExpirationMinutes });
+    }
+  } else {
+    const header = definition.header;
+    if (header && header.format !== "NONE") {
+      if (header.format === "TEXT") {
+        const values = definition.mappings
+          .filter((mapping) => mapping.component === "HEADER")
+          .sort((a, b) => a.position - b.position)
+          .map((mapping) => mapping.sampleValue);
+        components.push({
+          type: "HEADER",
+          format: "TEXT",
+          text: header.text,
+          ...(values.length ? { example: { header_text: values } } : {}),
+        });
+      } else {
+        components.push({
+          type: "HEADER",
+          format: header.format,
+          ...(header.exampleHandle ? { example: { header_handle: [header.exampleHandle] } } : {}),
+        });
+      }
+    }
+    const bodyValues = definition.mappings
+      .filter((mapping) => mapping.component === "BODY")
+      .sort((a, b) => a.position - b.position)
+      .map((mapping) => mapping.sampleValue);
+    components.push({
+      type: "BODY",
+      text: definition.body.text,
+      ...(bodyValues.length ? { example: { body_text: [bodyValues] } } : {}),
+    });
+    if (definition.footer?.text) components.push({ type: "FOOTER", text: definition.footer.text });
+  }
+
+  const buttons = compileButtons(definition);
+  if (buttons.length) components.push({ type: "BUTTONS", buttons });
+
+  return {
+    definition,
+    metaPayload: {
+      name: definition.name,
+      language: definition.language,
+      category: definition.category,
+      components,
+      ...(definition.allowCategoryChange ? { allow_category_change: true } : {}),
+      ...(definition.parameterFormat === "NAMED" ? { parameter_format: "NAMED" } : {}),
+    },
+  };
+}

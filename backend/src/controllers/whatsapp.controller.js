@@ -11,6 +11,7 @@ import {
   serializeMessageWithAsset,
   uploadWhatsAppMedia,
 } from "../services/whatsapp.media.service.js";
+import { whatsappTemplateService } from "../services/whatsapp.template.service.js";
 
 async function getPublicIntegration(shopId) {
   const integration = await prisma.waIntegration.findUnique({
@@ -293,9 +294,8 @@ class WhatsAppController {
    */
   async syncTemplates(req, res) {
     try {
-      const { shopId } = req.body;
-      const count = await whatsappService.syncTemplates(shopId);
-      res.json({ success: true, message: `Synced ${count} templates` });
+      const result = await whatsappTemplateService.syncTemplates(req.shop.id);
+      res.json({ success: true, data: result, message: `Synced ${result.count} templates` });
     } catch (error) {
       res.status(500).json({ success: false, message: error.message });
     }
@@ -306,15 +306,126 @@ class WhatsAppController {
    */
   async getTemplates(req, res) {
     try {
-      const { shopId } = req.query;
-      if (!shopId) return res.status(400).json({ success: false, message: "shopId is required" });
-      const templates = await prisma.waTemplate.findMany({
-        where: { shopId, status: "APPROVED" },
-        orderBy: { name: "asc" }
-      });
-      res.json({ success: true, data: templates });
+      const result = await whatsappTemplateService.listTemplates(req.shop.id, req.query);
+      res.json({ success: true, data: result });
     } catch (error) {
       res.status(500).json({ success: false, message: error.message });
+    }
+  }
+
+  async getTemplate(req, res) {
+    try {
+      const template = await whatsappTemplateService.getTemplate(req.shop.id, req.params.id);
+      res.json({ success: true, data: template });
+    } catch (error) {
+      res.status(404).json({ success: false, message: error.message });
+    }
+  }
+
+  async createTemplate(req, res) {
+    try {
+      const template = await whatsappTemplateService.createTemplate(req.shop.id, req.user.id, req.body);
+      res.status(201).json({ success: true, data: template });
+    } catch (error) {
+      res.status(400).json({
+        success: false,
+        message: error.response?.data?.error?.message || error.issues?.[0]?.message || error.message,
+        details: error.issues || undefined,
+      });
+    }
+  }
+
+  async updateTemplate(req, res) {
+    try {
+      const template = await whatsappTemplateService.updateTemplate(
+        req.shop.id,
+        req.params.id,
+        req.user.id,
+        req.body,
+      );
+      res.json({ success: true, data: template });
+    } catch (error) {
+      res.status(400).json({
+        success: false,
+        message: error.response?.data?.error?.message || error.issues?.[0]?.message || error.message,
+      });
+    }
+  }
+
+  async deleteTemplate(req, res) {
+    try {
+      const template = await whatsappTemplateService.deleteTemplate(req.shop.id, req.params.id);
+      res.json({ success: true, data: template });
+    } catch (error) {
+      res.status(400).json({
+        success: false,
+        message: error.response?.data?.error?.message || error.message,
+      });
+    }
+  }
+
+  async previewTemplate(req, res) {
+    try {
+      const template = await whatsappTemplateService.previewTemplate(req.shop.id, req.params.id, req.body);
+      res.json({ success: true, data: template });
+    } catch (error) {
+      res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
+  async sendTemplate(req, res) {
+    try {
+      const message = await whatsappTemplateService.compileTemplateMessage(
+        req.shop.id,
+        req.params.id,
+        req.body,
+      );
+      const sent = await whatsappService.sendMessage({
+        shopId: req.shop.id,
+        conversationId: req.body.conversationId,
+        to: req.body.to,
+        message,
+        replyToMessageId: req.body.replyToMessageId,
+      });
+      res.json({ success: true, data: sent });
+    } catch (error) {
+      res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
+  async getTemplateAttributes(req, res) {
+    try {
+      const attributes = await whatsappTemplateService.listAttributes(req.shop.id);
+      res.json({ success: true, data: attributes });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  }
+
+  async createTemplateAttribute(req, res) {
+    try {
+      const attribute = await whatsappTemplateService.createAttribute(req.shop.id, req.user.id, req.body);
+      res.status(201).json({ success: true, data: attribute });
+    } catch (error) {
+      res.status(400).json({ success: false, message: error.issues?.[0]?.message || error.message });
+    }
+  }
+
+  async updateTemplateAttribute(req, res) {
+    try {
+      const attribute = await whatsappTemplateService.updateAttribute(req.shop.id, req.params.id, req.body);
+      res.json({ success: true, data: attribute });
+    } catch (error) {
+      res.status(400).json({ success: false, message: error.issues?.[0]?.message || error.message });
+    }
+  }
+
+  async deleteTemplateAttribute(req, res) {
+    try {
+      const attribute = await whatsappTemplateService.deleteAttribute(req.shop.id, req.params.id);
+      res.json({ success: true, data: attribute });
+    } catch (error) {
+      res.status(400).json({ success: false, message: error.message });
     }
   }
 
