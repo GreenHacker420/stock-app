@@ -2,7 +2,22 @@ import { apiRequest } from "./client";
 import { useAuthStore } from "../auth/auth-store";
 
 export type WaMessageStatus = "QUEUED" | "SENT" | "DELIVERED" | "READ" | "FAILED" | "DELETED";
-export type WaMessageType = "TEXT" | "IMAGE" | "DOCUMENT" | "AUDIO" | "VIDEO" | "STICKER" | "TEMPLATE" | "FLOW" | "REACTION";
+export type WaMessageType =
+  | "TEXT"
+  | "IMAGE"
+  | "DOCUMENT"
+  | "AUDIO"
+  | "VIDEO"
+  | "STICKER"
+  | "TEMPLATE"
+  | "FLOW"
+  | "INTERACTIVE"
+  | "LOCATION"
+  | "CONTACT_CARD"
+  | "REACTION"
+  | "ORDER"
+  | "SYSTEM"
+  | "UNSUPPORTED";
 export type WaMessageDirection = "INBOUND" | "OUTBOUND";
 
 export interface WaMessage {
@@ -15,6 +30,12 @@ export interface WaMessage {
   type: WaMessageType;
   content: any;
   payload?: {
+    subtype?: string;
+    forwarded?: boolean;
+    frequentlyForwarded?: boolean;
+    voice?: boolean;
+    animated?: boolean;
+    raw?: unknown;
     reactions?: Array<{
       from: string;
       emoji: string;
@@ -25,6 +46,10 @@ export interface WaMessage {
   mediaUrl?: string;
   mimeType?: string;
   fileName?: string;
+  templateId?: string;
+  templateName?: string;
+  templateLanguage?: string;
+  broadcastRecipientId?: string;
   errorMessage?: string;
   deliveredAt?: string;
   readAt?: string;

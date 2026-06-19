@@ -460,12 +460,94 @@ export const ChatDetailScreen = () => {
             <>
               {item.type === "TEXT" && <Text style={styles.messageText}>{item.content?.text}</Text>}
               {item.type === "IMAGE" && (
-                <Image source={{ uri: item.mediaUrl }} style={styles.messageImage} resizeMode="cover" />
+                <>
+                  <Image source={{ uri: item.mediaUrl }} style={styles.messageImage} resizeMode="cover" />
+                  {!!item.content?.text && <Text style={styles.messageText}>{item.content.text}</Text>}
+                </>
               )}
               {item.type === "DOCUMENT" && (
                 <View style={styles.docRow}>
                   <MaterialCommunityIcons name="file-document-outline" size={28} color={Colors.primary} />
                   <Text style={styles.docText} numberOfLines={1}>{item.fileName || "Document"}</Text>
+                </View>
+              )}
+              {item.type === "STICKER" && (
+                <Image source={{ uri: item.mediaUrl }} style={styles.messageImage} resizeMode="contain" />
+              )}
+              {item.type === "AUDIO" && (
+                <View style={styles.docRow}>
+                  <MaterialCommunityIcons name={item.payload?.voice ? "microphone" : "volume-high"} size={28} color={Colors.primary} />
+                  <Text style={styles.docText}>{item.payload?.voice ? "Voice message" : "Audio message"}</Text>
+                </View>
+              )}
+              {item.type === "VIDEO" && (
+                <View style={styles.docRow}>
+                  <MaterialCommunityIcons name="video-outline" size={28} color={Colors.primary} />
+                  <Text style={styles.docText}>Video message</Text>
+                </View>
+              )}
+              {item.type === "LOCATION" && (
+                <View style={styles.docRow}>
+                  <MaterialCommunityIcons name="map-marker-outline" size={28} color={Colors.primary} />
+                  <Text style={styles.docText} numberOfLines={2}>
+                    {item.content?.name || item.content?.address || "Shared location"}
+                  </Text>
+                </View>
+              )}
+              {item.type === "CONTACT_CARD" && (
+                <View style={styles.docRow}>
+                  <MaterialCommunityIcons name="account-box-outline" size={28} color={Colors.primary} />
+                  <Text style={styles.docText}>
+                    {Array.isArray(item.content) && item.content.length > 1
+                      ? `${item.content.length} contacts`
+                      : "Shared contact"}
+                  </Text>
+                </View>
+              )}
+              {item.type === "INTERACTIVE" && (
+                <View style={styles.docRow}>
+                  <MaterialCommunityIcons name="gesture-tap-button" size={28} color={Colors.primary} />
+                  <Text style={styles.docText} numberOfLines={2}>
+                    {item.content?.title || item.content?.text || "Interactive response"}
+                  </Text>
+                </View>
+              )}
+              {item.type === "FLOW" && (
+                <View style={styles.docRow}>
+                  <MaterialCommunityIcons name="form-select" size={28} color={Colors.primary} />
+                  <Text style={styles.docText}>Flow response</Text>
+                </View>
+              )}
+              {item.type === "ORDER" && (
+                <View style={styles.docRow}>
+                  <MaterialCommunityIcons name="cart-outline" size={28} color={Colors.primary} />
+                  <Text style={styles.docText}>
+                    {Array.isArray(item.content?.product_items)
+                      ? `Order with ${item.content.product_items.length} item${item.content.product_items.length === 1 ? "" : "s"}`
+                      : "WhatsApp order"}
+                  </Text>
+                </View>
+              )}
+              {item.type === "SYSTEM" && (
+                <View style={styles.docRow}>
+                  <MaterialCommunityIcons name="information-outline" size={28} color={Colors.textSecondary} />
+                  <Text style={styles.docText} numberOfLines={2}>
+                    {item.content?.body || item.content?.type || "WhatsApp system message"}
+                  </Text>
+                </View>
+              )}
+              {item.type === "TEMPLATE" && (
+                <View style={styles.docRow}>
+                  <MaterialCommunityIcons name="card-text-outline" size={28} color={Colors.primary} />
+                  <Text style={styles.docText} numberOfLines={2}>
+                    {item.templateName || item.content?.template?.name || "Template message"}
+                  </Text>
+                </View>
+              )}
+              {item.type === "UNSUPPORTED" && (
+                <View style={styles.docRow}>
+                  <MaterialCommunityIcons name="alert-circle-outline" size={28} color={Colors.textSecondary} />
+                  <Text style={styles.docText}>Unsupported WhatsApp message</Text>
                 </View>
               )}
             </>

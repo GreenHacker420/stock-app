@@ -1162,6 +1162,8 @@ enum WaMessageType {
   LOCATION
   CONTACT_CARD
   REACTION
+  ORDER
+  SYSTEM
   UNSUPPORTED
 }
 
@@ -1300,6 +1302,35 @@ model WaMessage {
 enum WaWebhookEventType {
   STATUS
   MESSAGE
+}
+
+enum WaWebhookProcessingStatus {
+  RECEIVED
+  PROCESSING
+  PROCESSED
+  FAILED
+  QUARANTINED
+}
+
+model WaWebhookEnvelope {
+  id                String                    @id @default(cuid())
+  shopId            String
+  wabaId            String?
+  phoneNumberId     String?
+  field             String
+  payloadJson       Json
+  payloadHash       String
+  signatureVerified Boolean                   @default(false)
+  processingStatus  WaWebhookProcessingStatus @default(RECEIVED)
+  attemptCount      Int                       @default(0)
+  errorCode         String?
+  errorMessage      String?
+  receivedAt        DateTime                  @default(now())
+  processedAt       DateTime?
+
+  @@unique([shopId, payloadHash])
+  @@index([shopId, processingStatus, receivedAt])
+  @@index([field, receivedAt])
 }
 
 model WaWebhookEvent {

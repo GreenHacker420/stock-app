@@ -7,7 +7,8 @@
   "type": "module",
   "main": "src/index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --test src/tests/whatsapp.webhook-parser.test.js",
+    "test:integration": "node --test src/tests/integration.test.js",
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
     "prisma:generate": "prisma generate",

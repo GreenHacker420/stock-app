@@ -1,6 +1,6 @@
 import { Worker } from "bullmq";
 import Redis from "ioredis";
-import { parseWebhookPayload, processWhatsAppEvent } from "../../services/whatsapp.processor.js";
+import { processWebhookEnvelope } from "../../services/whatsapp.webhook.service.js";
 
 const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
 const connection = new Redis(REDIS_URL, { maxRetriesPerRequest: null });
@@ -12,13 +12,9 @@ export function startInboundWorker() {
   const worker = new Worker(
     "whatsapp-inbound",
     async (job) => {
-      const { shopId, rawPayload } = job.data;
-      console.log(`[WhatsApp Inbound Worker] Processing job ${job.id} for shop ${shopId}`);
-      
-      const events = parseWebhookPayload(rawPayload);
-      for (const event of events) {
-        await processWhatsAppEvent(event, shopId);
-      }
+      const { envelopeId, shopId } = job.data;
+      console.log(`[WhatsApp Inbound Worker] Processing envelope ${envelopeId} for shop ${shopId}`);
+      await processWebhookEnvelope(envelopeId);
     },
     {
       connection,

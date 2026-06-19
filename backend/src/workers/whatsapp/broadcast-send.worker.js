@@ -146,7 +146,22 @@ export function startBroadcastSendWorker() {
 
         const metaMessageId = response.data.messages?.[0]?.id;
 
-        // 5. Create Outbound WaMessage record in DB
+        // 5. Update Recipient Record
+        const recipient = await prisma.waBroadcastRecipient.update({
+          where: {
+            broadcastId_customerId: {
+              broadcastId,
+              customerId,
+            },
+          },
+          data: {
+            status: "SENT",
+            metaMessageId,
+            sentAt: new Date(),
+          },
+        });
+
+        // 6. Create Outbound WaMessage record in DB
         const message = await prisma.waMessage.create({
           data: {
             conversationId: conversation.id,
@@ -158,22 +173,8 @@ export function startBroadcastSendWorker() {
             templateId: template.id,
             templateName: template.name,
             templateLanguage: template.language,
+            broadcastRecipientId: recipient.id,
             createdAt: new Date(),
-          },
-        });
-
-        // 6. Update Recipient Record
-        await prisma.waBroadcastRecipient.update({
-          where: {
-            broadcastId_customerId: {
-              broadcastId,
-              customerId,
-            },
-          },
-          data: {
-            status: "SENT",
-            metaMessageId,
-            sentAt: new Date(),
           },
         });
 

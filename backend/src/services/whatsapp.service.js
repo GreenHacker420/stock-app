@@ -5,22 +5,10 @@ import { getWaCredentials } from "../lib/wa-cache.js";
 import { connection as redis } from "./whatsapp.queue.js";
 import crypto from "crypto";
 import { encrypt, decrypt } from "../lib/wa-crypto.js";
-import { parsePhoneNumberFromString } from "libphonenumber-js";
+import { normalizePhone } from "./whatsapp.phone.js";
 
 const API_VERSION = "v25.0";
 const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
-
-/**
- * Normalizes phone numbers to standard E.164 format.
- */
-export function normalizePhone(phone) {
-  if (!phone) return "";
-  const parsed = parsePhoneNumberFromString(phone, "IN");
-  return parsed ? parsed.number : phone.replace(/[^\d+]/g, "");
-}
-
-
-
 
 class WhatsAppService {
   // Fetches the WhatsApp integration details for a shop (Cache-backed).
@@ -660,3 +648,4 @@ class WhatsAppService {
 
 
 export const whatsappService = new WhatsAppService();
+export { normalizePhone };

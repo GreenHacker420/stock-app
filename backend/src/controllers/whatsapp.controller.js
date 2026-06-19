@@ -7,6 +7,7 @@ import { inboundQueue } from "../services/whatsapp.queue.js";
 import { getSignedMediaUrl } from "../lib/wa-media.js";
 import { encrypt } from "../lib/wa-crypto.js";
 import prisma from "../lib/db.js";
+import { persistWebhookEnvelopes } from "../services/whatsapp.webhook.service.js";
 
 class WhatsAppController {
   /**
@@ -95,17 +96,19 @@ class WhatsAppController {
         return res.status(200).send("Ignored");
       }
 
-      // Resolve phone_number_id from payload metadata
+      // Prefer phone number routing for message/call events, then fall back to WABA routing
+      // for account, template, capability, and other management fields.
       const phoneNumberId = payload.entry?.[0]?.changes?.[0]?.value?.metadata?.phone_number_id;
-      if (!phoneNumberId) {
-        console.warn("[WhatsApp Controller] Webhook payload missing phone_number_id metadata");
-        return res.status(200).send("Ignored");
-      }
+      const wabaId = payload.entry?.[0]?.id;
+      const tenant = phoneNumberId
+        ? await getTenantByPhoneNumberId(phoneNumberId)
+        : await prisma.waIntegration.findFirst({
+            where: { businessAccountId: wabaId, status: "CONNECTED" },
+            select: { shopId: true },
+          });
 
-      // Resolve shopId using the tenant cache
-      const tenant = await getTenantByPhoneNumberId(phoneNumberId);
-      if (!tenant || !tenant.shopId) {
-        console.warn(`[WhatsApp Controller] No shop resolved for phone_number_id: ${phoneNumberId}`);
+      if (!tenant?.shopId) {
+        console.warn(`[WhatsApp Controller] No shop resolved for webhook identity: ${phoneNumberId || wabaId || "unknown"}`);
         return res.status(200).send("Ignored"); // Return 200 so Meta doesn't retry
       }
 
@@ -118,18 +121,35 @@ class WhatsAppController {
         return res.status(401).send("Invalid signature");
       }
 
-      // Push payload to inbound queue for async processing
-      await inboundQueue.add("webhook-payload", {
+      const envelopes = await persistWebhookEnvelopes({
+        payload,
         shopId,
-        rawPayload: payload,
-        receivedAt: new Date().toISOString(),
+        signatureVerified: true,
       });
+
+      // Queue durable envelope IDs instead of transient request payloads.
+      const jobs = envelopes
+        .filter((envelope) => ["RECEIVED", "FAILED"].includes(envelope.processingStatus))
+        .map((envelope) => ({
+          name: "webhook-envelope",
+          data: {
+            envelopeId: envelope.id,
+            shopId,
+          },
+          opts: {
+            jobId: `wa-envelope-${envelope.id}-${envelope.attemptCount}`,
+          },
+        }));
+
+      if (jobs.length > 0) {
+        await inboundQueue.addBulk(jobs);
+      }
 
       // Acknowledge immediately to Meta
       res.status(200).json({ success: true });
     } catch (error) {
       console.error("[WhatsApp Controller] Webhook error:", error);
-      res.status(200).json({ success: true }); // Return 200 to prevent retry storms
+      res.status(500).json({ success: false });
     }
   }
 
@@ -784,4 +804,3 @@ class WhatsAppController {
 }
 
 export const whatsappController = new WhatsAppController();
-

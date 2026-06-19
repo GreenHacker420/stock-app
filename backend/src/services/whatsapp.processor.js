@@ -1,7 +1,7 @@
 import crypto from "crypto";
 import prisma from "../lib/db.js";
 import { publishWhatsAppEvent } from "../utils/realtime.js";
-import { normalizePhone } from "./whatsapp.service.js";
+import { mapEventTypeToMessageType, parseWebhookPayload } from "./whatsapp.webhook-parser.js";
 
 const MESSAGE_STATUS_RANK = {
   QUEUED: 0,
@@ -11,108 +11,16 @@ const MESSAGE_STATUS_RANK = {
   FAILED: 4,
   DELETED: 5,
 };
-
-
-
-/**
- * Normalizes Meta's nested webhook payload into a flat array of events.
- */
-export function parseWebhookPayload(payload) {
-  if (payload.object !== "whatsapp_business_account") return [];
-
-  const events = [];
-
-  for (const entry of payload.entry || []) {
-    for (const change of entry.changes || []) {
-      const value = change.value;
-      if (!value) continue;
-
-      // Handle Status Updates
-      if (value.statuses) {
-        for (const status of value.statuses) {
-          events.push({
-            type: "status",
-            metaMessageId: status.id,
-            status: status.status, // sent, delivered, read, failed
-            recipientId: status.recipient_id,
-            timestamp: status.timestamp,
-            errors: status.errors,
-            conversation: status.conversation,
-            pricing: status.pricing,
-          });
-        }
-      }
-
-      // Handle Inbound Messages
-      if (value.messages) {
-        // Build contact map for lookup
-        const contactMap = new Map();
-        (value.contacts || []).forEach(c => {
-          contactMap.set(c.wa_id, c.profile?.name);
-        });
-
-        for (const message of value.messages) {
-          const from = message.from;
-          const baseEvent = {
-            metaMessageId: message.id,
-            from: normalizePhone(from),
-            timestamp: message.timestamp,
-            contactName: contactMap.get(from),
-            replyToMetaMessageId: message.context?.id,
-          };
-
-          if (message.text) {
-            events.push({ ...baseEvent, type: "text", content: message.text.body });
-          } else if (message.image) {
-            events.push({ ...baseEvent, type: "image", mediaId: message.image.id, mimeType: message.image.mime_type, content: message.image.caption });
-          } else if (message.document) {
-            events.push({ ...baseEvent, type: "document", mediaId: message.document.id, mimeType: message.document.mime_type, fileName: message.document.filename, content: message.document.caption });
-          } else if (message.audio) {
-            events.push({ ...baseEvent, type: "audio", mediaId: message.audio.id, mimeType: message.audio.mime_type });
-          } else if (message.video) {
-            events.push({ ...baseEvent, type: "video", mediaId: message.video.id, mimeType: message.video.mime_type, content: message.video.caption });
-          } else if (message.sticker) {
-            events.push({ ...baseEvent, type: "sticker", mediaId: message.sticker.id, mimeType: message.sticker.mime_type });
-          } else if (message.location) {
-            events.push({ ...baseEvent, type: "location", payload: message.location });
-          } else if (message.contacts) {
-            events.push({ ...baseEvent, type: "contacts", payload: message.contacts });
-          } else if (message.reaction) {
-            events.push({ ...baseEvent, type: "reaction", payload: message.reaction });
-          } else if (message.button) {
-            events.push({ ...baseEvent, type: "button", payload: message.button });
-          } else if (message.interactive) {
-            const interactive = message.interactive;
-            if (interactive.type === "button_reply") {
-              events.push({ ...baseEvent, type: "button_reply", payload: interactive.button_reply });
-            } else if (interactive.type === "list_reply") {
-              events.push({ ...baseEvent, type: "list_reply", payload: interactive.list_reply });
-            } else if (interactive.type === "nfm_reply") {
-              events.push({ ...baseEvent, type: "flow_reply", payload: interactive.nfm_reply });
-            }
-          } else if (message.order) {
-            events.push({ ...baseEvent, type: "order", payload: message.order });
-          } else if (message.system) {
-            events.push({ ...baseEvent, type: "system", payload: message.system });
-          } else {
-            events.push({ ...baseEvent, type: "unsupported", raw: message });
-          }
-        }
-      }
-    }
-  }
-
-  return events;
-}
-
 /**
  * Processes a single normalized event.
  * Handles database saving, idempotency, and Socket.IO emission.
  */
 export async function processWhatsAppEvent(event, shopId) {
   // 1. Idempotency Check (Event level)
-  const eventId = `${shopId}-${event.type}-${event.metaMessageId || event.timestamp}-${event.timestamp}`;
-  const hashedEventId = crypto.createHash("sha256").update(eventId).digest("hex");
+  const hashedEventId = crypto
+    .createHash("sha256")
+    .update(JSON.stringify({ shopId, event }))
+    .digest("hex");
 
   const existingEvent = await prisma.waWebhookEvent.findUnique({
     where: { id: hashedEventId },
@@ -168,6 +76,20 @@ async function handleStatusUpdate(event, shopId, eventId) {
       where: { id: message.id },
       data: updateData,
     });
+
+    if (message.broadcastRecipientId) {
+      const recipientUpdate = { status: nextStatus };
+      if (nextStatus === "FAILED") {
+        recipientUpdate.errorMessage = event.errors?.[0]?.message || "Unknown Meta error";
+      }
+      if (nextStatus === "DELIVERED") recipientUpdate.deliveredAt = nextTimestamp;
+      if (nextStatus === "READ") recipientUpdate.readAt = nextTimestamp;
+
+      await tx.waBroadcastRecipient.updateMany({
+        where: { id: message.broadcastRecipientId },
+        data: recipientUpdate,
+      });
+    }
 
     // Notify UI via Pub/Sub socket bridge
     await publishWhatsAppEvent(shopId, "wa:status_updated", {
@@ -315,6 +237,12 @@ async function handleInboundMessage(event, shopId, eventId) {
 
     // 4. Save Message
     const messageType = mapEventTypeToMessageType(event.type);
+    const messagePayload = { subtype: event.type };
+    if (event.forwarded) messagePayload.forwarded = true;
+    if (event.frequentlyForwarded) messagePayload.frequentlyForwarded = true;
+    if (event.voice) messagePayload.voice = true;
+    if (event.animated) messagePayload.animated = true;
+    if (event.raw) messagePayload.raw = event.raw;
     const message = await tx.waMessage.create({
       data: {
         conversationId: conversation.id,
@@ -324,6 +252,7 @@ async function handleInboundMessage(event, shopId, eventId) {
         status: "SENT",
         type: messageType,
         content: event.content ? { text: event.content } : (event.payload || event.raw || {}),
+        payload: messagePayload,
         mediaId: event.mediaId,
         mimeType: event.mimeType,
         fileName: event.fileName,
@@ -365,20 +294,4 @@ async function handleInboundMessage(event, shopId, eventId) {
   });
 }
 
-function mapEventTypeToMessageType(type) {
-  const map = {
-    text: "TEXT",
-    image: "IMAGE",
-    document: "DOCUMENT",
-    audio: "AUDIO",
-    video: "VIDEO",
-    sticker: "STICKER",
-    location: "LOCATION",
-    contacts: "CONTACT_CARD",
-    reaction: "REACTION",
-    button_reply: "TEXT",
-    list_reply: "TEXT",
-    flow_reply: "FLOW",
-  };
-  return map[type] || "TEXT";
-}
+export { parseWebhookPayload };
