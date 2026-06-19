@@ -1,13 +1,12 @@
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback, memo } from "react";
 import {
   View,
   StyleSheet,
-  FlatList,
   TouchableOpacity,
   Alert,
   ActivityIndicator,
   Modal,
-  ScrollView,
+  FlatList, // Keep for customers modal list if needed
 } from "react-native";
 import {
   Text,
@@ -17,485 +16,865 @@ import {
   Card,
   IconButton,
   Portal,
-  Dialog,
   RadioButton,
   Checkbox,
+  SegmentedButtons,
+  Dialog,
 } from "react-native-paper";
-import { Contact, ContactField, requestPermissionsAsync } from "expo-contacts";
+import * as Contacts from "expo-contacts/legacy";
+import { FlashList } from "@shopify/flash-list";
+const FlashListAny = FlashList as any;
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  interpolateColor,
+} from "react-native-reanimated";
 import { contactsDb, LocalContact } from "../services/contactsDb";
-import { whatsappApi } from "../../../api/whatsapp.api";
 import { useCustomersQuery } from "../../../hooks/useCustomers";
 import { useShopStore } from "../../../auth/shop-store";
-import { colors as Colors, spacing, radius, fontSize, fontWeight, shadow } from "../../../theme";
+import { colors as Colors, spacing, radius, fontSize, fontWeight } from "../../../theme";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Screen } from "../../../components/Screen";
 import { mmkvStorage } from "../../../auth/mmkv-storage";
-import { useQueryClient } from "@tanstack/react-query";
+import { useQueryClient, useMutation } from "@tanstack/react-query";
+import { useSelectionStore } from "../store/contactSelection.store";
+import {
+  useContactsLocalQuery,
+  useContactsStatsQuery,
+  useContactsFilteredIdsQuery,
+  useUpdateContactTagMutation,
+  useLinkCustomerMutation,
+} from "../hooks/useContactsLocal";
+import { useContactsSync } from "../hooks/useContactsSync";
+import { useDebounce } from "use-debounce";
 
-export const ContactBookScreen = () => {
-  const activeShopId = useShopStore((state) => state.activeShopId);
-  const queryClient = useQueryClient();
+// -------------------------------------------------------------
+// COMPACT BOTTOM SHEET UTILITY COMPONENT
+// -------------------------------------------------------------
+interface BottomSheetProps {
+  visible: boolean;
+  onClose: () => void;
+  title: string;
+  children: React.ReactNode;
+}
 
-  const [contacts, setContacts] = useState<LocalContact[]>([]);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [syncing, setSyncing] = useState(false);
+const BottomSheet = ({ visible, onClose, title, children }: BottomSheetProps) => {
+  return (
+    <Portal>
+      <Modal
+        visible={visible}
+        transparent
+        animationType="slide"
+        onRequestClose={onClose}
+      >
+        <TouchableOpacity style={styles.sheetOverlay} activeOpacity={1} onPress={onClose}>
+          <View style={styles.sheetContent} onStartShouldSetResponder={() => true}>
+            <View style={styles.sheetHeader}>
+              <View style={styles.sheetHandle} />
+              <View style={styles.sheetTitleRow}>
+                <Text style={styles.sheetTitle}>{title}</Text>
+                <IconButton icon="close" size={18} onPress={onClose} style={{ margin: 0 }} />
+              </View>
+            </View>
+            <Divider style={{ marginBottom: spacing.sm }} />
+            {children}
+          </View>
+        </TouchableOpacity>
+      </Modal>
+    </Portal>
+  );
+};
 
-  // Modal / Manual Link State
-  const [showLinkModal, setShowLinkModal] = useState(false);
-  const [selectedContact, setSelectedContact] = useState<LocalContact | null>(null);
-  const [customerSearch, setCustomerSearch] = useState("");
+// -------------------------------------------------------------
+// MEMOIZED COMPACT CONTACT CARD COMPONENT
+// -------------------------------------------------------------
+interface ContactCardProps {
+  item: LocalContact;
+  matchedCustomer: any;
+  manuallyLinkedCustomer: any;
+  onOpenOptions: (contact: LocalContact) => void;
+}
 
-  // Sync Options Dialog State
-  const [showSyncDialog, setShowSyncDialog] = useState(false);
-  const [mergeStrategy, setMergeStrategy] = useState<"MERGE" | "OVERWRITE">("MERGE");
+const AnimatedCard = Animated.createAnimatedComponent(Card);
 
-  // Selection state for sync (defaults all to selected)
-  const [selectedIds, setSelectedIds] = useState<Record<string, boolean>>({});
+const ContactCard = memo(({
+  item,
+  matchedCustomer,
+  manuallyLinkedCustomer,
+  onOpenOptions,
+}: ContactCardProps) => {
+  const isSelected = useSelectionStore(
+    useCallback((state) => state.selectedIds.has(item.id), [item.id])
+  );
+  const toggle = useSelectionStore((state) => state.toggle);
+  const isMutated = item.syncState === "MUTATED" || item.syncState === "UNSYNCED";
 
-  // Load server-side customers
-  const { data: customers = [], isLoading: loadingCustomers } = useCustomersQuery();
-
-  // Load local cached contacts from SQLite
-  const loadLocalContacts = async (search = "") => {
-    try {
-      const data = await contactsDb.getContacts(search);
-      setContacts(data);
-
-      // Initialize selection states for newly fetched contacts if not already set
-      setSelectedIds((prev) => {
-        const next = { ...prev };
-        data.forEach((c) => {
-          if (next[c.id] === undefined) {
-            next[c.id] = true;
-          }
-        });
-        return next;
-      });
-    } catch (err: any) {
-      console.error("Failed to load local contacts", err);
-    }
-  };
-
-  // Sync / Import Device Contacts into SQLite
-  const importDeviceContacts = async () => {
-    setLoading(true);
-    try {
-      const { status } = await requestPermissionsAsync();
-      if (status !== "granted") {
-        Alert.alert(
-          "Permission Denied",
-          "This screen requires access to your device contacts to sync with ShopControl."
-        );
-        return;
-      }
-
-      const data = await Contact.getAllDetails([
-        ContactField.FULL_NAME,
-        ContactField.PHONES,
-        ContactField.EMAILS,
-      ]);
-
-      if (data && data.length > 0) {
-        const formatted = data
-          .map((c) => {
-            const phone = c.phones?.[0]?.number || "";
-            // Clean phone number (remove spaces, symbols)
-            const cleanPhone = phone.replace(/\D/g, "");
-            return {
-              id: c.id || "",
-              name: c.fullName || "",
-              phone: cleanPhone,
-              email: c.emails?.[0]?.address || undefined,
-            };
-          })
-          .filter((c) => c.phone.length >= 10);
-
-        await contactsDb.upsertDeviceContacts(formatted);
-        mmkvStorage.setItem("whatsapp_has_imported_device_contacts", "true");
-        await loadLocalContacts(searchQuery);
-        Alert.alert("Imported", `Cached ${formatted.length} contacts locally.`);
-      } else {
-        Alert.alert("No Contacts Found", "No valid contact cards were found on this device.");
-      }
-    } catch (err: any) {
-      Alert.alert("Error", err.message || "Failed to import contacts");
-    } finally {
-      setLoading(false);
-    }
-  };
+  const selectedShared = useSharedValue(0);
 
   useEffect(() => {
-    const init = async () => {
-      const hasImported = mmkvStorage.getItem("whatsapp_has_imported_device_contacts");
-      if (hasImported === "true") {
-        await loadLocalContacts();
-      } else {
-        await importDeviceContacts();
-      }
-    };
-    init();
-  }, []);
+    selectedShared.value = withTiming(isSelected ? 1 : 0, { duration: 120 });
+  }, [isSelected, selectedShared]);
 
-  const handleSearch = (text: string) => {
-    setSearchQuery(text);
-    loadLocalContacts(text);
-  };
-
-  // Helpers for normalizing phone and matching suffixes
-  const normalizePhone = (p: string) => p.replace(/\D/g, "");
-
-  const findMatchingCustomer = useMemo(() => {
-    return (contactPhone: string) => {
-      const norm = normalizePhone(contactPhone);
-      if (norm.length < 10) return null;
-      const suffix = norm.slice(-10);
-      return customers.find((c) => {
-        if (!c.phone) return false;
-        const cNorm = normalizePhone(c.phone);
-        return cNorm.endsWith(suffix);
-      });
-    };
-  }, [customers]);
-
-  // Toggle selection checkbox
-  const toggleSelect = (id: string) => {
-    setSelectedIds((prev) => ({
-      ...prev,
-      [id]: !prev[id],
-    }));
-  };
-
-  const toggleSelectAll = () => {
-    const allSelected = contacts.every((c) => selectedIds[c.id]);
-    setSelectedIds((prev) => {
-      const next = { ...prev };
-      contacts.forEach((c) => {
-        next[c.id] = !allSelected;
-      });
-      return next;
-    });
-  };
-
-  // Update tag locally
-  const handleUpdateTag = async (id: string, tag: "REGULAR" | "BUSINESS" | "NONE") => {
-    await contactsDb.updateTag(id, tag);
-    await loadLocalContacts(searchQuery);
-  };
-
-  // Trigger link customer modal
-  const openLinkModal = (contact: LocalContact) => {
-    setSelectedContact(contact);
-    setCustomerSearch("");
-    setShowLinkModal(true);
-  };
-
-  const handleLinkCustomer = async (customerId: string | null) => {
-    if (!selectedContact) return;
-    await contactsDb.linkCustomer(selectedContact.id, customerId);
-    setShowLinkModal(false);
-    setSelectedContact(null);
-    await loadLocalContacts(searchQuery);
-  };
-
-  // Count mutated / unsynced
-  const mutatedCount = useMemo(() => {
-    return contacts.filter(
-      (c) => (c.syncState === "MUTATED" || c.syncState === "UNSYNCED") && selectedIds[c.id]
-    ).length;
-  }, [contacts, selectedIds]);
-
-  // Execute sync mutations to server
-  const handleSyncToServer = async () => {
-    if (!activeShopId) return;
-    setShowSyncDialog(false);
-    setSyncing(true);
-
-    try {
-      // Fetch mutated list
-      const mutated = await contactsDb.getMutatedContacts();
-      // Filter out excluded ones
-      const toSync = mutated.filter((m) => selectedIds[m.id]);
-
-      if (toSync.length === 0) {
-        Alert.alert("Nothing to Sync", "No mutated or unsynced contacts are selected.");
-        setSyncing(false);
-        return;
-      }
-
-      const res = await whatsappApi.syncPhoneContacts(activeShopId, toSync, mergeStrategy);
-      if (res.data?.success) {
-        const syncedIds = toSync.map((t) => t.id);
-        await contactsDb.markAsSynced(syncedIds);
-        
-        // Invalidate cache
-        queryClient.invalidateQueries({ queryKey: ["wa-conversations", activeShopId] });
-        queryClient.invalidateQueries({ queryKey: ["customers", activeShopId] });
-
-        await loadLocalContacts(searchQuery);
-        Alert.alert(
-          "Sync Successful",
-          `Synced: ${toSync.length} contacts.\nNew Customers: ${res.data.data.newCustomersCount}\nMerged: ${res.data.data.mergedCount}`
-        );
-      } else {
-        Alert.alert("Sync Failed", "Server responded with error.");
-      }
-    } catch (err: any) {
-      Alert.alert("Sync Error", err.message || "Failed to sync contacts.");
-    } finally {
-      setSyncing(false);
-    }
-  };
-
-  // Filtered customer listing for Manual Link modal
-  const filteredCustomersForLink = useMemo(() => {
-    const cleanSearch = customerSearch.trim().toLowerCase();
-    const list = customers.filter(
-      (cust) =>
-        cust.name.toLowerCase().includes(cleanSearch) ||
-        (cust.gstin && cust.gstin.toLowerCase().includes(cleanSearch))
+  const animatedCardStyle = useAnimatedStyle(() => {
+    const backgroundColor = interpolateColor(
+      selectedShared.value,
+      [0, 1],
+      [isMutated ? "#FFFBEB" : "#ffffff", "#F0FDF4"]
     );
+    const borderColor = interpolateColor(
+      selectedShared.value,
+      [0, 1],
+      [isMutated ? Colors.warningLight : Colors.border, Colors.primary]
+    );
+    return {
+      backgroundColor,
+      borderColor,
+    };
+  });
 
-    // Prioritize phone-less (GST-only) customers first
-    return [...list].sort((a, b) => {
-      const aNoPhone = !a.phone ? 1 : 0;
-      const bNoPhone = !b.phone ? 1 : 0;
-      return bNoPhone - aNoPhone;
-    });
-  }, [customers, customerSearch]);
+  const animatedCheckboxStyle = useAnimatedStyle(() => {
+    const scale = selectedShared.value;
+    const backgroundColor = interpolateColor(
+      selectedShared.value,
+      [0, 1],
+      ["transparent", Colors.primary]
+    );
+    const borderColor = interpolateColor(
+      selectedShared.value,
+      [0, 1],
+      [Colors.borderStrong, Colors.primary]
+    );
+    return {
+      transform: [{ scale: 0.85 + scale * 0.15 }],
+      backgroundColor,
+      borderColor,
+    };
+  });
 
-  const renderContactItem = ({ item }: { item: LocalContact }) => {
-    const isSelected = !!selectedIds[item.id];
-    const isMutated = item.syncState === "MUTATED" || item.syncState === "UNSYNCED";
-    
-    // Suffix match check
-    const matchedCustomer = findMatchingCustomer(item.phone);
-    const linkedCustomerId = item.customerId;
-    const manuallyLinkedCustomer = linkedCustomerId
-      ? customers.find((c) => c.id === linkedCustomerId)
-      : null;
+  return (
+    <AnimatedCard
+      style={[
+        styles.contactCard,
+        animatedCardStyle,
+      ]}
+      onLongPress={() => toggle(item.id)}
+    >
+      <Card.Content style={styles.cardLayout}>
+        <TouchableOpacity onPress={() => toggle(item.id)} style={styles.checkboxTouch}>
+          <Animated.View style={[styles.customCheckbox, animatedCheckboxStyle]}>
+            {isSelected && (
+              <MaterialCommunityIcons name="check" size={10} color="#fff" />
+            )}
+          </Animated.View>
+        </TouchableOpacity>
 
-    return (
-      <Card style={[styles.contactCard, isMutated && styles.mutatedCard]}>
-        <Card.Content style={styles.cardLayout}>
-          <TouchableOpacity onPress={() => toggleSelect(item.id)} style={styles.checkboxContainer}>
-            <Checkbox.Android
-              status={isSelected ? "checked" : "unchecked"}
-              onPress={() => toggleSelect(item.id)}
-              color={Colors.primary}
-            />
-          </TouchableOpacity>
-
-          <View style={styles.contactInfo}>
-            <View style={styles.row}>
-              <Text style={styles.contactName}>{item.name}</Text>
+        <View style={styles.contactInfo}>
+          {/* Primary Row: Name & Tag Badges */}
+          <View style={styles.primaryRow}>
+            <Text style={styles.contactName} numberOfLines={1}>
+              {item.name || `+${item.phone}`}
+            </Text>
+            
+            <View style={styles.badgeWrapper}>
+              {item.tag !== "NONE" && (
+                <View style={[
+                  styles.tagBadge,
+                  item.tag === "REGULAR" ? styles.badgeRegular : styles.badgeBusiness
+                ]}>
+                  <Text style={[
+                    styles.tagBadgeText,
+                    item.tag === "REGULAR" ? { color: Colors.primaryDark } : { color: "#1e3a8a" }
+                  ]}>
+                    {item.tag === "REGULAR" ? "Regular" : "Business"}
+                  </Text>
+                </View>
+              )}
               {isMutated && (
                 <View style={styles.mutatedBadge}>
                   <Text style={styles.mutatedBadgeText}>UNSYNCED</Text>
                 </View>
               )}
             </View>
-            <Text style={styles.contactPhone}>{`+${item.phone}`}</Text>
-            {item.email && <Text style={styles.contactEmail}>{item.email}</Text>}
-
-            {/* Matching / Linked Badges */}
-            <View style={styles.linkBadgeRow}>
-              {manuallyLinkedCustomer ? (
-                <View style={[styles.linkBadge, styles.linkedBadge]}>
-                  <MaterialCommunityIcons name="link" size={12} color="#0369A1" />
-                  <Text style={styles.linkBadgeText} numberOfLines={1}>
-                    {`Linked: ${manuallyLinkedCustomer.name}`}
-                  </Text>
-                  <TouchableOpacity
-                    style={styles.unlinkBtn}
-                    onPress={() => handleLinkCustomer(null)}
-                  >
-                    <MaterialCommunityIcons name="close-circle" size={14} color="#0369A1" />
-                  </TouchableOpacity>
-                </View>
-              ) : matchedCustomer ? (
-                <View style={[styles.linkBadge, styles.matchedBadge]}>
-                  <MaterialCommunityIcons name="check-decagram" size={12} color={Colors.primary} />
-                  <Text style={styles.linkBadgeText} numberOfLines={1}>
-                    {`Matched: ${matchedCustomer.name}`}
-                  </Text>
-                </View>
-              ) : (
-                <TouchableOpacity
-                  style={[styles.linkBadge, styles.notLinkedBadge]}
-                  onPress={() => openLinkModal(item)}
-                >
-                  <MaterialCommunityIcons name="link-variant-plus" size={12} color="#D97706" />
-                  <Text style={[styles.linkBadgeText, { color: "#D97706" }]}>Link Customer</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-
-            {/* Tagging pills */}
-            <View style={styles.pillsContainer}>
-              <Text style={styles.pillsLabel}>Sync Tag:</Text>
-              <TouchableOpacity
-                style={[
-                  styles.pill,
-                  item.tag === "REGULAR" && styles.pillRegularActive,
-                ]}
-                onPress={() => handleUpdateTag(item.id, item.tag === "REGULAR" ? "NONE" : "REGULAR")}
-              >
-                <Text style={[styles.pillText, item.tag === "REGULAR" && styles.pillTextActive]}>
-                  Regular
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.pill,
-                  item.tag === "BUSINESS" && styles.pillBusinessActive,
-                ]}
-                onPress={() => handleUpdateTag(item.id, item.tag === "BUSINESS" ? "NONE" : "BUSINESS")}
-              >
-                <Text style={[styles.pillText, item.tag === "BUSINESS" && styles.pillTextActive]}>
-                  Business
-                </Text>
-              </TouchableOpacity>
-            </View>
           </View>
-        </Card.Content>
-      </Card>
-    );
+
+          {/* Secondary Row: Phone / Unnamed & Connection Badge */}
+          <View style={styles.secondaryRow}>
+            {item.name ? (
+              <Text style={styles.contactPhone}>{`+${item.phone}`}</Text>
+            ) : (
+              <Text style={styles.noNameLabel}>No contact name</Text>
+            )}
+
+            {manuallyLinkedCustomer ? (
+              <View style={[styles.linkBadge, styles.linkedBadge]}>
+                <MaterialCommunityIcons name="link" size={10} color="#0284c7" />
+                <Text style={styles.linkBadgeText} numberOfLines={1}>
+                  {`Linked: ${manuallyLinkedCustomer.name}`}
+                </Text>
+              </View>
+            ) : matchedCustomer ? (
+              <View style={[styles.linkBadge, styles.matchedBadge]}>
+                <MaterialCommunityIcons name="check-decagram" size={10} color={Colors.primary} />
+                <Text style={styles.linkBadgeText} numberOfLines={1}>
+                  {`Matched: ${matchedCustomer.name}`}
+                </Text>
+              </View>
+            ) : (
+              <View style={[styles.linkBadge, styles.notLinkedBadge]}>
+                <MaterialCommunityIcons name="link-variant" size={10} color="#d97706" />
+                <Text style={[styles.linkBadgeText, { color: "#d97706" }]}>Unlinked</Text>
+              </View>
+            )}
+          </View>
+        </View>
+
+        <IconButton
+          icon="dots-vertical"
+          size={18}
+          iconColor={Colors.textSecondary}
+          onPress={() => onOpenOptions(item)}
+          style={styles.cardMenuBtn}
+        />
+      </Card.Content>
+    </AnimatedCard>
+  );
+});
+
+ContactCard.displayName = "ContactCard";
+
+// -------------------------------------------------------------
+// COMPACT EMPTY STATES
+// -------------------------------------------------------------
+interface EmptyStateProps {
+  type: "no_imports" | "no_results" | "no_filters";
+  onAction: () => void;
+}
+
+const EmptyState = ({ type, onAction }: EmptyStateProps) => {
+  const config = {
+    no_imports: {
+      icon: "contacts-outline" as const,
+      color: Colors.textSecondary,
+      title: "No Contacts Imported",
+      subtitle: "Import device contacts to sync with CRM customer profiles.",
+      btnText: "Import Contacts",
+    },
+    no_results: {
+      icon: "magnify-close" as const,
+      color: Colors.textMuted,
+      title: "No Results",
+      subtitle: "No contact book records found for this query.",
+      btnText: "Clear Search",
+    },
+    no_filters: {
+      icon: "filter-off-outline" as const,
+      color: Colors.textMuted,
+      title: "No Matches",
+      subtitle: "No contacts match the current segmented filter settings.",
+      btnText: "Reset Filters",
+    },
+  }[type];
+
+  return (
+    <View style={styles.empty}>
+      <MaterialCommunityIcons name={config.icon} size={40} color={config.color} />
+      <Text style={styles.emptyText}>{config.title}</Text>
+      <Text style={styles.emptySubtitle}>{config.subtitle}</Text>
+      <Button mode="outlined" onPress={onAction} style={{ marginTop: spacing.sm }} compact>
+        {config.btnText}
+      </Button>
+    </View>
+  );
+};
+
+// -------------------------------------------------------------
+// MAIN CONTACT BOOK SCREEN
+// -------------------------------------------------------------
+export const ContactBookScreen = () => {
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  const queryClient = useQueryClient();
+
+  const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch] = useDebounce(searchQuery, 200);
+
+  // Grouped Filter Controls
+  const [activeFilterCategory, setActiveFilterCategory] = useState<"status" | "link" | "tag">("status");
+  const [syncFilter, setSyncFilter] = useState<"ALL" | "UNSYNCED" | "SYNCED">("ALL");
+  const [linkFilter, setLinkFilter] = useState<"ALL" | "LINKED" | "UNLINKED">("ALL");
+  const [tagFilter, setTagFilter] = useState<"ALL" | "REGULAR" | "BUSINESS" | "NONE">("ALL");
+
+  // Options Sheet State
+  const [showOptionsSheet, setShowOptionsSheet] = useState(false);
+  const [selectedContact, setSelectedContact] = useState<LocalContact | null>(null);
+
+  // Linking Sheet State
+  const [showLinkSheet, setShowLinkSheet] = useState(false);
+  const [customerSearch, setCustomerSearch] = useState("");
+  const [customerLimit, setCustomerLimit] = useState(50);
+
+  // Sync Dialog State
+  const [showSyncDialog, setShowSyncDialog] = useState(false);
+  const [mergeStrategy, setMergeStrategy] = useState<"MERGE" | "OVERWRITE">("MERGE");
+
+  // Load server customers
+  const { data: customers = [], isLoading: loadingCustomers } = useCustomersQuery();
+
+  // Precompute Map Lookups
+  const customerMap = useMemo(() => {
+    const map = new Map<string, any>();
+    customers.forEach((c) => {
+      if (c.phone) {
+        const norm = c.phone.replace(/\D/g, "");
+        if (norm.length >= 10) {
+          map.set(norm.slice(-10), c);
+        }
+      }
+    });
+    return map;
+  }, [customers]);
+
+  const customerIdMap = useMemo(() => {
+    const map = new Map<string, any>();
+    customers.forEach((c) => {
+      map.set(c.id, c);
+    });
+    return map;
+  }, [customers]);
+
+  const customerPhonesStr = useMemo(() => {
+    if (!customers || customers.length === 0) return "";
+    const suffixList = customers
+      .map((c) => {
+        if (!c.phone) return null;
+        const clean = c.phone.replace(/\D/g, "");
+        return clean.length >= 10 ? clean.slice(-10) : null;
+      })
+      .filter(Boolean);
+    return `,${suffixList.join(",")},`;
+  }, [customers]);
+
+  // Query Stats & paginated Local Lists
+  const { data: stats } = useContactsStatsQuery(customerPhonesStr);
+
+  const {
+    data,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    isLoading: loadingLocal,
+  } = useContactsLocalQuery({
+    searchQuery: debouncedSearch,
+    syncFilter,
+    linkFilter,
+    tagFilter,
+    customerPhonesStr,
+  });
+
+  const { data: filteredIds = [] } = useContactsFilteredIdsQuery({
+    searchQuery: debouncedSearch,
+    syncFilter,
+    linkFilter,
+    tagFilter,
+    customerPhonesStr,
+  });
+
+  // Zustand selection states
+  const selectedIds = useSelectionStore((s) => s.selectedIds);
+  const selectMany = useSelectionStore((s) => s.selectMany);
+  const deselectMany = useSelectionStore((s) => s.deselectMany);
+  const clearSelection = useSelectionStore((s) => s.clear);
+  const selectedCount = selectedIds.size;
+
+  const isAllFilteredSelected = useMemo(() => {
+    if (filteredIds.length === 0) return false;
+    return filteredIds.every((id) => selectedIds.has(id));
+  }, [filteredIds, selectedIds]);
+
+  // Local Mutators
+  const updateTagMutation = useUpdateContactTagMutation();
+  const linkCustomerMutation = useLinkCustomerMutation();
+  const syncMutation = useContactsSync(activeShopId);
+
+  // Import mutation using expo-contacts/legacy
+  const importMutation = useMutation<number, Error, void>({
+    mutationFn: async () => {
+      const { status } = await Contacts.requestPermissionsAsync();
+      if (status !== "granted") {
+        throw new Error("This screen requires access to your device contacts to sync with CRM.");
+      }
+
+      const { data } = await Contacts.getContactsAsync({
+        fields: [
+          Contacts.Fields.Name,
+          Contacts.Fields.FirstName,
+          Contacts.Fields.LastName,
+          Contacts.Fields.PhoneNumbers,
+          Contacts.Fields.Emails,
+        ],
+      });
+
+      console.log(`[Contacts Diagnostics] Total raw contacts read from device: ${data ? data.length : 0}`);
+      if (data && data.length > 0) {
+        console.log(`[Contacts Diagnostics] Sample raw contact record:`, JSON.stringify(data[0]));
+      }
+
+      if (!data || data.length === 0) {
+        throw new Error("No contact cards were found on this device.");
+      }
+
+      const formatted = data
+        .map((c) => {
+          const phone = c.phoneNumbers?.[0]?.number || "";
+          const cleanPhone = phone.replace(/\D/g, "");
+
+          const firstName = c.firstName || "";
+          const lastName = c.lastName || "";
+          const nameField = c.name || "";
+
+          const compoundName = [firstName, lastName].filter(Boolean).join(" ");
+          const resolvedName = (nameField || compoundName || "").trim();
+
+          return {
+            id: c.id || "",
+            name: resolvedName,
+            phone: cleanPhone,
+            email: c.emails?.[0]?.email || undefined,
+          };
+        })
+        .filter((c) => c.phone.length >= 10);
+
+      await contactsDb.upsertDeviceContacts(formatted);
+      mmkvStorage.setItem("whatsapp_has_imported_device_contacts", "true");
+      return formatted.length;
+    },
+    onSuccess: (count) => {
+      queryClient.invalidateQueries({ queryKey: ["contacts-local"] });
+      queryClient.invalidateQueries({ queryKey: ["contacts-stats"] });
+      Alert.alert("Import Successful", `Cached ${count} contacts locally.`);
+    },
+    onError: (err: any) => {
+      Alert.alert("Import Failed", err.message || "Failed to import contacts");
+    },
+  });
+
+  useEffect(() => {
+    const hasImported = mmkvStorage.getItem("whatsapp_has_imported_device_contacts");
+    if (hasImported !== "true") {
+      importMutation.mutate();
+    }
+  }, []);
+
+  const isSearching = searchQuery !== debouncedSearch;
+
+  const flattenedContacts = useMemo(() => {
+    return data?.pages.flatMap((page) => page) || [];
+  }, [data]);
+
+  // Handlers
+  const handleToggleSelectAll = useCallback(() => {
+    if (isAllFilteredSelected) {
+      deselectMany(filteredIds);
+    } else {
+      selectMany(filteredIds);
+    }
+  }, [filteredIds, isAllFilteredSelected, selectMany, deselectMany]);
+
+  const handleOpenOptions = useCallback((contact: LocalContact) => {
+    setSelectedContact(contact);
+    setShowOptionsSheet(true);
+  }, []);
+
+  const handleSelectTag = useCallback((tag: "REGULAR" | "BUSINESS" | "NONE") => {
+    if (!selectedContact) return;
+    updateTagMutation.mutate({ id: selectedContact.id, tag });
+    setShowOptionsSheet(false);
+  }, [selectedContact, updateTagMutation]);
+
+  const handleOpenLinkSheet = () => {
+    setShowOptionsSheet(false);
+    setCustomerSearch("");
+    setCustomerLimit(50);
+    setShowLinkSheet(true);
   };
 
-  const allSelected = contacts.length > 0 && contacts.every((c) => selectedIds[c.id]);
+  const handleLinkCustomer = useCallback((customerId: string | null) => {
+    if (!selectedContact) return;
+    linkCustomerMutation.mutate({ id: selectedContact.id, customerId });
+    setShowLinkSheet(false);
+    setSelectedContact(null);
+  }, [selectedContact, linkCustomerMutation]);
+
+  const handleUnlinkCustomer = useCallback((contactId: string) => {
+    linkCustomerMutation.mutate({ id: contactId, customerId: null });
+  }, [linkCustomerMutation]);
+
+  const handleSyncToServer = async () => {
+    setShowSyncDialog(false);
+    syncMutation.mutate({ mergeStrategy, selectedIds });
+  };
+
+  const handleClearFilters = () => {
+    setSyncFilter("ALL");
+    setLinkFilter("ALL");
+    setTagFilter("ALL");
+    setSearchQuery("");
+  };
+
+  const filteredCustomersForLink = useMemo(() => {
+    const cleanSearch = customerSearch.trim().toLowerCase();
+    const list = customers.filter(
+      (cust) =>
+        cust.name.toLowerCase().includes(cleanSearch) ||
+        (cust.gstin && cust.gstin.toLowerCase().includes(cleanSearch)) ||
+        (cust.phone && cust.phone.includes(cleanSearch))
+    );
+    return [...list].sort((a, b) => (!a.phone ? 1 : 0) - (!b.phone ? 1 : 0));
+  }, [customers, customerSearch]);
+
+  const visibleCustomers = useMemo(() => {
+    return filteredCustomersForLink.slice(0, customerLimit);
+  }, [filteredCustomersForLink, customerLimit]);
+
+  const renderItem = useCallback(
+    ({ item }: { item: LocalContact }) => {
+      const matched = customerMap.get(item.phone.slice(-10));
+      const manual = item.customerId ? customerIdMap.get(item.customerId) : null;
+
+      return (
+        <ContactCard
+          item={item}
+          matchedCustomer={matched}
+          manuallyLinkedCustomer={manual}
+          onOpenOptions={handleOpenOptions}
+        />
+      );
+    },
+    [customerMap, customerIdMap, handleOpenOptions]
+  );
+
+  const renderEmptyComponent = () => {
+    if (loadingLocal || importMutation.isPending) {
+      return (
+        <View style={styles.loaderCenter}>
+          <ActivityIndicator size="large" color={Colors.primary} />
+        </View>
+      );
+    }
+    const hasSearch = searchQuery.trim().length > 0;
+    const hasFilters = syncFilter !== "ALL" || linkFilter !== "ALL" || tagFilter !== "ALL";
+
+    if (stats && stats.total === 0) {
+      return <EmptyState type="no_imports" onAction={() => importMutation.mutate()} />;
+    }
+    if (hasSearch) {
+      return <EmptyState type="no_results" onAction={() => setSearchQuery("")} />;
+    }
+    if (hasFilters) {
+      return <EmptyState type="no_filters" onAction={handleClearFilters} />;
+    }
+    return null;
+  };
+
+  // Option sheet flags
+  const hasManualLink = !!selectedContact?.customerId;
 
   return (
     <Screen>
       <View style={styles.container}>
-        {/* Header Controls */}
+        {/* Top Header Row with Search & Compact Import Icon */}
         <View style={styles.searchRow}>
           <Searchbar
-            placeholder="Search local cache..."
-            onChangeText={handleSearch}
+            placeholder="Search contacts, phone numbers..."
+            onChangeText={setSearchQuery}
             value={searchQuery}
             style={styles.searchbar}
             inputStyle={styles.searchInput}
+            loading={isSearching || loadingLocal}
+            iconColor={Colors.textSecondary}
           />
           <IconButton
-            icon="card-search-outline"
+            icon="account-multiple-plus-outline"
+            onPress={() => importMutation.mutate()}
+            disabled={importMutation.isPending}
+            size={22}
             iconColor={Colors.primary}
-            size={24}
-            onPress={importDeviceContacts}
-            style={styles.actionBtn}
-            loading={loading}
+            style={styles.headerActionBtn}
           />
         </View>
 
-        {/* Selection summary / Bulk actions bar */}
-        <View style={styles.bulkRow}>
-          <TouchableOpacity onPress={toggleSelectAll} style={styles.selectAllBtn}>
-            <Checkbox.Android
-              status={allSelected ? "checked" : "unchecked"}
-              onPress={toggleSelectAll}
-              color={Colors.primary}
-            />
-            <Text style={styles.bulkText}>Select All ({contacts.length})</Text>
-          </TouchableOpacity>
-
-          {mutatedCount > 0 && (
-            <Button
-              mode="contained"
-              onPress={() => setShowSyncDialog(true)}
-              loading={syncing}
-              icon="sync"
-              style={styles.syncBtn}
-              textColor="#fff"
-            >
-              Sync Selected ({mutatedCount})
-            </Button>
-          )}
+        {/* Compact CRM Stats Summary Strip */}
+        <View style={styles.statsSummaryStrip}>
+          <View style={styles.stripItem}>
+            <Text style={styles.stripCount}>{stats?.total || 0}</Text>
+            <Text style={styles.stripLabel}>Total</Text>
+          </View>
+          <View style={styles.stripDivider} />
+          <View style={styles.stripItem}>
+            <Text style={[styles.stripCount, { color: "#d97706" }]}>{stats?.unsynced || 0}</Text>
+            <Text style={styles.stripLabel}>Unsynced</Text>
+          </View>
+          <View style={styles.stripDivider} />
+          <View style={styles.stripItem}>
+            <Text style={[styles.stripCount, { color: "#16a34a" }]}>{stats?.linked || 0}</Text>
+            <Text style={styles.stripLabel}>Linked</Text>
+          </View>
+          <View style={styles.stripDivider} />
+          <View style={styles.stripItem}>
+            <Text style={[styles.stripCount, { color: "#1d4ed8" }]}>{stats?.business || 0}</Text>
+            <Text style={styles.stripLabel}>Biz</Text>
+          </View>
+          <View style={styles.stripDivider} />
+          <View style={styles.stripItem}>
+            <Text style={[styles.stripCount, { color: "#10b981" }]}>{stats?.regular || 0}</Text>
+            <Text style={styles.stripLabel}>Regular</Text>
+          </View>
         </View>
 
-        {/* Contact List */}
-        <FlatList
-          data={contacts}
-          renderItem={renderContactItem}
-          keyExtractor={(item) => item.id}
+        {/* Double-Row Segmented CRM Filter Panel */}
+        <View style={styles.filterControlPanel}>
+          <SegmentedButtons
+            value={activeFilterCategory}
+            onValueChange={(val) => setActiveFilterCategory(val as any)}
+            buttons={[
+              { value: "status", label: `Status (${stats?.unsynced || 0})`, style: styles.segmentBtn, labelStyle: styles.segmentBtnLabel },
+              { value: "link", label: `Link (${stats?.linked || 0})`, style: styles.segmentBtn, labelStyle: styles.segmentBtnLabel },
+              { value: "tag", label: `Type (${(stats?.business || 0) + (stats?.regular || 0)})`, style: styles.segmentBtn, labelStyle: styles.segmentBtnLabel },
+            ]}
+            density="small"
+            style={styles.categorySegment}
+          />
+
+          <View style={styles.valueSegmentWrapper}>
+            {activeFilterCategory === "status" && (
+              <SegmentedButtons
+                value={syncFilter}
+                onValueChange={(val) => setSyncFilter(val as any)}
+                buttons={[
+                  { value: "ALL", label: "All Status", style: styles.valueSegmentBtn, labelStyle: styles.valueSegmentBtnLabel },
+                  { value: "UNSYNCED", label: "Unsynced", style: styles.valueSegmentBtn, labelStyle: styles.valueSegmentBtnLabel },
+                  { value: "SYNCED", label: "Synced", style: styles.valueSegmentBtn, labelStyle: styles.valueSegmentBtnLabel },
+                ]}
+                density="small"
+              />
+            )}
+            {activeFilterCategory === "link" && (
+              <SegmentedButtons
+                value={linkFilter}
+                onValueChange={(val) => setLinkFilter(val as any)}
+                buttons={[
+                  { value: "ALL", label: "All Links", style: styles.valueSegmentBtn, labelStyle: styles.valueSegmentBtnLabel },
+                  { value: "LINKED", label: "Linked", style: styles.valueSegmentBtn, labelStyle: styles.valueSegmentBtnLabel },
+                  { value: "UNLINKED", label: "Unlinked", style: styles.valueSegmentBtn, labelStyle: styles.valueSegmentBtnLabel },
+                ]}
+                density="small"
+              />
+            )}
+            {activeFilterCategory === "tag" && (
+              <SegmentedButtons
+                value={tagFilter}
+                onValueChange={(val) => setTagFilter(val as any)}
+                buttons={[
+                  { value: "ALL", label: "All Types", style: styles.valueSegmentBtn, labelStyle: styles.valueSegmentBtnLabel },
+                  { value: "REGULAR", label: "Regular", style: styles.valueSegmentBtn, labelStyle: styles.valueSegmentBtnLabel },
+                  { value: "BUSINESS", label: "Business", style: styles.valueSegmentBtn, labelStyle: styles.valueSegmentBtnLabel },
+                  { value: "NONE", label: "No Tag", style: styles.valueSegmentBtn, labelStyle: styles.valueSegmentBtnLabel },
+                ]}
+                density="small"
+              />
+            )}
+          </View>
+        </View>
+
+        {/* Selection Details Header */}
+        <View style={styles.listHeaderRow}>
+          <View style={{ flex: 1 }}>
+            {selectedCount > 0 ? (
+              <Text style={styles.selectionLabelText}>
+                {selectedCount} selected <Text style={{ color: Colors.textMuted }}>of</Text> {filteredIds.length} filtered
+              </Text>
+            ) : (
+              <Text style={styles.selectionLabelText}>
+                Showing {flattenedContacts.length} of {filteredIds.length} filtered
+              </Text>
+            )}
+            <Text style={styles.selectionSubText}>
+              Total contact entries: {stats?.total || 0}
+            </Text>
+          </View>
+
+          <View style={styles.headerRightActions}>
+            <TouchableOpacity onPress={handleToggleSelectAll} style={styles.selectAllWrapper}>
+              <Checkbox.Android
+                status={isAllFilteredSelected ? "checked" : "unchecked"}
+                onPress={handleToggleSelectAll}
+                color={Colors.primary}
+              />
+              <Text style={styles.selectAllText}>Select Page</Text>
+            </TouchableOpacity>
+            {selectedCount > 0 && (
+              <TouchableOpacity onPress={clearSelection} style={styles.clearSelectionBtn}>
+                <Text style={styles.clearSelectionText}>Clear</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+
+        {/* Paginated Virtualized Contacts List */}
+        <FlashListAny
+          data={flattenedContacts}
+          renderItem={renderItem}
+          keyExtractor={(item: LocalContact) => item.id}
           contentContainerStyle={styles.listContent}
-          ListEmptyComponent={
-            <View style={styles.empty}>
-              {loading ? (
-                <ActivityIndicator size="large" color={Colors.primary} />
-              ) : (
-                <>
-                  <MaterialCommunityIcons name="contacts-outline" size={60} color={Colors.borderStrong} />
-                  <Text style={styles.emptyText}>No contacts cached locally.</Text>
-                  <Button mode="outlined" onPress={importDeviceContacts} style={{ marginTop: 15 }}>
-                    Import Device Contacts
-                  </Button>
-                </>
-              )}
-            </View>
+          estimatedItemSize={56}
+          onEndReached={() => {
+            if (hasNextPage && !isFetchingNextPage) {
+              fetchNextPage();
+            }
+          }}
+          onEndReachedThreshold={0.4}
+          ListEmptyComponent={renderEmptyComponent}
+          ListFooterComponent={
+            isFetchingNextPage ? (
+              <ActivityIndicator size="small" color={Colors.primary} style={{ marginVertical: spacing.md }} />
+            ) : null
           }
         />
 
-        {/* Manual Customer Link Modal */}
-        <Portal>
-          <Modal
-            visible={showLinkModal}
-            transparent
-            animationType="slide"
-            onRequestClose={() => setShowLinkModal(false)}
-          >
-            <View style={styles.modalOverlay}>
-              <View style={styles.modalContent}>
-                <View style={styles.modalHeader}>
-                  <Text style={styles.modalTitle}>Link Customer</Text>
-                  <IconButton icon="close" size={20} onPress={() => setShowLinkModal(false)} />
-                </View>
-                <Text style={styles.modalSub}>
-                  Select a customer record to associate with {selectedContact?.name}. Priority is given to phone-less/GST-only profiles.
-                </Text>
-
-                <Searchbar
-                  placeholder="Search customers..."
-                  onChangeText={setCustomerSearch}
-                  value={customerSearch}
-                  style={styles.modalSearch}
-                  inputStyle={styles.searchInput}
-                />
-
-                <ScrollView style={styles.customerScroll}>
-                  {loadingCustomers ? (
-                    <ActivityIndicator size="small" color={Colors.primary} style={{ margin: 20 }} />
-                  ) : filteredCustomersForLink.length === 0 ? (
-                    <Text style={styles.modalEmptyText}>No matching customers found.</Text>
-                  ) : (
-                    filteredCustomersForLink.map((c) => {
-                      const hasPhone = !!c.phone;
-                      return (
-                        <TouchableOpacity
-                          key={c.id}
-                          style={styles.customerItem}
-                          onPress={() => handleLinkCustomer(c.id)}
-                        >
-                          <View>
-                            <Text style={styles.customerItemName}>{c.name}</Text>
-                            {c.gstin && <Text style={styles.customerItemSub}>GSTIN: {c.gstin}</Text>}
-                            {hasPhone && <Text style={styles.customerItemSub}>Phone: {c.phone}</Text>}
-                          </View>
-                          {!hasPhone && (
-                            <View style={styles.noPhoneBadge}>
-                              <Text style={styles.noPhoneBadgeText}>NO PHONE</Text>
-                            </View>
-                          )}
-                        </TouchableOpacity>
-                      );
-                    })
-                  )}
-                </ScrollView>
+        {/* Sticky Action Footer (Sync triggers) */}
+        {selectedCount > 0 && (
+          <View style={styles.stickyFooter}>
+            <View style={styles.footerLeft}>
+              <View style={styles.footerRow}>
+                <Text style={styles.footerHighlight}>{selectedCount} Selected</Text>
+                <Text style={styles.footerText}>{` • ${filteredIds.length} Filtered`}</Text>
               </View>
+              <Text style={styles.filterSummary} numberOfLines={1}>
+                {`Filters: Status=${syncFilter}, Link=${linkFilter}, Tag=${tagFilter}`}
+              </Text>
             </View>
-          </Modal>
+            <Button
+              mode="contained"
+              onPress={() => setShowSyncDialog(true)}
+              loading={syncMutation.isPending}
+              icon="sync"
+              style={styles.stickySyncBtn}
+              textColor="#fff"
+            >
+              {`Sync ${selectedCount} Contacts`}
+            </Button>
+          </View>
+        )}
 
-          {/* Sync options Dialog */}
+        {/* 1. Bottom Sheet for Contact Context Options */}
+        <BottomSheet
+          visible={showOptionsSheet}
+          onClose={() => setShowOptionsSheet(false)}
+          title={selectedContact?.name || `+${selectedContact?.phone}` || "Contact Options"}
+        >
+          <View style={styles.actionsList}>
+            <TouchableOpacity style={styles.actionItem} onPress={() => handleSelectTag("REGULAR")}>
+              <MaterialCommunityIcons name="account-outline" size={20} color={Colors.primary} />
+              <Text style={styles.actionItemText}>Tag as Regular</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.actionItem} onPress={() => handleSelectTag("BUSINESS")}>
+              <MaterialCommunityIcons name="briefcase-outline" size={20} color="#1d4ed8" />
+              <Text style={styles.actionItemText}>Tag as Business</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.actionItem} onPress={() => handleSelectTag("NONE")}>
+              <MaterialCommunityIcons name="tag-off-outline" size={20} color={Colors.textSecondary} />
+              <Text style={styles.actionItemText}>Remove Tag</Text>
+            </TouchableOpacity>
+            
+            <Divider style={{ marginVertical: spacing.xs }} />
+            
+            {hasManualLink ? (
+              <TouchableOpacity
+                style={styles.actionItem}
+                onPress={() => {
+                  if (selectedContact) {
+                    handleUnlinkCustomer(selectedContact.id);
+                    setShowOptionsSheet(false);
+                  }
+                }}
+              >
+                <MaterialCommunityIcons name="link-variant-off" size={20} color="#dc2626" />
+                <Text style={[styles.actionItemText, { color: "#dc2626" }]}>Unlink Customer</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity style={styles.actionItem} onPress={handleOpenLinkSheet}>
+                <MaterialCommunityIcons name="link-variant" size={20} color="#d97706" />
+                <Text style={styles.actionItemText}>Link Customer Record</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </BottomSheet>
+
+        {/* 2. Bottom Sheet for Customer Linking */}
+        <BottomSheet
+          visible={showLinkSheet}
+          onClose={() => setShowLinkSheet(false)}
+          title={`Link Customer Record`}
+        >
+          <View style={styles.linkSheetContent}>
+            <Searchbar
+              placeholder="Search customers by name, phone..."
+              onChangeText={(val) => {
+                setCustomerSearch(val);
+                setCustomerLimit(50);
+              }}
+              value={customerSearch}
+              style={styles.modalSearch}
+              inputStyle={styles.searchInput}
+            />
+
+            <FlatList
+              data={visibleCustomers}
+              keyExtractor={(item) => item.id}
+              style={styles.customerScroll}
+              initialNumToRender={15}
+              maxToRenderPerBatch={15}
+              windowSize={5}
+              removeClippedSubviews={true}
+              onEndReached={() => {
+                if (customerLimit < filteredCustomersForLink.length) {
+                  setCustomerLimit((prev) => prev + 50);
+                }
+              }}
+              onEndReachedThreshold={0.5}
+              renderItem={({ item: c }) => {
+                const hasPhone = !!c.phone;
+                return (
+                  <TouchableOpacity
+                    style={styles.customerItem}
+                    onPress={() => handleLinkCustomer(c.id)}
+                  >
+                    <View style={{ flex: 1, marginRight: spacing.sm }}>
+                      <Text style={styles.customerItemName} numberOfLines={1}>{c.name}</Text>
+                      {c.gstin && <Text style={styles.customerItemSub}>GSTIN: {c.gstin}</Text>}
+                      {hasPhone && <Text style={styles.customerItemSub}>Phone: {c.phone}</Text>}
+                    </View>
+                    {!hasPhone && (
+                      <View style={styles.noPhoneBadge}>
+                        <Text style={styles.noPhoneBadgeText}>NO PHONE</Text>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                );
+              }}
+              ListEmptyComponent={
+                loadingCustomers ? (
+                  <ActivityIndicator size="small" color={Colors.primary} style={{ margin: 20 }} />
+                ) : (
+                  <Text style={styles.modalEmptyText}>No matching customers found.</Text>
+                )
+              }
+            />
+          </View>
+        </BottomSheet>
+
+        {/* Sync Strategy Dialog */}
+        <Portal>
           <Dialog visible={showSyncDialog} onDismiss={() => setShowSyncDialog(false)} style={styles.dialog}>
             <Dialog.Title>Merge Strategy</Dialog.Title>
             <Dialog.Content>
@@ -531,7 +910,13 @@ export const ContactBookScreen = () => {
               <Button onPress={() => setShowSyncDialog(false)} textColor={Colors.textSecondary}>
                 Cancel
               </Button>
-              <Button onPress={handleSyncToServer} mode="contained" buttonColor={Colors.primary} textColor="#fff">
+              <Button
+                onPress={handleSyncToServer}
+                mode="contained"
+                buttonColor={Colors.primary}
+                textColor="#fff"
+                loading={syncMutation.isPending}
+              >
                 Execute Sync
               </Button>
             </Dialog.Actions>
@@ -543,10 +928,21 @@ export const ContactBookScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#F7F7FA" },
+  container: {
+    flex: 1,
+    backgroundColor: "#F4F6F4", // Sleek gray-green offset background
+  },
+  loaderCenter: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: spacing.xl,
+  },
+  // Top Row
   searchRow: {
     flexDirection: "row",
-    padding: spacing.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
     alignItems: "center",
     backgroundColor: "#fff",
     borderBottomWidth: 1,
@@ -555,64 +951,249 @@ const styles = StyleSheet.create({
   searchbar: {
     flex: 1,
     elevation: 0,
-    backgroundColor: "#F0F0F3",
+    backgroundColor: "#F0F2F0",
     borderRadius: radius.md,
-    height: 44,
+    height: 38,
   },
-  searchInput: { fontSize: fontSize.sm, minHeight: 0 },
-  actionBtn: { marginLeft: spacing.sm, backgroundColor: "#F0F0F3" },
-  
-  bulkRow: {
+  searchInput: {
+    fontSize: fontSize.sm,
+    minHeight: 0,
+    paddingBottom: 4,
+  },
+  headerActionBtn: {
+    marginLeft: spacing.xs,
+    marginRight: 0,
+    backgroundColor: "#F0F2F0",
+    borderRadius: radius.sm,
+    width: 38,
+    height: 38,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+
+  // Stats Summary Strip
+  statsSummaryStrip: {
+    flexDirection: "row",
+    backgroundColor: "#fff",
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+    paddingVertical: spacing.xs,
+    paddingHorizontal: spacing.md,
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  stripItem: {
+    flex: 1,
+    alignItems: "center",
+  },
+  stripCount: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: Colors.textPrimary,
+  },
+  stripLabel: {
+    fontSize: 9,
+    color: Colors.textSecondary,
+    fontWeight: fontWeight.semibold,
+    marginTop: 1,
+  },
+  stripDivider: {
+    width: 1,
+    height: 16,
+    backgroundColor: Colors.border,
+  },
+
+  // Double-Row Segmented Filters Panel
+  filterControlPanel: {
+    backgroundColor: "#fff",
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
+  },
+  categorySegment: {
+    marginBottom: spacing.xs,
+  },
+  segmentBtn: {
+    borderRadius: radius.sm,
+  },
+  segmentBtnLabel: {
+    fontSize: 9,
+    fontWeight: fontWeight.semibold,
+  },
+  valueSegmentWrapper: {
+    marginTop: 2,
+  },
+  valueSegmentBtn: {
+    borderRadius: radius.sm,
+  },
+  valueSegmentBtnLabel: {
+    fontSize: 9,
+    fontWeight: fontWeight.semibold,
+  },
+
+  // Selection Info Header Row
+  listHeaderRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    backgroundColor: "#fff",
+    paddingVertical: spacing.xs,
+    backgroundColor: "#f4f6f4",
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
   },
-  selectAllBtn: { flexDirection: "row", alignItems: "center" },
-  bulkText: { fontSize: fontSize.sm, fontWeight: fontWeight.semibold, color: Colors.textPrimary },
-  syncBtn: { borderRadius: radius.md, backgroundColor: Colors.primary },
-  
-  listContent: { padding: spacing.md },
+  selectionLabelText: {
+    fontSize: 11,
+    fontWeight: fontWeight.bold,
+    color: Colors.textPrimary,
+  },
+  selectionSubText: {
+    fontSize: 9,
+    color: Colors.textSecondary,
+    marginTop: 1,
+  },
+  headerRightActions: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  selectAllWrapper: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginRight: spacing.sm,
+  },
+  selectAllText: {
+    fontSize: 11,
+    fontWeight: fontWeight.semibold,
+    color: Colors.textSecondary,
+    marginLeft: 2,
+  },
+  clearSelectionBtn: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  clearSelectionText: {
+    fontSize: 11,
+    color: Colors.danger,
+    fontWeight: fontWeight.semibold,
+  },
+
+  // Contacts List
+  listContent: {
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.xs,
+    paddingBottom: 120, // Space for sticky sync footer
+  },
+
+  // Compact Contact Card (Vertical height reduced by 45%)
   contactCard: {
-    marginBottom: spacing.md,
+    marginBottom: 4,
     backgroundColor: "#fff",
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: Colors.border,
+    elevation: 0,
+    shadowOpacity: 0,
+  },
+  selectedCard: {
+    borderColor: Colors.primary,
+    backgroundColor: "#F0FDF4", // Emerald green tint
   },
   mutatedCard: {
     borderColor: Colors.warningLight,
-    backgroundColor: "#FFFBEB",
+    backgroundColor: "#FFFBEB", // Yellow warning tint
   },
-  cardLayout: { flexDirection: "row", alignItems: "flex-start", padding: 0 },
-  checkboxContainer: { alignSelf: "center", marginRight: spacing.xs },
-  
-  contactInfo: { flex: 1 },
-  row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  contactName: { fontSize: fontSize.md, fontWeight: fontWeight.bold, color: Colors.textPrimary },
-  contactPhone: { fontSize: fontSize.sm, color: Colors.textSecondary, marginTop: 2 },
-  contactEmail: { fontSize: fontSize.xs, color: Colors.textMuted, marginTop: 1 },
-  
+  cardLayout: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6, // Reduced padding for compactness
+  },
+  checkboxTouch: {
+    padding: 6,
+    marginLeft: -4,
+    marginRight: 2,
+  },
+  customCheckbox: {
+    width: 18,
+    height: 18,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  contactInfo: {
+    flex: 1,
+  },
+  primaryRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  contactName: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: Colors.textPrimary,
+    maxWidth: "50%",
+  },
+  badgeWrapper: {
+    flexDirection: "row",
+    marginLeft: spacing.xs,
+  },
+  tagBadge: {
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: radius.sm,
+    marginRight: 3,
+  },
+  badgeRegular: {
+    backgroundColor: Colors.primaryLight,
+  },
+  badgeBusiness: {
+    backgroundColor: "#dbeafe",
+  },
+  tagBadgeText: {
+    fontSize: 8,
+    fontWeight: fontWeight.bold,
+  },
   mutatedBadge: {
     backgroundColor: "#FEF3C7",
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
     borderRadius: radius.sm,
   },
-  mutatedBadgeText: { fontSize: 10, fontWeight: fontWeight.bold, color: "#B45309" },
+  mutatedBadgeText: {
+    fontSize: 8,
+    fontWeight: fontWeight.bold,
+    color: "#B45309",
+  },
+  secondaryRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 1,
+    justifyContent: "space-between",
+  },
+  contactPhone: {
+    fontSize: fontSize.xs,
+    color: Colors.textSecondary,
+  },
+  noNameLabel: {
+    fontSize: fontSize.xs,
+    color: Colors.textMuted,
+    fontStyle: "italic",
+  },
+  cardMenuBtn: {
+    margin: 0,
+    padding: 0,
+  },
 
-  linkBadgeRow: { flexDirection: "row", marginTop: spacing.sm },
+  // CRM Connection Badges
   linkBadge: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
     borderRadius: radius.sm,
-    maxWidth: "90%",
+    maxWidth: "55%",
   },
   matchedBadge: {
     backgroundColor: Colors.primaryLight,
@@ -621,79 +1202,203 @@ const styles = StyleSheet.create({
     backgroundColor: "#E0F2FE",
   },
   notLinkedBadge: {
-    backgroundColor: "#FEF3C7",
-    borderWidth: 1,
-    borderColor: "#F59E0B",
-    borderStyle: "dashed",
+    backgroundColor: "#FFF3E0",
   },
   linkBadgeText: {
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.semibold,
+    fontSize: 8.5,
+    fontWeight: fontWeight.bold,
     color: Colors.textPrimary,
-    marginLeft: 4,
-    marginRight: 4,
+    marginLeft: 2,
   },
-  unlinkBtn: { marginLeft: 4 },
-  
-  pillsContainer: { flexDirection: "row", alignItems: "center", marginTop: spacing.md },
-  pillsLabel: { fontSize: fontSize.xs, color: Colors.textSecondary, marginRight: spacing.sm },
-  pill: {
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: radius.full,
-    borderWidth: 1,
-    borderColor: Colors.borderStrong,
-    marginRight: spacing.sm,
+
+  // Sticky Action Footer
+  stickyFooter: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
     backgroundColor: "#fff",
+    flexDirection: "row",
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: Colors.border,
+    alignItems: "center",
+    justifyContent: "space-between",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 8,
   },
-  pillRegularActive: {
-    backgroundColor: Colors.primary,
-    borderColor: Colors.primary,
-  },
-  pillBusinessActive: {
-    backgroundColor: "#1D4ED8",
-    borderColor: "#1D4ED8",
-  },
-  pillText: { fontSize: fontSize.xs, color: Colors.textSecondary, fontWeight: fontWeight.semibold },
-  pillTextActive: { color: "#fff" },
-
-  empty: { padding: 80, alignItems: "center", justifyContent: "center" },
-  emptyText: { marginTop: 10, fontSize: fontSize.md, color: Colors.textSecondary, textAlign: "center" },
-
-  // Modals & Overlay
-  modalOverlay: {
+  footerLeft: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.5)",
+    marginRight: spacing.sm,
+  },
+  footerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  footerHighlight: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: Colors.primary,
+  },
+  footerText: {
+    fontSize: fontSize.sm,
+    color: Colors.textSecondary,
+  },
+  filterSummary: {
+    fontSize: 9,
+    color: Colors.textMuted,
+    marginTop: 1,
+  },
+  stickySyncBtn: {
+    borderRadius: radius.md,
+    backgroundColor: Colors.primary,
+  },
+
+  // Empty state
+  empty: {
+    padding: spacing.huge,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  emptyText: {
+    marginTop: spacing.sm,
+    fontSize: fontSize.md,
+    color: Colors.textSecondary,
+    textAlign: "center",
+    fontWeight: fontWeight.semibold,
+  },
+  emptySubtitle: {
+    marginTop: 2,
+    fontSize: fontSize.sm - 1,
+    color: Colors.textMuted,
+    textAlign: "center",
+    marginBottom: spacing.sm,
+  },
+
+  // Bottom Sheets & Overlays
+  sheetOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
     justifyContent: "flex-end",
   },
-  modalContent: {
+  sheetContent: {
     backgroundColor: "#fff",
-    borderTopLeftRadius: radius.lg,
-    borderTopRightRadius: radius.lg,
-    padding: spacing.lg,
-    maxHeight: "75%",
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.xl,
+    maxHeight: "80%",
   },
-  modalHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  modalTitle: { fontSize: fontSize.lg, fontWeight: fontWeight.bold, color: Colors.textPrimary },
-  modalSub: { fontSize: fontSize.sm, color: Colors.textSecondary, marginVertical: spacing.sm },
-  modalSearch: { elevation: 0, backgroundColor: "#F0F0F3", borderRadius: radius.md, marginBottom: spacing.md },
-  customerScroll: { marginVertical: spacing.sm },
+  sheetHeader: {
+    alignItems: "center",
+    paddingVertical: spacing.sm,
+  },
+  sheetHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#e5e7eb",
+    marginBottom: spacing.xs,
+  },
+  sheetTitleRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    width: "100%",
+  },
+  sheetTitle: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.bold,
+    color: Colors.textPrimary,
+  },
+
+  // Actions sheet content
+  actionsList: {
+    paddingVertical: spacing.xs,
+  },
+  actionItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: spacing.md,
+  },
+  actionItemText: {
+    fontSize: fontSize.sm,
+    color: Colors.textPrimary,
+    fontWeight: fontWeight.semibold,
+    marginLeft: spacing.md,
+  },
+
+  // Linking sheet content
+  linkSheetContent: {
+    paddingBottom: spacing.md,
+  },
+  modalSearch: {
+    elevation: 0,
+    backgroundColor: "#F0F0F3",
+    borderRadius: radius.md,
+    marginBottom: spacing.sm,
+    height: 38,
+  },
+  customerScroll: {
+    maxHeight: 280,
+  },
   customerItem: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingVertical: spacing.md,
+    paddingVertical: spacing.sm,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
   },
-  customerItemName: { fontSize: fontSize.md, fontWeight: fontWeight.semibold, color: Colors.textPrimary },
-  customerItemSub: { fontSize: fontSize.xs, color: Colors.textSecondary, marginTop: 2 },
-  noPhoneBadge: { backgroundColor: "#FEE2E2", paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.sm },
-  noPhoneBadgeText: { fontSize: 10, fontWeight: fontWeight.bold, color: "#DC2626" },
-  modalEmptyText: { textAlign: "center", color: Colors.textSecondary, padding: spacing.xl },
+  customerItemName: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.semibold,
+    color: Colors.textPrimary,
+  },
+  customerItemSub: {
+    fontSize: fontSize.xs - 1,
+    color: Colors.textSecondary,
+    marginTop: 1,
+  },
+  noPhoneBadge: {
+    backgroundColor: "#FEE2E2",
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: radius.sm,
+  },
+  noPhoneBadgeText: {
+    fontSize: 9,
+    fontWeight: fontWeight.bold,
+    color: "#DC2626",
+  },
+  modalEmptyText: {
+    textAlign: "center",
+    color: Colors.textSecondary,
+    padding: spacing.xl,
+    fontSize: fontSize.xs,
+  },
 
-  dialog: { backgroundColor: "#fff", borderRadius: radius.md },
-  radioRow: { flexDirection: "row", alignItems: "flex-start" },
-  radioTitle: { fontSize: fontSize.md, fontWeight: fontWeight.bold, color: Colors.textPrimary },
-  radioDesc: { fontSize: fontSize.xs, color: Colors.textSecondary, marginTop: 2 },
+  // General Dialog
+  dialog: {
+    backgroundColor: "#fff",
+    borderRadius: radius.md,
+  },
+  radioRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+  },
+  radioTitle: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.bold,
+    color: Colors.textPrimary,
+  },
+  radioDesc: {
+    fontSize: fontSize.xs,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
 });
