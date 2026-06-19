@@ -268,7 +268,7 @@ class WhatsAppController {
 
   async fbEmbeddedSignup(req, res) {
     try {
-      const { code, shopId } = req.body;
+      const { code, shopId, redirectUri } = req.body;
       if (!code || !shopId) {
         return res.status(400).json({ success: false, message: "Code and shopId are required" });
       }
@@ -280,6 +280,7 @@ class WhatsAppController {
           client_id: process.env.WHATSAPP_APP_ID,
           client_secret: process.env.WHATSAPP_APP_SECRET,
           code,
+          redirect_uri: redirectUri,
         }
       });
       
@@ -449,6 +450,27 @@ class WhatsAppController {
       await getWaCredentials(shopId);
 
       res.json({ success: true, data: setup });
+    } catch (error) {
+      res.status(500).json({ success: false, message: error.message });
+    }
+  }
+
+  /**
+   * Delete Setup / Disconnect (DELETE /whatsapp/setup)
+   */
+  async deleteSetup(req, res) {
+    try {
+      const shopId = req.query.shopId || req.body.shopId;
+      if (!shopId) return res.status(400).json({ success: false, message: "shopId is required" });
+
+      await prisma.waIntegration.delete({
+        where: { shopId }
+      });
+
+      // Warm cache after deleting
+      await invalidateWaCredentials(shopId);
+
+      res.json({ success: true, message: "WhatsApp integration disconnected successfully" });
     } catch (error) {
       res.status(500).json({ success: false, message: error.message });
     }

@@ -32,6 +32,7 @@ router.post("/sync-contacts", requireAuth, requireOwner, whatsappController.sync
 
 router.get("/setup", requireAuth, requireOwner, whatsappController.getSetup);
 router.post("/setup", requireAuth, requireOwner, whatsappController.saveSetup);
+router.delete("/setup", requireAuth, requireOwner, whatsappController.deleteSetup);
 router.post("/fb-embedded-signup", requireAuth, requireOwner, whatsappController.fbEmbeddedSignup);
 
 // Campaign / Broadcast routes (Owner Only)

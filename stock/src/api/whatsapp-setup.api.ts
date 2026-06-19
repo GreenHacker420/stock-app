@@ -16,12 +16,20 @@ export const whatsappSetupApi = {
     });
     return { data: res };
   },
-  fbEmbeddedSignup: async (payload: { shopId: string; code: string }) => {
+  fbEmbeddedSignup: async (payload: { shopId: string; code: string; redirectUri: string }) => {
     const token = useAuthStore.getState().token || "";
     const res = await apiRequest<any>(`/whatsapp/fb-embedded-signup`, {
       method: "POST",
       token,
       body: JSON.stringify(payload),
+    });
+    return { data: res };
+  },
+  deleteSetupInfo: async (shopId: string) => {
+    const token = useAuthStore.getState().token || "";
+    const res = await apiRequest<any>(`/whatsapp/setup?shopId=${encodeURIComponent(shopId)}`, {
+      method: "DELETE",
+      token,
     });
     return { data: res };
   },
