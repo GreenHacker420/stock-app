@@ -6,36 +6,51 @@ const textSchema = z.object({
   previewUrl: z.boolean().optional().default(false),
 });
 
-const mediaBase = {
-  link: z.string().url(),
+const mediaMetadata = {
+  id: z.string().trim().min(1).optional(),
+  link: z.string().url().optional(),
+  localUrl: z.string().url().optional(),
+  storageKey: z.string().trim().min(1).optional(),
+  storageBucket: z.string().trim().min(1).optional(),
+  mimeType: z.string().trim().min(1).optional(),
   caption: z.string().max(1024).optional(),
 };
 
 const imageSchema = z.object({
   kind: z.literal("image"),
-  ...mediaBase,
+  ...mediaMetadata,
 });
 
 const videoSchema = z.object({
   kind: z.literal("video"),
-  ...mediaBase,
+  ...mediaMetadata,
 });
 
 const audioSchema = z.object({
   kind: z.literal("audio"),
-  link: z.string().url(),
+  id: z.string().trim().min(1).optional(),
+  link: z.string().url().optional(),
+  localUrl: z.string().url().optional(),
+  storageKey: z.string().trim().min(1).optional(),
+  storageBucket: z.string().trim().min(1).optional(),
+  mimeType: z.string().trim().min(1).optional(),
   voice: z.boolean().optional().default(false),
 });
 
 const documentSchema = z.object({
   kind: z.literal("document"),
-  ...mediaBase,
+  ...mediaMetadata,
   filename: z.string().trim().min(1).max(240).optional(),
 });
 
 const stickerSchema = z.object({
   kind: z.literal("sticker"),
-  link: z.string().url(),
+  id: z.string().trim().min(1).optional(),
+  link: z.string().url().optional(),
+  localUrl: z.string().url().optional(),
+  storageKey: z.string().trim().min(1).optional(),
+  storageBucket: z.string().trim().min(1).optional(),
+  mimeType: z.string().trim().min(1).optional(),
 });
 
 const locationSchema = z.object({
@@ -156,7 +171,16 @@ export const outboundMessageSchema = z.discriminatedUnion("kind", [
   listSchema,
   templateSchema,
   flowSchema,
-]);
+]).superRefine((message, ctx) => {
+  if (!["image", "video", "audio", "document", "sticker"].includes(message.kind)) return;
+  if (Boolean(message.id) === Boolean(message.link)) {
+    ctx.addIssue({
+      code: "custom",
+      message: "Media messages require exactly one of id or link",
+      path: ["id"],
+    });
+  }
+});
 
 export const outboundCommandSchema = z.object({
   shopId: z.string().min(1),
@@ -186,6 +210,10 @@ function optionalText(type, text) {
   return text ? { type, text } : undefined;
 }
 
+function mediaReferencePayload(message) {
+  return message.id ? { id: message.id } : { link: message.link };
+}
+
 export function compileMetaMessage({ to, message, replyToMetaMessageId }) {
   const payload = {
     messaging_product: "whatsapp",
@@ -203,25 +231,25 @@ export function compileMetaMessage({ to, message, replyToMetaMessageId }) {
   } else if (["image", "video"].includes(message.kind)) {
     payload.type = message.kind;
     payload[message.kind] = {
-      link: message.link,
+      ...mediaReferencePayload(message),
       ...(message.caption ? { caption: message.caption } : {}),
     };
   } else if (message.kind === "audio") {
     payload.type = "audio";
     payload.audio = {
-      link: message.link,
+      ...mediaReferencePayload(message),
       ...(message.voice ? { voice: true } : {}),
     };
   } else if (message.kind === "document") {
     payload.type = "document";
     payload.document = {
-      link: message.link,
+      ...mediaReferencePayload(message),
       ...(message.caption ? { caption: message.caption } : {}),
       ...(message.filename ? { filename: message.filename } : {}),
     };
   } else if (message.kind === "sticker") {
     payload.type = "sticker";
-    payload.sticker = { link: message.link };
+    payload.sticker = mediaReferencePayload(message);
   } else if (message.kind === "location") {
     payload.type = "location";
     payload.location = {
@@ -302,11 +330,14 @@ export function compileMetaMessage({ to, message, replyToMetaMessageId }) {
 export function getLocalMessageProjection(message) {
   const type = TYPE_BY_KIND[message.kind];
   const mediaUrl = ["image", "video", "audio", "document", "sticker"].includes(message.kind)
-    ? message.link
+    ? message.localUrl || message.link || null
+    : null;
+  const mediaId = ["image", "video", "audio", "document", "sticker"].includes(message.kind)
+    ? message.id || null
     : null;
 
   if (message.kind === "text") {
-    return { type, content: { text: message.text, previewUrl: message.previewUrl }, payload: { subtype: "text" }, mediaUrl };
+    return { type, content: { text: message.text, previewUrl: message.previewUrl }, payload: { subtype: "text" }, mediaUrl, mediaId };
   }
   if (message.kind === "template") {
     return {
@@ -314,6 +345,7 @@ export function getLocalMessageProjection(message) {
       content: { template: message.template },
       payload: { subtype: "template" },
       mediaUrl,
+      mediaId,
       templateName: message.template.name,
       templateLanguage: message.template.language.code,
     };
@@ -324,6 +356,10 @@ export function getLocalMessageProjection(message) {
     content: message,
     payload: { subtype: message.kind, ...(message.voice ? { voice: true } : {}) },
     mediaUrl,
+    mediaId,
+    mimeType: message.mimeType,
+    s3Key: message.storageKey,
+    s3Bucket: message.storageBucket,
     fileName: message.kind === "document" ? message.filename : undefined,
   };
 }

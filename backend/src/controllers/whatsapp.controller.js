@@ -8,6 +8,7 @@ import { getSignedMediaUrl } from "../lib/wa-media.js";
 import { encrypt } from "../lib/wa-crypto.js";
 import prisma from "../lib/db.js";
 import { persistWebhookEnvelopes } from "../services/whatsapp.webhook.service.js";
+import { uploadWhatsAppMedia } from "../services/whatsapp.media.service.js";
 
 async function getPublicIntegration(shopId) {
   const integration = await prisma.waIntegration.findUnique({
@@ -269,6 +270,25 @@ class WhatsAppController {
         message: error.issues?.[0]?.message || error.message,
         details: error.issues || undefined,
       });
+    }
+  }
+
+  /**
+   * Upload Media (POST /whatsapp/media)
+   */
+  async uploadMedia(req, res) {
+    try {
+      const result = await uploadWhatsAppMedia({
+        shopId: req.shop.id,
+        kind: req.body.kind,
+        file: req.file,
+      });
+      res.status(201).json({ success: true, data: result });
+    } catch (error) {
+      const message = error.response?.data?.error?.message
+        || error.issues?.[0]?.message
+        || error.message;
+      res.status(400).json({ success: false, message });
     }
   }
 

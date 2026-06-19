@@ -1,4 +1,4 @@
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? "https://shop-api.evergreenclassic.in";
+export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? "https://shop-api.evergreenclassic.in";
 
 export type ApiUser = {
   id: string;
@@ -944,4 +944,3 @@ export async function createDeliveryMemo(token: string, data: any) {
     body: JSON.stringify(data),
   });
 }
-

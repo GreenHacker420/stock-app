@@ -2,6 +2,23 @@
 
 > Audit date: 2026-06-19
 
+## Implementation Checkpoint
+
+Completed after the audit:
+
+- Immutable webhook envelopes, management event normalization, and integration health projection.
+- Typed outbound `/whatsapp/messages` contract with text, replies, media, location, contacts, buttons, lists, templates, and Flows.
+- React Native structured-message actions for templates, contacts, location, reply buttons, and lists.
+- Tenant-authorized image, video, and document upload to private storage and Meta media, including preview, progress, cancellation, captions, and queued sends by Meta media ID.
+
+Next dependency-ordered work:
+
+1. Audio and voice-note recording/playback.
+2. Dedicated renderer registry and media open/play actions.
+3. Complete typed template components, previews, and lifecycle sync.
+4. Flow CRUD, validation, deployment, and execution tracking.
+5. Device registry and presence foundation before inbound calling.
+
 ## Architecture Direction
 
 Build a standalone, tenant-scoped WhatsApp Platform Layer.
@@ -245,4 +262,3 @@ Migrations must be additive first. Backfill existing messages from current type/
 - [Embedded Signup review](./whatsapp-embedded-signup-review.md)
 - [Business profile review](./whatsapp-business-profile-review.md)
 - [Calling review](./whatsapp-calling-review.md)
-

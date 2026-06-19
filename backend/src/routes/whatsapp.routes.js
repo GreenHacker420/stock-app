@@ -2,8 +2,17 @@ import { Router } from "express";
 import { requireAuth } from "../middleware/auth.middleware.js";
 import { whatsappController } from "../controllers/whatsapp.controller.js";
 import { whatsappFlowEndpointController } from "../controllers/whatsapp.flow-endpoint.controller.js";
+import { requireShopAccess } from "../middleware/shopAccess.middleware.js";
+import multer from "multer";
 
 const router = Router();
+const mediaUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    files: 1,
+    fileSize: 100 * 1024 * 1024,
+  },
+});
 
 // Public Webhook routes (called by Meta)
 // shopId is passed as path param or query param for multi-tenancy
@@ -21,6 +30,13 @@ router.get("/conversations", requireAuth, whatsappController.getConversations);
 router.get("/conversations/:id/messages", requireAuth, whatsappController.getMessages);
 router.get("/templates", requireAuth, whatsappController.getTemplates);
 router.post("/messages", requireAuth, whatsappController.sendMessage);
+router.post(
+  "/media",
+  requireAuth,
+  requireShopAccess((req) => req.headers["x-shop-id"]),
+  mediaUpload.single("file"),
+  whatsappController.uploadMedia,
+);
 router.post("/react", requireAuth, whatsappController.reactToMessage);
 router.delete("/messages/:id", requireAuth, whatsappController.deleteMessage);
 router.post("/conversations/:id/archive", requireAuth, whatsappController.archiveConversation);

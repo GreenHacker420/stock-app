@@ -22,12 +22,16 @@ type Props = {
   sending: boolean;
   onClose: () => void;
   onOpenTemplates: () => void;
+  onPickMedia: (kind: "image" | "video" | "document") => void;
   onShareContact: () => void;
   onShareLocation: () => Promise<boolean>;
   onSend: (message: WaOutboundMessage) => void;
 };
 
 const MENU_ACTIONS = [
+  { id: "image", title: "Photo", icon: "image-outline", color: "#0369A1" },
+  { id: "video", title: "Video", icon: "video-outline", color: "#C2410C" },
+  { id: "document", title: "Document", icon: "file-document-outline", color: "#475569" },
   { id: "template", title: "Template", icon: "card-text-outline", color: "#2563EB" },
   { id: "contact", title: "Contact", icon: "account-box-outline", color: "#0F766E" },
   { id: "location", title: "Location", icon: "map-marker-outline", color: "#BE123C" },
@@ -42,6 +46,7 @@ export function MessageActionSheet({
   sending,
   onClose,
   onOpenTemplates,
+  onPickMedia,
   onShareContact,
   onShareLocation,
   onSend,
@@ -69,6 +74,11 @@ export function MessageActionSheet({
   }, [visible]);
 
   const handleMenuAction = async (id: typeof MENU_ACTIONS[number]["id"]) => {
+    if (id === "image" || id === "video" || id === "document") {
+      onClose();
+      onPickMedia(id);
+      return;
+    }
     if (id === "template") {
       onClose();
       onOpenTemplates();

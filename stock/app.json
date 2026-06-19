@@ -78,6 +78,12 @@
         {
           "locationWhenInUsePermission": "Allow ShopControl to share your current location in WhatsApp conversations."
         }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow ShopControl to select photos and videos for WhatsApp conversations."
+        }
       ]
     ],
     "extra": {

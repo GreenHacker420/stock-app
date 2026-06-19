@@ -1,4 +1,4 @@
-import { apiRequest } from "./client";
+import { API_BASE_URL, apiRequest } from "./client";
 import { useAuthStore } from "../auth/auth-store";
 
 export type WaMessageStatus = "QUEUED" | "SENT" | "DELIVERED" | "READ" | "FAILED" | "DELETED";
@@ -31,13 +31,23 @@ export type WaContact = {
   org?: { company?: string; department?: string; title?: string };
 };
 
+export type WaMediaKind = "image" | "video" | "audio" | "document" | "sticker";
+export type WaMediaReference = {
+  id?: string;
+  link?: string;
+  localUrl?: string;
+  storageKey?: string;
+  storageBucket?: string;
+  mimeType?: string;
+};
+
 export type WaOutboundMessage =
   | { kind: "text"; text: string; previewUrl?: boolean }
-  | { kind: "image"; link: string; caption?: string }
-  | { kind: "video"; link: string; caption?: string }
-  | { kind: "audio"; link: string; voice?: boolean }
-  | { kind: "document"; link: string; caption?: string; filename?: string }
-  | { kind: "sticker"; link: string }
+  | ({ kind: "image"; caption?: string } & WaMediaReference)
+  | ({ kind: "video"; caption?: string } & WaMediaReference)
+  | ({ kind: "audio"; voice?: boolean } & WaMediaReference)
+  | ({ kind: "document"; caption?: string; filename?: string } & WaMediaReference)
+  | ({ kind: "sticker" } & WaMediaReference)
   | { kind: "location"; latitude: number; longitude: number; name?: string; address?: string }
   | { kind: "contacts"; contacts: WaContact[] }
   | {
@@ -119,6 +129,27 @@ export interface WaMessage {
   createdAt: string;
 }
 
+export type WaLocalMedia = {
+  kind: "image" | "video" | "document";
+  uri: string;
+  name: string;
+  mimeType: string;
+  size?: number;
+  width?: number;
+  height?: number;
+};
+
+export type WaMediaUpload = {
+  id: string;
+  kind: WaMediaKind;
+  mimeType: string;
+  fileName: string;
+  size: number;
+  storageKey: string;
+  storageBucket: string;
+  previewUrl: string;
+};
+
 export interface WaConversation {
   id: string;
   shopId: string;
@@ -155,6 +186,57 @@ export async function sendWaMessage(token: string, payload: WaSendCommand) {
     method: "POST",
     token,
     body: JSON.stringify(payload),
+  });
+}
+
+export function uploadWaMedia(
+  token: string,
+  shopId: string,
+  media: WaLocalMedia,
+  onProgress?: (progress: number) => void,
+  signal?: AbortSignal,
+) {
+  return new Promise<WaMediaUpload>((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open("POST", `${API_BASE_URL}/whatsapp/media`);
+    request.setRequestHeader("Authorization", `Bearer ${token}`);
+    request.setRequestHeader("X-Shop-Id", shopId);
+
+    request.upload.onprogress = (event) => {
+      if (event.lengthComputable) {
+        onProgress?.(event.loaded / event.total);
+      }
+    };
+    request.onerror = () => reject(new Error("Network error while uploading media"));
+    request.onabort = () => reject(new Error("Media upload cancelled"));
+    request.onload = () => {
+      let payload: { data?: WaMediaUpload; message?: string } = {};
+      try {
+        payload = JSON.parse(request.responseText);
+      } catch {
+        reject(new Error("Invalid media upload response"));
+        return;
+      }
+
+      if (request.status < 200 || request.status >= 300 || !payload.data) {
+        reject(new Error(payload.message || "Media upload failed"));
+        return;
+      }
+      resolve(payload.data);
+    };
+
+    const form = new FormData();
+    form.append("shopId", shopId);
+    form.append("kind", media.kind);
+    form.append("file", {
+      uri: media.uri,
+      name: media.name,
+      type: media.mimeType,
+    } as any);
+    const abort = () => request.abort();
+    signal?.addEventListener("abort", abort, { once: true });
+    request.onloadend = () => signal?.removeEventListener("abort", abort);
+    request.send(form);
   });
 }
 

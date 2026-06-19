@@ -19,10 +19,21 @@ import { FlashList } from "@shopify/flash-list";
 const FlashListAny = FlashList as any;
 import { Card, Button } from "react-native-paper";
 import * as Clipboard from "expo-clipboard";
+import * as DocumentPicker from "expo-document-picker";
+import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { fetchWaMessages, sendWaMessage, whatsappApi, WaMessage, WaOutboundMessage, WaSendCommand } from "../../../api/whatsapp.api";
+import {
+  fetchWaMessages,
+  sendWaMessage,
+  uploadWaMedia,
+  whatsappApi,
+  WaLocalMedia,
+  WaMessage,
+  WaOutboundMessage,
+  WaSendCommand,
+} from "../../../api/whatsapp.api";
 import { useShopStore } from "../../../auth/shop-store";
 import { useAuthStore } from "../../../auth/auth-store";
 import { useCustomersQuery } from "../../../hooks/useCustomers";
@@ -32,6 +43,7 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useWhatsAppRealtime } from "../hooks/useWhatsAppRealtime";
 import { variableResolverRegistry } from "../services/variableResolver";
 import { MessageActionSheet } from "../components/MessageActionSheet";
+import { MediaAttachmentSheet } from "../components/MediaAttachmentSheet";
 
 
 
@@ -52,6 +64,10 @@ export const ChatDetailScreen = () => {
   const [customEmojiVisible, setCustomEmojiVisible] = useState(false);
   const [showMessageActions, setShowMessageActions] = useState(false);
   const [locating, setLocating] = useState(false);
+  const [selectedMedia, setSelectedMedia] = useState<WaLocalMedia | null>(null);
+  const [mediaCaption, setMediaCaption] = useState("");
+  const [mediaUploadProgress, setMediaUploadProgress] = useState(0);
+  const [uploadingMedia, setUploadingMedia] = useState(false);
 
   // Template Picker State
   const [showTemplateSheet, setShowTemplateSheet] = useState(false);
@@ -60,6 +76,7 @@ export const ChatDetailScreen = () => {
 
   const flatListRef = useRef<any>(null);
   const emojiInputRef = useRef<TextInput>(null);
+  const mediaUploadControllerRef = useRef<AbortController | null>(null);
 
   // Mark conversation as read on focus / load
   useEffect(() => {
@@ -297,6 +314,147 @@ export const ChatDetailScreen = () => {
     }
   };
 
+  const pickMedia = async (kind: "image" | "video" | "document") => {
+    try {
+      if (kind === "document") {
+        const result = await DocumentPicker.getDocumentAsync({
+          type: [
+            "application/pdf",
+            "application/msword",
+            "application/vnd.ms-excel",
+            "application/vnd.ms-powerpoint",
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            "text/plain",
+          ],
+          copyToCacheDirectory: true,
+          multiple: false,
+        });
+        if (result.canceled) return;
+        const asset = result.assets[0];
+        if (asset.size && asset.size > 100 * 1024 * 1024) {
+          Alert.alert("File too large", "WhatsApp documents must be 100 MB or smaller.");
+          return;
+        }
+        setSelectedMedia({
+          kind,
+          uri: asset.uri,
+          name: asset.name,
+          mimeType: asset.mimeType || "application/octet-stream",
+          size: asset.size,
+        });
+        return;
+      }
+
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(
+          "Photo access required",
+          "Allow photo library access to select WhatsApp attachments.",
+        );
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: [kind === "image" ? "images" : "videos"],
+        allowsMultipleSelection: false,
+        quality: 1,
+      });
+      if (result.canceled) return;
+
+      const asset = result.assets[0];
+      const maxBytes = kind === "image" ? 5 * 1024 * 1024 : 16 * 1024 * 1024;
+      if (asset.fileSize && asset.fileSize > maxBytes) {
+        Alert.alert(
+          "File too large",
+          `WhatsApp ${kind === "image" ? "images must be 5 MB" : "videos must be 16 MB"} or smaller.`,
+        );
+        return;
+      }
+      const defaultExtension = kind === "image" ? "jpg" : "mp4";
+      setSelectedMedia({
+        kind,
+        uri: asset.uri,
+        name: asset.fileName || `whatsapp-${Date.now()}.${defaultExtension}`,
+        mimeType: asset.mimeType || (kind === "image" ? "image/jpeg" : "video/mp4"),
+        size: asset.fileSize,
+        width: asset.width,
+        height: asset.height,
+      });
+    } catch (error) {
+      Alert.alert(
+        "Attachment unavailable",
+        error instanceof Error ? error.message : "Could not open the attachment picker.",
+      );
+    }
+  };
+
+  const closeMediaPreview = () => {
+    if (uploadingMedia) return;
+    setSelectedMedia(null);
+    setMediaCaption("");
+    setMediaUploadProgress(0);
+  };
+
+  const uploadAndSendMedia = async () => {
+    if (!selectedMedia || !activeShopId || !token || uploadingMedia) return;
+
+    setUploadingMedia(true);
+    setMediaUploadProgress(0);
+    const controller = new AbortController();
+    mediaUploadControllerRef.current = controller;
+    try {
+      const uploaded = await uploadWaMedia(
+        token,
+        activeShopId,
+        selectedMedia,
+        setMediaUploadProgress,
+        controller.signal,
+      );
+
+      if (selectedMedia.kind === "document") {
+        sendStructuredMessage({
+          kind: "document",
+          id: uploaded.id,
+          mimeType: uploaded.mimeType,
+          localUrl: uploaded.previewUrl,
+          storageKey: uploaded.storageKey,
+          storageBucket: uploaded.storageBucket,
+          filename: uploaded.fileName,
+          caption: mediaCaption.trim() || undefined,
+        });
+      } else {
+        sendStructuredMessage({
+          kind: selectedMedia.kind,
+          id: uploaded.id,
+          mimeType: uploaded.mimeType,
+          localUrl: uploaded.previewUrl,
+          storageKey: uploaded.storageKey,
+          storageBucket: uploaded.storageBucket,
+          caption: mediaCaption.trim() || undefined,
+        });
+      }
+      setSelectedMedia(null);
+      setMediaCaption("");
+      setMediaUploadProgress(0);
+    } catch (error) {
+      if (controller.signal.aborted) return;
+      Alert.alert(
+        "Upload failed",
+        error instanceof Error ? error.message : "Could not upload this attachment.",
+      );
+    } finally {
+      mediaUploadControllerRef.current = null;
+      setUploadingMedia(false);
+    }
+  };
+
+  const cancelMediaUpload = () => {
+    mediaUploadControllerRef.current?.abort();
+    setMediaUploadProgress(0);
+  };
+
   const handleLongPress = (message: WaMessage) => {
     if (message.status === "DELETED") return; // No actions on recalled messages
     setSelectedMessage(message);
@@ -524,14 +682,19 @@ export const ChatDetailScreen = () => {
               {item.type === "IMAGE" && (
                 <>
                   <Image source={{ uri: item.mediaUrl }} style={styles.messageImage} resizeMode="cover" />
-                  {!!item.content?.text && <Text style={styles.messageText}>{item.content.text}</Text>}
+                  {!!(item.content?.caption || item.content?.text) && (
+                    <Text style={styles.messageText}>{item.content.caption || item.content.text}</Text>
+                  )}
                 </>
               )}
               {item.type === "DOCUMENT" && (
-                <View style={styles.docRow}>
-                  <MaterialCommunityIcons name="file-document-outline" size={28} color={Colors.primary} />
-                  <Text style={styles.docText} numberOfLines={1}>{item.fileName || "Document"}</Text>
-                </View>
+                <>
+                  <View style={styles.docRow}>
+                    <MaterialCommunityIcons name="file-document-outline" size={28} color={Colors.primary} />
+                    <Text style={styles.docText} numberOfLines={1}>{item.fileName || "Document"}</Text>
+                  </View>
+                  {!!item.content?.caption && <Text style={styles.messageText}>{item.content.caption}</Text>}
+                </>
               )}
               {item.type === "STICKER" && (
                 <Image source={{ uri: item.mediaUrl }} style={styles.messageImage} resizeMode="contain" />
@@ -543,10 +706,13 @@ export const ChatDetailScreen = () => {
                 </View>
               )}
               {item.type === "VIDEO" && (
-                <View style={styles.docRow}>
-                  <MaterialCommunityIcons name="video-outline" size={28} color={Colors.primary} />
-                  <Text style={styles.docText}>Video message</Text>
-                </View>
+                <>
+                  <View style={styles.docRow}>
+                    <MaterialCommunityIcons name="video-outline" size={28} color={Colors.primary} />
+                    <Text style={styles.docText}>Video message</Text>
+                  </View>
+                  {!!item.content?.caption && <Text style={styles.messageText}>{item.content.caption}</Text>}
+                </>
               )}
               {item.type === "LOCATION" && (
                 <View style={styles.docRow}>
@@ -707,9 +873,21 @@ export const ChatDetailScreen = () => {
         sending={sendMutation.isPending}
         onClose={() => setShowMessageActions(false)}
         onOpenTemplates={() => setShowTemplateSheet(true)}
+        onPickMedia={pickMedia}
         onShareContact={shareLinkedContact}
         onShareLocation={shareCurrentLocation}
         onSend={sendStructuredMessage}
+      />
+
+      <MediaAttachmentSheet
+        media={selectedMedia}
+        caption={mediaCaption}
+        progress={mediaUploadProgress}
+        uploading={uploadingMedia}
+        onCaptionChange={setMediaCaption}
+        onCancelUpload={cancelMediaUpload}
+        onClose={closeMediaPreview}
+        onSend={uploadAndSendMedia}
       />
 
       {/* Long Press Reaction Overlay Modal */}
