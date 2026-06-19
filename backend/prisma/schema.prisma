@@ -1144,6 +1144,7 @@ enum WaMessageStatus {
   DELIVERED
   READ
   FAILED
+  DELETED
 }
 
 enum WaMessageType {

@@ -8,6 +8,7 @@ const MESSAGE_STATUS_RANK = {
   DELIVERED: 2,
   READ: 3,
   FAILED: 4,
+  DELETED: 5,
 };
 
 /**
@@ -92,7 +93,6 @@ export function parseWebhookPayload(payload) {
             } else if (interactive.type === "list_reply") {
               events.push({ ...baseEvent, type: "list_reply", payload: interactive.list_reply });
             } else if (interactive.type === "nfm_reply") {
-              // Standard for WhatsApp Flows
               events.push({ ...baseEvent, type: "flow_reply", payload: interactive.nfm_reply });
             }
           } else if (message.order) {
@@ -116,7 +116,7 @@ export function parseWebhookPayload(payload) {
  */
 export async function processWhatsAppEvent(event, shopId) {
   // 1. Idempotency Check (Event level)
-  const eventId = `${shopId}:${event.type}:${event.metaMessageId || event.timestamp}:${event.timestamp}`;
+  const eventId = `${shopId}-${event.type}-${event.metaMessageId || event.timestamp}-${event.timestamp}`;
   const hashedEventId = crypto.createHash("sha256").update(eventId).digest("hex");
 
   const existingEvent = await prisma.waWebhookEvent.findUnique({
@@ -128,6 +128,10 @@ export async function processWhatsAppEvent(event, shopId) {
   // 2. Route based on type
   if (event.type === "status") {
     return handleStatusUpdate(event, shopId, hashedEventId);
+  }
+
+  if (event.type === "reaction") {
+    return handleInboundReaction(event, shopId, hashedEventId);
   }
 
   return handleInboundMessage(event, shopId, hashedEventId);
@@ -182,7 +186,101 @@ async function handleStatusUpdate(event, shopId, eventId) {
   });
 }
 
+async function handleInboundReaction(event, shopId, eventId) {
+  const targetMetaId = event.payload?.message_id;
+  const emoji = event.payload?.emoji;
+  const senderPhone = event.from;
+
+  if (!targetMetaId) return null;
+
+  return await prisma.$transaction(async (tx) => {
+    // Save event idempotency
+    await tx.waWebhookEvent.create({
+      data: { id: eventId, eventType: "MESSAGE", shopId }
+    });
+
+    const targetMessage = await tx.waMessage.findUnique({
+      where: { metaMessageId: targetMetaId },
+    });
+
+    if (!targetMessage) {
+      console.warn(`[WhatsApp Processor] Reaction target message ${targetMetaId} not found.`);
+      return null;
+    }
+
+    let reactions = targetMessage.payload?.reactions || [];
+    if (!Array.isArray(reactions)) reactions = [];
+
+    // Remove any existing reaction from this sender
+    reactions = reactions.filter(r => r.from !== senderPhone);
+
+    // Add new reaction if emoji is provided
+    if (emoji) {
+      reactions.push({
+        from: senderPhone,
+        emoji,
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const updatedPayload = {
+      ...(targetMessage.payload || {}),
+      reactions,
+    };
+
+    const updatedMessage = await tx.waMessage.update({
+      where: { id: targetMessage.id },
+      data: { payload: updatedPayload },
+    });
+
+    // Broadcast reaction updates
+    await publishWhatsAppEvent(shopId, "wa:reaction_updated", {
+      messageId: updatedMessage.id,
+      conversationId: updatedMessage.conversationId,
+      reactions,
+    });
+
+    return updatedMessage;
+  });
+}
+
 async function handleInboundMessage(event, shopId, eventId) {
+  // Handle customer deleting/recalling their message
+  if (event.type === "system" && event.payload?.type === "message_deleted") {
+    const deletedMetaId = event.payload.deleted_message_id;
+    if (!deletedMetaId) return null;
+
+    return await prisma.$transaction(async (tx) => {
+      // Save event idempotency
+      await tx.waWebhookEvent.create({
+        data: { id: eventId, eventType: "MESSAGE", shopId }
+      });
+
+      const targetMessage = await tx.waMessage.findUnique({
+        where: { metaMessageId: deletedMetaId },
+      });
+
+      if (targetMessage) {
+        const updatedMessage = await tx.waMessage.update({
+          where: { id: targetMessage.id },
+          data: {
+            status: "DELETED",
+            content: { text: "This message was deleted", isDeleted: true }
+          }
+        });
+
+        await publishWhatsAppEvent(shopId, "wa:status_updated", {
+          messageId: updatedMessage.id,
+          conversationId: updatedMessage.conversationId,
+          status: "DELETED",
+        });
+
+        return updatedMessage;
+      }
+      return null;
+    });
+  }
+
   return await prisma.$transaction(async (tx) => {
     // 1. Save event idempotency
     await tx.waWebhookEvent.create({
@@ -280,9 +378,9 @@ function mapEventTypeToMessageType(type) {
     audio: "AUDIO",
     video: "VIDEO",
     sticker: "STICKER",
-    location: "TEXT",
-    contacts: "TEXT",
-    reaction: "TEXT",
+    location: "LOCATION",
+    contacts: "CONTACT_CARD",
+    reaction: "REACTION",
     button_reply: "TEXT",
     list_reply: "TEXT",
     flow_reply: "FLOW",

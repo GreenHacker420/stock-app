@@ -35,11 +35,18 @@ export function useWhatsAppRealtime(conversationId: string) {
       }
     });
 
+    const reactionListener = DeviceEventEmitter.addListener("wa:reaction_updated", (payload) => {
+      if (payload?.conversationId === conversationId) {
+        queryClient.invalidateQueries({ queryKey: ["wa-messages", conversationId] });
+      }
+    });
+
     return () => {
       messageListener.remove();
       statusListener.remove();
       sentListener.remove();
       failedListener.remove();
+      reactionListener.remove();
     };
   }, [conversationId, queryClient]);
 }

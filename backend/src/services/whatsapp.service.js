@@ -62,9 +62,18 @@ class WhatsAppService {
   }
 
   // Queues a message for sending.
-  async sendMessage(shopId, { conversationId, to, type, content, template, mediaUrl }) {
+  async sendMessage(shopId, { conversationId, to, type, content, template, mediaUrl, replyToMetaMessageId, replyToMessageId }) {
     // Ensure integration exists before queuing
     await this.getIntegration(shopId);
+
+    let resolvedReplyToMetaId = replyToMetaMessageId;
+    if (replyToMessageId && !resolvedReplyToMetaId) {
+      const parentMsg = await prisma.waMessage.findUnique({
+        where: { id: replyToMessageId },
+        select: { metaMessageId: true }
+      });
+      resolvedReplyToMetaId = parentMsg?.metaMessageId || null;
+    }
 
     // 1. Initial local record
     const message = await prisma.waMessage.create({
@@ -75,6 +84,7 @@ class WhatsAppService {
         type,
         content: content || template || {},
         mediaUrl,
+        replyToMetaMessageId: resolvedReplyToMetaId,
       },
     });
 
@@ -83,7 +93,7 @@ class WhatsAppService {
     await whatsappQueue.add("send-message", {
       shopId,
       messageId: message.id,
-      payload: { conversationId, to, type, content, template, mediaUrl }
+      payload: { conversationId, to, type, content, template, mediaUrl, replyToMetaMessageId: resolvedReplyToMetaId }
     });
 
     return message;
@@ -91,7 +101,7 @@ class WhatsAppService {
 
   // Low-level method called by worker to actually hit Meta API.
   async _sendDirect(shopId, { messageId, payload: p }) {
-    const { conversationId, to, type, content, template, mediaUrl } = p;
+    const { conversationId, to, type, content, template, mediaUrl, replyToMetaMessageId } = p;
     const integration = await this.getIntegration(shopId);
 
     try {
@@ -100,6 +110,13 @@ class WhatsAppService {
         recipient_type: "individual",
         to,
       };
+
+      // Handle Context replies
+      if (replyToMetaMessageId) {
+        payload.context = {
+          message_id: replyToMetaMessageId,
+        };
+      }
 
       if (type === "TEMPLATE") {
         payload.type = "template";
@@ -170,6 +187,140 @@ class WhatsAppService {
 
       throw new Error(errorMessage);
     }
+  }
+
+  // Sends an emoji reaction via Meta API.
+  async sendReaction(shopId, { to, messageId, emoji }) {
+    const integration = await this.getIntegration(shopId);
+
+    const targetMessage = await prisma.waMessage.findUnique({
+      where: { id: messageId },
+    });
+
+    if (!targetMessage || !targetMessage.metaMessageId) {
+      throw new Error("Target message not found or lacks metaMessageId");
+    }
+
+    try {
+      const payload = {
+        messaging_product: "whatsapp",
+        recipient_type: "individual",
+        to,
+        type: "reaction",
+        reaction: {
+          message_id: targetMessage.metaMessageId,
+          emoji: emoji || "", // Empty string removes reaction on Meta
+        },
+      };
+
+      await axios.post(
+        `${BASE_URL}/${integration.phoneNumberId}/messages`,
+        payload,
+        {
+          headers: {
+            Authorization: `Bearer ${integration.accessToken}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      // Update local reactions payload
+      let reactions = targetMessage.payload?.reactions || [];
+      if (!Array.isArray(reactions)) reactions = [];
+
+      // Remove existing reaction from "me"
+      reactions = reactions.filter(r => r.from !== "me");
+
+      if (emoji) {
+        reactions.push({
+          from: "me",
+          emoji,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      const updatedPayload = {
+        ...(targetMessage.payload || {}),
+        reactions,
+      };
+
+      const updatedMessage = await prisma.waMessage.update({
+        where: { id: messageId },
+        data: { payload: updatedPayload },
+      });
+
+      // Broadcast reaction updates
+      await publishWhatsAppEvent(shopId, "wa:reaction_updated", {
+        messageId: updatedMessage.id,
+        conversationId: updatedMessage.conversationId,
+        reactions,
+      });
+
+      return updatedMessage;
+    } catch (error) {
+      const errorMessage = error.response?.data?.error?.message || error.message;
+      console.error("[WhatsApp Service] Send reaction failed:", errorMessage);
+      throw new Error(errorMessage);
+    }
+  }
+
+  // Recalls (deletes) a message.
+  async deleteMessage(shopId, messageId) {
+    const integration = await this.getIntegration(shopId);
+
+    const message = await prisma.waMessage.findUnique({
+      where: { id: messageId },
+    });
+
+    if (!message || !message.metaMessageId) {
+      throw new Error("Message not found or lacks metaMessageId");
+    }
+
+    try {
+      await axios.post(
+        `${BASE_URL}/${integration.phoneNumberId}/messages`,
+        {
+          messaging_product: "whatsapp",
+          status: "deleted",
+          message_id: message.metaMessageId,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${integration.accessToken}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      const updatedMessage = await prisma.waMessage.update({
+        where: { id: messageId },
+        data: {
+          status: "DELETED",
+          content: { text: "This message was deleted", isDeleted: true },
+        },
+      });
+
+      // Broadcast status updates
+      await publishWhatsAppEvent(shopId, "wa:status_updated", {
+        messageId: updatedMessage.id,
+        conversationId: updatedMessage.conversationId,
+        status: "DELETED",
+      });
+
+      return updatedMessage;
+    } catch (error) {
+      const errorMessage = error.response?.data?.error?.message || error.message;
+      console.error("[WhatsApp Service] Recall message failed:", errorMessage);
+      throw new Error(errorMessage);
+    }
+  }
+
+  // Archives a conversation.
+  async archiveConversation(shopId, conversationId, isArchived = true) {
+    return await prisma.waConversation.update({
+      where: { id: conversationId, shopId },
+      data: { isArchived },
+    });
   }
 
   // Syncs templates from Meta.
@@ -305,6 +456,18 @@ class WhatsAppService {
     }
 
     return createdCount;
+  }
+
+  // Deletes (recalls) a conversation and cascades to clean up message logs.
+  async deleteConversation(shopId, conversationId) {
+    return await prisma.$transaction(async (tx) => {
+      await tx.waMessage.deleteMany({
+        where: { conversationId }
+      });
+      return await tx.waConversation.delete({
+        where: { id: conversationId, shopId }
+      });
+    });
   }
 }
 

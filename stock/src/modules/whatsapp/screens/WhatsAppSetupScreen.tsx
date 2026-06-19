@@ -95,7 +95,7 @@ export const WhatsAppSetupScreen = () => {
 
     try {
       // 1. Launch Facebook Embedded Signup Flow
-      const authUrl = `https://www.facebook.com/v20.0/dialog/oauth?client_id=${FB_APP_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&config_id=YOUR_CONFIG_ID&state=${activeShopId}`;
+      const authUrl = `https://www.facebook.com/v25.0/dialog/oauth?client_id=${FB_APP_ID}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&config_id=YOUR_CONFIG_ID&state=${activeShopId}`;
       
       const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUri);
       

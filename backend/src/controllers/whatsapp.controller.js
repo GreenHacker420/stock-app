@@ -2,9 +2,10 @@ import crypto from "crypto";
 import axios from "axios";
 import { whatsappService } from "../services/whatsapp.service.js";
 import { whatsappBroadcastService } from "../services/whatsapp.broadcast.service.js";
-import { getWaCredentials, getTenantByPhoneNumberId } from "../lib/wa-cache.js";
+import { getWaCredentials, getTenantByPhoneNumberId, invalidateWaCredentials } from "../lib/wa-cache.js";
 import { inboundQueue } from "../services/whatsapp.queue.js";
 import { getSignedMediaUrl } from "../lib/wa-media.js";
+import { encrypt } from "../lib/wa-crypto.js";
 import prisma from "../lib/db.js";
 
 class WhatsAppController {
@@ -202,7 +203,7 @@ class WhatsAppController {
    */
   async sendMessage(req, res) {
     try {
-      const { shopId, conversationId, to, type, content, template, mediaUrl } = req.body;
+      const { shopId, conversationId, to, type, content, template, mediaUrl, replyToMessageId } = req.body;
 
       if (!shopId || !to || !type) {
         return res.status(400).json({ success: false, message: "Missing required fields" });
@@ -214,7 +215,8 @@ class WhatsAppController {
         type,
         content,
         template,
-        mediaUrl
+        mediaUrl,
+        replyToMessageId
       });
 
       res.json({ success: true, data: message });
@@ -271,7 +273,7 @@ class WhatsAppController {
         return res.status(400).json({ success: false, message: "Code and shopId are required" });
       }
 
-      // 1. Exchange code for access token using Tech Provider credentials
+      // 1. OAuth Exchange
       // Note: This requires WHATSAPP_APP_ID and WHATSAPP_APP_SECRET in .env
       const tokenResponse = await axios.get(`https://graph.facebook.com/v25.0/oauth/access_token`, {
         params: {
@@ -281,9 +283,21 @@ class WhatsAppController {
         }
       });
       
-      const accessToken = tokenResponse.data.access_token;
+      const shortAccessToken = tokenResponse.data.access_token;
 
-      // 2. Debug token to get WABA ID
+      // Exchange short-lived token for long-lived token
+      const longLivedResponse = await axios.get(`https://graph.facebook.com/v25.0/oauth/access_token`, {
+        params: {
+          grant_type: "fb_exchange_token",
+          client_id: process.env.WHATSAPP_APP_ID,
+          client_secret: process.env.WHATSAPP_APP_SECRET,
+          fb_exchange_token: shortAccessToken,
+        }
+      });
+
+      const accessToken = longLivedResponse.data.access_token;
+
+      // 2. Debug Token to get WABA ID
       const debugResponse = await axios.get(`https://graph.facebook.com/v25.0/debug_token`, {
         params: {
           input_token: accessToken,
@@ -291,13 +305,28 @@ class WhatsAppController {
         }
       });
 
-      const userWaBid = debugResponse.data.data.granular_scopes?.find(s => s.scope === "whatsapp_business_management")?.target_ids?.[0];
+      const userWaBid = debugResponse.data.data.granular_scopes?.find(s => s.scope === "whatsapp_business_management")?.target_ids?.[0] || debugResponse.data.data.business_id || debugResponse.data.data.target_id;
       
       if (!userWaBid) {
         return res.status(400).json({ success: false, message: "WhatsApp Business Account not found in token scopes" });
       }
 
-      // 3. Get Phone Numbers for the WABA
+      // 3 & 4. App Subscription & Callback URL Override
+      const verifyToken = crypto.randomBytes(16).toString("hex");
+      const host = req.get("host");
+      const protocol = req.headers["x-forwarded-proto"] || req.protocol || "https";
+      const overrideCallbackUri = process.env.BACKEND_URL 
+        ? `${process.env.BACKEND_URL}/whatsapp/webhook`
+        : `${protocol}://${host}/whatsapp/webhook`;
+
+      await axios.post(`https://graph.facebook.com/v25.0/${userWaBid}/subscribed_apps`, {
+        override_callback_uri: overrideCallbackUri,
+        verify_token: verifyToken
+      }, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+
+      // 5. Get Phone Numbers & Register with a system-generated 6-digit PIN
       const phonesResponse = await axios.get(`https://graph.facebook.com/v25.0/${userWaBid}/phone_numbers`, {
         headers: { Authorization: `Bearer ${accessToken}` }
       });
@@ -307,40 +336,49 @@ class WhatsAppController {
         return res.status(400).json({ success: false, message: "No phone numbers found for this WABA" });
       }
 
-      const verifyToken = Math.random().toString(36).substring(7);
+      const phoneNumberId = phoneData.id;
+      const pin = Math.floor(100000 + Math.random() * 900000).toString();
 
-      // 4. Save to Database
+      await axios.post(`https://graph.facebook.com/v25.0/${phoneNumberId}/register`, {
+        messaging_product: "whatsapp",
+        pin
+      }, {
+        headers: { Authorization: `Bearer ${accessToken}` }
+      });
+
+      // 6. Integration Upsert
+      const encryptedAccessToken = encrypt(accessToken);
+
       const setup = await prisma.waIntegration.upsert({
         where: { shopId },
         update: {
           verifyToken,
-          accessToken,
+          accessToken: encryptedAccessToken,
+          appSecret: process.env.WHATSAPP_APP_SECRET || null,
           businessAccountId: userWaBid,
-          phoneNumberId: phoneData.id,
+          phoneNumberId,
           phoneNumber: phoneData.display_phone_number,
           businessName: phoneData.verified_name,
-          status: "CONNECTED"
+          status: "CONNECTED",
+          connectedAt: new Date()
         },
         create: {
           shopId,
           verifyToken,
-          accessToken,
+          accessToken: encryptedAccessToken,
+          appSecret: process.env.WHATSAPP_APP_SECRET || null,
           businessAccountId: userWaBid,
-          phoneNumberId: phoneData.id,
+          phoneNumberId,
           phoneNumber: phoneData.display_phone_number,
           businessName: phoneData.verified_name,
-          status: "CONNECTED"
+          status: "CONNECTED",
+          connectedAt: new Date()
         }
       });
 
-      // Optional: Subscribe the app to the WABA webhooks
-      try {
-        await axios.post(`https://graph.facebook.com/v25.0/${userWaBid}/subscribed_apps`, {}, {
-          headers: { Authorization: `Bearer ${accessToken}` }
-        });
-      } catch (subErr) {
-        console.warn("Failed to automatically subscribe app to WABA webhooks. May require Tech Provider system user token.", subErr.response?.data);
-      }
+      // Warm cache
+      await invalidateWaCredentials(shopId);
+      await getWaCredentials(shopId);
 
       res.json({ success: true, data: setup });
     } catch (error) {
@@ -377,34 +415,110 @@ class WhatsAppController {
         return res.status(400).json({ success: false, message: "Missing required fields" });
       }
 
+      const encryptedAccessToken = encrypt(accessToken);
+
       const setup = await prisma.waIntegration.upsert({
         where: { shopId },
         update: {
           verifyToken,
-          accessToken,
+          accessToken: encryptedAccessToken,
           appSecret,
           businessAccountId,
           phoneNumberId,
           phoneNumber,
           businessName,
-          status: "CONNECTED" // Assuming they are testing/connecting
+          status: "CONNECTED",
+          connectedAt: new Date()
         },
         create: {
           shopId,
           verifyToken,
-          accessToken,
+          accessToken: encryptedAccessToken,
           appSecret,
           businessAccountId,
           phoneNumberId,
           phoneNumber,
           businessName,
-          status: "CONNECTED"
+          status: "CONNECTED",
+          connectedAt: new Date()
         }
       });
+
+      // Warm cache
+      await invalidateWaCredentials(shopId);
+      await getWaCredentials(shopId);
 
       res.json({ success: true, data: setup });
     } catch (error) {
       res.status(500).json({ success: false, message: error.message });
+    }
+  }
+
+  /**
+   * React to Message (POST /whatsapp/react)
+   */
+  async reactToMessage(req, res) {
+    try {
+      const { shopId, to, messageId, emoji } = req.body;
+      if (!shopId || !to || !messageId) {
+        return res.status(400).json({ success: false, message: "Missing required fields" });
+      }
+      const message = await whatsappService.sendReaction(shopId, { to, messageId, emoji });
+      res.json({ success: true, data: message });
+    } catch (error) {
+      res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
+  /**
+   * Delete Message (DELETE /whatsapp/messages/:id)
+   */
+  async deleteMessage(req, res) {
+    try {
+      const { id } = req.params;
+      const { shopId } = req.query;
+      if (!shopId) {
+        return res.status(400).json({ success: false, message: "shopId query parameter is required" });
+      }
+      const message = await whatsappService.deleteMessage(shopId, id);
+      res.json({ success: true, data: message });
+    } catch (error) {
+      res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
+  /**
+   * Archive Conversation (POST /whatsapp/conversations/:id/archive)
+   */
+  async archiveConversation(req, res) {
+    try {
+      const { id } = req.params;
+      const { shopId, isArchived } = req.body;
+      if (!shopId) {
+        return res.status(400).json({ success: false, message: "shopId is required" });
+      }
+      const isArchivedBool = isArchived !== undefined ? Boolean(isArchived) : true;
+      const conversation = await whatsappService.archiveConversation(shopId, id, isArchivedBool);
+      res.json({ success: true, data: conversation });
+    } catch (error) {
+      res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
+  /**
+   * Delete Conversation (DELETE /whatsapp/conversations/:id)
+   */
+  async deleteConversation(req, res) {
+    try {
+      const { id } = req.params;
+      const { shopId } = req.query;
+      if (!shopId) {
+        return res.status(400).json({ success: false, message: "shopId query parameter is required" });
+      }
+      const result = await whatsappService.deleteConversation(shopId, id);
+      res.json({ success: true, data: result });
+    } catch (error) {
+      res.status(400).json({ success: false, message: error.message });
     }
   }
 
