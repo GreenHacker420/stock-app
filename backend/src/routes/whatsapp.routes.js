@@ -20,7 +20,6 @@ router.post("/flow-endpoint/:shopId", whatsappFlowEndpointController.handleFlowR
 router.get("/conversations", requireAuth, whatsappController.getConversations);
 router.get("/conversations/:id/messages", requireAuth, whatsappController.getMessages);
 router.get("/templates", requireAuth, whatsappController.getTemplates);
-router.post("/send", requireAuth, whatsappController.sendMessage);
 router.post("/messages", requireAuth, whatsappController.sendMessage);
 router.post("/react", requireAuth, whatsappController.reactToMessage);
 router.delete("/messages/:id", requireAuth, whatsappController.deleteMessage);

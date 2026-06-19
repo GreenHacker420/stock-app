@@ -7,9 +7,9 @@ import crypto from "crypto";
 import { encrypt, decrypt } from "../lib/wa-crypto.js";
 import { normalizePhone } from "./whatsapp.phone.js";
 import {
-  adaptLegacyMessage,
   compileMetaMessage,
   getLocalMessageProjection,
+  outboundCommandSchema,
   requiresServiceWindow,
 } from "./whatsapp.message-compiler.js";
 
@@ -72,7 +72,7 @@ class WhatsAppService {
 
   // Queues a message for sending.
   async sendMessage(input) {
-    const command = adaptLegacyMessage(input);
+    const command = outboundCommandSchema.parse(input);
     const {
       shopId,
       conversationId,
@@ -177,10 +177,7 @@ class WhatsAppService {
 
   // Low-level method called by worker to actually hit Meta API.
   async _sendDirect(shopId, { messageId, payload: p }) {
-    const normalizedCommand = p.message
-      ? p
-      : adaptLegacyMessage({ shopId, ...p });
-    const { conversationId, to, message, replyToMetaMessageId } = normalizedCommand;
+    const { conversationId, to, message, replyToMetaMessageId } = p;
     const integration = await this.getIntegration(shopId);
 
     try {

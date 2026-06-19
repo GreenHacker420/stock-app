@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  adaptLegacyMessage,
   compileMetaMessage,
   getLocalMessageProjection,
   outboundCommandSchema,
@@ -180,30 +179,4 @@ test("compiles Flow messages and marks only templates as window-independent", ()
     kind: "template",
     template: { name: "hello", language: { code: "en_US" } },
   }), false);
-});
-
-test("adapts legacy callers and rejects unsupported outbound types", () => {
-  const command = adaptLegacyMessage({
-    shopId: "shop-1",
-    conversationId: "conversation-1",
-    to: "919876543210",
-    type: "IMAGE",
-    mediaUrl: "https://cdn.example.com/photo.jpg",
-    content: { caption: "Photo" },
-  });
-
-  assert.deepEqual(command.message, {
-    kind: "image",
-    link: "https://cdn.example.com/photo.jpg",
-    caption: "Photo",
-  });
-
-  assert.throws(
-    () => adaptLegacyMessage({
-      shopId: "shop-1",
-      to: "919876543210",
-      type: "ORDER",
-    }),
-    /unsupported outbound/i,
-  );
 });

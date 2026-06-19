@@ -182,50 +182,6 @@ const TYPE_BY_KIND = {
   flow: "FLOW",
 };
 
-export function adaptLegacyMessage(input) {
-  if (input.message) return outboundCommandSchema.parse(input);
-
-  const type = String(input.type || "").toUpperCase();
-  let message;
-
-  if (type === "TEXT") {
-    message = {
-      kind: "text",
-      text: input.content?.text,
-      previewUrl: input.content?.previewUrl ?? input.content?.preview_url ?? false,
-    };
-  } else if (type === "TEMPLATE") {
-    message = { kind: "template", template: input.template };
-  } else if (["IMAGE", "VIDEO", "AUDIO", "DOCUMENT", "STICKER"].includes(type)) {
-    message = {
-      kind: type.toLowerCase(),
-      link: input.mediaUrl,
-      caption: input.content?.caption,
-      filename: input.content?.filename,
-      voice: input.content?.voice,
-    };
-  } else if (type === "LOCATION") {
-    message = { kind: "location", ...input.content };
-  } else if (type === "CONTACT_CARD") {
-    message = { kind: "contacts", contacts: input.content?.contacts || input.content };
-  } else if (type === "INTERACTIVE") {
-    message = input.content;
-  } else if (type === "FLOW") {
-    message = { kind: "flow", ...input.content };
-  } else {
-    throw new Error(`Unsupported outbound WhatsApp message type: ${type || "unknown"}`);
-  }
-
-  return outboundCommandSchema.parse({
-    shopId: input.shopId,
-    conversationId: input.conversationId,
-    to: input.to,
-    message,
-    replyToMessageId: input.replyToMessageId,
-    replyToMetaMessageId: input.replyToMetaMessageId,
-  });
-}
-
 function optionalText(type, text) {
   return text ? { type, text } : undefined;
 }

@@ -251,7 +251,7 @@ class WhatsAppController {
   }
 
   /**
-   * Send Message (POST /whatsapp/send)
+   * Send Message (POST /whatsapp/messages)
    */
   async sendMessage(req, res) {
     try {
