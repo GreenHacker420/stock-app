@@ -1,164 +1,174 @@
 # Embedded Signup and Partner Onboarding Review
 
 > Audit date: 2026-06-19
+>
+> Implementation checkpoint updated: 2026-06-20
 
-## Current State
+## Implementation Status
 
-ShopControl provides manual credential entry and an Embedded Signup prototype. The backend exchanges an OAuth code, attempts to infer a WABA from token scopes, selects the first phone number, subscribes the app, registers the number with a generated PIN, and stores the integration.
+ShopControl now implements the Meta Embedded Signup v4 architecture:
 
-Production gaps:
+- Server-created, expiring onboarding sessions scoped to shop and initiating owner.
+- HMAC-signed one-time state with hashed nonce persistence and tamper/expiry rejection.
+- HTTPS launch bridge using the Facebook JavaScript SDK, `FB.login`, session logging version 3, and Graph API `v25.0`.
+- Coordinated capture of the 30-second exchangeable code and `WA_EMBEDDED_SIGNUP` asset event.
+- Cloud API and WhatsApp Business app coexistence launch modes.
+- Cancellation step, Meta session ID, error code, finish event, and raw session metadata persistence.
+- Immediate server-side exchange for a customer-scoped business token.
+- App ID, token validity, granted scope, target WABA, and token expiry validation.
+- Encrypted business-token and registration-PIN storage.
+- WABA webhook subscription with per-integration verification token.
+- Phone verification checks and Cloud API registration; coexistence skips registration as required by Meta.
+- Phone/WABA conflict rejection across tenants.
+- Retryable state after subscription or registration failure.
+- Integration projection for portfolio, token metadata, onboarding mode, quality, display name, and phone capability data.
+- RSA key generation and tenant credential cache refresh on completion.
+- React Native launch, lifecycle progress, cancellation/error display, retry, and Cloud API/coexistence controls.
+- Manual credentials retained only in the advanced recovery section.
 
-- No signed state/nonce validation.
-- No durable onboarding session.
-- No explicit WABA/phone selection.
-- Token ownership and expiry are not modeled.
-- Partial failures are not resumable.
-- The generated registration PIN is not lifecycle-managed.
-- Subscription and registration assumptions are not capability-aware.
-- No coexistence or migration handling.
-- Setup responses can expose integration fields that should be redacted.
-- No partner/Tech Provider asset lifecycle.
+## Activation Requirements
 
-## Recommendation
+- ShopControl must be approved as a Meta Tech Provider or Solution Partner before production customer onboarding.
+- `WHATSAPP_APP_ID` and `WHATSAPP_APP_SECRET` must identify the approved Meta app.
+- `WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID` must reference an Embedded Signup v4 Facebook Login for Business configuration.
+- `PUBLIC_API_URL` must be a public HTTPS origin allowed in the App Dashboard.
+- App Dashboard allowed domains and valid OAuth redirect URIs must include the bridge domain.
+- Cloudflare must not issue browser challenges on onboarding, webhook, or Flow endpoint paths.
+- Use a single-WABA configuration until explicit multi-WABA selection is added.
 
-Use Embedded Signup as the default onboarding method. Keep manual setup as an owner-only recovery and development path.
-
-Do not describe ShopControl as a Tech Provider or Solution Partner until Meta approves the required app/business status.
-
-## Onboarding State Machine
+## State Machine
 
 ```text
-CREATED
-  -> AUTHORIZED
-  -> ASSETS_DISCOVERED
-  -> ASSETS_SELECTED
-  -> APP_SUBSCRIBED
-  -> NUMBER_REGISTERED
-  -> CAPABILITIES_SYNCED
-  -> CONNECTED
+CREATED -> AUTHORIZED -> ASSETS_DISCOVERED -> APP_SUBSCRIBED
+        -> NUMBER_REGISTERED -> CONNECTED
 
 Any step -> ACTION_REQUIRED | FAILED | CANCELLED | EXPIRED
 ```
 
-Store an onboarding session containing:
-
-- Shop and initiating owner.
-- Signed state hash and nonce.
-- Config ID and redirect URI.
-- OAuth completion timestamp.
-- Candidate WABAs and phone numbers.
-- Selected assets.
-- Completed steps and retryable error.
-- Expiry and final integration ID.
+Coexistence onboarding skips `NUMBER_REGISTERED` because the WhatsApp Business app number is already registered.
 
 ## Secure Flow
 
-1. Backend creates an onboarding session and signed state.
-2. Mobile opens Meta’s supported Embedded Signup dialog/configuration.
-3. Callback state is validated.
-4. Backend exchanges the code.
-5. Validate token app, scopes, expiry, and target assets.
-6. Return redacted candidate WABAs/numbers if selection is required.
-7. Persist owner selection.
-8. Subscribe the app and configure the callback according to current Meta rules.
-9. Register or migrate the number only when required.
-10. Fetch capabilities, profile, quality, templates, Flows, and catalogs.
-11. Generate/register Flow endpoint keys when enabled.
-12. Mark connected and invalidate caches.
+1. Backend creates a tenant- and owner-scoped session with a 30-minute expiry.
+2. Backend signs a state containing session ID, nonce, and expiry.
+3. Mobile opens the server-hosted HTTPS bridge.
+4. Bridge launches Embedded Signup v4 through the Facebook JavaScript SDK.
+5. Bridge captures both the session-logging asset event and exchangeable token code.
+6. Backend validates state and exchanges the code immediately.
+7. Backend validates token app, validity, scopes, expiry, and selected WABA target.
+8. Backend encrypts the business token and records returned asset IDs.
+9. Backend subscribes the WABA to the ShopControl webhook.
+10. Backend verifies and registers Cloud API numbers when required.
+11. Backend fetches phone identity/capabilities and upserts the integration.
+12. Backend creates Flow E2EE keys, invalidates caches, and marks the session connected.
+
+No access token, registration PIN, App Secret, or raw OAuth code is returned to the app.
 
 ## Token Strategy
 
-Model:
+Persist:
 
-- Token type and owner.
-- Granted scopes and asset targets.
-- Issued/expiry timestamps.
-- Last validation and failure.
+- Encrypted customer business token.
+- Token type and expiry.
+- Granted scopes.
+- Business portfolio, WABA, and phone asset targets.
+- Last validation timestamp.
 - Reauthorization requirement.
 
-Use encrypted storage and return only redacted metadata. A user-token prototype may be acceptable for development, but production partner onboarding should use the token model required by the approved Meta integration.
+The business customer owns the WhatsApp assets. ShopControl stores authorization and mapping metadata only.
 
-## Multiple Assets
+## Asset Constraints
 
-Never select `data[0]` silently in production.
+The current product constraint is one WABA phone number per shop.
 
-The UI must show:
+- Reject a phone already connected to another ShopControl tenant.
+- Do not infer a phone by selecting the first WABA phone-number API result.
+- The phone ID is captured from Embedded Signup session logging.
+- `FINISH_ONLY_WABA` becomes `ACTION_REQUIRED`.
+- Multi-WABA session payloads require a future explicit selector.
 
-- Business portfolio.
-- WABA.
-- Phone number and verified display name.
-- Registration/migration state.
-- Quality and capability summary.
-- Existing integration conflicts.
+## Coexistence
 
-One shop currently maps to one integration/number. Document that as the initial constraint and reject ambiguous multi-number selection cleanly.
+The app can launch the Meta-supported WhatsApp Business app onboarding mode using:
 
-## Partner and Automatic Assignment
+```text
+featureType = whatsapp_business_app_onboarding
+sessionInfoVersion = 3
+```
 
-When ShopControl is eligible:
+For successful `FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING` events:
 
-- Persist partner solution/application identity.
-- Track assigned and revoked assets.
-- Consume `partner_solutions` and account lifecycle events.
-- Verify automatic assignment results rather than assuming success.
-- Handle customer removal, app uninstall, permission revocation, offboarding, and reconnection.
-
-## Coexistence and Migration
-
-Before registration:
-
-- Detect whether the number is already on Cloud API or the WhatsApp Business app.
-- Present supported migration/coexistence paths based on current Meta capability.
-- Do not tell customers to delete an app account unless Meta’s current flow requires it.
-- Preserve an actionable rollback path.
+- Persist mode as `COEXISTENCE`.
+- Skip Cloud API phone registration.
+- Subscribe webhooks and complete normal integration setup.
+- History, state-sync, and message-echo webhook ingestion remain separate follow-up work.
 
 ## APIs
 
 ```text
 POST /whatsapp/onboarding/sessions
-POST /whatsapp/onboarding/sessions/:id/exchange
-GET  /whatsapp/onboarding/sessions/:id/assets
-POST /whatsapp/onboarding/sessions/:id/select
-POST /whatsapp/onboarding/sessions/:id/continue
 GET  /whatsapp/onboarding/sessions/:id
-POST /whatsapp/integrations/:id/reauthorize
-POST /whatsapp/integrations/:id/disconnect
+POST /whatsapp/onboarding/sessions/:id/continue
+GET  /whatsapp/onboarding/launch/:id
+POST /whatsapp/onboarding/sessions/:id/complete
 ```
+
+The launch and completion routes are public but protected by signed, expiring, one-time session state. Session status and retry routes require owner authentication and shop access.
 
 ## React Native UI
 
-- Connection overview with health and required actions.
-- Native browser signup launch.
-- Explicit asset selection.
-- Step progress and resumable errors.
-- Reauthorization and reconnect flows.
-- Manual setup behind an advanced/recovery section.
-- Never display access tokens after submission.
-- Show webhook, capability, profile, Flow key, and catalog readiness independently.
+- Server-configured onboarding; App ID, App Secret, and config ID are not client inputs.
+- Cloud API and WhatsApp Business app modes.
+- Native browser launch.
+- Lifecycle and completed-step status.
+- Action-required and failure details.
+- Retry without repeating Meta login when authorization already succeeded.
+- Manual setup remains in the advanced recovery tab.
+- Test-notification action verifies device registration and delivery infrastructure.
 
-## Disconnect
+## Notifications
 
-Disconnect must:
+Notification delivery now includes:
 
-- Revoke or remove subscriptions/asset links where supported and intended.
-- Clear encrypted tokens and caches.
-- Stop workers from sending.
-- Preserve audit/history according to retention policy.
-- Mark templates/Flows/catalog mappings unavailable rather than deleting history.
+- Multi-device Expo push targeting.
+- BullMQ delivery worker.
+- Per-device delivery records.
+- Expo ticket ID and provider error persistence.
+- Automatic invalid-token disabling.
+- In-app test endpoint and setup-screen action.
 
-## Tests
+A physical-device Expo token is required to verify a successful provider ticket. Local E2E testing verified queue execution and correct handling of Expo `DeviceNotRegistered`.
 
-- State/nonce tampering.
-- Cancelled and expired sessions.
-- Multiple WABAs and numbers.
-- Retry after subscription or registration failure.
-- Existing connected number conflict.
-- Token expiry and reauthorization.
-- Disconnect and account-offboard webhooks.
-- Secret redaction.
+## Remaining Work
+
+- Meta Tech Provider/Solution Partner approval.
+- Real v4 configuration ID and App Dashboard domain configuration.
+- Live successful Meta onboarding with an approved test business.
+- Explicit multi-WABA selection.
+- Reauthorization UI and token-expiry scheduling.
+- Remote app unsubscribe and asset-offboarding cleanup.
+- Solution Partner credit-line sharing and automatic asset assignment.
+- Coexistence history/state-sync ingestion.
+- Expo push receipt reconciliation after accepted tickets.
+
+## Tests Completed
+
+- Signed state success.
+- State tampering rejection.
+- State expiry rejection.
+- Session creation and authenticated retrieval.
+- JS-SDK bridge rendering.
+- Cancellation and current-step capture.
+- Migration application through `prisma migrate dev`.
+- Notification queueing.
+- Expo provider-error persistence.
+- Invalid push-token disabling.
+- Android production bundle.
 
 ## References
 
 - [Meta Embedded Signup](https://developers.facebook.com/docs/whatsapp/embedded-signup)
-- [Meta Cloud API get started](https://developers.facebook.com/docs/whatsapp/cloud-api/get-started)
-
+- [Meta Embedded Signup implementation](https://developers.facebook.com/docs/whatsapp/embedded-signup/implementation/)
+- [Meta Embedded Signup webhooks](https://developers.facebook.com/docs/whatsapp/embedded-signup/webhooks/)
+- [Meta business phone numbers](https://developers.facebook.com/docs/whatsapp/embedded-signup/manage-accounts/phone-numbers/)
+- [Meta WhatsApp Business app onboarding](https://developers.facebook.com/docs/whatsapp/embedded-signup/custom-flows/onboarding-business-app-users/)

@@ -185,22 +185,39 @@ class WhatsAppOnboardingService {
   <button id="launch" disabled>Loading Meta...</button>
   <p id="status" class="status"></p>
 </section></main>
-<script>const CONFIG=${safeJson(config)};let sessionInfo=null;</script>
+<script>const CONFIG=${safeJson(config)};let sessionInfo=null;let exchangeCode=null;let completionStarted=false;let completionTimer=null;</script>
 <script async defer crossorigin="anonymous" src="https://connect.facebook.net/en_US/sdk.js"></script>
 <script>
   const statusNode=document.getElementById('status');
   const button=document.getElementById('launch');
   const redirect=(status)=>location.href=CONFIG.appRedirect+'?sessionId=${session.id}&status='+encodeURIComponent(status);
   const complete=async(code,eventPayload)=>{
+    if(completionStarted)return;
+    completionStarted=true;
+    if(completionTimer)clearTimeout(completionTimer);
     statusNode.textContent='Finishing setup...';
     const response=await fetch(CONFIG.completeUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({state:CONFIG.state,code,eventPayload})});
     const payload=await response.json().catch(()=>({}));
     if(!response.ok) throw new Error(payload.message||'Setup failed');
     redirect(payload.data?.status||'AUTHORIZED');
   };
+  const finishWhenReady=()=>{
+    if(exchangeCode&&sessionInfo){complete(exchangeCode,sessionInfo).catch(showError);return;}
+    if(exchangeCode&&!completionTimer){
+      completionTimer=setTimeout(()=>complete(exchangeCode,sessionInfo).catch(showError),4000);
+    }
+  };
+  const showError=(error)=>{completionStarted=false;statusNode.textContent=error.message;button.disabled=false;};
   window.addEventListener('message',(event)=>{
     if(!event.origin.endsWith('facebook.com'))return;
-    try{const data=typeof event.data==='string'?JSON.parse(event.data):event.data;if(data?.type==='WA_EMBEDDED_SIGNUP'){sessionInfo=data;}}catch{}
+    try{
+      const data=typeof event.data==='string'?JSON.parse(event.data):event.data;
+      if(data?.type==='WA_EMBEDDED_SIGNUP'){
+        sessionInfo=data;
+        if(data.event==='CANCEL'&&!exchangeCode){complete(null,data).catch(showError);return;}
+        finishWhenReady();
+      }
+    }catch{}
   });
   window.fbAsyncInit=()=>{
     FB.init({appId:CONFIG.appId,autoLogAppEvents:true,xfbml:true,version:CONFIG.graphVersion});
@@ -211,11 +228,9 @@ class WhatsAppOnboardingService {
     const extras={setup:{},sessionInfoVersion:'3'};
     if(CONFIG.coexistence)extras.featureType='whatsapp_business_app_onboarding';
     FB.login(async(response)=>{
-      try{
-        if(response.authResponse?.code){await complete(response.authResponse.code,sessionInfo);return;}
-        if(sessionInfo?.event==='CANCEL'){await complete(null,sessionInfo);return;}
-        throw new Error('Meta authorization was cancelled');
-      }catch(error){statusNode.textContent=error.message;button.disabled=false;}
+      if(response.authResponse?.code){exchangeCode=response.authResponse.code;finishWhenReady();return;}
+      if(sessionInfo?.event==='CANCEL'){complete(null,sessionInfo).catch(showError);return;}
+      showError(new Error('Meta authorization was cancelled'));
     },{config_id:CONFIG.configId,response_type:'code',override_default_response_type:true,extras});
   });
 </script>

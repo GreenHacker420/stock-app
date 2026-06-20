@@ -10,7 +10,7 @@
 
 | Workstream | Approximate completion | Current state |
 |---|---:|---|
-| Platform foundation | 70% | Durable webhooks, management projection, typed commands, queues, assets, and tenant routing exist; replay UI, quarantine operations, idempotency, metrics, and broadcast reconciliation remain |
+| Platform foundation | 75% | Durable webhooks, management projection, typed commands, queues, assets, tenant routing, multi-device registration, and audited push delivery exist; replay UI, quarantine operations, idempotency, metrics, and broadcast reconciliation remain |
 | Messaging types | 80% | Text, replies, typed renderers, image/video/document media, voice recording/playback, location, contacts, buttons, lists, templates, and Flow sends exist; outbound stickers, location request, and policy-aware retry remain |
 | Templates | 80% | Paginated lifecycle sync, CRUD/versioning, typed headers/buttons/OTP, dynamic mappings, media and product carousel definitions, call-permission templates, previews, tenant attributes, review-media upload, and chat sending exist; limited-time offers, appeal UI, named-parameter editing, and commerce-driven product selection remain |
 | Flows | 75% | CRUD, structural validation, Meta deployment/preview/publish/deprecate, sync, E2EE runtime, execution tracking, Flow sending, and mobile lifecycle UI exist; domain handlers, durable idempotency, retries, signature verification, and operational metrics remain |
@@ -18,7 +18,7 @@
 | Inbound calling | 15% | Multi-device registry, stable installation identity, push capability storage, Redis presence, HTTP/socket heartbeats, expiry, and revocation exist; call models, routing, signaling, WebRTC, native call UI, and history remain |
 | Phase 3 overall | ~48% | Messaging, templates, assets, Flow lifecycle, and calling prerequisites are usable; call routing/signaling, assignment workflow, and operational hardening are the major unfinished workstreams |
 | Phase 4 | <5% | Commerce and outbound calling remain planning-only |
-| Phase 5 | 15% | Embedded Signup prototype exists; durable onboarding, partner lifecycle, and business profile remain |
+| Phase 5 | 45% | Embedded Signup v4 sessions, signed state, JS-SDK bridge, token validation, webhook subscription, number registration, coexistence mode, resumable errors, and mobile UI exist; Meta eligibility, multi-WABA selection, reauthorization, partner lifecycle, and business profile remain |
 
 Completed after the audit:
 
@@ -31,6 +31,8 @@ Completed after the audit:
 - Tenant-scoped template administration now includes immutable versions, Meta reconciliation, dynamic attribute mappings, authentication variants, media/location headers, Flow/copy/URL/phone buttons, media and product carousels, call-permission requests, WhatsApp previews, and resumable Meta review-media uploads.
 - Tenant-scoped Flow administration now includes local drafts, Meta synchronization, structural validation, JSON asset deployment, preview, publish/deprecate/delete lifecycle, endpoint health, E2EE public-key registration, execution creation/reconciliation, and React Native library/editor/send experiences.
 - Calling prerequisites now include tenant-aware multi-device registration, stable Expo installation IDs, push/native/VoIP capability slots, Redis-backed expiring presence, authenticated HTTP and Socket.IO heartbeats, app-state transitions, and device revocation.
+- Notification delivery now includes BullMQ processing, per-device delivery audit records, Expo ticket/error persistence, invalid-token revocation, and an authenticated in-app test action.
+- Embedded Signup now follows Meta v4 with a signed durable session, server-hosted JavaScript SDK bridge, 30-second code coordination, session logging, business-token validation/encryption, webhook subscription, Cloud API registration, coexistence mode, lifecycle retries, and React Native progress UI.
 
 Next dependency-ordered work:
 
