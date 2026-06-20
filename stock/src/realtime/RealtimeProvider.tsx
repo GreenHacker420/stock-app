@@ -58,25 +58,46 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
     [activeShopId],
   );
 
-  const showToast = (payload: any) => {
-    let cleanTitle = payload?.triggerEvent ? payload.triggerEvent.replace(/_/g, " ").replace(/:/g, " ").toUpperCase() : "NOTIFICATION";
-    let cleanMessage = payload?.message || "New activity detected.";
+  const showToast = (payload: any, event?: string) => {
+    let cleanTitle = "NOTIFICATION";
+    if (payload?.triggerEvent) {
+      cleanTitle = payload.triggerEvent.replace(/_/g, " ").replace(/:/g, " ").toUpperCase();
+    } else if (event) {
+      cleanTitle = event.replace(/_/g, " ").replace(/:/g, " ").toUpperCase();
+    }
+
+    let cleanMessage = "New activity detected.";
     let type = "info";
 
-    if (payload?.messageId && payload?.conversationId) { // WhatsApp events
+    const isWhatsApp = event?.startsWith("wa:") || (payload?.conversationId && (payload?.messageId || payload?.message));
+
+    if (isWhatsApp) {
       if (payload.status === "FAILED" || payload.error) {
         cleanTitle = "WHATSAPP ERROR";
         cleanMessage = payload.error || "Failed to send message.";
         type = "danger";
       } else if (payload.message && payload.message.direction === "INBOUND") {
         cleanTitle = "NEW WHATSAPP MESSAGE";
-        cleanMessage = payload.message.content?.text || "Received a new message.";
+        const msgContent = payload.message.content;
+        if (typeof msgContent === "string") {
+          cleanMessage = msgContent;
+        } else if (msgContent && typeof msgContent === "object") {
+          cleanMessage = msgContent.text || "Received a new message.";
+        } else {
+          cleanMessage = "Received a new message.";
+        }
         type = "info";
       } else {
         return; // Don't show toast for sent/status updates
       }
     } else {
-      const ev = payload?.triggerEvent?.toLowerCase() || "";
+      if (typeof payload?.message === "string") {
+        cleanMessage = payload.message;
+      } else if (payload?.message && typeof payload.message === "object") {
+        cleanMessage = payload.message.text || payload.message.message || "New activity detected.";
+      }
+
+      const ev = (payload?.triggerEvent || event || "").toLowerCase();
       if (ev.includes("sale") || ev.includes("payment")) {
         type = "success";
       } else if (ev.includes("rate") || ev.includes("price") || ev.includes("stock") || ev.includes("inventory")) {
@@ -84,6 +105,10 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
       } else if (ev.includes("correction") || ev.includes("mismatch") || ev.includes("bounce") || ev.includes("danger") || ev.includes("shortage")) {
         type = "danger";
       }
+    }
+
+    if (typeof cleanMessage !== "string") {
+      cleanMessage = String(cleanMessage || "New activity detected.");
     }
 
     setToast({
@@ -132,7 +157,7 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
             }
           }
           if ((event === "notification:created" || event === "wa:message_received" || event === "wa:message_failed") && payload) {
-            showToast(payload);
+            showToast(payload, event);
           }
           if (event.startsWith("wa:")) {
             DeviceEventEmitter.emit(event, payload);

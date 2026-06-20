@@ -12,7 +12,7 @@ import {
 } from "react-native";
 import { FlashList } from "@shopify/flash-list";
 
-const FlashListAny = FlashList as any;
+// Temporarily using FlashList directly to see error
 import * as Clipboard from "expo-clipboard";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
@@ -654,7 +654,7 @@ export const ChatDetailScreen = () => {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
     >
-      <FlashListAny
+      <FlashList
         ref={flatListRef}
         data={messages}
         renderItem={renderMessage}
