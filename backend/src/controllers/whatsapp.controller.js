@@ -54,6 +54,11 @@ async function getPublicIntegration(shopId) {
 }
 
 class WhatsAppController {
+  constructor() {
+    this.handleWebhook = this.handleWebhook.bind(this);
+    this.verifyWebhook = this.verifyWebhook.bind(this);
+  }
+
   async #validateSignature(req, shopId) {
     const signature = req.headers["x-hub-signature-256"];
     if (!signature) return false;

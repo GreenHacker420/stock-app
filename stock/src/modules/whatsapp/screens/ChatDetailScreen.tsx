@@ -20,6 +20,7 @@ import * as Location from "expo-location";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
+  fetchWaConversations,
   fetchWaMessages,
   sendWaMessage,
   uploadWaMedia,
@@ -91,6 +92,10 @@ export const ChatDetailScreen = () => {
   // Load wa-conversations cache to find active conversation metadata
   const { data: conversations = [] } = useQuery<any[]>({
     queryKey: ["wa-conversations", activeShopId],
+    queryFn: () => {
+      if (!token || !activeShopId) return [];
+      return fetchWaConversations(token, activeShopId);
+    },
     enabled: false,
   });
 
