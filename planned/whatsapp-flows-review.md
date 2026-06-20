@@ -1,19 +1,35 @@
 # WhatsApp Flows Review
 
 > Audit date: 2026-06-19
+>
+> Implementation checkpoint updated: 2026-06-20
 
-## Current State
+## Implementation Status
 
-ShopControl currently has:
+ShopControl now has:
 
-- `WaFlow` and `WaFlowExecution` models.
-- Meta Flow list synchronization.
+- Tenant-scoped `WaFlow` drafts, lifecycle metadata, revisions, endpoint configuration, and soft deletion.
+- `WaFlowExecution` records created before send with message, conversation, customer, token, screen, attempt, and result tracking.
+- Paginated Meta synchronization and per-Flow detail/health reconciliation.
+- Draft creation and editing, local validation, Meta asset deployment, preview, publish, deprecate, and draft deletion.
+- Public-key registration for the connected phone number.
 - RSA key generation per shop with encrypted private keys.
-- An E2EE data-exchange endpoint.
-- `nfm_reply` parsing.
-- Basic execution updates when a known `flow_token` is received.
+- An opaque tenant-resolved E2EE data-exchange endpoint with request limits and protocol validation.
+- Generic screen routing for ping, INIT, data exchange, and completion.
+- Typed Flow message compilation and published-Flow sending from conversations.
+- `nfm_reply` reconciliation into execution results.
+- React Native Flow library, JSON editor, validation issues, lifecycle actions, execution history, and chat send sheet.
+- Unit coverage for local validation and Meta-compatible RSA/AES payload round trips.
 
-The endpoint is a proof of concept, not a generic platform endpoint. It hard-codes item lookup, screen names, and success responses. There is no Flow send compiler, CRUD, asset upload, validation, publish, deprecate, preview, health, public-key registration, or retry model.
+Remaining production work:
+
+- Registered domain handlers behind `handlerKey`; the current runtime only performs generic routing and data echo.
+- Durable request idempotency and replay-safe side-effect commands.
+- Bounded handler timeouts, retry scheduling, expiry jobs, and endpoint latency metrics.
+- Full Flow JSON schema validation beyond the current structural checks.
+- Request-signature verification once raw request bytes are retained by the HTTP stack.
+- Key rotation with overlapping active keys.
+- Sanitized execution-result inspection and operational retry/quarantine UI.
 
 ## Builder Options
 
@@ -105,14 +121,15 @@ POST   /whatsapp/flows
 GET    /whatsapp/flows/:id
 PATCH  /whatsapp/flows/:id/draft
 POST   /whatsapp/flows/:id/validate
-POST   /whatsapp/flows/:id/sync
-POST   /whatsapp/flows/:id/upload
+POST   /whatsapp/flows/:id/deploy
 POST   /whatsapp/flows/:id/preview
 POST   /whatsapp/flows/:id/publish
 POST   /whatsapp/flows/:id/deprecate
 DELETE /whatsapp/flows/:id
 GET    /whatsapp/flows/:id/executions
-POST   /whatsapp/conversations/:id/flow-messages
+POST   /whatsapp/flows/:id/send
+POST   /whatsapp/sync-flows
+POST   /whatsapp/flows/register-public-key
 ```
 
 ## React Native UI
@@ -126,6 +143,13 @@ POST   /whatsapp/conversations/:id/flow-messages
 - Chat composer Flow picker with CTA, header, body, initial screen, and optional seed data.
 
 The editor is owner-only. Staff can send approved published Flows and inspect permitted execution results.
+
+## Runtime Configuration
+
+- `WHATSAPP_FLOW_ENDPOINT_BASE_URL`: public HTTPS API base used to generate opaque Flow endpoint URLs.
+- `WHATSAPP_APP_ID`: Meta app ID associated with endpoint-powered Flows.
+- The connected integration must contain an RSA keypair before public-key registration or data exchange.
+- Apply migration `20260620120000_expand_whatsapp_flows` before enabling the new routes.
 
 ## Reliability and Security
 
@@ -150,4 +174,3 @@ The editor is owner-only. Staff can send approved published Flows and inspect pe
 - [WhatsApp Flows](https://developers.facebook.com/docs/whatsapp/flows)
 - [Flows API](https://developers.facebook.com/docs/whatsapp/flows/reference/flowsapi)
 - [Flows endpoint implementation](https://developers.facebook.com/docs/whatsapp/flows/guides/implementingyourflowendpoint)
-

@@ -13,10 +13,10 @@
 | Platform foundation | 70% | Durable webhooks, management projection, typed commands, queues, assets, and tenant routing exist; replay UI, quarantine operations, idempotency, metrics, and broadcast reconciliation remain |
 | Messaging types | 80% | Text, replies, typed renderers, image/video/document media, voice recording/playback, location, contacts, buttons, lists, templates, and Flow sends exist; outbound stickers, location request, and policy-aware retry remain |
 | Templates | 80% | Paginated lifecycle sync, CRUD/versioning, typed headers/buttons/OTP, dynamic mappings, media and product carousel definitions, call-permission templates, previews, tenant attributes, review-media upload, and chat sending exist; limited-time offers, appeal UI, named-parameter editing, and commerce-driven product selection remain |
-| Flows | 25% | Sync, send contract, execution schema, and E2EE endpoint exist; CRUD, validation, deployment, registered handlers, retries, and execution UI remain |
+| Flows | 75% | CRUD, structural validation, Meta deployment/preview/publish/deprecate, sync, E2EE runtime, execution tracking, Flow sending, and mobile lifecycle UI exist; domain handlers, durable idempotency, retries, signature verification, and operational metrics remain |
 | Inbox and assignment | 25% | Conversation views, archive, assignment field, filters, and realtime updates exist; assignment commands/history, ownership permissions, workflow status, and notes remain |
 | Inbound calling | 5% | Capability flag and architecture plan exist; device registry, presence, call models, routing, signaling, WebRTC, native call UI, and history remain |
-| Phase 3 overall | ~35% | Messaging foundation is usable, but calling and lifecycle management are major unfinished workstreams |
+| Phase 3 overall | ~45% | Messaging, templates, assets, and Flow lifecycle are usable; calling, assignment workflow, and operational hardening are the major unfinished workstreams |
 | Phase 4 | <5% | Commerce and outbound calling remain planning-only |
 | Phase 5 | 15% | Embedded Signup prototype exists; durable onboarding, partner lifecycle, and business profile remain |
 
@@ -29,12 +29,13 @@ Completed after the audit:
 - Generic tenant-scoped `Asset` registry owns S3 identity, Meta identity, checksums, lifecycle state, signed delivery URLs, and reusable message linkage; mobile contracts use only internal asset IDs.
 - Typed React Native renderer registry covers every normalized message kind with image preview, native video playback, audio controls, document opening, map actions, contact actions, and asset lifecycle fallbacks.
 - Tenant-scoped template administration now includes immutable versions, Meta reconciliation, dynamic attribute mappings, authentication variants, media/location headers, Flow/copy/URL/phone buttons, media and product carousels, call-permission requests, WhatsApp previews, and resumable Meta review-media uploads.
+- Tenant-scoped Flow administration now includes local drafts, Meta synchronization, structural validation, JSON asset deployment, preview, publish/deprecate/delete lifecycle, endpoint health, E2EE public-key registration, execution creation/reconciliation, and React Native library/editor/send experiences.
 
 Next dependency-ordered work:
 
-1. Flow CRUD, validation, deployment, and execution tracking.
-2. Device registry and presence foundation before inbound calling.
-3. Assignment commands and ownership history.
+1. Device registry and presence foundation before inbound calling.
+2. Assignment commands and ownership history.
+3. Flow domain-handler registry, durable idempotency, retries, and endpoint observability.
 4. Limited-time-offer templates and commerce-backed product selection.
 5. Outbound stickers, location requests, and policy-aware retry.
 
@@ -76,8 +77,8 @@ Build a standalone, tenant-scoped WhatsApp Platform Layer.
 
 - Full template sync pagination and lifecycle webhooks.
 - Typed media/button/carousel/coupon/OTP component support.
-- Flow CRUD, JSON validation, upload, preview, publish, deprecate, and execution creation.
-- Replace hard-coded Flow endpoint behavior with registered handlers.
+- Flow CRUD, JSON validation, upload, preview, publish, deprecate, and execution creation. Implemented.
+- Replace generic Flow endpoint routing with registered domain handlers and replay-safe commands.
 
 ### Inbox and UI
 

@@ -1564,7 +1564,7 @@ model WaFlow {
   dataApiVersion   String?
   validationErrors Json?
   endpointEnabled  Boolean      @default(false)
-  endpointKey      String?      @unique
+  endpointKey      String       @unique
   endpointUrl      String?
   endpointHealth   Json?
   handlerKey       String?

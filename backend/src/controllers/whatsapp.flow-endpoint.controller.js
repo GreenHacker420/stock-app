@@ -1,69 +1,11 @@
-import crypto from "crypto";
 import prisma from "../lib/db.js";
 import { decrypt } from "../lib/wa-crypto.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
+import {
+  decryptFlowPayload,
+  encryptFlowResponse,
+} from "../services/whatsapp.flow-crypto.js";
 import { whatsappFlowRuntimeService } from "../services/whatsapp.flow-runtime.service.js";
-
-/**
- * Inverts the bits of a Buffer (IV) for response encryption.
- */
-function invertIV(iv) {
-  const flipped = Buffer.alloc(iv.length);
-  for (let i = 0; i < iv.length; i++) {
-    flipped[i] = iv[i] ^ 0xff;
-  }
-  return flipped;
-}
-
-/**
- * Decrypts WhatsApp Flows request payload using RSA-OAEP and AES-128-GCM.
- */
-export function decryptFlowPayload(encryptedFlowDataB64, encryptedAesKeyB64, initialVectorB64, privateKeyPEM) {
-  // 1. Decrypt the AES Key using RSA-OAEP with SHA-256
-  const encryptedAesKey = Buffer.from(encryptedAesKeyB64, "base64");
-  const aesKey = crypto.privateDecrypt(
-    {
-      key: privateKeyPEM,
-      padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
-      oaepHash: "sha256",
-    },
-    encryptedAesKey
-  );
-
-  // 2. Extract ciphertext and Auth Tag
-  const flowData = Buffer.from(encryptedFlowDataB64, "base64");
-  const iv = Buffer.from(initialVectorB64, "base64");
-  
-  const encryptedData = flowData.subarray(0, flowData.length - 16);
-  const authTag = flowData.subarray(flowData.length - 16);
-
-  // 3. Decrypt the ciphertext via AES-128-GCM
-  const decipher = crypto.createDecipheriv("aes-128-gcm", aesKey, iv);
-  decipher.setAuthTag(authTag);
-  
-  let decrypted = decipher.update(encryptedData, null, "utf8");
-  decrypted += decipher.final("utf8");
-
-  return {
-    decryptedData: JSON.parse(decrypted),
-    aesKey,
-    iv,
-  };
-}
-
-/**
- * Encrypts response payload using the same AES key and inverted IV.
- */
-export function encryptFlowResponse(responsePayload, aesKey, iv) {
-  const invertedIv = invertIV(iv);
-  const cipher = crypto.createCipheriv("aes-128-gcm", aesKey, invertedIv);
-  
-  let encrypted = cipher.update(JSON.stringify(responsePayload), "utf8");
-  encrypted = Buffer.concat([encrypted, cipher.final()]);
-  const authTag = cipher.getAuthTag();
-
-  return Buffer.concat([encrypted, authTag]).toString("base64");
-}
 
 class WhatsAppFlowEndpointController {
   /**

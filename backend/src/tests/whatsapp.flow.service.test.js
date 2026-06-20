@@ -1,11 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "crypto";
-import { validateFlowJson } from "../services/whatsapp.flow.service.js";
+import { validateFlowJson } from "../services/whatsapp.flow-validator.js";
 import {
   decryptFlowPayload,
   encryptFlowResponse,
-} from "../controllers/whatsapp.flow-endpoint.controller.js";
+} from "../services/whatsapp.flow-crypto.js";
 
 const VALID_FLOW = {
   version: "7.3",

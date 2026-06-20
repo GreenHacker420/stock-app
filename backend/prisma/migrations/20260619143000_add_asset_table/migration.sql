@@ -56,7 +56,7 @@ SELECT
         'url:' || message."mediaUrl",
         'message:' || message."id"
       )
-    ) AS "assetId",
+    ) AS "backfillAssetId",
     conversation."shopId" AS "shopId",
     message.*
 FROM "WaMessage" message
@@ -84,8 +84,8 @@ INSERT INTO "Asset" (
     "readyAt"
 )
 SELECT
-    DISTINCT ON (media."assetId")
-    media."assetId",
+    DISTINCT ON (media."backfillAssetId")
+    media."backfillAssetId",
     media."shopId",
     CASE media."type"
       WHEN 'IMAGE' THEN 'IMAGE'::"AssetKind"
@@ -118,7 +118,7 @@ SELECT
       ELSE NULL
     END
 FROM media_rows media
-ORDER BY media."assetId", media."createdAt";
+ORDER BY media."backfillAssetId", media."createdAt";
 
 UPDATE "WaMessage" message
 SET "assetId" = 'wa_asset_' || md5(

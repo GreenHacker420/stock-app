@@ -20,6 +20,9 @@ ADD COLUMN "publishedAt" TIMESTAMP(3),
 ADD COLUMN "deprecatedAt" TIMESTAMP(3),
 ADD COLUMN "deletedAt" TIMESTAMP(3);
 
+UPDATE "WaFlow" SET "endpointKey" = "id" WHERE "endpointKey" IS NULL;
+ALTER TABLE "WaFlow" ALTER COLUMN "endpointKey" SET NOT NULL;
+
 ALTER TABLE "WaFlowExecution"
 ADD COLUMN "metaMessageId" TEXT,
 ADD COLUMN "flowTokenHash" TEXT,

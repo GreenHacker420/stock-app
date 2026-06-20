@@ -215,22 +215,28 @@ export function FlowEditorScreen() {
         <Text style={styles.label}>Category</Text>
         <SegmentedButtons
           value={category}
-          disabled={!editable}
           onValueChange={(value) => setCategory(value as WaFlowCategory)}
           buttons={[
-            { value: "OTHER", label: "Other" },
-            { value: "LEAD_GENERATION", label: "Lead" },
-            { value: "CUSTOMER_SUPPORT", label: "Support" },
+            { value: "OTHER", label: "Other", disabled: !editable },
+            { value: "LEAD_GENERATION", label: "Lead", disabled: !editable },
+            { value: "CUSTOMER_SUPPORT", label: "Support", disabled: !editable },
           ]}
         />
         <SegmentedButtons
           value={category}
-          disabled={!editable}
           onValueChange={(value) => setCategory(value as WaFlowCategory)}
           buttons={[
-            { value: "APPOINTMENT_BOOKING", label: "Booking" },
-            { value: "SURVEY", label: "Survey" },
-            { value: "CONTACT_US", label: "Contact" },
+            { value: "APPOINTMENT_BOOKING", label: "Booking", disabled: !editable },
+            { value: "SURVEY", label: "Survey", disabled: !editable },
+            { value: "CONTACT_US", label: "Contact", disabled: !editable },
+          ]}
+        />
+        <SegmentedButtons
+          value={category}
+          onValueChange={(value) => setCategory(value as WaFlowCategory)}
+          buttons={[
+            { value: "SIGN_UP", label: "Sign up", disabled: !editable },
+            { value: "SIGN_IN", label: "Sign in", disabled: !editable },
           ]}
         />
       </Section>
