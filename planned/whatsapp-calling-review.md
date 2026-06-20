@@ -3,6 +3,30 @@
 > Audit date: 2026-06-19  
 > Scope: voice calling through Graph API/webhook signaling and direct WebRTC media  
 > Explicit exclusions: SIP, PSTN, media servers, recording, transcription, mixing, conferencing, ShopControl TURN infrastructure
+>
+> Implementation checkpoint updated: 2026-06-20
+
+## Implementation Checkpoint
+
+The calling prerequisite layer now includes:
+
+- Multi-device `UserDevice` records with stable app-installation identity.
+- Expo, native push, and future VoIP-token slots without exposing tokens in API responses.
+- App/build/device/OS metadata, notification capability, revocation, and last-seen state.
+- Short-lived Redis presence keyed by device and indexed by shop.
+- Foreground, background, in-call, unavailable, and disconnected presence states.
+- Authenticated HTTP heartbeats and Socket.IO heartbeats every 25 seconds.
+- Socket ownership tied to the registered device ID and authenticated user.
+- Presence expiry after 75 seconds so stale sockets are not considered available.
+- Compatibility handling for the former single-user push-token endpoint.
+
+Still missing:
+
+- Agent-level availability preferences distinct from device foreground state.
+- `WaCall`, route-attempt, permission, and calling-settings models.
+- Calling webhook normalization and Graph signaling actions.
+- Atomic call routing leases and push delivery.
+- Native WebRTC and system call UI.
 
 ## Decision
 
@@ -28,7 +52,7 @@ No call audio is proxied, stored, recorded, inspected, or transformed by ShopCon
 
 | Capability | Availability | ShopControl |
 |---|---|---|
-| User-initiated calling | Calling-enabled Cloud API number | Missing |
+| User-initiated calling | Calling-enabled Cloud API number | Foundation only |
 | Business-initiated calling | Country/account/permission restricted | Missing |
 | `connect` | Calling API | Missing |
 | `pre_accept` | User-initiated calling | Missing |
@@ -427,4 +451,3 @@ The provider owns the session so navigation changes do not destroy the peer conn
 - [Calling API secondary reference](https://dualhook.com/docs/calling-api-reference)
 - [User-initiated calling secondary reference](https://dualhook.com/docs/calling-user-initiated)
 - [Business-initiated calling secondary reference](https://dualhook.com/docs/calling-business-initiated)
-

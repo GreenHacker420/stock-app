@@ -15,8 +15,8 @@
 | Templates | 80% | Paginated lifecycle sync, CRUD/versioning, typed headers/buttons/OTP, dynamic mappings, media and product carousel definitions, call-permission templates, previews, tenant attributes, review-media upload, and chat sending exist; limited-time offers, appeal UI, named-parameter editing, and commerce-driven product selection remain |
 | Flows | 75% | CRUD, structural validation, Meta deployment/preview/publish/deprecate, sync, E2EE runtime, execution tracking, Flow sending, and mobile lifecycle UI exist; domain handlers, durable idempotency, retries, signature verification, and operational metrics remain |
 | Inbox and assignment | 25% | Conversation views, archive, assignment field, filters, and realtime updates exist; assignment commands/history, ownership permissions, workflow status, and notes remain |
-| Inbound calling | 5% | Capability flag and architecture plan exist; device registry, presence, call models, routing, signaling, WebRTC, native call UI, and history remain |
-| Phase 3 overall | ~45% | Messaging, templates, assets, and Flow lifecycle are usable; calling, assignment workflow, and operational hardening are the major unfinished workstreams |
+| Inbound calling | 15% | Multi-device registry, stable installation identity, push capability storage, Redis presence, HTTP/socket heartbeats, expiry, and revocation exist; call models, routing, signaling, WebRTC, native call UI, and history remain |
+| Phase 3 overall | ~48% | Messaging, templates, assets, Flow lifecycle, and calling prerequisites are usable; call routing/signaling, assignment workflow, and operational hardening are the major unfinished workstreams |
 | Phase 4 | <5% | Commerce and outbound calling remain planning-only |
 | Phase 5 | 15% | Embedded Signup prototype exists; durable onboarding, partner lifecycle, and business profile remain |
 
@@ -30,11 +30,12 @@ Completed after the audit:
 - Typed React Native renderer registry covers every normalized message kind with image preview, native video playback, audio controls, document opening, map actions, contact actions, and asset lifecycle fallbacks.
 - Tenant-scoped template administration now includes immutable versions, Meta reconciliation, dynamic attribute mappings, authentication variants, media/location headers, Flow/copy/URL/phone buttons, media and product carousels, call-permission requests, WhatsApp previews, and resumable Meta review-media uploads.
 - Tenant-scoped Flow administration now includes local drafts, Meta synchronization, structural validation, JSON asset deployment, preview, publish/deprecate/delete lifecycle, endpoint health, E2EE public-key registration, execution creation/reconciliation, and React Native library/editor/send experiences.
+- Calling prerequisites now include tenant-aware multi-device registration, stable Expo installation IDs, push/native/VoIP capability slots, Redis-backed expiring presence, authenticated HTTP and Socket.IO heartbeats, app-state transitions, and device revocation.
 
 Next dependency-ordered work:
 
-1. Device registry and presence foundation before inbound calling.
-2. Assignment commands and ownership history.
+1. Assignment commands and ownership history.
+2. Calling models, webhook normalization, and atomic routing leases.
 3. Flow domain-handler registry, durable idempotency, retries, and endpoint observability.
 4. Limited-time-offer templates and commerce-backed product selection.
 5. Outbound stickers, location requests, and policy-aware retry.
@@ -91,8 +92,8 @@ Build a standalone, tenant-scoped WhatsApp Platform Layer.
 
 ### Inbound Calling
 
-- `UserDevice` registry and migration away from a single push token.
-- Redis device presence and agent availability.
+- `UserDevice` registry and migration away from a single push token. Implemented.
+- Redis device presence. Implemented; agent-level availability remains.
 - `WaCall`, route attempt, and call permission models.
 - Calling webhook normalization.
 - Assigned-agent-first routing and atomic leases.
