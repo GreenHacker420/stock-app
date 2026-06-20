@@ -218,6 +218,16 @@ class WhatsAppService {
           status: "SENT",
         },
       });
+      if (message.kind === "flow" && message.executionId) {
+        await prisma.waFlowExecution.updateMany({
+          where: { id: message.executionId, shopId },
+          data: {
+            metaMessageId,
+            status: "STARTED",
+            sentAt: new Date(),
+          },
+        });
+      }
 
       await publishWhatsAppEvent(shopId, "wa:status_updated", {
         messageId: updatedMessage.id,
@@ -237,6 +247,15 @@ class WhatsAppService {
           failedAt: new Date(),
         },
       });
+      if (message.kind === "flow" && message.executionId) {
+        await prisma.waFlowExecution.updateMany({
+          where: { id: message.executionId, shopId },
+          data: {
+            status: "FAILED",
+            lastEndpointError: errorMessage,
+          },
+        });
+      }
 
       await publishWhatsAppEvent(shopId, "wa:status_updated", {
         messageId: failedMessage.id,

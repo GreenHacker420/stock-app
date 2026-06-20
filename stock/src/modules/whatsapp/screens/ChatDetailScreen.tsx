@@ -41,6 +41,7 @@ import { MediaAttachmentSheet } from "../components/MediaAttachmentSheet";
 import { VoiceRecorderSheet } from "../components/VoiceRecorderSheet";
 import { MessageContentRenderer } from "../components/MessageContentRenderer";
 import { TemplateSendSheet } from "../components/TemplateSendSheet";
+import { FlowSendSheet } from "../components/FlowSendSheet";
 import { initialsFor, waColors } from "../whatsapp-ui";
 
 const STANDARD_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
@@ -68,6 +69,7 @@ export const ChatDetailScreen = () => {
 
   // Template Picker State
   const [showTemplateSheet, setShowTemplateSheet] = useState(false);
+  const [showFlowSheet, setShowFlowSheet] = useState(false);
 
   const flatListRef = useRef<any>(null);
   const emojiInputRef = useRef<TextInput>(null);
@@ -707,6 +709,7 @@ export const ChatDetailScreen = () => {
         sending={sendMutation.isPending}
         onClose={() => setShowMessageActions(false)}
         onOpenTemplates={() => setShowTemplateSheet(true)}
+        onOpenFlows={() => setShowFlowSheet(true)}
         onPickMedia={pickMedia}
         onRecordVoice={() => setShowVoiceRecorder(true)}
         onShareContact={shareLinkedContact}
@@ -842,6 +845,13 @@ export const ChatDetailScreen = () => {
         to={phone}
         replyToMessageId={replyingTo?.id}
         onClose={() => setShowTemplateSheet(false)}
+      />
+      <FlowSendSheet
+        visible={showFlowSheet}
+        shopId={activeShopId}
+        conversationId={conversationId}
+        to={phone}
+        onClose={() => setShowFlowSheet(false)}
       />
     </KeyboardAvoidingView>
   );

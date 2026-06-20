@@ -300,6 +300,37 @@ async function handleInboundMessage(event, shopId, eventId) {
       },
     });
 
+    if (event.type === "flow_reply") {
+      let response = event.payload?.response_json;
+      if (typeof response === "string") {
+        try {
+          response = JSON.parse(response);
+        } catch {
+          response = { raw: response };
+        }
+      }
+      const flowToken = response?.flow_token || event.payload?.flow_token;
+      if (flowToken) {
+        const execution = await tx.waFlowExecution.findUnique({ where: { flowToken } });
+        if (execution?.shopId === shopId) {
+          await tx.waFlowExecution.update({
+            where: { id: execution.id },
+            data: {
+              status: "COMPLETED",
+              resultJson: response || event.payload,
+              submittedAt: new Date(Number(event.timestamp) * 1000),
+              completedAt: new Date(Number(event.timestamp) * 1000),
+              lastAction: "nfm_reply",
+            },
+          });
+          await tx.waFlow.update({
+            where: { id: execution.flowId },
+            data: { totalResponses: { increment: 1 } },
+          });
+        }
+      }
+    }
+
     // 5. If it is a media message, queue for download
     if (event.mediaId && asset?.status !== "READY") {
       try {

@@ -2,6 +2,7 @@ import { Router } from "express";
 import { requireAuth } from "../middleware/auth.middleware.js";
 import { whatsappController } from "../controllers/whatsapp.controller.js";
 import { whatsappFlowEndpointController } from "../controllers/whatsapp.flow-endpoint.controller.js";
+import { whatsappFlowController } from "../controllers/whatsapp.flow.controller.js";
 import { requireShopAccess } from "../middleware/shopAccess.middleware.js";
 import multer from "multer";
 
@@ -57,6 +58,30 @@ router.get(
   requireAuth,
   requireShopAccess((req) => req.query.shopId),
   whatsappController.getTemplateAttributes,
+);
+router.get(
+  "/flows",
+  requireAuth,
+  requireShopAccess((req) => req.query.shopId),
+  whatsappFlowController.list,
+);
+router.get(
+  "/flows/:id",
+  requireAuth,
+  requireShopAccess((req) => req.query.shopId),
+  whatsappFlowController.get,
+);
+router.get(
+  "/flows/:id/executions",
+  requireAuth,
+  requireShopAccess((req) => req.query.shopId),
+  whatsappFlowController.executions,
+);
+router.post(
+  "/flows/:id/send",
+  requireAuth,
+  requireShopAccess((req) => req.body.shopId),
+  whatsappFlowController.send,
 );
 router.post("/messages", requireAuth, whatsappController.sendMessage);
 router.post(
@@ -135,7 +160,76 @@ router.delete(
   requireShopAccess((req) => req.query.shopId),
   whatsappController.deleteTemplateAttribute,
 );
-router.post("/sync-flows", requireAuth, requireOwner, whatsappController.syncFlows);
+router.post(
+  "/sync-flows",
+  requireAuth,
+  requireOwner,
+  requireShopAccess((req) => req.body.shopId),
+  whatsappFlowController.sync,
+);
+router.post(
+  "/flows",
+  requireAuth,
+  requireOwner,
+  requireShopAccess((req) => req.body.shopId),
+  whatsappFlowController.create,
+);
+router.patch(
+  "/flows/:id/draft",
+  requireAuth,
+  requireOwner,
+  requireShopAccess((req) => req.body.shopId),
+  whatsappFlowController.updateDraft,
+);
+router.post(
+  "/flows/:id/validate",
+  requireAuth,
+  requireOwner,
+  requireShopAccess((req) => req.body.shopId),
+  whatsappFlowController.validate,
+);
+router.post(
+  "/flows/:id/deploy",
+  requireAuth,
+  requireOwner,
+  requireShopAccess((req) => req.body.shopId),
+  whatsappFlowController.deploy,
+);
+router.post(
+  "/flows/:id/preview",
+  requireAuth,
+  requireOwner,
+  requireShopAccess((req) => req.body.shopId),
+  whatsappFlowController.preview,
+);
+router.post(
+  "/flows/:id/publish",
+  requireAuth,
+  requireOwner,
+  requireShopAccess((req) => req.body.shopId),
+  whatsappFlowController.publish,
+);
+router.post(
+  "/flows/:id/deprecate",
+  requireAuth,
+  requireOwner,
+  requireShopAccess((req) => req.body.shopId),
+  whatsappFlowController.deprecate,
+);
+router.delete(
+  "/flows/:id",
+  requireAuth,
+  requireOwner,
+  requireShopAccess((req) => req.query.shopId),
+  whatsappFlowController.remove,
+);
+router.post(
+  "/flows/register-public-key",
+  requireAuth,
+  requireOwner,
+  requireShopAccess((req) => req.body.shopId),
+  whatsappFlowController.registerPublicKey,
+);
 router.post("/sync-contacts", requireAuth, requireOwner, whatsappController.syncContacts);
 
 router.get("/setup", requireAuth, requireOwner, whatsappController.getSetup);

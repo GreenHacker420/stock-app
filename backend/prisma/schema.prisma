@@ -1199,8 +1199,12 @@ enum WaFlowStatus {
 
 enum WaFlowExecutionStatus {
   STARTED
+  OPENED
+  SUBMITTED
   COMPLETED
   CANCELLED
+  FAILED
+  EXPIRED
 }
 
 enum WaTemplateStatus {
@@ -1548,42 +1552,68 @@ model WaTemplateUsage {
 }
 
 model WaFlow {
-  id              String       @id @default(cuid())
-  shopId          String
-  flowId          String?
-  name            String
-  description     String?
-  status          WaFlowStatus @default(DRAFT)
-  flowJson        Json?
-  endpointEnabled Boolean      @default(false)
-  endpointUrl     String?
-  previewUrl      String?
-  totalSent       Int          @default(0)
-  totalResponses  Int          @default(0)
-  syncedAt        DateTime?
-  createdAt       DateTime     @default(now())
-  updatedAt       DateTime     @updatedAt
+  id               String       @id @default(cuid())
+  shopId           String
+  flowId           String?
+  name             String
+  description      String?
+  status           WaFlowStatus @default(DRAFT)
+  categories       Json?
+  flowJson         Json?
+  jsonVersion      String?
+  dataApiVersion   String?
+  validationErrors Json?
+  endpointEnabled  Boolean      @default(false)
+  endpointKey      String?      @unique
+  endpointUrl      String?
+  endpointHealth   Json?
+  handlerKey       String?
+  previewUrl       String?
+  previewExpiresAt DateTime?
+  localRevision    Int          @default(1)
+  deployedRevision Int?
+  rawMeta          Json?
+  syncError        String?
+  totalSent        Int          @default(0)
+  totalResponses   Int          @default(0)
+  syncedAt         DateTime?
+  publishedAt      DateTime?
+  deprecatedAt     DateTime?
+  deletedAt        DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
 
   shop       Shop              @relation(fields: [shopId], references: [id], onDelete: Cascade)
   executions WaFlowExecution[]
 
   @@unique([shopId, flowId])
+  @@index([shopId, status, updatedAt])
 }
 
 model WaFlowExecution {
-  id             String                @id @default(cuid())
-  shopId         String
-  flowId         String
-  conversationId String
-  customerId     String?
-  flowToken      String?               @unique
-  status         WaFlowExecutionStatus @default(STARTED)
-  inputJson      Json?
-  resultJson     Json?
-  sentAt         DateTime?
-  submittedAt    DateTime?
-  startedAt      DateTime              @default(now())
-  completedAt    DateTime?
+  id                String                @id @default(cuid())
+  shopId            String
+  flowId            String
+  conversationId    String
+  customerId        String?
+  metaMessageId     String?
+  flowToken         String?               @unique
+  flowTokenHash     String?
+  idempotencyKey    String?
+  status            WaFlowExecutionStatus @default(STARTED)
+  currentScreen     String?
+  lastAction        String?
+  attemptCount      Int                   @default(0)
+  lastEndpointError String?
+  inputJson         Json?
+  resultJson        Json?
+  sentAt            DateTime?
+  openedAt          DateTime?
+  submittedAt       DateTime?
+  startedAt         DateTime              @default(now())
+  completedAt       DateTime?
+  cancelledAt       DateTime?
+  expiresAt         DateTime?
 
   waFlow       WaFlow         @relation(fields: [flowId], references: [id])
   conversation WaConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
@@ -1591,6 +1621,8 @@ model WaFlowExecution {
 
   @@index([shopId, flowId])
   @@index([flowToken])
+  @@index([idempotencyKey])
+  @@index([conversationId, startedAt])
 }
 
 model WaBroadcast {

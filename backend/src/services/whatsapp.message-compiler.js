@@ -137,6 +137,7 @@ const templateSchema = z.object({
 
 const flowSchema = z.object({
   kind: z.literal("flow"),
+  executionId: z.string().min(1).optional(),
   flowId: z.string().trim().min(1),
   flowToken: z.string().trim().min(1),
   cta: z.string().trim().min(1).max(30),
@@ -351,7 +352,11 @@ export function getLocalMessageProjection(message) {
   return {
     type,
     content: message,
-    payload: { subtype: message.kind, ...(message.voice ? { voice: true } : {}) },
+    payload: {
+      subtype: message.kind,
+      ...(message.voice ? { voice: true } : {}),
+      ...(message.executionId ? { flowExecutionId: message.executionId } : {}),
+    },
   };
 }
 

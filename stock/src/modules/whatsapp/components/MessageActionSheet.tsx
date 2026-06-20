@@ -22,6 +22,7 @@ type Props = {
   sending: boolean;
   onClose: () => void;
   onOpenTemplates: () => void;
+  onOpenFlows: () => void;
   onPickMedia: (kind: "image" | "video" | "document") => void;
   onRecordVoice: () => void;
   onShareContact: () => void;
@@ -35,6 +36,7 @@ const MENU_ACTIONS = [
   { id: "document", title: "Document", icon: "file-document-outline", color: "#475569" },
   { id: "voice", title: "Voice note", icon: "microphone-outline", color: "#BE185D" },
   { id: "template", title: "Template", icon: "card-text-outline", color: "#2563EB" },
+  { id: "flow", title: "Flow", icon: "form-select", color: "#128C7E" },
   { id: "contact", title: "Contact", icon: "account-box-outline", color: "#0F766E" },
   { id: "location", title: "Location", icon: "map-marker-outline", color: "#BE123C" },
   { id: "buttons", title: "Quick replies", icon: "gesture-tap-button", color: "#7C3AED" },
@@ -48,6 +50,7 @@ export function MessageActionSheet({
   sending,
   onClose,
   onOpenTemplates,
+  onOpenFlows,
   onPickMedia,
   onRecordVoice,
   onShareContact,
@@ -90,6 +93,11 @@ export function MessageActionSheet({
     if (id === "template") {
       onClose();
       onOpenTemplates();
+      return;
+    }
+    if (id === "flow") {
+      onClose();
+      onOpenFlows();
       return;
     }
     if (id === "contact") {

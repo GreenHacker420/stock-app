@@ -34,6 +34,7 @@ export const ChatListScreen = () => {
         <View style={styles.headerActions}>
           <IconButton icon="contacts-outline" iconColor="#fff" onPress={() => navigation.navigate("ContactBook")} />
           <IconButton icon="card-text-outline" iconColor="#fff" onPress={() => navigation.navigate("TemplateLibrary")} />
+          <IconButton icon="form-select" iconColor="#fff" onPress={() => navigation.navigate("FlowLibrary")} />
           <IconButton icon="cog-outline" iconColor="#fff" onPress={() => navigation.navigate("WhatsAppSetup")} />
         </View>
       ),

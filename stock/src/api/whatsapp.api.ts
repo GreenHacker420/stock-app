@@ -178,6 +178,75 @@ export interface WaConversation {
 }
 
 export type WaTemplateStatus = "APPROVED" | "REJECTED" | "PENDING" | "PAUSED" | "DISABLED" | "IN_APPEAL" | "DELETED";
+export type WaFlowStatus = "DRAFT" | "PUBLISHED" | "DEPRECATED" | "BLOCKED" | "THROTTLED";
+export type WaFlowCategory =
+  | "SIGN_UP"
+  | "SIGN_IN"
+  | "APPOINTMENT_BOOKING"
+  | "LEAD_GENERATION"
+  | "CONTACT_US"
+  | "CUSTOMER_SUPPORT"
+  | "SURVEY"
+  | "OTHER";
+export type WaFlowValidationError = {
+  path?: string;
+  message?: string;
+  error?: string;
+  error_type?: string;
+  line_start?: number;
+  line_end?: number;
+};
+export type WaFlowExecution = {
+  id: string;
+  status: "STARTED" | "OPENED" | "SUBMITTED" | "COMPLETED" | "CANCELLED" | "FAILED" | "EXPIRED";
+  currentScreen?: string;
+  lastAction?: string;
+  attemptCount: number;
+  lastEndpointError?: string;
+  inputJson?: Record<string, unknown>;
+  resultJson?: Record<string, unknown>;
+  sentAt?: string;
+  openedAt?: string;
+  submittedAt?: string;
+  completedAt?: string;
+  startedAt: string;
+  conversation?: { contactName?: string; phone: string };
+  customer?: { name: string };
+};
+export type WaFlow = {
+  id: string;
+  flowId?: string;
+  name: string;
+  description?: string;
+  status: WaFlowStatus;
+  categories?: WaFlowCategory[];
+  flowJson?: Record<string, unknown>;
+  jsonVersion?: string;
+  dataApiVersion?: string;
+  validationErrors?: WaFlowValidationError[];
+  endpointEnabled: boolean;
+  endpointUrl?: string;
+  endpointHealth?: any;
+  handlerKey?: string;
+  previewUrl?: string;
+  previewExpiresAt?: string;
+  localRevision: number;
+  deployedRevision?: number;
+  syncError?: string;
+  totalSent: number;
+  totalResponses: number;
+  syncedAt?: string;
+  updatedAt: string;
+  executions?: WaFlowExecution[];
+};
+export type WaFlowDraft = {
+  name: string;
+  description?: string;
+  categories: WaFlowCategory[];
+  flowJson: Record<string, unknown> | string;
+  endpointEnabled?: boolean;
+  handlerKey?: string;
+};
 export type WaTemplateMapping = {
   id: string;
   component: "HEADER" | "BODY" | "BUTTON" | "CARD";
@@ -446,10 +515,124 @@ export async function syncWaTemplates(token: string, shopId: string) {
 }
 
 export async function syncWaFlows(token: string, shopId: string) {
-  return apiRequest<{ message: string }>("/whatsapp/sync-flows", {
+  return apiRequest<{ count: number }>("/whatsapp/sync-flows", {
     method: "POST",
     token,
     body: JSON.stringify({ shopId }),
+  });
+}
+
+export async function fetchWaFlows(
+  token: string,
+  shopId: string,
+  filters: { status?: string; search?: string; page?: number; pageSize?: number } = {},
+) {
+  const query = new URLSearchParams({ shopId });
+  Object.entries(filters).forEach(([key, value]) => {
+    if (value != null && value !== "") query.set(key, String(value));
+  });
+  return apiRequest<{ data: WaFlow[]; meta: { page: number; pageSize: number; total: number; pages: number } }>(
+    `/whatsapp/flows?${query.toString()}`,
+    { token },
+  );
+}
+
+export async function fetchWaFlow(token: string, shopId: string, id: string) {
+  return apiRequest<WaFlow>(`/whatsapp/flows/${id}?shopId=${encodeURIComponent(shopId)}`, { token });
+}
+
+export async function createWaFlow(token: string, shopId: string, draft: WaFlowDraft) {
+  return apiRequest<WaFlow>("/whatsapp/flows", {
+    method: "POST",
+    token,
+    body: JSON.stringify({ ...draft, shopId }),
+  });
+}
+
+export async function updateWaFlowDraft(token: string, shopId: string, id: string, draft: Partial<WaFlowDraft>) {
+  return apiRequest<WaFlow>(`/whatsapp/flows/${id}/draft`, {
+    method: "PATCH",
+    token,
+    body: JSON.stringify({ ...draft, shopId }),
+  });
+}
+
+export async function validateWaFlow(token: string, shopId: string, id: string) {
+  return apiRequest<{ valid: boolean; errors: WaFlowValidationError[] }>(`/whatsapp/flows/${id}/validate`, {
+    method: "POST",
+    token,
+    body: JSON.stringify({ shopId }),
+  });
+}
+
+export async function deployWaFlow(token: string, shopId: string, id: string) {
+  return apiRequest<WaFlow>(`/whatsapp/flows/${id}/deploy`, {
+    method: "POST",
+    token,
+    body: JSON.stringify({ shopId }),
+  });
+}
+
+export async function previewWaFlow(token: string, shopId: string, id: string, invalidate = false) {
+  return apiRequest<{ preview_url: string; expires_at: string }>(`/whatsapp/flows/${id}/preview`, {
+    method: "POST",
+    token,
+    body: JSON.stringify({ shopId, invalidate }),
+  });
+}
+
+export async function publishWaFlow(token: string, shopId: string, id: string) {
+  return apiRequest<WaFlow>(`/whatsapp/flows/${id}/publish`, {
+    method: "POST",
+    token,
+    body: JSON.stringify({ shopId }),
+  });
+}
+
+export async function deprecateWaFlow(token: string, shopId: string, id: string) {
+  return apiRequest<WaFlow>(`/whatsapp/flows/${id}/deprecate`, {
+    method: "POST",
+    token,
+    body: JSON.stringify({ shopId }),
+  });
+}
+
+export async function deleteWaFlow(token: string, shopId: string, id: string) {
+  return apiRequest<WaFlow>(`/whatsapp/flows/${id}?shopId=${encodeURIComponent(shopId)}`, {
+    method: "DELETE",
+    token,
+  });
+}
+
+export async function registerWaFlowPublicKey(token: string, shopId: string) {
+  return apiRequest<{ success?: boolean }>("/whatsapp/flows/register-public-key", {
+    method: "POST",
+    token,
+    body: JSON.stringify({ shopId }),
+  });
+}
+
+export async function sendWaFlow(
+  token: string,
+  shopId: string,
+  id: string,
+  input: {
+    conversationId: string;
+    to?: string;
+    cta: string;
+    body: string;
+    header?: string;
+    footer?: string;
+    mode?: "draft" | "published";
+    action?: "navigate" | "data_exchange";
+    initialScreen?: string;
+    data?: Record<string, unknown>;
+  },
+) {
+  return apiRequest<{ execution: WaFlowExecution; message: WaMessage }>(`/whatsapp/flows/${id}/send`, {
+    method: "POST",
+    token,
+    body: JSON.stringify({ ...input, shopId }),
   });
 }
 
