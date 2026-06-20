@@ -18,10 +18,10 @@ export type RealtimeEvent =
   | "wa:message_failed"
   | "wa:integration_health_updated";
 
-export function createRealtimeSocket(token: string): Socket {
+export function createRealtimeSocket(token: string, deviceId?: string | null): Socket {
   return io(SOCKET_URL, {
     transports: ["websocket"],
-    auth: { token },
+    auth: { token, deviceId },
     autoConnect: false,
   });
 }

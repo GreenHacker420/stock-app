@@ -308,6 +308,12 @@ enum CustomerType {
   BUSINESS
 }
 
+enum DevicePlatform {
+  IOS
+  ANDROID
+  WEB
+}
+
 // --- MODELS ---
 
 model User {
@@ -356,6 +362,37 @@ model User {
   assetsCreated               Asset[]               @relation("AssetCreatedBy")
   waTemplateAttributesCreated WaTemplateAttribute[] @relation("WaTemplateAttributeCreatedBy")
   waTemplateVersionsCreated   WaTemplateVersion[]   @relation("WaTemplateVersionCreatedBy")
+  devices                     UserDevice[]
+}
+
+model UserDevice {
+  id                   String         @id @default(cuid())
+  userId               String
+  installationId       String
+  platform             DevicePlatform
+  pushToken            String?
+  nativePushToken      String?
+  voipToken            String?
+  appVersion           String?
+  buildVersion         String?
+  deviceName           String?
+  osVersion            String?
+  notificationsEnabled Boolean        @default(false)
+  voipEnabled          Boolean        @default(false)
+  lastShopId           String?
+  lastSeenAt           DateTime       @default(now())
+  revokedAt            DateTime?
+  metadata             Json?
+  createdAt            DateTime       @default(now())
+  updatedAt            DateTime       @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, installationId])
+  @@index([userId, revokedAt, lastSeenAt])
+  @@index([pushToken])
+  @@index([nativePushToken])
+  @@index([voipToken])
 }
 
 model Shop {

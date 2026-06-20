@@ -305,7 +305,10 @@ export async function apiRequest<T>(
     },
   });
 
-  const payload = (await response.json()) as ApiResponse<T>;
+  const responseText = await response.text();
+  const payload = responseText
+    ? JSON.parse(responseText) as ApiResponse<T>
+    : { success: response.ok, data: undefined as T };
 
   if (!response.ok) {
     throw new ApiError(payload.message || "Request failed", response.status);
@@ -918,6 +921,71 @@ export async function updateSaleGst(token: string, saleId: string, gstInvoiceNum
     method: "PATCH",
     token,
     body: JSON.stringify({ gstInvoiceNumber }),
+  });
+}
+
+export type UserDevicePlatform = "IOS" | "ANDROID" | "WEB";
+export type UserDeviceState = "FOREGROUND" | "BACKGROUND" | "IN_CALL" | "UNAVAILABLE" | "DISCONNECTED";
+
+export type UserDevice = {
+  id: string;
+  installationId: string;
+  platform: UserDevicePlatform;
+  appVersion?: string | null;
+  buildVersion?: string | null;
+  deviceName?: string | null;
+  osVersion?: string | null;
+  notificationsEnabled: boolean;
+  voipEnabled: boolean;
+  lastShopId?: string | null;
+  lastSeenAt: string;
+  revokedAt?: string | null;
+  hasPushToken: boolean;
+  hasNativePushToken: boolean;
+  hasVoipToken: boolean;
+};
+
+export async function registerDevice(token: string, input: {
+  installationId: string;
+  platform: UserDevicePlatform;
+  pushToken?: string | null;
+  nativePushToken?: string | null;
+  voipToken?: string | null;
+  appVersion?: string | null;
+  buildVersion?: string | null;
+  deviceName?: string | null;
+  osVersion?: string | null;
+  notificationsEnabled?: boolean;
+  voipEnabled?: boolean;
+  metadata?: Record<string, unknown> | null;
+}) {
+  return apiRequest<UserDevice>("/users/devices", {
+    method: "POST",
+    token,
+    body: JSON.stringify(input),
+  });
+}
+
+export async function fetchDevices(token: string) {
+  return apiRequest<Array<UserDevice & { presence?: Record<string, unknown> | null }>>("/users/devices", { token });
+}
+
+export async function heartbeatDevice(
+  token: string,
+  deviceId: string,
+  input: { shopId: string; state: UserDeviceState; available: boolean },
+) {
+  return apiRequest<Record<string, unknown>>(`/users/devices/${encodeURIComponent(deviceId)}/heartbeat`, {
+    method: "POST",
+    token,
+    body: JSON.stringify(input),
+  });
+}
+
+export async function revokeDevice(token: string, deviceId: string) {
+  return apiRequest<void>(`/users/devices/${encodeURIComponent(deviceId)}`, {
+    method: "DELETE",
+    token,
   });
 }
 

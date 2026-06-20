@@ -5,9 +5,9 @@ import * as Device from "expo-device";
 import { requestPermissionsAsync } from "expo-contacts";
 import Constants from "expo-constants";
 import { useAuthStore } from "../auth/auth-store";
-import { registerPushToken } from "../api/client";
+import { registerDevice, UserDevicePlatform } from "../api/client";
+import { getDeviceInstallationId } from "./device-identity";
 
-// Configure how notifications behave when the app is foregrounded
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
@@ -18,98 +18,96 @@ Notifications.setNotificationHandler({
   }),
 });
 
+function platformName(): UserDevicePlatform {
+  if (Platform.OS === "ios") return "IOS";
+  if (Platform.OS === "android") return "ANDROID";
+  return "WEB";
+}
+
+function stringifyNativeToken(value: unknown) {
+  if (typeof value === "string") return value;
+  return value == null ? null : JSON.stringify(value);
+}
+
 export const FCMManager = {
   async registerForPushNotificationsAsync(token: string): Promise<string | null> {
-    if (Platform.OS === 'web') {
-      console.log('Push notifications are not supported on Web.');
+    const installationId = await getDeviceInstallationId();
+    if (Platform.OS === "web") {
+      await registerDevice(token, {
+        installationId,
+        platform: "WEB",
+        appVersion: Constants.expoConfig?.version,
+        deviceName: "Web browser",
+        notificationsEnabled: false,
+      });
       return null;
     }
 
-    if (!Device.isDevice) {
-      console.log('Must use physical device for Push Notifications. Simulating token for development...');
-      const simulatedToken = `ExponentPushToken[simulated-${Math.random().toString(36).substring(2, 11)}]`;
-      try {
-        await registerPushToken(token, simulatedToken);
-      } catch (err) {
-        console.warn('Could not save simulated push token to server database:', err);
-      }
-      return simulatedToken;
-    }
+    let expoPushToken: string | null = null;
+    let nativePushToken: string | null = null;
+    let notificationsEnabled = false;
 
     try {
-      const { status: existingStatus } = await Notifications.getPermissionsAsync();
-      let finalStatus = existingStatus;
-      if (existingStatus !== 'granted') {
-        const { status } = await Notifications.requestPermissionsAsync();
-        finalStatus = status;
+      const permissions = await Notifications.getPermissionsAsync();
+      let status = permissions.status;
+      if (status !== "granted") {
+        status = (await Notifications.requestPermissionsAsync()).status;
       }
-      if (finalStatus !== 'granted') {
-        console.log('Permission not granted for push notifications.');
-        return null;
-      }
+      notificationsEnabled = status === "granted";
 
-      let expoPushToken: string | null = null;
-      try {
-        // Get project ID from constants (required for EAS push notifications)
-        const projectId =
-          Constants.expoConfig?.extra?.eas?.projectId ??
-          Constants.easConfig?.projectId;
-
-        if (!projectId) {
-          console.warn("EAS Project ID not found in Constants.expoConfig");
+      if (notificationsEnabled && Device.isDevice) {
+        const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
+        if (projectId) {
+          expoPushToken = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
         }
-
-        // 1. Get Expo Push Token (standard for EAS Push service)
-        expoPushToken = (await Notifications.getExpoPushTokenAsync({
-          projectId,
-        })).data;
-        console.log('Expo Push Token (EAS):', expoPushToken);
-      } catch (expoTokenErr) {
-        console.warn(
-          'Failed to retrieve Expo Push Token. On Android, this requires a Firebase project configured with google-services.json in app.json.',
-          expoTokenErr
-        );
-        // Fallback to simulated token in development/test environments if Expo/FCM is not configured
-        console.log('Falling back to simulated push token for development/testing...');
-        expoPushToken = `ExponentPushToken[simulated-${Math.random().toString(36).substring(2, 11)}]`;
-      }
-
-      // 2. Also retrieve native FCM token if on Android or APNs if on iOS (agnostic device push token)
-      if (expoPushToken) {
         try {
-          const nativeDeviceToken = (await Notifications.getDevicePushTokenAsync()).data;
-          console.log('Native Device Push Token (FCM/APNS):', nativeDeviceToken);
-        } catch (nativeTokenErr) {
-          console.warn('Failed to retrieve native device token:', nativeTokenErr);
+          nativePushToken = stringifyNativeToken((await Notifications.getDevicePushTokenAsync()).data);
+        } catch (error) {
+          console.warn("Native push token is unavailable:", error);
         }
-
-        console.log('Registering push token with backend server:', expoPushToken);
-        await registerPushToken(token, expoPushToken);
-      } else {
-        console.log('No push token available. Bypassing backend registration.');
+      } else if (__DEV__ && !Device.isDevice) {
+        expoPushToken = `ExponentPushToken[simulated-${installationId.slice(-16)}]`;
       }
 
-      // Configure Android-specific notification channel
-      if (Platform.OS === 'android') {
-        await Notifications.setNotificationChannelAsync('default', {
-          name: 'default',
+      if (Platform.OS === "android") {
+        await Notifications.setNotificationChannelAsync("default", {
+          name: "default",
           importance: Notifications.AndroidImportance.MAX,
           vibrationPattern: [0, 250, 250, 250],
-          lightColor: '#FF231F7C',
+          lightColor: "#25D366",
         });
       }
 
+      await registerDevice(token, {
+        installationId,
+        platform: platformName(),
+        pushToken: expoPushToken,
+        nativePushToken,
+        appVersion: Constants.expoConfig?.version,
+        buildVersion: Platform.OS === "ios"
+          ? Constants.expoConfig?.ios?.buildNumber
+          : String(Constants.expoConfig?.android?.versionCode || ""),
+        deviceName: Device.deviceName || Device.modelName,
+        osVersion: Device.osVersion,
+        notificationsEnabled,
+        voipEnabled: false,
+        metadata: {
+          brand: Device.brand,
+          manufacturer: Device.manufacturer,
+          deviceYearClass: Device.deviceYearClass,
+          isPhysicalDevice: Device.isDevice,
+        },
+      });
       return expoPushToken;
     } catch (error) {
-      console.error('Failed to register push token:', error);
+      console.error("Failed to register device:", error);
       return null;
     }
   },
 
   setupBackgroundNotificationHandlers() {
-    if (Platform.OS === 'web') return;
-    console.log('Background notification handlers initialized.');
-  }
+    if (Platform.OS === "web") return;
+  },
 };
 
 export function useNotificationSetup() {
@@ -120,34 +118,19 @@ export function useNotificationSetup() {
   useEffect(() => {
     if (!token) return;
 
-    // Trigger permissions registration flow for notifications
     FCMManager.registerForPushNotificationsAsync(token);
     FCMManager.setupBackgroundNotificationHandlers();
 
-    // Trigger contacts permissions request immediately on login/mount
-    requestPermissionsAsync().then(({ status }) => {
-      console.log('Contacts permission request on startup status:', status);
-    }).catch((contactsErr) => {
-      console.warn('Failed to auto-request contacts permission on startup:', contactsErr);
+    requestPermissionsAsync().catch((error) => {
+      console.warn("Contacts permission request failed:", error);
     });
 
-    // Listener for notifications received when app is in foreground
-    notificationListener.current = Notifications.addNotificationReceivedListener(notification => {
-      console.log('Foreground notification received:', notification);
-    });
-
-    // Listener for when user taps or interacts with a notification
-    responseListener.current = Notifications.addNotificationResponseReceivedListener(response => {
-      console.log('Notification tapped / interacted with:', response);
-    });
+    notificationListener.current = Notifications.addNotificationReceivedListener(() => {});
+    responseListener.current = Notifications.addNotificationResponseReceivedListener(() => {});
 
     return () => {
-      if (notificationListener.current) {
-        notificationListener.current.remove();
-      }
-      if (responseListener.current) {
-        responseListener.current.remove();
-      }
+      notificationListener.current?.remove();
+      responseListener.current?.remove();
     };
   }, [token]);
 }

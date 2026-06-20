@@ -1,6 +1,11 @@
 import jwt from "jsonwebtoken";
 import prisma from "../lib/db.js";
 import Redis from "ioredis";
+import { OWNER_PERMISSIONS, STAFF_PERMISSIONS } from "./permissions.js";
+import {
+  disconnectDevicePresence,
+  updateDevicePresence,
+} from "../services/device-presence.service.js";
 
 const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
 let redisPub;
@@ -24,19 +29,14 @@ async function getSocketUser(token) {
   const payload = jwt.verify(token, process.env.JWT_SECRET || "dev-secret");
   const user = await prisma.user.findUnique({
     where: { id: payload.sub },
-    include: {
-      role: {
-        include: { permissions: true },
-      },
-    },
   });
 
   if (!user || user.status !== "ACTIVE") return null;
 
   return {
     id: user.id,
-    role: user.role.name,
-    permissions: user.role.permissions.map((permission) => permission.action),
+    role: user.role,
+    permissions: user.role === "OWNER" ? OWNER_PERMISSIONS : STAFF_PERMISSIONS,
   };
 }
 
@@ -91,6 +91,9 @@ export function configureRealtime(io) {
       const user = await getSocketUser(token);
       if (!user) return next(new Error("Authentication required"));
       socket.user = user;
+      socket.deviceId = typeof socket.handshake.auth?.deviceId === "string"
+        ? socket.handshake.auth.deviceId
+        : null;
       socket.join(`user:${user.id}`);
       return next();
     } catch {
@@ -102,14 +105,55 @@ export function configureRealtime(io) {
     socket.on("shop:join", async ({ shopId } = {}) => {
       if (await canAccessShop(socket.user, shopId)) {
         socket.join(`shop:${shopId}`);
+        socket.activeShopId = shopId;
+        if (socket.deviceId) {
+          await updateDevicePresence({
+            deviceId: socket.deviceId,
+            userId: socket.user.id,
+            shopId,
+            state: "FOREGROUND",
+            available: true,
+            socketId: socket.id,
+          });
+        }
         socket.emit("shop:joined", { shopId });
       } else {
         socket.emit("shop:join_error", { shopId, message: "Shop access denied" });
       }
     });
 
-    socket.on("shop:leave", ({ shopId } = {}) => {
+    socket.on("shop:leave", async ({ shopId } = {}) => {
       if (shopId) socket.leave(`shop:${shopId}`);
+      await disconnectDevicePresence({
+        deviceId: socket.deviceId,
+        userId: socket.user.id,
+        shopId,
+        socketId: socket.id,
+      });
+      if (socket.activeShopId === shopId) socket.activeShopId = null;
+    });
+
+    socket.on("presence:heartbeat", async ({ shopId, state = "FOREGROUND", available = true } = {}) => {
+      if (!socket.deviceId || !(await canAccessShop(socket.user, shopId))) return;
+      socket.activeShopId = shopId;
+      await updateDevicePresence({
+        deviceId: socket.deviceId,
+        userId: socket.user.id,
+        shopId,
+        state,
+        available,
+        socketId: socket.id,
+      });
+      socket.emit("presence:ack", { shopId, state, available, at: new Date().toISOString() });
+    });
+
+    socket.on("disconnect", async () => {
+      await disconnectDevicePresence({
+        deviceId: socket.deviceId,
+        userId: socket.user.id,
+        shopId: socket.activeShopId,
+        socketId: socket.id,
+      });
     });
   });
 }

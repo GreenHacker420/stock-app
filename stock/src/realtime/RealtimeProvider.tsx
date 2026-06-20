@@ -1,11 +1,12 @@
 import { PropsWithChildren, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { DeviceEventEmitter } from "react-native";
+import { AppState, DeviceEventEmitter } from "react-native";
 import type { Socket } from "socket.io-client";
 import { useAuthStore } from "../auth/auth-store";
 import { useShopStore } from "../auth/shop-store";
 import { createRealtimeSocket, type RealtimeEvent } from "./socket";
 import { NotificationToast } from "../components/ui/NotificationToast";
+import { getDeviceInstallationId } from "../notifications/device-identity";
 
 const realtimeEvents: RealtimeEvent[] = [
   "order:updated",
@@ -96,41 +97,62 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     if (!token || !activeShopId) return;
 
-    const socket = createRealtimeSocket(token);
-    socketRef.current = socket;
+    let cancelled = false;
+    let socket: Socket | null = null;
+    let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
-    socket.on("connect", () => {
-      socket.emit("shop:join", { shopId: activeShopId });
+    const emitPresence = (state = AppState.currentState) => {
+      if (!socket?.connected) return;
+      socket.emit("presence:heartbeat", {
+        shopId: activeShopId,
+        state: state === "active" ? "FOREGROUND" : "BACKGROUND",
+        available: true,
+      });
+    };
+
+    const appStateSubscription = AppState.addEventListener("change", emitPresence);
+
+    void getDeviceInstallationId().then((deviceId) => {
+      if (cancelled) return;
+      socket = createRealtimeSocket(token, deviceId);
+      socketRef.current = socket;
+
+      socket.on("connect", () => {
+        socket?.emit("shop:join", { shopId: activeShopId });
+        emitPresence();
+      });
+
+      for (const event of realtimeEvents) {
+        socket.on(event, (payload?: any) => {
+          for (const queryKey of invalidationMap[event]) {
+            if (payload?.conversationId && queryKey[0] === "wa-messages") {
+              queryClient.invalidateQueries({ queryKey: ["wa-messages", payload.conversationId] });
+            } else {
+              queryClient.invalidateQueries({ queryKey });
+            }
+          }
+          if ((event === "notification:created" || event === "wa:message_received" || event === "wa:message_failed") && payload) {
+            showToast(payload);
+          }
+          if (event.startsWith("wa:")) {
+            DeviceEventEmitter.emit(event, payload);
+          }
+        });
+      }
+
+      heartbeatTimer = setInterval(() => emitPresence(), 25_000);
+      socket.connect();
     });
 
-    for (const event of realtimeEvents) {
-      socket.on(event, (payload?: any) => {
-        for (const queryKey of invalidationMap[event]) {
-          // If payload contains conversationId, invalidate specific message cache
-          if (payload?.conversationId && queryKey[0] === "wa-messages") {
-            queryClient.invalidateQueries({ queryKey: ["wa-messages", payload.conversationId] });
-          } else {
-            queryClient.invalidateQueries({ queryKey });
-          }
-        }
-        if ((event === "notification:created" || event === "wa:message_received" || event === "wa:message_failed") && payload) {
-          showToast(payload);
-        }
-        if (event.startsWith("wa:")) {
-          DeviceEventEmitter.emit(event, payload);
-        }
-      });
-    }
-
-
-    socket.connect();
-
     return () => {
-      socket.emit("shop:leave", { shopId: activeShopId });
+      cancelled = true;
+      appStateSubscription.remove();
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
+      socket?.emit("shop:leave", { shopId: activeShopId });
       for (const event of realtimeEvents) {
-        socket.off(event);
+        socket?.off(event);
       }
-      socket.disconnect();
+      socket?.disconnect();
       socketRef.current = null;
     };
   }, [activeShopId, invalidationMap, queryClient, token]);
