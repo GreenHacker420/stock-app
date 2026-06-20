@@ -78,14 +78,18 @@ jobs:
             echo "🔑 Login to GHCR..."
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
 
+            IMAGE_NAME="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}"
+            IMAGE_TAG="${{ github.sha }}"
+            export IMAGE_NAME IMAGE_TAG
+
             echo "📥 Pulling image version ${{ github.sha }}..."
-            IMAGE_TAG=${{ github.sha }} docker compose pull shop-backend
+            docker compose pull shop-backend
 
             echo "🧱 Running Prisma migrations..."
-            IMAGE_TAG=${{ github.sha }} docker compose run --rm shop-backend npx prisma migrate deploy
+            docker compose run --rm shop-backend npx prisma migrate deploy
 
             echo "🚀 Updating services..."
-            IMAGE_TAG=${{ github.sha }} docker compose up -d --remove-orphans
+            docker compose up -d --remove-orphans
 
             echo "⏳ Waiting for container to be healthy..."
             timeout 60 bash -c '
@@ -97,10 +101,33 @@ jobs:
 
             echo "📜 Status Check:"
             cd /home/ubuntu/shop-app
-            IMAGE_TAG=${{ github.sha }} docker compose ps
+            docker compose ps
             echo "✅ Deployed Image ID:"
             docker image inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} --format '{{.Id}}'
-            IMAGE_TAG=${{ github.sha }} docker compose logs --tail 50 shop-backend || true
+            docker compose logs --tail 50 shop-backend || true
+
+            EXPECTED_IMAGE="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}"
+            RUNNING_IMAGE="$(docker inspect shop-backend --format '{{.Config.Image}}')"
+            test "$RUNNING_IMAGE" = "$EXPECTED_IMAGE"
+
+            docker exec shop-backend node --input-type=module -e '
+              import { appRoutes } from "./src/routes/index.js";
+              const router = appRoutes.find(([prefix]) => prefix === "/whatsapp")?.[1];
+              const paths = router?.stack.filter((layer) => layer.route).map((layer) => layer.route.path) ?? [];
+              if (!paths.includes("/onboarding/sessions")) process.exit(1);
+              process.exit(0);
+            '
+
+            if grep -q '^IMAGE_NAME=' .env; then
+              sed -i "s|^IMAGE_NAME=.*|IMAGE_NAME=$IMAGE_NAME|" .env
+            else
+              printf '\nIMAGE_NAME=%s\n' "$IMAGE_NAME" >> .env
+            fi
+            if grep -q '^IMAGE_TAG=' .env; then
+              sed -i "s|^IMAGE_TAG=.*|IMAGE_TAG=$IMAGE_TAG|" .env
+            else
+              printf 'IMAGE_TAG=%s\n' "$IMAGE_TAG" >> .env
+            fi
 
             echo "🧹 Cleanup old images..."
             docker image prune -f
