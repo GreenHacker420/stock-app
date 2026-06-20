@@ -32,7 +32,18 @@ router.get("/onboarding/launch/:sessionId", whatsappOnboardingController.launchS
 router.post("/onboarding/sessions/:sessionId/complete", whatsappOnboardingController.completeSession);
 
 // Protected UI routes
-router.get("/conversations", requireAuth, whatsappController.getConversations);
+router.get(
+  "/conversations",
+  requireAuth,
+  requireShopAccess((req) => req.query.shopId),
+  whatsappController.getConversations,
+);
+router.post(
+  "/conversations",
+  requireAuth,
+  requireShopAccess((req) => req.body.shopId),
+  whatsappController.createConversation,
+);
 router.get("/conversations/:id/messages", requireAuth, whatsappController.getMessages);
 router.get(
   "/templates",

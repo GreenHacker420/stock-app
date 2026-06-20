@@ -219,6 +219,18 @@ class WhatsAppController {
   }
 
   /**
+   * Create or reopen a conversation (POST /whatsapp/conversations)
+   */
+  async createConversation(req, res) {
+    try {
+      const conversation = await whatsappService.createConversation(req.shop.id, req.body);
+      res.status(201).json({ success: true, data: conversation });
+    } catch (error) {
+      res.status(400).json({ success: false, message: error.message });
+    }
+  }
+
+  /**
    * Get Message History (GET /whatsapp/conversations/:id/messages)
    */
   async getMessages(req, res) {

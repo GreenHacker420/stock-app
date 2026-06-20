@@ -3,6 +3,7 @@ import { Alert, Modal, Pressable, RefreshControl, StyleSheet, View } from "react
 import { FlashList } from "@shopify/flash-list";
 import { FAB, IconButton, Searchbar, Text } from "react-native-paper";
 import { useNavigation } from "@react-navigation/native";
+import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNowStrict } from "date-fns";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
@@ -14,6 +15,7 @@ import { initials, waColors } from "../whatsapp-ui";
 
 export const ChatListScreen = () => {
   const navigation = useNavigation<any>();
+  const tabBarHeight = useBottomTabBarHeight();
   const shopId = useShopStore((state) => state.activeShopId);
   const token = useAuthStore((state) => state.token);
   const currentUser = useAuthStore((state) => state.user);
@@ -115,7 +117,7 @@ export const ChatListScreen = () => {
         data={conversations}
         keyExtractor={(item) => item.id}
         refreshControl={<RefreshControl refreshing={query.isRefetching} onRefresh={query.refetch} />}
-        contentContainerStyle={styles.list}
+        contentContainerStyle={{ paddingBottom: tabBarHeight + 88 }}
         ListEmptyComponent={
           <View style={styles.empty}>
             <MaterialCommunityIcons name="message-text-outline" size={54} color="#AEBAC1" />
@@ -167,7 +169,13 @@ export const ChatListScreen = () => {
         }}
       />
 
-      <FAB icon="message-plus-outline" color="#fff" style={styles.fab} onPress={() => navigation.navigate("ContactBook")} />
+      <FAB
+        icon="message-plus-outline"
+        color="#fff"
+        accessibilityLabel="Start a new conversation"
+        style={[styles.fab, { bottom: tabBarHeight + 14 }]}
+        onPress={() => navigation.navigate("ContactBook")}
+      />
 
       <Modal visible={Boolean(selected)} transparent animationType="fade" onRequestClose={() => setSelected(null)}>
         <Pressable style={styles.overlay} onPress={() => setSelected(null)}>
@@ -235,7 +243,6 @@ const styles = StyleSheet.create({
   archivedRow: { height: 50, flexDirection: "row", alignItems: "center", gap: 18, paddingHorizontal: 28 },
   archivedText: { flex: 1, color: waColors.text, fontSize: 15, fontWeight: "600" },
   archivedCount: { color: waColors.green, fontSize: 13 },
-  list: { paddingBottom: 90 },
   chatRow: { minHeight: 74, flexDirection: "row", paddingLeft: 12, paddingTop: 9 },
   avatar: { width: 52, height: 52, borderRadius: 26, alignItems: "center", justifyContent: "center", backgroundColor: "#D7DBDE" },
   avatarText: { color: "#fff", fontSize: 18, fontWeight: "700" },
@@ -253,7 +260,7 @@ const styles = StyleSheet.create({
   empty: { paddingTop: 90, alignItems: "center", gap: 7, paddingHorizontal: 40 },
   emptyTitle: { color: waColors.text },
   emptyText: { color: waColors.textSecondary, textAlign: "center" },
-  fab: { position: "absolute", right: 18, bottom: 20, backgroundColor: waColors.green },
+  fab: { position: "absolute", right: 18, backgroundColor: waColors.green },
   overlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.35)" },
   menu: { padding: 16, paddingBottom: 28, backgroundColor: waColors.surface, borderTopLeftRadius: 16, borderTopRightRadius: 16 },
   menuTitle: { color: waColors.text, fontSize: 16, fontWeight: "700", padding: 10 },

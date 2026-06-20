@@ -52,3 +52,9 @@ test("registers the complete WhatsApp Embedded Signup route contract", async () 
     assert.match(source, new RegExp(`router\\.${method}\\(\\s*"${escapedPath}"`), `Missing ${method.toUpperCase()} ${path}`);
   }
 });
+
+test("registers the WhatsApp conversation creation route", async () => {
+  const source = await readFile(new URL("../routes/whatsapp.routes.js", import.meta.url), "utf8");
+  assert.match(source, /router\.post\(\s*"\/conversations"/);
+  assert.match(source, /whatsappController\.createConversation/);
+});

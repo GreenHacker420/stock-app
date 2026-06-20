@@ -49,6 +49,7 @@ import { useContactsSync } from "../hooks/useContactsSync";
 import { useDebounce } from "use-debounce";
 import { useNavigation } from "@react-navigation/native";
 import { waColors } from "../whatsapp-ui";
+import { whatsappApi, WaConversation } from "../../../api/whatsapp.api";
 
 // -------------------------------------------------------------
 // COMPACT BOTTOM SHEET UTILITY COMPONENT
@@ -293,7 +294,7 @@ const EmptyState = ({ type, onAction }: EmptyStateProps) => {
 // MAIN CONTACT BOOK SCREEN
 // -------------------------------------------------------------
 export const ContactBookScreen = () => {
-  const navigation = useNavigation();
+  const navigation = useNavigation<any>();
   const activeShopId = useShopStore((state) => state.activeShopId);
   const queryClient = useQueryClient();
 
@@ -408,6 +409,32 @@ export const ContactBookScreen = () => {
   const updateTagMutation = useUpdateContactTagMutation();
   const linkCustomerMutation = useLinkCustomerMutation();
   const syncMutation = useContactsSync(activeShopId);
+  const createConversationMutation = useMutation<WaConversation, Error, {
+    phone: string;
+    contactName?: string;
+    customerId?: string;
+  }>({
+    mutationFn: async ({ phone, contactName, customerId }) => {
+      if (!activeShopId) throw new Error("Select a shop before starting a conversation.");
+      const response = await whatsappApi.createConversation({
+        shopId: activeShopId,
+        phone,
+        contactName,
+        customerId,
+      });
+      return response.data.data;
+    },
+    onSuccess: (conversation) => {
+      queryClient.invalidateQueries({ queryKey: ["wa-conversations", activeShopId] });
+      setShowOptionsSheet(false);
+      setSelectedContact(null);
+      navigation.navigate("ChatDetail", {
+        conversationId: conversation.id,
+        phone: conversation.phone,
+      });
+    },
+    onError: (error) => Alert.alert("Unable to start conversation", error.message),
+  });
 
   // Import mutation using expo-contacts/legacy
   const importMutation = useMutation<number, Error, void>({
@@ -521,6 +548,18 @@ export const ContactBookScreen = () => {
   const handleUnlinkCustomer = useCallback((contactId: string) => {
     linkCustomerMutation.mutate({ id: contactId, customerId: null });
   }, [linkCustomerMutation]);
+
+  const handleStartConversation = useCallback(() => {
+    if (!selectedContact) return;
+    const matchedCustomer = selectedContact.customerId
+      ? customerIdMap.get(selectedContact.customerId)
+      : customerMap.get(selectedContact.phone.slice(-10));
+    createConversationMutation.mutate({
+      phone: selectedContact.phone,
+      contactName: selectedContact.name || matchedCustomer?.name,
+      customerId: matchedCustomer?.id,
+    });
+  }, [selectedContact, customerIdMap, customerMap, createConversationMutation]);
 
   const handleSyncToServer = async () => {
     setShowSyncDialog(false);
@@ -786,6 +825,21 @@ export const ContactBookScreen = () => {
           title={selectedContact?.name || `+${selectedContact?.phone}` || "Contact Options"}
         >
           <View style={styles.actionsList}>
+            <TouchableOpacity
+              style={styles.actionItem}
+              onPress={handleStartConversation}
+              disabled={createConversationMutation.isPending}
+            >
+              {createConversationMutation.isPending ? (
+                <ActivityIndicator size={20} color={waColors.green} />
+              ) : (
+                <MaterialCommunityIcons name="message-text-outline" size={20} color={waColors.green} />
+              )}
+              <Text style={[styles.actionItemText, { color: waColors.greenDark }]}>Start conversation</Text>
+            </TouchableOpacity>
+
+            <Divider style={{ marginVertical: spacing.xs }} />
+
             <TouchableOpacity style={styles.actionItem} onPress={() => handleSelectTag("REGULAR")}>
               <MaterialCommunityIcons name="account-outline" size={20} color={Colors.primary} />
               <Text style={styles.actionItemText}>Tag as Regular</Text>

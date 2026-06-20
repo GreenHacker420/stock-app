@@ -38,6 +38,45 @@ class WhatsAppService {
     throw new Error("Verification failed");
   }
 
+  async createConversation(shopId, { phone, contactName, customerId }) {
+    await this.getIntegration(shopId);
+
+    const normalizedPhone = normalizePhone(phone);
+    if (!normalizedPhone || normalizedPhone.length < 10) {
+      throw new Error("A valid WhatsApp phone number is required");
+    }
+
+    const customer = customerId
+      ? await prisma.customer.findFirst({
+          where: { id: customerId, shopId, status: "ACTIVE" },
+          select: { id: true, name: true, phone: true },
+        })
+      : await this.findCustomerByPhone(shopId, normalizedPhone);
+
+    if (customerId && !customer) {
+      throw new Error("Customer not found for this shop");
+    }
+
+    return prisma.waConversation.upsert({
+      where: { shopId_phone: { shopId, phone: normalizedPhone } },
+      create: {
+        shopId,
+        phone: normalizedPhone,
+        contactName: contactName?.trim() || customer?.name || null,
+        customerId: customer?.id || null,
+      },
+      update: {
+        isArchived: false,
+        contactName: contactName?.trim() || customer?.name || undefined,
+        customerId: customer?.id || undefined,
+      },
+      include: {
+        customer: { select: { id: true, name: true, phone: true } },
+        messages: { take: 1, orderBy: { createdAt: "desc" } },
+      },
+    });
+  }
+
   // Checks if a conversation is within the 24-hour service window (Redis first, fallback to DB).
   async canSendFreeText(conversationId) {
     try {

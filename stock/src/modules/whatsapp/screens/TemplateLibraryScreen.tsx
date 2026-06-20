@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Alert, Pressable, RefreshControl, StyleSheet, View } from "react-native";
 import { FlashList } from "@shopify/flash-list";
 import { ActivityIndicator, Button, Dialog, FAB, IconButton, Portal, Searchbar, Text } from "react-native-paper";
 import { useNavigation } from "@react-navigation/native";
+import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import {
@@ -21,6 +22,7 @@ const STATUS_TABS = ["ALL", "APPROVED", "PENDING", "REJECTED", "PAUSED"] as cons
 
 export function TemplateLibraryScreen() {
   const navigation = useNavigation<any>();
+  const tabBarHeight = useBottomTabBarHeight();
   const token = useAuthStore((state) => state.token) || "";
   const user = useAuthStore((state) => state.user);
   const shopId = useShopStore((state) => state.activeShopId);
@@ -28,6 +30,7 @@ export function TemplateLibraryScreen() {
   const [status, setStatus] = useState<(typeof STATUS_TABS)[number]>("ALL");
   const [search, setSearch] = useState("");
   const [showAttributes, setShowAttributes] = useState(false);
+  const autoSyncAttempted = useRef<string | null>(null);
 
   useEffect(() => {
     navigation.setOptions({
@@ -65,9 +68,29 @@ export function TemplateLibraryScreen() {
 
   const syncMutation = useMutation({
     mutationFn: () => syncWaTemplates(token, shopId!),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["wa-template-library", shopId] }),
+    onSuccess: (result) => {
+      queryClient.invalidateQueries({ queryKey: ["wa-template-library", shopId] });
+      if (result.count === 0) {
+        Alert.alert("No Meta templates found", "Create a template in Meta or ShopControl, then sync again.");
+      }
+    },
     onError: (error) => Alert.alert("Sync failed", error.message),
   });
+
+  useEffect(() => {
+    const total = query.data?.meta.total;
+    if (
+      shopId
+      && token
+      && query.isSuccess
+      && total === 0
+      && autoSyncAttempted.current !== shopId
+      && !syncMutation.isPending
+    ) {
+      autoSyncAttempted.current = shopId;
+      syncMutation.mutate();
+    }
+  }, [shopId, token, query.isSuccess, query.data?.meta.total, syncMutation.isPending]);
 
   const attributesQuery = useQuery({
     queryKey: ["wa-template-attributes", shopId],
@@ -117,8 +140,16 @@ export function TemplateLibraryScreen() {
         ))}
       </View>
 
-      {query.isLoading ? (
+      {query.isLoading || (syncMutation.isPending && query.data?.meta.total === 0) ? (
         <ActivityIndicator style={styles.loader} color={waColors.green} />
+      ) : query.isError ? (
+        <View style={styles.empty}>
+          <Text variant="titleMedium">Templates unavailable</Text>
+          <Text style={styles.emptyText}>{query.error.message}</Text>
+          <Button mode="outlined" icon="refresh" onPress={() => query.refetch()}>
+            Try again
+          </Button>
+        </View>
       ) : (
         <FlashList
           data={query.data?.data || []}
@@ -128,7 +159,16 @@ export function TemplateLibraryScreen() {
           ListEmptyComponent={
             <View style={styles.empty}>
               <Text variant="titleMedium">No templates</Text>
-              <Text style={styles.emptyText}>Create a template or sync approved templates from Meta.</Text>
+              <Text style={styles.emptyText}>No templates are stored for this shop yet.</Text>
+              <Button
+                mode="contained"
+                icon="sync"
+                loading={syncMutation.isPending}
+                disabled={syncMutation.isPending}
+                onPress={() => syncMutation.mutate()}
+              >
+                Fetch from Meta
+              </Button>
             </View>
           }
           renderItem={({ item }) => (
@@ -168,7 +208,7 @@ export function TemplateLibraryScreen() {
         <FAB
           icon="plus"
           color="#fff"
-          style={styles.fab}
+          style={[styles.fab, { bottom: tabBarHeight + 14 }]}
           accessibilityLabel="Create template"
           onPress={() => navigation.navigate("TemplateEditor")}
         />
@@ -240,7 +280,7 @@ const styles = StyleSheet.create({
   tabText: { color: waColors.textSecondary, textTransform: "capitalize", fontSize: 13 },
   tabTextActive: { color: waColors.greenDark, fontWeight: "700" },
   loader: { flex: 1 },
-  list: { paddingBottom: 90 },
+  list: { paddingBottom: 150 },
   row: { minHeight: 92, flexDirection: "row", paddingHorizontal: 14, paddingVertical: 10 },
   templateIcon: {
     width: 50,
@@ -263,7 +303,7 @@ const styles = StyleSheet.create({
   mappingWarning: { color: "#B7791F" },
   empty: { padding: 50, alignItems: "center", gap: 6 },
   emptyText: { color: waColors.textSecondary, textAlign: "center" },
-  fab: { position: "absolute", right: 18, bottom: 20, backgroundColor: waColors.green },
+  fab: { position: "absolute", right: 18, backgroundColor: waColors.green },
   attributeDialog: { maxHeight: "78%", backgroundColor: waColors.surface },
   attributeContent: { height: 430 },
   attributeHelp: { color: waColors.textSecondary, fontSize: 13, lineHeight: 18, marginBottom: 10 },

@@ -177,6 +177,13 @@ export interface WaConversation {
   messages?: WaMessage[];
 }
 
+export type WaCreateConversationInput = {
+  shopId: string;
+  phone: string;
+  contactName?: string;
+  customerId?: string;
+};
+
 export type WaTemplateStatus = "APPROVED" | "REJECTED" | "PENDING" | "PAUSED" | "DISABLED" | "IN_APPEAL" | "DELETED";
 export type WaFlowStatus = "DRAFT" | "PUBLISHED" | "DEPRECATED" | "BLOCKED" | "THROTTLED";
 export type WaFlowCategory =
@@ -506,8 +513,16 @@ export async function deleteWaConversation(token: string, shopId: string, conver
   });
 }
 
+export async function createWaConversation(token: string, input: WaCreateConversationInput) {
+  return apiRequest<WaConversation>("/whatsapp/conversations", {
+    method: "POST",
+    token,
+    body: JSON.stringify(input),
+  });
+}
+
 export async function syncWaTemplates(token: string, shopId: string) {
-  return apiRequest<{ message: string }>("/whatsapp/sync-templates", {
+  return apiRequest<{ count: number }>("/whatsapp/sync-templates", {
     method: "POST",
     token,
     body: JSON.stringify({ shopId }),
@@ -805,6 +820,11 @@ export const whatsappApi = {
   deleteConversation: async (shopId: string, conversationId: string) => {
     const token = useAuthStore.getState().token || "";
     const res = await deleteWaConversation(token, shopId, conversationId);
+    return { data: { success: true, data: res } };
+  },
+  createConversation: async (input: WaCreateConversationInput) => {
+    const token = useAuthStore.getState().token || "";
+    const res = await createWaConversation(token, input);
     return { data: { success: true, data: res } };
   },
   syncTemplates: async (shopId: string) => {
