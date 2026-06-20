@@ -36,6 +36,20 @@ router.post(
 );
 
 router.post(
+  "/test-push",
+  requirePermission(PERMISSIONS.NOTIFICATION_VIEW),
+  validate(z.object({
+    body: z.object({
+      shopId: z.string().min(1),
+      message: z.string().trim().min(1).max(180).optional(),
+    }),
+    params: z.object({}).optional(),
+    query: z.object({}).optional(),
+  })),
+  notificationController.sendTestPush,
+);
+
+router.post(
   "/:id/mark-read",
   requirePermission(PERMISSIONS.NOTIFICATION_VIEW),
   validate(z.object({ params: z.object({ id: z.string().min(1) }) })),

@@ -30,16 +30,20 @@ export const continueSession = asyncHandler(async (req, res) => {
 });
 
 export const launchSession = asyncHandler(async (req, res) => {
-  const session = await whatsappOnboardingService.getPublicSession(
-    req.params.sessionId,
-    req.query.state,
-  );
-  res.setHeader(
-    "Content-Security-Policy",
-    "default-src 'self'; script-src 'self' 'unsafe-inline' https://connect.facebook.net; connect-src 'self' https://graph.facebook.com https://www.facebook.com; frame-src https://www.facebook.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:",
-  );
-  res.setHeader("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
-  res.type("html").send(whatsappOnboardingService.renderLaunchPage(session, req.query.state));
+  try {
+    const session = await whatsappOnboardingService.getPublicSession(
+      req.params.sessionId,
+      req.query.state,
+    );
+    res.setHeader(
+      "Content-Security-Policy",
+      "default-src 'self'; script-src 'self' 'unsafe-inline' https://connect.facebook.net; connect-src 'self' https://graph.facebook.com https://www.facebook.com; frame-src https://www.facebook.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:",
+    );
+    res.setHeader("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
+    res.type("html").send(whatsappOnboardingService.renderLaunchPage(session, req.query.state));
+  } catch (error) {
+    res.status(400).type("text").send(error.message);
+  }
 });
 
 export const completeSession = asyncHandler(async (req, res) => {

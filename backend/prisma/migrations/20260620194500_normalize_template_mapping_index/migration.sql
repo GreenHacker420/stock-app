@@ -1,0 +1,2 @@
+ALTER INDEX "WaTemplateVariableMapping_templateId_component_position_buttonI"
+RENAME TO "WaTemplateVariableMapping_templateId_component_position_but_key";

@@ -1,9 +1,10 @@
 import prisma from "../lib/db.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
+import { enqueueNotificationPush } from "./notification.push.queue.js";
 
 export async function createNotification(txOrPrisma, { userId, shopId, triggerEvent, entityType, entityId, message }) {
-  return txOrPrisma.notification.create({
+  const notification = await txOrPrisma.notification.create({
     data: {
       userId,
       shopId,
@@ -13,6 +14,10 @@ export async function createNotification(txOrPrisma, { userId, shopId, triggerEv
       message,
     },
   });
+  enqueueNotificationPush(notification.id).catch((error) => {
+    console.error(`[Notification] Could not enqueue push for ${notification.id}:`, error.message);
+  });
+  return notification;
 }
 
 export async function notifyShopOwner(txOrPrisma, { shopId, triggerEvent, entityType, entityId, message }) {
@@ -62,4 +67,16 @@ export async function markAllRead(user, { shopId }) {
   });
 
   return { markedRead: true };
+}
+
+export async function createTestNotification(user, { shopId, message }) {
+  await assertShopAccess(user, shopId);
+  return createNotification(prisma, {
+    userId: user.id,
+    shopId,
+    triggerEvent: "TEST_NOTIFICATION",
+    entityType: "WHATSAPP",
+    entityId: null,
+    message: message || "ShopControl notifications are configured correctly.",
+  });
 }

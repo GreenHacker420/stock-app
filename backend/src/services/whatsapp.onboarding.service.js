@@ -4,6 +4,11 @@ import prisma from "../lib/db.js";
 import { encrypt, decrypt } from "../lib/wa-crypto.js";
 import { getWaCredentials, invalidateWaCredentials } from "../lib/wa-cache.js";
 import { whatsappService } from "./whatsapp.service.js";
+import {
+  createOnboardingState,
+  hashOnboardingNonce,
+  parseOnboardingState,
+} from "./whatsapp.onboarding-state.js";
 
 const GRAPH_VERSION = "v25.0";
 const GRAPH_URL = `https://graph.facebook.com/${GRAPH_VERSION}`;
@@ -22,49 +27,6 @@ function publicApiBase() {
 
 function appRedirectUri() {
   return process.env.WHATSAPP_ONBOARDING_APP_REDIRECT || "stock://whatsapp-onboarding";
-}
-
-function stateSecret() {
-  return process.env.WHATSAPP_ONBOARDING_STATE_SECRET
-    || process.env.MASTER_ENCRYPTION_KEY
-    || process.env.JWT_SECRET
-    || "dev-whatsapp-onboarding-state";
-}
-
-function digest(value) {
-  return crypto.createHash("sha256").update(value).digest("hex");
-}
-
-function signature(value) {
-  return crypto.createHmac("sha256", stateSecret()).update(value).digest("base64url");
-}
-
-function createState(sessionId, expiresAt) {
-  const nonce = crypto.randomBytes(32).toString("base64url");
-  const payload = `${sessionId}.${nonce}.${expiresAt.getTime()}`;
-  return {
-    state: `${payload}.${signature(payload)}`,
-    nonceHash: digest(nonce),
-  };
-}
-
-function parseState(state) {
-  const parts = String(state || "").split(".");
-  if (parts.length !== 4) throw new Error("Invalid onboarding state");
-  const [sessionId, nonce, expiresAtValue, suppliedSignature] = parts;
-  const payload = `${sessionId}.${nonce}.${expiresAtValue}`;
-  const expected = signature(payload);
-  const suppliedBuffer = Buffer.from(suppliedSignature);
-  const expectedBuffer = Buffer.from(expected);
-  if (
-    suppliedBuffer.length !== expectedBuffer.length
-    || !crypto.timingSafeEqual(suppliedBuffer, expectedBuffer)
-  ) {
-    throw new Error("Invalid onboarding state");
-  }
-  const expiresAt = Number(expiresAtValue);
-  if (!Number.isFinite(expiresAt) || expiresAt < Date.now()) throw new Error("Onboarding state expired");
-  return { sessionId, nonce };
 }
 
 function graphError(error) {
@@ -156,7 +118,7 @@ class WhatsAppOnboardingService {
         completedSteps: [],
       },
     });
-    const { state, nonceHash } = createState(initial.id, expiresAt);
+    const { state, nonceHash } = createOnboardingState(initial.id, expiresAt);
     const session = await prisma.waOnboardingSession.update({
       where: { id: initial.id },
       data: { stateNonceHash: nonceHash },
@@ -183,10 +145,10 @@ class WhatsAppOnboardingService {
   }
 
   async getPublicSession(sessionId, state) {
-    const parsed = parseState(state);
+    const parsed = parseOnboardingState(state);
     if (parsed.sessionId !== sessionId) throw new Error("Onboarding state does not match session");
     const session = await prisma.waOnboardingSession.findUnique({ where: { id: sessionId } });
-    if (!session || digest(parsed.nonce) !== session.stateNonceHash) throw new Error("Invalid onboarding session");
+    if (!session || hashOnboardingNonce(parsed.nonce) !== session.stateNonceHash) throw new Error("Invalid onboarding session");
     if (session.expiresAt < new Date()) throw new Error("Onboarding session expired");
     return session;
   }
