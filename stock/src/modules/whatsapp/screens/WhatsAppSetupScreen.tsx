@@ -10,12 +10,15 @@ import { colors as Colors } from "../../../theme";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { waColors } from "../whatsapp-ui";
+import { sendTestPushNotification } from "../../../api/client";
+import { useAuthStore } from "../../../auth/auth-store";
 
 WebBrowser.maybeCompleteAuthSession();
 
 export const WhatsAppSetupScreen = () => {
   const navigation = useNavigation();
   const activeShopId = useShopStore((state) => state.activeShopId);
+  const authToken = useAuthStore((state) => state.token);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<"easy" | "developer">("easy");
@@ -30,6 +33,7 @@ export const WhatsAppSetupScreen = () => {
   const [businessName, setBusinessName] = useState("");
   const [status, setStatus] = useState("DISCONNECTED");
   const [rotatingKeys, setRotatingKeys] = useState(false);
+  const [testingNotification, setTestingNotification] = useState(false);
   const [rsaPublicKey, setRsaPublicKey] = useState("");
   const [qualityRating, setQualityRating] = useState("UNKNOWN");
   const [messagingLimitTier, setMessagingLimitTier] = useState("");
@@ -193,6 +197,19 @@ export const WhatsAppSetupScreen = () => {
         }
       ]
     );
+  };
+
+  const handleTestNotification = async () => {
+    if (!activeShopId || !authToken) return;
+    setTestingNotification(true);
+    try {
+      await sendTestPushNotification(authToken, activeShopId);
+      Alert.alert("Notification queued", "Check this device and the in-app notification center.");
+    } catch (error: any) {
+      Alert.alert("Notification test failed", error.message || "Could not queue the notification");
+    } finally {
+      setTestingNotification(false);
+    }
   };
 
   const handleEmbeddedSignup = async () => {
@@ -383,6 +400,17 @@ export const WhatsAppSetupScreen = () => {
                   icon="key"
                 >
                   Rotate E2EE Keys
+                </Button>
+
+                <Button
+                  mode="outlined"
+                  icon="bell-ring-outline"
+                  loading={testingNotification}
+                  disabled={testingNotification}
+                  onPress={handleTestNotification}
+                  style={styles.rotateKeyBtn}
+                >
+                  Test notification
                 </Button>
 
                 <Button

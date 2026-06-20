@@ -989,6 +989,14 @@ export async function revokeDevice(token: string, deviceId: string) {
   });
 }
 
+export async function sendTestPushNotification(token: string, shopId: string, message?: string) {
+  return apiRequest<{ id: string }>("/notifications/test-push", {
+    method: "POST",
+    token,
+    body: JSON.stringify({ shopId, message }),
+  });
+}
+
 export async function registerPushToken(token: string, pushToken: string) {
   return apiRequest("/users/push-token", {
     method: "POST",
