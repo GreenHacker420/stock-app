@@ -199,6 +199,7 @@ export function TemplateCarouselEditor({
                 ...current,
                 buttons: current.buttons.filter((_, index) => index !== buttonIndex),
               }))}
+              canDelete={!productButtonRequired(value.type, card.buttons.length)}
             />
           ))}
         </View>
@@ -218,11 +219,13 @@ function CarouselButtonEditor({
   product,
   onChange,
   onDelete,
+  canDelete,
 }: {
   button: CarouselButton;
   product: boolean;
   onChange: (button: CarouselButton) => void;
   onDelete: () => void;
+  canDelete: boolean;
 }) {
   const setType = (type: CarouselButton["type"]) => {
     if (type === "URL") onChange({ type, text: "View", url: "https://example.com/{{1}}", example: "product" });
@@ -249,7 +252,7 @@ function CarouselButtonEditor({
                 { value: "PHONE_NUMBER", label: "Phone" },
               ]}
         />
-        <IconButton icon="close" size={18} onPress={onDelete} />
+        <IconButton icon="close" size={18} disabled={!canDelete} onPress={onDelete} />
       </View>
       <TextInput
         mode="outlined"
@@ -284,6 +287,10 @@ function CarouselButtonEditor({
       )}
     </View>
   );
+}
+
+function productButtonRequired(type: Carousel["type"], buttonCount: number) {
+  return type === "PRODUCT" && buttonCount <= 1;
 }
 
 const styles = StyleSheet.create({

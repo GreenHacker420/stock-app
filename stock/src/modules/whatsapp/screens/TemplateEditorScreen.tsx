@@ -847,8 +847,34 @@ function validateDefinition(definition: WaTemplateDefinition) {
   }
   if (definition.category === "AUTHENTICATION" && !definition.authentication) return "Choose an authentication mode.";
   if (definition.buttons?.some((button) => button.type === "FLOW" && !button.flowId)) return "Every Flow button needs a Flow ID.";
+  if (
+    definition.header
+    && ["IMAGE", "VIDEO", "DOCUMENT"].includes(definition.header.format)
+    && !definition.header.exampleHandle
+  ) {
+    return "Media headers need a Meta review example.";
+  }
   if (definition.carousel?.type === "MEDIA" && definition.carousel.cards.some((card) => !card.header.exampleHandle)) {
     return "Every media carousel card needs a Meta resumable-upload handle.";
+  }
+  if (definition.carousel) {
+    const first = definition.carousel.cards[0];
+    const expectedButtons = first.buttons.map((button) => button.type).join("|");
+    const inconsistent = definition.carousel.cards.some((card) => (
+      card.header.format !== first.header.format
+      || Boolean(card.body) !== Boolean(first.body)
+      || card.buttons.map((button) => button.type).join("|") !== expectedButtons
+    ));
+    if (inconsistent) return "All carousel cards must use the same media, body, and button structure.";
+    if (
+      definition.carousel.type === "PRODUCT"
+      && definition.carousel.cards.some((card) => (
+        card.buttons.length !== 1
+        || !["SPM", "URL"].includes(card.buttons[0]?.type)
+      ))
+    ) {
+      return "Each product card needs exactly one View or URL button.";
+    }
   }
   return "";
 }

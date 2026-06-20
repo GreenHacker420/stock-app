@@ -225,6 +225,14 @@ export async function uploadWhatsAppTemplateExample({ shopId, createdById, kind,
 
   try {
     const stored = await uploadToS3(file.buffer, storageKey, file.mimetype);
+    await prisma.asset.update({
+      where: { id: asset.id },
+      data: {
+        storageProvider: "S3",
+        storageKey: stored.key,
+        storageBucket: stored.bucket,
+      },
+    });
     const session = await axios.post(
       `${BASE_URL}/${appId}/uploads`,
       null,
@@ -255,9 +263,6 @@ export async function uploadWhatsAppTemplateExample({ shopId, createdById, kind,
       where: { id: asset.id },
       data: {
         status: "READY",
-        storageProvider: "S3",
-        storageKey: stored.key,
-        storageBucket: stored.bucket,
         externalProvider: "META_WHATSAPP_TEMPLATE_EXAMPLE",
         externalId: uploaded.data.h,
         metadata: { templateExampleHandle: uploaded.data.h },

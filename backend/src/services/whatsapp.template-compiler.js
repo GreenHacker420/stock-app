@@ -97,6 +97,18 @@ export const templateDefinitionSchema = z.object({
   }).optional(),
   mappings: z.array(variableMappingSchema).optional().default([]),
 }).superRefine((definition, ctx) => {
+  const validateUrlButton = (button, path) => {
+    if (button.type !== "URL") return;
+    const variables = extractVariables(button.url);
+    if (variables.length > 1 || (variables.length === 1 && !button.url.endsWith(`{{${variables[0]}}}`))) {
+      ctx.addIssue({
+        code: "custom",
+        message: "URL buttons support one variable appended to the end of the URL",
+        path,
+      });
+    }
+  };
+  definition.buttons.forEach((button, index) => validateUrlButton(button, ["buttons", index, "url"]));
   if (
     definition.header
     && ["IMAGE", "VIDEO", "DOCUMENT"].includes(definition.header.format)
@@ -132,6 +144,9 @@ export const templateDefinitionSchema = z.object({
   const expectedBody = Boolean(cards[0]?.body);
   const expectedButtons = cards[0]?.buttons.map((button) => button.type).join("|");
   cards.forEach((card, index) => {
+    card.buttons.forEach((button, buttonIndex) => {
+      validateUrlButton(button, ["carousel", "cards", index, "buttons", buttonIndex, "url"]);
+    });
     if (card.header.format !== expectedHeader) {
       ctx.addIssue({ code: "custom", message: "All carousel cards must use the same header format", path: ["carousel", "cards", index, "header"] });
     }
@@ -149,6 +164,9 @@ export const templateDefinitionSchema = z.object({
     }
     if (type === "PRODUCT" && card.buttons.some((button) => !["SPM", "URL"].includes(button.type))) {
       ctx.addIssue({ code: "custom", message: "Product carousel cards support only View or URL buttons", path: ["carousel", "cards", index, "buttons"] });
+    }
+    if (type === "PRODUCT" && card.buttons.length !== 1) {
+      ctx.addIssue({ code: "custom", message: "Product carousel cards require exactly one View or URL button", path: ["carousel", "cards", index, "buttons"] });
     }
   });
 });

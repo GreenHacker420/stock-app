@@ -1,35 +1,41 @@
 # WhatsApp Template Capabilities
 
 > Audit date: 2026-06-19
+>
+> Implementation checkpoint updated: 2026-06-20
 
 ## Current State
 
-`syncTemplates()` retrieves templates and stores name, language, status, category, and raw components. Chat and broadcast sending support body text variables, while broadcasts also support simple header text variables.
+ShopControl now has tenant-scoped template CRUD, pagination, reconciliation, immutable versions, Meta-authoritative status, typed definitions, dynamic attribute mappings, previews, and approved-template sending.
 
-This is useful generic support, but not complete template support:
+Implemented component families include:
 
-- No pagination or reconciliation of removed templates.
-- `metaTemplateId`, quality, rejection reason, component updates, and category updates are not populated.
-- No creation, editing, deletion, appeal, or preview workflow.
-- No typed validation for media headers, buttons, cards, OTP metadata, coupons, expiration, location, or call permission.
-- The chat variable UI only scans numeric body placeholders.
+- Text, media, and location headers.
+- Body, footer, quick reply, URL, phone, Flow, and copy-code buttons.
+- Authentication copy-code, one-tap, and zero-tap definitions.
+- Media card and product card carousel definitions.
+- Card-scoped body and URL variables.
+- Calling capability-gated call permission request templates.
+- Resumable Meta review-media upload backed by the Asset table.
+
+Remaining work is limited-time-offer metadata, appeal operations, fully named-parameter editing, template analytics, and automatic catalog/product selection through the commerce adapter.
 
 ## Capability Matrix
 
 | Family | Meta | ShopControl | Required work |
 |---|---|---|---|
-| Basic marketing | Yes | Partial | Typed body/header/footer/buttons and preview |
-| Media marketing | Yes | Partial | Media header parameter and upload selection |
-| Coupon code | Yes, policy dependent | Missing | Copy-code button and offer metadata |
+| Basic marketing | Yes | Implemented | Continue policy validation and analytics |
+| Media marketing | Yes | Implemented | Add reusable asset-library picker |
+| Coupon code | Yes, policy dependent | Partial | Copy-code exists; offer metadata remains |
 | Limited-time offer | Yes, eligibility/format dependent | Missing | Expiration, offer details, timezone validation |
-| Carousel | Yes | Missing | Cards, media, per-card body and buttons |
-| Deep link/dynamic URL | Yes | Partial | URL suffix variables and domain validation |
-| Utility | Yes | Partial | Generic raw sync/send only |
-| Location utility | Format/availability dependent | Missing | Typed location component and capability gate |
-| Call permission | Calling eligible | Missing | Permission component/button and reply tracking |
-| Authentication copy code | Yes | Missing | OTP component and expiration |
-| Authentication one tap | Android integration required | Missing | Package name and app-signature hash |
-| Authentication zero tap | Android/eligibility dependent | Missing | Zero-tap terms, app signing, fallback behavior |
+| Carousel | Yes | Implemented | Commerce adapter should supply product mappings automatically |
+| Deep link/dynamic URL | Yes | Implemented | Add domain allowlist administration |
+| Utility | Yes | Implemented | Continue subtype capability gating |
+| Location utility | Yes | Implemented | Location is supplied through the normalized send contract |
+| Call permission | Calling eligible | Partial | Creation/send exists; permission reply projection remains with calling phase |
+| Authentication copy code | Yes | Implemented | Add OTP-specific operational analytics |
+| Authentication one tap | Android integration required | Implemented | Validate app signing during onboarding |
+| Authentication zero tap | Android/eligibility dependent | Implemented | Add eligibility visibility and fallback analytics |
 
 ## Data Model
 
@@ -153,4 +159,3 @@ Phase 5:
 - [Meta message templates](https://developers.facebook.com/docs/whatsapp/business-management-api/message-templates)
 - [Meta template components](https://developers.facebook.com/docs/whatsapp/business-management-api/message-templates/components)
 - [Meta authentication templates](https://developers.facebook.com/docs/whatsapp/business-management-api/authentication-templates)
-

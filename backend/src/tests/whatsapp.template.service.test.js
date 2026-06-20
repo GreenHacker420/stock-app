@@ -125,3 +125,43 @@ test("compiles product carousel and call permission templates", () => {
   });
   assert.equal(callPermission.metaPayload.components.at(-1).type, "CALL_PERMISSION_REQUEST");
 });
+
+test("rejects unsafe carousel and call permission component combinations", () => {
+  assert.throws(
+    () => compileTemplateDefinition({
+      name: "carousel_mismatch",
+      language: "en_US",
+      category: "MARKETING",
+      body: { text: "Products" },
+      carousel: {
+        type: "MEDIA",
+        cards: [
+          {
+            header: { format: "IMAGE", exampleHandle: "4::one" },
+            buttons: [{ type: "QUICK_REPLY", text: "Interested" }],
+          },
+          {
+            header: { format: "VIDEO", exampleHandle: "4::two" },
+            buttons: [{ type: "URL", text: "View", url: "https://example.com/{{1}}" }],
+          },
+        ],
+      },
+      mappings: [
+        { component: "CARD", cardIndex: 1, buttonIndex: 0, position: 1, sampleValue: "two" },
+      ],
+    }),
+    /same header format|same button types/i,
+  );
+
+  assert.throws(
+    () => compileTemplateDefinition({
+      name: "call_permission_with_button",
+      language: "en_US",
+      category: "UTILITY",
+      body: { text: "Can we call?" },
+      callPermissionRequest: true,
+      buttons: [{ type: "QUICK_REPLY", text: "Yes" }],
+    }),
+    /cannot include other interactive components/i,
+  );
+});

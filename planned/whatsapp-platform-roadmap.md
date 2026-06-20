@@ -1,6 +1,8 @@
 # ShopControl WhatsApp Platform Roadmap
 
 > Audit date: 2026-06-19
+>
+> Implementation checkpoint updated: 2026-06-20
 
 ## Implementation Checkpoint
 
@@ -10,7 +12,7 @@
 |---|---:|---|
 | Platform foundation | 70% | Durable webhooks, management projection, typed commands, queues, assets, and tenant routing exist; replay UI, quarantine operations, idempotency, metrics, and broadcast reconciliation remain |
 | Messaging types | 80% | Text, replies, typed renderers, image/video/document media, voice recording/playback, location, contacts, buttons, lists, templates, and Flow sends exist; outbound stickers, location request, and policy-aware retry remain |
-| Templates | 30% | Sync and basic variable sending exist; pagination, lifecycle administration, typed headers/buttons/carousels/coupons/OTP, previews, and quality handling remain |
+| Templates | 80% | Paginated lifecycle sync, CRUD/versioning, typed headers/buttons/OTP, dynamic mappings, media and product carousel definitions, call-permission templates, previews, tenant attributes, review-media upload, and chat sending exist; limited-time offers, appeal UI, named-parameter editing, and commerce-driven product selection remain |
 | Flows | 25% | Sync, send contract, execution schema, and E2EE endpoint exist; CRUD, validation, deployment, registered handlers, retries, and execution UI remain |
 | Inbox and assignment | 25% | Conversation views, archive, assignment field, filters, and realtime updates exist; assignment commands/history, ownership permissions, workflow status, and notes remain |
 | Inbound calling | 5% | Capability flag and architecture plan exist; device registry, presence, call models, routing, signaling, WebRTC, native call UI, and history remain |
@@ -26,13 +28,14 @@ Completed after the audit:
 - Tenant-authorized image, video, document, and voice-note upload to private storage and Meta media, including preview, recording, playback, progress, cancellation, captions, and queued sends by Meta media ID.
 - Generic tenant-scoped `Asset` registry owns S3 identity, Meta identity, checksums, lifecycle state, signed delivery URLs, and reusable message linkage; mobile contracts use only internal asset IDs.
 - Typed React Native renderer registry covers every normalized message kind with image preview, native video playback, audio controls, document opening, map actions, contact actions, and asset lifecycle fallbacks.
+- Tenant-scoped template administration now includes immutable versions, Meta reconciliation, dynamic attribute mappings, authentication variants, media/location headers, Flow/copy/URL/phone buttons, media and product carousels, call-permission requests, WhatsApp previews, and resumable Meta review-media uploads.
 
 Next dependency-ordered work:
 
-1. Complete typed template components, previews, and lifecycle sync.
-2. Flow CRUD, validation, deployment, and execution tracking.
-3. Device registry and presence foundation before inbound calling.
-4. Assignment commands and ownership history.
+1. Flow CRUD, validation, deployment, and execution tracking.
+2. Device registry and presence foundation before inbound calling.
+3. Assignment commands and ownership history.
+4. Limited-time-offer templates and commerce-backed product selection.
 5. Outbound stickers, location requests, and policy-aware retry.
 
 ## Architecture Direction
