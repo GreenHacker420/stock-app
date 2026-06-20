@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
 import { Alert, Pressable, RefreshControl, StyleSheet, View } from "react-native";
 import { FlashList } from "@shopify/flash-list";
 import { ActivityIndicator, Button, Dialog, FAB, IconButton, Portal, Searchbar, Text } from "react-native-paper";
 import { useNavigation } from "@react-navigation/native";
-import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
+import { BottomTabBarHeightContext } from "@react-navigation/bottom-tabs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import {
@@ -22,7 +22,7 @@ const STATUS_TABS = ["ALL", "APPROVED", "PENDING", "REJECTED", "PAUSED"] as cons
 
 export function TemplateLibraryScreen() {
   const navigation = useNavigation<any>();
-  const tabBarHeight = useBottomTabBarHeight();
+  const tabBarHeight = useContext(BottomTabBarHeightContext) ?? 0;
   const token = useAuthStore((state) => state.token) || "";
   const user = useAuthStore((state) => state.user);
   const shopId = useShopStore((state) => state.activeShopId);

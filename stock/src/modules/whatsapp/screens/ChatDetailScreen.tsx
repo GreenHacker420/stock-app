@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useMemo } from "react";
 import {
   View,
   Text,
@@ -9,8 +9,11 @@ import {
   Platform,
   Modal,
   Alert,
+  ActivityIndicator,
 } from "react-native";
 import { FlashList } from "@shopify/flash-list";
+
+const FlashListAny = FlashList as any;
 
 // Temporarily using FlashList directly to see error
 import * as Clipboard from "expo-clipboard";
@@ -164,14 +167,7 @@ export const ChatDetailScreen = () => {
     enabled: !!conversationId && !!token,
   });
 
-  // Automatically scroll to end on load or when new messages arrive
-  useEffect(() => {
-    if (messages.length > 0) {
-      setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: true });
-      }, 300);
-    }
-  }, [messages.length]);
+
 
   // Send Message Mutation
   const sendMutation = useMutation({
@@ -188,6 +184,62 @@ export const ChatDetailScreen = () => {
       Alert.alert("Send Error", err.message || "Failed to send message");
     }
   });
+
+  const displayedMessages = useMemo(() => {
+    if (sendMutation.isPending && sendMutation.variables) {
+      const vars = sendMutation.variables as any;
+      if (vars.type === "TEXT" && vars.content?.text) {
+        const tempMsg: WaMessage = {
+          id: "pending-send-msg",
+          conversationId,
+          metaMessageId: "pending-meta",
+          replyToMetaMessageId: vars.replyToMessageId || undefined,
+          direction: "OUTBOUND",
+          status: "SENDING" as any,
+          type: "TEXT",
+          content: { text: vars.content.text },
+          payload: {},
+          createdAt: new Date().toISOString(),
+          assetId: undefined,
+          templateId: undefined,
+          templateName: undefined,
+          templateLanguage: undefined,
+          broadcastRecipientId: undefined,
+          deliveredAt: undefined,
+          readAt: undefined,
+          failedAt: undefined,
+          errorMessage: undefined,
+        };
+        return [...messages, tempMsg];
+      }
+    }
+    return messages;
+  }, [messages, sendMutation.isPending, sendMutation.variables, conversationId]);
+
+  // Automatically scroll to end on load or when new messages arrive
+  useEffect(() => {
+    if (displayedMessages.length > 0) {
+      setTimeout(() => {
+        flatListRef.current?.scrollToEnd({ animated: true });
+      }, 300);
+    }
+  }, [displayedMessages.length]);
+
+  // Auto-mark as read when new inbound messages arrive while viewing
+  useEffect(() => {
+    if (messages.length > 0) {
+      const lastMsg = messages[messages.length - 1];
+      if (lastMsg && lastMsg.direction === "INBOUND" && activeShopId && conversationId) {
+        whatsappApi.markConversationRead(activeShopId, conversationId)
+          .then(() => {
+            queryClient.invalidateQueries({ queryKey: ["wa-conversations", activeShopId] });
+          })
+          .catch((err) => {
+            console.warn("Failed to mark conversation read on new message", err);
+          });
+      }
+    }
+  }, [messages.length, activeShopId, conversationId]);
 
   // Send Reaction Mutation
   const reactionMutation = useMutation({
@@ -548,6 +600,8 @@ export const ChatDetailScreen = () => {
 
   const renderMessageStatus = (status: string) => {
     switch (status) {
+      case "SENDING":
+        return <ActivityIndicator size="small" color={Colors.primary} style={{ width: 14, height: 14 }} />;
       case "QUEUED":
         return <MaterialCommunityIcons name="clock-outline" size={14} color={Colors.textSecondary} />;
       case "SENT":
@@ -651,12 +705,12 @@ export const ChatDetailScreen = () => {
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 80}
     >
-      <FlashList
+      <FlashListAny
         ref={flatListRef}
-        data={messages}
+        data={displayedMessages}
         renderItem={renderMessage}
         keyExtractor={(item: any) => item.id}
         estimatedItemSize={100}

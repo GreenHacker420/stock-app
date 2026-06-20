@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useContext, useEffect, useMemo, useState } from "react";
 import { Alert, Modal, Pressable, RefreshControl, StyleSheet, View } from "react-native";
 import { FlashList } from "@shopify/flash-list";
 import { FAB, IconButton, Searchbar, Text } from "react-native-paper";
 import { useNavigation } from "@react-navigation/native";
-import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
+import { BottomTabBarHeightContext } from "@react-navigation/bottom-tabs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNowStrict } from "date-fns";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
@@ -15,7 +15,7 @@ import { initials, waColors } from "../whatsapp-ui";
 
 export const ChatListScreen = () => {
   const navigation = useNavigation<any>();
-  const tabBarHeight = useBottomTabBarHeight();
+  const tabBarHeight = useContext(BottomTabBarHeightContext) ?? 0;
   const shopId = useShopStore((state) => state.activeShopId);
   const token = useAuthStore((state) => state.token);
   const currentUser = useAuthStore((state) => state.user);
