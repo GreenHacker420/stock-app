@@ -174,17 +174,29 @@ export const ChatListScreen = () => {
             <Text style={styles.menuTitle}>{selected?.contactName || selected?.phone}</Text>
             <Pressable
               style={styles.menuItem}
-              onPress={() => archiveMutation.mutate({ id: selected!.id, archive: !selected!.isArchived })}
+              onPress={() => {
+                if (selected) {
+                  archiveMutation.mutate({ id: selected.id, archive: !selected.isArchived });
+                }
+              }}
             >
               <MaterialCommunityIcons name={selected?.isArchived ? "archive-arrow-up-outline" : "archive-arrow-down-outline"} size={22} />
               <Text style={styles.menuText}>{selected?.isArchived ? "Unarchive chat" : "Archive chat"}</Text>
             </Pressable>
             <Pressable
               style={styles.menuItem}
-              onPress={() => Alert.alert("Delete chat", "Delete all local messages in this conversation?", [
-                { text: "Cancel", style: "cancel" },
-                { text: "Delete", style: "destructive", onPress: () => deleteMutation.mutate(selected!.id) },
-              ])}
+              onPress={() => {
+                if (selected) {
+                  Alert.alert("Delete chat", "Delete all local messages in this conversation?", [
+                    { text: "Cancel", style: "cancel" },
+                    { text: "Delete", style: "destructive", onPress: () => {
+                      if (selected) {
+                        deleteMutation.mutate(selected.id);
+                      }
+                    }},
+                  ]);
+                }
+              }}
             >
               <MaterialCommunityIcons name="trash-can-outline" size={22} color={waColors.danger} />
               <Text style={[styles.menuText, { color: waColors.danger }]}>Delete chat</Text>
