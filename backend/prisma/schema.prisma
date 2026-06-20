@@ -314,6 +314,24 @@ enum DevicePlatform {
   WEB
 }
 
+enum WaOnboardingStatus {
+  CREATED
+  AUTHORIZED
+  ASSETS_DISCOVERED
+  APP_SUBSCRIBED
+  NUMBER_REGISTERED
+  CONNECTED
+  ACTION_REQUIRED
+  FAILED
+  CANCELLED
+  EXPIRED
+}
+
+enum WaOnboardingMode {
+  CLOUD_API
+  COEXISTENCE
+}
+
 // --- MODELS ---
 
 model User {
@@ -363,6 +381,7 @@ model User {
   waTemplateAttributesCreated WaTemplateAttribute[] @relation("WaTemplateAttributeCreatedBy")
   waTemplateVersionsCreated   WaTemplateVersion[]   @relation("WaTemplateVersionCreatedBy")
   devices                     UserDevice[]
+  waOnboardingSessions        WaOnboardingSession[]
 }
 
 model UserDevice {
@@ -441,6 +460,7 @@ model Shop {
   waBroadcasts         WaBroadcast[]
   assets               Asset[]
   waTemplateAttributes WaTemplateAttribute[]
+  waOnboardingSessions WaOnboardingSession[]
 
   @@index([ownerId])
 }
@@ -469,12 +489,64 @@ model WaIntegration {
   lastWebhookAt            DateTime?
   lastManagementEventAt    DateTime?
   lastManagementEventField String?
+  businessPortfolioId      String?
+  tokenType                 String?
+  tokenExpiresAt            DateTime?
+  grantedScopes             Json?
+  tokenLastValidatedAt      DateTime?
+  onboardingMode            WaOnboardingMode?
+  reauthorizationRequired   Boolean               @default(false)
+  disconnectedAt            DateTime?
   createdAt                DateTime              @default(now())
   updatedAt                DateTime              @updatedAt
 
   shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
 
   @@index([phoneNumberId])
+}
+
+model WaOnboardingSession {
+  id                     String             @id @default(cuid())
+  shopId                 String
+  initiatedById          String
+  status                 WaOnboardingStatus @default(CREATED)
+  mode                   WaOnboardingMode   @default(CLOUD_API)
+  configId               String
+  graphVersion           String             @default("v25.0")
+  stateNonceHash         String
+  businessTokenEncrypted String?            @db.Text
+  tokenType              String?
+  tokenExpiresAt         DateTime?
+  grantedScopes          Json?
+  businessPortfolioId    String?
+  wabaId                 String?
+  phoneNumberId          String?
+  finishEvent            String?
+  currentStep            String?
+  metaSessionId          String?
+  sessionInfo            Json?
+  completedSteps         Json?
+  verifyToken            String?
+  registrationPinEncrypted String?
+  retryCount             Int                @default(0)
+  lastErrorCode          String?
+  lastErrorMessage       String?
+  lastAttemptAt          DateTime?
+  authorizedAt           DateTime?
+  subscribedAt           DateTime?
+  registeredAt           DateTime?
+  connectedAt            DateTime?
+  cancelledAt            DateTime?
+  expiresAt              DateTime
+  createdAt              DateTime           @default(now())
+  updatedAt              DateTime           @updatedAt
+
+  shop        Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  initiatedBy User @relation(fields: [initiatedById], references: [id], onDelete: Cascade)
+
+  @@index([shopId, status, createdAt])
+  @@index([initiatedById, createdAt])
+  @@index([expiresAt])
 }
 
 model StaffShopAccess {

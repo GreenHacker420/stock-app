@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react";
 import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, TouchableOpacity, DeviceEventEmitter } from "react-native";
-import { Button, TextInput, Text, Divider, Card, HelperText } from "react-native-paper";
+import { Button, TextInput, Text, Divider, Card, HelperText, SegmentedButtons } from "react-native-paper";
 import * as WebBrowser from "expo-web-browser";
-import * as AuthSession from "expo-auth-session";
 import * as Clipboard from "expo-clipboard";
 import { useShopStore } from "../../../auth/shop-store";
-import { whatsappSetupApi } from "../../../api/whatsapp-setup.api";
+import { WaOnboardingSession, whatsappSetupApi } from "../../../api/whatsapp-setup.api";
 import { Screen } from "../../../components/Screen";
 import { colors as Colors } from "../../../theme";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
@@ -20,10 +19,6 @@ export const WhatsAppSetupScreen = () => {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [activeTab, setActiveTab] = useState<"easy" | "developer">("easy");
-
-  // Onboarding Settings (Prefilled or editable)
-  const [fbAppId, setFbAppId] = useState(process.env.EXPO_PUBLIC_FACEBOOK_APP_ID || "");
-  const [fbConfigId, setFbConfigId] = useState(process.env.EXPO_PUBLIC_FACEBOOK_CONFIG_ID || "");
 
   // Manual Form State
   const [verifyToken, setVerifyToken] = useState("");
@@ -44,8 +39,8 @@ export const WhatsAppSetupScreen = () => {
   const [lastWebhookAt, setLastWebhookAt] = useState("");
   const [lastManagementEventField, setLastManagementEventField] = useState("");
 
-  // Embedded Signup State
-  const [oauthCode, setOauthCode] = useState("");
+  const [onboardingMode, setOnboardingMode] = useState<"CLOUD_API" | "COEXISTENCE">("CLOUD_API");
+  const [onboardingSession, setOnboardingSession] = useState<WaOnboardingSession | null>(null);
 
   useEffect(() => {
     navigation.setOptions({
@@ -57,10 +52,6 @@ export const WhatsAppSetupScreen = () => {
       headerTitleStyle: { fontWeight: "700" },
     });
   }, [navigation]);
-
-  const redirectUri = AuthSession.makeRedirectUri({
-    scheme: "shopcontrol"
-  });
 
   const fetchSetup = async () => {
     if (!activeShopId) return;
@@ -205,51 +196,49 @@ export const WhatsAppSetupScreen = () => {
   };
 
   const handleEmbeddedSignup = async () => {
-
     if (!activeShopId) return;
-    
-    const appIdToUse = fbAppId.trim();
-    const configIdToUse = fbConfigId.trim();
-
-    if (!appIdToUse || !configIdToUse) {
-      Alert.alert("Required Fields", "Please enter both Meta App ID and Configuration ID to initiate onboarding.");
-      return;
-    }
-
-    if (oauthCode) {
-      return submitOauthCode(oauthCode);
-    }
-
+    setSaving(true);
     try {
-      const authUrl = `https://www.facebook.com/v25.0/dialog/oauth?client_id=${appIdToUse}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&config_id=${configIdToUse}&state=${activeShopId}`;
-      
-      const result = await WebBrowser.openAuthSessionAsync(authUrl, redirectUri);
-      
-      if (result.type === "success" && result.url) {
-        const match = result.url.match(/[?&]code=([^&]+)/);
-        const code = match ? match[1] : null;
-        if (code) {
-          await submitOauthCode(code);
-        } else {
-          Alert.alert("Error", "No authorization code returned from Meta");
-        }
-      } else {
-        Alert.alert("Cancelled", "WhatsApp connection was cancelled.");
+      const created = await whatsappSetupApi.createOnboardingSession(activeShopId, onboardingMode);
+      setOnboardingSession(created.session);
+      const result = await WebBrowser.openAuthSessionAsync(created.launchUrl, created.redirectUri);
+      if (result.type === "cancel" || result.type === "dismiss") {
+        Alert.alert("Signup paused", "You can start a new session when you are ready.");
+        return;
       }
+      await refreshOnboardingSession(created.session.id, true);
     } catch (error: any) {
       Alert.alert("Embedded Signup Error", error.message || "Failed to launch Facebook login");
+    } finally {
+      setSaving(false);
     }
   };
 
-  const submitOauthCode = async (code: string) => {
+  const refreshOnboardingSession = async (sessionId: string, poll = false) => {
+    if (!activeShopId) return;
+    const attempts = poll ? 15 : 1;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      const session = await whatsappSetupApi.getOnboardingSession(activeShopId, sessionId);
+      setOnboardingSession(session);
+      if (session.status === "CONNECTED") {
+        await fetchSetup();
+        Alert.alert("WhatsApp connected", "The number is registered and subscribed to ShopControl webhooks.");
+        return;
+      }
+      if (["FAILED", "ACTION_REQUIRED", "CANCELLED", "EXPIRED"].includes(session.status)) return;
+      if (attempt < attempts - 1) await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
+  };
+
+  const retryOnboarding = async () => {
+    if (!activeShopId || !onboardingSession) return;
     setSaving(true);
     try {
-      await whatsappSetupApi.fbEmbeddedSignup({ shopId: activeShopId!, code, redirectUri });
-      Alert.alert("Success", "WhatsApp Connected successfully via Facebook!");
-      await fetchSetup();
-      setOauthCode("");
+      const session = await whatsappSetupApi.continueOnboardingSession(activeShopId, onboardingSession.id);
+      setOnboardingSession(session);
+      if (session.status === "CONNECTED") await fetchSetup();
     } catch (error: any) {
-      Alert.alert("Error connecting WhatsApp", error.response?.data?.message || error.message);
+      Alert.alert("Retry failed", error.message || "Could not continue onboarding");
     } finally {
       setSaving(false);
     }
@@ -456,74 +445,71 @@ export const WhatsAppSetupScreen = () => {
                   <View style={styles.timeline}>
                     <View style={styles.timelineItem}>
                       <View style={styles.timelineStep}><Text style={styles.stepNum}>1</Text></View>
-                      <Text style={styles.stepText}>Grant permissions via Facebook Auth popup</Text>
+                      <Text style={styles.stepText}>Select your business and WhatsApp assets</Text>
                     </View>
                     <View style={styles.timelineLine} />
                     <View style={styles.timelineItem}>
                       <View style={styles.timelineStep}><Text style={styles.stepNum}>2</Text></View>
-                      <Text style={styles.stepText}>Generate PIN & register your phone number</Text>
+                      <Text style={styles.stepText}>Exchange and validate the business token</Text>
                     </View>
                     <View style={styles.timelineLine} />
                     <View style={styles.timelineItem}>
                       <View style={styles.timelineStep}><Text style={styles.stepNum}>3</Text></View>
-                      <Text style={styles.stepText}>Override webhooks and subscribe dynamically</Text>
+                      <Text style={styles.stepText}>Subscribe webhooks and register the number</Text>
                     </View>
                   </View>
 
-                  <TextInput
-                    mode="outlined"
-                    label="Meta App ID"
-                    value={fbAppId}
-                    onChangeText={setFbAppId}
-                    style={styles.input}
-                    placeholder="Enter Meta App ID"
+                  <Text style={styles.modeLabel}>Number type</Text>
+                  <SegmentedButtons
+                    value={onboardingMode}
+                    onValueChange={(value) => setOnboardingMode(value as "CLOUD_API" | "COEXISTENCE")}
+                    buttons={[
+                      { value: "CLOUD_API", label: "Cloud API", icon: "cloud-outline" },
+                      { value: "COEXISTENCE", label: "Business app", icon: "cellphone-message" },
+                    ]}
                   />
                   <HelperText type="info" visible>
-                    Found in Meta Developer Dashboard App Settings
-                  </HelperText>
-
-                  <TextInput
-                    mode="outlined"
-                    label="Meta Configuration ID"
-                    value={fbConfigId}
-                    onChangeText={setFbConfigId}
-                    style={styles.input}
-                    placeholder="Enter Login Configuration ID"
-                  />
-                  <HelperText type="info" visible>
-                    Found under WhatsApp → Embedded Onboarding
+                    Business app mode keeps supported WhatsApp Business app messaging and history synchronization.
                   </HelperText>
 
                   <Button
                     mode="contained"
                     onPress={handleEmbeddedSignup}
-                    loading={saving && !oauthCode}
+                    loading={saving}
+                    disabled={saving}
                     icon="facebook"
                     style={styles.fbButton}
                     textColor="#fff"
                   >
-                    Onboard with Facebook
+                    Continue with Meta
                   </Button>
 
-                  <Divider style={styles.divider} />
-
-                  <Text style={styles.helperPasteTitle}>Or, paste authorization code manually:</Text>
-                  <TextInput
-                    mode="outlined"
-                    label="Pasted OAuth Code"
-                    value={oauthCode}
-                    onChangeText={setOauthCode}
-                    style={styles.input}
-                    placeholder="e.g. AQB123xyz..."
-                  />
-                  <Button
-                    mode="outlined"
-                    onPress={() => submitOauthCode(oauthCode)}
-                    disabled={!oauthCode || saving}
-                    style={styles.saveManualBtn}
-                  >
-                    Submit Pasted Code
-                  </Button>
+                  {!!onboardingSession && (
+                    <View style={styles.onboardingStatus}>
+                      <View style={styles.onboardingStatusHeader}>
+                        <Text style={styles.onboardingStatusTitle}>{onboardingSession.status.replace(/_/g, " ")}</Text>
+                        <Text style={styles.onboardingStatusMeta}>Attempt {onboardingSession.retryCount}</Text>
+                      </View>
+                      {!!onboardingSession.completedSteps?.length && (
+                        <Text style={styles.onboardingStatusText}>
+                          {onboardingSession.completedSteps.join(" · ").replace(/_/g, " ")}
+                        </Text>
+                      )}
+                      {!!onboardingSession.lastErrorMessage && (
+                        <Text selectable style={styles.onboardingError}>{onboardingSession.lastErrorMessage}</Text>
+                      )}
+                      {["FAILED", "ACTION_REQUIRED"].includes(onboardingSession.status) && (
+                        <Button
+                          mode="outlined"
+                          icon="refresh"
+                          loading={saving}
+                          onPress={retryOnboarding}
+                        >
+                          Retry setup
+                        </Button>
+                      )}
+                    </View>
+                  )}
                 </Card.Content>
               </Card>
             </View>
@@ -791,6 +777,47 @@ const styles = StyleSheet.create({
   input: {
     marginBottom: 4,
     backgroundColor: waColors.surface,
+  },
+  modeLabel: {
+    color: waColors.textSecondary,
+    fontSize: 12,
+    fontWeight: "600",
+    marginBottom: 8,
+  },
+  onboardingStatus: {
+    gap: 8,
+    padding: 12,
+    marginTop: 14,
+    borderRadius: 8,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: waColors.border,
+    backgroundColor: waColors.surfaceMuted,
+  },
+  onboardingStatusHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+  },
+  onboardingStatusTitle: {
+    color: waColors.text,
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  onboardingStatusMeta: {
+    color: waColors.textSecondary,
+    fontSize: 11,
+    fontVariant: ["tabular-nums"],
+  },
+  onboardingStatusText: {
+    color: waColors.textSecondary,
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  onboardingError: {
+    color: "#B42318",
+    fontSize: 12,
+    lineHeight: 17,
   },
   fbButton: {
     backgroundColor: waColors.green,

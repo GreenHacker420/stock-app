@@ -3,7 +3,10 @@ import { requireAuth } from "../middleware/auth.middleware.js";
 import { whatsappController } from "../controllers/whatsapp.controller.js";
 import { whatsappFlowEndpointController } from "../controllers/whatsapp.flow-endpoint.controller.js";
 import { whatsappFlowController } from "../controllers/whatsapp.flow.controller.js";
+import * as whatsappOnboardingController from "../controllers/whatsapp.onboarding.controller.js";
 import { requireShopAccess } from "../middleware/shopAccess.middleware.js";
+import { validate } from "../middleware/validate.js";
+import { z } from "zod";
 import multer from "multer";
 
 const router = Router();
@@ -25,6 +28,8 @@ router.post("/webhook/:shopId", whatsappController.handleWebhook);
 // Flows E2EE Endpoints (Public, called by Meta)
 router.get("/flow-endpoint/:shopId", whatsappFlowEndpointController.verifyWebhook);
 router.post("/flow-endpoint/:shopId", whatsappFlowEndpointController.handleFlowRequest);
+router.get("/onboarding/launch/:sessionId", whatsappOnboardingController.launchSession);
+router.post("/onboarding/sessions/:sessionId/complete", whatsappOnboardingController.completeSession);
 
 // Protected UI routes
 router.get("/conversations", requireAuth, whatsappController.getConversations);
@@ -110,6 +115,52 @@ const requireOwner = (req, res, next) => {
   if (req.user?.role !== "OWNER") return res.status(403).json({ success: false, message: "Forbidden" });
   next();
 };
+
+const onboardingCreateSchema = z.object({
+  body: z.object({
+    shopId: z.string().min(1),
+    mode: z.enum(["CLOUD_API", "COEXISTENCE"]).optional().default("CLOUD_API"),
+  }),
+  params: z.object({}).optional(),
+  query: z.object({}).optional(),
+});
+
+const onboardingSessionSchema = z.object({
+  body: z.object({}).optional(),
+  params: z.object({ sessionId: z.string().min(1) }),
+  query: z.object({ shopId: z.string().min(1) }),
+});
+
+const onboardingContinueSchema = z.object({
+  body: z.object({ shopId: z.string().min(1) }),
+  params: z.object({ sessionId: z.string().min(1) }),
+  query: z.object({}).optional(),
+});
+
+router.post(
+  "/onboarding/sessions",
+  requireAuth,
+  requireOwner,
+  validate(onboardingCreateSchema),
+  requireShopAccess((req) => req.body.shopId),
+  whatsappOnboardingController.createSession,
+);
+router.get(
+  "/onboarding/sessions/:sessionId",
+  requireAuth,
+  requireOwner,
+  validate(onboardingSessionSchema),
+  requireShopAccess((req) => req.query.shopId),
+  whatsappOnboardingController.getSession,
+);
+router.post(
+  "/onboarding/sessions/:sessionId/continue",
+  requireAuth,
+  requireOwner,
+  validate(onboardingContinueSchema),
+  requireShopAccess((req) => req.body.shopId),
+  whatsappOnboardingController.continueSession,
+);
 
 router.post(
   "/sync-templates",
@@ -235,7 +286,6 @@ router.post("/sync-contacts", requireAuth, requireOwner, whatsappController.sync
 router.get("/setup", requireAuth, requireOwner, whatsappController.getSetup);
 router.post("/setup", requireAuth, requireOwner, whatsappController.saveSetup);
 router.delete("/setup", requireAuth, requireOwner, whatsappController.deleteSetup);
-router.post("/fb-embedded-signup", requireAuth, requireOwner, whatsappController.fbEmbeddedSignup);
 router.post("/rotate-keys", requireAuth, requireOwner, whatsappController.rotateKeys);
 
 

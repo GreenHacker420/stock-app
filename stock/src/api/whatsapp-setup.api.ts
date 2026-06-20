@@ -31,6 +31,38 @@ interface WhatsAppSetupResponse {
   message?: string;
 }
 
+export type WaOnboardingStatus =
+  | "CREATED"
+  | "AUTHORIZED"
+  | "ASSETS_DISCOVERED"
+  | "APP_SUBSCRIBED"
+  | "NUMBER_REGISTERED"
+  | "CONNECTED"
+  | "ACTION_REQUIRED"
+  | "FAILED"
+  | "CANCELLED"
+  | "EXPIRED";
+
+export interface WaOnboardingSession {
+  id: string;
+  shopId: string;
+  status: WaOnboardingStatus;
+  mode: "CLOUD_API" | "COEXISTENCE";
+  businessPortfolioId?: string | null;
+  wabaId?: string | null;
+  phoneNumberId?: string | null;
+  finishEvent?: string | null;
+  currentStep?: string | null;
+  completedSteps: string[];
+  lastErrorCode?: string | null;
+  lastErrorMessage?: string | null;
+  retryCount: number;
+  expiresAt: string;
+  connectedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export const whatsappSetupApi = {
   getSetupInfo: async (shopId: string) => {
     const token = useAuthStore.getState().token || "";
@@ -46,14 +78,34 @@ export const whatsappSetupApi = {
     });
     return { data: res };
   },
-  fbEmbeddedSignup: async (payload: { shopId: string; code: string; redirectUri: string }) => {
+  createOnboardingSession: async (shopId: string, mode: "CLOUD_API" | "COEXISTENCE") => {
     const token = useAuthStore.getState().token || "";
-    const res = await apiRequest<any>(`/whatsapp/fb-embedded-signup`, {
+    return apiRequest<{ session: WaOnboardingSession; launchUrl: string; redirectUri: string }>(
+      "/whatsapp/onboarding/sessions",
+      {
+        method: "POST",
+        token,
+        body: JSON.stringify({ shopId, mode }),
+      },
+    );
+  },
+  getOnboardingSession: async (shopId: string, sessionId: string) => {
+    const token = useAuthStore.getState().token || "";
+    return apiRequest<WaOnboardingSession>(
+      `/whatsapp/onboarding/sessions/${encodeURIComponent(sessionId)}?shopId=${encodeURIComponent(shopId)}`,
+      { token },
+    );
+  },
+  continueOnboardingSession: async (shopId: string, sessionId: string) => {
+    const token = useAuthStore.getState().token || "";
+    return apiRequest<WaOnboardingSession>(
+      `/whatsapp/onboarding/sessions/${encodeURIComponent(sessionId)}/continue`,
+      {
       method: "POST",
       token,
-      body: JSON.stringify(payload),
-    });
-    return { data: res };
+        body: JSON.stringify({ shopId }),
+      },
+    );
   },
   deleteSetupInfo: async (shopId: string) => {
     const token = useAuthStore.getState().token || "";
