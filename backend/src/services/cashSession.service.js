@@ -3,6 +3,7 @@ import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 import { writeAuditLog } from "../utils/auditLog.js";
 import { EntityType, AuditAction } from "../generated/prisma/index.js";
+import { createDomainEvent, enqueueDomainEvent } from "./domain-event.service.js";
 
 async function calculateExpectedCash(cashSessionId, openingCash, cashHandover = 0) {
   const cashPayments = await prisma.payment.aggregate({
@@ -49,28 +50,40 @@ export async function openSession(user, { shopId }) {
     ? Math.max(previousActual - previousHandover, 0)
     : 0;
 
-  const session = await prisma.cashSession.create({
-    data: {
-      shopId,
-      staffId: user.id,
-      previousSessionId: previousSession?.id,
-      openingCash,
-      expectedCash: openingCash,
-    },
-  });
+  return prisma.$transaction(async (tx) => {
+    const session = await tx.cashSession.create({
+      data: {
+        shopId,
+        staffId: user.id,
+        previousSessionId: previousSession?.id,
+        openingCash,
+        expectedCash: openingCash,
+      },
+    });
 
-  await prisma.auditLog.create({
-    data: {
-      userId: user.id,
+    await tx.auditLog.create({
+      data: {
+        userId: user.id,
+        shopId,
+        action: AuditAction.CREATED,
+        entityType: EntityType.CASH_SESSION,
+        entityId: session.id,
+        newValueJson: session,
+      }
+    });
+
+    await enqueueDomainEvent(tx, createDomainEvent({
       shopId,
-      action: AuditAction.CREATED,
-      entityType: EntityType.CASH_SESSION,
+      entity: "cashSession",
+      action: "created",
       entityId: session.id,
-      newValueJson: session,
-    }
-  });
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: true },
+    }));
 
-  return session;
+    return session;
+  });
 }
 
 export async function getCurrentSession(user, { shopId, includePayments = false }) {
@@ -138,33 +151,52 @@ export async function closeSession(user, sessionId, data) {
     throw new ApiError(400, "Difference reason is required when cash does not match");
   }
 
-  const session = await prisma.cashSession.update({
-    where: { id: sessionId },
-    data: {
-      expectedCash,
-      actualCash: data.actualCash,
-      cashHandover: data.cashHandover ?? 0,
-      difference,
-      differenceReason: data.differenceReason,
-      status: "CLOSED",
-      closedAt: new Date(),
-    },
-  });
+  return prisma.$transaction(async (tx) => {
+    const session = await tx.cashSession.update({
+      where: { id: sessionId },
+      data: {
+        expectedCash,
+        actualCash: data.actualCash,
+        cashHandover: data.cashHandover ?? 0,
+        difference,
+        differenceReason: data.differenceReason,
+        status: "CLOSED",
+        closedAt: new Date(),
+      },
+    });
 
-  await prisma.auditLog.create({
-    data: {
-      userId: user.id,
+    await tx.auditLog.create({
+      data: {
+        userId: user.id,
+        shopId: existing.shopId,
+        action: AuditAction.UPDATED,
+        entityType: EntityType.CASH_SESSION,
+        entityId: session.id,
+        oldValueJson: existing,
+        newValueJson: session,
+        reason: data.differenceReason,
+      }
+    });
+
+    await enqueueDomainEvent(tx, createDomainEvent({
       shopId: existing.shopId,
-      action: AuditAction.UPDATED,
-      entityType: EntityType.CASH_SESSION,
+      entity: "cashSession",
+      action: "review_required",
       entityId: session.id,
-      oldValueJson: existing,
-      newValueJson: session,
-      reason: data.differenceReason,
-    }
-  });
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: false },
+      notification: {
+        sendPush: true,
+        title: "Cash session closed",
+        body: "A cash session is ready for owner review.",
+        severity: "warning",
+        deepLink: `stock://cash-sessions/${session.id}`,
+      },
+    }));
 
-  return session;
+    return session;
+  });
 }
 
 export async function reviewSession(user, sessionId) {
@@ -176,26 +208,45 @@ export async function reviewSession(user, sessionId) {
     throw new ApiError(403, "Owner access required");
   }
 
-  const session = await prisma.cashSession.update({
-    where: { id: sessionId },
-    data: {
-      status: "REVIEWED",
-      reviewedById: user.id,
-      reviewedAt: new Date(),
-    },
-  });
+  return prisma.$transaction(async (tx) => {
+    const session = await tx.cashSession.update({
+      where: { id: sessionId },
+      data: {
+        status: "REVIEWED",
+        reviewedById: user.id,
+        reviewedAt: new Date(),
+      },
+    });
 
-  await prisma.auditLog.create({
-    data: {
-      userId: user.id,
+    await tx.auditLog.create({
+      data: {
+        userId: user.id,
+        shopId: existing.shopId,
+        action: AuditAction.REVIEWED,
+        entityType: EntityType.CASH_SESSION,
+        entityId: session.id,
+      }
+    });
+
+    await enqueueDomainEvent(tx, createDomainEvent({
       shopId: existing.shopId,
-      action: AuditAction.REVIEWED,
-      entityType: EntityType.CASH_SESSION,
+      entity: "cashSession",
+      action: "updated",
       entityId: session.id,
-    }
-  });
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: true, targetUserIds: [existing.staffId] },
+      notification: {
+        sendPush: true,
+        title: "Cash session reviewed",
+        body: "Your cash session has been reviewed.",
+        severity: "success",
+        deepLink: `stock://cash-sessions/${session.id}`,
+      },
+    }));
 
-  return session;
+    return session;
+  });
 }
 
 export async function listSessions(user, { shopId, status }) {

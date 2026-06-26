@@ -5,6 +5,7 @@ import { money, sub, add, isZero } from "../utils/money.js";
 import { writeAuditLog } from "../utils/auditLog.js";
 import { getOrCreateWalkIn } from "./customer.service.js";
 import { createNotification } from "./notification.service.js";
+import { createDomainEvent, enqueueManyDomainEvents } from "./domain-event.service.js";
 
 async function getPaymentWithAccess(user, id) {
   const payment = await prisma.payment.findUnique({
@@ -84,7 +85,7 @@ export async function addPayment(user, data) {
       payments: [data],
     });
 
-    return tx.payment.findFirst({
+    const payment = await tx.payment.findFirst({
       where: {
         shopId: data.shopId,
         receivedById: user.id,
@@ -92,6 +93,58 @@ export async function addPayment(user, data) {
       include: { details: true },
       orderBy: { createdAt: "desc" },
     });
+
+    if (payment) {
+      await enqueueManyDomainEvents(tx, [
+        createDomainEvent({
+          shopId: data.shopId,
+          entity: "payment",
+          action: "created",
+          entityId: payment.id,
+          actorUserId: user.id,
+          actorRole: user.role,
+          visibility: { owners: true, staff: true },
+          notification: user.role === "STAFF"
+            ? {
+                sendPush: true,
+                title: "Payment recorded",
+                body: `A payment of ₹${Number(payment.amount).toLocaleString("en-IN")} was recorded.`,
+                severity: "info",
+                deepLink: `stock://payments/${payment.id}`,
+              }
+            : undefined,
+        }),
+        createDomainEvent({
+          shopId: data.shopId,
+          entity: "customer",
+          action: "updated",
+          entityId: customerId,
+          actorUserId: user.id,
+          actorRole: user.role,
+          visibility: { owners: true, staff: true },
+        }),
+        createDomainEvent({
+          shopId: data.shopId,
+          entity: "cashSession",
+          action: "updated",
+          entityId: data.shopId,
+          actorUserId: user.id,
+          actorRole: user.role,
+          visibility: { owners: true, staff: true },
+        }),
+        createDomainEvent({
+          shopId: data.shopId,
+          entity: "dashboard",
+          action: "updated",
+          entityId: data.shopId,
+          actorUserId: user.id,
+          actorRole: user.role,
+          visibility: { owners: true, staff: true },
+        }),
+      ]);
+    }
+
+    return payment;
   });
 }
 

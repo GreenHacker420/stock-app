@@ -1,12 +1,13 @@
 import { Assets as NavigationAssets } from '@react-navigation/elements';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { ThemeProvider as RneThemeProvider, createTheme } from '@rneui/themed';
-import { QueryClient } from '@tanstack/react-query';
+import { focusManager, onlineManager, QueryClient } from '@tanstack/react-query';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import { Asset } from 'expo-asset';
 import { createURL } from 'expo-linking';
 import * as SplashScreen from 'expo-splash-screen';
 import * as React from 'react';
+import { AppState, Platform } from 'react-native';
 import { ActivityIndicator, PaperProvider } from 'react-native-paper';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useAuthStore } from './auth/auth-store';
@@ -20,6 +21,7 @@ import { RealtimeProvider } from './realtime/RealtimeProvider';
 import { navigationThemes, paperLightTheme } from './theme/paper';
 import { useNotificationSetup } from './notifications/FCMManager';
 import { useOfflineSync } from './hooks/useOfflineSync';
+import NetInfo from '@react-native-community/netinfo';
 
 Asset.loadAsync([
   ...NavigationAssets,
@@ -68,6 +70,21 @@ const rneTheme = createTheme({
 });
 
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+
+onlineManager.setEventListener((setOnline) => {
+  return NetInfo.addEventListener((state) => {
+    setOnline(Boolean(state.isConnected) && state.isInternetReachable !== false);
+  });
+});
+
+focusManager.setEventListener((handleFocus) => {
+  const subscription = AppState.addEventListener('change', (state) => {
+    if (Platform.OS !== 'web') {
+      handleFocus(state === 'active');
+    }
+  });
+  return () => subscription.remove();
+});
 
 export function App() {
   const restoreSession = useAuthStore((state) => state.restoreSession);

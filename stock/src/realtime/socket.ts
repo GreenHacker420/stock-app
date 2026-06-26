@@ -3,6 +3,7 @@ import { io, type Socket } from "socket.io-client";
 const SOCKET_URL = process.env.EXPO_PUBLIC_API_URL ?? "https://shop-api.evergreenclassic.in";
 
 export type RealtimeEvent =
+  | "domain:event"
   | "order:updated"
   | "sale:updated"
   | "delivery-memo:updated"

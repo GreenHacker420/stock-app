@@ -14,11 +14,6 @@ export const createSale = asyncHandler(async (req, res) => {
     () => saleService.createSale(req.user, req.validated.body),
   );
   const sale = result.data;
-  if (!result.replayed) {
-    emitShopEvent(req, sale.shopId, REALTIME_EVENTS.SALE_UPDATED, { saleId: sale.id, action: "created" });
-    emitShopEvent(req, sale.shopId, REALTIME_EVENTS.PAYMENT_UPDATED, { saleId: sale.id, action: "created" });
-    emitShopEvent(req, sale.shopId, REALTIME_EVENTS.STOCK_UPDATED, { saleId: sale.id, action: "sale_created" });
-  }
   res.status(result.statusCode).json({ success: true, data: sale });
 });
 

@@ -4,6 +4,7 @@ import { startBroadcastDispatcherWorker } from "./whatsapp/broadcast-dispatcher.
 import { startBroadcastSendWorker } from "./whatsapp/broadcast-send.worker.js";
 import { startMediaDownloadWorker } from "./whatsapp/media-download.worker.js";
 import { startNotificationPushWorker } from "./notification-push.worker.js";
+import { startDomainEventDispatcherWorker } from "./domain-event-dispatcher.worker.js";
 
 /**
  * Initializes and starts all WhatsApp background queue workers.
@@ -18,6 +19,7 @@ export async function startAllWorkers() {
     const sender = startBroadcastSendWorker();
     const downloader = startMediaDownloadWorker();
     const notificationPush = startNotificationPushWorker();
+    const domainEvents = startDomainEventDispatcherWorker();
 
     console.log("[Workers Registry] All background workers started successfully.");
     
@@ -28,6 +30,7 @@ export async function startAllWorkers() {
       sender,
       downloader,
       notificationPush,
+      domainEvents,
     };
   } catch (error) {
     console.error("[Workers Registry] Failed to start background workers:", error.message);

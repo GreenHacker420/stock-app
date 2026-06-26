@@ -13,6 +13,7 @@ import { money, sub } from "../utils/money.js";
 import { checkAndLockStockForWalkin } from "./stock.service.js";
 import { captureCustomer, getOrCreateWalkIn } from "./customer.service.js";
 import { EntityType, AuditAction } from "../generated/prisma/index.js";
+import { createDomainEvent, enqueueManyDomainEvents } from "./domain-event.service.js";
 
 export async function createSale(user, data) {
   await assertShopAccess(user, data.shopId);
@@ -132,6 +133,72 @@ export async function createSale(user, data) {
         newValueJson: updatedSale,
       },
     });
+
+    await enqueueManyDomainEvents(tx, [
+      createDomainEvent({
+        shopId: data.shopId,
+        entity: "sale",
+        action: "created",
+        entityId: sale.id,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true },
+        notification: user.role === "STAFF"
+          ? {
+              sendPush: true,
+              title: "New sale recorded",
+              body: `A staff sale was recorded for ₹${Number(updatedSale.totalAmount).toLocaleString("en-IN")}.`,
+              severity: "success",
+              deepLink: `stock://sales/${sale.id}`,
+            }
+          : undefined,
+      }),
+      createDomainEvent({
+        shopId: data.shopId,
+        entity: "stock",
+        action: "updated",
+        entityId: sale.id,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true },
+      }),
+      createDomainEvent({
+        shopId: data.shopId,
+        entity: "customer",
+        action: "updated",
+        entityId: customer.id,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true },
+      }),
+      createDomainEvent({
+        shopId: data.shopId,
+        entity: "dashboard",
+        action: "updated",
+        entityId: data.shopId,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true },
+      }),
+      ...((data.payments || []).length > 0 ? [createDomainEvent({
+        shopId: data.shopId,
+        entity: "payment",
+        action: "created",
+        entityId: sale.id,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true },
+        notification: user.role === "STAFF"
+          ? {
+              sendPush: true,
+              title: "Payment recorded",
+              body: "A payment was recorded with a sale.",
+              severity: "info",
+              deepLink: `stock://sales/${sale.id}`,
+            }
+          : undefined,
+      })] : []),
+    ]);
 
     return updatedSale;
   });

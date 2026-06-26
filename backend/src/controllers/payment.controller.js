@@ -24,9 +24,6 @@ export const addPayment = asyncHandler(async (req, res) => {
     () => paymentService.addPayment(req.user, req.validated.body),
   );
   const payment = result.data;
-  if (!result.replayed) {
-    emitShopEvent(req, payment.shopId, REALTIME_EVENTS.PAYMENT_UPDATED, { paymentId: payment.id, action: "created" });
-  }
   res.status(result.statusCode).json({ success: true, data: payment });
 });
 

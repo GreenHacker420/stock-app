@@ -5,9 +5,14 @@ import * as Device from "expo-device";
 import { requestPermissionsAsync } from "expo-contacts";
 import Constants from "expo-constants";
 import { useAuthStore } from "../auth/auth-store";
+import { useShopStore } from "../auth/shop-store";
 import { registerDevice, UserDevicePlatform } from "../api/client";
 import { getDeviceInstallationId } from "./device-identity";
 import { getToken, setToken } from "../auth/token-storage";
+import { useQueryClient } from "@tanstack/react-query";
+import { handleDomainEvent, type DomainEvent } from "../realtime/domainEvents";
+import { runOfflineSyncOnce } from "../local/syncWorker";
+import { getCurrentNetworkStatus } from "../hooks/useNetworkStatus";
 
 const DEVICE_REGISTRATION_SIGNATURE_KEY = "shopcontrol_device_registration_signature";
 let registrationInFlight: Promise<string | null> | null = null;
@@ -134,6 +139,8 @@ async function registerDeviceIfChanged(token: string, payload: Parameters<typeof
 
 export function useNotificationSetup() {
   const token = useAuthStore((state) => state.token);
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  const queryClient = useQueryClient();
   const notificationListener = useRef<Notifications.EventSubscription | undefined>(undefined);
   const responseListener = useRef<Notifications.EventSubscription | undefined>(undefined);
 
@@ -147,12 +154,43 @@ export function useNotificationSetup() {
       console.warn("Contacts permission request failed:", error);
     });
 
-    notificationListener.current = Notifications.addNotificationReceivedListener(() => {});
-    responseListener.current = Notifications.addNotificationResponseReceivedListener(() => {});
+    const handleNotificationData = async (data: Record<string, unknown> = {}) => {
+      if (data.eventId && data.shopId && data.entity && data.action && data.entityId) {
+        handleDomainEvent(queryClient, {
+          eventId: String(data.eventId),
+          shopId: String(data.shopId),
+          entity: String(data.entity) as DomainEvent["entity"],
+          action: String(data.action),
+          entityId: String(data.entityId),
+          actorUserId: String(data.actorUserId || ""),
+          updatedAt: String(data.updatedAt || new Date().toISOString()),
+          queryKeys: typeof data.queryKeys === "string" ? data.queryKeys.split(",") : undefined,
+        });
+      } else if (data.shopId) {
+        queryClient.invalidateQueries({ queryKey: ["notifications"] });
+        queryClient.invalidateQueries({ queryKey: ["owner-dashboard"] });
+      }
+
+      if (token && activeShopId) {
+        const status = await getCurrentNetworkStatus();
+        if (status.isOnline) {
+          runOfflineSyncOnce({ shopId: activeShopId, token }).catch((error) => {
+            if (__DEV__) console.warn("[push] offline sync after notification failed", error);
+          });
+        }
+      }
+    };
+
+    notificationListener.current = Notifications.addNotificationReceivedListener((notification) => {
+      handleNotificationData(notification.request.content.data as Record<string, unknown>).catch(() => {});
+    });
+    responseListener.current = Notifications.addNotificationResponseReceivedListener((response) => {
+      handleNotificationData(response.notification.request.content.data as Record<string, unknown>).catch(() => {});
+    });
 
     return () => {
       notificationListener.current?.remove();
       responseListener.current?.remove();
     };
-  }, [token]);
+  }, [activeShopId, queryClient, token]);
 }

@@ -7,6 +7,7 @@ import { useShopStore } from "../auth/shop-store";
 import { createRealtimeSocket, type RealtimeEvent } from "./socket";
 import { NotificationToast } from "../components/ui/NotificationToast";
 import { getDeviceInstallationId } from "../notifications/device-identity";
+import { handleDomainEvent, type DomainEvent } from "./domainEvents";
 
 const realtimeEvents: RealtimeEvent[] = [
   "order:updated",
@@ -38,7 +39,7 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
     type: "info",
   });
 
-  const invalidationMap = useMemo<Record<RealtimeEvent, Array<unknown[]>>>(
+  const invalidationMap = useMemo<Partial<Record<RealtimeEvent, Array<unknown[]>>>>(
     () => ({
       "order:updated": [["orders", activeShopId]],
       "sale:updated": [["sales", activeShopId], ["daily-summary", activeShopId]],
@@ -147,9 +148,21 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
         emitPresence();
       });
 
+      socket.on("domain:event", (event: DomainEvent) => {
+        const handled = handleDomainEvent(queryClient, event);
+        if (handled && event.notification) {
+          setToast({
+            visible: true,
+            title: event.notification.title || "New activity",
+            message: event.notification.body || "Updates are available.",
+            type: event.notification.severity === "critical" ? "danger" : event.notification.severity || "info",
+          });
+        }
+      });
+
       for (const event of realtimeEvents) {
         socket.on(event, (payload?: any) => {
-          for (const queryKey of invalidationMap[event]) {
+          for (const queryKey of invalidationMap[event] || []) {
             if (payload?.conversationId && queryKey[0] === "wa-messages") {
               queryClient.invalidateQueries({ queryKey: ["wa-messages", payload.conversationId] });
             } else {
@@ -177,6 +190,7 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
       for (const event of realtimeEvents) {
         socket?.off(event);
       }
+      socket?.off("domain:event");
       socket?.disconnect();
       socketRef.current = null;
     };

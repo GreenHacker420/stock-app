@@ -7,6 +7,7 @@ import { listSales } from "./sale.service.js";
 import { listPayments } from "./payment.service.js";
 import { listDeliveryMemos } from "./deliveryMemo.service.js";
 import { EntityType, AuditAction } from "../generated/prisma/index.js";
+import { createDomainEvent, enqueueDomainEvent } from "./domain-event.service.js";
 
 export async function listCustomerSales(user, id, query) {
   const customer = await getCustomer(user, id);
@@ -231,35 +232,49 @@ export async function createCustomer(user, data) {
     if (existing) return { ...existing, merged: true, conflictType: "CUSTOMER_ALREADY_EXISTS" };
   }
 
-  const customer = await prisma.customer.create({
-    data: {
-      shopId: data.shopId,
-      name: data.name,
-      type: data.type || "REGULAR",
-      phone: data.phone,
-      email: data.email,
-      address: data.address,
-      city: data.city,
-      gstin: data.gstin,
-      contactPerson: data.contactPerson,
-      creditLimit: data.creditLimit ? money(data.creditLimit) : null,
-      notes: data.notes,
-      createdById: user.id,
-      outstandingAmount: money(data.outstandingAmount || 0),
-      advanceBalance: money(data.advanceBalance || 0),
-    },
-  });
+  return prisma.$transaction(async (tx) => {
+    const customer = await tx.customer.create({
+      data: {
+        shopId: data.shopId,
+        name: data.name,
+        type: data.type || "REGULAR",
+        phone: data.phone,
+        email: data.email,
+        address: data.address,
+        city: data.city,
+        gstin: data.gstin,
+        contactPerson: data.contactPerson,
+        creditLimit: data.creditLimit ? money(data.creditLimit) : null,
+        notes: data.notes,
+        createdById: user.id,
+        outstandingAmount: money(data.outstandingAmount || 0),
+        advanceBalance: money(data.advanceBalance || 0),
+      },
+    });
 
-  await writeAuditLog({
-    userId: user.id,
-    shopId: customer.shopId,
-    action: AuditAction.CREATED,
-    entityType: EntityType.CUSTOMER,
-    entityId: customer.id,
-    newValueJson: customer,
-  });
+    await tx.auditLog.create({
+      data: {
+        userId: user.id,
+        shopId: customer.shopId,
+        action: AuditAction.CREATED,
+        entityType: EntityType.CUSTOMER,
+        entityId: customer.id,
+        newValueJson: customer,
+      },
+    });
 
-  return customer;
+    await enqueueDomainEvent(tx, createDomainEvent({
+      shopId: customer.shopId,
+      entity: "customer",
+      action: "created",
+      entityId: customer.id,
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: true },
+    }));
+
+    return customer;
+  });
 }
 
 export async function updateCustomer(user, id, data) {

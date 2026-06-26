@@ -10,6 +10,7 @@ import {
 const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
 let redisPub;
 let redisSub;
+let realtimeIo;
 
 export const REALTIME_EVENTS = {
   ORDER_UPDATED: "order:updated",
@@ -57,7 +58,34 @@ async function canAccessShop(user, shopId) {
   return (user.role === "OWNER" && shop.ownerId === user.id) || (user.role === "STAFF" && shop.staffAccesses.length > 0);
 }
 
+async function getShopAccess(user, shopId) {
+  if (!user || !shopId) return null;
+  const shop = await prisma.shop.findUnique({
+    where: { id: shopId },
+    include: {
+      staffAccesses: {
+        where: { staffId: user.id },
+        select: { id: true },
+      },
+    },
+  });
+  if (!shop || shop.status !== "ACTIVE") return null;
+  if (user.role === "OWNER" && shop.ownerId === user.id) return { shop, roleRoom: "owners" };
+  if (user.role === "STAFF" && shop.staffAccesses.length > 0) return { shop, roleRoom: "staff" };
+  return null;
+}
+
+async function canUseDeviceRoom(userId, deviceId) {
+  if (!userId || !deviceId) return false;
+  const device = await prisma.userDevice.findFirst({
+    where: { id: deviceId, userId, revokedAt: null },
+    select: { id: true },
+  });
+  return Boolean(device);
+}
+
 export function configureRealtime(io) {
+  realtimeIo = io;
   // Initialize Redis pub/sub clients
   if (!redisSub) {
     redisSub = new Redis(REDIS_URL, { maxRetriesPerRequest: null });
@@ -95,6 +123,12 @@ export function configureRealtime(io) {
         ? socket.handshake.auth.deviceId
         : null;
       socket.join(`user:${user.id}`);
+      if (socket.deviceId && await canUseDeviceRoom(user.id, socket.deviceId)) {
+        socket.join(`device:${socket.deviceId}`);
+      } else if (socket.deviceId) {
+        console.warn("[Realtime] Unauthorized device room join attempt", { userId: user.id, deviceId: socket.deviceId });
+        socket.deviceId = null;
+      }
       return next();
     } catch {
       return next(new Error("Invalid token"));
@@ -103,8 +137,10 @@ export function configureRealtime(io) {
 
   io.on("connection", (socket) => {
     socket.on("shop:join", async ({ shopId } = {}) => {
-      if (await canAccessShop(socket.user, shopId)) {
+      const access = await getShopAccess(socket.user, shopId);
+      if (access) {
         socket.join(`shop:${shopId}`);
+        socket.join(`shop:${shopId}:${access.roleRoom}`);
         socket.activeShopId = shopId;
         if (socket.deviceId) {
           await updateDevicePresence({
@@ -118,12 +154,17 @@ export function configureRealtime(io) {
         }
         socket.emit("shop:joined", { shopId });
       } else {
+        console.warn("[Realtime] Unauthorized shop room join attempt", { userId: socket.user?.id, shopId });
         socket.emit("shop:join_error", { shopId, message: "Shop access denied" });
       }
     });
 
     socket.on("shop:leave", async ({ shopId } = {}) => {
-      if (shopId) socket.leave(`shop:${shopId}`);
+      if (shopId) {
+        socket.leave(`shop:${shopId}`);
+        socket.leave(`shop:${shopId}:owners`);
+        socket.leave(`shop:${shopId}:staff`);
+      }
       await disconnectDevicePresence({
         deviceId: socket.deviceId,
         userId: socket.user.id,
@@ -167,6 +208,20 @@ export function emitShopEvent(req, shopId, event, payload = {}) {
     shopId,
     emittedAt: new Date().toISOString(),
   });
+}
+
+export function emitDomainEvent(event) {
+  if (!realtimeIo || !event?.shopId) return;
+
+  const targets = new Set([`shop:${event.shopId}`]);
+  if (event.visibility?.owners) targets.add(`shop:${event.shopId}:owners`);
+  if (event.visibility?.staff) targets.add(`shop:${event.shopId}:staff`);
+  for (const userId of event.visibility?.targetUserIds || []) targets.add(`user:${userId}`);
+  for (const deviceId of event.visibility?.targetDeviceIds || []) targets.add(`device:${deviceId}`);
+
+  for (const room of targets) {
+    realtimeIo.to(room).emit("domain:event", event);
+  }
 }
 
 export async function publishWhatsAppEvent(shopId, event, data) {
