@@ -13,7 +13,7 @@ import { money, sub } from "../utils/money.js";
 import { checkAndLockStockForWalkin } from "./stock.service.js";
 import { captureCustomer, getOrCreateWalkIn } from "./customer.service.js";
 import { EntityType, AuditAction } from "../generated/prisma/index.js";
-import { createDomainEvent, enqueueManyDomainEvents } from "./domain-event.service.js";
+import { createDomainEvent, enqueueDomainEvent, enqueueManyDomainEvents } from "./domain-event.service.js";
 
 export async function createSale(user, data) {
   await assertShopAccess(user, data.shopId);
@@ -283,13 +283,27 @@ export async function updateGstInvoice(user, id, { gstInvoiceNumber }) {
 
   await assertShopAccess(user, sale.shopId);
 
-  return prisma.sale.update({
-    where: { id },
-    data: {
-      gstInvoiceStatus: "GENERATED",
-      gstInvoiceNumber,
-      gstInvoiceGeneratedAt: new Date(),
-    },
-    include: { customer: true, items: { include: { item: true } }, payments: true },
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.sale.update({
+      where: { id },
+      data: {
+        gstInvoiceStatus: "GENERATED",
+        gstInvoiceNumber,
+        gstInvoiceGeneratedAt: new Date(),
+      },
+      include: { customer: true, items: { include: { item: true } }, payments: true },
+    });
+
+    await enqueueDomainEvent(tx, {
+      shopId: sale.shopId,
+      entity: "sale",
+      action: "updated",
+      entityId: id,
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: true },
+    });
+
+    return updated;
   });
 }

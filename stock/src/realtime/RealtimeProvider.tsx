@@ -1,6 +1,6 @@
 import { PropsWithChildren, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { AppState, DeviceEventEmitter } from "react-native";
+import { AppState, AppStateStatus, DeviceEventEmitter } from "react-native";
 import type { Socket } from "socket.io-client";
 import { useAuthStore } from "../auth/auth-store";
 import { useShopStore } from "../auth/shop-store";
@@ -8,8 +8,13 @@ import { createRealtimeSocket, type RealtimeEvent } from "./socket";
 import { NotificationToast } from "../components/ui/NotificationToast";
 import { getDeviceInstallationId } from "../notifications/device-identity";
 import { handleDomainEvent, type DomainEvent } from "./domainEvents";
+import { mmkvStorage } from "../auth/mmkv-storage";
 
-const realtimeEvents: RealtimeEvent[] = [
+/**
+ * Legacy Socket.IO events (kept for WhatsApp and legacy compatibility).
+ * All core domain state changes travel via the `domain:event` channel.
+ */
+const legacyEvents: RealtimeEvent[] = [
   "order:updated",
   "sale:updated",
   "delivery-memo:updated",
@@ -112,12 +117,7 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
       cleanMessage = String(cleanMessage || "New activity detected.");
     }
 
-    setToast({
-      visible: true,
-      title: cleanTitle,
-      message: cleanMessage,
-      type,
-    });
+    setToast({ visible: true, title: cleanTitle, message: cleanMessage, type });
   };
 
   useEffect(() => {
@@ -127,7 +127,16 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
     let socket: Socket | null = null;
     let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
-    const emitPresence = (state = AppState.currentState) => {
+    const CURSOR_KEY = `domain_event_cursor:${activeShopId}`;
+
+    // this will send the sync request event to the server 
+    const requestMissedEvents = () => {
+      if (!socket?.connected) return;
+      const since = mmkvStorage.getItem(CURSOR_KEY) ?? undefined;
+      socket.emit("sync:request", { shopId: activeShopId, since });
+    };
+
+    const emitPresence = (state: AppStateStatus = AppState.currentState) => {
       if (!socket?.connected) return;
       socket.emit("presence:heartbeat", {
         shopId: activeShopId,
@@ -136,45 +145,54 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
       });
     };
 
-    const appStateSubscription = AppState.addEventListener("change", emitPresence);
+    const handleAppStateChange = (nextAppState: AppStateStatus) => {
+      emitPresence(nextAppState);
+      // When the app returns to foreground, request any missed events via socket push.
+      if (nextAppState === "active") {
+        requestMissedEvents();
+      }
+    };
 
-    void getDeviceInstallationId().then((deviceId) => {
+    const appStateSubscription = AppState.addEventListener("change", handleAppStateChange);
+
+    void getDeviceInstallationId().then((deviceId: string) => {
       if (cancelled) return;
       socket = createRealtimeSocket(token, deviceId);
       socketRef.current = socket;
 
-      let lastReconnectTime = 0;
       socket.on("connect", () => {
         socket?.emit("shop:join", { shopId: activeShopId });
         emitPresence();
-
-        const now = Date.now();
-        if (now - lastReconnectTime > 10_000) {
-          lastReconnectTime = now;
-          queryClient.invalidateQueries({ queryKey: ["sales", activeShopId] });
-          queryClient.invalidateQueries({ queryKey: ["payments", activeShopId] });
-          queryClient.invalidateQueries({ queryKey: ["current-stock", activeShopId] });
-          queryClient.invalidateQueries({ queryKey: ["orders", activeShopId] });
-          queryClient.invalidateQueries({ queryKey: ["delivery-memos", activeShopId] });
-          queryClient.invalidateQueries({ queryKey: ["current-cash-session", activeShopId] });
-          queryClient.invalidateQueries({ queryKey: ["owner-dashboard", { shopId: activeShopId }] });
-          queryClient.invalidateQueries({ queryKey: ["notifications", { shopId: activeShopId }] });
-        }
+        requestMissedEvents();
       });
 
       socket.on("domain:event", (event: DomainEvent) => {
         const handled = handleDomainEvent(queryClient, event, deviceId);
-        if (handled && event.notification) {
-          setToast({
-            visible: true,
-            title: event.notification.title || "New activity",
-            message: event.notification.body || "Updates are available.",
-            type: event.notification.severity === "critical" ? "danger" : event.notification.severity || "info",
-          });
+        if (handled) {
+          if (event.updatedAt) {
+            mmkvStorage.setItem(CURSOR_KEY, event.updatedAt);
+          }
+          if (event.notification) {
+            setToast({
+              visible: true,
+              title: event.notification.title || "New activity",
+              message: event.notification.body || "Updates are available.",
+              type: event.notification.severity === "critical" ? "danger" : (event.notification.severity ?? "info"),
+            });
+          }
         }
       });
 
-      for (const event of realtimeEvents) {
+      
+      // when all sync work completes the sync:complete event will be sent
+      socket.on("sync:complete", ({ nextCursor }: { shopId: string; count: number; nextCursor: string | null }) => {
+        if (nextCursor) {
+          mmkvStorage.setItem(CURSOR_KEY, nextCursor);
+        }
+      });
+
+      // Legacy events — kept for WhatsApp realtime and any non-migrated paths
+      for (const event of legacyEvents) {
         socket.on(event, (payload?: any) => {
           for (const queryKey of invalidationMap[event] || []) {
             if (payload?.conversationId && queryKey[0] === "wa-messages") {
@@ -201,10 +219,11 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
       appStateSubscription.remove();
       if (heartbeatTimer) clearInterval(heartbeatTimer);
       socket?.emit("shop:leave", { shopId: activeShopId });
-      for (const event of realtimeEvents) {
+      socket?.off("domain:event");
+      socket?.off("sync:complete");
+      for (const event of legacyEvents) {
         socket?.off(event);
       }
-      socket?.off("domain:event");
       socket?.disconnect();
       socketRef.current = null;
     };

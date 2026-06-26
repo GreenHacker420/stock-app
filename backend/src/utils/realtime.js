@@ -7,6 +7,8 @@ import {
   updateDevicePresence,
 } from "../services/device-presence.service.js";
 
+const MAX_SYNC_EVENTS = 100;
+
 const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
 let redisPub;
 let redisSub;
@@ -193,6 +195,39 @@ export function configureRealtime(io) {
         socketId: socket.id,
       });
       socket.emit("presence:ack", { shopId, state, available, at: new Date().toISOString() });
+    });
+
+    socket.on("sync:request", async ({ shopId, since } = {}) => {
+      if (!shopId || !(await canAccessShop(socket.user, shopId))) {
+        socket.emit("sync:error", { shopId, message: "Shop access denied" });
+        return;
+      }
+      try {
+        const where = {
+          shopId,
+          status: "delivered",
+          ...(since ? { updatedAt: { gt: new Date(since) } } : {}),
+        };
+        const outbox = await prisma.domainEventOutbox.findMany({
+          where,
+          orderBy: { createdAt: "asc" },
+          take: MAX_SYNC_EVENTS,
+          select: { eventJson: true },
+        });
+
+        const events = outbox.map((row) => row.eventJson);
+        // Emit each missed event individually — client deduplication handles duplicates
+        for (const event of events) {
+          socket.emit("domain:event", event);
+        }
+        const nextCursor = events.length > 0
+          ? events[events.length - 1].updatedAt
+          : since || null;
+        socket.emit("sync:complete", { shopId, count: events.length, nextCursor });
+      } catch (err) {
+        console.error("[Realtime] sync:request error:", err.message);
+        socket.emit("sync:error", { shopId, message: "Sync failed" });
+      }
     });
 
     socket.on("disconnect", async () => {

@@ -32,6 +32,7 @@ function notificationTriggerFor(event) {
   if (event.entity === "stock" && event.action === "low_stock") return "LOW_STOCK";
   if (event.entity === "approval" && event.action === "created") return "APPROVAL_REQUESTED";
   if (event.entity === "approval") return "APPROVAL_RESOLVED";
+  if (event.entity === "order" && event.action === "assigned") return "ORDER_ASSIGNED";
   return "TEST_NOTIFICATION";
 }
 
@@ -137,10 +138,15 @@ export async function dispatchPendingDomainEvents() {
   if (dispatching) return { skipped: true, processed: 0 };
   dispatching = true;
   let processed = 0;
+  const dispatchStart = Date.now();
 
   try {
     const rows = await claimRows();
+    if (rows.length > 0) {
+      console.log(`[DomainEventDispatcher] Claimed ${rows.length} pending events for dispatch`);
+    }
     for (const row of rows) {
+      const startTime = Date.now();
       let event;
       try {
         event = row.eventJson;
@@ -177,6 +183,10 @@ export async function dispatchPendingDomainEvents() {
           },
         });
         processed += 1;
+
+        const latencyMs = Date.now() - startTime;
+        const eventAgeMs = Date.now() - new Date(row.createdAt).getTime();
+        console.log(`[DomainEventDispatcher] Event dispatched successfully: id=${event.eventId}, shopId=${event.shopId}, entity=${event.entity}, action=${event.action}, latencyMs=${latencyMs}ms, eventAgeMs=${eventAgeMs}ms`);
       } catch (error) {
         console.error(`[DomainEventDispatcher] Failed to dispatch event=${row.id}:`, error.message);
         const attempts = row.attempts + 1;
@@ -194,6 +204,12 @@ export async function dispatchPendingDomainEvents() {
         });
       }
     }
+
+    if (processed > 0) {
+      const totalDuration = Date.now() - dispatchStart;
+      console.log(`[DomainEventDispatcher] Dispatch batch completed: processed=${processed} events in durationMs=${totalDuration}ms`);
+    }
+
     return { skipped: false, processed };
   } finally {
     dispatching = false;

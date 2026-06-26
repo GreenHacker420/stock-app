@@ -1055,3 +1055,19 @@ export async function createDeliveryMemo(token: string, data: any) {
     body: JSON.stringify(data),
   });
 }
+
+export async function syncDomainEvents(
+  token: string,
+  shopId: string,
+  after?: string,
+  limit?: number,
+) {
+  let url = `/sync/domain-events?shopId=${encodeURIComponent(shopId)}`;
+  if (after) {
+    url += `&after=${encodeURIComponent(after)}`;
+  }
+  if (limit) {
+    url += `&limit=${limit}`;
+  }
+  return apiRequest<{ events: any[]; nextCursor: string | null }>(url, { token });
+}

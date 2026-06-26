@@ -6,6 +6,7 @@ import { notifyShopOwner } from "./notification.service.js";
 import { qty, ZERO } from "../utils/money.js";
 import { createApprovalRequest } from "./approval.service.js";
 import { EntityType, AuditAction } from "../generated/prisma/index.js";
+import { createDomainEvent, enqueueDomainEvent, enqueueManyDomainEvents } from "./domain-event.service.js";
 
 export async function getCurrentStock(user, { shopId, itemId }) {
   await assertShopAccess(user, shopId);
@@ -134,30 +135,44 @@ export async function createMovement(user, data) {
     throw new ApiError(400, "Movement cannot add and remove stock in the same row");
   }
 
-  const movement = await prisma.stockLedger.create({
-    data: {
+  return prisma.$transaction(async (tx) => {
+    const movement = await tx.stockLedger.create({
+      data: {
+        shopId: data.shopId,
+        itemId: data.itemId,
+        movementType: data.movementType,
+        quantityIn,
+        quantityOut,
+        reason: data.reason,
+        createdById: user.id,
+        approvedById: user.role === "OWNER" ? user.id : undefined,
+      },
+    });
+
+    await tx.auditLog.create({
+      data: {
+        userId: user.id,
+        shopId: data.shopId,
+        action: AuditAction.MOVEMENT_CREATED,
+        entityType: EntityType.STOCK_LEDGER,
+        entityId: movement.id,
+        newValueJson: movement,
+        reason: data.reason,
+      },
+    });
+
+    await enqueueDomainEvent(tx, {
       shopId: data.shopId,
-      itemId: data.itemId,
-      movementType: data.movementType,
-      quantityIn,
-      quantityOut,
-      reason: data.reason,
-      createdById: user.id,
-      approvedById: user.role === "OWNER" ? user.id : undefined,
-    },
-  });
+      entity: "stock",
+      action: "updated",
+      entityId: data.itemId,
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: true },
+    });
 
-  await writeAuditLog({
-    userId: user.id,
-    shopId: data.shopId,
-    action: AuditAction.MOVEMENT_CREATED,
-    entityType: EntityType.STOCK_LEDGER,
-    entityId: movement.id,
-    newValueJson: movement,
-    reason: data.reason,
+    return movement;
   });
-
-  return movement;
 }
 
 export async function bulkStockEntry(user, data) {
@@ -218,6 +233,7 @@ export async function bulkStockEntry(user, data) {
   // Create stock movements inside a transaction for non-staff (owner)
   const movements = await prisma.$transaction(async (tx) => {
     const list = [];
+    const events = [];
     for (const entry of data.entries) {
       const isPositive = Number(entry.quantity) > 0;
       const movement = await tx.stockLedger.create({
@@ -233,7 +249,18 @@ export async function bulkStockEntry(user, data) {
         },
       });
       list.push(movement);
+
+      events.push(createDomainEvent({
+        shopId: data.shopId,
+        entity: "stock",
+        action: "updated",
+        entityId: entry.itemId,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true },
+      }));
     }
+    await enqueueManyDomainEvents(tx, events);
     return list;
   });
 

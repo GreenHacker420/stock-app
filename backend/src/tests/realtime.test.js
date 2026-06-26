@@ -3,6 +3,7 @@ import assert from "node:assert";
 import prisma from "../lib/db.js";
 import { getShopAccess, canUseDeviceRoom, configureRealtime, getDomainEventRooms } from "../utils/realtime.js";
 import { dispatchPendingDomainEvents, closeRedis } from "../workers/domain-event-dispatcher.worker.js";
+import { syncDomainEvents } from "../controllers/sync.controller.js";
 import * as customerService from "../services/customer.service.js";
 import * as saleService from "../services/sale.service.js";
 import * as paymentService from "../services/payment.service.js";
@@ -270,6 +271,200 @@ test.describe("ShopControl Realtime & Outbox Hardening Tests", () => {
       const updated = await prisma.domainEventOutbox.findUnique({ where: { id: invalidEvent.id } });
       assert.strictEqual(updated.status, "failed", "Validation failure should fail permanently");
       assert.strictEqual(updated.attempts, 8, "Validation failure should jump to max attempts directly");
+    });
+  });
+
+  test.describe("Event Reconciliation Sync Endpoint Tests", () => {
+    test.beforeEach(async () => {
+      await prisma.domainEventOutbox.deleteMany({});
+    });
+
+    test("1. Returns events for the shop, ordered by createdAt ASC", async () => {
+      const time1 = new Date();
+      time1.setSeconds(time1.getSeconds() - 10);
+      const time2 = new Date();
+      time2.setSeconds(time2.getSeconds() - 5);
+
+      await prisma.domainEventOutbox.createMany({
+        data: [
+          {
+            id: "evt_sync_1",
+            shopId: shop.id,
+            entity: "stock",
+            action: "updated",
+            entityId: "item_1",
+            status: "published",
+            createdAt: time1,
+            eventJson: { eventId: "evt_sync_1", shopId: shop.id, entity: "stock", action: "updated", entityId: "item_1", actorUserId: owner.id, updatedAt: time1.toISOString() }
+          },
+          {
+            id: "evt_sync_2",
+            shopId: shop.id,
+            entity: "sale",
+            action: "created",
+            entityId: "sale_1",
+            status: "published",
+            createdAt: time2,
+            eventJson: { eventId: "evt_sync_2", shopId: shop.id, entity: "sale", action: "created", entityId: "sale_1", actorUserId: owner.id, updatedAt: time2.toISOString() }
+          },
+          {
+            id: "evt_sync_other",
+            shopId: otherShop.id,
+            entity: "stock",
+            action: "updated",
+            entityId: "item_2",
+            status: "published",
+            eventJson: { eventId: "evt_sync_other", shopId: otherShop.id, entity: "stock", action: "updated", entityId: "item_2", actorUserId: otherOwner.id, updatedAt: new Date().toISOString() }
+          },
+          {
+            id: "evt_sync_pending",
+            shopId: shop.id,
+            entity: "order",
+            action: "created",
+            entityId: "order_1",
+            status: "pending",
+            eventJson: { eventId: "evt_sync_pending", shopId: shop.id, entity: "order", action: "created", entityId: "order_1", actorUserId: owner.id, updatedAt: new Date().toISOString() }
+          }
+        ]
+      });
+
+      const req = {
+        validated: {
+          query: {
+            shopId: shop.id,
+            after: undefined,
+            limit: 10
+          }
+        }
+      };
+
+      const responseData = await new Promise((resolve) => {
+        const res = {
+          json(payload) {
+            resolve(payload);
+          }
+        };
+        syncDomainEvents(req, res);
+      });
+
+      assert.ok(responseData.success, "Request should succeed");
+      const events = responseData.data.events;
+      assert.strictEqual(events.length, 2, "Should return exactly 2 published events for the shop");
+      assert.strictEqual(events[0].eventId, "evt_sync_1", "First event should be evt_sync_1");
+      assert.strictEqual(events[1].eventId, "evt_sync_2", "Second event should be evt_sync_2");
+      assert.strictEqual(responseData.data.nextCursor !== null, true, "Should return a nextCursor");
+    });
+
+    test("2. Respects the 'after' cursor filter", async () => {
+      const time1 = new Date();
+      time1.setSeconds(time1.getSeconds() - 10);
+      const time2 = new Date();
+      time2.setSeconds(time2.getSeconds() - 5);
+
+      await prisma.domainEventOutbox.createMany({
+        data: [
+          {
+            id: "evt_sync_1",
+            shopId: shop.id,
+            entity: "stock",
+            action: "updated",
+            entityId: "item_1",
+            status: "published",
+            createdAt: time1,
+            eventJson: { eventId: "evt_sync_1", shopId: shop.id, entity: "stock", action: "updated", entityId: "item_1", actorUserId: owner.id, updatedAt: time1.toISOString() }
+          },
+          {
+            id: "evt_sync_2",
+            shopId: shop.id,
+            entity: "sale",
+            action: "created",
+            entityId: "sale_1",
+            status: "published",
+            createdAt: time2,
+            eventJson: { eventId: "evt_sync_2", shopId: shop.id, entity: "sale", action: "created", entityId: "sale_1", actorUserId: owner.id, updatedAt: time2.toISOString() }
+          }
+        ]
+      });
+
+      const req = {
+        validated: {
+          query: {
+            shopId: shop.id,
+            after: time1.toISOString(),
+            limit: 10
+          }
+        }
+      };
+
+      const responseData = await new Promise((resolve) => {
+        const res = {
+          json(payload) {
+            resolve(payload);
+          }
+        };
+        syncDomainEvents(req, res);
+      });
+
+      assert.ok(responseData.success);
+      const events = responseData.data.events;
+      assert.strictEqual(events.length, 1, "Should only return events after the cursor");
+      assert.strictEqual(events[0].eventId, "evt_sync_2", "Should return the second event");
+    });
+
+    test("3. Respects the 'limit' parameter", async () => {
+      const time1 = new Date();
+      time1.setSeconds(time1.getSeconds() - 10);
+      const time2 = new Date();
+      time2.setSeconds(time2.getSeconds() - 5);
+
+      await prisma.domainEventOutbox.createMany({
+        data: [
+          {
+            id: "evt_sync_1",
+            shopId: shop.id,
+            entity: "stock",
+            action: "updated",
+            entityId: "item_1",
+            status: "published",
+            createdAt: time1,
+            eventJson: { eventId: "evt_sync_1", shopId: shop.id, entity: "stock", action: "updated", entityId: "item_1", actorUserId: owner.id, updatedAt: time1.toISOString() }
+          },
+          {
+            id: "evt_sync_2",
+            shopId: shop.id,
+            entity: "sale",
+            action: "created",
+            entityId: "sale_1",
+            status: "published",
+            createdAt: time2,
+            eventJson: { eventId: "evt_sync_2", shopId: shop.id, entity: "sale", action: "created", entityId: "sale_1", actorUserId: owner.id, updatedAt: time2.toISOString() }
+          }
+        ]
+      });
+
+      const req = {
+        validated: {
+          query: {
+            shopId: shop.id,
+            after: undefined,
+            limit: 1
+          }
+        }
+      };
+
+      const responseData = await new Promise((resolve) => {
+        const res = {
+          json(payload) {
+            resolve(payload);
+          }
+        };
+        syncDomainEvents(req, res);
+      });
+
+      assert.ok(responseData.success);
+      const events = responseData.data.events;
+      assert.strictEqual(events.length, 1, "Should return only 1 event due to limit");
+      assert.strictEqual(events[0].eventId, "evt_sync_1", "Should return the first event");
     });
   });
 });

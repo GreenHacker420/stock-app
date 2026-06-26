@@ -2,6 +2,7 @@ import prisma from "../lib/db.js";
 import { ApiError } from "../utils/ApiError.js";
 import { writeAuditLog } from "../utils/auditLog.js";
 import { EntityType, AuditAction } from "../generated/prisma/index.js";
+import { createDomainEvent, enqueueDomainEvent, enqueueManyDomainEvents } from "./domain-event.service.js";
 
 export async function listShops(user) {
   const includeStaff = {
@@ -41,31 +42,45 @@ export async function listShops(user) {
 }
 
 export async function createShop(user, data) {
-  const shop = await prisma.shop.create({
-    data: {
-      name: data.name,
-      code: data.code,
-      city: data.city,
-      address: data.address,
-      phone: data.phone,
-      email: data.email,
-      gstin: data.gstin,
-      logo: data.logo,
-      upiId: data.upiId,
-      upiName: data.upiName,
-      ownerId: user.id,
-    },
-  });
+  const shop = await prisma.$transaction(async (tx) => {
+    const created = await tx.shop.create({
+      data: {
+        name: data.name,
+        code: data.code,
+        city: data.city,
+        address: data.address,
+        phone: data.phone,
+        email: data.email,
+        gstin: data.gstin,
+        logo: data.logo,
+        upiId: data.upiId,
+        upiName: data.upiName,
+        ownerId: user.id,
+      },
+    });
 
-  await prisma.auditLog.create({
-    data: {
-      userId: user.id,
-      shopId: shop.id,
-      action: AuditAction.CREATED,
-      entityType: EntityType.SHOP,
-      entityId: shop.id,
-      newValueJson: shop,
-    }
+    await tx.auditLog.create({
+      data: {
+        userId: user.id,
+        shopId: created.id,
+        action: AuditAction.CREATED,
+        entityType: EntityType.SHOP,
+        entityId: created.id,
+        newValueJson: created,
+      }
+    });
+
+    await enqueueDomainEvent(tx, createDomainEvent({
+      shopId: created.id,
+      entity: "shop",
+      action: "created",
+      entityId: created.id,
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: false },
+    }));
+
+    return created;
   });
 
   return shop;
@@ -77,21 +92,35 @@ export async function updateShop(user, shopId, data) {
     throw new ApiError(404, "Shop not found");
   }
 
-  const shop = await prisma.shop.update({
-    where: { id: shopId },
-    data,
-  });
+  const shop = await prisma.$transaction(async (tx) => {
+    const updated = await tx.shop.update({
+      where: { id: shopId },
+      data,
+    });
 
-  await prisma.auditLog.create({
-    data: {
-      userId: user.id,
+    await tx.auditLog.create({
+      data: {
+        userId: user.id,
+        shopId,
+        action: AuditAction.UPDATED,
+        entityType: EntityType.SHOP,
+        entityId: shopId,
+        oldValueJson: existing,
+        newValueJson: updated,
+      }
+    });
+
+    await enqueueDomainEvent(tx, createDomainEvent({
       shopId,
-      action: AuditAction.UPDATED,
-      entityType: EntityType.SHOP,
+      entity: "shop",
+      action: "updated",
       entityId: shopId,
-      oldValueJson: existing,
-      newValueJson: shop,
-    }
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: true },
+    }));
+
+    return updated;
   });
 
   return shop;
@@ -111,29 +140,36 @@ export async function assignStaff(user, shopId, staffId) {
     throw new ApiError(400, "Active staff user not found");
   }
 
-  const access = await prisma.staffShopAccess.upsert({
-    where: {
-      staffId_shopId: {
-        staffId,
-        shopId,
-      },
-    },
-    update: {},
-    create: {
-      staffId,
-      shopId,
-    },
-  });
+  const access = await prisma.$transaction(async (tx) => {
+    const upserted = await tx.staffShopAccess.upsert({
+      where: { staffId_shopId: { staffId, shopId } },
+      update: {},
+      create: { staffId, shopId },
+    });
 
-  await prisma.auditLog.create({
-    data: {
-      userId: user.id,
+    await tx.auditLog.create({
+      data: {
+        userId: user.id,
+        shopId,
+        action: AuditAction.STAFF_ASSIGNED,
+        entityType: EntityType.STAFF_SHOP_ACCESS,
+        entityId: upserted.id,
+        newValueJson: upserted,
+      }
+    });
+
+    // Notify the newly assigned staff member directly
+    await enqueueDomainEvent(tx, createDomainEvent({
       shopId,
-      action: AuditAction.STAFF_ASSIGNED,
-      entityType: EntityType.STAFF_SHOP_ACCESS,
-      entityId: access.id,
-      newValueJson: access,
-    }
+      entity: "shop",
+      action: "staff_assigned",
+      entityId: upserted.id,
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: false, targetUserIds: [staffId] },
+    }));
+
+    return upserted;
   });
 
   return access;
@@ -175,6 +211,19 @@ export async function setOpeningStock(user, shopId, entries) {
         }),
       ),
     );
+
+    const events = entries.map((entry) =>
+      createDomainEvent({
+        shopId,
+        entity: "stock",
+        action: "updated",
+        entityId: entry.itemId,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true },
+      })
+    );
+    await enqueueManyDomainEvents(tx, events);
 
     return rows;
   });

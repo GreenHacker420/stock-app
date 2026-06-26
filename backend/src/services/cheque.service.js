@@ -6,6 +6,7 @@ import { notifyShopOwner, createNotification } from "./notification.service.js";
 import { money, add, sub, isZero } from "../utils/money.js";
 import { EntityType, AuditAction } from "../generated/prisma/index.js";
 import { increaseCustomerDebt } from "./transactionHelpers.js";
+import { createDomainEvent, enqueueDomainEvent } from "./domain-event.service.js";
 
 async function getChequePayment(user, id) {
   const payment = await prisma.payment.findUnique({
@@ -107,6 +108,15 @@ export async function updateChequeStatus(user, id, status, { reason } = {}) {
         newValueJson: details,
         reason,
       }
+    });
+    await enqueueDomainEvent(tx, {
+      shopId: existing.shopId,
+      entity: "payment",
+      action: "updated",
+      entityId: id,
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: true },
     });
 
     return payment;

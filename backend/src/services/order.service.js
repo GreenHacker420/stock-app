@@ -1,6 +1,7 @@
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 import { createNotification } from "./notification.service.js";
+import { createDomainEvent, enqueueDomainEvent, enqueueManyDomainEvents } from "./domain-event.service.js";
 import {
   applyPayments,
   calculateItemTotals,
@@ -103,15 +104,6 @@ export async function createOrder(user, data) {
           staffId: data.assignedStaffId,
         },
       });
-
-      await createNotification(tx, {
-        userId: data.assignedStaffId,
-        shopId: data.shopId,
-        triggerEvent: "ORDER_ASSIGNED",
-        entityType: EntityType.ORDER,
-        entityId: order.id,
-        message: `New order #${order.orderNumber} assigned to you for packing.`,
-      });
     }
 
     await tx.auditLog.create({
@@ -124,6 +116,39 @@ export async function createOrder(user, data) {
         newValueJson: order,
       },
     });
+
+    const events = [
+      createDomainEvent({
+        shopId: data.shopId,
+        entity: "order",
+        action: "created",
+        entityId: order.id,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true }
+      })
+    ];
+
+    if (data.assignedStaffId) {
+      events.push(createDomainEvent({
+        shopId: data.shopId,
+        entity: "order",
+        action: "assigned",
+        entityId: order.id,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { targetUserIds: [data.assignedStaffId], owners: true, staff: false },
+        notification: {
+          sendPush: true,
+          title: "New order assigned",
+          body: `New order #${order.orderNumber} assigned to you for packing.`,
+          severity: "info",
+          deepLink: `stock://orders/${order.id}`
+        }
+      }));
+    }
+
+    await enqueueManyDomainEvents(tx, events);
 
     return order;
   });
@@ -184,6 +209,16 @@ export async function confirmOrder(user, id) {
       },
     });
 
+    await enqueueDomainEvent(tx, createDomainEvent({
+      shopId: order.shopId,
+      entity: "order",
+      action: "confirmed",
+      entityId: order.id,
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: true }
+    }));
+
     return updated;
   });
 }
@@ -226,6 +261,23 @@ export async function assignStaff(user, id, staffId) {
       },
     });
 
+    await enqueueDomainEvent(tx, createDomainEvent({
+      shopId: order.shopId,
+      entity: "order",
+      action: "assigned",
+      entityId: order.id,
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { targetUserIds: [staffId], owners: true, staff: false },
+      notification: {
+        sendPush: true,
+        title: "New order assigned",
+        body: `New order #${order.orderNumber} assigned to you for packing.`,
+        severity: "info",
+        deepLink: `stock://orders/${order.id}`
+      }
+    }));
+
     return updated;
   });
 }
@@ -254,6 +306,16 @@ export async function startPacking(user, id) {
         createdById: user.id,
       },
     });
+
+    await enqueueDomainEvent(tx, createDomainEvent({
+      shopId: order.shopId,
+      entity: "order",
+      action: "packing_started",
+      entityId: order.id,
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: true }
+    }));
 
     return updated;
   });
@@ -304,6 +366,16 @@ export async function markItemPacked(user, id, { orderItemId, quantityPacked }) 
         note: `Packed ${quantityPacked}`,
       },
     });
+
+    await enqueueDomainEvent(tx, createDomainEvent({
+      shopId: order.shopId,
+      entity: "order",
+      action: "item_packed",
+      entityId: order.id,
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: true }
+    }));
   });
 
   return getOrder(user, id);
@@ -344,6 +416,16 @@ export async function reportShortage(user, id, { orderItemId, availableQuantity,
         note: reason,
       },
     });
+
+    await enqueueDomainEvent(tx, createDomainEvent({
+      shopId: order.shopId,
+      entity: "order",
+      action: "shortage_reported",
+      entityId: order.id,
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: true }
+    }));
   });
 
   return getOrder(user, id);
@@ -379,6 +461,27 @@ export async function addPayment(user, id, payments) {
         createdById: user.id,
       },
     });
+
+    await enqueueManyDomainEvents(tx, [
+      createDomainEvent({
+        shopId: order.shopId,
+        entity: "order",
+        action: "payment_added",
+        entityId: order.id,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true }
+      }),
+      createDomainEvent({
+        shopId: order.shopId,
+        entity: "payment",
+        action: "created",
+        entityId: order.id,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true }
+      })
+    ]);
 
     return updated;
   });
@@ -496,6 +599,36 @@ export async function createDmFromOrder(user, id, data) {
     await createDispatchFromOrder(tx, user, order, items, { dmId: dm.id });
     await tx.order.update({ where: { id }, data: { status: "DISPATCHED" } });
 
+    await enqueueManyDomainEvents(tx, [
+      createDomainEvent({
+        shopId: order.shopId,
+        entity: "deliveryMemo",
+        action: "created",
+        entityId: dm.id,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true }
+      }),
+      createDomainEvent({
+        shopId: order.shopId,
+        entity: "stock",
+        action: "updated",
+        entityId: dm.id,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true }
+      }),
+      createDomainEvent({
+        shopId: order.shopId,
+        entity: "order",
+        action: "updated",
+        entityId: order.id,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true }
+      })
+    ]);
+
     return dm;
   });
 }
@@ -593,6 +726,45 @@ export async function convertOrderToSale(user, id, data) {
         paymentStatus: getBillPaymentStatus(Number(order.totalAmount), Number(order.paidAmount)),
       },
     });
+
+    await enqueueManyDomainEvents(tx, [
+      createDomainEvent({
+        shopId: order.shopId,
+        entity: "sale",
+        action: "created",
+        entityId: sale.id,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true }
+      }),
+      createDomainEvent({
+        shopId: order.shopId,
+        entity: "stock",
+        action: "updated",
+        entityId: sale.id,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true }
+      }),
+      createDomainEvent({
+        shopId: order.shopId,
+        entity: "order",
+        action: "updated",
+        entityId: order.id,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true }
+      }),
+      ...((data.payments || []).length > 0 ? [createDomainEvent({
+        shopId: order.shopId,
+        entity: "payment",
+        action: "created",
+        entityId: sale.id,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true }
+      })] : [])
+    ]);
 
     return updatedSale;
   });
