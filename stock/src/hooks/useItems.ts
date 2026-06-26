@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
 import { useAuthStore } from "../auth/auth-store";
 import { useShopStore } from "../auth/shop-store";
@@ -24,6 +25,7 @@ import {
   ItemCategory,
   ItemSummary,
 } from "../api/client";
+import { upsertLocalItemsFromServer } from "../local/localBilling";
 
 export function useItemSummaryQuery() {
   const token = useAuthStore((state) => state.token);
@@ -57,7 +59,7 @@ export function useInfiniteItemsQuery(opts: { search?: string; limit?: number } 
 export function useItemsQuery(opts: { search?: string; categoryId?: string; page?: number; limit?: number; enabled?: boolean } = {}) {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
-  return useQuery({
+  const query = useQuery({
     queryKey: [...queryKeys.items(activeShopId ?? "", opts.search), opts.categoryId],
     queryFn: () =>
       fetchItems(token ?? "", activeShopId ?? "", {
@@ -69,6 +71,15 @@ export function useItemsQuery(opts: { search?: string; categoryId?: string; page
     enabled: (opts.enabled ?? true) && !!token && !!activeShopId,
     staleTime: 30 * 60 * 1000, // 30 mins for offline-first
   });
+
+  useEffect(() => {
+    if (!activeShopId || !query.data?.items) return;
+    upsertLocalItemsFromServer(activeShopId, query.data.items).catch((error) => {
+      if (__DEV__) console.warn("[local-cache] items upsert failed", error);
+    });
+  }, [activeShopId, query.data]);
+
+  return query;
 }
 
 

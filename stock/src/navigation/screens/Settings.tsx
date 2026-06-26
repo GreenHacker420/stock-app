@@ -1,11 +1,14 @@
 import { useState, useEffect } from "react";
 import { View, StyleSheet, ScrollView, Pressable, Platform } from "react-native";
 import { Text, Icon, Divider, Portal, Modal, Button, Switch } from "react-native-paper";
+import { useQuery } from "@tanstack/react-query";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { Section } from "../../components/ui/Section";
 import { useAuthStore } from "../../auth/auth-store";
+import { useShopStore } from "../../auth/shop-store";
 import { getToken, setToken } from "../../auth/token-storage";
+import { getPendingSyncCounts } from "../../local/localBilling";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { navigate, goBack } from "../navigation-ref";
 
@@ -69,6 +72,13 @@ function SettingRow({
 
 export function Settings() {
   const user = useAuthStore((state) => state.user);
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  const syncCountsQuery = useQuery({
+    queryKey: ["local-sync-counts", activeShopId],
+    queryFn: () => getPendingSyncCounts(activeShopId ?? ""),
+    enabled: !!activeShopId,
+    refetchInterval: 15_000,
+  });
   
   const [notifications, setNotifications] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -106,6 +116,28 @@ export function Settings() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
+        <Section title="Offline Sync">
+          <View style={styles.card}>
+            <SettingRow
+              icon="cloud-sync-outline"
+              label="Pending sync"
+              value={String(syncCountsQuery.data?.pending ?? 0)}
+            />
+            <SettingRow
+              icon="alert-circle-outline"
+              label="Failed"
+              value={String(syncCountsQuery.data?.failed ?? 0)}
+            />
+            <SettingRow
+              icon="alert-octagon-outline"
+              label="Conflicts"
+              value={String(syncCountsQuery.data?.conflict ?? 0)}
+              isLast
+              color={(syncCountsQuery.data?.conflict ?? 0) > 0 ? colors.danger : undefined}
+            />
+          </View>
+        </Section>
+
         {/* Notifications Section */}
         <Section title="Notifications">
           <View style={styles.card}>

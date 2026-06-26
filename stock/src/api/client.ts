@@ -498,10 +498,11 @@ export async function fetchSale(token: string, id: string) {
   return apiRequest<Sale>(`/sales/${id}`, { token });
 }
 
-export async function createSale(token: string, data: CreateSalePayload) {
+export async function createSale(token: string, data: CreateSalePayload, opts: { idempotencyKey?: string } = {}) {
   return apiRequest("/sales", {
     method: "POST",
     token,
+    headers: opts.idempotencyKey ? { "Idempotency-Key": opts.idempotencyKey } : undefined,
     body: JSON.stringify(data),
   });
 }
@@ -592,8 +593,13 @@ export async function fetchCustomer(token: string, id: string) {
   return apiRequest<Customer>(`/customers/${id}`, { token });
 }
 
-export async function createCustomer(token: string, data: any) {
-  return apiRequest<Customer>("/customers", { method: "POST", token, body: JSON.stringify(data) });
+export async function createCustomer(token: string, data: any, opts: { idempotencyKey?: string } = {}) {
+  return apiRequest<Customer>("/customers", {
+    method: "POST",
+    token,
+    headers: opts.idempotencyKey ? { "Idempotency-Key": opts.idempotencyKey } : undefined,
+    body: JSON.stringify(data),
+  });
 }
 
 export async function updateCustomer(token: string, id: string, data: any) {
@@ -682,10 +688,11 @@ export async function addPayment(token: string, data: {
   amount: number;
   referenceNumber?: string;
   notes?: string;
-}) {
+}, opts: { idempotencyKey?: string } = {}) {
   return apiRequest("/payments", {
     method: "POST",
     token,
+    headers: opts.idempotencyKey ? { "Idempotency-Key": opts.idempotencyKey } : undefined,
     body: JSON.stringify(data),
   });
 }

@@ -26,6 +26,8 @@ import { SkeletonList } from "../../components/ui/SkeletonCard";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { Button } from "../../components/ui/Button";
 import { navigate, goBack } from "../navigation-ref";
+import { useNetworkStatus } from "../../hooks/useNetworkStatus";
+import { createLocalCustomer } from "../../local/localBilling";
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 
@@ -156,8 +158,10 @@ export function CustomerList() {
 export function AddEditCustomer() {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
+  const user = useAuthStore((state) => state.user);
   const route = useRoute();
   const queryClient = useQueryClient();
+  const network = useNetworkStatus();
   const customer = (route.params as { customer?: Customer } | undefined)?.customer;
   
   const [form, setForm] = useState({
@@ -179,10 +183,24 @@ export function AddEditCustomer() {
         ...form, 
         creditLimit: form.creditLimit ? Number(form.creditLimit) : undefined 
       };
+      if (!customer && network.isOffline) {
+        return createLocalCustomer({
+          shopId: activeShopId ?? "",
+          userId: user?.id,
+          name: form.name.trim(),
+          phone: form.phone || null,
+          address: form.address || null,
+          city: form.city || null,
+          gstin: form.gstin || null,
+          customerType: "REGULAR",
+        });
+      }
       return customer ? updateCustomer(token ?? "", customer.id, payload) : createCustomer(token ?? "", payload);
     },
-    onSuccess: () => {
+    onSuccess: (result: any) => {
+      if (result?.ok === false) return;
       queryClient.invalidateQueries({ queryKey: ["customers", activeShopId] });
+      queryClient.invalidateQueries({ queryKey: ["local-customers", activeShopId] });
       goBack();
     },
   });
@@ -208,7 +226,7 @@ export function AddEditCustomer() {
         </Section>
         <View style={styles.formFooter}>
           <Button 
-            label="Save Customer" 
+            label={!customer && network.isOffline ? "Save Customer Offline" : "Save Customer"} 
             onPress={() => mutation.mutate()} 
             loading={mutation.isPending} 
             disabled={!form.name.trim()}

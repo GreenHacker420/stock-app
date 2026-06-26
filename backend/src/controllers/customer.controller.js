@@ -1,5 +1,6 @@
 import * as customerService from "../services/customer.service.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
+import { runIdempotentCreate } from "../services/idempotency.service.js";
 
 export const listCustomers = asyncHandler(async (req, res) => {
   const customers = await customerService.listCustomers(req.user, req.validated.query);
@@ -17,8 +18,16 @@ export const getCustomerSummary = asyncHandler(async (req, res) => {
 });
 
 export const createCustomer = asyncHandler(async (req, res) => {
-  const customer = await customerService.createCustomer(req.user, req.validated.body);
-  res.status(201).json({ success: true, data: customer });
+  const result = await runIdempotentCreate(
+    req,
+    {
+      endpoint: "POST /customers",
+      resourceType: "CUSTOMER",
+      shopId: req.validated.body.shopId,
+    },
+    () => customerService.createCustomer(req.user, req.validated.body),
+  );
+  res.status(result.statusCode).json({ success: true, data: result.data });
 });
 
 export const updateCustomer = asyncHandler(async (req, res) => {

@@ -220,6 +220,17 @@ export async function captureCustomer(user, { shopId, name, phone, email }) {
 export async function createCustomer(user, data) {
   await assertShopAccess(user, data.shopId);
 
+  if (data.phone) {
+    const existing = await prisma.customer.findFirst({
+      where: {
+        shopId: data.shopId,
+        phone: data.phone,
+        status: "ACTIVE",
+      },
+    });
+    if (existing) return { ...existing, merged: true, conflictType: "CUSTOMER_ALREADY_EXISTS" };
+  }
+
   const customer = await prisma.customer.create({
     data: {
       shopId: data.shopId,

@@ -3,6 +3,7 @@ import { useAuthStore } from "../auth/auth-store";
 import { useShopStore } from "../auth/shop-store";
 import { queryKeys } from "./query-keys";
 import { fetchSales, fetchSale, createSale, createWalkInSale, CreateSalePayload, updateSaleGst } from "../api/client";
+import { newIdempotencyKey, newLocalSaleId } from "../local/localIds";
 
 export function useSalesQuery() {
   const token = useAuthStore((state) => state.token);
@@ -36,7 +37,9 @@ export function useCreateSaleMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: Omit<CreateSalePayload, "shopId">) =>
-      createSale(token ?? "", { ...data, shopId: activeShopId ?? "" }),
+      createSale(token ?? "", { ...data, shopId: activeShopId ?? "" }, {
+        idempotencyKey: newIdempotencyKey("SALE", newLocalSaleId()),
+      }),
     onSuccess: () => {
       if (activeShopId) {
         queryClient.invalidateQueries({ queryKey: ["sales", activeShopId] });

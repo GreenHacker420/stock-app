@@ -19,6 +19,7 @@ import { SelectShop } from './navigation/screens/SelectShop';
 import { RealtimeProvider } from './realtime/RealtimeProvider';
 import { navigationThemes, paperLightTheme } from './theme/paper';
 import { useNotificationSetup } from './notifications/FCMManager';
+import { useOfflineSync } from './hooks/useOfflineSync';
 
 Asset.loadAsync([
   ...NavigationAssets,
@@ -135,6 +136,7 @@ function AppContent({
 function AuthenticatedApp({ theme, prefix }: { theme: typeof navigationThemes.LightTheme; prefix: string }) {
   const user = useAuthStore((state) => state.user);
   const activeShopId = useShopStore((state) => state.activeShopId);
+  useOfflineSync();
 
   React.useEffect(() => {
     if (!activeShopId) {

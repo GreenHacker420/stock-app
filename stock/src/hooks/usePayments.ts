@@ -3,6 +3,7 @@ import { useAuthStore } from "../auth/auth-store";
 import { useShopStore } from "../auth/shop-store";
 import { queryKeys } from "./query-keys";
 import { fetchPayments, verifyPayment, addPayment, markPaymentMismatch, attachPayment } from "../api/client";
+import { newIdempotencyKey, newLocalPaymentId } from "../local/localIds";
 
 export function usePaymentsQuery(shopId?: string, options: { verificationStatus?: string; customerId?: string; unlinked?: boolean } = {}) {
   const token = useAuthStore((state) => state.token);
@@ -22,7 +23,9 @@ export function useAddPaymentMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: Omit<Parameters<typeof addPayment>[1], "shopId">) =>
-      addPayment(token ?? "", { ...data, shopId: activeShopId ?? "" }),
+      addPayment(token ?? "", { ...data, shopId: activeShopId ?? "" }, {
+        idempotencyKey: newIdempotencyKey("PAYMENT", newLocalPaymentId()),
+      }),
     onSuccess: () => {
       if (activeShopId) {
         queryClient.invalidateQueries({ queryKey: ["payments", activeShopId] });

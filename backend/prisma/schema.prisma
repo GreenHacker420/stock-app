@@ -1040,6 +1040,44 @@ model CashSession {
   @@index([staffId, status])
 }
 
+model IdempotencyKey {
+  id           String   @id @default(cuid())
+  key          String
+  shopId       String
+  userId       String
+  endpoint     String
+  requestHash  String
+  responseJson Json?
+  statusCode   Int?
+  resourceType String?
+  resourceId   String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([key, shopId, endpoint])
+  @@index([shopId, endpoint, createdAt])
+  @@index([resourceType, resourceId])
+}
+
+model DomainEventOutbox {
+  id          String    @id
+  tenantId    String?
+  shopId      String
+  entity      String
+  action      String
+  entityId    String
+  eventJson   Json
+  status      String    @default("pending")
+  attempts    Int       @default(0)
+  lastError   String?
+  createdAt   DateTime  @default(now())
+  publishedAt DateTime?
+
+  @@index([status, createdAt])
+  @@index([shopId, entity, action])
+  @@index([entity, entityId])
+}
+
 model ApprovalRequest {
   id             String         @id @default(cuid())
   shopId         String

@@ -20,6 +20,7 @@ import {
   TextInput
 } from "react-native-paper";
 import { useRoute } from "@react-navigation/native";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import QRCode from "react-native-qrcode-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useDebounce } from "use-debounce";
@@ -27,6 +28,9 @@ import { useDebounce } from "use-debounce";
 import { useShopsQuery } from "../../hooks/useShops";
 import { useCustomersQuery } from "../../hooks/useCustomers";
 import { useAddPaymentMutation } from "../../hooks/usePayments";
+import { useAuthStore } from "../../auth/auth-store";
+import { useNetworkStatus } from "../../hooks/useNetworkStatus";
+import { createLocalPayment, getLocalCustomers } from "../../local/localBilling";
 import { SuccessModal } from "../../components/ui/SuccessModal";
 import { useShopStore } from "../../auth/shop-store";
 import { Screen } from "../../components/Screen";
@@ -65,7 +69,10 @@ const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLoc
 
 export function TakePayment() {
   const { activeShopId } = useShopStore();
+  const user = useAuthStore((state) => state.user);
   const route = useRoute<any>();
+  const queryClient = useQueryClient();
+  const network = useNetworkStatus();
   const insets = useSafeAreaInsets();
 
   const [isWalkin, setIsWalkin] = useState(!route.params?.customerId);
@@ -74,6 +81,7 @@ export function TakePayment() {
     ? (insets.bottom > 0 ? insets.bottom + 80 : 100) 
     : (insets.bottom > 0 ? insets.bottom : spacing.lg);
   const [customerId, setCustomerId] = useState<string | undefined>(route.params?.customerId);
+  const [saleId] = useState<string | undefined>(route.params?.saleId);
   const [orderId, setOrderId] = useState<string | undefined>(route.params?.orderId);
   const [dmId, setDmId] = useState<string | undefined>(route.params?.dmId);
   const [searchQuery, setSearchQuery] = useState("");
@@ -93,22 +101,73 @@ export function TakePayment() {
     search: debouncedSearchQuery,
     limit: debouncedSearchQuery ? 20 : 50,
   });
+  const localCustomersQuery = useQuery({
+    queryKey: ["local-customers", activeShopId, debouncedSearchQuery],
+    queryFn: () => getLocalCustomers(activeShopId ?? "", debouncedSearchQuery),
+    enabled: !!activeShopId,
+  });
+  const mergedCustomers = useMemo(() => {
+    const local = (localCustomersQuery.data ?? []).map((c: any) => ({
+      id: c.id,
+      name: c.name,
+      phone: c.phone,
+      serverId: c.serverId,
+      syncStatus: c.syncStatus,
+    }));
+    const seen = new Set<string>();
+    return [...local, ...(customersQuery.data ?? [])].filter((customer: any) => {
+      const key = customer.serverId || customer.id;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+  }, [customersQuery.data, localCustomersQuery.data]);
 
   const filteredCustomers = useMemo(() => {
     if (!searchQuery) return [];
-    return (customersQuery.data ?? []).slice(0, 5);
-  }, [customersQuery.data, searchQuery]);
+    return mergedCustomers.slice(0, 5);
+  }, [mergedCustomers, searchQuery]);
 
   const selectedCustomer = useMemo(() => 
-    customersQuery.data?.find(c => c.id === customerId), 
-    [customersQuery.data, customerId]
+    mergedCustomers.find((c: any) => c.id === customerId), 
+    [mergedCustomers, customerId]
   );
 
   const paymentMutation = useAddPaymentMutation();
 
+  const saveOfflinePayment = async () => {
+    if (!activeShopId) return;
+    const localCustomer = (localCustomersQuery.data ?? []).find((c: any) => c.id === customerId);
+    const result = await createLocalPayment({
+      shopId: activeShopId,
+      userId: user?.id,
+      saleId: saleId?.startsWith("local_sale_") ? saleId : null,
+      serverSaleId: saleId && !saleId.startsWith("local_sale_") ? saleId : null,
+      orderId,
+      dmId,
+      customerId: localCustomer && !localCustomer.serverId ? localCustomer.id : null,
+      serverCustomerId: localCustomer?.serverId ?? (customerId && !customerId.startsWith("local_") ? customerId : null),
+      amount,
+      mode: paymentMode,
+      reference: reference || null,
+      notes: notes || (upiOption === 'GENERATE' ? 'Paid via generated QR' : null),
+    });
+    if (!result.ok) {
+      setErrorMsg(result.message);
+      return;
+    }
+    queryClient.invalidateQueries({ queryKey: ["payments", activeShopId] });
+    setSuccessVisible(true);
+  };
+
   const handleConfirmPayment = () => {
+    if (network.isOffline) {
+      saveOfflinePayment();
+      return;
+    }
     paymentMutation.mutate({
       customerId: isWalkin ? undefined : customerId,
+      saleId,
       orderId,
       dmId,
       paymentMode,
@@ -120,7 +179,11 @@ export function TakePayment() {
         setSuccessVisible(true);
       },
       onError: (err: any) => {
-        setErrorMsg(err.message || "Failed to record payment");
+        if (String(err?.message || "").toLowerCase().includes("network")) {
+          saveOfflinePayment();
+        } else {
+          setErrorMsg(err.message || "Failed to record payment");
+        }
       }
     });
   };
@@ -239,7 +302,7 @@ export function TakePayment() {
                       <List.Item
                         key={customer.id}
                         title={customer.name}
-                        description={customer.phone}
+                        description={`${customer.phone || "No phone"}${(customer as any).syncStatus && (customer as any).syncStatus !== "synced" ? " • Pending sync" : ""}`}
                         onPress={() => {
                           setCustomerId(customer.id);
                           setSearchQuery("");
@@ -502,8 +565,8 @@ export function TakePayment() {
 
       <SuccessModal
         visible={successVisible}
-        title="Payment Recorded"
-        message={`Received ${money(amount)} via ${paymentMode}.`}
+        title={network.isOffline ? "Payment Saved Offline" : "Payment Recorded"}
+        message={network.isOffline ? `Received ${money(amount)} via ${paymentMode}. It will sync when internet is back.` : `Received ${money(amount)} via ${paymentMode}.`}
         onClose={() => {
           setSuccessVisible(false);
           setAmount("");
