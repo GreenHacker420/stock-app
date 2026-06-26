@@ -7,6 +7,7 @@ export type ApiUser = {
   email?: string | null;
   role: "OWNER" | "STAFF";
   permissions: string[];
+  status?: "ACTIVE" | "INACTIVE" | string | null;
 };
 
 export type Shop = {

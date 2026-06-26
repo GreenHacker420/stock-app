@@ -1,7 +1,8 @@
 import { createBottomTabNavigator, BottomTabBarProps } from "@react-navigation/bottom-tabs";
-import { createStaticNavigation, StaticParamList } from "@react-navigation/native";
+import { createStaticNavigation } from "@react-navigation/native";
+import type { NavigatorScreenParams } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { View, Pressable, Dimensions, StyleSheet, Platform } from "react-native";
+import { View, Pressable, useWindowDimensions, StyleSheet, Platform } from "react-native";
 import { Icon } from "react-native-paper";
 import { AssignStaff } from "./screens/AssignStaff";
 import { CashClosingReview } from "./screens/CashClosingReview";
@@ -48,23 +49,25 @@ import { DeliveryMemoList } from "./screens/DeliveryMemoList";
 import { CreateDeliveryMemo } from "./screens/CreateDeliveryMemo";
 import { DeliveryMemoDetail } from "./screens/DeliveryMemoDetail";
 import { ManageCategories } from "./screens/ManageCategories";
-import { ChatListScreen } from "../modules/whatsapp/screens/ChatListScreen";
-import { ChatDetailScreen } from "../modules/whatsapp/screens/ChatDetailScreen";
-import { WhatsAppSetupScreen } from "../modules/whatsapp/screens/WhatsAppSetupScreen";
-import { ContactBookScreen } from "../modules/whatsapp/screens/ContactBookScreen";
-import { TemplateLibraryScreen } from "../modules/whatsapp/screens/TemplateLibraryScreen";
-import { TemplateEditorScreen } from "../modules/whatsapp/screens/TemplateEditorScreen";
-import { FlowLibraryScreen } from "../modules/whatsapp/screens/FlowLibraryScreen";
-import { FlowEditorScreen } from "../modules/whatsapp/screens/FlowEditorScreen";
+// import { ChatListScreen } from "../modules/whatsapp/screens/ChatListScreen";
+// import { ChatDetailScreen } from "../modules/whatsapp/screens/ChatDetailScreen";
+// import { WhatsAppSetupScreen } from "../modules/whatsapp/screens/WhatsAppSetupScreen";
+// import { ContactBookScreen } from "../modules/whatsapp/screens/ContactBookScreen";
+// import { TemplateLibraryScreen } from "../modules/whatsapp/screens/TemplateLibraryScreen";
+// import { TemplateEditorScreen } from "../modules/whatsapp/screens/TemplateEditorScreen";
+// import { FlowLibraryScreen } from "../modules/whatsapp/screens/FlowLibraryScreen";
+// import { FlowEditorScreen } from "../modules/whatsapp/screens/FlowEditorScreen";
 
-import { colors } from "../theme";
+// import { colors } from "../theme";
 
 import { shadow } from "../theme";
 
 export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
+  const { width } = useWindowDimensions();
+
   return (
     <View style={styles.tabBarContainer}>
-      <View style={styles.tabBarPill}>
+      <View style={[styles.tabBarPill, { width: width * 0.88 }]}>
         {state.routes.map((route, index) => {
           const { options } = descriptors[route.key];
           const isFocused = state.index === index;
@@ -101,8 +104,8 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
             iconName = isFocused ? "cash-register" : "cash-register";
           } else if (route.name === "Notifications" || route.name === "OwnerAlerts") {
             iconName = isFocused ? "bell" : "bell-outline";
-          } else if (route.name === "StaffChats" || route.name === "OwnerChats") {
-            iconName = isFocused ? "whatsapp" : "whatsapp";
+          // } else if (route.name === "StaffChats" || route.name === "OwnerChats") {
+          //   iconName = isFocused ? "whatsapp" : "whatsapp";
           } else if (route.name === "Profile") {
             iconName = isFocused ? "account-circle" : "account-circle-outline";
           }
@@ -153,7 +156,6 @@ const styles = StyleSheet.create({
     borderRadius: 32,
     paddingHorizontal: 10,
     paddingVertical: 8,
-    width: Dimensions.get('window').width * 0.88,
     maxWidth: 360,
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -218,12 +220,12 @@ const StaffTabs = createBottomTabNavigator({
         title: "POS",
       },
     },
-    StaffChats: {
-      screen: ChatListScreen,
-      options: {
-        title: "Chats",
-      },
-    },
+    // StaffChats: {
+    //   screen: ChatListScreen,
+    //   options: {
+    //     title: "Chats",
+    //   },
+    // },
     Notifications: {
       screen: Notifications,
       options: {
@@ -261,12 +263,12 @@ const OwnerTabs = createBottomTabNavigator({
         title: "Stock",
       },
     },
-    OwnerChats: {
-      screen: ChatListScreen,
-      options: {
-        title: "Chats",
-      },
-    },
+    // OwnerChats: {
+    //   screen: ChatListScreen,
+    //   options: {
+    //     title: "Chats",
+    //   },
+    // },
     OwnerAlerts: {
       screen: OwnerAlerts,
       options: {
@@ -412,34 +414,34 @@ const sharedStackScreens = {
     screen: CreateOrder,
     options: { title: "Create order" },
   },
-  ChatDetail: {
-    screen: ChatDetailScreen,
-    options: { title: "Chat" },
-  },
-  WhatsAppSetup: {
-    screen: WhatsAppSetupScreen,
-    options: { title: "WhatsApp Setup" },
-  },
-  ContactBook: {
-    screen: ContactBookScreen,
-    options: { title: "Contact Book" },
-  },
-  TemplateLibrary: {
-    screen: TemplateLibraryScreen,
-    options: { title: "Message templates" },
-  },
-  TemplateEditor: {
-    screen: TemplateEditorScreen,
-    options: { title: "Template" },
-  },
-  FlowLibrary: {
-    screen: FlowLibraryScreen,
-    options: { title: "WhatsApp Flows" },
-  },
-  FlowEditor: {
-    screen: FlowEditorScreen,
-    options: { title: "Flow" },
-  },
+  // ChatDetail: {
+  //   screen: ChatDetailScreen,
+  //   options: { title: "Chat" },
+  // },
+  // WhatsAppSetup: {
+  //   screen: WhatsAppSetupScreen,
+  //   options: { title: "WhatsApp Setup" },
+  // },
+  // ContactBook: {
+  //   screen: ContactBookScreen,
+  //   options: { title: "Contact Book" },
+  // },
+  // TemplateLibrary: {
+  //   screen: TemplateLibraryScreen,
+  //   options: { title: "Message templates" },
+  // },
+  // TemplateEditor: {
+  //   screen: TemplateEditorScreen,
+  //   options: { title: "Template" },
+  // },
+  // FlowLibrary: {
+  //   screen: FlowLibraryScreen,
+  //   options: { title: "WhatsApp Flows" },
+  // },
+  // FlowEditor: {
+  //   screen: FlowEditorScreen,
+  //   options: { title: "Flow" },
+  // },
   OrderList: {
     screen: OrderList,
     options: { title: "Orders" },
@@ -542,7 +544,9 @@ const StaffRootStack = createNativeStackNavigator({
   screens: {
     StaffTabs: {
       screen: StaffTabs,
-      options: { title: "Staff" },
+      options: {
+        title: "Staff",
+      },
     },
     ...sharedStackScreens,
   },
@@ -556,40 +560,47 @@ const OwnerRootStack = createNativeStackNavigator({
   screens: {
     OwnerTabs: {
       screen: OwnerTabs,
-      options: { title: "Owner" },
+      options: {
+        title: "Owner",
+      },
     },
     ...sharedStackScreens,
   },
 });
 
-export type RootStackParamList = {
-  // Tabs
-  StaffTabs: undefined;
-  OwnerTabs: undefined;
-  
-  // Tab screens (for direct navigation if needed)
+export type StaffTabParamList = {
   StaffHome: undefined;
   StaffWork: undefined;
   StaffPayments: undefined;
-  StaffChats: undefined;
+  // StaffChats: undefined;
   Notifications: undefined;
   Profile: undefined;
+};
+
+export type OwnerTabParamList = {
   OwnerDashboard: undefined;
   OwnerRecords: undefined;
   OwnerStock: undefined;
-  OwnerChats: undefined;
+  // OwnerChats: undefined;
   OwnerAlerts: undefined;
+  Profile: undefined;
+};
+
+export type RootStackParamList = {
+  // Tabs
+  StaffTabs: NavigatorScreenParams<StaffTabParamList>;
+  OwnerTabs: NavigatorScreenParams<OwnerTabParamList>;
 
   // Shared Stack Screens
   NotFound: undefined;
   NotificationHistory: undefined;
-  ChatDetail: { conversationId: string; phone: string };
-  WhatsAppSetup: undefined;
-  ContactBook: undefined;
-  TemplateLibrary: undefined;
-  TemplateEditor: { templateId?: string };
-  FlowLibrary: undefined;
-  FlowEditor: { flowId?: string };
+  // ChatDetail: { conversationId: string; phone: string };
+  // WhatsAppSetup: undefined;
+  // ContactBook: undefined;
+  // TemplateLibrary: undefined;
+  // TemplateEditor: { templateId?: string };
+  // FlowLibrary: undefined;
+  // FlowEditor: { flowId?: string };
   WalkInSale: undefined;
   NewSaleType: undefined;
   RegularSale: undefined;
@@ -651,13 +662,6 @@ export type OwnerStackParamList = RootStackParamList;
 
 export const StaffNavigation = createStaticNavigation(StaffRootStack);
 export const OwnerNavigation = createStaticNavigation(OwnerRootStack);
-
-type StaffRootStackType = typeof StaffRootStack;
-type OwnerRootStackType = typeof OwnerRootStack;
-
-declare module "@react-navigation/core" {
-  interface RootNavigator extends StaffRootStackType, OwnerRootStackType {}
-}
 
 declare global {
   namespace ReactNavigation {

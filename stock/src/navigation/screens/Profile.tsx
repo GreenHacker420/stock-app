@@ -91,6 +91,13 @@ export function Profile() {
     checkSecuritySettings();
   }, []);
 
+  useEffect(() => {
+    if (user) {
+      setName(user.name ?? "");
+      setEmail(user.email ?? "");
+    }
+  }, [user]);
+
   const handleBiometricToggle = async (value: boolean) => {
     setError(null);
     if (value) {
@@ -151,8 +158,9 @@ export function Profile() {
 
   const mutation = useMutation({
     mutationFn: () => updateMe(token ?? "", { name, email: email || null, password: password || undefined }),
-    onSuccess: () => {
+    onSuccess: (updatedUser) => {
       setPassword("");
+      useAuthStore.setState({ user: updatedUser });
       showSuccess("Profile Saved", "Your profile changes have been saved.");
     },
     onError: (err: any) => {
@@ -178,31 +186,32 @@ export function Profile() {
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={styles.flex1}
       >
+        {/* Profile Card / Header with LinearGradient, now fixed at the top */}
+        <LinearGradient
+          colors={[colors.primaryDark, colors.primary]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+          style={styles.profileCard}
+        >
+          <View style={styles.avatar}>
+            <Text style={styles.avatarText}>{displayInitials}</Text>
+          </View>
+          <View style={styles.flex1}>
+            <Text style={styles.userName}>{user?.name}</Text>
+            <View style={styles.userMobileContainer}>
+              <Icon source="phone" size={16} color="rgba(255, 255, 255, 0.8)" />
+              <Text style={styles.userMobile}>{user?.mobile}</Text>
+            </View>
+          </View>
+          <View style={styles.roleBadge}>
+            <Text style={styles.roleText}>{user?.role ?? "USER"}</Text>
+          </View>
+        </LinearGradient>
+
         <ScrollView
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          {/* Profile Card / Header with LinearGradient */}
-          <LinearGradient
-            colors={[colors.primaryDark, colors.primary]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.profileCard}
-          >
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>{displayInitials}</Text>
-            </View>
-            <View style={styles.flex1}>
-              <Text style={styles.userName}>{user?.name}</Text>
-              <View style={styles.userMobileContainer}>
-                <Icon source="phone" size={16} color="rgba(255, 255, 255, 0.8)" />
-                <Text style={styles.userMobile}>{user?.mobile}</Text>
-              </View>
-            </View>
-            <View style={styles.roleBadge}>
-              <Text style={styles.roleText}>{user?.role ?? "USER"}</Text>
-            </View>
-          </LinearGradient>
 
           <View style={styles.sectionsContainer}>
             {/* Account Info */}
@@ -258,10 +267,10 @@ export function Profile() {
                     title="Staff Management" 
                     subtitle="Assign permissions and PINs"
                     onPress={() => navigate("StaffManagement")}
-                    isLast={false}
+                    isLast={true}
                   />
                 )}
-                {user?.role === 'OWNER' && (
+                {/* {user?.role === 'OWNER' && (
                   <SettingItem 
                     icon="whatsapp" 
                     title="WhatsApp Setup" 
@@ -269,7 +278,7 @@ export function Profile() {
                     onPress={() => navigate("WhatsAppSetup")}
                     isLast={true}
                   />
-                )}
+                )} */}
               </View>
             </Section>
 
@@ -352,6 +361,7 @@ export function Profile() {
                   label="Full Name"
                   value={name}
                   onChangeText={setName}
+                  left={<TextInput.Icon icon="account-outline" color={colors.textSecondary} />}
                   style={styles.input}
                   outlineStyle={styles.inputOutline}
                   activeOutlineColor={colors.primary}
@@ -363,6 +373,7 @@ export function Profile() {
                   onChangeText={setEmail}
                   keyboardType="email-address"
                   autoCapitalize="none"
+                  left={<TextInput.Icon icon="email-outline" color={colors.textSecondary} />}
                   style={styles.input}
                   outlineStyle={styles.inputOutline}
                   activeOutlineColor={colors.primary}
@@ -373,6 +384,7 @@ export function Profile() {
                   value={password}
                   onChangeText={setPassword}
                   secureTextEntry
+                  left={<TextInput.Icon icon="lock-outline" color={colors.textSecondary} />}
                   style={styles.input}
                   outlineStyle={styles.inputOutline}
                   activeOutlineColor={colors.primary}
@@ -387,9 +399,11 @@ export function Profile() {
 
                 <Button
                   mode="contained"
+                  icon="content-save-outline"
                   onPress={() => mutation.mutate()}
                   loading={mutation.isPending}
                   style={styles.saveButton}
+                  contentStyle={styles.saveButtonContent}
                   labelStyle={styles.saveButtonLabel}
                 >
                   SAVE CHANGES
@@ -633,10 +647,14 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     borderRadius: radius.lg,
     backgroundColor: colors.primary,
+    ...shadow.md,
+  },
+  saveButtonContent: {
+    height: 48,
   },
   saveButtonLabel: {
     fontWeight: fontWeight.bold,
-    paddingVertical: 4,
+    color: "white",
   },
   signOutContainer: {
     marginTop: spacing.xl,

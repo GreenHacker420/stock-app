@@ -1,38 +1,90 @@
 import { useState } from "react";
 import { Pressable, ScrollView, View, StyleSheet } from "react-native";
 import { useRoute } from "@react-navigation/native";
-import { Button, Text, TextInput } from "react-native-paper";
+import { Button, Text, TextInput, Divider, Icon, Switch } from "react-native-paper";
 import { ApiUser } from "../../api/client";
 import { useStaffQuery, useCreateStaffMutation, useUpdateStaffMutation } from "../../hooks/useAuth";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { Section } from "../../components/ui/Section";
 import { StatusPill } from "../../components/ui/StatusPill";
-import { colors, spacing, radius, fontWeight } from "../../theme";
+import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { navigate, goBack } from "../navigation-ref";
+
+function getInitials(name: string) {
+  if (!name) return "ST";
+  return name
+    .split(/\s+/)
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+}
 
 export function StaffManagement() {
   const staffQuery = useStaffQuery();
 
   return (
     <Screen scroll={false}>
-      <AppHeader title="Staff Management" subtitle="Create staff accounts and manage access." />
-      <Button mode="contained" icon="account-plus" onPress={() => navigate("AddEditStaff")} style={styles.addButton} contentStyle={styles.buttonContent}>Add Staff</Button>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+      <AppHeader title="Staff Management" subtitle="Manage accounts, status, and permissions." />
+      
+      <View style={styles.headerButtonContainer}>
+        <Button 
+          mode="contained" 
+          icon="account-plus" 
+          onPress={() => navigate("AddEditStaff")} 
+          style={styles.addButton} 
+          contentStyle={styles.buttonContent}
+          labelStyle={styles.addButtonLabel}
+        >
+          Add Staff Member
+        </Button>
+      </View>
+
+      <ScrollView 
+        showsVerticalScrollIndicator={false} 
+        contentContainerStyle={styles.scrollContent}
+      >
         <View style={styles.listGap}>
-          {(staffQuery.data ?? []).map((staff) => (
-            <Pressable key={staff.id} onPress={() => navigate("AddEditStaff", { staff })}>
-              <View style={styles.staffCard}>
-                <View style={styles.cardHeader}>
-                  <View>
-                    <Text variant="titleMedium" style={styles.boldText}>{staff.name}</Text>
-                    <Text style={styles.secondaryText}>{staff.mobile} • {staff.email ?? "No email"}</Text>
+          {(staffQuery.data ?? []).map((staff) => {
+            const isActive = staff.status === "ACTIVE" || !staff.status;
+            return (
+              <Pressable key={staff.id} onPress={() => navigate("AddEditStaff", { staff })}>
+                <View style={styles.staffCard}>
+                  <View style={styles.cardHeader}>
+                    {/* Left: Round Avatar */}
+                    <View style={styles.avatar}>
+                      <Text style={styles.avatarText}>{getInitials(staff.name)}</Text>
+                    </View>
+
+                    {/* Middle: Details */}
+                    <View style={styles.cardInfo}>
+                      <Text style={styles.staffName}>{staff.name}</Text>
+                      
+                      <View style={styles.detailsRow}>
+                        <Icon source="phone" size={14} color={colors.textSecondary} />
+                        <Text style={styles.secondaryText}>{staff.mobile}</Text>
+                      </View>
+                      
+                      {staff.email ? (
+                        <View style={styles.detailsRow}>
+                          <Icon source="email-outline" size={14} color={colors.textSecondary} />
+                          <Text style={styles.secondaryText}>{staff.email}</Text>
+                        </View>
+                      ) : null}
+                    </View>
+
+                    {/* Right: Status Pill */}
+                    <StatusPill 
+                      label={isActive ? "ACTIVE" : "INACTIVE"} 
+                      tone={isActive ? "green" : "neutral"} 
+                      style={styles.statusPill}
+                    />
                   </View>
-                  <StatusPill label="STAFF" tone="amber" />
                 </View>
-              </View>
-            </Pressable>
-          ))}
+              </Pressable>
+            );
+          })}
         </View>
       </ScrollView>
     </Screen>
@@ -42,14 +94,26 @@ export function StaffManagement() {
 export function AddEditStaff() {
   const route = useRoute();
   const staff = (route.params as { staff?: ApiUser } | undefined)?.staff;
-  const [form, setForm] = useState({ name: staff?.name ?? "", mobile: staff?.mobile ?? "", email: staff?.email ?? "", password: "", status: "ACTIVE" });
+  
+  const [form, setForm] = useState({ 
+    name: staff?.name ?? "", 
+    mobile: staff?.mobile ?? "", 
+    email: staff?.email ?? "", 
+    password: "", 
+    status: staff?.status ?? "ACTIVE" 
+  });
+  
   const set = (key: keyof typeof form, value: string) => setForm((prev) => ({ ...prev, [key]: value }));
   
   const createMutation = useCreateStaffMutation();
   const updateMutation = useUpdateStaffMutation();
 
   const handleSave = () => {
-    const payload = { ...form, email: form.email || null, password: form.password || undefined };
+    const payload = { 
+      ...form, 
+      email: form.email || null, 
+      password: form.password || undefined 
+    };
     if (staff) {
       updateMutation.mutate({ id: staff.id, data: payload }, {
         onSuccess: () => goBack()
@@ -67,20 +131,86 @@ export function AddEditStaff() {
     <Screen>
       <AppHeader 
         title={staff ? "Edit Staff" : "Add Staff"} 
-        subtitle="Create login and update staff status." 
+        subtitle="Configure access credentials and status." 
         fallbackRoute="StaffManagement"
       />
-      <Section title="Staff account">
-        <View style={styles.formCard}>
-          <TextInput mode="outlined" label="Name" value={form.name} onChangeText={(v) => set("name", v)} outlineStyle={styles.inputOutline} />
-          <TextInput mode="outlined" label="Mobile" keyboardType="phone-pad" value={form.mobile} onChangeText={(v) => set("mobile", v)} outlineStyle={styles.inputOutline} />
-          <TextInput mode="outlined" label="Email" value={form.email ?? ""} onChangeText={(v) => set("email", v)} outlineStyle={styles.inputOutline} />
-          <TextInput mode="outlined" label={staff ? "New password (optional)" : "Password"} secureTextEntry value={form.password} onChangeText={(v) => set("password", v)} outlineStyle={styles.inputOutline} />
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+        <Section title="Account details">
+          <View style={styles.formCard}>
+            <TextInput 
+              mode="outlined" 
+              label="Full Name" 
+              value={form.name} 
+              onChangeText={(v) => set("name", v)} 
+              outlineStyle={styles.inputOutline}
+              activeOutlineColor={colors.primary}
+              style={styles.input}
+            />
+            <TextInput 
+              mode="outlined" 
+              label="Mobile Number" 
+              keyboardType="phone-pad" 
+              value={form.mobile} 
+              onChangeText={(v) => set("mobile", v)} 
+              outlineStyle={styles.inputOutline}
+              activeOutlineColor={colors.primary}
+              style={styles.input}
+            />
+            <TextInput 
+              mode="outlined" 
+              label="Email Address" 
+              keyboardType="email-address"
+              autoCapitalize="none"
+              value={form.email ?? ""} 
+              onChangeText={(v) => set("email", v)} 
+              outlineStyle={styles.inputOutline}
+              activeOutlineColor={colors.primary}
+              style={styles.input}
+            />
+            <TextInput 
+              mode="outlined" 
+              label={staff ? "New Password (optional)" : "Password"} 
+              secureTextEntry 
+              value={form.password} 
+              onChangeText={(v) => set("password", v)} 
+              outlineStyle={styles.inputOutline}
+              activeOutlineColor={colors.primary}
+              style={styles.input}
+            />
+
+            {staff && (
+              <>
+                <Divider style={styles.divider} />
+                <View style={styles.statusToggleRow}>
+                  <View style={styles.toggleTextContainer}>
+                    <Text style={styles.toggleTitle}>Active Status</Text>
+                    <Text style={styles.toggleSubtitle}>Allow this staff member to log in</Text>
+                  </View>
+                  <Switch
+                    value={form.status === "ACTIVE"}
+                    onValueChange={(val) => set("status", val ? "ACTIVE" : "INACTIVE")}
+                    color={colors.primary}
+                  />
+                </View>
+              </>
+            )}
+          </View>
+        </Section>
+        
+        <View style={styles.formButtonContainer}>
+          <Button 
+            mode="contained" 
+            loading={isPending} 
+            disabled={!form.name || !form.mobile || (!staff && form.password.length < 4)} 
+            onPress={handleSave} 
+            style={styles.addButton} 
+            contentStyle={styles.buttonContent}
+            labelStyle={styles.addButtonLabel}
+          >
+            {staff ? "Update Staff Member" : "Create Staff Member"}
+          </Button>
         </View>
-      </Section>
-      <Button mode="contained" loading={isPending} disabled={!form.name || !form.mobile || (!staff && form.password.length < 4)} onPress={handleSave} style={styles.addButton} contentStyle={styles.buttonContent}>
-        Save Staff
-      </Button>
+      </ScrollView>
     </Screen>
   );
 }
@@ -88,44 +218,118 @@ export function AddEditStaff() {
 const styles = StyleSheet.create({
   addButton: {
     borderRadius: radius.md,
+    backgroundColor: colors.primary,
+    ...shadow.md,
+  },
+  addButtonLabel: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.bold,
+    color: "white",
   },
   buttonContent: {
-    height: 44,
+    height: 48,
+  },
+  headerButtonContainer: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.md,
+    backgroundColor: colors.bg,
   },
   scrollContent: {
-    paddingBottom: spacing.xxl,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.huge,
   },
   listGap: {
     gap: spacing.md,
   },
   staffCard: {
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
     padding: spacing.lg,
+    ...shadow.sm,
   },
   cardHeader: {
     flexDirection: "row",
-    justifyContent: "space-between",
+    alignItems: "center",
     gap: spacing.md,
   },
-  boldText: {
+  avatar: {
+    width: 46,
+    height: 46,
+    borderRadius: radius.full,
+    backgroundColor: colors.primaryLight,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(22, 163, 74, 0.2)",
+  },
+  avatarText: {
+    color: colors.primaryDark,
+    fontSize: 15,
+    fontWeight: fontWeight.bold,
+  },
+  cardInfo: {
+    flex: 1,
+    gap: 4,
+  },
+  staffName: {
+    fontSize: fontSize.md,
     fontWeight: fontWeight.bold,
     color: colors.textPrimary,
   },
+  detailsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
   secondaryText: {
+    fontSize: fontSize.sm,
     color: colors.textSecondary,
+  },
+  statusPill: {
+    alignSelf: "center",
   },
   formCard: {
     gap: spacing.md,
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
     padding: spacing.lg,
+    ...shadow.sm,
+  },
+  input: {
+    backgroundColor: colors.surface,
   },
   inputOutline: {
     borderRadius: radius.md,
+  },
+  divider: {
+    marginVertical: spacing.md,
+    backgroundColor: colors.border,
+  },
+  statusToggleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  toggleTextContainer: {
+    flex: 1,
+    gap: 2,
+  },
+  toggleTitle: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  toggleSubtitle: {
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+  },
+  formButtonContainer: {
+    marginTop: spacing.xl,
+    marginBottom: spacing.xxl,
   },
 });

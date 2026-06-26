@@ -55,6 +55,13 @@ export function AppHeader({ title, subtitle, role, initials, showBack, onBack, h
 
   const displayRole = role ?? user?.role;
 
+  const handleProfilePress = () => {
+    if (navigation) {
+      const targetTab = user?.role === "OWNER" ? "OwnerTabs" : "StaffTabs";
+      navigation.navigate(targetTab, { screen: "Profile" });
+    }
+  };
+
   return (
     <View style={styles.headerContainer}>
       <View style={styles.leftSection}>
@@ -110,7 +117,15 @@ export function AppHeader({ title, subtitle, role, initials, showBack, onBack, h
       </View>
 
       {!hideAvatar && (
-        <View style={styles.rightSection}>
+        <Pressable 
+          onPress={handleProfilePress}
+          style={({ pressed }) => [
+            styles.rightSection,
+            pressed && styles.pressed
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel="Go to Profile"
+        >
           <View style={[styles.avatarContainer, styles.avatar]}>
             <Text style={styles.avatarText}>{displayInitials}</Text>
           </View>
@@ -127,7 +142,7 @@ export function AppHeader({ title, subtitle, role, initials, showBack, onBack, h
               </Text>
             </View>
           )}
-        </View>
+        </Pressable>
       )}
 
       {/* Switch Shop Modal */}
