@@ -22,6 +22,7 @@ import {
 import { useRoute } from "@react-navigation/native";
 import QRCode from "react-native-qrcode-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useDebounce } from "use-debounce";
 
 import { useShopsQuery } from "../../hooks/useShops";
 import { useCustomersQuery } from "../../hooks/useCustomers";
@@ -76,6 +77,7 @@ export function TakePayment() {
   const [orderId, setOrderId] = useState<string | undefined>(route.params?.orderId);
   const [dmId, setDmId] = useState<string | undefined>(route.params?.dmId);
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearchQuery] = useDebounce(searchQuery, 300);
   const [amount, setAmount] = useState(route.params?.amount?.toString() || "");
   const [paymentMode, setPaymentMode] = useState<typeof paymentModes[number]["value"]>("CASH");
   const [upiOption, setUpiOption] = useState<"GENERATE" | "REGISTER">("REGISTER");
@@ -87,14 +89,14 @@ export function TakePayment() {
 
   const shopsQuery = useShopsQuery();
   const activeShop = shopsQuery.data?.find(s => s.id === activeShopId);
-  const customersQuery = useCustomersQuery();
+  const customersQuery = useCustomersQuery({
+    search: debouncedSearchQuery,
+    limit: debouncedSearchQuery ? 20 : 50,
+  });
 
   const filteredCustomers = useMemo(() => {
     if (!searchQuery) return [];
-    return (customersQuery.data ?? []).filter(c => 
-      c.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-      (c.phone && c.phone.includes(searchQuery))
-    ).slice(0, 5);
+    return (customersQuery.data ?? []).slice(0, 5);
   }, [customersQuery.data, searchQuery]);
 
   const selectedCustomer = useMemo(() => 

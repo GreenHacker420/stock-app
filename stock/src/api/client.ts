@@ -297,6 +297,7 @@ export async function apiRequest<T>(
   path: string,
   options: RequestInit & { token?: string | null } = {},
 ): Promise<T> {
+  const startedAt = Date.now();
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...options,
     headers: {
@@ -307,6 +308,13 @@ export async function apiRequest<T>(
   });
 
   const responseText = await response.text();
+  if (__DEV__) {
+    const durationMs = Date.now() - startedAt;
+    const payloadBytes = responseText.length;
+    if (durationMs >= 500 || payloadBytes >= 25_000) {
+      console.log(`[api] ${options.method ?? "GET"} ${path} ${response.status} ${durationMs}ms ${payloadBytes}b`);
+    }
+  }
   const payload = responseText
     ? JSON.parse(responseText) as ApiResponse<T>
     : { success: response.ok, data: undefined as T };
@@ -472,8 +480,18 @@ export async function fetchStockMovements(token: string, shopId: string, itemId?
 }
 
 // SALES
-export async function fetchSales(token: string, shopId: string) {
-  return apiRequest<Sale[]>(`/sales?shopId=${encodeURIComponent(shopId)}`, { token });
+export async function fetchSales(
+  token: string,
+  shopId: string,
+  opts: { page?: number; limit?: number; dateFrom?: string; dateTo?: string } = {},
+) {
+  const params = new URLSearchParams({ shopId });
+  if (opts.page) params.set("page", String(opts.page));
+  params.set("limit", String(opts.limit ?? 50));
+  if (opts.dateFrom) params.set("dateFrom", opts.dateFrom);
+  if (opts.dateTo) params.set("dateTo", opts.dateTo);
+  const sales = await apiRequest<Sale[]>(`/sales?${params.toString()}`, { token });
+  return sales.map((sale) => ({ ...sale, isGstRequired: sale.isGstRequired ?? sale.gstRequired }));
 }
 
 export async function fetchSale(token: string, id: string) {
@@ -556,9 +574,18 @@ export async function convertOrderToSale(token: string, orderId: string, data: a
 }
 
 // CUSTOMERS
-export async function fetchCustomers(token: string, shopId: string, includeWalkin = false) {
-  const url = `/customers?shopId=${encodeURIComponent(shopId)}${includeWalkin ? "&includeWalkin=true" : ""}`;
-  return apiRequest<Customer[]>(url, { token });
+export async function fetchCustomers(
+  token: string,
+  shopId: string,
+  includeWalkin = false,
+  opts: { search?: string; page?: number; limit?: number } = {},
+) {
+  const params = new URLSearchParams({ shopId });
+  if (includeWalkin) params.set("includeWalkin", "true");
+  if (opts.search?.trim()) params.set("search", opts.search.trim());
+  if (opts.page) params.set("page", String(opts.page));
+  params.set("limit", String(opts.limit ?? 100));
+  return apiRequest<Customer[]>(`/customers?${params.toString()}`, { token });
 }
 
 export async function fetchCustomer(token: string, id: string) {

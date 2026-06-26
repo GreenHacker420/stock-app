@@ -603,6 +603,7 @@ model Customer {
   waBroadcastRecipients WaBroadcastRecipient[]
 
   @@index([shopId])
+  @@index([shopId, status, createdAt])
   @@index([phone])
   @@index([shopId, phone])
   @@index([shopId, gstin])
@@ -895,6 +896,7 @@ model Sale {
 
   @@unique([shopId, saleNumber])
   @@index([shopId, createdAt])
+  @@index([shopId, customerId, createdAt])
   @@index([customerId])
 }
 

@@ -317,7 +317,7 @@ const styles = StyleSheet.create({
   },
   unreadCard: {
     borderColor: "rgba(22, 163, 74, 0.15)",
-    backgroundColor: "rgba(22, 163, 74, 0.01)",
+    backgroundColor: "#f7fdf9",
     ...shadow.md,
   },
   cardHeader: {

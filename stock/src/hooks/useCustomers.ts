@@ -4,12 +4,15 @@ import { useShopStore } from "../auth/shop-store";
 import { queryKeys } from "./query-keys";
 import { fetchCustomers, fetchCustomer, createCustomer, updateCustomer, fetchCustomerSales, fetchCustomerPayments, fetchCustomerDMs, fetchCustomerReturns, fetchCustomerTimeline } from "../api/client";
 
-export function useCustomersQuery() {
+export function useCustomersQuery(opts: { search?: string; includeWalkin?: boolean; limit?: number } = {}) {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
   return useQuery({
-    queryKey: queryKeys.customers(activeShopId ?? ""),
-    queryFn: () => fetchCustomers(token ?? "", activeShopId ?? ""),
+    queryKey: [...queryKeys.customers(activeShopId ?? ""), { search: opts.search, includeWalkin: opts.includeWalkin, limit: opts.limit }],
+    queryFn: () => fetchCustomers(token ?? "", activeShopId ?? "", opts.includeWalkin ?? false, {
+      search: opts.search,
+      limit: opts.limit,
+    }),
     enabled: !!token && !!activeShopId,
     staleTime: 15 * 60 * 1000, // 15 mins
   });

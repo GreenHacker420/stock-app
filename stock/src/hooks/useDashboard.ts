@@ -10,8 +10,9 @@ export function useOwnerDashboardQuery(options: { date?: string } = {}) {
   return useQuery({
     queryKey: queryKeys.ownerDashboard(activeShopId ?? undefined, options.date),
     queryFn: () => fetchOwnerDashboard(token ?? "", { shopId: activeShopId ?? undefined, date: options.date }),
-    enabled: !!token,
-    staleTime: 10 * 60 * 1000, // 10 mins
+    enabled: !!token && !!activeShopId,
+    staleTime: 60 * 1000,
+    refetchOnReconnect: false,
   });
 }
 
@@ -22,6 +23,7 @@ export function useStaffTodaySummaryQuery(options: { date?: string } = {}) {
     queryKey: queryKeys.staffTodaySummary(activeShopId ?? "", options.date),
     queryFn: () => fetchStaffTodaySummary(token ?? "", activeShopId ?? "", options.date),
     enabled: !!token && !!activeShopId,
-    staleTime: 10 * 60 * 1000, // 10 mins
+    staleTime: 60 * 1000,
+    refetchOnReconnect: false,
   });
 }

@@ -20,6 +20,7 @@ const shopBodySchema = z.object({
 const currentSchema = z.object({
   query: z.object({
     shopId: z.string().min(1),
+    includePayments: z.string().transform(v => v === "true").optional(),
   }),
   params: z.object({}).optional(),
   body: z.object({}).optional(),

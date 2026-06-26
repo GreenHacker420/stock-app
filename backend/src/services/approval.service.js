@@ -2,7 +2,7 @@ import prisma from "../lib/db.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 import { writeAuditLog } from "../utils/auditLog.js";
-import { notifyShopOwner } from "./notification.service.js";
+import { notifyShopOwner, createNotification } from "./notification.service.js";
 import { EntityType, AuditAction } from "../generated/prisma/index.js";
 
 export async function createApprovalRequest(tx, { shopId, type, entityType, entityId, payloadJson, reason, requestedById }) {
@@ -84,6 +84,15 @@ export async function respondToRequest(user, id, { status, rejectedReason }) {
         approvedAt: new Date(),
         rejectedReason: status === "REJECTED" ? rejectedReason : undefined,
       },
+    });
+
+    await createNotification(tx, {
+      userId: request.requestedById,
+      shopId: request.shopId,
+      triggerEvent: "APPROVAL_RESOLVED",
+      entityType: EntityType.APPROVAL_REQUEST,
+      entityId: request.id,
+      message: `Your approval request for (${request.type}) has been ${status.toLowerCase()}${status === "REJECTED" && rejectedReason ? `: ${rejectedReason}` : ""}.`,
     });
 
     if (status === "APPROVED") {

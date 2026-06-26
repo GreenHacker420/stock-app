@@ -4,11 +4,12 @@ import { applyPayments, prisma, increaseCustomerDebt } from "./transactionHelper
 import { money, sub, add, isZero } from "../utils/money.js";
 import { writeAuditLog } from "../utils/auditLog.js";
 import { getOrCreateWalkIn } from "./customer.service.js";
+import { createNotification } from "./notification.service.js";
 
 async function getPaymentWithAccess(user, id) {
   const payment = await prisma.payment.findUnique({
     where: { id },
-    include: { details: true, sale: true, deliveryMemo: true, order: true },
+    include: { details: true, sale: true, deliveryMemo: true, order: true, customer: true },
   });
   if (!payment) throw new ApiError(404, "Payment not found");
   await assertShopAccess(user, payment.shopId);
@@ -98,7 +99,7 @@ export async function verifyPayment(user, id, { note }) {
   if (user.role !== "OWNER") throw new ApiError(403, "Owner access required");
   const payment = await getPaymentWithAccess(user, id);
 
-  return prisma.payment.update({
+  const updated = await prisma.payment.update({
     where: { id },
     data: {
       status: "VERIFIED",
@@ -108,13 +109,24 @@ export async function verifyPayment(user, id, { note }) {
     },
     include: { details: true },
   });
+
+  await createNotification(prisma, {
+    userId: payment.receivedById,
+    shopId: payment.shopId,
+    triggerEvent: "APPROVAL_RESOLVED",
+    entityType: "PAYMENT",
+    entityId: id,
+    message: `Payment of ₹${payment.amount} collected by you from customer ${payment.customer?.name || "Walk-In"} has been verified by the owner.`,
+  });
+
+  return updated;
 }
 
 export async function rejectPayment(user, id, { note }) {
   if (user.role !== "OWNER") throw new ApiError(403, "Owner access required");
   const payment = await getPaymentWithAccess(user, id);
 
-  return prisma.payment.update({
+  const updated = await prisma.payment.update({
     where: { id },
     data: {
       status: "REJECTED",
@@ -124,6 +136,17 @@ export async function rejectPayment(user, id, { note }) {
     },
     include: { details: true },
   });
+
+  await createNotification(prisma, {
+    userId: payment.receivedById,
+    shopId: payment.shopId,
+    triggerEvent: "PAYMENT_MISMATCH",
+    entityType: "PAYMENT",
+    entityId: id,
+    message: `Payment of ₹${payment.amount} collected by you from customer ${payment.customer?.name || "Walk-In"} has been rejected by the owner: ${note || "No reason specified"}.`,
+  });
+
+  return updated;
 }
 
 export async function voidPayment(user, id, { reason } = {}) {

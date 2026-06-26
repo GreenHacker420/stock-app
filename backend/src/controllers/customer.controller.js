@@ -51,6 +51,11 @@ export const getDMs = asyncHandler(async (req, res) => {
   res.json({ success: true, data: dms });
 });
 
+export const getReturns = asyncHandler(async (req, res) => {
+  const returns = await customerService.listCustomerReturns(req.user, req.params.id);
+  res.json({ success: true, data: returns });
+});
+
 export const getPriceHistory = asyncHandler(async (req, res) => {
   const history = await customerService.getPriceHistory(req.user, req.params.id, req.validated.query);
   res.json({ success: true, data: history });

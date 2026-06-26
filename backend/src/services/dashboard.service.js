@@ -19,28 +19,71 @@ export async function getOwnerDashboard(user, { shopId, date }) {
   const whereShop = { shopId: { in: ownedShopIds } };
   
   const [
-    sales, 
-    orders, 
-    dms, 
-    payments, 
-    stockLevels, 
-    cashSessions, 
-    approvalRequests,
-    expenses,
-    gstPendingSales,
+    salesTotal,
+    walkinSalesTotal,
+    salesCount,
+    ordersCreated,
+    ordersToPack,
+    ordersDispatched,
+    pendingDmTotal,
+    paymentTotals,
+    paymentVerificationPending,
+    cashMismatch,
+    approvalCounts,
+    expensesTotal,
+    gstPending,
+    lowStockCount,
     newCustomersToday,
     outstandingCustomersCount,
     topCustomersRaw
   ] = await Promise.all([
-    prisma.sale.findMany({ where: { ...whereShop, createdAt: { gte: start, lte: end } } }),
-    prisma.order.findMany({ where: { ...whereShop, createdAt: { gte: start, lte: end } } }),
-    prisma.deliveryMemo.findMany({ where: { ...whereShop } }),
-    prisma.payment.findMany({ where: { ...whereShop, receivedAt: { gte: start, lte: end } } }),
-    prisma.stockLedger.groupBy({ by: ["itemId"], where: whereShop, _sum: { quantityIn: true, quantityOut: true } }),
-    prisma.cashSession.findMany({ where: { ...whereShop, openedAt: { gte: start, lte: end } } }),
-    prisma.approvalRequest.findMany({ where: { status: "PENDING" } }),
-    prisma.expense.findMany({ where: { ...whereShop, createdAt: { gte: start, lte: end } } }),
-    prisma.sale.findMany({ where: { ...whereShop, gstRequired: true, gstInvoiceStatus: "PENDING" } }),
+    prisma.sale.aggregate({
+      where: { ...whereShop, createdAt: { gte: start, lte: end } },
+      _sum: { totalAmount: true },
+    }),
+    prisma.sale.aggregate({
+      where: { ...whereShop, isWalkin: true, createdAt: { gte: start, lte: end } },
+      _sum: { totalAmount: true },
+    }),
+    prisma.sale.count({ where: { ...whereShop, createdAt: { gte: start, lte: end } } }),
+    prisma.order.count({ where: { ...whereShop, createdAt: { gte: start, lte: end } } }),
+    prisma.order.count({ where: { ...whereShop, status: { in: ["CONFIRMED", "PACKING", "PARTIALLY_PACKED"] }, createdAt: { gte: start, lte: end } } }),
+    prisma.order.count({ where: { ...whereShop, status: "DISPATCHED", createdAt: { gte: start, lte: end } } }),
+    prisma.deliveryMemo.aggregate({
+      where: { ...whereShop, status: { notIn: ["FULLY_PAID", "CANCELLED", "RETURNED"] } },
+      _sum: { balanceAmount: true },
+    }),
+    prisma.payment.groupBy({
+      by: ["paymentMode"],
+      where: { ...whereShop, receivedAt: { gte: start, lte: end } },
+      _sum: { amount: true },
+    }),
+    prisma.payment.count({
+      where: {
+        ...whereShop,
+        receivedAt: { gte: start, lte: end },
+        paymentMode: { in: ["UPI", "CARD", "BANK_TRANSFER", "CHEQUE"] },
+        status: "RECORDED",
+      },
+    }),
+    prisma.cashSession.count({
+      where: { ...whereShop, openedAt: { gte: start, lte: end }, difference: { not: 0 } },
+    }),
+    prisma.approvalRequest.groupBy({
+      by: ["type"],
+      where: { ...whereShop, status: "PENDING" },
+      _count: { id: true },
+    }),
+    prisma.expense.aggregate({
+      where: { ...whereShop, createdAt: { gte: start, lte: end } },
+      _sum: { amount: true },
+    }),
+    prisma.sale.aggregate({
+      where: { ...whereShop, gstRequired: true, gstInvoiceStatus: "PENDING" },
+      _count: { id: true },
+      _sum: { totalAmount: true },
+    }),
+    prisma.stockBalance.count({ where: { ...whereShop, availableStock: { lte: 0 } } }),
     prisma.customer.count({ where: { ...whereShop, createdAt: { gte: start, lte: end }, type: { not: "WALK_IN" } } }),
     prisma.customer.count({ where: { ...whereShop, outstandingAmount: { gt: 0 } } }),
     prisma.sale.groupBy({
@@ -78,32 +121,35 @@ export async function getOwnerDashboard(user, { shopId, date }) {
     }
   });
 
-  const paymentTotal = (mode) => payments.filter((payment) => payment.paymentMode === mode).reduce((sum, payment) => sum + Number(payment.amount), 0);
-  const todaySales = sales.reduce((sum, sale) => sum + Number(sale.totalAmount), 0);
-  const pendingDmAmount = dms.filter((dm) => !["FULLY_PAID", "CANCELLED", "RETURNED"].includes(dm.status)).reduce((sum, dm) => sum + Number(dm.balanceAmount), 0);
-  const lowStockCount = stockLevels.filter((row) => Number(row._sum.quantityIn || 0) - Number(row._sum.quantityOut || 0) <= 0).length;
+  const paymentTotal = (mode) => Number(paymentTotals.find((row) => row.paymentMode === mode)?._sum.amount || 0);
+  const pendingApprovalRequests = approvalCounts.reduce((sum, row) => sum + row._count.id, 0);
+  const approvalCount = (type) => approvalCounts.find((row) => row.type === type)?._count.id ?? 0;
 
   return {
     date: start.toISOString().slice(0, 10),
-    todaySales,
-    walkinSales: sales.filter((sale) => sale.isWalkin).reduce((sum, sale) => sum + Number(sale.totalAmount), 0),
-    salesCount: sales.length,
-    ordersCreated: orders.length,
-    ordersToPack: orders.filter((order) => ["CONFIRMED", "PACKING", "PARTIALLY_PACKED"].includes(order.status)).length,
-    ordersDispatched: orders.filter((order) => order.status === "DISPATCHED").length,
-    pendingDmAmount,
+    todaySales: Number(salesTotal._sum.totalAmount || 0),
+    walkinSales: Number(walkinSalesTotal._sum.totalAmount || 0),
+    salesCount,
+    ordersCreated,
+    ordersToPack,
+    ordersDispatched,
+    pendingDmAmount: Number(pendingDmTotal._sum.balanceAmount || 0),
     cashCollected: paymentTotal("CASH"),
     upiCollected: paymentTotal("UPI"),
     cardCollected: paymentTotal("CARD"),
     bankCollected: paymentTotal("BANK_TRANSFER"),
     chequeReceived: paymentTotal("CHEQUE"),
-    paymentVerificationPending: payments.filter((payment) => ["UPI", "CARD", "BANK_TRANSFER", "CHEQUE"].includes(payment.paymentMode) && payment.status === "RECORDED").length,
-    cashMismatch: cashSessions.filter((session) => Number(session.difference || 0) !== 0).length,
-    pendingApprovalRequests: approvalRequests.length,
+    paymentVerificationPending,
+    cashMismatch,
+    pendingApprovalRequests,
+    pendingVerifications: pendingApprovalRequests,
+    cashSessionDifferencesCount: cashMismatch,
+    rateChangeRequests: approvalCount("RATE_CHANGE"),
+    correctionRequests: approvalCount("SALE_CORRECTION") + approvalCount("SALE_CANCELLATION") + approvalCount("DM_CANCELLATION") + approvalCount("PAYMENT_CORRECTION"),
     lowStockAlerts: lowStockCount,
-    todayExpenses: expenses.reduce((sum, e) => sum + Number(e.amount), 0),
-    gstInvoicesPendingCount: gstPendingSales.length,
-    gstInvoicesPendingAmount: gstPendingSales.reduce((sum, s) => sum + Number(s.totalAmount), 0),
+    todayExpenses: Number(expensesTotal._sum.amount || 0),
+    gstInvoicesPendingCount: gstPending._count.id,
+    gstInvoicesPendingAmount: Number(gstPending._sum.totalAmount || 0),
     
     // New Customer Widgets
     newCustomersToday,

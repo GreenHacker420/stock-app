@@ -36,6 +36,7 @@ const queryClient = new QueryClient({
       gcTime:               24 * 60 * 60 * 1000, // 24 hours garbage collection (persists in MMKV)
       retry:                2,
       refetchOnWindowFocus: false,
+      refetchOnReconnect:   false,
     },
     mutations: {
       retry: 1,

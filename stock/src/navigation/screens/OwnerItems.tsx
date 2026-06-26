@@ -171,9 +171,9 @@ const ItemCard = memo(({
         <View style={styles.itemPriceRow}>
           <Text style={styles.itemPrice}>{money(item.defaultSellingPrice)}</Text>
           <Text style={styles.itemUnit}>/ {item.unit}</Text>
-          {item.mrp && Number(item.mrp) > Number(item.defaultSellingPrice ?? 0) && (
+          {!!item.mrp && Number(item.mrp) > Number(item.defaultSellingPrice ?? 0) ? (
             <Text style={styles.itemMrp}>{money(item.mrp)}</Text>
-          )}
+          ) : null}
         </View>
       </View>
 

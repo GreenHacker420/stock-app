@@ -21,16 +21,27 @@ export async function createNotification(txOrPrisma, { userId, shopId, triggerEv
 }
 
 export async function notifyShopOwner(txOrPrisma, { shopId, triggerEvent, entityType, entityId, message }) {
-  const shop = await txOrPrisma.shop.findUnique({ where: { id: shopId }, select: { ownerId: true } });
-  if (!shop) return null;
-  return createNotification(txOrPrisma, {
-    userId: shop.ownerId,
-    shopId,
-    triggerEvent,
-    entityType,
-    entityId,
-    message,
+  const owners = await txOrPrisma.user.findMany({
+    where: {
+      role: "OWNER",
+      status: "ACTIVE",
+    },
+    select: { id: true },
   });
+
+  const notifications = [];
+  for (const owner of owners) {
+    const notif = await createNotification(txOrPrisma, {
+      userId: owner.id,
+      shopId,
+      triggerEvent,
+      entityType,
+      entityId,
+      message,
+    });
+    notifications.push(notif);
+  }
+  return notifications.length > 0 ? notifications[0] : null;
 }
 
 export async function listNotifications(user, { shopId, unread }) {

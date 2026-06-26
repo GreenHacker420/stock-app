@@ -7,6 +7,10 @@ import Constants from "expo-constants";
 import { useAuthStore } from "../auth/auth-store";
 import { registerDevice, UserDevicePlatform } from "../api/client";
 import { getDeviceInstallationId } from "./device-identity";
+import { getToken, setToken } from "../auth/token-storage";
+
+const DEVICE_REGISTRATION_SIGNATURE_KEY = "shopcontrol_device_registration_signature";
+let registrationInFlight: Promise<string | null> | null = null;
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -31,15 +35,24 @@ function stringifyNativeToken(value: unknown) {
 
 export const FCMManager = {
   async registerForPushNotificationsAsync(token: string): Promise<string | null> {
+    if (registrationInFlight) return registrationInFlight;
+    registrationInFlight = this.performRegistration(token).finally(() => {
+      registrationInFlight = null;
+    });
+    return registrationInFlight;
+  },
+
+  async performRegistration(token: string): Promise<string | null> {
     const installationId = await getDeviceInstallationId();
     if (Platform.OS === "web") {
-      await registerDevice(token, {
+      const payload = {
         installationId,
         platform: "WEB",
         appVersion: Constants.expoConfig?.version,
         deviceName: "Web browser",
         notificationsEnabled: false,
-      });
+      } as const;
+      await registerDeviceIfChanged(token, payload);
       return null;
     }
 
@@ -78,7 +91,7 @@ export const FCMManager = {
         });
       }
 
-      await registerDevice(token, {
+      await registerDeviceIfChanged(token, {
         installationId,
         platform: platformName(),
         pushToken: expoPushToken,
@@ -110,10 +123,19 @@ export const FCMManager = {
   },
 };
 
+async function registerDeviceIfChanged(token: string, payload: Parameters<typeof registerDevice>[1]) {
+  const signature = JSON.stringify({ token, payload });
+  const existing = await getToken(DEVICE_REGISTRATION_SIGNATURE_KEY);
+  if (existing === signature) return null;
+  const device = await registerDevice(token, payload);
+  await setToken(DEVICE_REGISTRATION_SIGNATURE_KEY, signature);
+  return device;
+}
+
 export function useNotificationSetup() {
   const token = useAuthStore((state) => state.token);
-  const notificationListener = useRef<Notifications.Subscription | undefined>(undefined);
-  const responseListener = useRef<Notifications.Subscription | undefined>(undefined);
+  const notificationListener = useRef<Notifications.EventSubscription | undefined>(undefined);
+  const responseListener = useRef<Notifications.EventSubscription | undefined>(undefined);
 
   useEffect(() => {
     if (!token) return;

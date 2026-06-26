@@ -85,20 +85,16 @@ export function CustomerList() {
   const [debouncedSearch] = useDebounce(search, 300);
 
   const customersQuery = useQuery({ 
-    queryKey: ["customers", activeShopId, "includeWalkin"], 
-    queryFn: () => fetchCustomers(token ?? "", activeShopId ?? "", true), 
+    queryKey: ["customers", activeShopId, "includeWalkin", debouncedSearch], 
+    queryFn: () => fetchCustomers(token ?? "", activeShopId ?? "", true, {
+      search: debouncedSearch,
+      limit: debouncedSearch ? 50 : 100,
+    }), 
     enabled: !!token && !!activeShopId 
   });
 
   const filteredData = useMemo(() => {
-    const data = customersQuery.data ?? [];
-    if (!debouncedSearch) return data;
-    const s = debouncedSearch.toLowerCase();
-    return data.filter(c => 
-      c.name.toLowerCase().includes(s) || 
-      (c.phone && c.phone.includes(s)) ||
-      (c.city && c.city.toLowerCase().includes(s))
-    );
+    return customersQuery.data ?? [];
   }, [customersQuery.data, debouncedSearch]);
 
   return (

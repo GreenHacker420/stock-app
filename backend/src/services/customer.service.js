@@ -54,8 +54,10 @@ export async function getCustomerTimeline(user, id) {
   return timeline;
 }
 
-export async function listCustomers(user, { shopId, search, includeWalkin = false, type }) {
+export async function listCustomers(user, { shopId, search, includeWalkin = false, type, page = 1, limit = 100 }) {
   await assertShopAccess(user, shopId);
+  const take = Math.min(Number(limit) || 100, 200);
+  const skip = (Number(page) - 1) * take;
 
   return prisma.customer.findMany({
     where: {
@@ -71,7 +73,27 @@ export async function listCustomers(user, { shopId, search, includeWalkin = fals
           ]
         : undefined,
     },
+    select: {
+      id: true,
+      shopId: true,
+      name: true,
+      type: true,
+      phone: true,
+      email: true,
+      address: true,
+      city: true,
+      gstin: true,
+      creditLimit: true,
+      outstandingAmount: true,
+      advanceBalance: true,
+      notes: true,
+      status: true,
+      createdAt: true,
+      updatedAt: true,
+    },
     orderBy: { createdAt: "desc" },
+    skip,
+    take,
   });
 }
 

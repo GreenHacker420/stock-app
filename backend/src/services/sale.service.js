@@ -137,22 +137,48 @@ export async function createSale(user, data) {
   });
 }
 
-export async function listSales(user, { shopId, customerId }) {
+export async function listSales(user, { shopId, customerId, page = 1, limit = 50, dateFrom, dateTo }) {
   await assertShopAccess(user, shopId);
+  const take = Math.min(Number(limit) || 50, 200);
+  const skip = (Number(page) - 1) * take;
 
   return prisma.sale.findMany({
     where: {
       shopId,
       customerId: customerId || undefined,
       staffId: user.role === "STAFF" ? user.id : undefined,
+      createdAt: dateFrom || dateTo
+        ? {
+            gte: dateFrom ? new Date(dateFrom) : undefined,
+            lte: dateTo ? new Date(dateTo) : undefined,
+          }
+        : undefined,
     },
-    include: { 
-      customer: true, 
-      items: { include: { item: true } }, 
-      payments: true,
-      staff: { select: { id: true, name: true, role: true } }
+    select: {
+      id: true,
+      saleNumber: true,
+      shopId: true,
+      customerId: true,
+      isWalkin: true,
+      subtotal: true,
+      discountAmount: true,
+      totalAmount: true,
+      paidAmount: true,
+      balanceAmount: true,
+      paymentStatus: true,
+      saleStatus: true,
+      gstRequired: true,
+      gstInvoiceStatus: true,
+      gstInvoiceNumber: true,
+      gstInvoiceGeneratedAt: true,
+      createdAt: true,
+      customer: { select: { id: true, name: true, phone: true, city: true, type: true } },
+      staff: { select: { id: true, name: true, role: true } },
+      _count: { select: { items: true, payments: true } },
     },
     orderBy: { createdAt: "desc" },
+    skip,
+    take,
   });
 }
 

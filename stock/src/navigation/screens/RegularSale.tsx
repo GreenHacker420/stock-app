@@ -382,6 +382,7 @@ export function RegularSale() {
   const [customerId, setCustomerId] = useState<string | null>(null);
   const [customerSearch, setCustomerSearch] = useState("");
   const [itemSearch, setItemSearch] = useState("");
+  const [debouncedCustomerSearch] = useDebounce(customerSearch, 300);
   const [debouncedItemSearch] = useDebounce(itemSearch, 300);
 
   const [cart, setCart] = useState<Record<string, { item: Item, quantity: number, customRate?: number }>>({});
@@ -397,8 +398,11 @@ export function RegularSale() {
   const [scrollEnabled, setScrollEnabled] = useState(true);
 
   const customersQuery = useQuery({
-    queryKey: ["customers", activeShopId],
-    queryFn: () => fetchCustomers(token ?? "", activeShopId ?? ""),
+    queryKey: ["customers", activeShopId, debouncedCustomerSearch],
+    queryFn: () => fetchCustomers(token ?? "", activeShopId ?? "", false, {
+      search: debouncedCustomerSearch,
+      limit: debouncedCustomerSearch ? 20 : 50,
+    }),
     enabled: !!token && !!activeShopId,
   });
 
@@ -411,10 +415,7 @@ export function RegularSale() {
 
   const filteredCustomers = useMemo(() => {
     if (!customerSearch) return [];
-    return (customersQuery.data ?? []).filter(c =>
-      c.name.toLowerCase().includes(customerSearch.toLowerCase()) ||
-      (c.phone && c.phone.includes(customerSearch))
-    ).slice(0, 5);
+    return (customersQuery.data ?? []).slice(0, 5);
   }, [customersQuery.data, customerSearch]);
 
   const cartArray = useMemo(() => Object.values(cart), [cart]);

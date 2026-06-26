@@ -3,6 +3,7 @@ import { ApiError } from "../utils/ApiError.js";
 import { formatRecordNumber } from "../utils/recordNumber.js";
 import { getDayRange } from "../utils/dateRange.js";
 import { money, add, sub, mul, div, isZero } from "../utils/money.js";
+import { createNotification, notifyShopOwner } from "./notification.service.js";
 
 export async function generateRecordNumber(tx, { shopId, model, field, prefix, date = new Date() }) {
   const { start, end } = getDayRange(date);
@@ -41,7 +42,7 @@ export async function assertStockAvailable(tx, shopId, itemId, quantity) {
 export async function createStockOut(tx, { shopId, itemId, quantity, movementType, referenceType, referenceId, reason, userId }) {
   await assertStockAvailable(tx, shopId, itemId, quantity);
 
-  return tx.stockLedger.create({
+  const movement = await tx.stockLedger.create({
     data: {
       shopId,
       itemId,
@@ -54,6 +55,46 @@ export async function createStockOut(tx, { shopId, itemId, quantity, movementTyp
       createdById: userId,
     },
   });
+
+  // Check low stock alert status
+  try {
+    const item = await tx.item.findUnique({
+      where: { id: itemId },
+      select: { name: true, minimumStock: true, unit: true }
+    });
+    if (item && item.minimumStock !== null) {
+      const currentQuantity = await getCurrentQuantity(tx, shopId, itemId);
+      if (currentQuantity <= Number(item.minimumStock)) {
+        const msg = `Low stock alert: ${item.name} is down to ${currentQuantity} ${item.unit || ""} (Minimum: ${item.minimumStock}).`;
+        
+        // Notify all owners
+        await notifyShopOwner(tx, {
+          shopId,
+          triggerEvent: "LOW_STOCK",
+          entityType: "ITEM",
+          entityId: itemId,
+          message: msg,
+        });
+
+        // Notify active staff member who triggered the stockout if they are not the primary owner
+        const shop = await tx.shop.findUnique({ where: { id: shopId }, select: { ownerId: true } });
+        if (userId && shop && userId !== shop.ownerId) {
+          await createNotification(tx, {
+            userId,
+            shopId,
+            triggerEvent: "LOW_STOCK",
+            entityType: "ITEM",
+            entityId: itemId,
+            message: msg,
+          });
+        }
+      }
+    }
+  } catch (err) {
+    console.error(`[LowStockAlert] Error triggering low stock check for item ${itemId}:`, err.message);
+  }
+
+  return movement;
 }
 
 export function calculateItemTotals(items) {
@@ -134,6 +175,23 @@ export async function applyPayments(tx, { user, shopId, saleId, dmId, orderId, c
     // Update Customer outstanding (reduces with payment)
     if (customerId) {
       await decreaseCustomerDebt(tx, customerId, amt);
+    }
+
+    // Alert the owner for non-cash payments pending verification
+    if (payment.paymentMode !== "CASH") {
+      try {
+        const customer = customerId ? await tx.customer.findUnique({ where: { id: customerId }, select: { name: true } }) : null;
+        const customerName = customer?.name || "Walk-In";
+        await notifyShopOwner(tx, {
+          shopId,
+          triggerEvent: "APPROVAL_REQUESTED",
+          entityType: "PAYMENT",
+          entityId: createdPayment.id,
+          message: `New payment of ₹${amt} via ${payment.paymentMode} from ${customerName} received by ${user.name || "staff"} pending verification.`,
+        });
+      } catch (err) {
+        console.error(`[NonCashPaymentAlert] Error triggering verification alert:`, err.message);
+      }
     }
   }
 

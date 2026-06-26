@@ -17,7 +17,7 @@ export function useCurrentCashSessionQuery() {
     queryKey: queryKeys.currentCashSession(activeShopId ?? ""),
     queryFn: () => fetchCurrentCashSession(token ?? "", activeShopId ?? ""),
     enabled: !!token && !!activeShopId,
-    staleTime: 30 * 1000, // 30 seconds
+    staleTime: 2 * 60 * 1000, // realtime invalidation keeps this fresh without polling pressure
   });
 }
 

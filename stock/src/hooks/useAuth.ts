@@ -9,7 +9,8 @@ export function useMeQuery() {
     queryKey: queryKeys.me(),
     queryFn: () => fetchMe(token ?? ""),
     enabled: !!token,
-    staleTime: 15 * 60 * 1000, // 15 mins
+    staleTime: 30 * 60 * 1000,
+    refetchOnReconnect: false,
   });
 }
 

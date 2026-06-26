@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ScrollView, View, Pressable, StyleSheet } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Text, TextInput, SegmentedButtons, Icon, Searchbar, List, Divider, Card } from "react-native-paper";
+import { useDebounce } from "use-debounce";
 import { createOrder, fetchCustomers, fetchItems, fetchStaff, fetchShops, Item, Customer, ApiUser } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
@@ -42,10 +43,12 @@ export function CreateOrder() {
   // Selected customer
   const [customerId, setCustomerId] = useState<string | null>(null);
   const [customerSearch, setCustomerSearch] = useState("");
+  const [debouncedCustomerSearch] = useDebounce(customerSearch, 300);
 
   // Cart state
   const [cart, setCart] = useState<CartItem[]>([]);
   const [itemSearch, setItemSearch] = useState("");
+  const [debouncedItemSearch] = useDebounce(itemSearch, 300);
 
   // Item detail form for the active item being added/edited
   const [selectedItemToAdd, setSelectedItemToAdd] = useState<Item | null>(null);
@@ -66,14 +69,20 @@ export function CreateOrder() {
   const shopsQuery = useQuery({ queryKey: ["shops"], queryFn: () => fetchShops(token ?? ""), enabled: !!token });
   
   const customersQuery = useQuery({
-    queryKey: ["customers", activeShopId],
-    queryFn: () => fetchCustomers(token ?? "", activeShopId ?? ""),
+    queryKey: ["customers", activeShopId, debouncedCustomerSearch],
+    queryFn: () => fetchCustomers(token ?? "", activeShopId ?? "", false, {
+      search: debouncedCustomerSearch,
+      limit: debouncedCustomerSearch ? 20 : 50,
+    }),
     enabled: !!token && !!activeShopId,
   });
 
   const itemsQuery = useQuery({
-    queryKey: ["items", activeShopId],
-    queryFn: () => fetchItems(token ?? "", activeShopId ?? ""),
+    queryKey: ["items", activeShopId, debouncedItemSearch],
+    queryFn: () => fetchItems(token ?? "", activeShopId ?? "", {
+      search: debouncedItemSearch,
+      limit: debouncedItemSearch ? 20 : 50,
+    }),
     enabled: !!token && !!activeShopId,
   });
 
@@ -86,18 +95,12 @@ export function CreateOrder() {
   // Filters
   const filteredCustomers = useMemo(() => {
     if (!customerSearch) return [];
-    return (customersQuery.data ?? []).filter(c =>
-      c.name.toLowerCase().includes(customerSearch.toLowerCase()) ||
-      (c.phone && c.phone.includes(customerSearch))
-    ).slice(0, 5);
+    return (customersQuery.data ?? []).slice(0, 5);
   }, [customersQuery.data, customerSearch]);
 
   const filteredItems = useMemo(() => {
     if (!itemSearch) return [];
-    return (itemsQuery.data?.items ?? []).filter(i =>
-      i.name.toLowerCase().includes(itemSearch.toLowerCase()) ||
-      i.sku?.toLowerCase().includes(itemSearch.toLowerCase())
-    ).slice(0, 5);
+    return (itemsQuery.data?.items ?? []).slice(0, 5);
   }, [itemsQuery.data, itemSearch]);
 
   const selectedCustomer = customersQuery.data?.find(c => c.id === customerId);

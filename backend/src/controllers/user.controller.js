@@ -30,31 +30,41 @@ function publicDevice(device) {
 
 export const registerDevice = asyncHandler(async (req, res) => {
   const input = req.validated.body;
-  const device = await prisma.userDevice.upsert({
-    where: {
-      userId_installationId: {
-        userId: req.user.id,
-        installationId: input.installationId,
+  const device = await prisma.$transaction(async (tx) => {
+    const upserted = await tx.userDevice.upsert({
+      where: {
+        userId_installationId: {
+          userId: req.user.id,
+          installationId: input.installationId,
+        },
       },
-    },
-    create: {
-      userId: req.user.id,
-      ...input,
-      lastSeenAt: new Date(),
-    },
-    update: {
-      ...input,
-      revokedAt: null,
-      lastSeenAt: new Date(),
-    },
-  });
-
-  if (input.pushToken) {
-    await prisma.user.update({
-      where: { id: req.user.id },
-      data: { pushToken: input.pushToken },
+      create: {
+        userId: req.user.id,
+        ...input,
+        lastSeenAt: new Date(),
+      },
+      update: {
+        ...input,
+        revokedAt: null,
+        lastSeenAt: new Date(),
+      },
     });
-  }
+
+    if (input.pushToken) {
+      const user = await tx.user.findUnique({
+        where: { id: req.user.id },
+        select: { pushToken: true },
+      });
+      if (user?.pushToken !== input.pushToken) {
+        await tx.user.update({
+          where: { id: req.user.id },
+          data: { pushToken: input.pushToken },
+        });
+      }
+    }
+
+    return upserted;
+  });
 
   res.json({ success: true, data: publicDevice(device) });
 });

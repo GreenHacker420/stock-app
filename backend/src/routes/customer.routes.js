@@ -16,6 +16,8 @@ const querySchema = z.object({
     search: z.string().optional(),
     type: z.enum(["WALK_IN", "REGULAR", "BUSINESS"]).optional(),
     includeWalkin: z.string().transform(v => v === "true").optional(),
+    page: z.coerce.number().int().positive().optional(),
+    limit: z.coerce.number().int().positive().max(200).optional(),
   }),
 });
 
@@ -62,6 +64,8 @@ router.get("/:id/timeline", requirePermission(PERMISSIONS.CUSTOMER_VIEW), custom
 router.get("/:id/sales", requirePermission(PERMISSIONS.CUSTOMER_VIEW), customerController.getSales);
 router.get("/:id/payments", requirePermission(PERMISSIONS.CUSTOMER_VIEW), customerController.getPayments);
 router.get("/:id/dms", requirePermission(PERMISSIONS.CUSTOMER_VIEW), customerController.getDMs);
+router.get("/:id/delivery-memos", requirePermission(PERMISSIONS.CUSTOMER_VIEW), customerController.getDMs);
+router.get("/:id/returns", requirePermission(PERMISSIONS.CUSTOMER_VIEW), customerController.getReturns);
 router.get("/:id/price-history", requirePermission(PERMISSIONS.CUSTOMER_VIEW), validate(z.object({ query: z.object({ itemId: z.string().optional() }) })), customerController.getPriceHistory);
 router.patch("/:id", requirePermission(PERMISSIONS.CUSTOMER_UPDATE), validate(updateSchema), customerController.updateCustomer);
 

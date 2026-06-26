@@ -2,7 +2,7 @@ import prisma from "../lib/db.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 import { writeAuditLog } from "../utils/auditLog.js";
-import { notifyShopOwner } from "./notification.service.js";
+import { notifyShopOwner, createNotification } from "./notification.service.js";
 import { money, add, sub, isZero } from "../utils/money.js";
 import { EntityType, AuditAction } from "../generated/prisma/index.js";
 import { increaseCustomerDebt } from "./transactionHelpers.js";
@@ -75,13 +75,25 @@ export async function updateChequeStatus(user, id, status, { reason } = {}) {
     if (status === "BOUNCED" && existing.customerId) {
       await increaseCustomerDebt(tx, existing.customerId, existing.amount);
 
+      const msg = `Cheque bounced for customer ${existing.customer?.name || "Walk-In"} for ₹${existing.amount}`;
       await notifyShopOwner(tx, {
         shopId: existing.shopId,
         triggerEvent: "CHEQUE_BOUNCED",
         entityType: EntityType.PAYMENT,
         entityId: id,
-        message: `Cheque bounced for ₹${existing.amount}`,
+        message: msg,
       });
+
+      if (existing.receivedById) {
+        await createNotification(tx, {
+          userId: existing.receivedById,
+          shopId: existing.shopId,
+          triggerEvent: "CHEQUE_BOUNCED",
+          entityType: EntityType.PAYMENT,
+          entityId: id,
+          message: `${msg}. Please follow up for payment.`,
+        });
+      }
     }
 
     await tx.auditLog.create({

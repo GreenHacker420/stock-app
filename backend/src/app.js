@@ -6,6 +6,33 @@ import morgan from "morgan";
 import { errorHandler, notFoundHandler } from "./middleware/error.middleware.js";
 import { mountAppRoutes } from "./routes/index.js";
 
+function requestMetrics(req, res, next) {
+  const startedAt = process.hrtime.bigint();
+  const originalJson = res.json.bind(res);
+
+  res.json = (body) => {
+    if (body !== undefined) {
+      try {
+        res.locals.payloadBytes = Buffer.byteLength(JSON.stringify(body));
+      } catch {
+        res.locals.payloadBytes = undefined;
+      }
+    }
+    return originalJson(body);
+  };
+
+  res.on("finish", () => {
+    if (process.env.NODE_ENV === "production") return;
+    const durationMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+    const payload = res.locals.payloadBytes == null ? "-" : `${res.locals.payloadBytes}b`;
+    if (durationMs >= 100 || (res.locals.payloadBytes ?? 0) >= 25_000) {
+      console.log(`[api] ${req.method} ${req.originalUrl} ${res.statusCode} ${durationMs.toFixed(1)}ms ${payload}`);
+    }
+  });
+
+  next();
+}
+
 export function createApp() {
   const app = express();
 
@@ -23,6 +50,7 @@ export function createApp() {
   if (process.env.NODE_ENV !== "test") {
     app.use(morgan("dev"));
   }
+  app.use(requestMetrics);
 
   app.get("/", (_req, res) => {
     res.json({
