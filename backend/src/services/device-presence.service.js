@@ -103,3 +103,12 @@ export async function removeDevicePresence(deviceId, shopId) {
 }
 
 export const devicePresenceTtlSeconds = PRESENCE_TTL_SECONDS;
+
+export async function closePresenceRedis() {
+  if (redis) {
+    try {
+      await redis.quit();
+    } catch (err) {}
+    redis = null;
+  }
+}

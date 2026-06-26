@@ -143,13 +143,27 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
       socket = createRealtimeSocket(token, deviceId);
       socketRef.current = socket;
 
+      let lastReconnectTime = 0;
       socket.on("connect", () => {
         socket?.emit("shop:join", { shopId: activeShopId });
         emitPresence();
+
+        const now = Date.now();
+        if (now - lastReconnectTime > 10_000) {
+          lastReconnectTime = now;
+          queryClient.invalidateQueries({ queryKey: ["sales", activeShopId] });
+          queryClient.invalidateQueries({ queryKey: ["payments", activeShopId] });
+          queryClient.invalidateQueries({ queryKey: ["current-stock", activeShopId] });
+          queryClient.invalidateQueries({ queryKey: ["orders", activeShopId] });
+          queryClient.invalidateQueries({ queryKey: ["delivery-memos", activeShopId] });
+          queryClient.invalidateQueries({ queryKey: ["current-cash-session", activeShopId] });
+          queryClient.invalidateQueries({ queryKey: ["owner-dashboard", { shopId: activeShopId }] });
+          queryClient.invalidateQueries({ queryKey: ["notifications", { shopId: activeShopId }] });
+        }
       });
 
       socket.on("domain:event", (event: DomainEvent) => {
-        const handled = handleDomainEvent(queryClient, event);
+        const handled = handleDomainEvent(queryClient, event, deviceId);
         if (handled && event.notification) {
           setToast({
             visible: true,

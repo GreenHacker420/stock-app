@@ -155,6 +155,7 @@ export function useNotificationSetup() {
     });
 
     const handleNotificationData = async (data: Record<string, unknown> = {}) => {
+      const deviceId = await getDeviceInstallationId();
       if (data.eventId && data.shopId && data.entity && data.action && data.entityId) {
         handleDomainEvent(queryClient, {
           eventId: String(data.eventId),
@@ -165,7 +166,7 @@ export function useNotificationSetup() {
           actorUserId: String(data.actorUserId || ""),
           updatedAt: String(data.updatedAt || new Date().toISOString()),
           queryKeys: typeof data.queryKeys === "string" ? data.queryKeys.split(",") : undefined,
-        });
+        }, deviceId);
       } else if (data.shopId) {
         queryClient.invalidateQueries({ queryKey: ["notifications"] });
         queryClient.invalidateQueries({ queryKey: ["owner-dashboard"] });

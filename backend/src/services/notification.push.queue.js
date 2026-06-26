@@ -24,3 +24,12 @@ export async function enqueueNotificationPush(notificationId) {
     },
   );
 }
+
+export async function closePushQueue() {
+  try {
+    await notificationPushQueue.close();
+  } catch (err) {}
+  try {
+    await connection.quit();
+  } catch (err) {}
+}

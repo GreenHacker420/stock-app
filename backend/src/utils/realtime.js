@@ -41,7 +41,7 @@ async function getSocketUser(token) {
   };
 }
 
-async function canAccessShop(user, shopId) {
+export async function canAccessShop(user, shopId) {
   if (!user || !shopId) return false;
 
   const shop = await prisma.shop.findUnique({
@@ -58,7 +58,7 @@ async function canAccessShop(user, shopId) {
   return (user.role === "OWNER" && shop.ownerId === user.id) || (user.role === "STAFF" && shop.staffAccesses.length > 0);
 }
 
-async function getShopAccess(user, shopId) {
+export async function getShopAccess(user, shopId) {
   if (!user || !shopId) return null;
   const shop = await prisma.shop.findUnique({
     where: { id: shopId },
@@ -75,7 +75,7 @@ async function getShopAccess(user, shopId) {
   return null;
 }
 
-async function canUseDeviceRoom(userId, deviceId) {
+export async function canUseDeviceRoom(userId, deviceId) {
   if (!userId || !deviceId) return false;
   const device = await prisma.userDevice.findFirst({
     where: { id: deviceId, userId, revokedAt: null },
@@ -89,11 +89,11 @@ export function configureRealtime(io) {
   // Initialize Redis pub/sub clients
   if (!redisSub) {
     redisSub = new Redis(REDIS_URL, { maxRetriesPerRequest: null });
-    redisSub.subscribe("whatsapp:events", (err) => {
+    redisSub.subscribe("whatsapp:events", "domain-events", (err) => {
       if (err) {
-        console.error("[Realtime] Failed to subscribe to whatsapp:events channel:", err.message);
+        console.error("[Realtime] Failed to subscribe to Redis channels:", err.message);
       } else {
-        console.log("[Realtime] Subscribed to whatsapp:events channel");
+        console.log("[Realtime] Subscribed to Redis channels (whatsapp:events, domain-events)");
       }
     });
 
@@ -103,7 +103,14 @@ export function configureRealtime(io) {
           const { shopId, event, data } = JSON.parse(message);
           io.to(`shop:${shopId}`).emit(event, data);
         } catch (err) {
-          console.error("[Realtime] Error processing pub/sub message:", err.message);
+          console.error("[Realtime] Error processing whatsapp pub/sub message:", err.message);
+        }
+      } else if (channel === "domain-events") {
+        try {
+          const event = JSON.parse(message);
+          emitDomainEventLocal(event);
+        } catch (err) {
+          console.error("[Realtime] Error processing domain-events message:", err.message);
         }
       }
     });
@@ -210,17 +217,38 @@ export function emitShopEvent(req, shopId, event, payload = {}) {
   });
 }
 
+export function getDomainEventRooms(event) {
+  const targets = new Set();
+  
+  if (event.visibility?.owners && event.visibility?.staff) {
+    targets.add(`shop:${event.shopId}`);
+  } else {
+    if (event.visibility?.owners) targets.add(`shop:${event.shopId}:owners`);
+    if (event.visibility?.staff) targets.add(`shop:${event.shopId}:staff`);
+  }
+
+  for (const userId of event.visibility?.targetUserIds || []) {
+    targets.add(`user:${userId}`);
+  }
+  for (const deviceId of event.visibility?.targetDeviceIds || []) {
+    targets.add(`device:${deviceId}`);
+  }
+  return [...targets];
+}
+
 export function emitDomainEvent(event) {
   if (!realtimeIo || !event?.shopId) return;
-
-  const targets = new Set([`shop:${event.shopId}`]);
-  if (event.visibility?.owners) targets.add(`shop:${event.shopId}:owners`);
-  if (event.visibility?.staff) targets.add(`shop:${event.shopId}:staff`);
-  for (const userId of event.visibility?.targetUserIds || []) targets.add(`user:${userId}`);
-  for (const deviceId of event.visibility?.targetDeviceIds || []) targets.add(`device:${deviceId}`);
-
-  for (const room of targets) {
+  const rooms = getDomainEventRooms(event);
+  for (const room of rooms) {
     realtimeIo.to(room).emit("domain:event", event);
+  }
+}
+
+export function emitDomainEventLocal(event) {
+  if (!realtimeIo || !event?.shopId) return;
+  const rooms = getDomainEventRooms(event);
+  for (const room of rooms) {
+    realtimeIo.local.to(room).emit("domain:event", event);
   }
 }
 

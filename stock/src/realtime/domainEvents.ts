@@ -51,14 +51,14 @@ export function invalidateForDomainEvent(queryClient: QueryClient, event: Domain
   if (event.entity === "sale") {
     invalidate(["sales", shopId]);
     invalidate(["sale", event.entityId]);
-    invalidate(["owner-dashboard"]);
+    invalidate(["owner-dashboard", { shopId }]);
     invalidate(["staff-today-summary", shopId]);
     invalidate(["customers", shopId]);
   }
 
   if (event.entity === "payment") {
     invalidate(["payments", shopId]);
-    invalidate(["owner-dashboard"]);
+    invalidate(["owner-dashboard", { shopId }]);
     invalidate(["staff-today-summary", shopId]);
     invalidate(["customers", shopId]);
     invalidate(["current-cash-session", shopId]);
@@ -66,10 +66,10 @@ export function invalidateForDomainEvent(queryClient: QueryClient, event: Domain
   }
 
   if (event.entity === "stock" || event.entity === "item") {
-    invalidate(["items"]);
+    invalidate(["items", shopId]);
     invalidate(["current-stock", shopId]);
     invalidate(["stock-movements", shopId]);
-    invalidate(["owner-dashboard"]);
+    invalidate(["owner-dashboard", { shopId }]);
   }
 
   if (event.entity === "customer") {
@@ -79,36 +79,43 @@ export function invalidateForDomainEvent(queryClient: QueryClient, event: Domain
 
   if (event.entity === "deliveryMemo") {
     invalidate(["delivery-memos", shopId]);
-    invalidate(["owner-dashboard"]);
+    invalidate(["owner-dashboard", { shopId }]);
     invalidate(["customers", shopId]);
   }
 
   if (event.entity === "order") {
     invalidate(["orders", shopId]);
     invalidate(["order", event.entityId]);
-    invalidate(["owner-dashboard"]);
+    invalidate(["owner-dashboard", { shopId }]);
   }
 
   if (event.entity === "cashSession") {
     invalidate(["current-cash-session", shopId]);
     invalidate(["cash-sessions", shopId]);
-    invalidate(["owner-dashboard"]);
+    invalidate(["owner-dashboard", { shopId }]);
   }
 
   if (event.entity === "approval" || event.entity === "notification") {
-    invalidate(["notifications"]);
+    queryClient.invalidateQueries({ queryKey: ["notifications", { shopId }] });
     invalidate(["rate-change-requests", shopId]);
     invalidate(["correction-requests", shopId]);
   }
 
   for (const key of event.queryKeys || []) {
-    if (key === "dashboard") invalidate(["owner-dashboard"]);
-    if (key === "notifications") invalidate(["notifications"]);
+    if (key === "dashboard") invalidate(["owner-dashboard", { shopId }]);
+    if (key === "notifications") queryClient.invalidateQueries({ queryKey: ["notifications", { shopId }] });
   }
 }
 
-export function handleDomainEvent(queryClient: QueryClient, event: DomainEvent) {
+export function handleDomainEvent(queryClient: QueryClient, event: DomainEvent, currentDeviceId?: string | null) {
   if (!event?.eventId || hasSeenDomainEvent(event.eventId)) return false;
+
+  // Skip processing if event was originated by the current device to avoid duplicate local updates
+  if (currentDeviceId && event.sourceDeviceId === currentDeviceId) {
+    console.log(`[domainEvents] Ignoring event ${event.eventId} because it originated from the current device ${currentDeviceId}`);
+    return false;
+  }
+
   invalidateForDomainEvent(queryClient, event);
   return true;
 }

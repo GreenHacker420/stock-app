@@ -3,7 +3,22 @@ import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 import { enqueueNotificationPush } from "./notification.push.queue.js";
 
-export async function createNotification(txOrPrisma, { userId, shopId, triggerEvent, entityType, entityId, message }) {
+export async function createNotification(txOrPrisma, { userId, shopId, triggerEvent, entityType, entityId, message, domainEventId }) {
+  if (domainEventId) {
+    const existing = await txOrPrisma.notification.findUnique({
+      where: {
+        domainEventId_userId: {
+          domainEventId,
+          userId,
+        },
+      },
+    });
+    if (existing) {
+      console.log(`[Notification] Duplicate notification suppressed for eventId=${domainEventId}, userId=${userId}`);
+      return existing;
+    }
+  }
+
   const notification = await txOrPrisma.notification.create({
     data: {
       userId,
@@ -12,6 +27,7 @@ export async function createNotification(txOrPrisma, { userId, shopId, triggerEv
       entityType,
       entityId,
       message,
+      domainEventId,
     },
   });
   enqueueNotificationPush(notification.id).catch((error) => {

@@ -176,3 +176,11 @@ export async function warmTenantCache() {
     console.error("[WhatsApp Cache] Pre-warming failed:", err.message);
   }
 }
+
+export async function closeWaCacheRedis() {
+  if (redis) {
+    try {
+      await redis.quit();
+    } catch (err) {}
+  }
+}

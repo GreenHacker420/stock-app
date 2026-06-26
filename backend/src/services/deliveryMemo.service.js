@@ -11,6 +11,7 @@ import {
 } from "./transactionHelpers.js";
 import { money, sub } from "../utils/money.js";
 import { getOrCreateWalkIn } from "./customer.service.js";
+import { createDomainEvent, enqueueManyDomainEvents } from "./domain-event.service.js";
 
 export async function createDeliveryMemo(user, data) {
   await assertShopAccess(user, data.shopId);
@@ -108,6 +109,63 @@ export async function createDeliveryMemo(user, data) {
         status: "DISPATCHED",
       },
     });
+
+    await enqueueManyDomainEvents(tx, [
+      createDomainEvent({
+        shopId: data.shopId,
+        entity: "deliveryMemo",
+        action: "created",
+        entityId: dm.id,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true },
+        notification: user.role === "STAFF"
+          ? {
+              sendPush: true,
+              title: "New Delivery Memo",
+              body: `A delivery memo was recorded for ₹${Number(updated.estimatedAmount).toLocaleString("en-IN")}.`,
+              severity: "success",
+              deepLink: `stock://delivery-memos/${dm.id}`,
+            }
+          : undefined,
+      }),
+      createDomainEvent({
+        shopId: data.shopId,
+        entity: "stock",
+        action: "updated",
+        entityId: dm.id,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true },
+      }),
+      createDomainEvent({
+        shopId: data.shopId,
+        entity: "customer",
+        action: "updated",
+        entityId: customerId,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true },
+      }),
+      createDomainEvent({
+        shopId: data.shopId,
+        entity: "dashboard",
+        action: "updated",
+        entityId: data.shopId,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true },
+      }),
+      ...((data.payments || []).length > 0 ? [createDomainEvent({
+        shopId: data.shopId,
+        entity: "payment",
+        action: "created",
+        entityId: dm.id,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true },
+      })] : []),
+    ]);
 
     return updated;
   });

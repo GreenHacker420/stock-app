@@ -73,3 +73,18 @@ export const broadcastSendQueue = new Queue("whatsapp-broadcast-send", {
     removeOnFail: { count: 100 },
   },
 });
+
+export async function closeWhatsappQueues() {
+  try {
+    await Promise.all([
+      whatsappQueue.close(),
+      inboundQueue.close(),
+      mediaDownloadQueue.close(),
+      broadcastQueue.close(),
+      broadcastSendQueue.close(),
+    ]);
+  } catch (err) {}
+  try {
+    await connection.quit();
+  } catch (err) {}
+}

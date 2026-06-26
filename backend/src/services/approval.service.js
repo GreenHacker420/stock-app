@@ -2,7 +2,7 @@ import prisma from "../lib/db.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 import { writeAuditLog } from "../utils/auditLog.js";
-import { notifyShopOwner, createNotification } from "./notification.service.js";
+import { createDomainEvent, enqueueDomainEvent } from "./domain-event.service.js";
 import { EntityType, AuditAction } from "../generated/prisma/index.js";
 
 export async function createApprovalRequest(tx, { shopId, type, entityType, entityId, payloadJson, reason, requestedById }) {
@@ -20,13 +20,22 @@ export async function createApprovalRequest(tx, { shopId, type, entityType, enti
     include: { requestedBy: { select: { id: true, name: true } } },
   });
 
-  await notifyShopOwner(tx, {
+  await enqueueDomainEvent(tx, createDomainEvent({
     shopId,
-    triggerEvent: "APPROVAL_REQUESTED",
-    entityType: EntityType.APPROVAL_REQUEST,
+    entity: "approval",
+    action: "created",
     entityId: request.id,
-    message: `New approval request (${type}) from ${request.requestedBy.name}`,
-  });
+    actorUserId: requestedById,
+    actorRole: "STAFF",
+    visibility: { owners: true, staff: false },
+    notification: {
+      sendPush: true,
+      title: "New approval request",
+      body: `New approval request (${type}) from ${request.requestedBy.name}`,
+      severity: "warning",
+      deepLink: `stock://approvals/${request.id}`,
+    },
+  }));
 
   return request;
 }
@@ -86,14 +95,22 @@ export async function respondToRequest(user, id, { status, rejectedReason }) {
       },
     });
 
-    await createNotification(tx, {
-      userId: request.requestedById,
+    await enqueueDomainEvent(tx, createDomainEvent({
       shopId: request.shopId,
-      triggerEvent: "APPROVAL_RESOLVED",
-      entityType: EntityType.APPROVAL_REQUEST,
+      entity: "approval",
+      action: status.toLowerCase(),
       entityId: request.id,
-      message: `Your approval request for (${request.type}) has been ${status.toLowerCase()}${status === "REJECTED" && rejectedReason ? `: ${rejectedReason}` : ""}.`,
-    });
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: true, targetUserIds: [request.requestedById] },
+      notification: {
+        sendPush: true,
+        title: `Approval request ${status.toLowerCase()}`,
+        body: `Your approval request for (${request.type}) has been ${status.toLowerCase()}${status === "REJECTED" && rejectedReason ? `: ${rejectedReason}` : ""}.`,
+        severity: status === "APPROVED" ? "success" : "critical",
+        deepLink: `stock://approvals/${request.id}`,
+      },
+    }));
 
     if (status === "APPROVED") {
       if (request.type === "STOCK_ENTRY") {

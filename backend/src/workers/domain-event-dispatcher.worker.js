@@ -1,6 +1,6 @@
 import Redis from "ioredis";
 import prisma from "../lib/db.js";
-import { emitDomainEvent } from "../utils/realtime.js";
+import { listShopPresence } from "../services/device-presence.service.js";
 import { createNotification } from "../services/notification.service.js";
 
 const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
@@ -65,25 +65,48 @@ async function getTargetUserIds(event) {
 async function queuePushNotifications(event) {
   if (!event.notification?.sendPush) return;
   const targetUserIds = await getTargetUserIds(event);
-  await Promise.all(targetUserIds.map((userId) => createNotification(prisma, {
-    userId,
-    shopId: event.shopId,
-    triggerEvent: notificationTriggerFor(event),
-    entityType: ENTITY_TYPE_MAP[event.entity] || "SHOP",
-    entityId: event.entityId,
-    message: event.notification.body || event.notification.title || "New activity",
-  }).catch((error) => {
-    console.error("[DomainEvent] Push notification creation failed", {
-      eventId: event.eventId,
-      userId,
-      error: error.message,
-    });
-  })));
+
+  // Get active device presences in the shop to evaluate suppression
+  const activePresences = await listShopPresence(event.shopId).catch(() => []);
+  const foregroundUserIds = new Set(
+    activePresences
+      .filter((p) => p.state === "FOREGROUND")
+      .map((p) => p.userId)
+  );
+
+  const severity = event.notification.severity || "info";
+
+  await Promise.all(targetUserIds.map(async (userId) => {
+    const isForeground = foregroundUserIds.has(userId);
+
+    // Suppress non-critical push notifications if user is currently active in foreground
+    if (isForeground && severity !== "critical") {
+      console.log(`[DomainEventDispatcher] Suppressing push notification for userId=${userId} due to active foreground presence (severity=${severity})`);
+      return;
+    }
+
+    try {
+      await createNotification(prisma, {
+        userId,
+        shopId: event.shopId,
+        triggerEvent: notificationTriggerFor(event),
+        entityType: ENTITY_TYPE_MAP[event.entity] || "SHOP",
+        entityId: event.entityId,
+        message: event.notification.body || event.notification.title || "New activity",
+        domainEventId: event.eventId,
+      });
+    } catch (error) {
+      console.error("[DomainEventDispatcher] Push notification creation failed", {
+        eventId: event.eventId,
+        userId,
+        error: error.message,
+      });
+    }
+  }));
 }
 
 async function publishEvent(event) {
   await getRedis().publish(DOMAIN_EVENT_CHANNEL, JSON.stringify(event));
-  emitDomainEvent(event);
   await queuePushNotifications(event);
 }
 
@@ -118,9 +141,32 @@ export async function dispatchPendingDomainEvents() {
   try {
     const rows = await claimRows();
     for (const row of rows) {
-      const event = row.eventJson;
+      let event;
       try {
+        event = row.eventJson;
+      } catch (err) {
+        await prisma.domainEventOutbox.update({
+          where: { id: row.id },
+          data: {
+            status: "failed",
+            attempts: MAX_ATTEMPTS,
+            lastError: "Malformed event JSON",
+          },
+        });
+        continue;
+      }
+
+      try {
+        if (!event || typeof event !== "object") {
+          throw new Error("Event is not a valid object");
+        }
+        if (!event.shopId || !event.entity || !event.action || !event.eventId) {
+          throw new Error(`Missing required fields: shopId=${event.shopId}, entity=${event.entity}, action=${event.action}, eventId=${event.eventId}`);
+        }
+
+        console.log(`[DomainEventDispatcher] Dispatching event: id=${event.eventId}, shopId=${event.shopId}, entity=${event.entity}, action=${event.action}`);
         await publishEvent(event);
+
         await prisma.domainEventOutbox.update({
           where: { id: row.id },
           data: {
@@ -132,12 +178,17 @@ export async function dispatchPendingDomainEvents() {
         });
         processed += 1;
       } catch (error) {
+        console.error(`[DomainEventDispatcher] Failed to dispatch event=${row.id}:`, error.message);
         const attempts = row.attempts + 1;
+        const isValidationError = error.message.includes("Missing required fields") || error.message.includes("not a valid object");
+        const nextStatus = (attempts >= MAX_ATTEMPTS || isValidationError) ? "failed" : "pending";
+        const nextAttempts = isValidationError ? MAX_ATTEMPTS : attempts;
+
         await prisma.domainEventOutbox.update({
           where: { id: row.id },
           data: {
-            status: attempts >= MAX_ATTEMPTS ? "failed" : "pending",
-            attempts,
+            status: nextStatus,
+            attempts: nextAttempts,
             lastError: error instanceof Error ? error.message : "Unknown dispatch error",
           },
         });
@@ -165,4 +216,15 @@ export function startDomainEventDispatcherWorker() {
       dispatcherTimer = null;
     },
   };
+}
+
+export async function closeRedis() {
+  if (redisPub) {
+    try {
+      await redisPub.quit();
+    } catch (err) {
+      console.error("[DomainEventDispatcher] Error closing Redis:", err.message);
+    }
+    redisPub = null;
+  }
 }

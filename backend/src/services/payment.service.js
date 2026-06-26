@@ -5,7 +5,7 @@ import { money, sub, add, isZero } from "../utils/money.js";
 import { writeAuditLog } from "../utils/auditLog.js";
 import { getOrCreateWalkIn } from "./customer.service.js";
 import { createNotification } from "./notification.service.js";
-import { createDomainEvent, enqueueManyDomainEvents } from "./domain-event.service.js";
+import { createDomainEvent, enqueueDomainEvent, enqueueManyDomainEvents } from "./domain-event.service.js";
 
 async function getPaymentWithAccess(user, id) {
   const payment = await prisma.payment.findUnique({
@@ -163,14 +163,22 @@ export async function verifyPayment(user, id, { note }) {
     include: { details: true },
   });
 
-  await createNotification(prisma, {
-    userId: payment.receivedById,
+  await enqueueDomainEvent(prisma, createDomainEvent({
     shopId: payment.shopId,
-    triggerEvent: "APPROVAL_RESOLVED",
-    entityType: "PAYMENT",
+    entity: "payment",
+    action: "verified",
     entityId: id,
-    message: `Payment of ₹${payment.amount} collected by you from customer ${payment.customer?.name || "Walk-In"} has been verified by the owner.`,
-  });
+    actorUserId: user.id,
+    actorRole: user.role,
+    visibility: { owners: true, staff: true, targetUserIds: [payment.receivedById] },
+    notification: {
+      sendPush: true,
+      title: "Payment verified",
+      body: `Payment of ₹${payment.amount} collected by you from customer ${payment.customer?.name || "Walk-In"} has been verified by the owner.`,
+      severity: "success",
+      deepLink: `stock://payments/${id}`,
+    },
+  }));
 
   return updated;
 }
@@ -190,14 +198,22 @@ export async function rejectPayment(user, id, { note }) {
     include: { details: true },
   });
 
-  await createNotification(prisma, {
-    userId: payment.receivedById,
+  await enqueueDomainEvent(prisma, createDomainEvent({
     shopId: payment.shopId,
-    triggerEvent: "PAYMENT_MISMATCH",
-    entityType: "PAYMENT",
+    entity: "payment",
+    action: "rejected",
     entityId: id,
-    message: `Payment of ₹${payment.amount} collected by you from customer ${payment.customer?.name || "Walk-In"} has been rejected by the owner: ${note || "No reason specified"}.`,
-  });
+    actorUserId: user.id,
+    actorRole: user.role,
+    visibility: { owners: true, staff: true, targetUserIds: [payment.receivedById] },
+    notification: {
+      sendPush: true,
+      title: "Payment rejected",
+      body: `Payment of ₹${payment.amount} collected by you from customer ${payment.customer?.name || "Walk-In"} has been rejected by the owner: ${note || "No reason specified"}.`,
+      severity: "critical",
+      deepLink: `stock://payments/${id}`,
+    },
+  }));
 
   return updated;
 }
@@ -232,6 +248,36 @@ export async function voidPayment(user, id, { reason } = {}) {
       newValueJson: payment,
       reason
     });
+
+    await enqueueManyDomainEvents(tx, [
+      createDomainEvent({
+        shopId: existing.shopId,
+        entity: "payment",
+        action: "voided",
+        entityId: id,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true },
+      }),
+      createDomainEvent({
+        shopId: existing.shopId,
+        entity: "customer",
+        action: "updated",
+        entityId: existing.customerId,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true },
+      }),
+      createDomainEvent({
+        shopId: existing.shopId,
+        entity: "dashboard",
+        action: "updated",
+        entityId: existing.shopId,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true },
+      })
+    ]);
 
     return payment;
   });
@@ -313,6 +359,60 @@ export async function attachPayment(user, id, { saleId, dmId, orderId }) {
       });
     }
 
+    await enqueueManyDomainEvents(tx, [
+      createDomainEvent({
+        shopId: payment.shopId,
+        entity: "payment",
+        action: "attached",
+        entityId: id,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true },
+      }),
+      createDomainEvent({
+        shopId: payment.shopId,
+        entity: "customer",
+        action: "updated",
+        entityId: payment.customerId,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true },
+      }),
+      createDomainEvent({
+        shopId: payment.shopId,
+        entity: "dashboard",
+        action: "updated",
+        entityId: payment.shopId,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true },
+      }),
+      ...(saleId ? [
+        createDomainEvent({
+          shopId: payment.shopId,
+          entity: "sale",
+          action: "updated",
+          entityId: saleId,
+          actorUserId: user.id,
+          actorRole: user.role,
+          visibility: { owners: true, staff: true },
+        })
+      ] : []),
+      ...(dmId ? [
+        createDomainEvent({
+          shopId: payment.shopId,
+          entity: "deliveryMemo",
+          action: "updated",
+          entityId: dmId,
+          actorUserId: user.id,
+          actorRole: user.role,
+          visibility: { owners: true, staff: true },
+        })
+      ] : [])
+    ]);
+
     return updatedPayment;
   });
 }
+
+export { rejectPayment as markMismatch };

@@ -29,6 +29,87 @@ async function sendExpo(messages) {
   return Array.isArray(payload.data) ? payload.data : [];
 }
 
+async function checkExpoPushReceipts() {
+  const pendingDeliveries = await prisma.notificationPushDelivery.findMany({
+    where: {
+      status: "SENT",
+      ticketId: { not: null },
+      updatedAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+    },
+    take: 100,
+  });
+
+  const ticketIds = pendingDeliveries.map((d) => d.ticketId).filter(Boolean);
+  if (!ticketIds.length) return;
+
+  console.log(`[Notification Push Worker] Checking push receipts for ${ticketIds.length} tickets...`);
+
+  try {
+    const headers = {
+      Accept: "application/json",
+      "Accept-Encoding": "gzip, deflate",
+      "Content-Type": "application/json",
+    };
+    if (process.env.EXPO_ACCESS_TOKEN) {
+      headers.Authorization = `Bearer ${process.env.EXPO_ACCESS_TOKEN}`;
+    }
+
+    const response = await fetch("https://exp.host/--/api/v2/push/getReceipts", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ ids: ticketIds }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Expo receipts endpoint failed with HTTP ${response.status}`);
+    }
+
+    const payload = await response.json();
+    const receipts = payload.data || {};
+
+    for (const delivery of pendingDeliveries) {
+      const receipt = receipts[delivery.ticketId];
+      if (!receipt) continue;
+
+      if (receipt.status === "ok") {
+        await prisma.notificationPushDelivery.update({
+          where: { id: delivery.id },
+          data: { status: "DELIVERED" },
+        });
+      } else if (receipt.status === "error") {
+        const errorCode = receipt.details?.error || null;
+        const errorMessage = receipt.message || "Expo delivery error";
+
+        console.warn(`[Notification Push Worker] Ticket ${delivery.ticketId} delivery failed: errorCode=${errorCode}, message=${errorMessage}`);
+
+        await prisma.notificationPushDelivery.update({
+          where: { id: delivery.id },
+          data: {
+            status: "FAILED",
+            errorCode,
+            errorMessage,
+          },
+        });
+
+        if (errorCode === "DeviceNotRegistered" || (errorMessage && errorMessage.toLowerCase().includes("invalid"))) {
+          console.warn(`[Notification Push Worker] Deactivating push token on device ${delivery.deviceId} due to permanent delivery failure`);
+          await prisma.userDevice.update({
+            where: { id: delivery.deviceId },
+            data: {
+              pushToken: null,
+              notificationsEnabled: false,
+              pushDisabledAt: new Date(),
+              lastPushError: errorCode || errorMessage,
+            },
+          });
+        }
+      }
+    }
+  } catch (error) {
+    console.error("[Notification Push Worker] Failed to check push receipts:", error.message);
+  }
+}
+
 async function deliverNotification(notificationId) {
   const notification = await prisma.notification.findUnique({
     where: { id: notificationId },
@@ -97,6 +178,8 @@ async function deliverNotification(notificationId) {
         data: {
           pushToken: null,
           notificationsEnabled: false,
+          pushDisabledAt: new Date(),
+          lastPushError: "DeviceNotRegistered",
         },
       });
     }
@@ -104,6 +187,8 @@ async function deliverNotification(notificationId) {
 
   return { delivered: tickets.filter((ticket) => ticket.status === "ok").length };
 }
+
+let receiptTimer;
 
 export function startNotificationPushWorker() {
   const worker = new Worker(
@@ -114,5 +199,20 @@ export function startNotificationPushWorker() {
   worker.on("failed", (job, error) => {
     console.error(`[Notification Push Worker] Job ${job?.id || "unknown"} failed:`, error.message);
   });
+
+  // Run receipt check every 5 minutes
+  receiptTimer = setInterval(() => {
+    checkExpoPushReceipts().catch((error) => {
+      console.error("[Notification Push Worker] Receipt check failed:", error.message);
+    });
+  }, 5 * 60 * 1000);
+
+  // Bind custom close method to clear interval
+  const originalClose = worker.close.bind(worker);
+  worker.close = async () => {
+    clearInterval(receiptTimer);
+    await originalClose();
+  };
+
   return worker;
 }
