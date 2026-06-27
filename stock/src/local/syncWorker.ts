@@ -7,6 +7,7 @@ import {
   markMutationProcessing,
   markMutationSynced,
 } from "./offlineQueue";
+import { reconcileDomainEventsForShop } from "../realtime/domainEventReconciliation";
 
 type PendingMutationRow = Awaited<ReturnType<typeof getPendingMutations>>[number];
 
@@ -154,7 +155,17 @@ async function markLocalEntityConflict(mutation: PendingMutationRow, reason: str
   }
 }
 
-export async function runOfflineSyncOnce({ shopId, token }: { shopId: string; token: string }) {
+export async function runOfflineSyncOnce({
+  shopId,
+  token,
+  queryClient,
+  deviceId,
+}: {
+  shopId: string;
+  token: string;
+  queryClient?: import("@tanstack/react-query").QueryClient;
+  deviceId?: string;
+}) {
   if (isSyncRunning) return { skipped: true, processed: 0 };
   isSyncRunning = true;
 
@@ -186,6 +197,10 @@ export async function runOfflineSyncOnce({ shopId, token }: { shopId: string; to
         }
         await markMutationFailed(mutation.id, message);
       }
+    }
+
+    if (processed > 0 && queryClient) {
+      void reconcileDomainEventsForShop(shopId, token, queryClient, deviceId);
     }
 
     return { skipped: false, processed };

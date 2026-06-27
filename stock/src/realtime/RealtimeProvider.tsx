@@ -8,6 +8,8 @@ import { createRealtimeSocket, type RealtimeEvent } from "./socket";
 import { NotificationToast } from "../components/ui/NotificationToast";
 import { getDeviceInstallationId } from "../notifications/device-identity";
 import { handleDomainEvent, type DomainEvent } from "./domainEvents";
+import { setDomainEventCursor } from "./domainEventCursor";
+import { reconcileDomainEventsForShop } from "./domainEventReconciliation";
 import { mmkvStorage } from "../auth/mmkv-storage";
 
 /**
@@ -88,7 +90,7 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
         if (typeof msgContent === "string") {
           cleanMessage = msgContent;
         } else if (msgContent && typeof msgContent === "object") {
-          cleanMessage = msgContent.text || "Received a new message.";
+          cleanMessage = (msgContent as Record<string, string>).text || "Received a new message.";
         } else {
           cleanMessage = "Received a new message.";
         }
@@ -100,7 +102,7 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
       if (typeof payload?.message === "string") {
         cleanMessage = payload.message;
       } else if (payload?.message && typeof payload.message === "object") {
-        cleanMessage = payload.message.text || payload.message.message || "New activity detected.";
+        cleanMessage = (payload.message as Record<string, string>).text || (payload.message as Record<string, string>).message || "New activity detected.";
       }
 
       const ev = (payload?.triggerEvent || event || "").toLowerCase();
@@ -126,13 +128,16 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
     let cancelled = false;
     let socket: Socket | null = null;
     let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+    let deviceIdResolved = "";
 
-    const CURSOR_KEY = `domain_event_cursor:${activeShopId}`;
+    const reconcile = () => {
+      if (!token || !activeShopId || !deviceIdResolved) return;
+      void reconcileDomainEventsForShop(activeShopId, token, queryClient, deviceIdResolved);
+    };
 
-    // this will send the sync request event to the server 
-    const requestMissedEvents = () => {
+    const requestSocketSync = () => {
       if (!socket?.connected) return;
-      const since = mmkvStorage.getItem(CURSOR_KEY) ?? undefined;
+      const since = mmkvStorage.getItem(`domain_event_cursor:${activeShopId}`) ?? undefined;
       socket.emit("sync:request", { shopId: activeShopId, since });
     };
 
@@ -147,9 +152,10 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
 
     const handleAppStateChange = (nextAppState: AppStateStatus) => {
       emitPresence(nextAppState);
-      // When the app returns to foreground, request any missed events via socket push.
       if (nextAppState === "active") {
-        requestMissedEvents();
+        // App returned to foreground — request missed events from both paths
+        requestSocketSync();
+        reconcile();
       }
     };
 
@@ -157,20 +163,29 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
 
     void getDeviceInstallationId().then((deviceId: string) => {
       if (cancelled) return;
+      deviceIdResolved = deviceId;
       socket = createRealtimeSocket(token, deviceId);
       socketRef.current = socket;
 
       socket.on("connect", () => {
         socket?.emit("shop:join", { shopId: activeShopId });
         emitPresence();
-        requestMissedEvents();
+        requestSocketSync();
+        reconcile();
+      });
+
+      socket.on("shop:joined", ({ shopId }: { shopId: string }) => {
+        if (shopId === activeShopId) {
+          reconcile();
+        }
       });
 
       socket.on("domain:event", (event: DomainEvent) => {
         const handled = handleDomainEvent(queryClient, event, deviceId);
         if (handled) {
           if (event.updatedAt) {
-            mmkvStorage.setItem(CURSOR_KEY, event.updatedAt);
+            // Advance cursor synchronously in MMKV so next reconnect sync starts correctly
+            void setDomainEventCursor(activeShopId, event.updatedAt);
           }
           if (event.notification) {
             setToast({
@@ -183,15 +198,13 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
         }
       });
 
-      
-      // when all sync work completes the sync:complete event will be sent
       socket.on("sync:complete", ({ nextCursor }: { shopId: string; count: number; nextCursor: string | null }) => {
         if (nextCursor) {
-          mmkvStorage.setItem(CURSOR_KEY, nextCursor);
+          void setDomainEventCursor(activeShopId, nextCursor);
         }
       });
 
-      // Legacy events — kept for WhatsApp realtime and any non-migrated paths
+      // Legacy events for WhatsApp and any non-migrated paths
       for (const event of legacyEvents) {
         socket.on(event, (payload?: any) => {
           for (const queryKey of invalidationMap[event] || []) {
@@ -221,6 +234,7 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
       socket?.emit("shop:leave", { shopId: activeShopId });
       socket?.off("domain:event");
       socket?.off("sync:complete");
+      socket?.off("shop:joined");
       for (const event of legacyEvents) {
         socket?.off(event);
       }
