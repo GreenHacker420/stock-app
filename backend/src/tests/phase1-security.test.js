@@ -140,7 +140,7 @@ test.describe("Phase 1 security and permission fixes", () => {
 
   test("staff shop access remains assignment-scoped", async () => {
     await assert.doesNotReject(() => assertShopAccess(staff, shop.id));
-    await assertRejectsApi(() => assertShopAccess(staff, otherShop.id), 404);
+    await assertRejectsApi(() => assertShopAccess(staff, otherShop.id), 403);
   });
 
   test("rate-change requests cannot cross shop or owner boundaries", async () => {
@@ -155,8 +155,8 @@ test.describe("Phase 1 security and permission fixes", () => {
       orderItemId: orderItem.id,
       suggestedRate: 80,
       reason: "Wrong shop",
-    }), 404);
-    await assertRejectsApi(() => rateChangeService.approveRateChangeRequest(otherOwner, request.id), 404);
+    }), 403);
+    await assertRejectsApi(() => rateChangeService.approveRateChangeRequest(otherOwner, request.id), 403);
   });
 
   test("correction requests cannot cross shop or owner boundaries", async () => {
@@ -173,8 +173,8 @@ test.describe("Phase 1 security and permission fixes", () => {
       entityId: sale.id,
       requestedChangeJson: { action: "CANCEL" },
       reason: "Wrong shop",
-    }), 404);
-    await assertRejectsApi(() => correctionService.approveCorrectionRequest(otherOwner, request.id), 404);
+    }), 403);
+    await assertRejectsApi(() => correctionService.approveCorrectionRequest(otherOwner, request.id), 403);
   });
 
   test("expense create and verify permissions are scoped", async () => {
@@ -190,9 +190,9 @@ test.describe("Phase 1 security and permission fixes", () => {
       shopId: otherShop.id,
       amount: 10,
       category: "MISC",
-    }), 404);
+    }), 403);
     await assertRejectsApi(() => expenseService.verifyExpense(staff, expense.id, { status: "APPROVED" }), 403);
-    await assertRejectsApi(() => expenseService.verifyExpense(otherOwner, expense.id, { status: "APPROVED" }), 404);
+    await assertRejectsApi(() => expenseService.verifyExpense(otherOwner, expense.id, { status: "APPROVED" }), 403);
 
     const verified = await expenseService.verifyExpense(owner, expense.id, { status: "APPROVED", note: "ok" });
     assert.strictEqual(verified.status, "APPROVED");
@@ -239,6 +239,6 @@ test.describe("Phase 1 security and permission fixes", () => {
 
     const summary = await summaryService.getSummary(owner, { shopId: shop.id, date: "2026-06-29" });
     assert.strictEqual(summary.shopId, shop.id);
-    await assertRejectsApi(() => summaryService.getSummary(otherOwner, { shopId: shop.id, date: "2026-06-29" }), 404);
+    await assertRejectsApi(() => summaryService.getSummary(otherOwner, { shopId: shop.id, date: "2026-06-29" }), 403);
   });
 });

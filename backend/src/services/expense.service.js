@@ -22,13 +22,15 @@ export async function createExpense(user, data) {
 
 
 
-    await writeAuditLog({
-      userId: user.id,
-      shopId: data.shopId,
-      action: AuditAction.CREATED,
-      entityType: EntityType.EXPENSE,
-      entityId: expense.id,
-      newValueJson: expense
+    await tx.auditLog.create({
+      data: {
+        userId: user.id,
+        shopId: data.shopId,
+        action: AuditAction.CREATED,
+        entityType: EntityType.EXPENSE,
+        entityId: expense.id,
+        newValueJson: expense,
+      },
     });
 
     return expense;
