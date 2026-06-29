@@ -2,6 +2,7 @@ export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? "https://shop-api
 
 export type PaymentMode = "CASH" | "UPI" | "CARD" | "BANK_TRANSFER" | "CHEQUE";
 export type PaymentStatus = "RECORDED" | "VERIFIED" | "REJECTED" | "CANCELLED";
+export type ChequeStatus = "RECEIVED" | "DEPOSITED" | "CLEARED" | "BOUNCED" | "RETURNED" | "CANCELLED";
 
 export type ApiUser = {
   id: string;
@@ -211,7 +212,7 @@ export type ChequePayment = Payment & {
     chequeDate?: string | null;
     chequeDepositDate?: string | null;
     chequeClearDate?: string | null;
-    chequeStatus?: string | null;
+    chequeStatus?: ChequeStatus | null;
   } | null;
   customer?: Customer | null;
 };

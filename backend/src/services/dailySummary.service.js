@@ -210,13 +210,16 @@ async function generateSummaryInternal(shopId, date) {
     dms.reduce((sum, dm) => sum + Number(dm.balanceAmount || 0), 0) +
     orders.reduce((sum, order) => sum + Number(order.balanceAmount || 0), 0);
   const totalExpenses = expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+  const sessionExpenses = cashSession
+    ? expenses.filter((expense) => expense.cashSessionId === cashSession.id).reduce((sum, expense) => sum + Number(expense.amount || 0), 0)
+    : 0;
   const sessionCashCollected = cashSession
     ? payments
         .filter((payment) => payment.paymentMode === "CASH" && payment.cashSessionId === cashSession.id)
         .reduce((sum, payment) => sum + Number(payment.amount || 0), 0)
     : 0;
   const expectedCash = cashSession
-    ? Number(cashSession.openingCash || 0) + sessionCashCollected - Number(cashSession.cashHandover || 0)
+    ? Number(cashSession.openingCash || 0) + sessionCashCollected - sessionExpenses - Number(cashSession.cashHandover || 0)
     : 0;
 
   return prisma.dailySummary.create({
