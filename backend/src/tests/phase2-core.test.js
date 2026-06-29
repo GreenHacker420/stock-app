@@ -351,7 +351,7 @@ test.describe("Phase 2 core business correctness", () => {
     const summary = await dailySummaryService.generateSummary(owner, { shopId: shop.id, date: today });
     assert.strictEqual(Number(summary.expectedCash), -35);
     // Approved expense totals remains separate (should be 25)
-    assert.strictEqual(Number(summary.totalExpenses), 25);
+    assert.strictEqual(Number(summary.payloadJson.totalExpenses), 25);
 
     // Clean up session & expenses
     await prisma.expense.deleteMany({ where: { shopId: shop.id } });
