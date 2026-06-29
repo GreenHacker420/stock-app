@@ -11,6 +11,7 @@ import * as paymentService from "../services/payment.service.js";
 import * as rateChangeService from "../services/rateChange.service.js";
 import * as correctionService from "../services/correction.service.js";
 import * as summaryService from "../services/dailySummary.service.js";
+import { closePushQueue } from "../services/notification.push.queue.js";
 
 const CODES = ["P1S1", "P1S2"];
 const MOBILES = ["9911110101", "9911110102", "9911110103", "9911110104"];
@@ -125,6 +126,7 @@ test.describe("Phase 1 security and permission fixes", () => {
 
   test.after(async () => {
     await cleanup();
+    await closePushQueue();
   });
 
   test("owner staff list/update/assign is scoped to owned staff", async () => {
