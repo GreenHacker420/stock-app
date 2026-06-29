@@ -325,7 +325,7 @@ test.describe("Phase 2 core business correctness", () => {
     const approvedExpense = await expenseService.createExpense(staff, {
       shopId: shop.id,
       amount: 25,
-      category: "FUEL",
+      category: "PETROL",
       note: "fuel",
     });
     // Approve fuel expense
@@ -364,6 +364,11 @@ test.describe("Phase 2 core business correctness", () => {
     });
     const item1 = await prisma.item.create({
       data: { shopId: shop.id, name: "P4B Item", unit: "PCS", defaultSellingPrice: 100 },
+    });
+
+    // Put some stock in so we can sell it
+    await prisma.stockLedger.create({
+      data: { shopId: shop.id, itemId: item1.id, movementType: "OPENING_STOCK", quantityIn: 100, quantityOut: 0, createdById: owner.id },
     });
 
     // Create a sale of 500
@@ -452,10 +457,20 @@ test.describe("Phase 2 core business correctness", () => {
     freshCust = await prisma.customer.findUnique({ where: { id: cust.id } });
     assert.strictEqual(Number(freshCust.outstandingAmount), 0);
 
-    // Clean up
-    await prisma.customer.delete({ where: { id: cust2.id } });
+    // Clean up sale/DM details first to avoid restricting key issues
+    await prisma.saleItem.deleteMany({ where: { saleId: { in: [sale.id, saleWithPayment.id] } } });
+    await prisma.payment.deleteMany({ where: { saleId: { in: [sale.id, saleWithPayment.id] } } });
+    await prisma.sale.deleteMany({ where: { id: { in: [sale.id, saleWithPayment.id] } } });
+
+    await prisma.deliveryMemoItem.deleteMany({ where: { dmId: dm.id } });
+    await prisma.payment.deleteMany({ where: { dmId: dm.id } });
+    await prisma.dispatch.deleteMany({ where: { dmId: dm.id } });
+    await prisma.deliveryMemo.deleteMany({ where: { id: dm.id } });
+
+    await prisma.stockLedger.deleteMany({ where: { itemId: item1.id } });
     await prisma.item.delete({ where: { id: item1.id } });
     await prisma.customer.delete({ where: { id: cust.id } });
+    await prisma.customer.delete({ where: { id: cust2.id } });
     await prisma.cashSession.deleteMany({ where: { shopId: shop.id } });
   });
 
@@ -506,8 +521,13 @@ test.describe("Phase 2 core business correctness", () => {
     const reCancelled = await orderService.cancelOrder(owner, order.id, { reason: "cancel" });
     assert.strictEqual(reCancelled.status, "CANCELLED");
 
-    // Clean up
+    // Clean up in cascade order
     await prisma.stockReservation.deleteMany({ where: { orderId: order.id } });
+    await prisma.packingTask.deleteMany({ where: { orderId: order.id } });
+    await prisma.orderEvent.deleteMany({ where: { orderId: order.id } });
+    await prisma.orderItem.deleteMany({ where: { orderId: order.id } });
+    await prisma.order.deleteMany({ where: { id: order.id } });
+
     await prisma.stockLedger.deleteMany({ where: { itemId: orderItem.id } });
     await prisma.item.delete({ where: { id: orderItem.id } });
     await prisma.customer.delete({ where: { id: cust.id } });

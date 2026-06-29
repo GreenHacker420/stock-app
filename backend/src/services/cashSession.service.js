@@ -99,8 +99,9 @@ export async function openSession(user, { shopId }) {
 export async function getCurrentSession(user, { shopId, includePayments = false }) {
   await assertShopAccess(user, shopId);
 
+  let session;
   if (includePayments) {
-    return prisma.cashSession.findFirst({
+    session = await prisma.cashSession.findFirst({
       where: {
         shopId,
         status: "OPEN",
@@ -113,32 +114,25 @@ export async function getCurrentSession(user, { shopId, includePayments = false 
       },
       orderBy: { openedAt: "desc" },
     });
+  } else {
+    session = await prisma.cashSession.findFirst({
+      where: {
+        shopId,
+        status: "OPEN",
+      },
+      orderBy: { openedAt: "desc" },
+    });
   }
 
-  return prisma.cashSession.findFirst({
-    where: {
-      shopId,
-      status: "OPEN",
-    },
-    select: {
-      id: true,
-      shopId: true,
-      staffId: true,
-      previousSessionId: true,
-      openingCash: true,
-      expectedCash: true,
-      actualCash: true,
-      cashHandover: true,
-      difference: true,
-      differenceReason: true,
-      status: true,
-      openedAt: true,
-      closedAt: true,
-      reviewedById: true,
-      reviewedAt: true,
-    },
-    orderBy: { openedAt: "desc" },
-  });
+  if (session) {
+    session.expectedCash = await calculateExpectedCash(
+      session.id,
+      session.openingCash,
+      session.cashHandover || 0
+    );
+  }
+
+  return session;
 }
 
 export async function closeSession(user, sessionId, data) {
