@@ -538,6 +538,15 @@ export async function confirmOrder(token: string, id: string) {
   return apiRequest(`/orders/${id}/confirm`, { method: "POST", token });
 }
 
+export async function cancelOrder(token: string, id: string, reason?: string, opts: { idempotencyKey?: string } = {}) {
+  return apiRequest(`/orders/${id}/cancel`, {
+    method: "POST",
+    token,
+    headers: opts.idempotencyKey ? { "Idempotency-Key": opts.idempotencyKey } : undefined,
+    body: JSON.stringify({ reason }),
+  });
+}
+
 export async function createOrder(token: string, data: any, opts: { idempotencyKey?: string } = {}) {
   return apiRequest<Order>("/orders", {
     method: "POST",

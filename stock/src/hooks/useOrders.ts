@@ -13,6 +13,7 @@ import {
   createDmFromOrder,
   convertOrderToSale,
   confirmOrder,
+  cancelOrder,
 } from "../api/client";
 import { warmOfflineCache } from "../utils/mmkvCache";
 import { newIdempotencyKey } from "../utils/idempotency";
@@ -210,6 +211,28 @@ export function useConfirmOrderMutation() {
         if (token) warmOfflineCache(activeShopId, token).catch(() => {});
       }
       queryClient.invalidateQueries({ queryKey: ["order", orderId] });
+    },
+  });
+}
+
+export function useCancelOrderMutation() {
+  const token = useAuthStore((state) => state.token);
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ orderId, reason }: { orderId: string; reason?: string }) =>
+      cancelOrder(token ?? "", orderId, reason, { idempotencyKey: newIdempotencyKey("ORDER_CANCEL") }),
+    onSuccess: (_, variables) => {
+      if (activeShopId) {
+        queryClient.invalidateQueries({ queryKey: ["orders", activeShopId] });
+        queryClient.invalidateQueries({ queryKey: ["items"] });
+        queryClient.invalidateQueries({ queryKey: ["current-stock", activeShopId] });
+        queryClient.invalidateQueries({ queryKey: ["item-stock"] });
+        queryClient.invalidateQueries({ queryKey: ["owner-dashboard"] });
+        queryClient.invalidateQueries({ queryKey: ["staff-today-summary", activeShopId] });
+        if (token) warmOfflineCache(activeShopId, token).catch(() => {});
+      }
+      queryClient.invalidateQueries({ queryKey: ["order", variables.orderId] });
     },
   });
 }

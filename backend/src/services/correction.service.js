@@ -3,6 +3,7 @@ import { ApiError } from "../utils/ApiError.js";
 import { EntityType, ApprovalType, AuditAction } from "../generated/prisma/index.js";
 import { createApprovalRequest } from "./approval.service.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
+import { decreaseCustomerDebt } from "./transactionHelpers.js";
 
 function mapEntityType(clientType) {
   switch (clientType) {
@@ -152,6 +153,12 @@ export async function approveCorrectionRequest(user, id) {
     }
 
     if (approval.type === ApprovalType.SALE_CANCELLATION) {
+      const sale = await tx.sale.findUnique({ where: { id: approval.entityId } });
+      if (!sale) throw new ApiError(404, "Sale not found");
+      if (sale.saleStatus === "CANCELLED") {
+        throw new ApiError(400, "Sale is already cancelled");
+      }
+
       await tx.sale.update({
         where: { id: approval.entityId },
         data: {
@@ -160,6 +167,8 @@ export async function approveCorrectionRequest(user, id) {
           cancelReason: approval.reason,
         },
       });
+
+      await decreaseCustomerDebt(tx, sale.customerId, sale.totalAmount);
 
       const saleItems = await tx.saleItem.findMany({ where: { saleId: approval.entityId } });
       for (const item of saleItems) {
@@ -179,12 +188,20 @@ export async function approveCorrectionRequest(user, id) {
         });
       }
     } else if (approval.type === ApprovalType.DM_CANCELLATION) {
+      const dm = await tx.deliveryMemo.findUnique({ where: { id: approval.entityId } });
+      if (!dm) throw new ApiError(404, "Delivery memo not found");
+      if (dm.status === "CANCELLED") {
+        throw new ApiError(400, "Delivery memo is already cancelled");
+      }
+
       await tx.deliveryMemo.update({
         where: { id: approval.entityId },
         data: {
           status: "CANCELLED",
         },
       });
+
+      await decreaseCustomerDebt(tx, dm.customerId, dm.estimatedAmount);
 
       const dmItems = await tx.deliveryMemoItem.findMany({ where: { dmId: approval.entityId } });
       for (const item of dmItems) {

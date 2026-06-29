@@ -839,3 +839,85 @@ export async function convertOrderToSale(user, id, data) {
     return updatedSale;
   });
 }
+
+export async function cancelOrder(user, id, data = {}) {
+  const order = await assertOrderAccess(user, id);
+  if (user.role !== "OWNER") {
+    throw new ApiError(403, "Owner access required to cancel orders");
+  }
+
+  // If already CANCELLED, return order (idempotent)
+  if (order.status === "CANCELLED") {
+    return order;
+  }
+
+  // Cannot cancel completed/converted/dispatched final orders
+  if (order.status === "DISPATCHED") {
+    throw new ApiError(400, "Cannot cancel a dispatched order");
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const updated = await tx.order.update({
+      where: { id },
+      data: {
+        status: "CANCELLED",
+        cancelledAt: new Date(),
+        cancelReason: data.reason || "Order cancelled",
+      },
+      include: {
+        items: true,
+      },
+    });
+
+    // Release reservations
+    await tx.stockReservation.updateMany({
+      where: {
+        orderId: id,
+        status: "ACTIVE",
+      },
+      data: {
+        status: "CANCELLED",
+        releasedAt: new Date(),
+        releasedReason: "CANCEL",
+      },
+    });
+
+    // Cancel pending/in-progress packing tasks
+    await tx.packingTask.updateMany({
+      where: {
+        orderId: id,
+        status: { in: ["PENDING", "IN_PROGRESS"] },
+      },
+      data: {
+        status: "CANCELLED",
+      },
+    });
+
+    // Audit log
+    await tx.auditLog.create({
+      data: {
+        userId: user.id,
+        shopId: order.shopId,
+        action: AuditAction.UPDATED,
+        entityType: EntityType.ORDER,
+        entityId: id,
+        oldValueJson: order,
+        newValueJson: updated,
+        reason: data.reason || "Order cancelled",
+      },
+    });
+
+    // Domain event
+    await enqueueDomainEvent(tx, createDomainEvent({
+      shopId: order.shopId,
+      entity: "order",
+      action: "updated",
+      entityId: id,
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: true },
+    }));
+
+    return updated;
+  });
+}

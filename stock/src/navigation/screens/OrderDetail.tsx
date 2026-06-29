@@ -18,7 +18,7 @@ import {
 import { useRoute } from "@react-navigation/native";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import { useOrderQuery, useUpdateOrderStatusMutation } from "../../hooks/useOrders";
+import { useOrderQuery, useUpdateOrderStatusMutation, useCancelOrderMutation } from "../../hooks/useOrders";
 import { useAddDeliveryMemoMutation } from "../../hooks/useShops";
 import { useStaffQuery } from "../../hooks/useShops";
 import { Screen } from "../../components/Screen";
@@ -42,6 +42,7 @@ export function OrderDetail() {
 
   const staffQuery = useStaffQuery();
   const updateStatusMutation = useUpdateOrderStatusMutation();
+  const cancelOrderMutation = useCancelOrderMutation();
   const createDmMutation = useAddDeliveryMemoMutation();
   const convertSaleMutation = useMutation({
     mutationFn: (data: any) => Promise.resolve({}), // Placeholder for conversion
@@ -62,6 +63,16 @@ export function OrderDetail() {
   const [successMessage, setSuccessMessage] = useState("");
 
   const isOwner = user?.role === "OWNER";
+
+  const handleCancelOrder = () => {
+    cancelOrderMutation.mutate({ orderId }, {
+      onSuccess: () => {
+        setSuccessTitle("Order Cancelled");
+        setSuccessMessage("The order has been cancelled and reservations released.");
+        setSuccessVisible(true);
+      }
+    });
+  };
 
   const handleUpdateStatus = (status: string) => {
     updateStatusMutation.mutate({ orderId, status }, {

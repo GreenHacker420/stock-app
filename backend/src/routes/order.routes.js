@@ -134,4 +134,16 @@ router.post(
   orderController.convertOrderToSale,
 );
 
+router.post(
+  "/:id/cancel",
+  requireOwner,
+  validate(z.object({
+    params: idParams,
+    body: z.object({
+      reason: z.string().optional(),
+    }).optional(),
+  })),
+  orderController.cancelOrder,
+);
+
 export default router;

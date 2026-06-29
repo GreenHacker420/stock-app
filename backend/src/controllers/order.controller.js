@@ -99,3 +99,19 @@ export const convertOrderToSale = asyncHandler(async (req, res) => {
   );
   res.status(result.statusCode).json({ success: true, data: result.data });
 });
+
+export const cancelOrder = asyncHandler(async (req, res) => {
+  const orderId = req.validated.params.id;
+  const shopId = await orderService.getOrderShopForAction(req.user, orderId);
+  const result = await runIdempotentCreate(
+    req,
+    {
+      endpoint: `POST /orders/${orderId}/cancel`,
+      resourceType: "ORDER_CANCEL",
+      shopId,
+      statusCode: 200,
+    },
+    () => orderService.cancelOrder(req.user, orderId, req.validated.body),
+  );
+  res.status(result.statusCode).json({ success: true, data: result.data });
+});
