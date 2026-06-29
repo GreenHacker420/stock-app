@@ -91,6 +91,8 @@ test.describe("Phase 1 security and permission fixes", () => {
     });
     await prisma.staffShopAccess.create({ data: { staffId: staff.id, shopId: shop.id } });
     await prisma.staffShopAccess.create({ data: { staffId: otherStaff.id, shopId: otherShop.id } });
+    await prisma.cashSession.create({ data: { shopId: shop.id, openingCash: 100, status: "OPEN" } });
+    await prisma.cashSession.create({ data: { shopId: otherShop.id, openingCash: 100, status: "OPEN" } });
     customer = await prisma.customer.create({
       data: { shopId: shop.id, name: "Phase Customer", type: "REGULAR", createdById: owner.id },
     });

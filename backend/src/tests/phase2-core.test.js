@@ -310,6 +310,8 @@ test.describe("Phase 2 core business correctness", () => {
   });
 
   test("Phase 4B: Cash session and daily summary expected cash logic with pending, approved, and rejected expenses", async () => {
+    // Ensure no open session exists
+    await prisma.cashSession.deleteMany({ where: { shopId: shop.id } });
     // Open a cash session
     const session = await cashSessionService.openSession(owner, { shopId: shop.id });
 
@@ -361,7 +363,7 @@ test.describe("Phase 2 core business correctness", () => {
       data: { shopId: shop.id, name: "P4B Customer", type: "REGULAR", outstandingAmount: 0, createdById: owner.id },
     });
     const item1 = await prisma.item.create({
-      data: { shopId: shop.id, name: "P4B Item", unit: "PCS", defaultSellingPrice: 100, createdById: owner.id },
+      data: { shopId: shop.id, name: "P4B Item", unit: "PCS", defaultSellingPrice: 100 },
     });
 
     // Create a sale of 500
@@ -393,6 +395,41 @@ test.describe("Phase 2 core business correctness", () => {
     // Try approving again (should fail)
     await assertRejectsApi(() => correctionService.approveCorrectionRequest(owner, saleReq.id), 400);
 
+    // Test sale with partial payment cancellation
+    // Ensure no open session exists (needed to receive cash payments)
+    await prisma.cashSession.deleteMany({ where: { shopId: shop.id } });
+    await cashSessionService.openSession(owner, { shopId: shop.id });
+
+    const cust2 = await prisma.customer.create({
+      data: { shopId: shop.id, name: "P4B Customer 2", type: "REGULAR", outstandingAmount: 0, createdById: owner.id },
+    });
+
+    const saleWithPayment = await saleService.createSale(owner, {
+      shopId: shop.id,
+      customerId: cust2.id,
+      items: [{ itemId: item1.id, quantity: 5, rate: 100, discountAmount: 0, lineTotal: 500 }],
+      totalAmount: 500,
+      payments: [{ paymentMode: "CASH", amount: 200 }],
+    });
+
+    // Verify outstanding is now 300 (500 sale - 200 payment)
+    freshCust = await prisma.customer.findUnique({ where: { id: cust2.id } });
+    assert.strictEqual(Number(freshCust.outstandingAmount), 300);
+
+    const saleWithPaymentReq = await correctionService.createCorrectionRequest(owner, {
+      shopId: shop.id,
+      entityType: "SALE",
+      entityId: saleWithPayment.id,
+      reason: "Oops with payment",
+      requestedChangeJson: { action: "CANCEL" },
+    });
+
+    await correctionService.approveCorrectionRequest(owner, saleWithPaymentReq.id);
+
+    // Verify outstanding is reduced by balanceAmount (300), so outstanding is 0
+    freshCust = await prisma.customer.findUnique({ where: { id: cust2.id } });
+    assert.strictEqual(Number(freshCust.outstandingAmount), 0);
+
     // Now test Delivery Memo cancellation
     const dm = await deliveryMemoService.createDeliveryMemo(owner, {
       shopId: shop.id,
@@ -416,8 +453,10 @@ test.describe("Phase 2 core business correctness", () => {
     assert.strictEqual(Number(freshCust.outstandingAmount), 0);
 
     // Clean up
+    await prisma.customer.delete({ where: { id: cust2.id } });
     await prisma.item.delete({ where: { id: item1.id } });
     await prisma.customer.delete({ where: { id: cust.id } });
+    await prisma.cashSession.deleteMany({ where: { shopId: shop.id } });
   });
 
   test("Phase 4B: Order cancellation and stock reservation release", async () => {
@@ -425,7 +464,7 @@ test.describe("Phase 2 core business correctness", () => {
       data: { shopId: shop.id, name: "P4B Order Customer", type: "REGULAR", outstandingAmount: 0, createdById: owner.id },
     });
     const orderItem = await prisma.item.create({
-      data: { shopId: shop.id, name: "P4B Order Item", unit: "PCS", defaultSellingPrice: 50, createdById: owner.id },
+      data: { shopId: shop.id, name: "P4B Order Item", unit: "PCS", defaultSellingPrice: 50 },
     });
 
     // Put some stock in so we can reserve it

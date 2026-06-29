@@ -168,7 +168,7 @@ export async function approveCorrectionRequest(user, id) {
         },
       });
 
-      await decreaseCustomerDebt(tx, sale.customerId, sale.totalAmount);
+      await decreaseCustomerDebt(tx, sale.customerId, sale.balanceAmount);
 
       const saleItems = await tx.saleItem.findMany({ where: { saleId: approval.entityId } });
       for (const item of saleItems) {
@@ -201,7 +201,7 @@ export async function approveCorrectionRequest(user, id) {
         },
       });
 
-      await decreaseCustomerDebt(tx, dm.customerId, dm.estimatedAmount);
+      await decreaseCustomerDebt(tx, dm.customerId, dm.balanceAmount);
 
       const dmItems = await tx.deliveryMemoItem.findMany({ where: { dmId: approval.entityId } });
       for (const item of dmItems) {
