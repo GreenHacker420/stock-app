@@ -9,6 +9,10 @@ import * as expenseService from "../services/expense.service.js";
 import * as dailySummaryService from "../services/dailySummary.service.js";
 import * as dashboardService from "../services/dashboard.service.js";
 import * as chequeService from "../services/cheque.service.js";
+import * as correctionService from "../services/correction.service.js";
+import * as customerService from "../services/customer.service.js";
+import * as saleService from "../services/sale.service.js";
+import * as deliveryMemoService from "../services/deliveryMemo.service.js";
 import { runIdempotentCreate } from "../services/idempotency.service.js";
 import { closePushQueue } from "../services/notification.push.queue.js";
 
@@ -303,5 +307,170 @@ test.describe("Phase 2 core business correctness", () => {
     freshCustomer = await prisma.customer.findUnique({ where: { id: chequeCustomer.id } });
     assert.strictEqual(Number(freshCustomer.outstandingAmount), 100);
     await assertRejectsApi(() => paymentService.verifyPayment(owner, chequePayment.id, {}), 400);
+  });
+
+  test("Phase 4B: Cash session and daily summary expected cash logic with pending, approved, and rejected expenses", async () => {
+    // Open a cash session
+    const session = await cashSessionService.openSession(owner, { shopId: shop.id });
+
+    // Create some expenses
+    const pendingExpense = await expenseService.createExpense(staff, {
+      shopId: shop.id,
+      amount: 10,
+      category: "TEA",
+      note: "pending tea",
+    });
+    const approvedExpense = await expenseService.createExpense(staff, {
+      shopId: shop.id,
+      amount: 25,
+      category: "FUEL",
+      note: "fuel",
+    });
+    // Approve fuel expense
+    await expenseService.verifyExpense(owner, approvedExpense.id, { status: "APPROVED", note: "ok" });
+
+    const rejectedExpense = await expenseService.createExpense(staff, {
+      shopId: shop.id,
+      amount: 50,
+      category: "PORTER",
+      note: "porter",
+    });
+    // Reject porter expense
+    await expenseService.verifyExpense(owner, rejectedExpense.id, { status: "REJECTED", note: "not ok" });
+
+    // Get current session status to see expectedCash
+    const freshSession = await cashSessionService.getCurrentSession(owner, { shopId: shop.id });
+    // expected closing cash should start with opening cash (0) + collections (0) - nonRejectedExpenses (10 pending + 25 approved) - handover (0)
+    // So expectedCash should be -35
+    assert.strictEqual(Number(freshSession.expectedCash), -35);
+
+    // Now test Daily Summary session expected cash matching
+    const today = new Date().toISOString().slice(0, 10);
+    const summary = await dailySummaryService.generateSummary(owner, { shopId: shop.id, date: today });
+    assert.strictEqual(Number(summary.expectedCash), -35);
+    // Approved expense totals remains separate (should be 25)
+    assert.strictEqual(Number(summary.totalExpenses), 25);
+
+    // Clean up session & expenses
+    await prisma.expense.deleteMany({ where: { shopId: shop.id } });
+    await prisma.cashSession.deleteMany({ where: { shopId: shop.id } });
+  });
+
+  test("Phase 4B: Customer outstanding reversal on Sale and DM cancellation", async () => {
+    const cust = await prisma.customer.create({
+      data: { shopId: shop.id, name: "P4B Customer", type: "REGULAR", outstandingAmount: 0, createdById: owner.id },
+    });
+    const item1 = await prisma.item.create({
+      data: { shopId: shop.id, name: "P4B Item", unit: "PCS", defaultSellingPrice: 100, createdById: owner.id },
+    });
+
+    // Create a sale of 500
+    const sale = await saleService.createSale(owner, {
+      shopId: shop.id,
+      customerId: cust.id,
+      items: [{ itemId: item1.id, quantity: 5, rate: 100, discountAmount: 0, lineTotal: 500 }],
+      totalAmount: 500,
+    });
+    let freshCust = await prisma.customer.findUnique({ where: { id: cust.id } });
+    assert.strictEqual(Number(freshCust.outstandingAmount), 500);
+
+    // Request correction (Sale Cancellation)
+    const saleReq = await correctionService.createCorrectionRequest(owner, {
+      shopId: shop.id,
+      entityType: "SALE",
+      entityId: sale.id,
+      reason: "Oops",
+      requestedChangeJson: { action: "CANCEL" },
+    });
+
+    // Approve the cancellation
+    await correctionService.approveCorrectionRequest(owner, saleReq.id);
+
+    // Verify outstanding is reduced back to 0
+    freshCust = await prisma.customer.findUnique({ where: { id: cust.id } });
+    assert.strictEqual(Number(freshCust.outstandingAmount), 0);
+
+    // Try approving again (should fail)
+    await assertRejectsApi(() => correctionService.approveCorrectionRequest(owner, saleReq.id), 400);
+
+    // Now test Delivery Memo cancellation
+    const dm = await deliveryMemoService.createDeliveryMemo(owner, {
+      shopId: shop.id,
+      customerId: cust.id,
+      items: [{ itemId: item1.id, quantity: 2, rate: 100, discountAmount: 0, lineTotal: 200 }],
+      totalAmount: 200,
+    });
+    freshCust = await prisma.customer.findUnique({ where: { id: cust.id } });
+    assert.strictEqual(Number(freshCust.outstandingAmount), 200);
+
+    const dmReq = await correctionService.createCorrectionRequest(owner, {
+      shopId: shop.id,
+      entityType: "DM",
+      entityId: dm.id,
+      reason: "DM Cancel",
+      requestedChangeJson: { action: "CANCEL" },
+    });
+
+    await correctionService.approveCorrectionRequest(owner, dmReq.id);
+    freshCust = await prisma.customer.findUnique({ where: { id: cust.id } });
+    assert.strictEqual(Number(freshCust.outstandingAmount), 0);
+
+    // Clean up
+    await prisma.item.delete({ where: { id: item1.id } });
+    await prisma.customer.delete({ where: { id: cust.id } });
+  });
+
+  test("Phase 4B: Order cancellation and stock reservation release", async () => {
+    const cust = await prisma.customer.create({
+      data: { shopId: shop.id, name: "P4B Order Customer", type: "REGULAR", outstandingAmount: 0, createdById: owner.id },
+    });
+    const orderItem = await prisma.item.create({
+      data: { shopId: shop.id, name: "P4B Order Item", unit: "PCS", defaultSellingPrice: 50, createdById: owner.id },
+    });
+
+    // Put some stock in so we can reserve it
+    await prisma.stockLedger.create({
+      data: { shopId: shop.id, itemId: orderItem.id, movementType: "OPENING_STOCK", quantityIn: 10, quantityOut: 0, createdById: owner.id },
+    });
+
+    // Create Order
+    const order = await orderService.createOrder(owner, {
+      shopId: shop.id,
+      customerId: cust.id,
+      items: [{ itemId: orderItem.id, quantityOrdered: 5, rate: 50 }],
+    });
+
+    // Confirm Order (this creates the reservation)
+    await orderService.confirmOrder(owner, order.id);
+
+    // Verify stock reservation is active
+    let reservation = await prisma.stockReservation.findFirst({ where: { orderId: order.id } });
+    assert.ok(reservation);
+    assert.strictEqual(reservation.status, "ACTIVE");
+
+    // Staff cannot cancel order
+    await assertRejectsApi(() => orderService.cancelOrder(staff, order.id, { reason: "cancel" }), 403);
+
+    // Owner cannot cancel another owner's order
+    await assertRejectsApi(() => orderService.cancelOrder(otherOwner, order.id, { reason: "cancel" }), 403);
+
+    // Owner cancels order
+    const cancelledOrder = await orderService.cancelOrder(owner, order.id, { reason: "cancel" });
+    assert.strictEqual(cancelledOrder.status, "CANCELLED");
+
+    // Verify reservation status is CANCELLED
+    reservation = await prisma.stockReservation.findFirst({ where: { orderId: order.id } });
+    assert.strictEqual(reservation.status, "CANCELLED");
+    assert.strictEqual(reservation.releasedReason, "CANCEL");
+
+    // Duplicate cancels should be idempotent and return order without error
+    const reCancelled = await orderService.cancelOrder(owner, order.id, { reason: "cancel" });
+    assert.strictEqual(reCancelled.status, "CANCELLED");
+
+    // Clean up
+    await prisma.stockReservation.deleteMany({ where: { orderId: order.id } });
+    await prisma.stockLedger.deleteMany({ where: { itemId: orderItem.id } });
+    await prisma.item.delete({ where: { id: orderItem.id } });
+    await prisma.customer.delete({ where: { id: cust.id } });
   });
 });
