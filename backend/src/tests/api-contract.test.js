@@ -104,6 +104,7 @@ test("order routes contract", () => {
   assertRoute(src, "POST", '"/:id/add-payment"', "POST /orders/:id/add-payment");
   assertRoute(src, "POST", '"/:id/create-dm"', "POST /orders/:id/create-dm");
   assertRoute(src, "POST", '"/:id/convert-to-sale"', "POST /orders/:id/convert-to-sale");
+  assertRoute(src, "POST", '"/:id/cancel"', "POST /orders/:id/cancel");
 });
 
 // ─── DELIVERY MEMOS ──────────────────────────────────────────────────────────

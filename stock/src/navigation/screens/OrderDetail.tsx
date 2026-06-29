@@ -232,6 +232,15 @@ export function OrderDetail() {
                 onPress={() => setDisburseModalVisible(true)}
               />
             )}
+            {isOwner && order.status !== 'CANCELLED' && order.status !== 'DISPATCHED' && (
+              <Button 
+                label="Cancel Order" 
+                variant="danger" 
+                style={styles.actionBtn}
+                onPress={handleCancelOrder}
+                loading={cancelOrderMutation.isPending}
+              />
+            )}
             <Button 
               label="Contact" 
               variant="secondary" 
