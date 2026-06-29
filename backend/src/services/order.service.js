@@ -591,6 +591,15 @@ export async function createDmFromOrder(user, id, data) {
   const { items, totalAmount } = calculateItemTotals(selectedItems);
 
   return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "Order" WHERE id = ${id} FOR UPDATE`;
+    const existingDispatchInTx = await tx.dispatch.findFirst({
+      where: { orderId: id },
+      select: { id: true },
+    });
+    if (existingDispatchInTx) {
+      throw new ApiError(400, "Order has already been dispatched");
+    }
+
     const dmNumber = await generateRecordNumber(tx, {
       shopId: order.shopId,
       model: "deliveryMemo",
@@ -700,6 +709,15 @@ export async function convertOrderToSale(user, id, data) {
   const { items, subtotal, discountAmount, totalAmount } = calculateItemTotals(selectedItems);
 
   return prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT id FROM "Order" WHERE id = ${id} FOR UPDATE`;
+    const existingDispatchInTx = await tx.dispatch.findFirst({
+      where: { orderId: id },
+      select: { id: true },
+    });
+    if (existingDispatchInTx) {
+      throw new ApiError(400, "Order has already been dispatched");
+    }
+
     const saleNumber = await generateRecordNumber(tx, {
       shopId: order.shopId,
       model: "sale",

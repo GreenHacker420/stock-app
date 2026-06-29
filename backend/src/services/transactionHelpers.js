@@ -193,6 +193,13 @@ export async function applyPayments(tx, { user, shopId, saleId, dmId, orderId, c
       }
     });
 
+    if (cashSessionId) {
+      await tx.cashSession.update({
+        where: { id: cashSessionId },
+        data: { expectedCash: { increment: amt } },
+      });
+    }
+
     // Update Customer outstanding (reduces with payment)
     if (customerId) {
       await decreaseCustomerDebt(tx, customerId, amt);

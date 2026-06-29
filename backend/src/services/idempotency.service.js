@@ -43,7 +43,7 @@ export async function runIdempotentCreate(req, { endpoint, resourceType, shopId,
   const requestHash = hashRequestBody(req.validated?.body || req.body || {});
   const existing = await prisma.idempotencyKey.findUnique({
     where: {
-      key_shopId_endpoint: { key, shopId, endpoint },
+      key_shopId_userId_endpoint: { key, shopId, userId, endpoint },
     },
   });
 
@@ -82,7 +82,7 @@ export async function runIdempotentCreate(req, { endpoint, resourceType, shopId,
     const responseJson = normalizeJson(data);
     await prisma.idempotencyKey.update({
       where: {
-        key_shopId_endpoint: { key, shopId, endpoint },
+        key_shopId_userId_endpoint: { key, shopId, userId, endpoint },
       },
       data: {
         responseJson,
@@ -94,7 +94,7 @@ export async function runIdempotentCreate(req, { endpoint, resourceType, shopId,
   } catch (error) {
     await prisma.idempotencyKey.delete({
       where: {
-        key_shopId_endpoint: { key, shopId, endpoint },
+        key_shopId_userId_endpoint: { key, shopId, userId, endpoint },
       },
     }).catch(() => {});
     throw error;

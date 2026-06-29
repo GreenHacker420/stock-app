@@ -57,7 +57,7 @@ export async function updateChequeStatus(user, id, status, { reason } = {}) {
   if (status === "CLEARED" && ["REJECTED", "CANCELLED"].includes(existing.status)) {
     throw new ApiError(400, `Cannot clear a ${existing.status.toLowerCase()} cheque payment`);
   }
-  if (status === "BOUNCED" && ["VERIFIED", "CANCELLED"].includes(existing.status)) {
+  if (status === "BOUNCED" && ["VERIFIED", "REJECTED", "CANCELLED"].includes(existing.status)) {
     throw new ApiError(400, `Cannot bounce a ${existing.status.toLowerCase()} cheque payment`);
   }
 

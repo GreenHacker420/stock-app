@@ -8,6 +8,7 @@ import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
 import { useNetworkStatus } from "../../hooks/useNetworkStatus";
 import { filterCachedCustomers, filterCachedProducts, setCachedCustomers, setCachedProducts, warmOfflineCache } from "../../utils/mmkvCache";
+import { newIdempotencyKey } from "../../utils/idempotency";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { Section } from "../../components/ui/Section";
@@ -152,7 +153,7 @@ export function CreateOrder() {
           quantityOrdered: i.quantity,
           rate: i.rate,
         })),
-      });
+      }, { idempotencyKey: newIdempotencyKey("ORDER") });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["orders", activeShopId] });

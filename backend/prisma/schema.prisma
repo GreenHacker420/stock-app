@@ -1068,7 +1068,7 @@ model IdempotencyKey {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  @@unique([key, shopId, endpoint])
+  @@unique([key, shopId, userId, endpoint])
   @@index([shopId, endpoint, createdAt])
   @@index([resourceType, resourceId])
 }

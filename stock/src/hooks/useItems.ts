@@ -26,6 +26,7 @@ import {
   ItemSummary,
 } from "../api/client";
 import { setCachedProducts, warmOfflineCache } from "../utils/mmkvCache";
+import { newIdempotencyKey } from "../utils/idempotency";
 
 export function useItemSummaryQuery() {
   const token = useAuthStore((state) => state.token);
@@ -139,7 +140,8 @@ export function useCreateStockMovementMutation() {
   const activeShopId = useShopStore((state) => state.activeShopId);
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (data: any) => createStockMovement(token ?? "", data),
+    mutationFn: (data: any) =>
+      createStockMovement(token ?? "", data, { idempotencyKey: newIdempotencyKey("STOCK_MOVEMENT") }),
     onSuccess: () => {
       if (activeShopId) {
         queryClient.invalidateQueries({ queryKey: ["current-stock", activeShopId] });
@@ -158,7 +160,7 @@ export function useAddStockMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: Omit<StockEntryPayload, "shopId">) =>
-      addStock(token ?? "", { ...data, shopId: activeShopId ?? "" }),
+      addStock(token ?? "", { ...data, shopId: activeShopId ?? "" }, { idempotencyKey: newIdempotencyKey("STOCK_ENTRY") }),
     onSuccess: () => {
       if (activeShopId) {
         queryClient.invalidateQueries({ queryKey: ["current-stock", activeShopId] });

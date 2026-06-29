@@ -195,15 +195,21 @@ export async function rejectPayment(user, id, { note }) {
     throw new ApiError(400, `Cannot reject a ${payment.status.toLowerCase()} payment`);
   }
 
-  const updated = await prisma.payment.update({
-    where: { id },
-    data: {
-      status: "REJECTED",
-      verifiedById: user.id,
-      verifiedAt: new Date(),
-      notes: note || payment.notes,
-    },
-    include: { details: true },
+  const updated = await prisma.$transaction(async (tx) => {
+    const row = await tx.payment.update({
+      where: { id },
+      data: {
+        status: "REJECTED",
+        verifiedById: user.id,
+        verifiedAt: new Date(),
+        notes: note || payment.notes,
+      },
+      include: { details: true },
+    });
+
+    await increaseCustomerDebt(tx, payment.customerId, payment.amount);
+
+    return row;
   });
 
   await enqueueDomainEvent(prisma, createDomainEvent({
@@ -245,6 +251,13 @@ export async function voidPayment(user, id, { reason } = {}) {
     // 2. Adjust Customer balance
     // Cancelling a payment means their debt increases back.
     await increaseCustomerDebt(tx, existing.customerId, existing.amount);
+
+    if (existing.paymentMode === "CASH" && existing.cashSessionId) {
+      await tx.cashSession.update({
+        where: { id: existing.cashSessionId },
+        data: { expectedCash: { decrement: existing.amount } },
+      });
+    }
 
     await writeAuditLog({
       userId: user.id,

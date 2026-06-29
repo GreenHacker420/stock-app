@@ -28,7 +28,6 @@ export function CreateEditShop() {
   const [email, setEmail] = useState("");
   const [gstin, setGstin] = useState("");
   const [logo, setLogo] = useState("");
-  const [openingCash, setOpeningCash] = useState("0");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -41,7 +40,6 @@ export function CreateEditShop() {
       setEmail(shop.email || "");
       setGstin(shop.gstin || "");
       setLogo(shop.logo || "");
-      setOpeningCash(String(shop.openingCash || "0"));
     }
   }, [shop]);
 
@@ -67,7 +65,6 @@ export function CreateEditShop() {
           email: email || undefined,
           gstin: gstin || undefined,
           logo: logo || undefined,
-          openingCash: Number(openingCash || 0),
         });
       }
     },
@@ -188,22 +185,6 @@ export function CreateEditShop() {
               outlineStyle={styles.inputOutline}
               activeOutlineColor={colors.primary}
             />
-
-            {!isEditing && (
-              <TextInput
-                mode="outlined"
-                label="Opening cash drawer amount"
-                value={openingCash}
-                onChangeText={(text) => {
-                  setOpeningCash(text.replace(/[^0-9.]/g, ""));
-                  setError("");
-                }}
-                keyboardType="numeric"
-                placeholder="0"
-                outlineStyle={styles.inputOutline}
-                activeOutlineColor={colors.primary}
-              />
-            )}
 
             {error ? <HelperText type="error">{error}</HelperText> : null}
 

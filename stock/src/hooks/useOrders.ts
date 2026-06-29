@@ -15,6 +15,7 @@ import {
   confirmOrder,
 } from "../api/client";
 import { warmOfflineCache } from "../utils/mmkvCache";
+import { newIdempotencyKey } from "../utils/idempotency";
 
 export function useOrdersQuery(options: { search?: string } = {}) {
   const token = useAuthStore((state) => state.token);
@@ -68,7 +69,7 @@ export function useCreateOrderMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: any) =>
-      createOrder(token ?? "", { ...data, shopId: activeShopId ?? "" }),
+      createOrder(token ?? "", { ...data, shopId: activeShopId ?? "" }, { idempotencyKey: newIdempotencyKey("ORDER") }),
     onSuccess: () => {
       if (activeShopId) {
         queryClient.invalidateQueries({ queryKey: ["orders", activeShopId] });
@@ -153,7 +154,7 @@ export function useCreateDmFromOrderMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ orderId, data }: { orderId: string; data: any }) =>
-      createDmFromOrder(token ?? "", orderId, data),
+      createDmFromOrder(token ?? "", orderId, data, { idempotencyKey: newIdempotencyKey("ORDER_DM") }),
     onSuccess: (_, variables) => {
       if (activeShopId) {
         queryClient.invalidateQueries({ queryKey: ["orders", activeShopId] });
@@ -175,7 +176,7 @@ export function useConvertOrderToSaleMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ orderId, data }: { orderId: string; data: any }) =>
-      convertOrderToSale(token ?? "", orderId, data),
+      convertOrderToSale(token ?? "", orderId, data, { idempotencyKey: newIdempotencyKey("ORDER_SALE") }),
     onSuccess: (_, variables) => {
       if (activeShopId) {
         queryClient.invalidateQueries({ queryKey: ["orders", activeShopId] });

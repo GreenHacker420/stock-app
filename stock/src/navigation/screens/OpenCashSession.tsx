@@ -9,6 +9,7 @@ import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { navigate } from "../navigation-ref";
+import { newIdempotencyKey } from "../../utils/idempotency";
 
 export function OpenCashSession() {
   const token = useAuthStore((state) => state.token);
@@ -31,7 +32,8 @@ export function OpenCashSession() {
   });
 
   const openMutation = useMutation({
-    mutationFn: () => openCashSession(token ?? "", activeShopId ?? ""),
+    mutationFn: () =>
+      openCashSession(token ?? "", activeShopId ?? "", { idempotencyKey: newIdempotencyKey("CASH_SESSION_OPEN") }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["current-cash-session", activeShopId] });
       queryClient.invalidateQueries({ queryKey: ["cash-sessions", activeShopId] });
@@ -46,6 +48,7 @@ export function OpenCashSession() {
   );
 
   const isSessionOpen = !!currentQuery.data;
+  const openingCashValue = Number(currentQuery.data?.openingCash ?? 0);
 
   const handleOpenSession = () => {
     if (!activeShopId) return;
@@ -83,7 +86,7 @@ export function OpenCashSession() {
               <Icon source="cash-multiple" size={24} color={colors.warning} />
             </View>
             <Text style={styles.cardValue}>
-              ₹{Number(selectedShop?.openingCash ?? 0).toLocaleString("en-IN")}
+              ₹{openingCashValue.toLocaleString("en-IN")}
             </Text>
             <Text style={styles.cardLabel}>OPENING CASH</Text>
           </View>
@@ -197,7 +200,7 @@ export function OpenCashSession() {
                       styles.shopItemTitle,
                       isSelected && styles.shopItemTitleActive
                     ]}
-                    description={`${shop.city || "No City"} • Opening: ₹${shop.openingCash}`}
+                    description={shop.city || "No City"}
                     descriptionStyle={styles.shopItemDesc}
                     onPress={() => {
                       setActiveShopId(shop.id);

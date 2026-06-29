@@ -97,7 +97,7 @@ export async function getCurrentSession(user, { shopId, includePayments = false 
       },
       include: {
         payments: {
-          where: { paymentMode: "CASH" },
+          where: { paymentMode: "CASH", status: { notIn: ["CANCELLED", "REJECTED"] } },
           orderBy: { receivedAt: "desc" },
         },
       },

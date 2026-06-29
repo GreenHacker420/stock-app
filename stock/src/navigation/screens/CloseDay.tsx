@@ -13,6 +13,7 @@ import { SuccessModal } from "../../components/ui/SuccessModal";
 import { Button } from "../../components/ui/Button";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { navigate, goBack } from "../navigation-ref";
+import { newIdempotencyKey } from "../../utils/idempotency";
 
 export function CloseDay() {
   const token = useAuthStore((state) => state.token);
@@ -55,7 +56,7 @@ export function CloseDay() {
         otherDeductionsAmount: deductions,
         otherDeductionsReason: otherReason || undefined,
         differenceReason: isMismatched ? differenceReason : undefined,
-      }),
+      }, { idempotencyKey: newIdempotencyKey("CASH_SESSION_CLOSE") }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["current-cash-session", shopId] });
       queryClient.invalidateQueries({ queryKey: ["cash-sessions", shopId] });

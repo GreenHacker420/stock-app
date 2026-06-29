@@ -3,6 +3,7 @@ import { useAuthStore } from "../auth/auth-store";
 import { useShopStore } from "../auth/shop-store";
 import { fetchDeliveryMemos, fetchDeliveryMemo, createDeliveryMemo } from "../api/client";
 import { warmOfflineCache } from "../utils/mmkvCache";
+import { newIdempotencyKey } from "../utils/idempotency";
 
 export function useDeliveryMemosQuery() {
   const token = useAuthStore((state) => state.token);
@@ -30,7 +31,8 @@ export function useCreateDeliveryMemoMutation() {
   const activeShopId = useShopStore((state) => state.activeShopId);
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (data: any) => createDeliveryMemo(token ?? "", { ...data, shopId: activeShopId ?? "" }),
+    mutationFn: (data: any) =>
+      createDeliveryMemo(token ?? "", { ...data, shopId: activeShopId ?? "" }, { idempotencyKey: newIdempotencyKey("DELIVERY_MEMO") }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["delivery-memos", activeShopId] });
       queryClient.invalidateQueries({ queryKey: ["current-stock", activeShopId] });

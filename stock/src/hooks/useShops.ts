@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "../auth/auth-store";
 import { queryKeys } from "./query-keys";
 import { fetchShops, createShop, updateShop, assignStaffToShop, setOpeningStock, fetchStaff, createDmFromOrder } from "../api/client";
+import { newIdempotencyKey } from "../utils/idempotency";
 
 export function useShopsQuery() {
   const token = useAuthStore((state) => state.token);
@@ -28,7 +29,7 @@ export function useAddDeliveryMemoMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ orderId, ...data }: { orderId: string; [key: string]: any }) => 
-      createDmFromOrder(token ?? "", orderId, data),
+      createDmFromOrder(token ?? "", orderId, data, { idempotencyKey: newIdempotencyKey("ORDER_DM") }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["orders"] });
     }

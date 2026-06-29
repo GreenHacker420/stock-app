@@ -1,5 +1,8 @@
 export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? "https://shop-api.evergreenclassic.in";
 
+export type PaymentMode = "CASH" | "UPI" | "CARD" | "BANK_TRANSFER" | "CHEQUE";
+export type PaymentStatus = "RECORDED" | "VERIFIED" | "REJECTED" | "CANCELLED";
+
 export type ApiUser = {
   id: string;
   name: string;
@@ -7,7 +10,7 @@ export type ApiUser = {
   email?: string | null;
   role: "OWNER" | "STAFF";
   permissions: string[];
-  status?: "ACTIVE" | "INACTIVE" | string | null;
+  status?: "ACTIVE" | "INACTIVE" | null;
 };
 
 export type Shop = {
@@ -15,7 +18,6 @@ export type Shop = {
   name: string;
   code: string;
   city: string;
-  openingCash: string;
   openingStockLocked: boolean;
   address?: string | null;
   phone?: string | null;
@@ -145,9 +147,9 @@ export type DailySummary = {
 export type Payment = {
   id: string;
   shopId: string;
-  paymentMode: string;
+  paymentMode: PaymentMode;
   amount: string;
-  status: "RECORDED" | "VERIFIED" | "REJECTED" | "CANCELLED" | string;
+  status: PaymentStatus;
   receivedAt: string;
   referenceNumber?: string | null;
   customer?: { name: string } | null;
@@ -266,7 +268,7 @@ export interface CreateSalePayload {
   isWalkin?: boolean;
   dueDate?: string;
   items: Array<{ itemId: string; quantity: number; rate: number; discountAmount?: number }>;
-  payments?: Array<{ paymentMode: string; amount: number; referenceNumber?: string; notes?: string }>;
+  payments?: Array<{ paymentMode: PaymentMode; amount: number; referenceNumber?: string; notes?: string }>;
   notes?: string;
   customerSignature?: string;
   gstRequired?: boolean;
@@ -468,8 +470,13 @@ export async function fetchCurrentStock(token: string, shopId: string, itemId?: 
   return apiRequest<StockLevel[]>(url, { token });
 }
 
-export async function createStockMovement(token: string, data: any) {
-  return apiRequest("/stock/movements", { method: "POST", token, body: JSON.stringify(data) });
+export async function createStockMovement(token: string, data: any, opts: { idempotencyKey?: string } = {}) {
+  return apiRequest("/stock/movements", {
+    method: "POST",
+    token,
+    headers: opts.idempotencyKey ? { "Idempotency-Key": opts.idempotencyKey } : undefined,
+    body: JSON.stringify(data),
+  });
 }
 
 export async function fetchStockMovements(token: string, shopId: string, itemId?: string, movementType?: string) {
@@ -530,8 +537,13 @@ export async function confirmOrder(token: string, id: string) {
   return apiRequest(`/orders/${id}/confirm`, { method: "POST", token });
 }
 
-export async function createOrder(token: string, data: any) {
-  return apiRequest<Order>("/orders", { method: "POST", token, body: JSON.stringify(data) });
+export async function createOrder(token: string, data: any, opts: { idempotencyKey?: string } = {}) {
+  return apiRequest<Order>("/orders", {
+    method: "POST",
+    token,
+    headers: opts.idempotencyKey ? { "Idempotency-Key": opts.idempotencyKey } : undefined,
+    body: JSON.stringify(data),
+  });
 }
 
 export async function assignStaffToOrder(token: string, orderId: string, staffId: string) {
@@ -558,18 +570,20 @@ export async function reportOrderShortage(token: string, orderId: string, data: 
   });
 }
 
-export async function createDmFromOrder(token: string, orderId: string, data: any) {
+export async function createDmFromOrder(token: string, orderId: string, data: any, opts: { idempotencyKey?: string } = {}) {
   return apiRequest(`/orders/${orderId}/create-dm`, {
     method: "POST",
     token,
+    headers: opts.idempotencyKey ? { "Idempotency-Key": opts.idempotencyKey } : undefined,
     body: JSON.stringify(data),
   });
 }
 
-export async function convertOrderToSale(token: string, orderId: string, data: any) {
+export async function convertOrderToSale(token: string, orderId: string, data: any, opts: { idempotencyKey?: string } = {}) {
   return apiRequest(`/orders/${orderId}/convert-to-sale`, {
     method: "POST",
     token,
+    headers: opts.idempotencyKey ? { "Idempotency-Key": opts.idempotencyKey } : undefined,
     body: JSON.stringify(data),
   });
 }
@@ -684,7 +698,7 @@ export async function addPayment(token: string, data: {
   orderId?: string;
   saleId?: string;
   dmId?: string;
-  paymentMode: string;
+  paymentMode: PaymentMode;
   amount: number;
   referenceNumber?: string;
   notes?: string;
@@ -706,12 +720,22 @@ export async function fetchCurrentCashSession(token: string, shopId: string) {
   return apiRequest<CashSession | null>(`/cash-sessions/current?shopId=${encodeURIComponent(shopId)}`, { token });
 }
 
-export async function openCashSession(token: string, shopId: string) {
-  return apiRequest<CashSession>("/cash-sessions/open", { method: "POST", token, body: JSON.stringify({ shopId }) });
+export async function openCashSession(token: string, shopId: string, opts: { idempotencyKey?: string } = {}) {
+  return apiRequest<CashSession>("/cash-sessions/open", {
+    method: "POST",
+    token,
+    headers: opts.idempotencyKey ? { "Idempotency-Key": opts.idempotencyKey } : undefined,
+    body: JSON.stringify({ shopId }),
+  });
 }
 
-export async function closeCashSession(token: string, sessionId: string, data: any) {
-  return apiRequest<CashSession>(`/cash-sessions/${sessionId}/close`, { method: "POST", token, body: JSON.stringify(data) });
+export async function closeCashSession(token: string, sessionId: string, data: any, opts: { idempotencyKey?: string } = {}) {
+  return apiRequest<CashSession>(`/cash-sessions/${sessionId}/close`, {
+    method: "POST",
+    token,
+    headers: opts.idempotencyKey ? { "Idempotency-Key": opts.idempotencyKey } : undefined,
+    body: JSON.stringify(data),
+  });
 }
 
 export async function fetchCashSessions(token: string, shopId: string) {
@@ -909,8 +933,13 @@ export async function fetchStaffTodaySummary(token: string, shopId: string, date
   return apiRequest<StaffTodaySummaryData>(`/dashboard/staff/today?${params.toString()}`, { token });
 }
 
-export async function addStock(token: string, data: StockEntryPayload) {
-  return apiRequest("/stock/entry", { method: "POST", token, body: JSON.stringify(data) });
+export async function addStock(token: string, data: StockEntryPayload, opts: { idempotencyKey?: string } = {}) {
+  return apiRequest("/stock/entry", {
+    method: "POST",
+    token,
+    headers: opts.idempotencyKey ? { "Idempotency-Key": opts.idempotencyKey } : undefined,
+    body: JSON.stringify(data),
+  });
 }
 
 export type StockMovement = {
@@ -943,8 +972,13 @@ export async function fetchExpenses(token: string, shopId: string) {
   return apiRequest<Expense[]>(`/expenses?shopId=${encodeURIComponent(shopId)}`, { token });
 }
 
-export async function createExpense(token: string, data: { shopId: string; amount: number; category: string; note?: string }) {
-  return apiRequest<Expense>("/expenses", { method: "POST", token, body: JSON.stringify(data) });
+export async function createExpense(token: string, data: { shopId: string; amount: number; category: string; note?: string }, opts: { idempotencyKey?: string } = {}) {
+  return apiRequest<Expense>("/expenses", {
+    method: "POST",
+    token,
+    headers: opts.idempotencyKey ? { "Idempotency-Key": opts.idempotencyKey } : undefined,
+    body: JSON.stringify(data),
+  });
 }
 
 export async function verifyExpense(token: string, id: string, status: "APPROVED" | "REJECTED", note?: string) {
@@ -1048,10 +1082,11 @@ export async function fetchDeliveryMemo(token: string, id: string) {
   return apiRequest<any>(`/delivery-memos/${id}`, { token });
 }
 
-export async function createDeliveryMemo(token: string, data: any) {
+export async function createDeliveryMemo(token: string, data: any, opts: { idempotencyKey?: string } = {}) {
   return apiRequest<any>("/delivery-memos", {
     method: "POST",
     token,
+    headers: opts.idempotencyKey ? { "Idempotency-Key": opts.idempotencyKey } : undefined,
     body: JSON.stringify(data),
   });
 }
