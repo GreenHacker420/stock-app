@@ -47,15 +47,15 @@ export function PaymentVerification() {
     return (paymentsQuery.data ?? []).filter(p => {
       if (p.paymentMode === "CASH") return false;
       const matchesTab = activeTab === "pending" 
-        ? (p.verificationStatus === "RECORDED" || p.verificationStatus === "PENDING_VERIFICATION")
-        : (p.verificationStatus === "VERIFIED" || p.verificationStatus === "MISMATCH");
+        ? p.status === "RECORDED"
+        : (p.status === "VERIFIED" || p.status === "REJECTED");
       const matchesMode = selectedMode === "ALL" || p.paymentMode === selectedMode;
       return matchesTab && matchesMode;
     });
   }, [paymentsQuery.data, activeTab, selectedMode]);
 
   const pendingCount = (paymentsQuery.data ?? []).filter(p => 
-    p.paymentMode !== "CASH" && (p.verificationStatus === "RECORDED" || p.verificationStatus === "PENDING_VERIFICATION")
+    p.paymentMode !== "CASH" && p.status === "RECORDED"
   ).length;
 
   return (
@@ -102,7 +102,7 @@ export function PaymentVerification() {
                   <Text variant="titleMedium" style={styles.boldText}>₹{Number(p.amount).toLocaleString()}</Text>
                   <Text style={styles.secondaryText}>{p.paymentMode} • {p.referenceNumber ?? 'No Reference'}</Text>
                 </View>
-                <StatusPill label={p.verificationStatus} tone={p.verificationStatus === 'VERIFIED' ? 'green' : p.verificationStatus === 'MISMATCH' ? 'red' : 'amber'} />
+                <StatusPill label={p.status} tone={p.status === 'VERIFIED' ? 'green' : p.status === 'REJECTED' ? 'red' : 'amber'} />
               </View>
 
               <View style={styles.divider} />

@@ -9,7 +9,8 @@ let hasFailures = false;
 const testFileArg = process.argv[2];
 const files = testFileArg 
   ? [path.resolve(testFileArg)]
-  : [
+    : [
+      path.resolve("src/tests/phase1-security.test.js"),
       path.resolve("src/tests/realtime.test.js"),
       path.resolve("src/tests/frontend-events.test.js")
     ];

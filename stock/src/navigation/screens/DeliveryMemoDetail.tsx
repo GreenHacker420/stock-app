@@ -238,8 +238,8 @@ export function DeliveryMemoDetail() {
                           <View style={styles.paymentHeader}>
                             <Text style={styles.paymentMode}>{p.paymentMode}</Text>
                             <StatusPill 
-                              label={p.verificationStatus || "PENDING"} 
-                              tone={p.verificationStatus === "VERIFIED" ? "green" : "amber"} 
+                              label={p.status || "RECORDED"} 
+                              tone={p.status === "VERIFIED" ? "green" : p.status === "REJECTED" ? "red" : "amber"} 
                             />
                           </View>
                           {p.referenceNumber ? (

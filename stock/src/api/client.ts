@@ -147,7 +147,7 @@ export type Payment = {
   shopId: string;
   paymentMode: string;
   amount: string;
-  verificationStatus: string;
+  status: "RECORDED" | "VERIFIED" | "REJECTED" | "CANCELLED" | string;
   receivedAt: string;
   referenceNumber?: string | null;
   customer?: { name: string } | null;
@@ -660,7 +660,7 @@ export async function fetchItemRateSuggestion(token: string, itemId: string, cus
 // PAYMENTS & VERIFICATION
 export async function fetchPayments(token: string, shopId: string, options: any = {}) {
   let url = `/payments?shopId=${encodeURIComponent(shopId)}`;
-  if (options.verificationStatus) url += `&verificationStatus=${options.verificationStatus}`;
+  if (options.status) url += `&status=${options.status}`;
   if (options.customerId) url += `&customerId=${encodeURIComponent(options.customerId)}`;
   if (options.unlinked !== undefined) url += `&unlinked=${options.unlinked}`;
   return apiRequest<Payment[]>(url, { token });

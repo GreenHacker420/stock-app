@@ -6,7 +6,7 @@ import { fetchPayments, verifyPayment, addPayment, markPaymentMismatch, attachPa
 import { newIdempotencyKey } from "../utils/idempotency";
 import { warmOfflineCache } from "../utils/mmkvCache";
 
-export function usePaymentsQuery(shopId?: string, options: { verificationStatus?: string; customerId?: string; unlinked?: boolean } = {}) {
+export function usePaymentsQuery(shopId?: string, options: { status?: string; customerId?: string; unlinked?: boolean } = {}) {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
   const targetShopId = shopId || activeShopId;

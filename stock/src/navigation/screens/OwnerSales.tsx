@@ -324,8 +324,8 @@ export function SaleDetail() {
                       <Text style={styles.itemTotal}>{money(p.amount)}</Text>
                       <View style={{ marginTop: 4 }}>
                         <StatusPill
-                          label={p.status || p.verificationStatus}
-                          tone={p.status === 'VERIFIED' || p.verificationStatus === 'VERIFIED' ? 'green' : 'amber'}
+                          label={p.status}
+                          tone={p.status === 'VERIFIED' ? 'green' : p.status === 'REJECTED' ? 'red' : 'amber'}
                         />
                       </View>
                     </View>

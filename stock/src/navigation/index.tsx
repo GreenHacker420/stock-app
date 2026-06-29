@@ -1,9 +1,11 @@
 import { createBottomTabNavigator, BottomTabBarProps } from "@react-navigation/bottom-tabs";
+import type { ComponentType } from "react";
 import { createStaticNavigation } from "@react-navigation/native";
 import type { NavigatorScreenParams } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
-import { View, Pressable, useWindowDimensions, StyleSheet, Platform } from "react-native";
+import { View, Pressable, useWindowDimensions, StyleSheet, Platform, Text } from "react-native";
 import { Icon } from "react-native-paper";
+import { useAuthStore } from "../auth/auth-store";
 import { AssignStaff } from "./screens/AssignStaff";
 import { CashClosingReview } from "./screens/CashClosingReview";
 import { CloseDay } from "./screens/CloseDay";
@@ -192,11 +194,48 @@ const styles = StyleSheet.create({
       },
     }),
   },
+  accessDenied: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+    backgroundColor: "#f8fafc",
+  },
+  accessDeniedTitle: {
+    marginTop: 12,
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#0f172a",
+  },
+  accessDeniedText: {
+    marginTop: 6,
+    fontSize: 14,
+    color: "#64748b",
+    textAlign: "center",
+  },
 });
 
 const floatingTabOptions = {
   headerShown: false,
 };
+
+function AccessDeniedScreen() {
+  return (
+    <View style={styles.accessDenied}>
+      <Icon source="lock-outline" size={40} color="#64748b" />
+      <Text style={styles.accessDeniedTitle}>Access denied</Text>
+      <Text style={styles.accessDeniedText}>This screen is available to owners only.</Text>
+    </View>
+  );
+}
+
+function ownerOnlyScreen<TProps extends object>(Component: ComponentType<TProps>) {
+  return function OwnerOnlyScreen(props: TProps) {
+    const role = useAuthStore((state) => state.user?.role);
+    if (role !== "OWNER") return <AccessDeniedScreen />;
+    return <Component {...props} />;
+  };
+}
 
 const StaffTabs = createBottomTabNavigator({
   tabBar: (props) => <CustomTabBar {...props} />,
@@ -343,7 +382,7 @@ const sharedStackScreens = {
     options: { title: "Close day" },
   },
   TodaySummary: {
-    screen: DailySummary,
+    screen: ownerOnlyScreen(DailySummary),
     options: { title: "Today summary" },
   },
   Expenses: {
@@ -379,35 +418,35 @@ const sharedStackScreens = {
     options: { title: "Request rate change" },
   },
   CreateEditShop: {
-    screen: CreateEditShop,
+    screen: ownerOnlyScreen(CreateEditShop),
     options: { title: "Manage shop" },
   },
   AssignStaff: {
-    screen: AssignStaff,
+    screen: ownerOnlyScreen(AssignStaff),
     options: { title: "Assign staff" },
   },
   SetOpeningStock: {
-    screen: SetOpeningStock,
+    screen: ownerOnlyScreen(SetOpeningStock),
     options: { title: "Set opening stock" },
   },
   PaymentVerification: {
-    screen: PaymentVerification,
+    screen: ownerOnlyScreen(PaymentVerification),
     options: { title: "Verify payments" },
   },
   CashClosingReview: {
-    screen: CashClosingReview,
+    screen: ownerOnlyScreen(CashClosingReview),
     options: { title: "Cash closing review" },
   },
   DailySummary: {
-    screen: DailySummary,
+    screen: ownerOnlyScreen(DailySummary),
     options: { title: "Daily summary" },
   },
   UpiConfig: {
-    screen: UpiConfig,
+    screen: ownerOnlyScreen(UpiConfig),
     options: { title: "UPI configuration" },
   },
   Updates: {
-    screen: Updates,
+    screen: ownerOnlyScreen(Updates),
     options: { title: "Shops" },
   },
   CreateOrder: {
@@ -491,7 +530,7 @@ const sharedStackScreens = {
     options: { title: "Items" },
   },
   AddEditItem: {
-    screen: AddEditItem,
+    screen: ownerOnlyScreen(AddEditItem),
     options: { title: "Add/edit item" },
   },
   ItemDetail: {
@@ -511,19 +550,19 @@ const sharedStackScreens = {
     options: { title: "Correction requests" },
   },
   DailySummaryList: {
-    screen: DailySummaryList,
+    screen: ownerOnlyScreen(DailySummaryList),
     options: { title: "Daily summaries" },
   },
   StaffManagement: {
-    screen: StaffManagement,
+    screen: ownerOnlyScreen(StaffManagement),
     options: { title: "Staff management" },
   },
   AddEditStaff: {
-    screen: AddEditStaff,
+    screen: ownerOnlyScreen(AddEditStaff),
     options: { title: "Add/edit staff" },
   },
   AuditLog: {
-    screen: GenericPlannedScreen,
+    screen: ownerOnlyScreen(GenericPlannedScreen),
     options: { title: "Audit log" },
   },
   Settings: {
@@ -531,7 +570,7 @@ const sharedStackScreens = {
     options: { title: "Settings" },
   },
   ManageCategories: {
-    screen: ManageCategories,
+    screen: ownerOnlyScreen(ManageCategories),
     options: { title: "Manage categories" },
   },
 };

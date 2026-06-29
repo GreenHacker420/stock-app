@@ -153,7 +153,7 @@ function PaymentsTab({ query }: { query: any }) {
           </View>
           <View style={{ alignItems: 'flex-end' }}>
             <Text style={styles.listAmount}>{money(item.amount)}</Text>
-            <StatusPill label={item.verificationStatus} tone={item.verificationStatus === 'VERIFIED' ? 'green' : 'amber'} />
+            <StatusPill label={item.status} tone={item.status === 'VERIFIED' ? 'green' : item.status === 'REJECTED' ? 'red' : 'amber'} />
           </View>
         </View>
       )}

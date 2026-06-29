@@ -1,7 +1,6 @@
 import prisma from "../lib/db.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
-import { writeAuditLog } from "../utils/auditLog.js";
 import { EntityType, AuditAction } from "../generated/prisma/index.js";
 import { money } from "../utils/money.js";
 import { createDomainEvent, enqueueDomainEvent } from "./domain-event.service.js";
@@ -17,7 +16,6 @@ export async function createExpense(user, data) {
         category: data.category,
         note: data.note,
         photoUrl: data.photoUrl,
-        vendorName: data.vendorName,
         createdById: user.id,
       }
     });
