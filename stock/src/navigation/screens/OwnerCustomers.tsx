@@ -1,5 +1,5 @@
 import React, { useMemo, useState, memo } from "react";
-import { Pressable, View, StyleSheet, ActivityIndicator, ScrollView } from "react-native";
+import { Alert, Pressable, View, StyleSheet, ActivityIndicator, ScrollView } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRoute } from "@react-navigation/native";
 import { Divider, Icon, Searchbar, Text, TextInput } from "react-native-paper";
@@ -27,9 +27,10 @@ import { EmptyState } from "../../components/ui/EmptyState";
 import { Button } from "../../components/ui/Button";
 import { navigate, goBack } from "../navigation-ref";
 import { useNetworkStatus } from "../../hooks/useNetworkStatus";
-import { createLocalCustomer } from "../../local/localBilling";
+import { filterCachedCustomers, setCachedCustomers, warmOfflineCache } from "../../utils/mmkvCache";
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
+const internetRequiredMessage = "Internet connection required. Please connect to the internet to complete this action.";
 
 const CustomerCard = memo(({ 
   customer, 
@@ -82,6 +83,7 @@ const CustomerCard = memo(({
 export function CustomerList() {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
+  const network = useNetworkStatus();
   
   const [search, setSearch] = useState("");
   const [debouncedSearch] = useDebounce(search, 300);
@@ -92,12 +94,23 @@ export function CustomerList() {
       search: debouncedSearch,
       limit: debouncedSearch ? 50 : 100,
     }), 
-    enabled: !!token && !!activeShopId 
+    enabled: !!token && !!activeShopId && !network.isOffline 
+  });
+  const cachedCustomersQuery = useQuery({
+    queryKey: ["cached-customers", activeShopId, debouncedSearch],
+    queryFn: () => filterCachedCustomers(activeShopId ?? "", debouncedSearch, 100),
+    enabled: !!activeShopId && network.isOffline,
   });
 
+  React.useEffect(() => {
+    if (activeShopId && customersQuery.data) {
+      setCachedCustomers(activeShopId, customersQuery.data);
+    }
+  }, [activeShopId, customersQuery.data]);
+
   const filteredData = useMemo(() => {
-    return customersQuery.data ?? [];
-  }, [customersQuery.data, debouncedSearch]);
+    return network.isOffline ? (cachedCustomersQuery.data ?? []) : (customersQuery.data ?? []);
+  }, [cachedCustomersQuery.data, customersQuery.data, network.isOffline]);
 
   return (
     <Screen edges={['top', 'left', 'right']}>
@@ -158,7 +171,6 @@ export function CustomerList() {
 export function AddEditCustomer() {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
-  const user = useAuthStore((state) => state.user);
   const route = useRoute();
   const queryClient = useQueryClient();
   const network = useNetworkStatus();
@@ -178,30 +190,24 @@ export function AddEditCustomer() {
 
   const mutation = useMutation({
     mutationFn: () => {
+      if (network.isOffline) {
+        throw new Error(internetRequiredMessage);
+      }
       const payload = { 
         shopId: activeShopId, 
         ...form, 
         creditLimit: form.creditLimit ? Number(form.creditLimit) : undefined 
       };
-      if (!customer && network.isOffline) {
-        return createLocalCustomer({
-          shopId: activeShopId ?? "",
-          userId: user?.id,
-          name: form.name.trim(),
-          phone: form.phone || null,
-          address: form.address || null,
-          city: form.city || null,
-          gstin: form.gstin || null,
-          customerType: "REGULAR",
-        });
-      }
       return customer ? updateCustomer(token ?? "", customer.id, payload) : createCustomer(token ?? "", payload);
     },
     onSuccess: (result: any) => {
       if (result?.ok === false) return;
       queryClient.invalidateQueries({ queryKey: ["customers", activeShopId] });
-      queryClient.invalidateQueries({ queryKey: ["local-customers", activeShopId] });
+      if (activeShopId && token) warmOfflineCache(activeShopId, token).catch(() => {});
       goBack();
+    },
+    onError: (error: Error) => {
+      Alert.alert("Internet required", error.message || internetRequiredMessage);
     },
   });
 
@@ -226,7 +232,7 @@ export function AddEditCustomer() {
         </Section>
         <View style={styles.formFooter}>
           <Button 
-            label={!customer && network.isOffline ? "Save Customer Offline" : "Save Customer"} 
+            label="Save Customer"
             onPress={() => mutation.mutate()} 
             loading={mutation.isPending} 
             disabled={!form.name.trim()}

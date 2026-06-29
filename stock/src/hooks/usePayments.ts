@@ -3,7 +3,8 @@ import { useAuthStore } from "../auth/auth-store";
 import { useShopStore } from "../auth/shop-store";
 import { queryKeys } from "./query-keys";
 import { fetchPayments, verifyPayment, addPayment, markPaymentMismatch, attachPayment } from "../api/client";
-import { newIdempotencyKey, newLocalPaymentId } from "../local/localIds";
+import { newIdempotencyKey } from "../utils/idempotency";
+import { warmOfflineCache } from "../utils/mmkvCache";
 
 export function usePaymentsQuery(shopId?: string, options: { verificationStatus?: string; customerId?: string; unlinked?: boolean } = {}) {
   const token = useAuthStore((state) => state.token);
@@ -24,7 +25,7 @@ export function useAddPaymentMutation() {
   return useMutation({
     mutationFn: (data: Omit<Parameters<typeof addPayment>[1], "shopId">) =>
       addPayment(token ?? "", { ...data, shopId: activeShopId ?? "" }, {
-        idempotencyKey: newIdempotencyKey("PAYMENT", newLocalPaymentId()),
+        idempotencyKey: newIdempotencyKey("PAYMENT"),
       }),
     onSuccess: () => {
       if (activeShopId) {
@@ -33,6 +34,7 @@ export function useAddPaymentMutation() {
         queryClient.invalidateQueries({ queryKey: ["orders", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["owner-dashboard"] });
         queryClient.invalidateQueries({ queryKey: ["staff-today-summary", activeShopId] });
+        if (token) warmOfflineCache(activeShopId, token).catch(() => {});
       }
     },
   });

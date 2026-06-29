@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "../auth/auth-store";
 import { useShopStore } from "../auth/shop-store";
 import { apiRequest } from "../api/client";
+import { warmOfflineCache } from "../utils/mmkvCache";
 
 export function usePendingVerificationsQuery() {
   const token = useAuthStore((state) => state.token);
@@ -31,6 +32,7 @@ export function useProcessVerificationMutation() {
       queryClient.invalidateQueries({ queryKey: ["item-stock"] });
       queryClient.invalidateQueries({ queryKey: ["items"] });
       queryClient.invalidateQueries({ queryKey: ["owner-dashboard"] });
+      if (activeShopId && token) warmOfflineCache(activeShopId, token).catch(() => {});
     },
   });
 }

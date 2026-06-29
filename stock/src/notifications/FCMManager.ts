@@ -11,8 +11,6 @@ import { getDeviceInstallationId } from "./device-identity";
 import { getToken, setToken } from "../auth/token-storage";
 import { useQueryClient } from "@tanstack/react-query";
 import { handleDomainEvent, type DomainEvent } from "../realtime/domainEvents";
-import { runOfflineSyncOnce } from "../local/syncWorker";
-import { getCurrentNetworkStatus } from "../hooks/useNetworkStatus";
 
 const DEVICE_REGISTRATION_SIGNATURE_KEY = "shopcontrol_device_registration_signature";
 let registrationInFlight: Promise<string | null> | null = null;
@@ -172,14 +170,6 @@ export function useNotificationSetup() {
         queryClient.invalidateQueries({ queryKey: ["owner-dashboard"] });
       }
 
-      if (token && activeShopId) {
-        const status = await getCurrentNetworkStatus();
-        if (status.isOnline) {
-          runOfflineSyncOnce({ shopId: activeShopId, token }).catch((error) => {
-            if (__DEV__) console.warn("[push] offline sync after notification failed", error);
-          });
-        }
-      }
     };
 
     notificationListener.current = Notifications.addNotificationReceivedListener((notification) => {

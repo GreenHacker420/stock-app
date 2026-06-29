@@ -3,7 +3,8 @@ import { useAuthStore } from "../auth/auth-store";
 import { useShopStore } from "../auth/shop-store";
 import { queryKeys } from "./query-keys";
 import { fetchSales, fetchSale, createSale, createWalkInSale, CreateSalePayload, updateSaleGst } from "../api/client";
-import { newIdempotencyKey, newLocalSaleId } from "../local/localIds";
+import { newIdempotencyKey } from "../utils/idempotency";
+import { warmOfflineCache } from "../utils/mmkvCache";
 
 export function useSalesQuery() {
   const token = useAuthStore((state) => state.token);
@@ -38,7 +39,7 @@ export function useCreateSaleMutation() {
   return useMutation({
     mutationFn: (data: Omit<CreateSalePayload, "shopId">) =>
       createSale(token ?? "", { ...data, shopId: activeShopId ?? "" }, {
-        idempotencyKey: newIdempotencyKey("SALE", newLocalSaleId()),
+        idempotencyKey: newIdempotencyKey("SALE"),
       }),
     onSuccess: () => {
       if (activeShopId) {
@@ -51,6 +52,7 @@ export function useCreateSaleMutation() {
         queryClient.invalidateQueries({ queryKey: ["cash-sessions", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["current-cash-session", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["customers", activeShopId] });
+        if (token) warmOfflineCache(activeShopId, token).catch(() => {});
       }
     },
   });
@@ -74,6 +76,7 @@ export function useCreateWalkInSaleMutation() {
         queryClient.invalidateQueries({ queryKey: ["cash-sessions", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["current-cash-session", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["customers", activeShopId] });
+        if (token) warmOfflineCache(activeShopId, token).catch(() => {});
       }
     },
   });

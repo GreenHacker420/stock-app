@@ -20,7 +20,8 @@ import { SelectShop } from './navigation/screens/SelectShop';
 import { RealtimeProvider } from './realtime/RealtimeProvider';
 import { navigationThemes, paperLightTheme } from './theme/paper';
 import { useNotificationSetup } from './notifications/FCMManager';
-import { useOfflineSync } from './hooks/useOfflineSync';
+import { useNetworkStatus } from './hooks/useNetworkStatus';
+import { warmOfflineCache } from './utils/mmkvCache';
 import NetInfo from '@react-native-community/netinfo';
 
 Asset.loadAsync([
@@ -152,14 +153,22 @@ function AppContent({
 
 function AuthenticatedApp({ theme, prefix }: { theme: typeof navigationThemes.LightTheme; prefix: string }) {
   const user = useAuthStore((state) => state.user);
+  const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
-  useOfflineSync();
+  const network = useNetworkStatus();
 
   React.useEffect(() => {
     if (!activeShopId) {
       SplashScreen.hideAsync();
     }
   }, [activeShopId]);
+
+  React.useEffect(() => {
+    if (!activeShopId || !token || !network.isOnline) return;
+    warmOfflineCache(activeShopId, token).catch((error) => {
+      if (__DEV__) console.warn("[billing-cache] warmup failed", error);
+    });
+  }, [activeShopId, network.isOnline, token]);
 
   if (!activeShopId) {
     return <SelectShop />;

@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "../auth/auth-store";
 import { useShopStore } from "../auth/shop-store";
 import { fetchDeliveryMemos, fetchDeliveryMemo, createDeliveryMemo } from "../api/client";
+import { warmOfflineCache } from "../utils/mmkvCache";
 
 export function useDeliveryMemosQuery() {
   const token = useAuthStore((state) => state.token);
@@ -36,6 +37,7 @@ export function useCreateDeliveryMemoMutation() {
       queryClient.invalidateQueries({ queryKey: ["stock-movements", activeShopId] });
       queryClient.invalidateQueries({ queryKey: ["items"] });
       queryClient.invalidateQueries({ queryKey: ["owner-dashboard"] });
+      if (activeShopId && token) warmOfflineCache(activeShopId, token).catch(() => {});
     },
   });
 }

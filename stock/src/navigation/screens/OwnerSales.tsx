@@ -4,7 +4,6 @@ import { Searchbar, Divider, Text, Icon } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
 import { useRoute } from "@react-navigation/native";
-import { useQuery } from "@tanstack/react-query";
 import Svg, { Path } from "react-native-svg";
 
 import { useSalesQuery, useSaleQuery } from "../../hooks/useSales";
@@ -22,7 +21,6 @@ import { navigate } from "../navigation-ref";
 import { useShopStore } from "../../auth/shop-store";
 import { useShopsQuery } from "../../hooks/useShops";
 import { shareSaleInvoicePdf } from "../../utils/pdf";
-import { getLocalPrisma, ensureLocalDbReady } from "../../local/prisma";
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 
@@ -63,37 +61,7 @@ export function SalesList() {
   const [activeTab, setActiveTab] = useState(initialFilter);
 
   const salesQuery = useSalesQuery();
-  const { activeShopId } = useShopStore();
-  const localSalesQuery = useQuery({
-    queryKey: ["local-sales", activeShopId],
-    queryFn: async () => {
-      const ready = await ensureLocalDbReady();
-      if (!ready.ok || !activeShopId) return [];
-      return getLocalPrisma().localSale.findMany({
-        where: { shopId: activeShopId, syncStatus: { in: ["pending", "failed", "conflict"] } },
-        orderBy: { createdAt: "desc" },
-        take: 50,
-      });
-    },
-    enabled: !!activeShopId,
-    refetchInterval: 15_000,
-  });
-  const localSales = (localSalesQuery.data ?? []).map((sale: any) => ({
-    id: sale.id,
-    saleNumber: sale.billNumber || "Pending sync",
-    shopId: sale.shopId,
-    customerId: sale.customerId,
-    isWalkin: !sale.customerId && !sale.serverCustomerId,
-    totalAmount: sale.total,
-    paidAmount: sale.paymentStatus === "PAID" ? sale.total : "0",
-    balanceAmount: sale.paymentStatus === "PAID" ? "0" : sale.total,
-    paymentStatus: sale.syncStatus === "conflict" ? "CONFLICT" : sale.paymentStatus,
-    saleStatus: sale.syncStatus,
-    createdAt: sale.createdAt.toISOString(),
-    customer: sale.customerId ? { id: sale.customerId, name: "Pending customer" } : null,
-    offline: true,
-  })) as Array<Sale & { offline?: boolean; staff?: { name: string } | null }>;
-  const allSales = [...localSales, ...(salesQuery.data ?? [])];
+  const allSales = salesQuery.data ?? [];
 
   const filteredSales = useMemo(() => {
     let data = allSales;
@@ -151,16 +119,16 @@ export function SalesList() {
               data={filteredSales}
               keyExtractor={(item: Sale) => item.id}
               estimatedItemSize={120}
-              renderItem={({ item }: { item: Sale & { staff?: { name: string } | null; offline?: boolean } }) => (
-                <Pressable
-                  onPress={() => item.offline ? Alert.alert("Pending sync", "This bill is saved locally and will open after it syncs.") : navigate("SaleDetail", { id: item.id })}
+              renderItem={({ item }: { item: Sale & { staff?: { name: string } | null } }) => (
+                <Pressable 
+                  onPress={() => navigate("SaleDetail", { id: item.id })}
                   style={({ pressed }) => [styles.saleCard, pressed && styles.pressed]}
                 >
                   <View style={styles.cardHeader}>
                     <View style={styles.flex1}>
                       <Text style={styles.saleNumber}>#{item.saleNumber}</Text>
                       <Text style={styles.customerName}>{item.isWalkin ? "Walk-in Customer" : item.customer?.name}</Text>
-                      <Text style={styles.staffBilledText}>{item.offline ? "Pending sync" : `Billed by: ${item.staff?.name || "System"}`}</Text>
+                      <Text style={styles.staffBilledText}>{`Billed by: ${item.staff?.name || "System"}`}</Text>
                     </View>
                     <StatusPill
                       label={item.paymentStatus || "PENDING"}

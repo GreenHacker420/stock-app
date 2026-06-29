@@ -4,10 +4,10 @@ import { useAuthStore } from "../auth/auth-store";
 import { useShopStore } from "../auth/shop-store";
 import { queryKeys } from "./query-keys";
 import { fetchCustomers, fetchCustomer, createCustomer, updateCustomer, fetchCustomerSales, fetchCustomerPayments, fetchCustomerDMs, fetchCustomerReturns, fetchCustomerTimeline } from "../api/client";
-import { upsertLocalCustomersFromServer } from "../local/localBilling";
-import { newIdempotencyKey, newLocalCustomerId } from "../local/localIds";
+import { setCachedCustomers, warmOfflineCache } from "../utils/mmkvCache";
+import { newIdempotencyKey } from "../utils/idempotency";
 
-export function useCustomersQuery(opts: { search?: string; includeWalkin?: boolean; limit?: number } = {}) {
+export function useCustomersQuery(opts: { search?: string; includeWalkin?: boolean; limit?: number; enabled?: boolean } = {}) {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
   const query = useQuery({
@@ -16,15 +16,13 @@ export function useCustomersQuery(opts: { search?: string; includeWalkin?: boole
       search: opts.search,
       limit: opts.limit,
     }),
-    enabled: !!token && !!activeShopId,
+    enabled: (opts.enabled ?? true) && !!token && !!activeShopId,
     staleTime: 15 * 60 * 1000, // 15 mins
   });
 
   useEffect(() => {
     if (!activeShopId || !query.data) return;
-    upsertLocalCustomersFromServer(activeShopId, query.data).catch((error) => {
-      if (__DEV__) console.warn("[local-cache] customers upsert failed", error);
-    });
+    setCachedCustomers(activeShopId, query.data);
   }, [activeShopId, query.data]);
 
   return query;
@@ -92,11 +90,12 @@ export function useCreateCustomerMutation() {
   return useMutation({
     mutationFn: (data: any) =>
       createCustomer(token ?? "", { ...data, shopId: activeShopId ?? "" }, {
-        idempotencyKey: newIdempotencyKey("CUSTOMER", newLocalCustomerId()),
+        idempotencyKey: newIdempotencyKey("CUSTOMER"),
       }),
     onSuccess: () => {
       if (activeShopId) {
         queryClient.invalidateQueries({ queryKey: ["customers", activeShopId] });
+        if (token) warmOfflineCache(activeShopId, token).catch(() => {});
       }
     },
   });
@@ -112,6 +111,7 @@ export function useUpdateCustomerMutation() {
     onSuccess: (_, variables) => {
       if (activeShopId) {
         queryClient.invalidateQueries({ queryKey: ["customers", activeShopId] });
+        if (token) warmOfflineCache(activeShopId, token).catch(() => {});
       }
       queryClient.invalidateQueries({ queryKey: ["customer", variables.id] });
     },

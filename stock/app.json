@@ -60,7 +60,6 @@
         }
       ],
       "expo-sharing",
-      "@prisma/react-native",
       [
         "expo-truecaller",
         {

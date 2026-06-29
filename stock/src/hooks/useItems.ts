@@ -25,7 +25,7 @@ import {
   ItemCategory,
   ItemSummary,
 } from "../api/client";
-import { upsertLocalItemsFromServer } from "../local/localBilling";
+import { setCachedProducts, warmOfflineCache } from "../utils/mmkvCache";
 
 export function useItemSummaryQuery() {
   const token = useAuthStore((state) => state.token);
@@ -69,14 +69,12 @@ export function useItemsQuery(opts: { search?: string; categoryId?: string; page
         limit: opts.limit,
       }),
     enabled: (opts.enabled ?? true) && !!token && !!activeShopId,
-    staleTime: 30 * 60 * 1000, // 30 mins for offline-first
+    staleTime: 30 * 60 * 1000,
   });
 
   useEffect(() => {
     if (!activeShopId || !query.data?.items) return;
-    upsertLocalItemsFromServer(activeShopId, query.data.items).catch((error) => {
-      if (__DEV__) console.warn("[local-cache] items upsert failed", error);
-    });
+    setCachedProducts(activeShopId, query.data.items);
   }, [activeShopId, query.data]);
 
   return query;
@@ -114,6 +112,7 @@ export function useCreateItemMutation() {
       createItem(token ?? "", { ...data, shopId: activeShopId ?? "" }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["items"] });
+      if (activeShopId && token) warmOfflineCache(activeShopId, token).catch(() => {});
     },
   });
 }
@@ -130,6 +129,7 @@ export function useUpdateItemMutation() {
       queryClient.invalidateQueries({ queryKey: ["item-price-history", id] });
       queryClient.invalidateQueries({ queryKey: ["item-price-change-history", id] });
       queryClient.invalidateQueries({ queryKey: ["item-stock", id] });
+      if (activeShopId && token) warmOfflineCache(activeShopId, token).catch(() => {});
     },
   });
 }
@@ -146,6 +146,7 @@ export function useCreateStockMovementMutation() {
         queryClient.invalidateQueries({ queryKey: ["stock-movements", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["item-stock"] });
         queryClient.invalidateQueries({ queryKey: ["items"] });
+        if (token) warmOfflineCache(activeShopId, token).catch(() => {});
       }
     },
   });
@@ -164,6 +165,7 @@ export function useAddStockMutation() {
         queryClient.invalidateQueries({ queryKey: ["stock-movements", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["item-stock"] });
         queryClient.invalidateQueries({ queryKey: ["items"] });
+        if (token) warmOfflineCache(activeShopId, token).catch(() => {});
       }
     },
   });
@@ -218,6 +220,8 @@ export function useCreateCategoryMutation() {
     mutationFn: (name: string) => createCategory(token ?? "", activeShopId ?? "", name),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.categories(activeShopId ?? "") });
+      queryClient.invalidateQueries({ queryKey: ["items"] });
+      if (activeShopId && token) warmOfflineCache(activeShopId, token).catch(() => {});
     },
   });
 }
@@ -232,6 +236,7 @@ export function useUpdateCategoryMutation() {
       queryClient.invalidateQueries({ queryKey: queryKeys.categories(activeShopId ?? "") });
       // Also refresh items in case category names are shown inline
       queryClient.invalidateQueries({ queryKey: ["items"] });
+      if (activeShopId && token) warmOfflineCache(activeShopId, token).catch(() => {});
     },
   });
 }
@@ -244,6 +249,8 @@ export function useDeleteCategoryMutation() {
     mutationFn: (id: string) => deleteCategory(token ?? "", id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.categories(activeShopId ?? "") });
+      queryClient.invalidateQueries({ queryKey: ["items"] });
+      if (activeShopId && token) warmOfflineCache(activeShopId, token).catch(() => {});
     },
   });
 }

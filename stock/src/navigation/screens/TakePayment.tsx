@@ -7,7 +7,8 @@ import {
   StyleSheet, 
   KeyboardAvoidingView, 
   Platform,
-  ActivityIndicator
+  ActivityIndicator,
+  Alert
 } from "react-native";
 import { 
   Text, 
@@ -20,7 +21,7 @@ import {
   TextInput
 } from "react-native-paper";
 import { useRoute } from "@react-navigation/native";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import QRCode from "react-native-qrcode-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useDebounce } from "use-debounce";
@@ -30,7 +31,7 @@ import { useCustomersQuery } from "../../hooks/useCustomers";
 import { useAddPaymentMutation } from "../../hooks/usePayments";
 import { useAuthStore } from "../../auth/auth-store";
 import { useNetworkStatus } from "../../hooks/useNetworkStatus";
-import { createLocalPayment, getLocalCustomers } from "../../local/localBilling";
+import { filterCachedCustomers } from "../../utils/mmkvCache";
 import { SuccessModal } from "../../components/ui/SuccessModal";
 import { useShopStore } from "../../auth/shop-store";
 import { Screen } from "../../components/Screen";
@@ -66,12 +67,11 @@ const getPaymentModeColor = (mode: string) => {
 };
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
+const internetRequiredMessage = "Internet connection required. Please connect to the internet to complete this action.";
 
 export function TakePayment() {
   const { activeShopId } = useShopStore();
-  const user = useAuthStore((state) => state.user);
   const route = useRoute<any>();
-  const queryClient = useQueryClient();
   const network = useNetworkStatus();
   const insets = useSafeAreaInsets();
 
@@ -100,28 +100,16 @@ export function TakePayment() {
   const customersQuery = useCustomersQuery({
     search: debouncedSearchQuery,
     limit: debouncedSearchQuery ? 20 : 50,
+    enabled: !network.isOffline,
   });
   const localCustomersQuery = useQuery({
-    queryKey: ["local-customers", activeShopId, debouncedSearchQuery],
-    queryFn: () => getLocalCustomers(activeShopId ?? "", debouncedSearchQuery),
-    enabled: !!activeShopId,
+    queryKey: ["cached-customers", activeShopId, debouncedSearchQuery],
+    queryFn: () => filterCachedCustomers(activeShopId ?? "", debouncedSearchQuery),
+    enabled: !!activeShopId && network.isOffline,
   });
   const mergedCustomers = useMemo(() => {
-    const local = (localCustomersQuery.data ?? []).map((c: any) => ({
-      id: c.id,
-      name: c.name,
-      phone: c.phone,
-      serverId: c.serverId,
-      syncStatus: c.syncStatus,
-    }));
-    const seen = new Set<string>();
-    return [...local, ...(customersQuery.data ?? [])].filter((customer: any) => {
-      const key = customer.serverId || customer.id;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  }, [customersQuery.data, localCustomersQuery.data]);
+    return network.isOffline ? (localCustomersQuery.data ?? []) : (customersQuery.data ?? []);
+  }, [customersQuery.data, localCustomersQuery.data, network.isOffline]);
 
   const filteredCustomers = useMemo(() => {
     if (!searchQuery) return [];
@@ -135,34 +123,9 @@ export function TakePayment() {
 
   const paymentMutation = useAddPaymentMutation();
 
-  const saveOfflinePayment = async () => {
-    if (!activeShopId) return;
-    const localCustomer = (localCustomersQuery.data ?? []).find((c: any) => c.id === customerId);
-    const result = await createLocalPayment({
-      shopId: activeShopId,
-      userId: user?.id,
-      saleId: saleId?.startsWith("local_sale_") ? saleId : null,
-      serverSaleId: saleId && !saleId.startsWith("local_sale_") ? saleId : null,
-      orderId,
-      dmId,
-      customerId: localCustomer && !localCustomer.serverId ? localCustomer.id : null,
-      serverCustomerId: localCustomer?.serverId ?? (customerId && !customerId.startsWith("local_") ? customerId : null),
-      amount,
-      mode: paymentMode,
-      reference: reference || null,
-      notes: notes || (upiOption === 'GENERATE' ? 'Paid via generated QR' : null),
-    });
-    if (!result.ok) {
-      setErrorMsg(result.message);
-      return;
-    }
-    queryClient.invalidateQueries({ queryKey: ["payments", activeShopId] });
-    setSuccessVisible(true);
-  };
-
   const handleConfirmPayment = () => {
     if (network.isOffline) {
-      saveOfflinePayment();
+      Alert.alert("Internet required", internetRequiredMessage);
       return;
     }
     paymentMutation.mutate({
@@ -180,7 +143,7 @@ export function TakePayment() {
       },
       onError: (err: any) => {
         if (String(err?.message || "").toLowerCase().includes("network")) {
-          saveOfflinePayment();
+          Alert.alert("Internet required", internetRequiredMessage);
         } else {
           setErrorMsg(err.message || "Failed to record payment");
         }
@@ -302,7 +265,7 @@ export function TakePayment() {
                       <List.Item
                         key={customer.id}
                         title={customer.name}
-                        description={`${customer.phone || "No phone"}${(customer as any).syncStatus && (customer as any).syncStatus !== "synced" ? " • Pending sync" : ""}`}
+                        description={customer.phone || "No phone"}
                         onPress={() => {
                           setCustomerId(customer.id);
                           setSearchQuery("");

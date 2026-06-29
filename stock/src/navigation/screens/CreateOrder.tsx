@@ -1,17 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
-import { ScrollView, View, Pressable, StyleSheet } from "react-native";
+import { Alert, ScrollView, View, Pressable, StyleSheet } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Text, TextInput, SegmentedButtons, Icon, Searchbar, List, Divider, Card } from "react-native-paper";
 import { useDebounce } from "use-debounce";
 import { createOrder, fetchCustomers, fetchItems, fetchStaff, fetchShops, Item, Customer, ApiUser } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
+import { useNetworkStatus } from "../../hooks/useNetworkStatus";
+import { filterCachedCustomers, filterCachedProducts, setCachedCustomers, setCachedProducts, warmOfflineCache } from "../../utils/mmkvCache";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { Section } from "../../components/ui/Section";
 import { SuccessModal } from "../../components/ui/SuccessModal";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from '../../theme';
 import { navigate, goBack } from "../navigation-ref";
+
+const internetRequiredMessage = "Internet connection required. Please connect to the internet to complete this action.";
 
 type OrderPriority = "LOW" | "NORMAL" | "HIGH" | "URGENT";
 
@@ -39,6 +43,7 @@ export function CreateOrder() {
   const token = useAuthStore((state) => state.token);
   const { activeShopId } = useShopStore();
   const queryClient = useQueryClient();
+  const network = useNetworkStatus();
 
   // Selected customer
   const [customerId, setCustomerId] = useState<string | null>(null);
@@ -74,7 +79,12 @@ export function CreateOrder() {
       search: debouncedCustomerSearch,
       limit: debouncedCustomerSearch ? 20 : 50,
     }),
-    enabled: !!token && !!activeShopId,
+    enabled: !!token && !!activeShopId && !network.isOffline,
+  });
+  const cachedCustomersQuery = useQuery({
+    queryKey: ["cached-customers", activeShopId, debouncedCustomerSearch],
+    queryFn: () => filterCachedCustomers(activeShopId ?? "", debouncedCustomerSearch),
+    enabled: !!activeShopId && network.isOffline,
   });
 
   const itemsQuery = useQuery({
@@ -83,7 +93,12 @@ export function CreateOrder() {
       search: debouncedItemSearch,
       limit: debouncedItemSearch ? 20 : 50,
     }),
-    enabled: !!token && !!activeShopId,
+    enabled: !!token && !!activeShopId && !network.isOffline,
+  });
+  const cachedItemsQuery = useQuery({
+    queryKey: ["cached-items", activeShopId, debouncedItemSearch],
+    queryFn: () => filterCachedProducts(activeShopId ?? "", debouncedItemSearch),
+    enabled: !!activeShopId && network.isOffline,
   });
 
   const staffQuery = useQuery({
@@ -92,18 +107,28 @@ export function CreateOrder() {
     enabled: !!token,
   });
 
+  useEffect(() => {
+    if (activeShopId && customersQuery.data) setCachedCustomers(activeShopId, customersQuery.data);
+  }, [activeShopId, customersQuery.data]);
+
+  useEffect(() => {
+    if (activeShopId && itemsQuery.data?.items) setCachedProducts(activeShopId, itemsQuery.data.items);
+  }, [activeShopId, itemsQuery.data]);
+
   // Filters
   const filteredCustomers = useMemo(() => {
     if (!customerSearch) return [];
-    return (customersQuery.data ?? []).slice(0, 5);
-  }, [customersQuery.data, customerSearch]);
+    const source = network.isOffline ? (cachedCustomersQuery.data ?? []) : (customersQuery.data ?? []);
+    return source.slice(0, 5);
+  }, [cachedCustomersQuery.data, customersQuery.data, customerSearch, network.isOffline]);
 
   const filteredItems = useMemo(() => {
     if (!itemSearch) return [];
-    return (itemsQuery.data?.items ?? []).slice(0, 5);
-  }, [itemsQuery.data, itemSearch]);
+    const source = network.isOffline ? (cachedItemsQuery.data ?? []) : (itemsQuery.data?.items ?? []);
+    return source.slice(0, 5);
+  }, [cachedItemsQuery.data, itemSearch, itemsQuery.data, network.isOffline]);
 
-  const selectedCustomer = customersQuery.data?.find(c => c.id === customerId);
+  const selectedCustomer = (network.isOffline ? cachedCustomersQuery.data : customersQuery.data)?.find(c => c.id === customerId);
 
   // Calculations
   const subtotal = cart.reduce((sum, item) => sum + (item.quantity * item.rate), 0);
@@ -111,6 +136,9 @@ export function CreateOrder() {
   // Order submission
   const orderMutation = useMutation({
     mutationFn: () => {
+      if (network.isOffline) {
+        throw new Error(internetRequiredMessage);
+      }
       const dispatchDate = new Date(Date.now() + expectedOffsetDays * 86400000);
       return createOrder(token ?? "", {
         shopId: activeShopId ?? "",
@@ -128,6 +156,7 @@ export function CreateOrder() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["orders", activeShopId] });
+      if (activeShopId && token) warmOfflineCache(activeShopId, token).catch(() => {});
       setCart([]);
       setCustomerId(null);
       setAssignedStaffId(null);
@@ -136,6 +165,9 @@ export function CreateOrder() {
       setErrorMsg(null);
     },
     onError: (err: Error) => {
+      if (err.message === internetRequiredMessage) {
+        Alert.alert("Internet required", internetRequiredMessage);
+      }
       setErrorMsg(err.message || "Failed to create order");
     }
   });

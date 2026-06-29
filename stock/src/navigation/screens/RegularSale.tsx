@@ -3,7 +3,7 @@ import { useNavigation } from "@react-navigation/native";
 import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Pressable, Modal, Alert, Linking, Animated, PanResponder } from "react-native";
 import { Searchbar, Text, Icon, List, TextInput, Switch, SegmentedButtons, Divider } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
 
@@ -25,16 +25,10 @@ import { goBack, navigate } from "../navigation-ref";
 import { useShopsQuery } from "../../hooks/useShops";
 import { shareSaleInvoicePdf } from "../../utils/pdf";
 import { useNetworkStatus } from "../../hooks/useNetworkStatus";
-import {
-  createLocalCustomer,
-  createLocalSaleWithItems,
-  createLocalPayment,
-  getLocalCustomers,
-  getLocalItems,
-  getPendingMutationForLocalEntity,
-} from "../../local/localBilling";
+import { filterCachedCustomers, filterCachedProducts } from "../../utils/mmkvCache";
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
+const internetRequiredMessage = "Internet connection required. Please connect to the internet to complete this action.";
 
 type PaymentType = "CASH" | "UPI" | "BANK_TRANSFER" | "CREDIT";
 
@@ -376,7 +370,6 @@ export function RegularSale() {
   const { activeShopId } = useShopStore();
   const token = useAuthStore((state) => state.token);
   const user = useAuthStore((state) => state.user);
-  const queryClient = useQueryClient();
   const network = useNetworkStatus();
   const insets = useSafeAreaInsets();
 
@@ -417,60 +410,25 @@ export function RegularSale() {
     enabled: !!token && !!activeShopId && !network.isOffline,
   });
   const localCustomersQuery = useQuery({
-    queryKey: ["local-customers", activeShopId, debouncedCustomerSearch],
-    queryFn: () => getLocalCustomers(activeShopId ?? "", debouncedCustomerSearch),
-    enabled: !!activeShopId,
+    queryKey: ["cached-customers", activeShopId, debouncedCustomerSearch],
+    queryFn: () => filterCachedCustomers(activeShopId ?? "", debouncedCustomerSearch),
+    enabled: !!activeShopId && network.isOffline,
   });
 
   const itemsQuery = useItemsQuery({ search: debouncedItemSearch, limit: 50, enabled: !network.isOffline });
   const localItemsQuery = useQuery({
-    queryKey: ["local-items", activeShopId, debouncedItemSearch],
-    queryFn: () => getLocalItems(activeShopId ?? "", debouncedItemSearch),
-    enabled: !!activeShopId,
+    queryKey: ["cached-items", activeShopId, debouncedItemSearch],
+    queryFn: () => filterCachedProducts(activeShopId ?? "", debouncedItemSearch),
+    enabled: !!activeShopId && network.isOffline,
   });
 
-  const localCustomers = localCustomersQuery.data ?? [];
   const mergedCustomers = useMemo(() => {
-    const serverCustomers = customersQuery.data ?? [];
-    const mappedLocal = localCustomers.map((c: any) => ({
-      id: c.id,
-      name: c.name,
-      phone: c.phone,
-      address: c.address,
-      city: c.city,
-      gstin: c.gstin,
-      type: c.customerType as any,
-      status: c.syncStatus as any,
-      serverId: c.serverId,
-      syncStatus: c.syncStatus,
-    }));
-    const seen = new Set<string>();
-    return [...mappedLocal, ...serverCustomers].filter((customer: any) => {
-      const key = customer.serverId || customer.id;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-  }, [customersQuery.data, localCustomers]);
+    return network.isOffline ? (localCustomersQuery.data ?? []) : (customersQuery.data ?? []);
+  }, [customersQuery.data, localCustomersQuery.data, network.isOffline]);
 
   const displayItems = useMemo(() => {
     if (!network.isOffline) return itemsQuery.data?.items ?? [];
-    return (localItemsQuery.data ?? []).map((item: any) => {
-      const stock = Number(item.stockQty || 0) + Number(item.pendingStockDelta || 0);
-      return {
-        id: item.id,
-        name: item.name,
-        sku: item.sku,
-        unit: item.unit || "",
-        defaultSellingPrice: item.price,
-        minimumStock: "0",
-        availableStock: stock,
-        currentStock: stock,
-        category: item.categoryId ? { id: item.categoryId, name: item.categoryName || "" } : null,
-        serverId: item.serverId,
-        syncStatus: item.syncStatus,
-      } as Item & { serverId?: string | null; syncStatus?: string };
-    });
+    return localItemsQuery.data ?? [];
   }, [itemsQuery.data, localItemsQuery.data, network.isOffline]);
 
   const selectedCustomer = useMemo(() => 
@@ -516,89 +474,10 @@ export function RegularSale() {
 
   const saleMutation = useCreateSaleMutation();
 
-  const saveOfflineSale = async () => {
-    if (!activeShopId) return;
-    if (displayItems.length === 0) {
-      Alert.alert("Offline items unavailable", "Items are not available offline yet. Open this shop online once to sync items.");
-      return;
-    }
-    const localCustomer = localCustomers.find((c: any) => c.id === customerId);
-    const customerMutation = localCustomer && !localCustomer.serverId
-      ? await getPendingMutationForLocalEntity(localCustomer.id, "CUSTOMER")
-      : null;
-    const saleResult = await createLocalSaleWithItems({
-      shopId: activeShopId,
-      userId: user?.id,
-      customerId: localCustomer && !localCustomer.serverId ? localCustomer.id : null,
-      serverCustomerId: localCustomer?.serverId ?? (customerId && !customerId.startsWith("local_") ? customerId : null),
-      customerMutationId: customerMutation?.id ?? null,
-      subtotal: String(cartTotal),
-      discount: "0",
-      tax: "0",
-      total: String(cartTotal),
-      paymentStatus: paymentType === "CREDIT" ? "UNPAID" : "PAID",
-      notes: notes || null,
-      signatureBase64: customerSignature ?? null,
-      items: cartArray.map(({ item, quantity, customRate }) => ({
-        itemId: item.id,
-        serverItemId: (item as any).serverId ?? (item.id.startsWith("server_item_") ? item.id.replace("server_item_", "") : undefined),
-        nameSnapshot: item.name,
-        priceSnapshot: String(customRate !== undefined ? customRate : Number(item.defaultSellingPrice)),
-        quantity: String(quantity),
-        unit: item.unit,
-        lineTotal: String(quantity * (customRate !== undefined ? customRate : Number(item.defaultSellingPrice))),
-      })),
-    });
-    if (!saleResult.ok) {
-      Alert.alert("Local DB unavailable", saleResult.message);
-      return;
-    }
-    const paid = Number(amountPaid);
-    const offlinePaymentAmount = paymentType === "CREDIT" ? paid : (amountPaid === "" ? cartTotal : paid);
-    if (offlinePaymentAmount > 0) {
-      const paymentResult = await createLocalPayment({
-        shopId: activeShopId,
-        userId: user?.id,
-        saleId: saleResult.sale.id,
-        saleMutationId: saleResult.mutation.id,
-        customerId: localCustomer && !localCustomer.serverId ? localCustomer.id : null,
-        serverCustomerId: localCustomer?.serverId ?? null,
-        amount: String(offlinePaymentAmount),
-        mode: paymentType === "CREDIT" ? partialPaymentMode : paymentType,
-        notes: notes || null,
-      });
-      if (!paymentResult.ok) {
-        Alert.alert("Local DB unavailable", paymentResult.message);
-        return;
-      }
-    }
-    queryClient.invalidateQueries({ queryKey: ["local-customers", activeShopId] });
-    queryClient.invalidateQueries({ queryKey: ["local-items", activeShopId] });
-    setCompletedSale({ id: saleResult.sale.id, saleNumber: "Pending sync", totalAmount: cartTotal, customer: selectedCustomer, items: cartArray, offline: true });
-    setCurrentStep(4);
-  };
-
-  const handleCreateOfflineCustomer = async () => {
-    if (!activeShopId || !customerSearch.trim()) return;
-    const result = await createLocalCustomer({
-      shopId: activeShopId,
-      userId: user?.id,
-      name: customerSearch.trim(),
-      phone: /\d{6,}/.test(customerSearch.trim()) ? customerSearch.trim() : null,
-    });
-    if (!result.ok) {
-      Alert.alert("Local DB unavailable", result.message);
-      return;
-    }
-    await queryClient.invalidateQueries({ queryKey: ["local-customers", activeShopId] });
-    setCustomerId(result.customer.id);
-    setCustomerSearch("");
-  };
-
   const handleCompleteSale = () => {
     if (!activeShopId) return;
     if (network.isOffline) {
-      saveOfflineSale();
+      Alert.alert("Internet required", internetRequiredMessage);
       return;
     }
 
@@ -640,10 +519,7 @@ export function RegularSale() {
       },
       onError: (error: any) => {
         if (String(error?.message || "").toLowerCase().includes("network")) {
-          Alert.alert("Save offline?", "Network request failed. Save this bill offline and sync later?", [
-            { text: "Cancel", style: "cancel" },
-            { text: "Save offline", onPress: saveOfflineSale },
-          ]);
+          Alert.alert("Internet required", internetRequiredMessage);
         }
       },
     });
@@ -751,7 +627,7 @@ export function RegularSale() {
 
                     {customerSearch && filteredCustomers.length === 0 ? (
                       <Pressable 
-                        onPress={network.isOffline ? handleCreateOfflineCustomer : () => navigate("AddEditCustomer", { customer: { name: customerSearch } })}
+                        onPress={network.isOffline ? () => Alert.alert("Internet required", internetRequiredMessage) : () => navigate("AddEditCustomer", { customer: { name: customerSearch } })}
                         style={styles.addNewCustomerRow}
                       >
                         <Icon source="account-plus-outline" size={20} color={colors.primary} />
@@ -767,7 +643,7 @@ export function RegularSale() {
                           <List.Item
                             key={c.id}
                             title={c.name}
-                            description={`${c.phone || "No phone"}${(c as any).syncStatus && (c as any).syncStatus !== "synced" ? " • Pending sync" : ""}`}
+                            description={c.phone || "No phone"}
                             onPress={() => { setCustomerId(c.id); setCustomerSearch(""); }}
                             right={props => <List.Icon {...props} icon="account-check-outline" color={colors.primary} />}
                           />
@@ -1095,17 +971,15 @@ export function RegularSale() {
               <View style={styles.successIconWrapper}>
                 <Icon source="check-circle" size={80} color={colors.success} />
               </View>
-              <Text style={styles.successTitle}>{completedSale?.offline ? "Bill Saved Offline" : "Sale Completed!"}</Text>
+              <Text style={styles.successTitle}>Sale Completed!</Text>
               <Text style={styles.successSubtitle}>
-                {completedSale?.offline
-                  ? "It will sync automatically when internet is back."
-                  : `Recorded sale of ${money(cartTotal)} successfully.`}
+                {`Recorded sale of ${money(cartTotal)} successfully.`}
               </Text>
               
               <View style={styles.receiptCard}>
                 <View style={styles.receiptRow}>
                   <Text style={styles.receiptLabel}>Sale Number</Text>
-                  <Text style={styles.receiptValue}>{completedSale?.offline ? "Pending sync" : ((saleMutation.data as any)?.saleNumber || "N/A")}</Text>
+                  <Text style={styles.receiptValue}>{(saleMutation.data as any)?.saleNumber || "N/A"}</Text>
                 </View>
                 <View style={styles.receiptRow}>
                   <Text style={styles.receiptLabel}>Customer</Text>
