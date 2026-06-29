@@ -2,6 +2,21 @@ import prisma from "../lib/db.js";
 import { ApiError } from "../utils/ApiError.js";
 import { EntityType } from "../generated/prisma/index.js";
 import { createApprovalRequest } from "./approval.service.js";
+import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
+
+async function accessibleShopIds(user) {
+  if (user.role === "OWNER") {
+    const shops = await prisma.shop.findMany({ where: { ownerId: user.id }, select: { id: true } });
+    return shops.map((shop) => shop.id);
+  }
+  const accesses = await prisma.staffShopAccess.findMany({ where: { staffId: user.id }, select: { shopId: true } });
+  return accesses.map((access) => access.shopId);
+}
+
+async function assertOwnerApprovalAccess(user, approval) {
+  await assertShopAccess(user, approval.shopId);
+  if (user.role !== "OWNER") throw new ApiError(403, "Owner access required");
+}
 
 export async function createRateChangeRequest(user, { orderItemId, suggestedRate, reason }) {
   const orderItem = await prisma.orderItem.findUnique({
@@ -12,6 +27,7 @@ export async function createRateChangeRequest(user, { orderItemId, suggestedRate
   if (!orderItem) {
     throw new ApiError(404, "Order item not found");
   }
+  await assertShopAccess(user, orderItem.order.shopId);
 
   const approval = await prisma.$transaction(async (tx) => {
     return createApprovalRequest(tx, {
@@ -40,9 +56,12 @@ export async function createRateChangeRequest(user, { orderItemId, suggestedRate
 }
 
 export async function listRateChangeRequests(user, { shopId, status }) {
+  if (shopId) await assertShopAccess(user, shopId);
+  const shopIds = shopId ? [shopId] : await accessibleShopIds(user);
+
   const approvals = await prisma.approvalRequest.findMany({
     where: {
-      shopId: shopId || undefined,
+      shopId: { in: shopIds },
       type: "RATE_CHANGE",
       status: status || undefined,
     },
@@ -63,13 +82,12 @@ export async function listRateChangeRequests(user, { shopId, status }) {
 }
 
 export async function approveRateChangeRequest(user, id) {
-  if (user.role !== "OWNER") throw new ApiError(403, "Owner access required");
-
   return prisma.$transaction(async (tx) => {
     const approval = await tx.approvalRequest.findUnique({ where: { id } });
     if (!approval || approval.type !== "RATE_CHANGE") {
       throw new ApiError(404, "Rate change request not found");
     }
+    await assertOwnerApprovalAccess(user, approval);
     if (approval.status !== "PENDING") {
       throw new ApiError(400, "Request is already processed");
     }
@@ -83,6 +101,9 @@ export async function approveRateChangeRequest(user, id) {
 
     if (!orderItem) {
       throw new ApiError(404, "Order item not found");
+    }
+    if (orderItem.order.shopId !== approval.shopId) {
+      throw new ApiError(400, "Approval target no longer belongs to this shop");
     }
 
     const rateVal = Number(suggestedRate);
@@ -133,7 +154,14 @@ export async function approveRateChangeRequest(user, id) {
 }
 
 export async function rejectRateChangeRequest(user, id, reason) {
-  if (user.role !== "OWNER") throw new ApiError(403, "Owner access required");
+  const approval = await prisma.approvalRequest.findUnique({ where: { id } });
+  if (!approval || approval.type !== "RATE_CHANGE") {
+    throw new ApiError(404, "Rate change request not found");
+  }
+  await assertOwnerApprovalAccess(user, approval);
+  if (approval.status !== "PENDING") {
+    throw new ApiError(400, "Request is already processed");
+  }
 
   const updated = await prisma.approvalRequest.update({
     where: { id },

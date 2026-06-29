@@ -136,7 +136,7 @@ export async function assignStaff(user, shopId, staffId) {
     where: { id: staffId },
   });
 
-  if (!staff || staff.role !== "STAFF" || staff.status !== "ACTIVE") {
+  if (!staff || staff.role !== "STAFF" || staff.status !== "ACTIVE" || staff.staffOwnerId !== user.id) {
     throw new ApiError(400, "Active staff user not found");
   }
 

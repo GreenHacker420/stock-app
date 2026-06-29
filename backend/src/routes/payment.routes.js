@@ -17,7 +17,7 @@ const listSchema = z.object({
     customerId: z.string().optional(),
     unlinked: z.string().transform(val => val === "true").or(z.boolean()).optional(),
     paymentMode: paymentMode.optional(),
-    verificationStatus: z.enum(["RECORDED", "PENDING_VERIFICATION", "VERIFIED", "MISMATCH", "CANCELLED", "REFUNDED"]).optional(),
+    status: z.enum(["RECORDED", "VERIFIED", "REJECTED", "CANCELLED"]).optional(),
   }),
   params: z.object({}).optional(),
   body: z.object({}).optional(),

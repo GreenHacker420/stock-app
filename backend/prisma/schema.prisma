@@ -168,6 +168,12 @@ enum ExpenseCategory {
   MISC
 }
 
+enum ExpenseStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 enum GstInvoiceStatus {
   NOT_REQUIRED
   PENDING
@@ -349,11 +355,14 @@ model User {
   passwordHash String
   role         RoleName   @default(STAFF)
   status       UserStatus @default(ACTIVE)
+  staffOwnerId String?
   pushToken    String?
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
   ownedShops             Shop[]               @relation("ShopOwner")
+  staffOwner             User?                @relation("StaffOwner", fields: [staffOwnerId], references: [id], onDelete: SetNull)
+  ownedStaff             User[]               @relation("StaffOwner")
   staffShopAccesses      StaffShopAccess[]
   customersCreated       Customer[]           @relation("CustomerCreatedBy")
   stockMovementsCreated  StockLedger[]        @relation("StockCreatedBy")
@@ -378,6 +387,7 @@ model User {
   returnsCreated         InventoryReturn[]    @relation("ReturnCreatedBy")
   returnsApproved        InventoryReturn[]    @relation("ReturnApprovedBy")
   expensesCreated        Expense[]
+  expensesVerified       Expense[]            @relation("ExpenseVerifiedBy")
   priceChanges           ItemPriceHistory[]
   attendance             Attendance[]
   leaveRequests          LeaveRequest[]
@@ -389,6 +399,8 @@ model User {
   waTemplateVersionsCreated   WaTemplateVersion[]   @relation("WaTemplateVersionCreatedBy")
   devices                     UserDevice[]
   waOnboardingSessions        WaOnboardingSession[]
+
+  @@index([staffOwnerId])
 }
 
 model UserDevice {
@@ -1282,20 +1294,26 @@ model InventoryReturnItem {
 }
 
 model Expense {
-  id          String          @id @default(cuid())
-  shopId      String
-  amount      Decimal         @db.Decimal(12, 2)
-  category    ExpenseCategory
-  note        String?
-  photoUrl    String?
-  createdById String
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
+  id               String          @id @default(cuid())
+  shopId           String
+  amount           Decimal         @db.Decimal(12, 2)
+  category         ExpenseCategory
+  note             String?
+  photoUrl         String?
+  status           ExpenseStatus   @default(PENDING)
+  verificationNote String?
+  verifiedById     String?
+  verifiedAt       DateTime?
+  createdById      String
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
 
-  shop      Shop @relation(fields: [shopId], references: [id])
-  createdBy User @relation(fields: [createdById], references: [id])
+  shop       Shop  @relation(fields: [shopId], references: [id])
+  createdBy  User  @relation(fields: [createdById], references: [id])
+  verifiedBy User? @relation("ExpenseVerifiedBy", fields: [verifiedById], references: [id])
 
   @@index([shopId, createdAt])
+  @@index([shopId, status])
 }
 
 model Attendance {

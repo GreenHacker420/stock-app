@@ -92,6 +92,7 @@ export async function listStaff(currentUser) {
   return prisma.user.findMany({
     where: {
       role: "STAFF",
+      staffOwnerId: currentUser.id,
       status: "ACTIVE",
     },
     select: {
@@ -129,6 +130,7 @@ export async function createStaff(currentUser, data) {
       passwordHash,
       role: "STAFF",
       status: "ACTIVE",
+      staffOwnerId: currentUser.id,
     },
     select: {
       id: true,
@@ -143,7 +145,7 @@ export async function createStaff(currentUser, data) {
 
 export async function updateStaff(currentUser, staffId, data) {
   const existing = await prisma.user.findUnique({ where: { id: staffId } });
-  if (!existing || existing.role !== "STAFF") {
+  if (!existing || existing.role !== "STAFF" || existing.staffOwnerId !== currentUser.id) {
     throw new ApiError(404, "Staff not found");
   }
 

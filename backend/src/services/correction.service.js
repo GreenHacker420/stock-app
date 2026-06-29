@@ -2,6 +2,7 @@ import prisma from "../lib/db.js";
 import { ApiError } from "../utils/ApiError.js";
 import { EntityType, ApprovalType, AuditAction } from "../generated/prisma/index.js";
 import { createApprovalRequest } from "./approval.service.js";
+import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 
 function mapEntityType(clientType) {
   switch (clientType) {
@@ -26,32 +27,55 @@ function mapApprovalType(clientType, requestedChangeJson) {
   }
 }
 
+async function accessibleShopIds(user) {
+  if (user.role === "OWNER") {
+    const shops = await prisma.shop.findMany({ where: { ownerId: user.id }, select: { id: true } });
+    return shops.map((shop) => shop.id);
+  }
+  const accesses = await prisma.staffShopAccess.findMany({ where: { staffId: user.id }, select: { shopId: true } });
+  return accesses.map((access) => access.shopId);
+}
+
+async function resolveCorrectionTarget(entityType, entityId, clientEntityType = entityType, db = prisma) {
+  if (entityType === EntityType.SALE) {
+    const record = await db.sale.findUnique({ where: { id: entityId } });
+    if (!record) throw new ApiError(404, "Sale not found");
+    return { shopId: record.shopId, record };
+  }
+  if (entityType === EntityType.DELIVERY_MEMO) {
+    const record = await db.deliveryMemo.findUnique({ where: { id: entityId } });
+    if (!record) throw new ApiError(404, "Delivery Memo not found");
+    return { shopId: record.shopId, record };
+  }
+  if (entityType === EntityType.ORDER) {
+    const record = await db.order.findUnique({ where: { id: entityId } });
+    if (!record) throw new ApiError(404, "Order not found");
+    return { shopId: record.shopId, record };
+  }
+  if (entityType === EntityType.PAYMENT) {
+    const record = await db.payment.findUnique({ where: { id: entityId } });
+    if (!record) throw new ApiError(404, "Payment not found");
+    return { shopId: record.shopId, record };
+  }
+  if (entityType === EntityType.SHOP || clientEntityType === "STOCK") {
+    const record = await db.shop.findUnique({ where: { id: entityId } });
+    if (!record) throw new ApiError(404, "Shop not found");
+    return { shopId: record.id, record };
+  }
+  throw new ApiError(400, "Unsupported entity type for correction");
+}
+
+async function assertOwnerApprovalAccess(user, approval) {
+  await assertShopAccess(user, approval.shopId);
+  if (user.role !== "OWNER") throw new ApiError(403, "Owner access required");
+}
+
 export async function createCorrectionRequest(user, { entityType, entityId, requestedChangeJson, reason }) {
   const pEntityType = mapEntityType(entityType);
   const pApprovalType = mapApprovalType(entityType, requestedChangeJson);
 
-  let shopId;
-  if (pEntityType === EntityType.SALE) {
-    const record = await prisma.sale.findUnique({ where: { id: entityId } });
-    if (!record) throw new ApiError(404, "Sale not found");
-    shopId = record.shopId;
-  } else if (pEntityType === EntityType.DELIVERY_MEMO) {
-    const record = await prisma.deliveryMemo.findUnique({ where: { id: entityId } });
-    if (!record) throw new ApiError(404, "Delivery Memo not found");
-    shopId = record.shopId;
-  } else if (pEntityType === EntityType.ORDER) {
-    const record = await prisma.order.findUnique({ where: { id: entityId } });
-    if (!record) throw new ApiError(404, "Order not found");
-    shopId = record.shopId;
-  } else if (pEntityType === EntityType.PAYMENT) {
-    const record = await prisma.payment.findUnique({ where: { id: entityId } });
-    if (!record) throw new ApiError(404, "Payment not found");
-    shopId = record.shopId;
-  } else if (pEntityType === EntityType.SHOP) {
-    shopId = entityId;
-  } else {
-    throw new ApiError(400, "Unsupported entity type for correction");
-  }
+  const { shopId } = await resolveCorrectionTarget(pEntityType, entityId, entityType);
+  await assertShopAccess(user, shopId);
 
   const approval = await prisma.$transaction(async (tx) => {
     return createApprovalRequest(tx, {
@@ -80,8 +104,10 @@ export async function createCorrectionRequest(user, { entityType, entityId, requ
 }
 
 export async function listCorrectionRequests(user, { shopId, status, entityType }) {
+  if (shopId) await assertShopAccess(user, shopId);
+  const shopIds = shopId ? [shopId] : await accessibleShopIds(user);
   const where = {
-    shopId: shopId || undefined,
+    shopId: { in: shopIds },
     status: status || undefined,
     type: {
       in: [
@@ -115,12 +141,15 @@ export async function listCorrectionRequests(user, { shopId, status, entityType 
 }
 
 export async function approveCorrectionRequest(user, id) {
-  if (user.role !== "OWNER") throw new ApiError(403, "Owner access required");
-
   return prisma.$transaction(async (tx) => {
     const approval = await tx.approvalRequest.findUnique({ where: { id } });
     if (!approval) throw new ApiError(404, "Correction request not found");
+    await assertOwnerApprovalAccess(user, approval);
     if (approval.status !== "PENDING") throw new ApiError(400, "Request is already processed");
+    const { shopId } = await resolveCorrectionTarget(approval.entityType, approval.entityId, approval.entityType, tx);
+    if (shopId !== approval.shopId) {
+      throw new ApiError(400, "Approval target no longer belongs to this shop");
+    }
 
     if (approval.type === ApprovalType.SALE_CANCELLATION) {
       await tx.sale.update({
@@ -196,7 +225,14 @@ export async function approveCorrectionRequest(user, id) {
 }
 
 export async function rejectCorrectionRequest(user, id, reason) {
-  if (user.role !== "OWNER") throw new ApiError(403, "Owner access required");
+  const approval = await prisma.approvalRequest.findUnique({ where: { id } });
+  if (!approval) throw new ApiError(404, "Correction request not found");
+  await assertOwnerApprovalAccess(user, approval);
+  if (approval.status !== "PENDING") throw new ApiError(400, "Request is already processed");
+  const { shopId } = await resolveCorrectionTarget(approval.entityType, approval.entityId, approval.entityType);
+  if (shopId !== approval.shopId) {
+    throw new ApiError(400, "Approval target no longer belongs to this shop");
+  }
 
   const updated = await prisma.approvalRequest.update({
     where: { id },

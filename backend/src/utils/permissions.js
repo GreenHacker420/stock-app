@@ -41,13 +41,21 @@ export const PERMISSIONS = {
   PAYMENT_VIEW_OWN: "payment:view_own",
   PAYMENT_VERIFY: "payment:verify",
 
+  EXPENSE_CREATE: "expense:create",
+  EXPENSE_VIEW: "expense:view",
+  EXPENSE_VERIFY: "expense:verify",
+  EXPENSE_DELETE: "expense:delete",
+
+  DAILY_SUMMARY_VIEW: "daily_summary:view",
+  DAILY_SUMMARY_LOCK: "daily_summary:lock",
+  DAILY_SUMMARY_EXPORT: "daily_summary:export",
+
   RATE_CHANGE_REQUEST: "rate:change_request",
   RATE_CHANGE_REVIEW: "rate:review",
   CORRECTION_REQUEST: "correction:request",
   CORRECTION_APPROVE: "correction:approve",
   NOTIFICATION_VIEW: "notification:view",
   AUDIT_LOG_VIEW: "audit_log:view",
-  DAILY_SUMMARY_EXPORT: "daily_summary:export",
 };
 
 export const OWNER_PERMISSIONS = Object.values(PERMISSIONS);
@@ -70,6 +78,8 @@ export const STAFF_PERMISSIONS = [
   PERMISSIONS.DM_VIEW_OWN,
   PERMISSIONS.PAYMENT_CREATE,
   PERMISSIONS.PAYMENT_VIEW_OWN,
+  PERMISSIONS.EXPENSE_CREATE,
+  PERMISSIONS.EXPENSE_VIEW,
   PERMISSIONS.RATE_CHANGE_REQUEST,
   PERMISSIONS.CORRECTION_REQUEST,
   PERMISSIONS.NOTIFICATION_VIEW,
