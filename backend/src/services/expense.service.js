@@ -13,11 +13,15 @@ export async function createExpense(user, data) {
     select: { id: true },
   });
 
+  if (!activeSession) {
+    throw new ApiError(400, "Active cash session is required to log expenses");
+  }
+
   return prisma.$transaction(async (tx) => {
     const expense = await tx.expense.create({
       data: {
         shopId: data.shopId,
-        cashSessionId: activeSession?.id ?? null,
+        cashSessionId: activeSession.id,
         amount: money(data.amount),
         category: data.category,
         note: data.note,

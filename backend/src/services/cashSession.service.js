@@ -16,7 +16,10 @@ async function calculateExpectedCash(cashSessionId, openingCash, cashHandover = 
       _sum: { amount: true },
     }),
     prisma.expense.aggregate({
-      where: { cashSessionId },
+      where: {
+        cashSessionId,
+        status: { not: "REJECTED" },
+      },
       _sum: { amount: true },
     }),
   ]);

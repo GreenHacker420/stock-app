@@ -188,13 +188,14 @@ async function generateSummaryInternal(shopId, date) {
   const endOfDay = new Date(date);
   endOfDay.setHours(23, 59, 59, 999);
 
-  const [sales, orders, payments, cashSession, dms, expenses] = await Promise.all([
+  const [sales, orders, payments, cashSession, dms, approvedExpenses, nonRejectedSessionExpenses] = await Promise.all([
     prisma.sale.findMany({ where: { shopId, createdAt: { gte: startOfDay, lte: endOfDay }, saleStatus: { notIn: ["DRAFT", "CANCELLED", "RETURNED"] } } }),
     prisma.order.findMany({ where: { shopId, createdAt: { gte: startOfDay, lte: endOfDay }, status: { not: "CANCELLED" } } }),
     prisma.payment.findMany({ where: { shopId, receivedAt: { gte: startOfDay, lte: endOfDay }, status: { notIn: ["CANCELLED", "REJECTED"] } } }),
     prisma.cashSession.findFirst({ where: { shopId, openedAt: { gte: startOfDay, lte: endOfDay } }, orderBy: { openedAt: 'desc' } }),
     prisma.deliveryMemo.findMany({ where: { shopId, createdAt: { gte: startOfDay, lte: endOfDay }, status: { notIn: ["CANCELLED", "RETURNED"] } } }),
     prisma.expense.findMany({ where: { shopId, createdAt: { gte: startOfDay, lte: endOfDay }, status: "APPROVED" } }),
+    prisma.expense.findMany({ where: { shopId, createdAt: { gte: startOfDay, lte: endOfDay }, status: { not: "REJECTED" } } }),
   ]);
 
   const paymentBreakdown = payments.reduce((acc, p) => {
@@ -209,9 +210,9 @@ async function generateSummaryInternal(shopId, date) {
     sales.reduce((sum, sale) => sum + Number(sale.balanceAmount || 0), 0) +
     dms.reduce((sum, dm) => sum + Number(dm.balanceAmount || 0), 0) +
     orders.reduce((sum, order) => sum + Number(order.balanceAmount || 0), 0);
-  const totalExpenses = expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
+  const totalExpenses = approvedExpenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0);
   const sessionExpenses = cashSession
-    ? expenses.filter((expense) => expense.cashSessionId === cashSession.id).reduce((sum, expense) => sum + Number(expense.amount || 0), 0)
+    ? nonRejectedSessionExpenses.filter((expense) => expense.cashSessionId === cashSession.id).reduce((sum, expense) => sum + Number(expense.amount || 0), 0)
     : 0;
   const sessionCashCollected = cashSession
     ? payments
@@ -240,7 +241,7 @@ async function generateSummaryInternal(shopId, date) {
       salesCount: sales.length,
       ordersCreatedCount: orders.length,
       dmCreatedCount: dms.length,
-      expenseCount: expenses.length,
+      expenseCount: approvedExpenses.length,
       payloadJson: {
         generatedAt: new Date().toISOString(),
         paymentBreakdown,

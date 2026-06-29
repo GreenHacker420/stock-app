@@ -31,8 +31,6 @@ const closeSchema = z.object({
   body: z.object({
     actualCash: z.coerce.number().nonnegative(),
     cashHandover: z.coerce.number().nonnegative().optional(),
-    otherDeductionsAmount: z.coerce.number().nonnegative().optional(),
-    otherDeductionsReason: z.string().optional(),
     differenceReason: z.string().optional(),
   }),
   query: z.object({}).optional(),

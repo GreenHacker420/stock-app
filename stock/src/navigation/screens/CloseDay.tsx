@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { View, ScrollView, StyleSheet, KeyboardAvoidingView, Platform, Pressable } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { TextInput, Text, Icon, Divider, Checkbox } from "react-native-paper";
@@ -21,8 +21,6 @@ export function CloseDay() {
   const [shopId, setShopId] = useState<string | undefined>();
   const [actualCash, setActualCash] = useState("");
   const [cashHandover, setCashHandover] = useState("");
-  const [otherDeductions, setOtherDeductions] = useState("");
-  const [otherReason, setOtherReason] = useState("");
   const [differenceReason, setDifferenceReason] = useState("");
   const [confirmed, setConfirmed] = useState(false);
   const [successVisible, setSuccessVisible] = useState(false);
@@ -43,8 +41,7 @@ export function CloseDay() {
   const expected = Number(currentQuery.data?.expectedCash ?? 0);
   const netCollections = Math.max(0, expected - openingCash);
   const actual = Number(actualCash || 0);
-  const deductions = Number(otherDeductions || 0);
-  const finalExpected = expected - deductions;
+  const finalExpected = expected;
   const difference = actual - finalExpected;
   const isMismatched = Math.abs(difference) > 0.01 && actualCash !== "";
 
@@ -53,8 +50,6 @@ export function CloseDay() {
       closeCashSession(token ?? "", currentQuery.data?.id ?? "", {
         actualCash: actual,
         cashHandover: Number(cashHandover || 0),
-        otherDeductionsAmount: deductions,
-        otherDeductionsReason: otherReason || undefined,
         differenceReason: isMismatched ? differenceReason : undefined,
       }, { idempotencyKey: newIdempotencyKey("CASH_SESSION_CLOSE") }),
     onSuccess: () => {
@@ -124,7 +119,6 @@ export function CloseDay() {
                   <View style={styles.breakdownContainer}>
                      <BreakdownRow label="Opening Cash (+)" value={`₹${openingCash.toLocaleString("en-IN")}`} />
                      <BreakdownRow label="Net Cash Collections (+)" value={`₹${netCollections.toLocaleString("en-IN")}`} />
-                     <BreakdownRow label="Other Deductions (-)" value={`₹${deductions.toLocaleString("en-IN")}`} isNegative />
                   </View>
                </View>
             </View>
@@ -177,31 +171,6 @@ export function CloseDay() {
 
                   <View style={styles.otherEntries}>
                      <View style={styles.inlineInputRow}>
-                        <Text style={styles.inlineLabel}>Other Deductions</Text>
-                        <TextInput
-                          mode="flat"
-                          dense
-                          placeholder="₹0"
-                          keyboardType="numeric"
-                          selectTextOnFocus
-                          value={otherDeductions}
-                          onChangeText={setOtherDeductions}
-                          style={styles.smallInlineInput}
-                        />
-                     </View>
-                     {deductions > 0 && (
-                       <TextInput
-                         mode="outlined"
-                         label="Deduction Reason"
-                         placeholder="e.g. Paid Electricity, Advance to staff"
-                         value={otherReason}
-                         onChangeText={setOtherReason}
-                         style={[styles.input, { marginTop: spacing.sm }]}
-                         outlineStyle={styles.inputOutlineSmall}
-                       />
-                     )}
-                     
-                     <View style={[styles.inlineInputRow, { marginTop: spacing.md }]}>
                         <Text style={styles.inlineLabel}>Cash Handover</Text>
                         <TextInput
                           mode="flat"
