@@ -390,7 +390,7 @@ const sharedStackScreens = {
     options: { title: "Expenses" },
   },
   VerificationQueue: {
-    screen: VerificationQueue,
+    screen: ownerOnlyScreen(VerificationQueue),
     options: { title: "Verification Queue" },
   },
   CreateDeliveryMemo: {

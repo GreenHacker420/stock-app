@@ -7,9 +7,10 @@ let hasFailures = false;
 
 // We support passing a specific test file as an argument
 const testFileArg = process.argv[2];
-const files = testFileArg 
+const files = testFileArg
   ? [path.resolve(testFileArg)]
     : [
+      path.resolve("src/tests/api-contract.test.js"),
       path.resolve("src/tests/phase1-security.test.js"),
       path.resolve("src/tests/phase2-core.test.js"),
       path.resolve("src/tests/realtime.test.js"),
