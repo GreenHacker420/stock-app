@@ -672,7 +672,7 @@ export async function fetchItemRateSuggestion(token: string, itemId: string, cus
 }
 
 // PAYMENTS & VERIFICATION
-export async function fetchPayments(token: string, shopId: string, options: any = {}) {
+export async function fetchPayments(token: string, shopId: string, options: { status?: PaymentStatus; customerId?: string; unlinked?: boolean } = {}) {
   let url = `/payments?shopId=${encodeURIComponent(shopId)}`;
   if (options.status) url += `&status=${options.status}`;
   if (options.customerId) url += `&customerId=${encodeURIComponent(options.customerId)}`;

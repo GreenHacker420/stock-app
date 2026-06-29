@@ -10,7 +10,7 @@ async function calculateExpectedCash(cashSessionId, openingCash, cashHandover = 
     where: {
       cashSessionId,
       paymentMode: "CASH",
-      status: { not: "CANCELLED" },
+      status: { notIn: ["CANCELLED", "REJECTED"] },
     },
     _sum: { amount: true },
   });

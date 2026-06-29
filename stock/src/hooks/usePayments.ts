@@ -2,11 +2,11 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "../auth/auth-store";
 import { useShopStore } from "../auth/shop-store";
 import { queryKeys } from "./query-keys";
-import { fetchPayments, verifyPayment, addPayment, markPaymentMismatch, attachPayment } from "../api/client";
+import { fetchPayments, verifyPayment, addPayment, markPaymentMismatch, attachPayment, PaymentStatus } from "../api/client";
 import { newIdempotencyKey } from "../utils/idempotency";
 import { warmOfflineCache } from "../utils/mmkvCache";
 
-export function usePaymentsQuery(shopId?: string, options: { status?: string; customerId?: string; unlinked?: boolean } = {}) {
+export function usePaymentsQuery(shopId?: string, options: { status?: PaymentStatus; customerId?: string; unlinked?: boolean } = {}) {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
   const targetShopId = shopId || activeShopId;

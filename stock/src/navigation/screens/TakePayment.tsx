@@ -45,7 +45,7 @@ const paymentModes = [
   { label: "Cash", value: "CASH", icon: "cash" },
   { label: "UPI", value: "UPI", icon: "qrcode" },
   { label: "Card", value: "CARD", icon: "credit-card" },
-  { label: "Bank", value: "BANK", icon: "bank" },
+  { label: "Bank", value: "BANK_TRANSFER", icon: "bank" },
   { label: "Cheque", value: "CHEQUE", icon: "file-document-edit-outline" },
 ] as const;
 
@@ -57,7 +57,7 @@ const getPaymentModeColor = (mode: string) => {
       return "#7c3aed"; // Royal Violet
     case "CARD":
       return "#2563eb"; // Deep Cobalt
-    case "BANK":
+    case "BANK_TRANSFER":
       return "#4f46e5"; // Indigo Blue
     case "CHEQUE":
       return "#ea580c"; // Warm Rust
