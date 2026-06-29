@@ -6,18 +6,25 @@ import { EntityType, AuditAction } from "../generated/prisma/index.js";
 import { createDomainEvent, enqueueDomainEvent } from "./domain-event.service.js";
 
 async function calculateExpectedCash(cashSessionId, openingCash, cashHandover = 0) {
-  const cashPayments = await prisma.payment.aggregate({
-    where: {
-      cashSessionId,
-      paymentMode: "CASH",
-      status: { notIn: ["CANCELLED", "REJECTED"] },
-    },
-    _sum: { amount: true },
-  });
+  const [cashPayments, sessionExpenses] = await Promise.all([
+    prisma.payment.aggregate({
+      where: {
+        cashSessionId,
+        paymentMode: "CASH",
+        status: { notIn: ["CANCELLED", "REJECTED"] },
+      },
+      _sum: { amount: true },
+    }),
+    prisma.expense.aggregate({
+      where: { cashSessionId },
+      _sum: { amount: true },
+    }),
+  ]);
 
   return (
     Number(openingCash || 0) +
     Number(cashPayments._sum.amount || 0) -
+    Number(sessionExpenses._sum.amount || 0) -
     Number(cashHandover || 0)
   );
 }

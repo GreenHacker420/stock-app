@@ -8,10 +8,16 @@ import { createDomainEvent, enqueueDomainEvent } from "./domain-event.service.js
 export async function createExpense(user, data) {
   await assertShopAccess(user, data.shopId);
 
+  const activeSession = await prisma.cashSession.findFirst({
+    where: { shopId: data.shopId, status: "OPEN" },
+    select: { id: true },
+  });
+
   return prisma.$transaction(async (tx) => {
     const expense = await tx.expense.create({
       data: {
         shopId: data.shopId,
+        cashSessionId: activeSession?.id ?? null,
         amount: money(data.amount),
         category: data.category,
         note: data.note,
