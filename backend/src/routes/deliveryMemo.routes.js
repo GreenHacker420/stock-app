@@ -10,7 +10,7 @@ const router = Router();
 const idParams = z.object({ id: z.string().min(1) });
 
 const paymentSchema = z.object({
-  paymentMode: z.enum(["CASH", "UPI", "CARD", "BANK_TRANSFER", "CHEQUE", "CREDIT", "ADVANCE", "REFUND"]),
+  paymentMode: z.enum(["CASH", "UPI", "CARD", "BANK_TRANSFER", "CHEQUE"]),
   amount: z.coerce.number().positive(),
   referenceNumber: z.string().optional(),
   proofImageUrl: z.string().optional(),

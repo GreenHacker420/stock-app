@@ -49,6 +49,17 @@ export async function getCheque(user, id) {
 export async function updateChequeStatus(user, id, status, { reason } = {}) {
   if (user.role !== "OWNER") throw new ApiError(403, "Owner access required");
   const existing = await getChequePayment(user, id);
+  const existingChequeStatus = existing.details?.chequeStatus;
+  if (existingChequeStatus === status) return existing;
+  if (["CLEARED", "BOUNCED", "RETURNED", "CANCELLED"].includes(existingChequeStatus)) {
+    throw new ApiError(400, `Cheque is already ${existingChequeStatus.toLowerCase()}`);
+  }
+  if (status === "CLEARED" && ["REJECTED", "CANCELLED"].includes(existing.status)) {
+    throw new ApiError(400, `Cannot clear a ${existing.status.toLowerCase()} cheque payment`);
+  }
+  if (status === "BOUNCED" && ["VERIFIED", "CANCELLED"].includes(existing.status)) {
+    throw new ApiError(400, `Cannot bounce a ${existing.status.toLowerCase()} cheque payment`);
+  }
 
   return prisma.$transaction(async (tx) => {
     const details = await tx.paymentDetail.upsert({

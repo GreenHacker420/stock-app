@@ -9,6 +9,37 @@ function dayRange(date = new Date()) {
   return { start, end };
 }
 
+async function countLowStockFromLedger(shopIds) {
+  if (shopIds.length === 0) return 0;
+
+  const [items, rows] = await Promise.all([
+    prisma.item.findMany({
+      where: { shopId: { in: shopIds }, status: "ACTIVE" },
+      select: { id: true, minimumStock: true },
+    }),
+    prisma.stockLedger.groupBy({
+      by: ["itemId"],
+      where: { shopId: { in: shopIds } },
+      _sum: {
+        quantityIn: true,
+        quantityOut: true,
+      },
+    }),
+  ]);
+
+  const ledgerByItem = new Map(
+    rows.map((row) => [
+      row.itemId,
+      Number(row._sum.quantityIn || 0) - Number(row._sum.quantityOut || 0),
+    ]),
+  );
+
+  return items.filter((item) => {
+    const currentQuantity = ledgerByItem.get(item.id) ?? 0;
+    return currentQuantity <= Number(item.minimumStock || 0);
+  }).length;
+}
+
 export async function getOwnerDashboard(user, { shopId, date }) {
   if (shopId) await assertShopAccess(user, shopId);
   const ownedShopIds = shopId
@@ -83,7 +114,7 @@ export async function getOwnerDashboard(user, { shopId, date }) {
       _count: { id: true },
       _sum: { totalAmount: true },
     }),
-    prisma.stockBalance.count({ where: { ...whereShop, availableStock: { lte: 0 } } }),
+    countLowStockFromLedger(ownedShopIds),
     prisma.customer.count({ where: { ...whereShop, createdAt: { gte: start, lte: end }, type: { not: "WALK_IN" } } }),
     prisma.customer.count({ where: { ...whereShop, outstandingAmount: { gt: 0 } } }),
     prisma.sale.groupBy({

@@ -1,9 +1,18 @@
 import { asyncHandler } from "../utils/asyncHandler.js";
 import * as orderService from "../services/order.service.js";
+import { runIdempotentCreate } from "../services/idempotency.service.js";
 
 export const createOrder = asyncHandler(async (req, res) => {
-  const order = await orderService.createOrder(req.user, req.validated.body);
-  res.status(201).json({ success: true, data: order });
+  const result = await runIdempotentCreate(
+    req,
+    {
+      endpoint: "POST /orders",
+      resourceType: "ORDER",
+      shopId: req.validated.body.shopId,
+    },
+    () => orderService.createOrder(req.user, req.validated.body),
+  );
+  res.status(result.statusCode).json({ success: true, data: result.data });
 });
 
 export const listOrders = asyncHandler(async (req, res) => {
@@ -46,16 +55,47 @@ export const reportShortage = asyncHandler(async (req, res) => {
 });
 
 export const addPayment = asyncHandler(async (req, res) => {
-  const order = await orderService.addPayment(req.user, req.validated.params.id, req.validated.body.payments);
-  res.json({ success: true, data: order });
+  const orderId = req.validated.params.id;
+  const shopId = await orderService.getOrderShopForAction(req.user, orderId);
+  const result = await runIdempotentCreate(
+    req,
+    {
+      endpoint: `POST /orders/${orderId}/add-payment`,
+      resourceType: "ORDER_PAYMENT",
+      shopId,
+      statusCode: 200,
+    },
+    () => orderService.addPayment(req.user, orderId, req.validated.body.payments),
+  );
+  res.status(result.statusCode).json({ success: true, data: result.data });
 });
 
 export const createDmFromOrder = asyncHandler(async (req, res) => {
-  const dm = await orderService.createDmFromOrder(req.user, req.validated.params.id, req.validated.body);
-  res.status(201).json({ success: true, data: dm });
+  const orderId = req.validated.params.id;
+  const shopId = await orderService.getOrderShopForAction(req.user, orderId);
+  const result = await runIdempotentCreate(
+    req,
+    {
+      endpoint: `POST /orders/${orderId}/create-dm`,
+      resourceType: "DELIVERY_MEMO",
+      shopId,
+    },
+    () => orderService.createDmFromOrder(req.user, orderId, req.validated.body),
+  );
+  res.status(result.statusCode).json({ success: true, data: result.data });
 });
 
 export const convertOrderToSale = asyncHandler(async (req, res) => {
-  const sale = await orderService.convertOrderToSale(req.user, req.validated.params.id, req.validated.body);
-  res.status(201).json({ success: true, data: sale });
+  const orderId = req.validated.params.id;
+  const shopId = await orderService.getOrderShopForAction(req.user, orderId);
+  const result = await runIdempotentCreate(
+    req,
+    {
+      endpoint: `POST /orders/${orderId}/convert-to-sale`,
+      resourceType: "SALE",
+      shopId,
+    },
+    () => orderService.convertOrderToSale(req.user, orderId, req.validated.body),
+  );
+  res.status(result.statusCode).json({ success: true, data: result.data });
 });

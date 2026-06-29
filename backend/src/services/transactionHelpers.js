@@ -132,6 +132,25 @@ export function getBillPaymentStatus(totalAmount, paidAmount) {
   return "PARTIALLY_PAID";
 }
 
+async function resolveCashSessionForPayment(tx, shopId, paymentMode) {
+  if (paymentMode !== "CASH") return null;
+
+  const session = await tx.cashSession.findFirst({
+    where: {
+      shopId,
+      status: "OPEN",
+    },
+    orderBy: { openedAt: "desc" },
+    select: { id: true },
+  });
+
+  if (!session) {
+    throw new ApiError(400, "Open cash session required to record cash payment");
+  }
+
+  return session.id;
+}
+
 /**
  * Apply payments simply by summing them and adjusting the customer's balance.
  */
@@ -152,6 +171,7 @@ export async function applyPayments(tx, { user, shopId, saleId, dmId, orderId, c
     if (amt.lte(0)) continue;
 
     newPaid = add(newPaid, amt);
+    const cashSessionId = await resolveCashSessionForPayment(tx, shopId, payment.paymentMode);
 
     // Create the payment record
     const createdPayment = await tx.payment.create({
@@ -165,6 +185,7 @@ export async function applyPayments(tx, { user, shopId, saleId, dmId, orderId, c
         amount: amt,
         status: payment.paymentMode === "CASH" ? "VERIFIED" : "RECORDED",
         receivedById: user.id,
+        cashSessionId,
         notes: payment.notes,
         details: payment.details ? {
           create: payment.details

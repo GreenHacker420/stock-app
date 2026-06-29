@@ -199,6 +199,16 @@ export async function closeSession(user, sessionId, data) {
   });
 }
 
+export async function getSessionShopForAction(user, sessionId) {
+  const session = await prisma.cashSession.findUnique({
+    where: { id: sessionId },
+    select: { id: true, shopId: true },
+  });
+  if (!session) throw new ApiError(404, "Cash session not found");
+  await assertShopAccess(user, session.shopId);
+  return session.shopId;
+}
+
 export async function reviewSession(user, sessionId) {
   const existing = await prisma.cashSession.findUnique({ where: { id: sessionId } });
   if (!existing) throw new ApiError(404, "Cash session not found");

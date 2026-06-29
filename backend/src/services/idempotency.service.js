@@ -27,13 +27,13 @@ export function getIdempotencyKey(req) {
   return req.get("Idempotency-Key") || req.get("X-Idempotency-Key") || null;
 }
 
-export async function runIdempotentCreate(req, { endpoint, resourceType, shopId }, handler) {
+export async function runIdempotentCreate(req, { endpoint, resourceType, shopId, statusCode = 201 }, handler) {
   const key = getIdempotencyKey(req);
   const userId = req.user?.id;
 
   if (!key) {
     const data = await handler();
-    return { data, statusCode: 201, replayed: false };
+    return { data, statusCode, replayed: false };
   }
 
   if (!shopId || !userId) {
@@ -86,11 +86,11 @@ export async function runIdempotentCreate(req, { endpoint, resourceType, shopId 
       },
       data: {
         responseJson,
-        statusCode: 201,
+        statusCode,
         resourceId: data?.id || null,
       },
     });
-    return { data, statusCode: 201, replayed: false, resourceId: data?.id || null };
+    return { data, statusCode, replayed: false, resourceId: data?.id || null };
   } catch (error) {
     await prisma.idempotencyKey.delete({
       where: {

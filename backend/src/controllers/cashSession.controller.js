@@ -1,9 +1,18 @@
 import { asyncHandler } from "../utils/asyncHandler.js";
 import * as cashSessionService from "../services/cashSession.service.js";
+import { runIdempotentCreate } from "../services/idempotency.service.js";
 
 export const openSession = asyncHandler(async (req, res) => {
-  const session = await cashSessionService.openSession(req.user, req.validated.body);
-  res.status(201).json({ success: true, data: session });
+  const result = await runIdempotentCreate(
+    req,
+    {
+      endpoint: "POST /cash-sessions/open",
+      resourceType: "CASH_SESSION",
+      shopId: req.validated.body.shopId,
+    },
+    () => cashSessionService.openSession(req.user, req.validated.body),
+  );
+  res.status(result.statusCode).json({ success: true, data: result.data });
 });
 
 export const getCurrentSession = asyncHandler(async (req, res) => {
@@ -12,12 +21,23 @@ export const getCurrentSession = asyncHandler(async (req, res) => {
 });
 
 export const closeSession = asyncHandler(async (req, res) => {
-  const session = await cashSessionService.closeSession(
-    req.user,
-    req.validated.params.id,
-    req.validated.body,
+  const sessionId = req.validated.params.id;
+  const shopId = await cashSessionService.getSessionShopForAction(req.user, sessionId);
+  const result = await runIdempotentCreate(
+    req,
+    {
+      endpoint: `POST /cash-sessions/${sessionId}/close`,
+      resourceType: "CASH_SESSION_CLOSE",
+      shopId,
+      statusCode: 200,
+    },
+    () => cashSessionService.closeSession(
+      req.user,
+      sessionId,
+      req.validated.body,
+    ),
   );
-  res.json({ success: true, data: session });
+  res.status(result.statusCode).json({ success: true, data: result.data });
 });
 
 export const reviewSession = asyncHandler(async (req, res) => {

@@ -31,6 +31,39 @@ async function assertOrderAccess(user, orderId) {
   return order;
 }
 
+async function assertStaffAssignableToShop(owner, shopId, staffId) {
+  if (owner.role !== "OWNER") {
+    throw new ApiError(403, "Owner access required to assign staff");
+  }
+
+  const staff = await prisma.user.findUnique({
+    where: { id: staffId },
+    select: { id: true, role: true, status: true, staffOwnerId: true },
+  });
+  if (!staff || staff.role !== "STAFF" || staff.staffOwnerId !== owner.id) {
+    throw new ApiError(400, "Staff does not belong to your business");
+  }
+  if (staff.status !== "ACTIVE") {
+    throw new ApiError(400, "Staff is not active");
+  }
+
+  const access = await prisma.staffShopAccess.findUnique({
+    where: { staffId_shopId: { staffId, shopId } },
+    select: { id: true },
+  });
+  if (!access) throw new ApiError(400, "Staff is not assigned to this shop");
+}
+
+export async function getOrderShopForAction(user, orderId) {
+  const order = await prisma.order.findUnique({
+    where: { id: orderId },
+    select: { id: true, shopId: true },
+  });
+  if (!order) throw new ApiError(404, "Order not found");
+  await assertShopAccess(user, order.shopId);
+  return order.shopId;
+}
+
 export async function createOrder(user, data) {
   await assertShopAccess(user, data.shopId);
 
@@ -41,6 +74,10 @@ export async function createOrder(user, data) {
   const customer = await prisma.customer.findUnique({ where: { id: data.customerId } });
   if (!customer || customer.shopId !== data.shopId) {
     throw new ApiError(400, "Customer does not belong to this shop");
+  }
+
+  if (data.assignedStaffId) {
+    await assertStaffAssignableToShop(user, data.shopId, data.assignedStaffId);
   }
 
   const { items, subtotal, discountAmount, totalAmount } = calculateItemTotals(
@@ -225,12 +262,7 @@ export async function confirmOrder(user, id) {
 
 export async function assignStaff(user, id, staffId) {
   const order = await assertOrderAccess(user, id);
-  if (user.role !== "OWNER") throw new ApiError(403, "Owner access required");
-
-  const access = await prisma.staffShopAccess.findUnique({
-    where: { staffId_shopId: { staffId, shopId: order.shopId } },
-  });
-  if (!access) throw new ApiError(400, "Staff is not assigned to this shop");
+  await assertStaffAssignableToShop(user, order.shopId, staffId);
 
   return prisma.$transaction(async (tx) => {
     const updated = await tx.order.update({
@@ -536,6 +568,16 @@ async function createDispatchFromOrder(tx, user, order, items, { saleId, dmId })
 
 export async function createDmFromOrder(user, id, data) {
   const order = await assertOrderAccess(user, id);
+  if (order.status === "DISPATCHED") {
+    throw new ApiError(400, "Order has already been dispatched");
+  }
+  const existingDispatch = await prisma.dispatch.findFirst({
+    where: { orderId: id },
+    select: { id: true },
+  });
+  if (existingDispatch) {
+    throw new ApiError(400, "Order has already been dispatched");
+  }
   const selectedItems = data.items?.length
     ? data.items
     : order.items.map((item) => ({
@@ -635,6 +677,16 @@ export async function createDmFromOrder(user, id, data) {
 
 export async function convertOrderToSale(user, id, data) {
   const order = await assertOrderAccess(user, id);
+  if (order.status === "DISPATCHED") {
+    throw new ApiError(400, "Order has already been dispatched");
+  }
+  const existingDispatch = await prisma.dispatch.findFirst({
+    where: { orderId: id },
+    select: { id: true },
+  });
+  if (existingDispatch) {
+    throw new ApiError(400, "Order has already been dispatched");
+  }
   const selectedItems = data.items?.length
     ? data.items
     : order.items.map((item) => ({

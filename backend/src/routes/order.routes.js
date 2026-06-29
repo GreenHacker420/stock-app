@@ -10,7 +10,7 @@ const router = Router();
 const idParams = z.object({ id: z.string().min(1) });
 
 const paymentSchema = z.object({
-  paymentMode: z.enum(["CASH", "UPI", "CARD", "BANK_TRANSFER", "CHEQUE", "CREDIT", "ADVANCE", "REFUND"]),
+  paymentMode: z.enum(["CASH", "UPI", "CARD", "BANK_TRANSFER", "CHEQUE"]),
   amount: z.coerce.number().positive(),
   referenceNumber: z.string().optional(),
   proofImageUrl: z.string().optional(),
@@ -48,19 +48,11 @@ const listSchema = z.object({
     status: z.enum([
       "DRAFT",
       "CONFIRMED",
-      "SENT_TO_STAFF",
       "PACKING",
       "PARTIALLY_PACKED",
       "PACKED",
-      "PARTIALLY_DISPATCHED",
       "DISPATCHED",
-      "DM_CREATED",
-      "CONVERTED_TO_SALE",
-      "PARTIALLY_PAID",
-      "FULLY_PAID",
-      "COMPLETED",
       "CANCELLED",
-      "ON_HOLD",
     ]).optional(),
   }),
   params: z.object({}).optional(),

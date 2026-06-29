@@ -1,5 +1,6 @@
 import { asyncHandler } from "../utils/asyncHandler.js";
 import * as stockService from "../services/stock.service.js";
+import { runIdempotentCreate } from "../services/idempotency.service.js";
 
 export const getCurrentStock = asyncHandler(async (req, res) => {
   const stock = await stockService.getCurrentStock(req.user, req.validated.query);
@@ -12,11 +13,27 @@ export const listMovements = asyncHandler(async (req, res) => {
 });
 
 export const createMovement = asyncHandler(async (req, res) => {
-  const movement = await stockService.createMovement(req.user, req.validated.body);
-  res.status(201).json({ success: true, data: movement });
+  const result = await runIdempotentCreate(
+    req,
+    {
+      endpoint: "POST /stock/movements",
+      resourceType: "STOCK_MOVEMENT",
+      shopId: req.validated.body.shopId,
+    },
+    () => stockService.createMovement(req.user, req.validated.body),
+  );
+  res.status(result.statusCode).json({ success: true, data: result.data });
 });
 
 export const bulkStockEntry = asyncHandler(async (req, res) => {
-  const result = await stockService.bulkStockEntry(req.user, req.validated.body);
-  res.status(201).json({ success: true, data: result });
+  const result = await runIdempotentCreate(
+    req,
+    {
+      endpoint: "POST /stock/entry",
+      resourceType: "STOCK_ENTRY",
+      shopId: req.validated.body.shopId,
+    },
+    () => stockService.bulkStockEntry(req.user, req.validated.body),
+  );
+  res.status(result.statusCode).json({ success: true, data: result.data });
 });

@@ -9,7 +9,7 @@ import { PERMISSIONS } from "../utils/permissions.js";
 const router = Router();
 const idParams = z.object({ id: z.string().min(1) });
 
-const paymentMode = z.enum(["CASH", "UPI", "CARD", "BANK_TRANSFER", "CHEQUE", "CREDIT", "ADVANCE", "REFUND"]);
+const paymentMode = z.enum(["CASH", "UPI", "CARD", "BANK_TRANSFER", "CHEQUE"]);
 
 const listSchema = z.object({
   query: z.object({

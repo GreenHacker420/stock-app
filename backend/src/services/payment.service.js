@@ -151,6 +151,10 @@ export async function addPayment(user, data) {
 export async function verifyPayment(user, id, { note }) {
   if (user.role !== "OWNER") throw new ApiError(403, "Owner access required");
   const payment = await getPaymentWithAccess(user, id);
+  if (payment.status === "VERIFIED") return payment;
+  if (["REJECTED", "CANCELLED"].includes(payment.status)) {
+    throw new ApiError(400, `Cannot verify a ${payment.status.toLowerCase()} payment`);
+  }
 
   const updated = await prisma.payment.update({
     where: { id },
@@ -186,6 +190,10 @@ export async function verifyPayment(user, id, { note }) {
 export async function rejectPayment(user, id, { note }) {
   if (user.role !== "OWNER") throw new ApiError(403, "Owner access required");
   const payment = await getPaymentWithAccess(user, id);
+  if (payment.status === "REJECTED") return payment;
+  if (["VERIFIED", "CANCELLED"].includes(payment.status)) {
+    throw new ApiError(400, `Cannot reject a ${payment.status.toLowerCase()} payment`);
+  }
 
   const updated = await prisma.payment.update({
     where: { id },
