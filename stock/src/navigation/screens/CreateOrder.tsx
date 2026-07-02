@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { Alert, ScrollView, View, Pressable, StyleSheet, Platform, TextInput as RNTextInput, KeyboardAvoidingView, useWindowDimensions } from "react-native";
+import { useEffect, useMemo, useState } from "react";
+import { Alert, ScrollView, View, Pressable, StyleSheet, Platform, TextInput as RNTextInput, KeyboardAvoidingView, useWindowDimensions, PixelRatio } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Text, Searchbar, List, Divider, Card, Icon, SegmentedButtons, TextInput } from "react-native-paper";
 import { useDebounce } from "use-debounce";
@@ -50,8 +50,19 @@ export function CreateOrder() {
 
   // Screen Dimensions for Responsive / Mobile-First UI
   const { width: screenWidth } = useWindowDimensions();
-  const isTablet = screenWidth > 600;
+  const isTablet = screenWidth > 768; // Tablet breakpoint
   const isSmallMobile = screenWidth < 365;
+
+  // Dynamic Font Size scale factor
+  const fontScale = useMemo(() => {
+    if (isTablet) return 1.15;
+    if (isSmallMobile) return 0.9;
+    return 1.0;
+  }, [isTablet, isSmallMobile]);
+
+  const dynamicFontSize = (baseSize: number) => {
+    return Math.round(baseSize * fontScale);
+  };
 
   // Selected party object
   const [selectedParty, setSelectedParty] = useState<Customer | null>(null);
@@ -182,10 +193,12 @@ export function CreateOrder() {
   // Responsive expected dispatch pills width calculations
   const dayPillWidth = useMemo(() => {
     const gaps = 4 * spacing.sm;
-    const margins = spacing.lg * 4;
-    const availableWidth = screenWidth - margins - gaps;
+    // On tablet, the right column holds advanced details (width = 48% of screen)
+    const containerWidth = isTablet ? (screenWidth * 0.48) : screenWidth;
+    const margins = isTablet ? (spacing.lg * 2) : (spacing.lg * 4);
+    const availableWidth = containerWidth - margins - gaps;
     return Math.floor(availableWidth / 5);
-  }, [screenWidth]);
+  }, [screenWidth, isTablet]);
 
   // Order submission mutation
   const orderMutation = useMutation({
@@ -331,6 +344,94 @@ export function CreateOrder() {
     return null;
   }, [selectedParty, cart, network.isOffline]);
 
+  // Shared Collapsible Advanced Section UI
+  const renderAdvancedDetails = () => (
+    <View style={styles.sectionContainer}>
+      <Pressable 
+        onPress={() => {
+          if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+          setShowAdvanced(prev => !prev);
+        }}
+        style={styles.advancedHeaderCard}
+      >
+        <View style={styles.advancedHeaderLeft}>
+          <Icon source="cog-outline" size={18} color={colors.primary} />
+          <Text style={[styles.advancedHeaderTitle, { fontSize: dynamicFontSize(13) }]}>Advanced Details (Optional)</Text>
+        </View>
+        <Icon source={showAdvanced ? "chevron-up" : "chevron-down"} size={20} color={colors.textMuted} />
+      </Pressable>
+
+      {showAdvanced && (
+        <Card style={styles.advancedSettingsCard}>
+          <Card.Content style={styles.advancedContent}>
+            {/* Staff Select */}
+            <Text style={styles.fieldLabel}>ASSIGN STAFF</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.staffScroll}>
+              <Pressable
+                onPress={() => handleStaffSelect(null)}
+                style={[styles.staffPill, assignedStaffId === null && styles.staffPillActive]}
+              >
+                <Text style={[styles.staffPillText, assignedStaffId === null && styles.staffPillTextActive]}>Any Staff</Text>
+              </Pressable>
+              {staffQuery.data?.map(s => (
+                <Pressable
+                  key={s.id}
+                  onPress={() => handleStaffSelect(s.id)}
+                  style={[styles.staffPill, assignedStaffId === s.id && styles.staffPillActive]}
+                >
+                  <Text style={[styles.staffPillText, assignedStaffId === s.id && styles.staffPillTextActive]}>{s.name.split(' ')[0]}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+
+            {/* Priority */}
+            <Text style={[styles.fieldLabel, { marginTop: spacing.md }]}>PRIORITY</Text>
+            <SegmentedButtons
+              value={priority}
+              onValueChange={handlePriorityChange}
+              buttons={priorities}
+              style={styles.priorityBtns}
+              theme={{ colors: { primary: colors.primary } }}
+            />
+
+            {/* Offset days */}
+            <Text style={[styles.fieldLabel, { marginTop: spacing.md }]}>EXPECTED DISPATCH</Text>
+            <View style={styles.dispatchRow}>
+              {[1, 2, 3, 5, 7].map(days => (
+                <Pressable
+                  key={days}
+                  onPress={() => handleOffsetSelect(days)}
+                  style={[
+                    styles.dayPill, 
+                    expectedOffsetDays === days && styles.dayPillActive,
+                    { width: dayPillWidth }
+                  ]}
+                >
+                  <Text style={[styles.dayPillText, expectedOffsetDays === days && styles.dayPillTextActive]}>{days}D</Text>
+                </Pressable>
+              ))}
+            </View>
+            <Text style={styles.dispatchHelperText}>Dispatch: <Text style={{ fontWeight: 'bold' }}>{dispatchDateText}</Text></Text>
+
+            {/* Notes */}
+            <TextInput
+              mode="outlined"
+              label="Fulfillment Notes"
+              placeholder="Packaging instructions or delivery notes..."
+              value={notes}
+              onChangeText={setNotes}
+              multiline
+              numberOfLines={3}
+              style={styles.notesTextInput}
+              outlineStyle={styles.inputOutline}
+              activeOutlineColor={colors.primary}
+            />
+          </Card.Content>
+        </Card>
+      )}
+    </View>
+  );
+
   return (
     <Screen edges={['top', 'left', 'right']}>
       <AppHeader title="Create Order" subtitle="Take party order" />
@@ -341,360 +442,547 @@ export function CreateOrder() {
       >
         <ScrollView 
           showsVerticalScrollIndicator={false} 
-          contentContainerStyle={[styles.scrollContainer, { paddingBottom: isTablet ? 200 : 160 }]}
+          contentContainerStyle={[
+            styles.scrollContainer, 
+            { paddingBottom: isTablet ? spacing.xl : (isSmallMobile ? 150 : 160) }
+          ]}
           keyboardShouldPersistTaps="handled"
         >
-          {/* PARTY SECTION */}
-          <View style={styles.sectionContainer}>
-            <Text style={styles.sectionTitle}>Party</Text>
-            
-            {!selectedParty ? (
-              <View style={styles.searchSectionContainer}>
-                <Searchbar
-                  placeholder="Search party by name or phone..."
-                  onChangeText={setCustomerSearch}
-                  value={customerSearch}
-                  style={styles.searchBar}
-                  inputStyle={styles.searchInput}
-                  placeholderTextColor={colors.textMuted}
-                  iconColor={colors.primary}
-                />
-                
-                {/* INLINE Search Results (No clipping / z-index overlap issues) */}
-                {customerSearch ? (
-                  <View style={styles.searchDropdownInline}>
-                    {filteredCustomers.map(c => (
-                      <List.Item
-                        key={c.id}
-                        title={c.name}
-                        titleStyle={styles.dropdownTitle}
-                        description={`${c.phone || "No phone"} • Outstanding: ₹${Math.abs(Number(c.outstandingAmount || 0)).toLocaleString()}`}
-                        descriptionStyle={styles.dropdownDesc}
-                        onPress={() => {
-                          if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-                          setSelectedParty(c);
-                          setCustomerSearch("");
-                        }}
-                        right={props => <List.Icon {...props} icon="account-plus-outline" color={colors.primary} />}
-                        style={styles.dropdownItem}
+          {isTablet ? (
+            /* RESPONSIVE TABLET TWO-COLUMN SPLIT POS */
+            <View style={styles.tabletContainer}>
+              {/* Left Column - Party & Products */}
+              <View style={styles.tabletColumnLeft}>
+                {/* PARTY SECTION */}
+                <View style={styles.sectionContainer}>
+                  <Text style={[styles.sectionTitle, { fontSize: dynamicFontSize(14) }]}>Party</Text>
+                  
+                  {!selectedParty ? (
+                    <View style={styles.searchSectionContainer}>
+                      <Searchbar
+                        placeholder="Search party by name or phone..."
+                        onChangeText={setCustomerSearch}
+                        value={customerSearch}
+                        style={styles.searchBar}
+                        inputStyle={styles.searchInput}
+                        placeholderTextColor={colors.textMuted}
+                        iconColor={colors.primary}
                       />
-                    ))}
-                    {filteredCustomers.length === 0 && (
-                      <View style={styles.dropdownEmpty}>
-                        <Text style={styles.dropdownEmptyText}>No parties found</Text>
+                      
+                      {customerSearch ? (
+                        <View style={styles.searchDropdownInline}>
+                          {filteredCustomers.map(c => (
+                            <List.Item
+                              key={c.id}
+                              title={c.name}
+                              titleStyle={[styles.dropdownTitle, { fontSize: dynamicFontSize(14) }]}
+                              description={`${c.phone || "No phone"} • Outstanding: ₹${Math.abs(Number(c.outstandingAmount || 0)).toLocaleString()}`}
+                              descriptionStyle={styles.dropdownDesc}
+                              onPress={() => {
+                                if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+                                setSelectedParty(c);
+                                setCustomerSearch("");
+                              }}
+                              right={props => <List.Icon {...props} icon="account-plus-outline" color={colors.primary} />}
+                              style={styles.dropdownItem}
+                            />
+                          ))}
+                          {filteredCustomers.length === 0 && (
+                            <View style={styles.dropdownEmpty}>
+                              <Text style={styles.dropdownEmptyText}>No parties found</Text>
+                            </View>
+                          )}
+                        </View>
+                      ) : (
+                        recentParties.length > 0 && (
+                          <View style={styles.recentContainer}>
+                            <Text style={styles.recentLabel}>RECENT PARTIES</Text>
+                            {recentParties.map(c => (
+                              <Pressable 
+                                key={c.id}
+                                onPress={() => {
+                                  if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+                                  setSelectedParty(c);
+                                }}
+                                style={styles.recentPartyRow}
+                              >
+                                <View style={styles.recentPartyInfo}>
+                                  <Icon source="account-outline" size={16} color={colors.textSecondary} />
+                                  <Text style={[styles.recentPartyName, { fontSize: dynamicFontSize(13) }]}>{c.name}</Text>
+                                </View>
+                                <Text style={styles.recentPartySub}>{c.phone || "No phone"}</Text>
+                              </Pressable>
+                            ))}
+                          </View>
+                        )
+                      )}
+                    </View>
+                  ) : (
+                    <Card style={styles.selectedCustomerCard}>
+                      <Card.Content style={styles.customerCardContent}>
+                        <View style={styles.customerAvatar}>
+                          <Text style={[styles.customerAvatarText, { fontSize: dynamicFontSize(16) }]}>{selectedParty.name[0].toUpperCase()}</Text>
+                        </View>
+                        <View style={styles.customerInfoCol}>
+                          <Text style={[styles.customerNameText, { fontSize: dynamicFontSize(15) }]}>{selectedParty.name}</Text>
+                          <Text style={styles.customerSubText}>{selectedParty.phone || "No phone number"}</Text>
+                          <View style={styles.outstandingBadge}>
+                            <Text style={styles.outstandingBadgeLabel}>OUTSTANDING: </Text>
+                            <Text style={[
+                              styles.outstandingBadgeVal, 
+                              { color: Number(selectedParty.outstandingAmount || 0) > 0 ? colors.danger : colors.success }
+                            ]}>
+                              ₹{Math.abs(Number(selectedParty.outstandingAmount || 0)).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                            </Text>
+                          </View>
+                        </View>
+                        <Button 
+                          mode="outlined" 
+                          compact 
+                          textColor={colors.danger}
+                          style={styles.changeCustomerBtn}
+                          onPress={() => {
+                            if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                            setSelectedParty(null);
+                          }}
+                        >
+                          CHANGE
+                        </Button>
+                      </Card.Content>
+                    </Card>
+                  )}
+                </View>
+
+                {/* PRODUCT ADDITION SECTION */}
+                <View style={styles.sectionContainer}>
+                  <Text style={[styles.sectionTitle, { fontSize: dynamicFontSize(14) }]}>Add Products</Text>
+                  <View style={styles.searchSectionContainer}>
+                    <Searchbar
+                      placeholder="Search item, SKU, or barcode..."
+                      onChangeText={setItemSearch}
+                      value={itemSearch}
+                      style={styles.searchBar}
+                      inputStyle={styles.searchInput}
+                      placeholderTextColor={colors.textMuted}
+                      iconColor={colors.primary}
+                    />
+
+                    {itemSearch ? (
+                      <View style={styles.searchDropdownInline}>
+                        {filteredItems.map(item => {
+                          const stockNum = Number(item.availableStock || 0);
+                          const inStock = stockNum > 0;
+                          return (
+                            <List.Item
+                              key={item.id}
+                              title={item.name}
+                              titleStyle={[styles.dropdownTitle, { fontSize: dynamicFontSize(14) }]}
+                              description={`Rate: ₹${item.defaultSellingPrice} • SKU: ${item.sku || "N/A"} • ${inStock ? `Stock: ${stockNum} ${item.unit}` : 'OUT OF STOCK'}`}
+                              descriptionStyle={[
+                                styles.dropdownDesc, 
+                                !inStock && { color: colors.danger, fontWeight: fontWeight.bold }
+                              ]}
+                              onPress={() => handleAddItemToCart(item)}
+                              right={props => <List.Icon {...props} icon="plus-circle" color={colors.primary} />}
+                              style={styles.dropdownItem}
+                            />
+                          );
+                        })}
+                        {filteredItems.length === 0 && (
+                          <View style={styles.dropdownEmpty}>
+                            <Text style={styles.dropdownEmptyText}>No products found</Text>
+                          </View>
+                        )}
                       </View>
+                    ) : (
+                      recentItems.length > 0 && (
+                        <View style={styles.recentContainer}>
+                          <Text style={styles.recentLabel}>FREQUENT / RECENT ITEMS (TAP TO ADD)</Text>
+                          {recentItems.map(item => (
+                            <Pressable
+                              key={item.id}
+                              onPress={() => handleAddItemToCart(item)}
+                              style={styles.recentItemRow}
+                            >
+                              <View style={{ flex: 1 }}>
+                                <Text style={[styles.recentItemName, { fontSize: dynamicFontSize(13) }]} numberOfLines={1}>{item.name}</Text>
+                                <Text style={styles.recentItemSub}>SKU: {item.sku || "N/A"} • Rate: ₹{item.defaultSellingPrice}</Text>
+                              </View>
+                              <View style={styles.quickAddIconCircle}>
+                                <Icon source="plus" size={16} color={colors.primary} />
+                              </View>
+                            </Pressable>
+                          ))}
+                        </View>
+                      )
+                    )}
+                  </View>
+                </View>
+              </View>
+
+              {/* Right Column - Cart Review, Details & checkout card */}
+              <View style={styles.tabletColumnRight}>
+                {/* CART ITEMS REVIEW */}
+                <View style={styles.sectionContainer}>
+                  <Text style={[styles.sectionTitle, { fontSize: dynamicFontSize(14) }]}>Cart Items ({cart.length})</Text>
+                  {cart.length > 0 ? (
+                    <View style={styles.cartContainer}>
+                      {cart.map((item, idx) => (
+                        <View key={item.id}>
+                          <View style={styles.cartRow}>
+                            <View style={styles.cartRowLeft}>
+                              <Text style={[styles.cartRowName, { fontSize: dynamicFontSize(13) }]} numberOfLines={1}>{item.name}</Text>
+                              <Text style={styles.cartRowUnit}>Unit: {item.unit}</Text>
+                              <View style={styles.inlineRateInputContainer}>
+                                <Text style={styles.inlineRateSymbol}>Rate: ₹</Text>
+                                <RNTextInput
+                                  style={styles.inlineRateInput}
+                                  keyboardType="numeric"
+                                  value={String(item.rate)}
+                                  onChangeText={(text) => handleUpdateRate(item.id, text)}
+                                  selectTextOnFocus
+                                />
+                              </View>
+                            </View>
+
+                            <View style={styles.cartRowRight}>
+                              <View style={styles.stepperContainer}>
+                                <Pressable onPress={() => handleUpdateQty(item.id, -1)} style={styles.stepperBtn} hitSlop={8}>
+                                  <Icon source="minus" size={16} color={colors.textSecondary} />
+                                </Pressable>
+                                <Text style={styles.stepperValue}>{item.quantity}</Text>
+                                <Pressable onPress={() => handleUpdateQty(item.id, 1)} style={styles.stepperBtn} hitSlop={8}>
+                                  <Icon source="plus" size={16} color={colors.textSecondary} />
+                                </Pressable>
+                              </View>
+                              <View style={styles.cartRowTotalCol}>
+                                <Text style={styles.cartRowTotal}>₹{(item.quantity * item.rate).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</Text>
+                                <Pressable onPress={() => handleRemoveCartItem(item.id)} style={styles.cartRowDelete} hitSlop={12}>
+                                  <Text style={styles.cartRowDeleteText}>Delete</Text>
+                                </Pressable>
+                              </View>
+                            </View>
+                          </View>
+                          {idx < cart.length - 1 && <Divider style={styles.cartDivider} />}
+                        </View>
+                      ))}
+                    </View>
+                  ) : (
+                    <Card style={styles.tabletEmptyCard}>
+                      <Card.Content style={styles.tabletEmptyCardContent}>
+                        <Icon source="cart-outline" size={48} color={colors.textMuted} />
+                        <Text style={styles.tabletEmptyCardText}>Your cart is empty. Tap products on the left panel to add.</Text>
+                      </Card.Content>
+                    </Card>
+                  )}
+                </View>
+
+                {/* ADVANCED FULFILLMENT NOTES */}
+                {renderAdvancedDetails()}
+
+                {/* INLINE CHECKOUT CARD */}
+                <Card style={styles.tabletCheckoutCard}>
+                  <Card.Content>
+                    <View style={styles.tabletCheckoutTotalRow}>
+                      <Text style={styles.footerTotalLabel}>ORDER TOTAL</Text>
+                      <Text style={[styles.footerTotalVal, { fontSize: dynamicFontSize(18) }]}>₹{subtotal.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</Text>
+                    </View>
+                    
+                    {validationMessage && (
+                      <Text style={styles.tabletValidationText}>{validationMessage}</Text>
+                    )}
+                    
+                    {errorMsg && (
+                      <Text style={styles.inlineError}>{errorMsg}</Text>
+                    )}
+
+                    <Button
+                      mode="contained"
+                      onPress={() => orderMutation.mutate()}
+                      loading={orderMutation.isPending}
+                      disabled={!selectedParty || cart.length === 0 || orderMutation.isPending}
+                      style={[styles.submitBtn, (!selectedParty || cart.length === 0) && styles.submitBtnDisabled]}
+                      labelStyle={styles.submitBtnLabel}
+                      buttonColor={colors.primary}
+                    >
+                      PLACE ORDER
+                    </Button>
+                  </Card.Content>
+                </Card>
+              </View>
+            </View>
+          ) : (
+            /* STANDARD MOBILE LAYOUT */
+            <View>
+              {/* PARTY SECTION */}
+              <View style={styles.sectionContainer}>
+                <Text style={[styles.sectionTitle, { fontSize: dynamicFontSize(14) }]}>Party</Text>
+                
+                {!selectedParty ? (
+                  <View style={styles.searchSectionContainer}>
+                    <Searchbar
+                      placeholder="Search party by name or phone..."
+                      onChangeText={setCustomerSearch}
+                      value={customerSearch}
+                      style={styles.searchBar}
+                      inputStyle={styles.searchInput}
+                      placeholderTextColor={colors.textMuted}
+                      iconColor={colors.primary}
+                    />
+                    
+                    {customerSearch ? (
+                      <View style={styles.searchDropdownInline}>
+                        {filteredCustomers.map(c => (
+                          <List.Item
+                            key={c.id}
+                            title={c.name}
+                            titleStyle={[styles.dropdownTitle, { fontSize: dynamicFontSize(14) }]}
+                            description={`${c.phone || "No phone"} • Outstanding: ₹${Math.abs(Number(c.outstandingAmount || 0)).toLocaleString()}`}
+                            descriptionStyle={styles.dropdownDesc}
+                            onPress={() => {
+                              if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+                              setSelectedParty(c);
+                              setCustomerSearch("");
+                            }}
+                            right={props => <List.Icon {...props} icon="account-plus-outline" color={colors.primary} />}
+                            style={styles.dropdownItem}
+                          />
+                        ))}
+                        {filteredCustomers.length === 0 && (
+                          <View style={styles.dropdownEmpty}>
+                            <Text style={styles.dropdownEmptyText}>No parties found</Text>
+                          </View>
+                        )}
+                      </View>
+                    ) : (
+                      recentParties.length > 0 && (
+                        <View style={styles.recentContainer}>
+                          <Text style={styles.recentLabel}>RECENT PARTIES</Text>
+                          {recentParties.map(c => (
+                            <Pressable 
+                              key={c.id}
+                              onPress={() => {
+                                if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+                                setSelectedParty(c);
+                              }}
+                              style={styles.recentPartyRow}
+                            >
+                              <View style={styles.recentPartyInfo}>
+                                <Icon source="account-outline" size={16} color={colors.textSecondary} />
+                                  <Text style={[styles.recentPartyName, { fontSize: dynamicFontSize(13) }]}>{c.name}</Text>
+                              </View>
+                              <Text style={styles.recentPartySub}>{c.phone || "No phone"}</Text>
+                            </Pressable>
+                          ))}
+                        </View>
+                      )
                     )}
                   </View>
                 ) : (
-                  recentParties.length > 0 && (
-                    <View style={styles.recentContainer}>
-                      <Text style={styles.recentLabel}>RECENT PARTIES</Text>
-                      {recentParties.map(c => (
-                        <Pressable 
-                          key={c.id}
-                          onPress={() => {
-                            if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-                            setSelectedParty(c);
-                          }}
-                          style={styles.recentPartyRow}
-                        >
-                          <View style={styles.recentPartyInfo}>
-                            <Icon source="account-outline" size={16} color={colors.textSecondary} />
-                            <Text style={styles.recentPartyName}>{c.name}</Text>
-                          </View>
-                          <Text style={styles.recentPartySub}>{c.phone || "No phone"}</Text>
-                        </Pressable>
-                      ))}
-                    </View>
-                  )
+                  <Card style={styles.selectedCustomerCard}>
+                    <Card.Content style={styles.customerCardContent}>
+                      <View style={styles.customerAvatar}>
+                        <Text style={[styles.customerAvatarText, { fontSize: dynamicFontSize(16) }]}>{selectedParty.name[0].toUpperCase()}</Text>
+                      </View>
+                      <View style={styles.customerInfoCol}>
+                        <Text style={[styles.customerNameText, { fontSize: dynamicFontSize(15) }]}>{selectedParty.name}</Text>
+                        <Text style={styles.customerSubText}>{selectedParty.phone || "No phone number"}</Text>
+                        <View style={styles.outstandingBadge}>
+                          <Text style={styles.outstandingBadgeLabel}>OUTSTANDING: </Text>
+                          <Text style={[
+                            styles.outstandingBadgeVal, 
+                            { color: Number(selectedParty.outstandingAmount || 0) > 0 ? colors.danger : colors.success }
+                          ]}>
+                            ₹{Math.abs(Number(selectedParty.outstandingAmount || 0)).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                          </Text>
+                        </View>
+                      </View>
+                      <Button 
+                        mode="outlined" 
+                        compact 
+                        textColor={colors.danger}
+                        style={styles.changeCustomerBtn}
+                        onPress={() => {
+                          if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                          setSelectedParty(null);
+                        }}
+                      >
+                        CHANGE
+                      </Button>
+                    </Card.Content>
+                  </Card>
                 )}
               </View>
-            ) : (
-              <Card style={styles.selectedCustomerCard}>
-                <Card.Content style={styles.customerCardContent}>
-                  <View style={styles.customerAvatar}>
-                    <Text style={styles.customerAvatarText}>{selectedParty.name[0].toUpperCase()}</Text>
-                  </View>
-                  <View style={styles.customerInfoCol}>
-                    <Text style={styles.customerNameText}>{selectedParty.name}</Text>
-                    <Text style={styles.customerSubText}>{selectedParty.phone || "No phone number"}</Text>
-                    <View style={styles.outstandingBadge}>
-                      <Text style={styles.outstandingBadgeLabel}>OUTSTANDING: </Text>
-                      <Text style={[
-                        styles.outstandingBadgeVal, 
-                        { color: Number(selectedParty.outstandingAmount || 0) > 0 ? colors.danger : colors.success }
-                      ]}>
-                        ₹{Math.abs(Number(selectedParty.outstandingAmount || 0)).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
-                      </Text>
-                    </View>
-                  </View>
-                  <Button 
-                    mode="outlined" 
-                    compact 
-                    textColor={colors.danger}
-                    style={styles.changeCustomerBtn}
-                    onPress={() => {
-                      if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                      setSelectedParty(null);
-                    }}
-                  >
-                    CHANGE
-                  </Button>
-                </Card.Content>
-              </Card>
-            )}
-          </View>
 
-          {/* PRODUCT ADDITION SECTION (POS pad style) */}
-          <View style={styles.sectionContainer}>
-            <Text style={styles.sectionTitle}>Add Products</Text>
-            <View style={styles.searchSectionContainer}>
-              <Searchbar
-                placeholder="Search item, SKU, or barcode..."
-                onChangeText={setItemSearch}
-                value={itemSearch}
-                style={styles.searchBar}
-                inputStyle={styles.searchInput}
-                placeholderTextColor={colors.textMuted}
-                iconColor={colors.primary}
-              />
+              {/* PRODUCT ADDITION SECTION */}
+              <View style={styles.sectionContainer}>
+                <Text style={[styles.sectionTitle, { fontSize: dynamicFontSize(14) }]}>Add Products</Text>
+                <View style={styles.searchSectionContainer}>
+                  <Searchbar
+                    placeholder="Search item, SKU, or barcode..."
+                    onChangeText={setItemSearch}
+                    value={itemSearch}
+                    style={styles.searchBar}
+                    inputStyle={styles.searchInput}
+                    placeholderTextColor={colors.textMuted}
+                    iconColor={colors.primary}
+                  />
 
-              {/* INLINE Product Search Results (Completely fixes overlap glitches) */}
-              {itemSearch ? (
-                <View style={styles.searchDropdownInline}>
-                  {filteredItems.map(item => {
-                    const stockNum = Number(item.availableStock || 0);
-                    const inStock = stockNum > 0;
-                    return (
-                      <List.Item
-                        key={item.id}
-                        title={item.name}
-                        titleStyle={styles.dropdownTitle}
-                        description={`Rate: ₹${item.defaultSellingPrice} • SKU: ${item.sku || "N/A"} • ${inStock ? `Stock: ${stockNum} ${item.unit}` : 'OUT OF STOCK'}`}
-                        descriptionStyle={[
-                          styles.dropdownDesc, 
-                          !inStock && { color: colors.danger, fontWeight: fontWeight.bold }
-                        ]}
-                        onPress={() => handleAddItemToCart(item)}
-                        right={props => <List.Icon {...props} icon="plus-circle" color={colors.primary} />}
-                        style={styles.dropdownItem}
-                      />
-                    );
-                  })}
-                  {filteredItems.length === 0 && (
-                    <View style={styles.dropdownEmpty}>
-                      <Text style={styles.dropdownEmptyText}>No products found</Text>
+                  {itemSearch ? (
+                    <View style={styles.searchDropdownInline}>
+                      {filteredItems.map(item => {
+                        const stockNum = Number(item.availableStock || 0);
+                        const inStock = stockNum > 0;
+                        return (
+                          <List.Item
+                            key={item.id}
+                            title={item.name}
+                            titleStyle={[styles.dropdownTitle, { fontSize: dynamicFontSize(14) }]}
+                            description={`Rate: ₹${item.defaultSellingPrice} • SKU: ${item.sku || "N/A"} • ${inStock ? `Stock: ${stockNum} ${item.unit}` : 'OUT OF STOCK'}`}
+                            descriptionStyle={[
+                              styles.dropdownDesc, 
+                              !inStock && { color: colors.danger, fontWeight: fontWeight.bold }
+                            ]}
+                            onPress={() => handleAddItemToCart(item)}
+                            right={props => <List.Icon {...props} icon="plus-circle" color={colors.primary} />}
+                            style={styles.dropdownItem}
+                          />
+                        );
+                      })}
+                      {filteredItems.length === 0 && (
+                        <View style={styles.dropdownEmpty}>
+                          <Text style={styles.dropdownEmptyText}>No products found</Text>
+                        </View>
+                      )}
                     </View>
+                  ) : (
+                    recentItems.length > 0 && (
+                      <View style={styles.recentContainer}>
+                        <Text style={styles.recentLabel}>FREQUENT / RECENT ITEMS (TAP TO ADD)</Text>
+                        {recentItems.map(item => (
+                          <Pressable
+                            key={item.id}
+                            onPress={() => handleAddItemToCart(item)}
+                            style={styles.recentItemRow}
+                          >
+                            <View style={{ flex: 1 }}>
+                              <Text style={[styles.recentItemName, { fontSize: dynamicFontSize(13) }]} numberOfLines={1}>{item.name}</Text>
+                              <Text style={styles.recentItemSub}>SKU: {item.sku || "N/A"} • Rate: ₹{item.defaultSellingPrice}</Text>
+                            </View>
+                            <View style={styles.quickAddIconCircle}>
+                              <Icon source="plus" size={16} color={colors.primary} />
+                            </View>
+                          </Pressable>
+                        ))}
+                      </View>
+                    )
                   )}
                 </View>
-              ) : (
-                recentItems.length > 0 && (
-                  <View style={styles.recentContainer}>
-                    <Text style={styles.recentLabel}>FREQUENT / RECENT ITEMS (TAP TO ADD)</Text>
-                    {recentItems.map(item => (
-                      <Pressable
-                        key={item.id}
-                        onPress={() => handleAddItemToCart(item)}
-                        style={styles.recentItemRow}
-                      >
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.recentItemName} numberOfLines={1}>{item.name}</Text>
-                          <Text style={styles.recentItemSub}>SKU: {item.sku || "N/A"} • Rate: ₹{item.defaultSellingPrice}</Text>
+              </View>
+
+              {/* CART SECTION */}
+              {cart.length > 0 && (
+                <View style={styles.sectionContainer}>
+                  <Text style={[styles.sectionTitle, { fontSize: dynamicFontSize(14) }]}>Cart Items ({cart.length})</Text>
+                  <View style={styles.cartContainer}>
+                    {cart.map((item, idx) => (
+                      <View key={item.id}>
+                        <View style={[styles.cartRow, isSmallMobile && { flexDirection: 'column', alignItems: 'stretch', gap: spacing.sm }]}>
+                          <View style={styles.cartRowLeft}>
+                            <Text style={[styles.cartRowName, { fontSize: isSmallMobile ? dynamicFontSize(12) : dynamicFontSize(13) }]} numberOfLines={1}>{item.name}</Text>
+                            <Text style={styles.cartRowUnit}>Unit: {item.unit}</Text>
+                            
+                            {/* Editable Rate Field */}
+                            <View style={styles.inlineRateInputContainer}>
+                              <Text style={styles.inlineRateSymbol}>Rate: ₹</Text>
+                              <RNTextInput
+                                style={styles.inlineRateInput}
+                                keyboardType="numeric"
+                                value={String(item.rate)}
+                                onChangeText={(text) => handleUpdateRate(item.id, text)}
+                                selectTextOnFocus
+                              />
+                            </View>
+                          </View>
+
+                          <View style={[styles.cartRowRight, isSmallMobile && { justifyContent: 'space-between', marginTop: 4 }]}>
+                            <View style={styles.stepperContainer}>
+                              <Pressable
+                                onPress={() => handleUpdateQty(item.id, -1)}
+                                style={({ pressed }) => [styles.stepperBtn, pressed && styles.pressed]}
+                                hitSlop={8}
+                              >
+                                <Icon source="minus" size={16} color={colors.textSecondary} />
+                              </Pressable>
+                              
+                              <Text style={styles.stepperValue}>{item.quantity}</Text>
+                              
+                              <Pressable
+                                onPress={() => handleUpdateQty(item.id, 1)}
+                                style={({ pressed }) => [styles.stepperBtn, pressed && styles.pressed]}
+                                hitSlop={8}
+                              >
+                                <Icon source="plus" size={16} color={colors.textSecondary} />
+                              </Pressable>
+                            </View>
+                            
+                            <View style={styles.cartRowTotalCol}>
+                              <Text style={styles.cartRowTotal}>₹{(item.quantity * item.rate).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</Text>
+                              <Pressable 
+                                onPress={() => handleRemoveCartItem(item.id)}
+                                style={styles.cartRowDelete}
+                                hitSlop={12}
+                              >
+                                <Text style={styles.cartRowDeleteText}>Delete</Text>
+                              </Pressable>
+                            </View>
+                          </View>
                         </View>
-                        <View style={styles.quickAddIconCircle}>
-                          <Icon source="plus" size={16} color={colors.primary} />
-                        </View>
-                      </Pressable>
+                        {idx < cart.length - 1 && <Divider style={styles.cartDivider} />}
+                      </View>
                     ))}
                   </View>
-                )
+                </View>
               )}
-            </View>
-          </View>
 
-          {/* CART SECTION */}
-          {cart.length > 0 && (
-            <View style={styles.sectionContainer}>
-              <Text style={styles.sectionTitle}>Cart Items ({cart.length})</Text>
-              <View style={styles.cartContainer}>
-                {cart.map((item, idx) => (
-                  <View key={item.id}>
-                    <View style={[styles.cartRow, isSmallMobile && { flexDirection: 'column', alignItems: 'stretch', gap: spacing.sm }]}>
-                      <View style={styles.cartRowLeft}>
-                        <Text style={[styles.cartRowName, { fontSize: isSmallMobile ? 12 : 13 }]} numberOfLines={1}>{item.name}</Text>
-                        <Text style={styles.cartRowUnit}>Unit: {item.unit}</Text>
-                        
-                        {/* Editable Rate Field */}
-                        <View style={styles.inlineRateInputContainer}>
-                          <Text style={styles.inlineRateSymbol}>Rate: ₹</Text>
-                          <RNTextInput
-                            style={styles.inlineRateInput}
-                            keyboardType="numeric"
-                            value={String(item.rate)}
-                            onChangeText={(text) => handleUpdateRate(item.id, text)}
-                            selectTextOnFocus
-                          />
-                        </View>
-                      </View>
-
-                      <View style={[styles.cartRowRight, isSmallMobile && { justifyContent: 'space-between', marginTop: 4 }]}>
-                        {/* Large Touch Target Stepper */}
-                        <View style={styles.stepperContainer}>
-                          <Pressable
-                            onPress={() => handleUpdateQty(item.id, -1)}
-                            style={({ pressed }) => [styles.stepperBtn, pressed && styles.pressed]}
-                            hitSlop={8}
-                          >
-                            <Icon source="minus" size={16} color={colors.textSecondary} />
-                          </Pressable>
-                          
-                          <Text style={styles.stepperValue}>{item.quantity}</Text>
-                          
-                          <Pressable
-                            onPress={() => handleUpdateQty(item.id, 1)}
-                            style={({ pressed }) => [styles.stepperBtn, pressed && styles.pressed]}
-                            hitSlop={8}
-                          >
-                            <Icon source="plus" size={16} color={colors.textSecondary} />
-                          </Pressable>
-                        </View>
-                        
-                        <View style={styles.cartRowTotalCol}>
-                          <Text style={styles.cartRowTotal}>₹{(item.quantity * item.rate).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</Text>
-                          <Pressable 
-                            onPress={() => handleRemoveCartItem(item.id)}
-                            style={styles.cartRowDelete}
-                            hitSlop={12}
-                          >
-                            <Text style={styles.cartRowDeleteText}>Delete</Text>
-                          </Pressable>
-                        </View>
-                      </View>
-                    </View>
-                    {idx < cart.length - 1 && <Divider style={styles.cartDivider} />}
-                  </View>
-                ))}
-              </View>
+              {/* ADVANCED DETAILS */}
+              {renderAdvancedDetails()}
             </View>
           )}
-
-          {/* ADVANCED DETAILS (Progressive Disclosure) */}
-          <View style={styles.sectionContainer}>
-            <Pressable 
-              onPress={() => {
-                if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                setShowAdvanced(prev => !prev);
-              }}
-              style={styles.advancedHeaderCard}
-            >
-              <View style={styles.advancedHeaderLeft}>
-                <Icon source="cog-outline" size={18} color={colors.primary} />
-                <Text style={styles.advancedHeaderTitle}>Advanced Details (Optional)</Text>
-              </View>
-              <Icon source={showAdvanced ? "chevron-up" : "chevron-down"} size={20} color={colors.textMuted} />
-            </Pressable>
-
-            {showAdvanced && (
-              <Card style={styles.advancedSettingsCard}>
-                <Card.Content style={styles.advancedContent}>
-                  {/* Staff Select */}
-                  <Text style={styles.fieldLabel}>ASSIGN STAFF</Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.staffScroll}>
-                    <Pressable
-                      onPress={() => handleStaffSelect(null)}
-                      style={[styles.staffPill, assignedStaffId === null && styles.staffPillActive]}
-                    >
-                      <Text style={[styles.staffPillText, assignedStaffId === null && styles.staffPillTextActive]}>Any Staff</Text>
-                    </Pressable>
-                    {staffQuery.data?.map(s => (
-                      <Pressable
-                        key={s.id}
-                        onPress={() => handleStaffSelect(s.id)}
-                        style={[styles.staffPill, assignedStaffId === s.id && styles.staffPillActive]}
-                      >
-                        <Text style={[styles.staffPillText, assignedStaffId === s.id && styles.staffPillTextActive]}>{s.name.split(' ')[0]}</Text>
-                      </Pressable>
-                    ))}
-                  </ScrollView>
-
-                  {/* Priority */}
-                  <Text style={[styles.fieldLabel, { marginTop: spacing.md }]}>PRIORITY</Text>
-                  <SegmentedButtons
-                    value={priority}
-                    onValueChange={handlePriorityChange}
-                    buttons={priorities}
-                    style={styles.priorityBtns}
-                    theme={{ colors: { primary: colors.primary } }}
-                  />
-
-                  {/* Offset days */}
-                  <Text style={[styles.fieldLabel, { marginTop: spacing.md }]}>EXPECTED DISPATCH</Text>
-                  <View style={styles.dispatchRow}>
-                    {[1, 2, 3, 5, 7].map(days => (
-                      <Pressable
-                        key={days}
-                        onPress={() => handleOffsetSelect(days)}
-                        style={[
-                          styles.dayPill, 
-                          expectedOffsetDays === days && styles.dayPillActive,
-                          { width: dayPillWidth }
-                        ]}
-                      >
-                        <Text style={[styles.dayPillText, expectedOffsetDays === days && styles.dayPillTextActive]}>{days}D</Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                  <Text style={styles.dispatchHelperText}>Dispatch: <Text style={{ fontWeight: 'bold' }}>{dispatchDateText}</Text></Text>
-
-                  {/* Notes */}
-                  <TextInput
-                    mode="outlined"
-                    label="Fulfillment Notes"
-                    placeholder="Packaging instructions or delivery notes..."
-                    value={notes}
-                    onChangeText={setNotes}
-                    multiline
-                    numberOfLines={3}
-                    style={styles.notesTextInput}
-                    outlineStyle={styles.inputOutline}
-                    activeOutlineColor={colors.primary}
-                  />
-                </Card.Content>
-              </Card>
-            )}
-          </View>
         </ScrollView>
 
-        {/* STICKY FOOTER */}
-        <View style={styles.footer}>
-          <View style={styles.footerTopRow}>
-            <View>
-              <Text style={styles.footerTotalLabel}>ORDER TOTAL</Text>
-              <Text style={styles.footerTotalVal}>₹{subtotal.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</Text>
-            </View>
-            {validationMessage && (
-              <View style={styles.validationContainer}>
-                <Text style={styles.validationText}>{validationMessage}</Text>
+        {/* STICKY FOOTER (Phone layout only) */}
+        {!isTablet && (
+          <View style={styles.footer}>
+            <View style={styles.footerTopRow}>
+              <View>
+                <Text style={styles.footerTotalLabel}>ORDER TOTAL</Text>
+                <Text style={[styles.footerTotalVal, { fontSize: dynamicFontSize(16) }]}>₹{subtotal.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</Text>
               </View>
+              {validationMessage && (
+                <View style={styles.validationContainer}>
+                  <Text style={styles.validationText}>{validationMessage}</Text>
+                </View>
+              )}
+            </View>
+
+            {errorMsg && (
+              <Text style={styles.inlineError}>{errorMsg}</Text>
             )}
+
+            <Button
+              mode="contained"
+              onPress={() => orderMutation.mutate()}
+              loading={orderMutation.isPending}
+              disabled={!selectedParty || cart.length === 0 || orderMutation.isPending}
+              style={[styles.submitBtn, (!selectedParty || cart.length === 0) && styles.submitBtnDisabled]}
+              labelStyle={styles.submitBtnLabel}
+              buttonColor={colors.primary}
+            >
+              PLACE ORDER
+            </Button>
           </View>
-
-          {errorMsg && (
-            <Text style={styles.inlineError}>{errorMsg}</Text>
-          )}
-
-          <Button
-            mode="contained"
-            onPress={() => orderMutation.mutate()}
-            loading={orderMutation.isPending}
-            disabled={!selectedParty || cart.length === 0 || orderMutation.isPending}
-            style={[styles.submitBtn, (!selectedParty || cart.length === 0) && styles.submitBtnDisabled]}
-            labelStyle={styles.submitBtnLabel}
-            buttonColor={colors.primary}
-          >
-            PLACE ORDER
-          </Button>
-        </View>
+        )}
       </KeyboardAvoidingView>
 
       <SuccessModal
@@ -719,7 +1007,6 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg,
   },
   sectionTitle: {
-    fontSize: 14,
     fontWeight: fontWeight.black,
     color: colors.textPrimary,
     marginBottom: spacing.xs,
@@ -754,7 +1041,6 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.surfaceOffset,
   },
   dropdownTitle: {
-    fontSize: fontSize.sm,
     fontWeight: fontWeight.bold,
   },
   dropdownDesc: {
@@ -799,7 +1085,6 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
   },
   recentPartyName: {
-    fontSize: 13,
     fontWeight: fontWeight.bold,
     color: colors.textPrimary,
   },
@@ -816,7 +1101,6 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
   },
   recentItemName: {
-    fontSize: 13,
     fontWeight: fontWeight.bold,
     color: colors.textPrimary,
   },
@@ -856,7 +1140,6 @@ const styles = StyleSheet.create({
   },
   customerAvatarText: {
     color: colors.primaryDark,
-    fontSize: fontSize.md,
     fontWeight: fontWeight.bold,
   },
   customerInfoCol: {
@@ -864,7 +1147,6 @@ const styles = StyleSheet.create({
     marginLeft: spacing.md,
   },
   customerNameText: {
-    fontSize: fontSize.md,
     fontWeight: fontWeight.bold,
     color: colors.textPrimary,
   },
@@ -962,11 +1244,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: radius.md,
-    height: 44, // Large touch target height
+    height: 44,
     overflow: 'hidden',
   },
   stepperBtn: {
-    width: 44, // Large touch target width
+    width: 44,
     height: '100%',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1017,7 +1299,6 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   advancedHeaderTitle: {
-    fontSize: 13,
     fontWeight: fontWeight.bold,
     color: colors.textPrimary,
   },
@@ -1128,7 +1409,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   footerTotalVal: {
-    fontSize: 16,
     fontWeight: fontWeight.black,
     color: colors.primary,
     fontVariant: ['tabular-nums'],
@@ -1165,5 +1445,61 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.5,
+  },
+
+  // Tablet Responsive Styles
+  tabletContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    gap: spacing.lg,
+    width: '100%',
+  },
+  tabletColumnLeft: {
+    flex: 1.1, // slightly wider left column for search convenience
+    gap: spacing.md,
+  },
+  tabletColumnRight: {
+    flex: 0.9,
+    gap: spacing.md,
+  },
+  tabletEmptyCard: {
+    backgroundColor: colors.surfaceOffset,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 16,
+    height: 150,
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 0,
+  },
+  tabletEmptyCardContent: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+  },
+  tabletEmptyCardText: {
+    fontSize: 12,
+    color: colors.textMuted,
+    textAlign: 'center',
+  },
+  tabletCheckoutCard: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 16,
+    ...shadow.md,
+    elevation: 0,
+  },
+  tabletCheckoutTotalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.md,
+  },
+  tabletValidationText: {
+    fontSize: 12,
+    color: colors.danger,
+    fontWeight: fontWeight.bold,
+    marginBottom: spacing.md,
   },
 });
