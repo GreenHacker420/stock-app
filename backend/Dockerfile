@@ -20,8 +20,8 @@ RUN apt-get update -y && apt-get install -y openssl
 
 # Install all dependencies including devDependencies
 COPY package*.json ./
-RUN --mount=type=cache,target=/root/.npm \
-    npm ci
+RUN --mount=type=cache,target=/root/.npm-builder,sharing=locked \
+    npm ci --cache=/root/.npm-builder --prefer-online
 
 # Copy source and generate Prisma
 COPY . .
