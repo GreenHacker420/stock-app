@@ -20,8 +20,9 @@ export async function assertShopAccess(user, shopId) {
     throw new ApiError(404, "Shop not found");
   }
 
-  const isOwner = user.role === "OWNER" && shop.ownerId === user.id;
-  const isAssignedStaff = user.role === "STAFF" && shop.staffAccesses.length > 0;
+  const hasAccessEntry = shop.staffAccesses.length > 0;
+  const isOwner = user.role === "OWNER" && (shop.ownerId === user.id || hasAccessEntry);
+  const isAssignedStaff = user.role === "STAFF" && hasAccessEntry;
 
   if (!isOwner && !isAssignedStaff) {
     throw new ApiError(403, "You do not have access to this shop");

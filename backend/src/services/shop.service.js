@@ -21,11 +21,30 @@ export async function listShops(user) {
   };
 
   if (user.role === "OWNER") {
-    return prisma.shop.findMany({
+    const directShops = await prisma.shop.findMany({
       where: { ownerId: user.id },
       include: includeStaff,
       orderBy: { createdAt: "desc" },
     });
+
+    const accessShops = await prisma.staffShopAccess.findMany({
+      where: { staffId: user.id },
+      include: {
+        shop: {
+          include: includeStaff,
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    const assignedShops = accessShops.map((access) => access.shop).filter((shop) => shop.status === "ACTIVE");
+
+    const allShops = [...directShops];
+    for (const shop of assignedShops) {
+      if (!allShops.some((s) => s.id === shop.id)) {
+        allShops.push(shop);
+      }
+    }
+    return allShops;
   }
 
   const accesses = await prisma.staffShopAccess.findMany({
