@@ -2,13 +2,22 @@ import prisma from "../lib/db.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 
-export async function checkIn(user, { shopId, note }) {
+export async function checkIn(user, { shopId, note, staffId }) {
   await assertShopAccess(user, shopId);
+  
+  let targetStaffId = user.id;
+  if (staffId && staffId !== user.id) {
+    if (user.role !== "OWNER") {
+      throw new ApiError(403, "Only owners can mark attendance for other staff members");
+    }
+    targetStaffId = staffId;
+  }
+
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
   const existing = await prisma.attendance.findUnique({
-    where: { staffId_date: { staffId: user.id, date: today } }
+    where: { staffId_date: { staffId: targetStaffId, date: today } }
   });
 
   if (existing) {
@@ -18,7 +27,7 @@ export async function checkIn(user, { shopId, note }) {
   return prisma.attendance.create({
     data: {
       shopId,
-      staffId: user.id,
+      staffId: targetStaffId,
       date: today,
       checkIn: new Date(),
       status: "PRESENT",
@@ -27,13 +36,22 @@ export async function checkIn(user, { shopId, note }) {
   });
 }
 
-export async function checkOut(user, { shopId, note }) {
+export async function checkOut(user, { shopId, note, staffId }) {
   await assertShopAccess(user, shopId);
+
+  let targetStaffId = user.id;
+  if (staffId && staffId !== user.id) {
+    if (user.role !== "OWNER") {
+      throw new ApiError(403, "Only owners can mark attendance for other staff members");
+    }
+    targetStaffId = staffId;
+  }
+
   const today = new Date();
   today.setHours(0, 0, 0, 0);
 
   const existing = await prisma.attendance.findUnique({
-    where: { staffId_date: { staffId: user.id, date: today } }
+    where: { staffId_date: { staffId: targetStaffId, date: today } }
   });
 
   if (!existing) {

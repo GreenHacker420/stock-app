@@ -2,14 +2,14 @@ import { asyncHandler } from "../utils/asyncHandler.js";
 import * as attendanceService from "../services/attendance.service.js";
 
 export const checkIn = asyncHandler(async (req, res) => {
-  const { shopId, note } = req.validated.body;
-  const attendance = await attendanceService.checkIn(req.user, { shopId, note });
+  const { shopId, note, staffId } = req.validated.body;
+  const attendance = await attendanceService.checkIn(req.user, { shopId, note, staffId });
   res.status(201).json({ success: true, data: attendance });
 });
 
 export const checkOut = asyncHandler(async (req, res) => {
-  const { shopId, note } = req.validated.body;
-  const attendance = await attendanceService.checkOut(req.user, { shopId, note });
+  const { shopId, note, staffId } = req.validated.body;
+  const attendance = await attendanceService.checkOut(req.user, { shopId, note, staffId });
   res.json({ success: true, data: attendance });
 });
 

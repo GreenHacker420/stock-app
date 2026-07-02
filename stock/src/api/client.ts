@@ -1144,19 +1144,19 @@ export async function fetchAttendance(token: string, filters: { shopId?: string;
   return apiRequest<any[]>(`/attendance?${params.toString()}`, { token });
 }
 
-export async function checkIn(token: string, shopId: string, note?: string) {
+export async function checkIn(token: string, shopId: string, note?: string, staffId?: string) {
   return apiRequest<any>("/attendance/check-in", {
     method: "POST",
     token,
-    body: JSON.stringify({ shopId, note }),
+    body: JSON.stringify({ shopId, note, staffId }),
   });
 }
 
-export async function checkOut(token: string, shopId: string, note?: string) {
+export async function checkOut(token: string, shopId: string, note?: string, staffId?: string) {
   return apiRequest<any>("/attendance/check-out", {
     method: "POST",
     token,
-    body: JSON.stringify({ shopId, note }),
+    body: JSON.stringify({ shopId, note, staffId }),
   });
 }
 

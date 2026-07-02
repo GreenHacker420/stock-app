@@ -5,8 +5,9 @@ import { ActivityIndicator, Button, Text, TextInput, Divider, HelperText, Icon, 
 import { ApiUser } from "../../api/client";
 import { useStaffQuery, useCreateStaffMutation, useUpdateStaffMutation } from "../../hooks/useAuth";
 import { useStaffTodaySummaryQuery } from "../../hooks/useDashboard";
-import { useAttendanceQuery } from "../../hooks/useAttendance";
+import { useAttendanceQuery, useCheckInMutation, useCheckOutMutation } from "../../hooks/useAttendance";
 import { useAuditLogsQuery } from "../../hooks/useAuditLogs";
+import { useShopStore } from "../../auth/shop-store";
 import { useShopsQuery, useAssignStaffToShopMutation, useUnassignStaffFromShopMutation } from "../../hooks/useShops";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
@@ -751,6 +752,52 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xs,
     color: colors.textSecondary,
   },
+  attendanceActionCard: {
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    padding: spacing.lg,
+    gap: spacing.sm,
+    ...shadow.sm,
+    marginBottom: spacing.md,
+  },
+  statusBoxSuccess: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: colors.primaryLight,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: "rgba(22, 163, 74, 0.2)",
+  },
+  statusBoxWarning: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: colors.warningLight,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: "rgba(217, 119, 6, 0.2)",
+  },
+  statusBoxMuted: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: colors.surfaceOffset,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  statusBoxText: {
+    fontSize: fontSize.sm,
+    color: colors.textPrimary,
+    fontWeight: fontWeight.medium,
+    flex: 1,
+  },
 });
 
 export function StaffDetail() {
@@ -789,6 +836,10 @@ export function StaffDetail() {
       });
     }
   };
+
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  const checkInMutation = useCheckInMutation();
+  const checkOutMutation = useCheckOutMutation();
 
   const [rangePreset, setRangePreset] = useState<"today" | "yesterday" | "thisWeek" | "lastWeek" | "thisMonth" | "custom">("today");
   const [customDates, setCustomDates] = useState({ from: "", to: "" });
@@ -835,7 +886,7 @@ export function StaffDetail() {
     }
     return { dateFrom: customDates.from || todayStr, dateTo: customDates.to || todayStr, label: "Custom Range" };
   }, [rangePreset, customDates]);
-  
+
   const summaryQuery = useStaffTodaySummaryQuery({
     staffId: staff.id,
     dateFrom: activeRange.dateFrom,
@@ -843,6 +894,57 @@ export function StaffDetail() {
   });
   const attendanceQuery = useAttendanceQuery({ staffId: staff.id });
   const auditLogsQuery = useAuditLogsQuery({ userId: staff.id });
+
+  const [attendanceModalVisible, setAttendanceModalVisible] = useState(false);
+  const [attendanceType, setAttendanceType] = useState<"in" | "out">("in");
+  const [attendanceNote, setAttendanceNote] = useState("");
+
+  const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
+
+  const todayAttendanceLog = useMemo(() => {
+    const list = attendanceQuery.data ?? [];
+    return list.find((log: any) => {
+      const logDateStr = new Date(log.date).toISOString().slice(0, 10);
+      return logDateStr === todayStr;
+    });
+  }, [attendanceQuery.data, todayStr]);
+
+  const handleOwnerAttendance = (type: "in" | "out") => {
+    setAttendanceType(type);
+    setAttendanceNote("");
+    setAttendanceModalVisible(true);
+  };
+
+  const handleConfirmOwnerAttendance = () => {
+    setAttendanceModalVisible(false);
+    const shopId = activeShopId ?? "";
+    if (!shopId) {
+      Alert.alert("Error", "Please select a shop first.");
+      return;
+    }
+
+    if (attendanceType === "in") {
+      checkInMutation.mutate({ shopId, note: attendanceNote, staffId: staff.id }, {
+        onSuccess: () => {
+          Alert.alert("Success", "Staff clocked in successfully.");
+          attendanceQuery.refetch();
+        },
+        onError: (err: any) => {
+          Alert.alert("Error", err?.message || "Failed to clock in.");
+        }
+      });
+    } else {
+      checkOutMutation.mutate({ shopId, note: attendanceNote, staffId: staff.id }, {
+        onSuccess: () => {
+          Alert.alert("Success", "Staff clocked out successfully.");
+          attendanceQuery.refetch();
+        },
+        onError: (err: any) => {
+          Alert.alert("Error", err?.message || "Failed to clock out.");
+        }
+      });
+    }
+  };
 
   const renderActivityTab = () => {
     return (
@@ -946,39 +1048,90 @@ export function StaffDetail() {
 
   const renderAttendanceTab = () => {
     if (attendanceQuery.isLoading) return <ActivityIndicator style={{ margin: spacing.lg }} color={colors.primary} />;
+    
     const list = attendanceQuery.data ?? [];
-    if (list.length === 0) {
-      return <Text style={styles.emptyText}>No attendance records found.</Text>;
-    }
+    
     return (
       <View style={styles.detailTabContent}>
-        <Text style={styles.tabSectionTitle}>Attendance Logs</Text>
-        <View style={styles.listContainer}>
-          {list.map((log: any) => {
-            const checkInTime = log.checkIn ? new Date(log.checkIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "N/A";
-            const checkOutTime = log.checkOut ? new Date(log.checkOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "N/A";
-            const logDate = new Date(log.date).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
-            return (
-              <View key={log.id} style={styles.logCard}>
-                <View style={styles.logHeader}>
-                  <Text style={styles.logDateText}>{logDate}</Text>
-                  <StatusPill label={log.status} tone={log.status === "PRESENT" ? "green" : "red"} />
-                </View>
-                <View style={styles.logTimes}>
-                  <View style={styles.timeCol}>
-                    <Text style={styles.timeLbl}>CHECK IN</Text>
-                    <Text style={styles.timeVal}>{checkInTime}</Text>
-                  </View>
-                  <View style={styles.timeCol}>
-                    <Text style={styles.timeLbl}>CHECK OUT</Text>
-                    <Text style={styles.timeVal}>{checkOutTime}</Text>
-                  </View>
-                </View>
-                {log.note ? <Text style={styles.logNote}>Note: "{log.note}"</Text> : null}
+        <View style={styles.attendanceActionCard}>
+          <Text style={styles.sectionHeaderTitle}>Today's Attendance</Text>
+          <Text style={styles.sectionHeaderSubtitle}>Clock staff shift directly for today.</Text>
+          
+          {todayAttendanceLog?.checkIn && todayAttendanceLog?.checkOut ? (
+            <View style={styles.statusBoxSuccess}>
+              <Icon source="check-circle" size={20} color={colors.success} />
+              <Text style={styles.statusBoxText}>Shift Completed ({new Date(todayAttendanceLog.checkIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - {new Date(todayAttendanceLog.checkOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})</Text>
+            </View>
+          ) : todayAttendanceLog?.checkIn ? (
+            <View style={{ gap: spacing.md }}>
+              <View style={styles.statusBoxWarning}>
+                <Icon source="clock-outline" size={20} color={colors.warning} />
+                <Text style={styles.statusBoxText}>Active Shift (Clocked in at {new Date(todayAttendanceLog.checkIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})</Text>
               </View>
-            );
-          })}
+              <Button
+                mode="contained"
+                icon="clock-out"
+                onPress={() => handleOwnerAttendance("out")}
+                style={{ backgroundColor: colors.danger, borderRadius: radius.md }}
+                labelStyle={{ fontWeight: fontWeight.bold }}
+                loading={checkOutMutation.isPending}
+              >
+                Clock Out Staff
+              </Button>
+            </View>
+          ) : (
+            <View style={{ gap: spacing.md }}>
+              <View style={styles.statusBoxMuted}>
+                <Icon source="alert-circle-outline" size={20} color={colors.textSecondary} />
+                <Text style={styles.statusBoxText}>No attendance logged for today.</Text>
+              </View>
+              <Button
+                mode="contained"
+                icon="clock-in"
+                onPress={() => handleOwnerAttendance("in")}
+                style={{ backgroundColor: colors.success, borderRadius: radius.md }}
+                labelStyle={{ fontWeight: fontWeight.bold }}
+                loading={checkInMutation.isPending}
+              >
+                Clock In Staff
+              </Button>
+            </View>
+          )}
         </View>
+
+        <Text style={[styles.tabSectionTitle, { marginTop: spacing.lg }]}>Shift Logs</Text>
+        
+        {list.length === 0 ? (
+          <Text style={styles.emptyText}>No attendance records found.</Text>
+        ) : (
+          <View style={styles.listContainer}>
+            {list.map((log: any) => {
+              const dateStr = new Date(log.date).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
+              const checkInTime = log.checkIn ? new Date(log.checkIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "N/A";
+              const checkOutTime = log.checkOut ? new Date(log.checkOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "N/A";
+              
+              return (
+                <View key={log.id} style={styles.logCard}>
+                  <View style={styles.logHeader}>
+                    <Text style={styles.logDateText}>{dateStr}</Text>
+                    <StatusPill label={log.checkOut ? "COMPLETED" : "ACTIVE"} tone={log.checkOut ? "green" : "amber"} />
+                  </View>
+                  <View style={styles.logTimes}>
+                    <View style={styles.timeCol}>
+                      <Text style={styles.timeLbl}>IN</Text>
+                      <Text style={styles.timeVal}>{checkInTime}</Text>
+                    </View>
+                    <View style={styles.timeCol}>
+                      <Text style={styles.timeLbl}>OUT</Text>
+                      <Text style={styles.timeVal}>{checkOutTime}</Text>
+                    </View>
+                  </View>
+                  {log.note ? <Text style={styles.logNote}>Note: "{log.note}"</Text> : null}
+                </View>
+              );
+            })}
+          </View>
+        )}
       </View>
     );
   };
@@ -1161,6 +1314,34 @@ export function StaffDetail() {
             >
               Apply
             </Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
+
+      {/* Attendance Notes Modal */}
+      <Portal>
+        <Dialog visible={attendanceModalVisible} onDismiss={() => setAttendanceModalVisible(false)} style={{ borderRadius: radius.lg, backgroundColor: colors.surface }}>
+          <Dialog.Title style={{ fontWeight: fontWeight.bold }}>
+            {attendanceType === "in" ? "Clock In Staff" : "Clock Out Staff"}
+          </Dialog.Title>
+          <Dialog.Content>
+            <Text style={{ marginBottom: spacing.sm, color: colors.textSecondary }}>
+              Add an optional note for this shift.
+            </Text>
+            <TextInput
+              mode="outlined"
+              label="Optional Note"
+              placeholder="e.g. Handover, early shift, late check-in"
+              value={attendanceNote}
+              onChangeText={setAttendanceNote}
+              outlineStyle={{ borderRadius: radius.md }}
+              activeOutlineColor={colors.primary}
+              style={{ backgroundColor: colors.surface }}
+            />
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setAttendanceModalVisible(false)} textColor={colors.textSecondary}>Cancel</Button>
+            <Button onPress={handleConfirmOwnerAttendance} textColor={colors.primary} labelStyle={{ fontWeight: fontWeight.bold }}>Confirm</Button>
           </Dialog.Actions>
         </Dialog>
       </Portal>

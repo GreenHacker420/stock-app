@@ -11,6 +11,7 @@ const checkInOutSchema = z.object({
   body: z.object({
     shopId: z.string().min(1),
     note: z.string().optional(),
+    staffId: z.string().optional(),
   }),
   params: empty,
   query: empty,

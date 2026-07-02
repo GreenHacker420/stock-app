@@ -22,8 +22,8 @@ export function useCheckInMutation() {
   const token = useAuthStore((state) => state.token);
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ shopId, note }: { shopId: string; note?: string }) =>
-      checkIn(token ?? "", shopId, note),
+    mutationFn: ({ shopId, note, staffId }: { shopId: string; note?: string; staffId?: string }) =>
+      checkIn(token ?? "", shopId, note, staffId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["attendance"] });
     },
@@ -34,8 +34,8 @@ export function useCheckOutMutation() {
   const token = useAuthStore((state) => state.token);
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ shopId, note }: { shopId: string; note?: string }) =>
-      checkOut(token ?? "", shopId, note),
+    mutationFn: ({ shopId, note, staffId }: { shopId: string; note?: string; staffId?: string }) =>
+      checkOut(token ?? "", shopId, note, staffId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["attendance"] });
     },
