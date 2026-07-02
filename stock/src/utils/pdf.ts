@@ -390,17 +390,21 @@ export async function generateSaleInvoiceHtml({ sale, shop, signatureBase64 }: S
           margin-bottom: 2px;
         }
         
+        @page {
+          margin: 15mm 15mm 15mm 15mm;
+        }
         @media print {
           body {
-            padding: 0;
+            padding: 24px !important;
+            margin: 0 !important;
             background: #ffffff;
           }
           .container {
             max-width: 100%;
             border: none;
             box-shadow: none;
-            padding: 0;
-            margin: 0;
+            padding: 0 !important;
+            margin: 0 !important;
           }
           .footer {
             page-break-inside: avoid;
