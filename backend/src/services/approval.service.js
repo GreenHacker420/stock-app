@@ -83,6 +83,9 @@ export async function respondToRequest(user, id, { status, rejectedReason }) {
   const request = await prisma.approvalRequest.findUnique({ where: { id } });
   if (!request) throw new ApiError(404, "Request not found");
   if (request.status !== "PENDING") throw new ApiError(400, "Request is already processed");
+  if (request.type !== "STOCK_ENTRY") {
+    throw new ApiError(400, "This approval type requires a specialized handler.");
+  }
 
   return prisma.$transaction(async (tx) => {
     const updated = await tx.approvalRequest.update({

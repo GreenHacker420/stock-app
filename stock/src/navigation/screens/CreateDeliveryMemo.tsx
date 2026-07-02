@@ -38,7 +38,6 @@ export function CreateDeliveryMemo() {
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
   const [cart, setCart] = useState<SelectedItem[]>([]);
   const [expectedPaymentDate, setExpectedPaymentDate] = useState("");
-  const [reason, setReason] = useState("");
 
   // Dialog / Picker States
   const [customerPickerVisible, setCustomerPickerVisible] = useState(false);
@@ -154,10 +153,9 @@ export function CreateDeliveryMemo() {
       {
         customerId: selectedCustomer.id,
         customerName: selectedCustomer.name,
-        customerPhone: selectedCustomer.phone,
-        customerAddress: selectedCustomer.address,
+        customerPhone: selectedCustomer.phone ?? undefined,
+        customerAddress: selectedCustomer.address ?? undefined,
         expectedPaymentDate: parsedDate,
-        reason: reason || undefined,
         items: cart.map((item) => ({
           itemId: item.id,
           quantity: item.quantity,
@@ -313,18 +311,6 @@ export function CreateDeliveryMemo() {
               value={expectedPaymentDate}
               onChangeText={setExpectedPaymentDate}
               style={styles.textInput}
-              outlineColor={colors.border}
-              activeOutlineColor={colors.primary}
-            />
-            <TextInput
-              label="Additional Notes / Reason"
-              mode="outlined"
-              placeholder="Operational context for this memo"
-              value={reason}
-              onChangeText={setReason}
-              style={[styles.textInput, { marginTop: spacing.md }]}
-              multiline
-              numberOfLines={2}
               outlineColor={colors.border}
               activeOutlineColor={colors.primary}
             />

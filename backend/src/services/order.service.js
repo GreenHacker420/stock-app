@@ -2,6 +2,7 @@ import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 import { createNotification } from "./notification.service.js";
 import { createDomainEvent, enqueueDomainEvent, enqueueManyDomainEvents } from "./domain-event.service.js";
+import { checkAndLockAvailableStock } from "./stock.service.js";
 import {
   applyPayments,
   calculateItemTotals,
@@ -607,6 +608,8 @@ export async function createDmFromOrder(user, id, data) {
       prefix: "DM",
     });
 
+    await checkAndLockAvailableStock(tx, order.shopId, items, { excludeOrderId: order.id });
+
     const customer = await tx.customer.findUnique({ where: { id: order.customerId } });
     const dm = await tx.deliveryMemo.create({
       data: {
@@ -724,6 +727,8 @@ export async function convertOrderToSale(user, id, data) {
       field: "saleNumber",
       prefix: "SAL",
     });
+
+    await checkAndLockAvailableStock(tx, order.shopId, items, { excludeOrderId: order.id });
 
     const sale = await tx.sale.create({
       data: {

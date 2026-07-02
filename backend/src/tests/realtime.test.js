@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert";
 import prisma from "../lib/db.js";
-import { getShopAccess, canUseDeviceRoom, configureRealtime, getDomainEventRooms } from "../utils/realtime.js";
+import { getShopAccess, canUseDeviceRoom, configureRealtime, getDomainEventRooms, getRealtimeSyncPayload } from "../utils/realtime.js";
 import { dispatchPendingDomainEvents, closeRedis } from "../workers/domain-event-dispatcher.worker.js";
 import { syncDomainEvents } from "../controllers/sync.controller.js";
 import * as customerService from "../services/customer.service.js";
@@ -440,6 +440,26 @@ test.describe("ShopControl Realtime & Outbox Hardening Tests", () => {
       const result = await callSync(ownerReq());
       assert.strictEqual(result.data.events.length, 1, "Only delivered events returned");
       assert.strictEqual(result.data.events[0].eventId, "evt_delivered");
+    });
+
+    test("12. Socket sync uses createdAt cursor and does not require outbox updatedAt", async () => {
+      const time1 = new Date(Date.now() - 10_000);
+      const time2 = new Date(Date.now() - 5_000);
+      await prisma.domainEventOutbox.createMany({
+        data: [
+          { id: "evt_socket_old", shopId: shop.id, entity: "stock", action: "updated", entityId: "i1", status: "delivered", createdAt: time1, eventJson: { eventId: "evt_socket_old", shopId: shop.id, entity: "stock", action: "updated", entityId: "i1", actorUserId: owner.id } },
+          { id: "evt_socket_new", shopId: shop.id, entity: "sale", action: "created", entityId: "s1", status: "delivered", createdAt: time2, eventJson: { eventId: "evt_socket_new", shopId: shop.id, entity: "sale", action: "created", entityId: "s1", actorUserId: owner.id } },
+        ],
+      });
+
+      const payload = await getRealtimeSyncPayload(owner, { shopId: shop.id, since: time1.toISOString() });
+      assert.strictEqual(payload.events.length, 1);
+      assert.strictEqual(payload.events[0].eventId, "evt_socket_new");
+      assert.strictEqual(payload.nextCursor, time2.toISOString());
+
+      const empty = await getRealtimeSyncPayload(owner, { shopId: shop.id, since: time2.toISOString() });
+      assert.strictEqual(empty.events.length, 0);
+      assert.strictEqual(empty.nextCursor, time2.toISOString());
     });
   });
 });

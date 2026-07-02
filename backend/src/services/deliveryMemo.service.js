@@ -12,6 +12,7 @@ import {
 import { money, sub } from "../utils/money.js";
 import { getOrCreateWalkIn } from "./customer.service.js";
 import { createDomainEvent, enqueueManyDomainEvents } from "./domain-event.service.js";
+import { checkAndLockAvailableStock } from "./stock.service.js";
 
 export async function createDeliveryMemo(user, data) {
   await assertShopAccess(user, data.shopId);
@@ -19,6 +20,8 @@ export async function createDeliveryMemo(user, data) {
   const { items, totalAmount } = calculateItemTotals(data.items);
 
   return prisma.$transaction(async (tx) => {
+    await checkAndLockAvailableStock(tx, data.shopId, items);
+
     let customerId = data.customerId;
     if (!customerId) {
       const walkin = await getOrCreateWalkIn(data.shopId, user.id);

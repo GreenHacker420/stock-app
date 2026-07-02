@@ -7,7 +7,9 @@
   "type": "module",
   "main": "src/index.js",
   "scripts": {
-    "test": "node --test src/tests/whatsapp.*.test.js",
+    "test": "node run-tests.js && node --test src/tests/whatsapp.*.test.js",
+    "test:core": "node run-tests.js",
+    "test:whatsapp": "node --test src/tests/whatsapp.*.test.js",
     "test:integration": "node --test src/tests/integration.test.js",
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",

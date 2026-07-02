@@ -5,6 +5,7 @@ import morgan from "morgan";
 
 import { errorHandler, notFoundHandler } from "./middleware/error.middleware.js";
 import { mountAppRoutes } from "./routes/index.js";
+import { getCorsOrigin } from "./utils/env.js";
 
 function requestMetrics(req, res, next) {
   const startedAt = process.hrtime.bigint();
@@ -37,7 +38,7 @@ export function createApp() {
   const app = express();
 
   app.use(helmet());
-  app.use(cors({ origin: process.env.CORS_ORIGIN || "*" }));
+  app.use(cors({ origin: getCorsOrigin() }));
   app.use(express.json({
     limit: "2mb",
     verify: (req, res, buf) => {

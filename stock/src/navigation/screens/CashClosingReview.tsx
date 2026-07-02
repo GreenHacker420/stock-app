@@ -132,17 +132,10 @@ export function CashClosingReview() {
                       </View>
                     </View>
 
-                    <View style={styles.detailsBox}>
-                      <DetailRow label="Handover Amount" value={`₹${(session.cashHandover || 0).toLocaleString()}`} />
-                      
-                      {Number(session.otherDeductionsAmount || 0) > 0 && (
-                        <View style={styles.deductionRow}>
-                           <DetailRow label="Expenses/Deductions" value={`-₹${session.otherDeductionsAmount}`} isAlert />
-                           <Text style={styles.deductionReason}>"{session.otherDeductionsReason}"</Text>
-                        </View>
-                      )}
+	                    <View style={styles.detailsBox}>
+	                      <DetailRow label="Handover Amount" value={`₹${(session.cashHandover || 0).toLocaleString()}`} />
 
-                      {isMismatched ? (
+	                      {isMismatched ? (
                         <View style={styles.mismatchBox}>
                            <DetailRow label="Reconciliation Gap" value={`${diff > 0 ? "+" : ""}₹${diff.toFixed(2)}`} isAlert />
                            <Text style={styles.mismatchReason}>Remark: {session.differenceReason || "No explanation provided"}</Text>

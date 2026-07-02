@@ -10,7 +10,7 @@ import {
   getBillPaymentStatus,
 } from "./transactionHelpers.js";
 import { money, sub } from "../utils/money.js";
-import { checkAndLockStockForWalkin } from "./stock.service.js";
+import { checkAndLockAvailableStock } from "./stock.service.js";
 import { captureCustomer, getOrCreateWalkIn } from "./customer.service.js";
 import { EntityType, AuditAction } from "../generated/prisma/index.js";
 import { createDomainEvent, enqueueDomainEvent, enqueueManyDomainEvents } from "./domain-event.service.js";
@@ -37,10 +37,7 @@ export async function createSale(user, data) {
       customer = await getOrCreateWalkIn(data.shopId, user.id);
     }
 
-    // If it's a walk-in sale, check and lock available stock
-    if (data.isWalkin) {
-      await checkAndLockStockForWalkin(tx, data.shopId, items);
-    }
+    await checkAndLockAvailableStock(tx, data.shopId, items);
 
     const saleNumber = await generateRecordNumber(tx, {
       shopId: data.shopId,

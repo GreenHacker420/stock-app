@@ -208,17 +208,6 @@ export function DeliveryMemoDetail() {
           </Card>
         </Section>
 
-        {/* Reason / Details if any */}
-        {dm.reason ? (
-          <Section title="Remarks">
-            <Card style={styles.remarksCard}>
-              <Card.Content>
-                <Text style={styles.remarksText}>{dm.reason}</Text>
-              </Card.Content>
-            </Card>
-          </Section>
-        ) : null}
-
         {/* Payments History */}
         <Section title="Collection History">
           <Card style={styles.paymentsCard}>

@@ -46,6 +46,8 @@ export type Item = {
   minimumStock: string;
   status?: "ACTIVE" | "INACTIVE";
   category?: ItemCategory | null;
+  physicalStock?: number;
+  reservedStock?: number;
   availableStock?: number;
   currentStock?: number;
 };
@@ -55,6 +57,9 @@ export type StockLevel = {
   quantityIn: number;
   quantityOut: number;
   currentQuantity: number;
+  physicalStock: number;
+  reservedStock: number;
+  availableStock: number;
   isLowStock: boolean;
 };
 
@@ -86,8 +91,6 @@ export type DetailedCashSession = CashSession & {
   difference?: string | null;
   differenceReason?: string | null;
   cashHandover?: string | null;
-  otherDeductionsAmount?: string | null;
-  otherDeductionsReason?: string | null;
   openedAt: string;
   closedAt?: string | null;
 };

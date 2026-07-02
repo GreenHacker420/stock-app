@@ -4,6 +4,8 @@ import { useShopStore } from "../auth/shop-store";
 import { apiRequest } from "../api/client";
 import { warmOfflineCache } from "../utils/mmkvCache";
 
+export const GENERIC_APPROVAL_SUPPORTED_TYPES = new Set(["STOCK_ENTRY"]);
+
 export function usePendingVerificationsQuery() {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
@@ -19,12 +21,16 @@ export function useProcessVerificationMutation() {
   const activeShopId = useShopStore((state) => state.activeShopId);
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, status, notes }: { id: string; status: "APPROVED" | "REJECTED"; notes?: string }) =>
-      apiRequest(`/approvals/${id}/respond`, {
+    mutationFn: ({ id, status, notes, type }: { id: string; status: "APPROVED" | "REJECTED"; notes?: string; type?: string }) => {
+      if (type && !GENERIC_APPROVAL_SUPPORTED_TYPES.has(type)) {
+        throw new Error("Open the specific verification screen for this approval type.");
+      }
+      return apiRequest(`/approvals/${id}/respond`, {
         method: "POST",
         token,
         body: JSON.stringify({ status, rejectedReason: notes }),
-      }),
+      });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["verifications", activeShopId] });
       queryClient.invalidateQueries({ queryKey: ["expenses", activeShopId] });

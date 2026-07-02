@@ -2,6 +2,7 @@ import jwt from "jsonwebtoken";
 import prisma from "../lib/db.js";
 import { ApiError } from "../utils/ApiError.js";
 import { OWNER_PERMISSIONS, STAFF_PERMISSIONS } from "../utils/permissions.js";
+import { getJwtSecret } from "../utils/env.js";
 
 export async function requireAuth(req, _res, next) {
   try {
@@ -12,7 +13,7 @@ export async function requireAuth(req, _res, next) {
       throw new ApiError(401, "Authentication required");
     }
 
-    const payload = jwt.verify(token, process.env.JWT_SECRET || "dev-secret");
+    const payload = jwt.verify(token, getJwtSecret());
     const user = await prisma.user.findUnique({
       where: { id: payload.sub },
     });

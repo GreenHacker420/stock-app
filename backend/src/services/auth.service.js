@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import prisma from "../lib/db.js";
 import { ApiError } from "../utils/ApiError.js";
 import { OWNER_PERMISSIONS, STAFF_PERMISSIONS } from "../utils/permissions.js";
+import { getJwtSecret } from "../utils/env.js";
 
 function signToken(user) {
   return jwt.sign(
@@ -10,7 +11,7 @@ function signToken(user) {
       sub: user.id,
       role: user.role,
     },
-    process.env.JWT_SECRET || "dev-secret",
+    getJwtSecret(),
     { expiresIn: process.env.JWT_EXPIRES_IN || "7d" },
   );
 }
@@ -22,7 +23,7 @@ export function refreshToken(user) {
         sub: user.id,
         role: user.role,
       },
-      process.env.JWT_SECRET || "dev-secret",
+      getJwtSecret(),
       { expiresIn: process.env.JWT_EXPIRES_IN || "7d" },
     ),
     user,

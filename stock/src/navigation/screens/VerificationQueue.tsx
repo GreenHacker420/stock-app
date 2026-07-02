@@ -3,7 +3,7 @@ import { View, StyleSheet } from "react-native";
 import { Icon, Text, Divider } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 
-import { usePendingVerificationsQuery, useProcessVerificationMutation } from "../../hooks/useVerifications";
+import { GENERIC_APPROVAL_SUPPORTED_TYPES, usePendingVerificationsQuery, useProcessVerificationMutation } from "../../hooks/useVerifications";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { Button } from "../../components/ui/Button";
@@ -15,8 +15,8 @@ export function VerificationQueue() {
   const { data: verifications, isLoading } = usePendingVerificationsQuery();
   const mutation = useProcessVerificationMutation();
 
-  const handleProcess = (id: string, status: "APPROVED" | "REJECTED") => {
-    mutation.mutate({ id, status });
+  const handleProcess = (item: any, status: "APPROVED" | "REJECTED") => {
+    mutation.mutate({ id: item.id, status, type: item.type });
   };
 
   // Workaround for FlashList types compatibility with React 19
@@ -32,8 +32,10 @@ export function VerificationQueue() {
         ) : (
           <List
             data={verifications ?? []}
-            renderItem={({ item }: any) => (
-              <View style={styles.verificationCard}>
+	            renderItem={({ item }: any) => {
+                const canApproveHere = GENERIC_APPROVAL_SUPPORTED_TYPES.has(item.type);
+                return (
+	              <View style={styles.verificationCard}>
                 <View style={styles.cardHeader}>
                   <View style={styles.typeBadge}>
                     <Text style={styles.typeText}>{item.entityType}</Text>
@@ -43,30 +45,36 @@ export function VerificationQueue() {
 
                 <View style={styles.cardBody}>
                   <Text style={styles.requestedBy}>Requested by: <Text style={{fontWeight: 'bold'}}>{item.requestedBy?.name}</Text></Text>
-                  <Text style={styles.actionText}>{item.action} {item.entityType.toLowerCase()}</Text>
-                  {item.notes && <Text style={styles.notes}>"{item.notes}"</Text>}
+                  <Text style={styles.actionText}>{item.type || item.action} {item.entityType?.toLowerCase?.() || ""}</Text>
+                  {item.reason && <Text style={styles.notes}>"{item.reason}"</Text>}
+                  {!canApproveHere && (
+                    <Text style={styles.notes}>Open the specific verification screen for this request.</Text>
+                  )}
                 </View>
 
                 <Divider style={styles.divider} />
 
-                <View style={styles.cardFooter}>
-                  <Button 
-                    variant="secondary" 
-                    label="Reject" 
-                    onPress={() => handleProcess(item.id, 'REJECTED')}
-                    loading={mutation.isPending && mutation.variables?.status === 'REJECTED' && mutation.variables?.id === item.id}
-                    style={{ flex: 1 }}
-                  />
-                  <View style={{ width: spacing.md }} />
-                  <Button 
-                    label="Approve" 
-                    onPress={() => handleProcess(item.id, 'APPROVED')}
-                    loading={mutation.isPending && mutation.variables?.status === 'APPROVED' && mutation.variables?.id === item.id}
-                    style={{ flex: 1 }}
-                  />
-                </View>
+                {canApproveHere && (
+                  <View style={styles.cardFooter}>
+                    <Button
+                      variant="secondary"
+                      label="Reject"
+                      onPress={() => handleProcess(item, 'REJECTED')}
+                      loading={mutation.isPending && mutation.variables?.status === 'REJECTED' && mutation.variables?.id === item.id}
+                      style={{ flex: 1 }}
+                    />
+                    <View style={{ width: spacing.md }} />
+                    <Button
+                      label="Approve"
+                      onPress={() => handleProcess(item, 'APPROVED')}
+                      loading={mutation.isPending && mutation.variables?.status === 'APPROVED' && mutation.variables?.id === item.id}
+                      style={{ flex: 1 }}
+                    />
+                  </View>
+                )}
               </View>
-            )}
+	            );
+              }}
             estimatedItemSize={180}
             ListEmptyComponent={<EmptyState icon="check-circle-outline" title="All caught up!" subtitle="No pending verifications" />}
             contentContainerStyle={{ padding: spacing.lg }}

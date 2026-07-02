@@ -27,17 +27,17 @@ export function StockDashboard() {
   const totalCount = allRecords.length;
   
   const lowStockCount = useMemo(() => 
-    allRecords.filter(r => r.isLowStock && r.currentQuantity > 0).length,
+    allRecords.filter(r => r.isLowStock && r.availableStock > 0).length,
     [allRecords]
   );
 
   const outOfStockCount = useMemo(() => 
-    allRecords.filter(r => r.currentQuantity <= 0).length,
+    allRecords.filter(r => r.availableStock <= 0).length,
     [allRecords]
   );
 
   const inStockCount = useMemo(() => 
-    allRecords.filter(r => r.currentQuantity > Number(r.item?.minimumStock ?? 0)).length,
+    allRecords.filter(r => r.availableStock > Number(r.item?.minimumStock ?? 0)).length,
     [allRecords]
   );
 
@@ -52,9 +52,9 @@ export function StockDashboard() {
 
       if (!matchesSearch) return false;
 
-      if (activeTab === "in_stock") return record.currentQuantity > Number(record.item?.minimumStock ?? 0);
-      if (activeTab === "low") return record.isLowStock && record.currentQuantity > 0;
-      if (activeTab === "out") return record.currentQuantity <= 0;
+      if (activeTab === "in_stock") return record.availableStock > Number(record.item?.minimumStock ?? 0);
+      if (activeTab === "low") return record.isLowStock && record.availableStock > 0;
+      if (activeTab === "out") return record.availableStock <= 0;
 
       return true;
     });
@@ -188,7 +188,7 @@ export function StockDashboard() {
                   estimatedItemSize={110}
                   renderItem={({ item }: { item: StockLevel }) => {
                     const minStockVal = Number(item.item.minimumStock);
-                    const health = getStockHealth(item.currentQuantity, minStockVal);
+	                    const health = getStockHealth(item.availableStock, minStockVal);
 
                     return (
                       <Pressable
@@ -212,19 +212,19 @@ export function StockDashboard() {
 
                         <View style={styles.cardFooter}>
                           <View style={styles.qtyCol}>
-                            <Text style={styles.qtyLabel}>PHYSICAL STOCK</Text>
-                            <Text style={[
-                              styles.qtyValue,
-                              item.currentQuantity <= 0 ? styles.textRed : item.currentQuantity <= minStockVal ? styles.textAmber : styles.textGreen
-                            ]}>
-                              {item.currentQuantity} {item.item.unit}
-                            </Text>
-                          </View>
+	                            <Text style={styles.qtyLabel}>AVAILABLE STOCK</Text>
+	                            <Text style={[
+	                              styles.qtyValue,
+	                              item.availableStock <= 0 ? styles.textRed : item.availableStock <= minStockVal ? styles.textAmber : styles.textGreen
+	                            ]}>
+	                              {item.availableStock} {item.item.unit}
+	                            </Text>
+	                          </View>
 
-                          <View style={styles.qtyCol}>
-                            <Text style={styles.qtyLabel}>MIN STOCK LIMIT</Text>
-                            <Text style={styles.qtyValue}>{minStockVal} {item.item.unit}</Text>
-                          </View>
+	                          <View style={styles.qtyCol}>
+	                            <Text style={styles.qtyLabel}>PHYSICAL / RESERVED</Text>
+	                            <Text style={styles.qtyValue}>{item.physicalStock} / {item.reservedStock} {item.item.unit}</Text>
+	                          </View>
 
                           <View style={[styles.qtyCol, { alignItems: 'flex-end' }]}>
                             <Text style={styles.qtyLabel}>TOTAL IN / OUT</Text>

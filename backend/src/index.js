@@ -4,8 +4,7 @@ import { Server } from "socket.io";
 import { createApp } from "./app.js";
 import { configureRealtime } from "./utils/realtime.js";
 import { startAllWorkers } from "./workers/index.js";
-import { warmTenantCache } from "./lib/wa-cache.js";
-import "./services/whatsapp.queue.js";
+import { getCorsOrigin, isWhatsAppEnabled } from "./utils/env.js";
 
 import { createAdapter } from "@socket.io/redis-adapter";
 import Redis from "ioredis";
@@ -20,7 +19,7 @@ const subClient = pubClient.duplicate();
 
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.CORS_ORIGIN || "*",
+    origin: getCorsOrigin(),
     methods: ["GET", "POST"],
   },
 });
@@ -35,13 +34,16 @@ const PORT = process.env.PORT || 6600;
 
 httpServer.listen(PORT, async () => {
   console.log(`Server is running on port ${PORT}`);
-  
-  // Warm cache for active integrations
-  await warmTenantCache();
+
+  if (isWhatsAppEnabled()) {
+    const { warmTenantCache } = await import("./lib/wa-cache.js");
+    await import("./services/whatsapp.queue.js");
+    await warmTenantCache();
+  }
   
   // Start background queue workers
   try {
-    await startAllWorkers();
+    await startAllWorkers({ whatsappEnabled: isWhatsAppEnabled() });
   } catch (err) {
     console.error("Failed to start background workers:", err.message);
   }

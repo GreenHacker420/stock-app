@@ -13,6 +13,8 @@ import * as correctionService from "../services/correction.service.js";
 import * as customerService from "../services/customer.service.js";
 import * as saleService from "../services/sale.service.js";
 import * as deliveryMemoService from "../services/deliveryMemo.service.js";
+import * as stockService from "../services/stock.service.js";
+import * as approvalService from "../services/approval.service.js";
 import { runIdempotentCreate } from "../services/idempotency.service.js";
 import { closePushQueue } from "../services/notification.push.queue.js";
 
@@ -530,6 +532,134 @@ test.describe("Phase 2 core business correctness", () => {
 
     await prisma.stockLedger.deleteMany({ where: { itemId: orderItem.id } });
     await prisma.item.delete({ where: { id: orderItem.id } });
+    await prisma.customer.delete({ where: { id: cust.id } });
+  });
+
+  test("DM create accepts mobile-shaped null optional customer fields", async () => {
+    const cust = await prisma.customer.create({
+      data: { shopId: shop.id, name: "P2 DM Null Customer", type: "REGULAR", createdById: owner.id },
+    });
+    const dmItem = await prisma.item.create({
+      data: { shopId: shop.id, name: "P2 DM Null Item", unit: "PCS", defaultSellingPrice: 25 },
+    });
+    await prisma.stockLedger.create({
+      data: { shopId: shop.id, itemId: dmItem.id, movementType: "OPENING_STOCK", quantityIn: 5, quantityOut: 0, createdById: owner.id },
+    });
+
+    const dm = await deliveryMemoService.createDeliveryMemo(staff, {
+      shopId: shop.id,
+      customerId: cust.id,
+      customerName: cust.name,
+      customerPhone: null,
+      customerAddress: null,
+      items: [{ itemId: dmItem.id, quantity: 1, rate: 25 }],
+      payments: [],
+    });
+    assert.ok(dm.id);
+
+    await prisma.dispatch.deleteMany({ where: { dmId: dm.id } });
+    await prisma.deliveryMemoItem.deleteMany({ where: { dmId: dm.id } });
+    await prisma.deliveryMemo.delete({ where: { id: dm.id } });
+    await prisma.stockLedger.deleteMany({ where: { itemId: dmItem.id } });
+    await prisma.item.delete({ where: { id: dmItem.id } });
+    await prisma.customer.delete({ where: { id: cust.id } });
+  });
+
+  test("direct sale and DM respect active order reservations while order conversion can use its own reservation", async () => {
+    const cust = await prisma.customer.create({
+      data: { shopId: shop.id, name: "P2 Reserved Customer", type: "REGULAR", outstandingAmount: 0, createdById: owner.id },
+    });
+    const reservedItem = await prisma.item.create({
+      data: { shopId: shop.id, name: "P2 Reserved Item", unit: "PCS", defaultSellingPrice: 100, minimumStock: 1 },
+    });
+    await prisma.stockLedger.create({
+      data: { shopId: shop.id, itemId: reservedItem.id, movementType: "OPENING_STOCK", quantityIn: 10, quantityOut: 0, createdById: owner.id },
+    });
+
+    const order = await orderService.createOrder(owner, {
+      shopId: shop.id,
+      customerId: cust.id,
+      items: [{ itemId: reservedItem.id, quantityOrdered: 8, rate: 100 }],
+    });
+    await orderService.confirmOrder(owner, order.id);
+
+    const stockRows = await stockService.getCurrentStock(owner, { shopId: shop.id, itemId: reservedItem.id });
+    assert.strictEqual(stockRows[0].physicalStock, 10);
+    assert.strictEqual(stockRows[0].reservedStock, 8);
+    assert.strictEqual(stockRows[0].availableStock, 2);
+
+    await assertRejectsApi(() => saleService.createSale(staff, {
+      shopId: shop.id,
+      customerId: cust.id,
+      items: [{ itemId: reservedItem.id, quantity: 3, rate: 100 }],
+      payments: [],
+    }), 400);
+
+    await assertRejectsApi(() => deliveryMemoService.createDeliveryMemo(staff, {
+      shopId: shop.id,
+      customerId: cust.id,
+      customerName: cust.name,
+      items: [{ itemId: reservedItem.id, quantity: 3, rate: 100 }],
+      payments: [],
+    }), 400);
+
+    const directSale = await saleService.createSale(staff, {
+      shopId: shop.id,
+      customerId: cust.id,
+      items: [{ itemId: reservedItem.id, quantity: 2, rate: 100 }],
+      payments: [],
+    });
+    assert.ok(directSale.id);
+
+    const orderSale = await orderService.convertOrderToSale(owner, order.id, { payments: [] });
+    assert.ok(orderSale.id);
+
+    await prisma.dispatchItem.deleteMany({ where: { dispatch: { orderId: order.id } } });
+    await prisma.dispatch.deleteMany({ where: { orderId: order.id } });
+    await prisma.saleItem.deleteMany({ where: { saleId: { in: [directSale.id, orderSale.id] } } });
+    await prisma.sale.deleteMany({ where: { id: { in: [directSale.id, orderSale.id] } } });
+    await prisma.stockReservation.deleteMany({ where: { orderId: order.id } });
+    await prisma.packingTask.deleteMany({ where: { orderId: order.id } });
+    await prisma.orderEvent.deleteMany({ where: { orderId: order.id } });
+    await prisma.orderItem.deleteMany({ where: { orderId: order.id } });
+    await prisma.order.delete({ where: { id: order.id } });
+    await prisma.stockLedger.deleteMany({ where: { itemId: reservedItem.id } });
+    await prisma.item.delete({ where: { id: reservedItem.id } });
+    await prisma.customer.delete({ where: { id: cust.id } });
+  });
+
+  test("generic approval refuses unsupported approval types without marking approved", async () => {
+    const cust = await prisma.customer.create({
+      data: { shopId: shop.id, name: "P2 Approval Customer", type: "REGULAR", createdById: owner.id },
+    });
+    const approvalItem = await prisma.item.create({
+      data: { shopId: shop.id, name: "P2 Approval Item", unit: "PCS", defaultSellingPrice: 10 },
+    });
+    await prisma.stockLedger.create({
+      data: { shopId: shop.id, itemId: approvalItem.id, movementType: "OPENING_STOCK", quantityIn: 1, quantityOut: 0, createdById: owner.id },
+    });
+    const sale = await saleService.createSale(staff, {
+      shopId: shop.id,
+      customerId: cust.id,
+      items: [{ itemId: approvalItem.id, quantity: 1, rate: 10 }],
+      payments: [],
+    });
+    const request = await correctionService.createCorrectionRequest(staff, {
+      entityType: "SALE",
+      entityId: sale.id,
+      requestedChangeJson: { action: "CANCEL" },
+      reason: "Wrong sale",
+    });
+
+    await assertRejectsApi(() => approvalService.respondToRequest(owner, request.id, { status: "APPROVED" }), 400);
+    const unchanged = await prisma.approvalRequest.findUnique({ where: { id: request.id } });
+    assert.strictEqual(unchanged.status, "PENDING");
+
+    await prisma.approvalRequest.delete({ where: { id: request.id } });
+    await prisma.saleItem.deleteMany({ where: { saleId: sale.id } });
+    await prisma.sale.delete({ where: { id: sale.id } });
+    await prisma.stockLedger.deleteMany({ where: { itemId: approvalItem.id } });
+    await prisma.item.delete({ where: { id: approvalItem.id } });
     await prisma.customer.delete({ where: { id: cust.id } });
   });
 });

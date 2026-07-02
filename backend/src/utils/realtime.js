@@ -2,6 +2,7 @@ import jwt from "jsonwebtoken";
 import prisma from "../lib/db.js";
 import Redis from "ioredis";
 import { OWNER_PERMISSIONS, STAFF_PERMISSIONS } from "./permissions.js";
+import { getJwtSecret } from "./env.js";
 import {
   disconnectDevicePresence,
   updateDevicePresence,
@@ -29,7 +30,7 @@ export const REALTIME_EVENTS = {
 async function getSocketUser(token) {
   if (!token) return null;
 
-  const payload = jwt.verify(token, process.env.JWT_SECRET || "dev-secret");
+  const payload = jwt.verify(token, getJwtSecret());
   const user = await prisma.user.findUnique({
     where: { id: payload.sub },
   });
@@ -84,6 +85,32 @@ export async function canUseDeviceRoom(userId, deviceId) {
     select: { id: true },
   });
   return Boolean(device);
+}
+
+export async function getRealtimeSyncPayload(user, { shopId, since, limit = MAX_SYNC_EVENTS } = {}) {
+  if (!shopId || !(await canAccessShop(user, shopId))) {
+    return { error: "Shop access denied" };
+  }
+
+  const take = Math.min(Number(limit) || MAX_SYNC_EVENTS, MAX_SYNC_EVENTS);
+  const where = {
+    shopId,
+    status: "delivered",
+    ...(since ? { createdAt: { gt: new Date(since) } } : {}),
+  };
+  const outbox = await prisma.domainEventOutbox.findMany({
+    where,
+    orderBy: { createdAt: "asc" },
+    take,
+    select: { createdAt: true, eventJson: true },
+  });
+
+  return {
+    events: outbox.map((row) => row.eventJson),
+    nextCursor: outbox.length > 0
+      ? outbox[outbox.length - 1].createdAt.toISOString()
+      : since || null,
+  };
 }
 
 export function configureRealtime(io) {
@@ -203,26 +230,16 @@ export function configureRealtime(io) {
         return;
       }
       try {
-        const where = {
-          shopId,
-          status: "delivered",
-          ...(since ? { updatedAt: { gt: new Date(since) } } : {}),
-        };
-        const outbox = await prisma.domainEventOutbox.findMany({
-          where,
-          orderBy: { createdAt: "asc" },
-          take: MAX_SYNC_EVENTS,
-          select: { eventJson: true },
-        });
-
-        const events = outbox.map((row) => row.eventJson);
+        const payload = await getRealtimeSyncPayload(socket.user, { shopId, since });
+        if (payload.error) {
+          socket.emit("sync:error", { shopId, message: payload.error });
+          return;
+        }
+        const { events, nextCursor } = payload;
         // Emit each missed event individually — client deduplication handles duplicates
         for (const event of events) {
           socket.emit("domain:event", event);
         }
-        const nextCursor = events.length > 0
-          ? events[events.length - 1].updatedAt
-          : since || null;
         socket.emit("sync:complete", { shopId, count: events.length, nextCursor });
       } catch (err) {
         console.error("[Realtime] sync:request error:", err.message);

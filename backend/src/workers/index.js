@@ -1,37 +1,41 @@
-import { startInboundWorker } from "./whatsapp/inbound.worker.js";
-import { startOutboundWorker } from "./whatsapp/outbound.worker.js";
-import { startBroadcastDispatcherWorker } from "./whatsapp/broadcast-dispatcher.worker.js";
-import { startBroadcastSendWorker } from "./whatsapp/broadcast-send.worker.js";
-import { startMediaDownloadWorker } from "./whatsapp/media-download.worker.js";
 import { startNotificationPushWorker } from "./notification-push.worker.js";
 import { startDomainEventDispatcherWorker } from "./domain-event-dispatcher.worker.js";
 
 /**
- * Initializes and starts all WhatsApp background queue workers.
+ * Initializes and starts background queue workers.
  */
-export async function startAllWorkers() {
-  console.log("[Workers Registry] Initializing all WhatsApp queue workers...");
+export async function startAllWorkers({ whatsappEnabled = false } = {}) {
+  console.log("[Workers Registry] Initializing background queue workers...");
 
   try {
-    const inbound = startInboundWorker();
-    const outbound = startOutboundWorker();
-    const dispatcher = startBroadcastDispatcherWorker();
-    const sender = startBroadcastSendWorker();
-    const downloader = startMediaDownloadWorker();
     const notificationPush = startNotificationPushWorker();
     const domainEvents = startDomainEventDispatcherWorker();
+    const workers = { notificationPush, domainEvents };
+
+    if (whatsappEnabled) {
+      const [
+        { startInboundWorker },
+        { startOutboundWorker },
+        { startBroadcastDispatcherWorker },
+        { startBroadcastSendWorker },
+        { startMediaDownloadWorker },
+      ] = await Promise.all([
+        import("./whatsapp/inbound.worker.js"),
+        import("./whatsapp/outbound.worker.js"),
+        import("./whatsapp/broadcast-dispatcher.worker.js"),
+        import("./whatsapp/broadcast-send.worker.js"),
+        import("./whatsapp/media-download.worker.js"),
+      ]);
+
+      workers.inbound = startInboundWorker();
+      workers.outbound = startOutboundWorker();
+      workers.dispatcher = startBroadcastDispatcherWorker();
+      workers.sender = startBroadcastSendWorker();
+      workers.downloader = startMediaDownloadWorker();
+    }
 
     console.log("[Workers Registry] All background workers started successfully.");
-    
-    return {
-      inbound,
-      outbound,
-      dispatcher,
-      sender,
-      downloader,
-      notificationPush,
-      domainEvents,
-    };
+    return workers;
   } catch (error) {
     console.error("[Workers Registry] Failed to start background workers:", error.message);
     throw error;

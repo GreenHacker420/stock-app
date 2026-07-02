@@ -152,6 +152,8 @@ async function attachAvailableStock(shopId, itemsList) {
     const computedVal = Math.max(0, available);
     return {
       ...item,
+      physicalStock: physical,
+      reservedStock: reserved,
       availableStock: computedVal,
       currentStock: computedVal
     };

@@ -6,9 +6,14 @@ import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROUTES_DIR = path.resolve(__dirname, "../routes");
+const SRC_DIR = path.resolve(__dirname, "..");
 
 function readRoute(file) {
   return fs.readFileSync(path.join(ROUTES_DIR, file), "utf8");
+}
+
+function readSrc(file) {
+  return fs.readFileSync(path.join(SRC_DIR, file), "utf8");
 }
 
 function assertRoute(src, method, pattern, label) {
@@ -113,6 +118,9 @@ test("delivery memo routes contract", () => {
   assertRoute(src, "GET",  '"/"', "GET /delivery-memos");
   assertRoute(src, "GET",  '"/:id"', "GET /delivery-memos/:id");
   assertRoute(src, "POST", '"/"', "POST /delivery-memos");
+  assert.ok(src.includes("customerPhone: z.string().nullish()"), "DM customerPhone must accept nullish mobile payloads");
+  assert.ok(src.includes("customerAddress: z.string().nullish()"), "DM customerAddress must accept nullish mobile payloads");
+  assert.ok(!src.includes("reason: z.string().optional()"), "DM reason must not remain half-connected in create schema");
 });
 
 // ─── PAYMENTS ────────────────────────────────────────────────────────────────
@@ -216,6 +224,42 @@ test("correction request routes contract", () => {
 test("sync routes contract", () => {
   const src = readRoute("sync.routes.js");
   assertRoute(src, "GET", '"/domain-events"', "GET /sync/domain-events");
+});
+
+test("production env hardening contract", async () => {
+  const originalNodeEnv = process.env.NODE_ENV;
+  const originalJwtSecret = process.env.JWT_SECRET;
+  const originalCorsOrigin = process.env.CORS_ORIGIN;
+  const { getJwtSecret, getCorsOrigin } = await import("../utils/env.js");
+
+  try {
+    process.env.NODE_ENV = "production";
+    delete process.env.JWT_SECRET;
+    delete process.env.CORS_ORIGIN;
+    assert.throws(() => getJwtSecret(), /JWT_SECRET is required in production/);
+    assert.throws(() => getCorsOrigin(), /CORS_ORIGIN is required in production/);
+
+    process.env.JWT_SECRET = "prod-secret";
+    process.env.CORS_ORIGIN = "https://app.example.com";
+    assert.strictEqual(getJwtSecret(), "prod-secret");
+    assert.strictEqual(getCorsOrigin(), "https://app.example.com");
+  } finally {
+    if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = originalNodeEnv;
+    if (originalJwtSecret === undefined) delete process.env.JWT_SECRET;
+    else process.env.JWT_SECRET = originalJwtSecret;
+    if (originalCorsOrigin === undefined) delete process.env.CORS_ORIGIN;
+    else process.env.CORS_ORIGIN = originalCorsOrigin;
+  }
+});
+
+test("disabled WhatsApp startup code is not imported eagerly", () => {
+  const indexSrc = readSrc("index.js");
+  const workersSrc = readSrc("workers/index.js");
+  assert.ok(!indexSrc.includes('from "./lib/wa-cache.js"'), "index.js must not import wa-cache eagerly");
+  assert.ok(!indexSrc.includes('from "./services/whatsapp.queue.js"'), "index.js must not import WhatsApp queue eagerly");
+  assert.ok(indexSrc.includes("WHATSAPP_ENABLED") || indexSrc.includes("isWhatsAppEnabled"), "index.js must gate WhatsApp startup");
+  assert.ok(!workersSrc.includes('from "./whatsapp/'), "worker registry must not import WhatsApp workers eagerly");
 });
 
 // ─── USERS ───────────────────────────────────────────────────────────────────

@@ -27,7 +27,7 @@ export async function getCurrentStock(user, { shopId, itemId }) {
     },
   });
 
-  // 2. Group by stock ledger to get sums
+  // 2. Group by stock ledger to get physical stock sums
   const rows = await prisma.stockLedger.groupBy({
     by: ["itemId"],
     where: {
@@ -50,15 +50,33 @@ export async function getCurrentStock(user, { shopId, itemId }) {
     ])
   );
 
+  const reservationRows = await prisma.stockReservation.groupBy({
+    by: ["itemId"],
+    where: {
+      shopId,
+      itemId: itemId || undefined,
+      status: "ACTIVE",
+    },
+    _sum: { reservedQty: true },
+  });
+  const reservationMap = new Map(
+    reservationRows.map((row) => [row.itemId, Number(row._sum.reservedQty || 0)])
+  );
+
   return items.map((item) => {
     const ledger = ledgerMap.get(item.id) || { quantityIn: 0, quantityOut: 0 };
-    const currentQuantity = ledger.quantityIn - ledger.quantityOut;
+    const physicalStock = ledger.quantityIn - ledger.quantityOut;
+    const reservedStock = reservationMap.get(item.id) || 0;
+    const availableStock = Math.max(0, physicalStock - reservedStock);
     return {
       item,
       quantityIn: ledger.quantityIn,
       quantityOut: ledger.quantityOut,
-      currentQuantity,
-      isLowStock: currentQuantity <= Number(item.minimumStock),
+      currentQuantity: physicalStock,
+      physicalStock,
+      reservedStock,
+      availableStock,
+      isLowStock: availableStock <= Number(item.minimumStock),
     };
   });
 }
@@ -346,7 +364,7 @@ export async function reserveStockForOrder(tx, shopId, orderId, orderItems) {
   }
 }
 
-export async function checkAndLockStockForWalkin(tx, shopId, items) {
+export async function checkAndLockAvailableStock(tx, shopId, items, { excludeOrderId } = {}) {
   const itemIds = items.map((item) => item.itemId);
   if (itemIds.length === 0) return;
 
@@ -370,7 +388,12 @@ export async function checkAndLockStockForWalkin(tx, shopId, items) {
     const physical = qty(ledgerSum._sum.quantityIn || 0).minus(qty(ledgerSum._sum.quantityOut || 0));
 
     const reservationSum = await tx.stockReservation.aggregate({
-      where: { shopId, itemId, status: "ACTIVE" },
+      where: {
+        shopId,
+        itemId,
+        status: "ACTIVE",
+        orderId: excludeOrderId ? { not: excludeOrderId } : undefined,
+      },
       _sum: { reservedQty: true }
     });
     const reserved = qty(reservationSum._sum.reservedQty || 0);
@@ -381,8 +404,10 @@ export async function checkAndLockStockForWalkin(tx, shopId, items) {
       const item = await tx.item.findUnique({ where: { id: itemId } });
       throw new ApiError(
         400,
-        `Insufficient stock for walk-in item "${item?.name || itemId}". Available: ${available.toString()}, Requested: ${needed.toString()}`
+        `Insufficient available stock for item "${item?.name || itemId}". Physical: ${physical.toString()}, Reserved: ${reserved.toString()}, Available: ${available.toString()}, Requested: ${needed.toString()}`
       );
     }
   }
 }
+
+export const checkAndLockStockForWalkin = checkAndLockAvailableStock;
