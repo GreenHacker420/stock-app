@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, ScrollView, View, Pressable, StyleSheet, Platform, TextInput as RNTextInput, KeyboardAvoidingView } from "react-native";
+import { Alert, ScrollView, View, Pressable, StyleSheet, Platform, TextInput as RNTextInput, KeyboardAvoidingView, useWindowDimensions } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Text, Searchbar, List, Divider, Card, Icon, SegmentedButtons, TextInput } from "react-native-paper";
 import { useDebounce } from "use-debounce";
@@ -47,6 +47,11 @@ export function CreateOrder() {
   const { activeShopId } = useShopStore();
   const queryClient = useQueryClient();
   const network = useNetworkStatus();
+
+  // Screen Dimensions for Responsive / Mobile-First UI
+  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const isTablet = screenWidth > 600;
+  const isSmallMobile = screenWidth < 365;
 
   // Selected party object
   const [selectedParty, setSelectedParty] = useState<Customer | null>(null);
@@ -173,6 +178,16 @@ export function CreateOrder() {
     }
     return `In ${expectedOffsetDays} Days (${dateStr})`;
   }, [expectedOffsetDays]);
+
+  // Responsive expected dispatch pills width calculations
+  const dayPillWidth = useMemo(() => {
+    // 5 columns, total gaps is 4 * 8px (spacing.sm)
+    const gaps = 4 * spacing.sm;
+    // Horizontal screen margins (spacing.lg * 2) + Card content inner margins (spacing.lg * 2)
+    const margins = spacing.lg * 4;
+    const availableWidth = screenWidth - margins - gaps;
+    return Math.floor(availableWidth / 5);
+  }, [screenWidth]);
 
   // Order submission mutation
   const orderMutation = useMutation({
@@ -328,11 +343,11 @@ export function CreateOrder() {
       >
         <ScrollView 
           showsVerticalScrollIndicator={false} 
-          contentContainerStyle={styles.scrollContainer}
+          contentContainerStyle={[styles.scrollContainer, { paddingBottom: isTablet ? 200 : 160 }]}
           keyboardShouldPersistTaps="handled"
         >
           {/* PARTY SECTION */}
-          <View style={styles.sectionContainer}>
+          <View style={[styles.sectionContainer, { zIndex: 100 }]}>
             <Text style={styles.sectionTitle}>Party</Text>
             
             {!selectedParty ? (
@@ -433,7 +448,7 @@ export function CreateOrder() {
           </View>
 
           {/* PRODUCT ADDITION SECTION (POS pad style) */}
-          <View style={styles.sectionContainer}>
+          <View style={[styles.sectionContainer, { zIndex: 90 }]}>
             <Text style={styles.sectionTitle}>Add Products</Text>
             <View style={styles.searchSectionContainer}>
               <Searchbar
@@ -505,9 +520,9 @@ export function CreateOrder() {
               <View style={styles.cartContainer}>
                 {cart.map((item, idx) => (
                   <View key={item.id}>
-                    <View style={styles.cartRow}>
+                    <View style={[styles.cartRow, isSmallMobile && { flexDirection: 'column', alignItems: 'stretch', gap: spacing.sm }]}>
                       <View style={styles.cartRowLeft}>
-                        <Text style={styles.cartRowName} numberOfLines={1}>{item.name}</Text>
+                        <Text style={[styles.cartRowName, { fontSize: isSmallMobile ? 12 : 13 }]} numberOfLines={1}>{item.name}</Text>
                         <Text style={styles.cartRowUnit}>Unit: {item.unit}</Text>
                         
                         {/* Editable Rate Field */}
@@ -523,7 +538,7 @@ export function CreateOrder() {
                         </View>
                       </View>
 
-                      <View style={styles.cartRowRight}>
+                      <View style={[styles.cartRowRight, isSmallMobile && { justifyContent: 'space-between', marginTop: 4 }]}>
                         {/* Large Touch Target Stepper */}
                         <View style={styles.stepperContainer}>
                           <Pressable
@@ -620,9 +635,13 @@ export function CreateOrder() {
                       <Pressable
                         key={days}
                         onPress={() => handleOffsetSelect(days)}
-                        style={[styles.dayPill, expectedOffsetDays === days && styles.dayPillActive]}
+                        style={[
+                          styles.dayPill, 
+                          expectedOffsetDays === days && styles.dayPillActive,
+                          { width: dayPillWidth }
+                        ]}
                       >
-                        <Text style={[styles.dayPillText, expectedOffsetDays === days && styles.dayPillTextActive]}>{days} Day{days > 1 ? 's' : ''}</Text>
+                        <Text style={[styles.dayPillText, expectedOffsetDays === days && styles.dayPillTextActive]}>{days}D</Text>
                       </Pressable>
                     ))}
                   </View>
@@ -696,7 +715,6 @@ const styles = StyleSheet.create({
   scrollContainer: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
-    paddingBottom: 160, // Ensure space for sticky footer
   },
   sectionContainer: {
     marginBottom: spacing.lg,
@@ -710,7 +728,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   searchSectionContainer: {
-    zIndex: 10,
+    position: 'relative',
   },
   searchBar: {
     backgroundColor: colors.surface,
@@ -730,8 +748,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     ...shadow.md,
-    maxHeight: 250,
-    zIndex: 100,
+    maxHeight: 220,
+    position: 'absolute',
+    top: 48,
+    left: 0,
+    right: 0,
+    zIndex: 999,
   },
   dropdownItem: {
     paddingVertical: 4,
@@ -894,7 +916,7 @@ const styles = StyleSheet.create({
   cartRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
     paddingVertical: spacing.sm,
   },
   cartRowLeft: {
@@ -902,7 +924,6 @@ const styles = StyleSheet.create({
     paddingRight: spacing.sm,
   },
   cartRowName: {
-    fontSize: 13,
     fontWeight: fontWeight.bold,
     color: colors.textPrimary,
   },
@@ -1052,10 +1073,9 @@ const styles = StyleSheet.create({
   },
   dispatchRow: {
     flexDirection: 'row',
-    gap: spacing.sm,
+    justifyContent: 'space-between',
   },
   dayPill: {
-    flex: 1,
     height: 34,
     borderRadius: radius.md,
     backgroundColor: colors.surfaceOffset,
@@ -1152,8 +1172,5 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.5,
-  },
-  flex1: {
-    flex: 1,
   },
 });
