@@ -104,7 +104,17 @@ async function main() {
     const getColorsToSplit = (name) => {
       const upperName = name.toUpperCase();
       if (isTriColor(name)) return null;
+
+      // HP GT52 ink bottles are only Cyan, Magenta, Yellow (Black is 53)
+      if (upperName.includes("GT52")) {
+        return ["C", "M", "Y"];
+      }
+
       if (!upperName.includes("COLOR") && !upperName.includes("COLOUR")) return null;
+
+      // Ensure it is actually an ink, toner, refill or cartridge product
+      const isInkOrToner = /INK|TONER|REFILL|CARTRIDGE|CATRIDGE/i.test(name);
+      if (!isInkOrToner) return null;
 
       if (upperName.includes("057") || upperName.includes("6 COLOUR") || upperName.includes("GI-73") || upperName.includes("CH-7")) {
         if (upperName.includes("GI-73") || upperName.includes("CH-7")) {
