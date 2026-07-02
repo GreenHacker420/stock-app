@@ -111,11 +111,11 @@ export function StaffManagement() {
 
         <Section title="Staff activity tracking">
           <View style={styles.infoCard}>
-            <Icon source="chart-timeline-variant" size={22} color={colors.textSecondary} />
+            <Icon source="chart-timeline-variant" size={22} color={colors.primary} />
             <View style={styles.infoText}>
-              <Text style={styles.infoTitle}>Requires backend support</Text>
+              <Text style={styles.infoTitle}>Activity tracking active</Text>
               <Text style={styles.secondaryText}>
-                Attendance, staff-wise sales, payments, expenses, order packing, cash-session history, and performance dashboards need backend activity endpoints before they can be shown here.
+                Select any staff member from the list above to view their real-time performance summary, check-in history, and audit trail logs.
               </Text>
             </View>
           </View>
