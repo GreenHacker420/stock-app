@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Alert, ScrollView, View, Pressable, StyleSheet, Platform, TextInput as RNTextInput, KeyboardAvoidingView, useWindowDimensions } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Text, Searchbar, List, Divider, Card, Icon, SegmentedButtons, TextInput } from "react-native-paper";
@@ -49,7 +49,7 @@ export function CreateOrder() {
   const network = useNetworkStatus();
 
   // Screen Dimensions for Responsive / Mobile-First UI
-  const { width: screenWidth, height: screenHeight } = useWindowDimensions();
+  const { width: screenWidth } = useWindowDimensions();
   const isTablet = screenWidth > 600;
   const isSmallMobile = screenWidth < 365;
 
@@ -181,9 +181,7 @@ export function CreateOrder() {
 
   // Responsive expected dispatch pills width calculations
   const dayPillWidth = useMemo(() => {
-    // 5 columns, total gaps is 4 * 8px (spacing.sm)
     const gaps = 4 * spacing.sm;
-    // Horizontal screen margins (spacing.lg * 2) + Card content inner margins (spacing.lg * 2)
     const margins = spacing.lg * 4;
     const availableWidth = screenWidth - margins - gaps;
     return Math.floor(availableWidth / 5);
@@ -347,7 +345,7 @@ export function CreateOrder() {
           keyboardShouldPersistTaps="handled"
         >
           {/* PARTY SECTION */}
-          <View style={[styles.sectionContainer, { zIndex: 100 }]}>
+          <View style={styles.sectionContainer}>
             <Text style={styles.sectionTitle}>Party</Text>
             
             {!selectedParty ? (
@@ -362,9 +360,9 @@ export function CreateOrder() {
                   iconColor={colors.primary}
                 />
                 
-                {/* Search Dropdown / Recent Parties */}
+                {/* INLINE Search Results (No clipping / z-index overlap issues) */}
                 {customerSearch ? (
-                  <View style={styles.searchDropdown}>
+                  <View style={styles.searchDropdownInline}>
                     {filteredCustomers.map(c => (
                       <List.Item
                         key={c.id}
@@ -448,7 +446,7 @@ export function CreateOrder() {
           </View>
 
           {/* PRODUCT ADDITION SECTION (POS pad style) */}
-          <View style={[styles.sectionContainer, { zIndex: 90 }]}>
+          <View style={styles.sectionContainer}>
             <Text style={styles.sectionTitle}>Add Products</Text>
             <View style={styles.searchSectionContainer}>
               <Searchbar
@@ -461,8 +459,9 @@ export function CreateOrder() {
                 iconColor={colors.primary}
               />
 
+              {/* INLINE Product Search Results (Completely fixes overlap glitches) */}
               {itemSearch ? (
-                <View style={styles.searchDropdown}>
+                <View style={styles.searchDropdownInline}>
                   {filteredItems.map(item => {
                     const stockNum = Number(item.availableStock || 0);
                     const inStock = stockNum > 0;
@@ -741,19 +740,13 @@ const styles = StyleSheet.create({
   searchInput: {
     fontSize: 14,
   },
-  searchDropdown: {
+  searchDropdownInline: {
     backgroundColor: colors.surface,
     borderRadius: radius.md,
     marginTop: spacing.xs,
     borderWidth: 1,
     borderColor: colors.border,
-    ...shadow.md,
-    maxHeight: 220,
-    position: 'absolute',
-    top: 48,
-    left: 0,
-    right: 0,
-    zIndex: 999,
+    padding: spacing.xs,
   },
   dropdownItem: {
     paddingVertical: 4,
