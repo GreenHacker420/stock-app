@@ -81,8 +81,10 @@ export async function getCurrentStock(user, { shopId, itemId }) {
   });
 }
 
-export async function listMovements(user, { shopId, itemId, movementType }) {
+export async function listMovements(user, { shopId, itemId, movementType, page = 1, limit = 50 }) {
   await assertShopAccess(user, shopId);
+  const take = Math.min(Number(limit) || 50, 500);
+  const skip = (Math.max(Number(page), 1) - 1) * take;
 
   const movements = await prisma.stockLedger.findMany({
     where: {
@@ -100,6 +102,8 @@ export async function listMovements(user, { shopId, itemId, movementType }) {
       },
     },
     orderBy: { createdAt: "desc" },
+    skip,
+    take,
   });
 
   // Attach reference details manually since Prisma doesn't support polymorphic relations natively

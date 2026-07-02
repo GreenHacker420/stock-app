@@ -174,16 +174,28 @@ export async function createDeliveryMemo(user, data) {
   });
 }
 
-export async function listDeliveryMemos(user, { shopId, customerId }) {
+export async function listDeliveryMemos(user, { shopId, customerId, status, dateFrom, dateTo, page = 1, limit = 50 }) {
   await assertShopAccess(user, shopId);
+  const take = Math.min(Number(limit) || 50, 200);
+  const skip = (Math.max(Number(page), 1) - 1) * take;
+
   return prisma.deliveryMemo.findMany({
     where: {
       shopId,
       customerId: customerId || undefined,
+      status: status || undefined,
       staffId: user.role === "STAFF" ? user.id : undefined,
+      createdAt: dateFrom || dateTo
+        ? {
+            gte: dateFrom ? new Date(dateFrom) : undefined,
+            lte: dateTo ? new Date(dateTo) : undefined,
+          }
+        : undefined,
     },
     include: { customer: true, items: { include: { item: true } }, payments: true },
     orderBy: { createdAt: "desc" },
+    skip,
+    take,
   });
 }
 

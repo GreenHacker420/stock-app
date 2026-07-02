@@ -25,6 +25,8 @@ const listAttendanceSchema = z.object({
     staffId: z.string().optional(),
     dateFrom: z.string().optional(),
     dateTo: z.string().optional(),
+    page: z.coerce.number().int().positive().optional(),
+    limit: z.coerce.number().int().positive().max(200).optional(),
   }),
 });
 

@@ -18,6 +18,8 @@ const listSchema = z.object({
     unlinked: z.string().transform(val => val === "true").or(z.boolean()).optional(),
     paymentMode: paymentMode.optional(),
     status: z.enum(["RECORDED", "VERIFIED", "REJECTED", "CANCELLED"]).optional(),
+    page: z.coerce.number().int().positive().optional(),
+    limit: z.coerce.number().int().positive().max(200).optional(),
   }),
   params: z.object({}).optional(),
   body: z.object({}).optional(),

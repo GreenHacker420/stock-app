@@ -41,7 +41,15 @@ const createSchema = z.object({
 });
 
 const listSchema = z.object({
-  query: z.object({ shopId: z.string().min(1) }),
+  query: z.object({
+    shopId: z.string().min(1),
+    customerId: z.string().optional(),
+    status: z.enum(["CREATED", "PARTIALLY_PAID", "PAID", "CONVERTED", "RETURNED", "CANCELLED", "OVERDUE"]).optional(),
+    dateFrom: z.string().optional(),
+    dateTo: z.string().optional(),
+    page: z.coerce.number().int().positive().optional(),
+    limit: z.coerce.number().int().positive().max(200).optional(),
+  }),
   params: z.object({}).optional(),
   body: z.object({}).optional(),
 });

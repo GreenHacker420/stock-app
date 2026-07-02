@@ -192,8 +192,10 @@ export async function createOrder(user, data) {
   });
 }
 
-export async function listOrders(user, { shopId, customerId, status }) {
+export async function listOrders(user, { shopId, customerId, status, dateFrom, dateTo, page = 1, limit = 50 }) {
   await assertShopAccess(user, shopId);
+  const take = Math.min(Number(limit) || 50, 200);
+  const skip = (Math.max(Number(page), 1) - 1) * take;
 
   return prisma.order.findMany({
     where: {
@@ -201,9 +203,17 @@ export async function listOrders(user, { shopId, customerId, status }) {
       customerId: customerId || undefined,
       status: status || undefined,
       assignedStaffId: user.role === "STAFF" ? user.id : undefined,
+      createdAt: dateFrom || dateTo
+        ? {
+            gte: dateFrom ? new Date(dateFrom) : undefined,
+            lte: dateTo ? new Date(dateTo) : undefined,
+          }
+        : undefined,
     },
     include: { customer: true, items: { include: { item: true } } },
     orderBy: { createdAt: "desc" },
+    skip,
+    take,
   });
 }
 

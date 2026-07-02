@@ -23,6 +23,8 @@ const querySchema = z.object({
       "DAMAGE_LOSS",
       "MANUAL_ADJUSTMENT",
     ]).optional(),
+    page: z.coerce.number().int().positive().optional(),
+    limit: z.coerce.number().int().positive().max(500).optional(),
   }),
   params: z.object({}).optional(),
   body: z.object({}).optional(),

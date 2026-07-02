@@ -71,9 +71,11 @@ export async function checkOut(user, { shopId, note, staffId }) {
   });
 }
 
-export async function listAttendance(user, { shopId, staffId, dateFrom, dateTo }) {
+export async function listAttendance(user, { shopId, staffId, dateFrom, dateTo, page = 1, limit = 50 }) {
   if (shopId) await assertShopAccess(user, shopId);
   const shopIds = shopId ? [shopId] : undefined;
+  const take = Math.min(Number(limit) || 50, 200);
+  const skip = (Math.max(Number(page), 1) - 1) * take;
 
   return prisma.attendance.findMany({
     where: {
@@ -88,7 +90,9 @@ export async function listAttendance(user, { shopId, staffId, dateFrom, dateTo }
       staff: { select: { id: true, name: true } },
       shop: { select: { id: true, name: true } }
     },
-    orderBy: { date: "desc" }
+    orderBy: { date: "desc" },
+    skip,
+    take,
   });
 }
 

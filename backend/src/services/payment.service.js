@@ -20,8 +20,10 @@ async function getPaymentWithAccess(user, id) {
   return payment;
 }
 
-export async function listPayments(user, { shopId, customerId, paymentMode, status, unlinked }) {
+export async function listPayments(user, { shopId, customerId, paymentMode, status, unlinked, page = 1, limit = 50 }) {
   await assertShopAccess(user, shopId);
+  const take = Math.min(Number(limit) || 50, 200);
+  const skip = (Math.max(Number(page), 1) - 1) * take;
 
   return prisma.payment.findMany({
     where: {
@@ -38,6 +40,8 @@ export async function listPayments(user, { shopId, customerId, paymentMode, stat
     },
     include: { details: true, customer: true, receivedBy: { select: { id: true, name: true } } },
     orderBy: { receivedAt: "desc" },
+    skip,
+    take,
   });
 }
 
