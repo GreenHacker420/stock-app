@@ -534,8 +534,19 @@ export async function createWalkInSale(token: string, data: any) {
 }
 
 // ORDERS
-export async function fetchOrders(token: string, shopId: string) {
-  return apiRequest<Order[]>(`/orders?shopId=${encodeURIComponent(shopId)}`, { token });
+export async function fetchOrders(
+  token: string,
+  shopId: string,
+  opts: { status?: string; customerId?: string; dateFrom?: string; dateTo?: string; page?: number; limit?: number } = {},
+) {
+  const params = new URLSearchParams({ shopId });
+  if (opts.status) params.set("status", opts.status);
+  if (opts.customerId) params.set("customerId", opts.customerId);
+  if (opts.dateFrom) params.set("dateFrom", opts.dateFrom);
+  if (opts.dateTo) params.set("dateTo", opts.dateTo);
+  if (opts.page) params.set("page", String(opts.page));
+  params.set("limit", String(opts.limit ?? 50));
+  return apiRequest<Order[]>(`/orders?${params.toString()}`, { token });
 }
 
 export async function fetchOrder(token: string, id: string) {
@@ -690,12 +701,18 @@ export async function fetchItemRateSuggestion(token: string, itemId: string, cus
 }
 
 // PAYMENTS & VERIFICATION
-export async function fetchPayments(token: string, shopId: string, options: { status?: PaymentStatus; customerId?: string; unlinked?: boolean } = {}) {
-  let url = `/payments?shopId=${encodeURIComponent(shopId)}`;
-  if (options.status) url += `&status=${options.status}`;
-  if (options.customerId) url += `&customerId=${encodeURIComponent(options.customerId)}`;
-  if (options.unlinked !== undefined) url += `&unlinked=${options.unlinked}`;
-  return apiRequest<Payment[]>(url, { token });
+export async function fetchPayments(
+  token: string,
+  shopId: string,
+  options: { status?: PaymentStatus; customerId?: string; unlinked?: boolean; page?: number; limit?: number } = {},
+) {
+  const params = new URLSearchParams({ shopId });
+  if (options.status) params.set("status", options.status);
+  if (options.customerId) params.set("customerId", options.customerId);
+  if (options.unlinked !== undefined) params.set("unlinked", String(options.unlinked));
+  if (options.page) params.set("page", String(options.page));
+  params.set("limit", String(options.limit ?? 50));
+  return apiRequest<Payment[]>(`/payments?${params.toString()}`, { token });
 }
 
 export async function attachPayment(token: string, paymentId: string, data: { saleId?: string; dmId?: string; orderId?: string }) {
@@ -1102,8 +1119,19 @@ export async function registerPushToken(token: string, pushToken: string) {
   });
 }
 
-export async function fetchDeliveryMemos(token: string, shopId: string) {
-  return apiRequest<any[]>(`/delivery-memos?shopId=${encodeURIComponent(shopId)}`, { token });
+export async function fetchDeliveryMemos(
+  token: string,
+  shopId: string,
+  opts: { customerId?: string; status?: string; dateFrom?: string; dateTo?: string; page?: number; limit?: number } = {},
+) {
+  const params = new URLSearchParams({ shopId });
+  if (opts.customerId) params.set("customerId", opts.customerId);
+  if (opts.status) params.set("status", opts.status);
+  if (opts.dateFrom) params.set("dateFrom", opts.dateFrom);
+  if (opts.dateTo) params.set("dateTo", opts.dateTo);
+  if (opts.page) params.set("page", String(opts.page));
+  params.set("limit", String(opts.limit ?? 50));
+  return apiRequest<any[]>(`/delivery-memos?${params.toString()}`, { token });
 }
 
 export async function fetchDeliveryMemo(token: string, id: string) {
@@ -1136,12 +1164,17 @@ export async function syncDomainEvents(
 }
 
 // ATTENDANCE & LEAVES
-export async function fetchAttendance(token: string, filters: { shopId?: string; staffId?: string; dateFrom?: string; dateTo?: string } = {}) {
+export async function fetchAttendance(
+  token: string,
+  filters: { shopId?: string; staffId?: string; dateFrom?: string; dateTo?: string; page?: number; limit?: number } = {},
+) {
   const params = new URLSearchParams();
   if (filters.shopId) params.append("shopId", filters.shopId);
   if (filters.staffId) params.append("staffId", filters.staffId);
   if (filters.dateFrom) params.append("dateFrom", filters.dateFrom);
   if (filters.dateTo) params.append("dateTo", filters.dateTo);
+  if (filters.page) params.append("page", String(filters.page));
+  params.append("limit", String(filters.limit ?? 50));
   return apiRequest<any[]>(`/attendance?${params.toString()}`, { token });
 }
 

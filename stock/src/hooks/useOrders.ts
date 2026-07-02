@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
 import { useAuthStore } from "../auth/auth-store";
 import { useShopStore } from "../auth/shop-store";
 import { queryKeys } from "./query-keys";
@@ -19,16 +19,44 @@ import { warmOfflineCache } from "../utils/mmkvCache";
 import { newIdempotencyKey } from "../utils/idempotency";
 import { requireActiveShopId } from "./useActiveShop";
 
-export function useOrdersQuery(options: { search?: string } = {}) {
+const ORDERS_PAGE_SIZE = 30;
+
+/** Infinite-scroll version — preferred for the orders list screen */
+export function useInfiniteOrdersQuery(opts: {
+  status?: string;
+  customerId?: string;
+  dateFrom?: string;
+  dateTo?: string;
+} = {}) {
+  const token = useAuthStore((state) => state.token);
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  return useInfiniteQuery({
+    queryKey: [...queryKeys.orders(activeShopId ?? ""), "infinite", opts],
+    queryFn: ({ pageParam = 1 }) =>
+      fetchOrders(token ?? "", activeShopId ?? "", {
+        ...opts,
+        page: pageParam as number,
+        limit: ORDERS_PAGE_SIZE,
+      }),
+    getNextPageParam: (lastPage, allPages) =>
+      lastPage.length === ORDERS_PAGE_SIZE ? allPages.length + 1 : undefined,
+    initialPageParam: 1,
+    enabled: !!token && !!activeShopId,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useOrdersQuery(options: { search?: string; status?: string } = {}) {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
   return useQuery({
-    queryKey: [...queryKeys.orders(activeShopId ?? ""), options.search],
-    queryFn: () => fetchOrders(token ?? "", activeShopId ?? ""), // Note: API currently doesn't take search, but we might filter in UI or update API
+    queryKey: [...queryKeys.orders(activeShopId ?? ""), options.search, options.status],
+    queryFn: () => fetchOrders(token ?? "", activeShopId ?? "", { status: options.status, limit: 200 }),
     enabled: !!token && !!activeShopId,
     staleTime: 10 * 60 * 1000, // 10 mins
   });
 }
+
 
 export function useOrderDetailQuery(id: string) {
   const token = useAuthStore((state) => state.token);

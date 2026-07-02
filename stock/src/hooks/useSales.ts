@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
 import { useAuthStore } from "../auth/auth-store";
 import { useShopStore } from "../auth/shop-store";
 import { queryKeys } from "./query-keys";
@@ -7,6 +7,34 @@ import { newIdempotencyKey } from "../utils/idempotency";
 import { warmOfflineCache } from "../utils/mmkvCache";
 import { requireActiveShopId } from "./useActiveShop";
 
+const SALES_PAGE_SIZE = 30;
+
+/** Infinite-scroll version — preferred for list screens */
+export function useInfiniteSalesQuery(opts: {
+  dateFrom?: string;
+  dateTo?: string;
+  customerId?: string;
+} = {}) {
+  const token = useAuthStore((state) => state.token);
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  return useInfiniteQuery({
+    queryKey: [...queryKeys.sales(activeShopId ?? ""), "infinite", opts],
+    queryFn: ({ pageParam = 1 }) =>
+      fetchSales(token ?? "", activeShopId ?? "", {
+        page: pageParam as number,
+        limit: SALES_PAGE_SIZE,
+        dateFrom: opts.dateFrom,
+        dateTo: opts.dateTo,
+      }),
+    getNextPageParam: (lastPage, allPages) =>
+      lastPage.length === SALES_PAGE_SIZE ? allPages.length + 1 : undefined,
+    initialPageParam: 1,
+    enabled: !!token && !!activeShopId,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+/** Simple one-shot query — kept for backward compat / small datasets */
 export function useSalesQuery() {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
@@ -17,6 +45,7 @@ export function useSalesQuery() {
     staleTime: 10 * 60 * 1000, // 10 mins
   });
 }
+
 
 export function useSaleQuery(id: string) {
   const token = useAuthStore((state) => state.token);

@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
 import { useAuthStore } from "../auth/auth-store";
 import { useShopStore } from "../auth/shop-store";
 import { queryKeys } from "./query-keys";
@@ -7,6 +7,33 @@ import { newIdempotencyKey } from "../utils/idempotency";
 import { warmOfflineCache } from "../utils/mmkvCache";
 import { requireActiveShopId } from "./useActiveShop";
 
+const PAYMENTS_PAGE_SIZE = 30;
+
+/** Infinite-scroll version — preferred for the payments list screen */
+export function useInfinitePaymentsQuery(opts: {
+  status?: PaymentStatus;
+  customerId?: string;
+  unlinked?: boolean;
+} = {}) {
+  const token = useAuthStore((state) => state.token);
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  return useInfiniteQuery({
+    queryKey: ["payments-infinite", activeShopId ?? "", opts],
+    queryFn: ({ pageParam = 1 }) =>
+      fetchPayments(token ?? "", activeShopId ?? "", {
+        ...opts,
+        page: pageParam as number,
+        limit: PAYMENTS_PAGE_SIZE,
+      }),
+    getNextPageParam: (lastPage, allPages) =>
+      lastPage.length === PAYMENTS_PAGE_SIZE ? allPages.length + 1 : undefined,
+    initialPageParam: 1,
+    enabled: !!token && !!activeShopId,
+    staleTime: 3 * 60 * 1000,
+  });
+}
+
+/** Simple one-shot query — kept for backward compat (customer detail page, etc.) */
 export function usePaymentsQuery(shopId?: string, options: { status?: PaymentStatus; customerId?: string; unlinked?: boolean } = {}) {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
@@ -18,6 +45,7 @@ export function usePaymentsQuery(shopId?: string, options: { status?: PaymentSta
     staleTime: 3 * 60 * 1000, // 3 mins
   });
 }
+
 
 export function useAddPaymentMutation() {
   const token = useAuthStore((state) => state.token);
