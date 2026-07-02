@@ -171,12 +171,15 @@ export function CustomerList() {
 
 export function AddEditCustomer() {
   const token = useAuthStore((state) => state.token);
+  const user = useAuthStore((state) => state.user);
   const activeShopId = useShopStore((state) => state.activeShopId);
   const route = useRoute();
   const queryClient = useQueryClient();
   const network = useNetworkStatus();
   const customer = (route.params as { customer?: Customer } | undefined)?.customer;
   
+  const isOwner = user?.role === "OWNER";
+
   const [form, setForm] = useState({
     name: customer?.name ?? "",
     phone: customer?.phone ?? "",
@@ -222,13 +225,75 @@ export function AddEditCustomer() {
       <View style={styles.formContainer}>
         <Section title="Customer details">
           <View style={styles.formCard}>
-            <TextInput mode="outlined" label="Name" value={form.name} onChangeText={(v) => set("name", v)} outlineStyle={styles.inputOutline} style={styles.input} />
-            <TextInput mode="outlined" label="Phone" value={form.phone ?? ""} onChangeText={(v) => set("phone", v)} outlineStyle={styles.inputOutline} style={styles.input} />
-            <TextInput mode="outlined" label="Address" value={form.address ?? ""} onChangeText={(v) => set("address", v)} outlineStyle={styles.inputOutline} style={styles.input} />
-            <TextInput mode="outlined" label="City" value={form.city ?? ""} onChangeText={(v) => set("city", v)} outlineStyle={styles.inputOutline} style={styles.input} />
-            <TextInput mode="outlined" label="GSTIN" value={form.gstin ?? ""} onChangeText={(v) => set("gstin", v)} outlineStyle={styles.inputOutline} style={styles.input} />
-            <TextInput mode="outlined" label="Credit limit" keyboardType="numeric" value={form.creditLimit} onChangeText={(v) => set("creditLimit", v)} outlineStyle={styles.inputOutline} style={styles.input} />
-            <TextInput mode="outlined" label="Notes" multiline value={form.notes ?? ""} onChangeText={(v) => set("notes", v)} outlineStyle={styles.inputOutline} style={styles.input} />
+            <TextInput 
+              mode="outlined" 
+              label="Customer Name * (Required)" 
+              value={form.name} 
+              onChangeText={(v) => set("name", v)} 
+              outlineStyle={styles.inputOutline} 
+              style={styles.input} 
+            />
+            <TextInput 
+              mode="outlined" 
+              label="Phone Number (Optional)" 
+              value={form.phone ?? ""} 
+              onChangeText={(v) => set("phone", v)} 
+              outlineStyle={styles.inputOutline} 
+              style={styles.input} 
+            />
+            <TextInput 
+              mode="outlined" 
+              label="Address (Optional)" 
+              value={form.address ?? ""} 
+              onChangeText={(v) => set("address", v)} 
+              outlineStyle={styles.inputOutline} 
+              style={styles.input} 
+            />
+            <TextInput 
+              mode="outlined" 
+              label="City (Optional)" 
+              value={form.city ?? ""} 
+              onChangeText={(v) => set("city", v)} 
+              outlineStyle={styles.inputOutline} 
+              style={styles.input} 
+            />
+            <TextInput 
+              mode="outlined" 
+              label="GSTIN (Optional)" 
+              value={form.gstin ?? ""} 
+              onChangeText={(v) => set("gstin", v)} 
+              outlineStyle={styles.inputOutline} 
+              style={styles.input} 
+            />
+            {isOwner ? (
+              <TextInput 
+                mode="outlined" 
+                label="Credit Limit (Optional)" 
+                keyboardType="numeric" 
+                value={form.creditLimit} 
+                onChangeText={(v) => set("creditLimit", v)} 
+                outlineStyle={styles.inputOutline} 
+                style={styles.input} 
+              />
+            ) : (
+              <TextInput 
+                mode="outlined" 
+                label="Credit Limit (Set by Owner only)" 
+                value={form.creditLimit ? `₹${Number(form.creditLimit).toLocaleString()}` : "No credit limit set"} 
+                disabled 
+                outlineStyle={styles.inputOutline} 
+                style={styles.input} 
+              />
+            )}
+            <TextInput 
+              mode="outlined" 
+              label="Internal Notes (Optional)" 
+              multiline 
+              value={form.notes ?? ""} 
+              onChangeText={(v) => set("notes", v)} 
+              outlineStyle={styles.inputOutline} 
+              style={styles.input} 
+            />
           </View>
         </Section>
         <View style={styles.formFooter}>

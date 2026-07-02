@@ -4,6 +4,7 @@ import { useRoute } from "@react-navigation/native";
 import { Divider, Icon, Text, ActivityIndicator } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 
+import { useAuthStore } from "../../auth/auth-store";
 import { useCustomerDetailQuery, useCustomerSalesQuery, useCustomerPaymentsQuery, useCustomerDMsQuery, useCustomerReturnsQuery, useCustomerTimelineQuery } from "../../hooks/useCustomers";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
@@ -80,6 +81,9 @@ export function CustomerDetail() {
 }
 
 function OverviewTab({ customer }: { customer: any }) {
+  const user = useAuthStore((state) => state.user);
+  const isOwner = user?.role === "OWNER";
+
   return (
     <ScrollView contentContainerStyle={styles.tabContent}>
       <View style={styles.statsGrid}>
@@ -88,8 +92,8 @@ function OverviewTab({ customer }: { customer: any }) {
           <Text style={[styles.statValue, { color: colors.danger }]}>{money(customer.outstandingAmount)}</Text>
         </View>
         <View style={styles.statCard}>
-          <Text style={styles.statLabel}>Advance</Text>
-          <Text style={[styles.statValue, { color: colors.success }]}>{money(customer.advanceBalance)}</Text>
+          <Text style={styles.statLabel}>Sales</Text>
+          <Text style={[styles.statValue, { color: colors.primary }]}>{money(customer.totalSales)}</Text>
         </View>
       </View>
 
@@ -103,7 +107,7 @@ function OverviewTab({ customer }: { customer: any }) {
         </View>
       </Section>
 
-      {customer.type !== "WALK_IN" && (
+      {customer.type !== "WALK_IN" && isOwner && (
         <Button 
           variant="secondary" 
           label="Edit Profile" 
