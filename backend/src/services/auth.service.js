@@ -90,17 +90,33 @@ export async function updateMe(currentUser, data) {
 }
 
 export async function listStaff(currentUser) {
+  const ownedShops = await prisma.shop.findMany({
+    where: { ownerId: currentUser.id },
+    select: { id: true },
+  });
+  const shopIds = ownedShops.map((s) => s.id);
+
   return prisma.user.findMany({
     where: {
       role: "STAFF",
-      staffOwnerId: currentUser.id,
       status: "ACTIVE",
+      OR: [
+        { staffOwnerId: currentUser.id },
+        {
+          staffShopAccesses: {
+            some: {
+              shopId: { in: shopIds },
+            },
+          },
+        },
+      ],
     },
     select: {
       id: true,
       name: true,
       mobile: true,
       email: true,
+      status: true,
     },
     orderBy: {
       name: "asc",
