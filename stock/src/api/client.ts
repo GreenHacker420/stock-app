@@ -294,6 +294,7 @@ export class ApiError extends Error {
   constructor(
     message: string,
     public status: number,
+    public field?: string | null,
   ) {
     super(message);
   }
@@ -326,7 +327,7 @@ export async function apiRequest<T>(
     : { success: response.ok, data: undefined as T };
 
   if (!response.ok) {
-    throw new ApiError(payload.message || "Request failed", response.status);
+    throw new ApiError(payload.message || "Request failed", response.status, (payload as any).field ?? null);
   }
 
   return payload.data;

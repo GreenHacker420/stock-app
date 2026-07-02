@@ -29,6 +29,7 @@ export function CreateEditShop() {
   const [gstin, setGstin] = useState("");
   const [logo, setLogo] = useState("");
   const [error, setError] = useState("");
+  const [codeError, setCodeError] = useState("");
 
   useEffect(() => {
     if (shop) {
@@ -42,6 +43,17 @@ export function CreateEditShop() {
       setLogo(shop.logo || "");
     }
   }, [shop]);
+
+  const handleCodeChange = (text: string) => {
+    const upper = text.toUpperCase().replace(/[^A-Z0-9\-_]/g, "");
+    setCode(upper);
+    setError("");
+    if (upper.length > 0 && upper.length < 2) {
+      setCodeError("Code must be at least 2 characters.");
+    } else {
+      setCodeError("");
+    }
+  };
 
   const mutation = useMutation({
     mutationFn: () => {
@@ -73,11 +85,22 @@ export function CreateEditShop() {
       goBack();
     },
     onError: (err: any) => {
-      setError(err?.message || "Something went wrong. Please check your inputs.");
+      const msg: string = err?.message || "Something went wrong. Please check your inputs.";
+      const field: string | null = err?.field ?? null;
+      // If the backend tells us it's a "code" field conflict, show it inline
+      if (field === "code" || msg.toLowerCase().includes("code already exists")) {
+        setCodeError("This shop code is already taken. Try a different one (e.g. NGP-02).");
+      } else {
+        setError(msg);
+      }
     },
   });
 
-  const isValid = name.trim().length > 0 && code.trim().length > 0 && city.trim().length > 0;
+  const isValid =
+    name.trim().length > 0 &&
+    code.trim().length >= 2 &&
+    city.trim().length > 0 &&
+    codeError === "";
 
   return (
     <Screen>
@@ -103,19 +126,32 @@ export function CreateEditShop() {
               activeOutlineColor={colors.primary}
             />
 
-            <TextInput
-              mode="outlined"
-              label="Shop unique code"
-              value={code}
-              onChangeText={(text) => {
-                setCode(text.toUpperCase());
-                setError("");
-              }}
-              disabled={isEditing}
-              placeholder="e.g. NGP-01"
-              outlineStyle={styles.inputOutline}
-              activeOutlineColor={colors.primary}
-            />
+            <View>
+              <TextInput
+                mode="outlined"
+                label="Shop unique code"
+                value={code}
+                onChangeText={handleCodeChange}
+                disabled={isEditing}
+                placeholder="e.g. NGP-01"
+                autoCapitalize="characters"
+                outlineStyle={[
+                  styles.inputOutline,
+                  codeError ? { borderColor: colors.danger } : null,
+                ]}
+                activeOutlineColor={codeError ? colors.danger : colors.primary}
+                error={!!codeError}
+              />
+              {codeError ? (
+                <HelperText type="error" visible={true} style={styles.fieldError}>
+                  {codeError}
+                </HelperText>
+              ) : (
+                <HelperText type="info" visible={true} style={styles.fieldHint}>
+                  Uppercase letters, numbers, hyphens only. Cannot be changed later.
+                </HelperText>
+              )}
+            </View>
 
             <TextInput
               mode="outlined"
@@ -225,5 +261,15 @@ const styles = StyleSheet.create({
   },
   buttonContent: {
     height: 50,
+  },
+  fieldError: {
+    fontSize: fontSize.xs,
+    color: colors.danger,
+    marginTop: -4,
+  },
+  fieldHint: {
+    fontSize: fontSize.xs,
+    color: colors.textMuted,
+    marginTop: -4,
   },
 });
