@@ -841,6 +841,8 @@ export function StaffDetail() {
   const checkInMutation = useCheckInMutation();
   const checkOutMutation = useCheckOutMutation();
 
+  const [isShopAccessCollapsed, setIsShopAccessCollapsed] = useState(true);
+
   const [rangePreset, setRangePreset] = useState<"today" | "yesterday" | "thisWeek" | "lastWeek" | "thisMonth" | "custom">("today");
   const [customDates, setCustomDates] = useState({ from: "", to: "" });
   const [customDatesModalVisible, setCustomDatesModalVisible] = useState(false);
@@ -1208,38 +1210,58 @@ export function StaffDetail() {
 
       {/* Shop Access Management Section */}
       <View style={styles.shopAccessCard}>
-        <Text style={styles.sectionHeaderTitle}>Shop Assignments</Text>
-        <Text style={styles.sectionHeaderSubtitle}>Assign this account to shops to grant them access.</Text>
-        
-        {shopsQuery.isLoading ? (
-          <ActivityIndicator style={{ margin: spacing.md }} color={colors.primary} />
-        ) : (
-          <View style={styles.shopList}>
-            {shopsQuery.data?.map((shop) => {
-              const assigned = isAssigned(shop.id);
-              const isMutating = 
-                (assignMutation.isPending && assignMutation.variables?.shopId === shop.id) ||
-                (unassignMutation.isPending && unassignMutation.variables?.shopId === shop.id);
-                
-              return (
-                <View key={shop.id} style={styles.shopRow}>
-                  <View style={styles.shopInfoText}>
-                    <Text style={styles.shopNameText}>{shop.name}</Text>
-                    <Text style={styles.shopCodeText}>{shop.code} • {shop.city}</Text>
-                  </View>
-                  {isMutating ? (
-                    <ActivityIndicator size="small" color={colors.primary} style={{ marginRight: 8 }} />
-                  ) : (
-                    <Switch
-                      value={assigned}
-                      onValueChange={() => handleToggleShop(shop.id, assigned)}
-                      color={colors.primary}
-                    />
-                  )}
-                </View>
-              );
-            })}
+        <Pressable 
+          onPress={() => setIsShopAccessCollapsed(!isShopAccessCollapsed)}
+          style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}
+        >
+          <View style={{ flex: 1 }}>
+            <Text style={styles.sectionHeaderTitle}>Shop Assignments</Text>
+            {isShopAccessCollapsed && (
+              <Text style={{ fontSize: fontSize.xs, color: colors.textSecondary, marginTop: 2 }}>
+                Tap to view or edit assigned shops
+              </Text>
+            )}
           </View>
+          <Icon source={isShopAccessCollapsed ? "chevron-down" : "chevron-up"} size={20} color={colors.textSecondary} />
+        </Pressable>
+
+        {!isShopAccessCollapsed && (
+          <>
+            <Text style={[styles.sectionHeaderSubtitle, { marginTop: spacing.xs }]}>
+              Assign this account to shops to grant them access.
+            </Text>
+            
+            {shopsQuery.isLoading ? (
+              <ActivityIndicator style={{ margin: spacing.md }} color={colors.primary} />
+            ) : (
+              <View style={styles.shopList}>
+                {shopsQuery.data?.map((shop) => {
+                  const assigned = isAssigned(shop.id);
+                  const isMutating = 
+                    (assignMutation.isPending && assignMutation.variables?.shopId === shop.id) ||
+                    (unassignMutation.isPending && unassignMutation.variables?.shopId === shop.id);
+                    
+                  return (
+                    <View key={shop.id} style={styles.shopRow}>
+                      <View style={styles.shopInfoText}>
+                        <Text style={styles.shopNameText}>{shop.name}</Text>
+                        <Text style={styles.shopCodeText}>{shop.code} • {shop.city}</Text>
+                      </View>
+                      {isMutating ? (
+                        <ActivityIndicator size="small" color={colors.primary} style={{ marginRight: 8 }} />
+                      ) : (
+                        <Switch
+                          value={assigned}
+                          onValueChange={() => handleToggleShop(shop.id, assigned)}
+                          color={colors.primary}
+                        />
+                      )}
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+          </>
         )}
       </View>
 
