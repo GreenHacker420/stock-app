@@ -74,7 +74,7 @@ async function checkExpoPushReceipts() {
       if (receipt.status === "ok") {
         await prisma.notificationPushDelivery.update({
           where: { id: delivery.id },
-          data: { status: "DELIVERED" },
+          data: { status: "SENT" },
         });
       } else if (receipt.status === "error") {
         const errorCode = receipt.details?.error || null;
