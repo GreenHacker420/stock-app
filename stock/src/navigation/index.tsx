@@ -51,6 +51,7 @@ import { DeliveryMemoList } from "./screens/DeliveryMemoList";
 import { CreateDeliveryMemo } from "./screens/CreateDeliveryMemo";
 import { DeliveryMemoDetail } from "./screens/DeliveryMemoDetail";
 import { ManageCategories } from "./screens/ManageCategories";
+import { CopyCatalog } from "./screens/CopyCatalog";
 // import { ChatListScreen } from "../modules/whatsapp/screens/ChatListScreen";
 // import { ChatDetailScreen } from "../modules/whatsapp/screens/ChatDetailScreen";
 // import { WhatsAppSetupScreen } from "../modules/whatsapp/screens/WhatsAppSetupScreen";
@@ -577,6 +578,10 @@ const sharedStackScreens = {
     screen: ownerOnlyScreen(ManageCategories),
     options: { title: "Manage categories" },
   },
+  CopyCatalog: {
+    screen: ownerOnlyScreen(CopyCatalog),
+    options: { title: "Copy Catalog" },
+  },
 };
 
 const StaffRootStack = createNativeStackNavigator({
@@ -699,6 +704,7 @@ export type RootStackParamList = {
   Settings: undefined;
   Home: undefined;
   ManageCategories: undefined;
+  CopyCatalog: undefined;
 };
 
 export type StaffStackParamList = RootStackParamList;

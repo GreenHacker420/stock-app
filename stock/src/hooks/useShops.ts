@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "../auth/auth-store";
 import { queryKeys } from "./query-keys";
-import { fetchShops, createShop, updateShop, assignStaffToShop, unassignStaffFromShop, setOpeningStock, fetchStaff, createDmFromOrder, transferStock } from "../api/client";
+import { fetchShops, createShop, updateShop, assignStaffToShop, unassignStaffFromShop, setOpeningStock, fetchStaff, createDmFromOrder, transferStock, copyCatalog } from "../api/client";
 import { newIdempotencyKey } from "../utils/idempotency";
 
 export function useShopsQuery() {
@@ -116,3 +116,17 @@ export function useTransferStockMutation() {
     },
   });
 }
+
+export function useCopyCatalogMutation() {
+  const token = useAuthStore((state) => state.token);
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { sourceShopId: string; targetShopId: string; overwrite?: boolean; splitColors?: boolean }) =>
+      copyCatalog(token ?? "", data),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.items(variables.targetShopId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.shops() });
+    },
+  });
+}
+

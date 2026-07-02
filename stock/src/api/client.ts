@@ -1217,3 +1217,12 @@ export async function transferStock(token: string, data: { sourceShopId: string;
     body: JSON.stringify(data),
   });
 }
+
+export async function copyCatalog(token: string, data: { sourceShopId: string; targetShopId: string; overwrite?: boolean; splitColors?: boolean }) {
+  return apiRequest<{ success: boolean; copiedCount: number; skippedCount: number }>("/shops/copy-catalog", {
+    method: "POST",
+    token,
+    body: JSON.stringify(data),
+  });
+}
+

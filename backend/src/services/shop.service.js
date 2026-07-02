@@ -311,3 +311,203 @@ export async function unassignStaff(user, shopId, staffId) {
 
   return { success: true };
 }
+
+export async function copyCatalog(user, { sourceShopId, targetShopId, overwrite = false, splitColors = true }) {
+  // Validate that user owns both shops
+  const sourceShop = await prisma.shop.findFirst({
+    where: { id: sourceShopId, ownerId: user.id },
+  });
+  const targetShop = await prisma.shop.findFirst({
+    where: { id: targetShopId, ownerId: user.id },
+  });
+
+  if (!sourceShop || !targetShop) {
+    throw new ApiError(403, "You do not have owner access to one or both of these shops");
+  }
+
+  return await prisma.$transaction(async (tx) => {
+    // 1. Copy Categories
+    const sourceCategories = await tx.itemCategory.findMany({
+      where: { shopId: sourceShopId },
+    });
+
+    const categoryMap = new Map(); // oldId -> newId
+
+    for (const cat of sourceCategories) {
+      // Check if category already exists in target shop by name
+      let targetCat = await tx.itemCategory.findFirst({
+        where: { shopId: targetShopId, name: cat.name },
+      });
+
+      if (!targetCat) {
+        targetCat = await tx.itemCategory.create({
+          data: {
+            shopId: targetShopId,
+            name: cat.name,
+            status: cat.status,
+          },
+        });
+      }
+
+      categoryMap.set(cat.id, targetCat.id);
+    }
+
+    // 2. Copy Items
+    const sourceItems = await tx.item.findMany({
+      where: { shopId: sourceShopId },
+    });
+
+    let copiedCount = 0;
+    let skippedCount = 0;
+
+
+
+    const getColorsToSplit = (name) => {
+      const upperName = name.toUpperCase();
+      if (isTriColor(name)) return null;
+      if (!upperName.includes("COLOR") && !upperName.includes("COLOUR")) return null;
+
+      if (upperName.includes("057") || upperName.includes("6 COLOUR") || upperName.includes("GI-73") || upperName.includes("CH-7")) {
+        if (upperName.includes("GI-73") || upperName.includes("CH-7")) {
+          return ["Bk", "C", "M", "Y", "GY", "R"];
+        }
+        return ["Bk", "C", "M", "Y", "LC", "LM"];
+      }
+      return ["Bk", "C", "M", "Y"];
+    };
+
+    for (const item of sourceItems) {
+      const colors = splitColors ? getColorsToSplit(item.name) : null;
+      const targetCategoryId = item.categoryId ? categoryMap.get(item.categoryId) || null : null;
+
+      if (colors && colors.length > 0) {
+        // Create a variant for each color
+        for (const col of colors) {
+          let variantName = item.name.replace(/COLOUR/i, col).replace(/COLOR/i, col);
+          if (variantName === item.name) {
+            variantName = `${item.name} ${col}`;
+          }
+
+          const variantSku = item.sku ? `${item.sku}-${col}` : null;
+
+          // Check if already exists in target
+          const exists = await tx.item.findFirst({
+            where: {
+              shopId: targetShopId,
+              OR: [
+                { name: variantName },
+                ...(variantSku ? [{ sku: variantSku }] : []),
+              ],
+            },
+          });
+
+          if (exists) {
+            if (overwrite) {
+              await tx.item.update({
+                where: { id: exists.id },
+                data: {
+                  categoryId: targetCategoryId,
+                  unit: item.unit,
+                  defaultSellingPrice: item.defaultSellingPrice,
+                  minimumAllowedPrice: item.minimumAllowedPrice,
+                  purchasePrice: item.purchasePrice,
+                  mrp: item.mrp,
+                  minimumStock: item.minimumStock,
+                  imageUrl: item.imageUrl,
+                  status: item.status,
+                },
+              });
+              copiedCount++;
+            } else {
+              skippedCount++;
+            }
+          } else {
+            await tx.item.create({
+              data: {
+                shopId: targetShopId,
+                name: variantName,
+                sku: variantSku,
+                categoryId: targetCategoryId,
+                unit: item.unit,
+                defaultSellingPrice: item.defaultSellingPrice,
+                minimumAllowedPrice: item.minimumAllowedPrice,
+                purchasePrice: item.purchasePrice,
+                mrp: item.mrp,
+                minimumStock: item.minimumStock,
+                imageUrl: item.imageUrl,
+                status: item.status,
+              },
+            });
+            copiedCount++;
+          }
+        }
+      } else {
+        // Direct copy
+        const exists = await tx.item.findFirst({
+          where: {
+            shopId: targetShopId,
+            OR: [
+              { name: item.name },
+              ...(item.sku ? [{ sku: item.sku }] : []),
+            ],
+          },
+        });
+
+        if (exists) {
+          if (overwrite) {
+            await tx.item.update({
+              where: { id: exists.id },
+              data: {
+                categoryId: targetCategoryId,
+                unit: item.unit,
+                defaultSellingPrice: item.defaultSellingPrice,
+                minimumAllowedPrice: item.minimumAllowedPrice,
+                purchasePrice: item.purchasePrice,
+                mrp: item.mrp,
+                minimumStock: item.minimumStock,
+                imageUrl: item.imageUrl,
+                status: item.status,
+              },
+            });
+            copiedCount++;
+          } else {
+            skippedCount++;
+          }
+        } else {
+          await tx.item.create({
+            data: {
+              shopId: targetShopId,
+              name: item.name,
+              sku: item.sku,
+              categoryId: targetCategoryId,
+              unit: item.unit,
+              defaultSellingPrice: item.defaultSellingPrice,
+              minimumAllowedPrice: item.minimumAllowedPrice,
+              purchasePrice: item.purchasePrice,
+              mrp: item.mrp,
+              minimumStock: item.minimumStock,
+              imageUrl: item.imageUrl,
+              status: item.status,
+            },
+          });
+          copiedCount++;
+        }
+      }
+    }
+
+    // Write audit log
+    await tx.auditLog.create({
+      data: {
+        userId: user.id,
+        shopId: targetShopId,
+        action: AuditAction.UPDATED,
+        entityType: EntityType.SHOP,
+        entityId: targetShopId,
+        newValueJson: { copyCatalog: { sourceShopId, targetShopId, copiedCount, skippedCount, overwrite, splitColors } },
+      }
+    });
+
+    return { success: true, copiedCount, skippedCount };
+  });
+}
+

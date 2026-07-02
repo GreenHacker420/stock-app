@@ -159,6 +159,11 @@ export function Settings() {
                 icon="account-group-outline"
                 label="Staff Permissions"
                 onPress={() => navigate("StaffManagement")}
+              />
+              <SettingRow
+                icon="database-sync-outline"
+                label="Import/Export Catalog"
+                onPress={() => navigate("CopyCatalog")}
                 isLast
               />
             </View>

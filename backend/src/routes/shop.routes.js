@@ -67,9 +67,20 @@ const openingStockSchema = z.object({
 });
 
 router.use(requireAuth);
+const copyCatalogSchema = z.object({
+  body: z.object({
+    sourceShopId: z.string().min(1),
+    targetShopId: z.string().min(1),
+    overwrite: z.boolean().optional().default(false),
+    splitColors: z.boolean().optional().default(true),
+  }),
+  params: z.object({}).optional(),
+  query: z.object({}).optional(),
+});
 
 router.get("/", requirePermission(PERMISSIONS.SHOP_VIEW), shopController.listShops);
 router.post("/", requireOwner, validate(createShopSchema), shopController.createShop);
+router.post("/copy-catalog", requireOwner, validate(copyCatalogSchema), shopController.copyCatalog);
 router.patch("/:id", requireOwner, validate(updateShopSchema), shopController.updateShop);
 router.post("/:id/assign-staff", requireOwner, validate(assignStaffSchema), shopController.assignStaff);
 router.post("/:id/unassign-staff", requireOwner, validate(assignStaffSchema), shopController.unassignStaff);
