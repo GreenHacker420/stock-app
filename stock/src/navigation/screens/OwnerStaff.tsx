@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Alert, Pressable, ScrollView, View, StyleSheet } from "react-native";
 import { useRoute } from "@react-navigation/native";
-import { ActivityIndicator, Button, Text, TextInput, Divider, HelperText, Icon, Switch } from "react-native-paper";
+import { ActivityIndicator, Button, Text, TextInput, Divider, HelperText, Icon, Switch, Portal, Dialog } from "react-native-paper";
 import { ApiUser } from "../../api/client";
 import { useStaffQuery, useCreateStaffMutation, useUpdateStaffMutation } from "../../hooks/useAuth";
 import { useStaffTodaySummaryQuery } from "../../hooks/useDashboard";
@@ -682,6 +682,30 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginVertical: spacing.xl,
   },
+  presetsScroll: {
+    paddingHorizontal: 2,
+    gap: spacing.sm,
+  },
+  presetPill: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.full,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  presetPillActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  presetPillText: {
+    fontSize: fontSize.xs + 1,
+    fontWeight: fontWeight.bold,
+    color: colors.textSecondary,
+  },
+  presetPillTextActive: {
+    color: "#fff",
+  },
 });
 
 export function StaffDetail() {
@@ -689,58 +713,156 @@ export function StaffDetail() {
   const staff = (route.params as { staff: ApiUser }).staff;
   const [activeTab, setActiveTab] = useState<"activity" | "attendance" | "audit">("activity");
 
-  const todayStr = new Date().toISOString().slice(0, 10);
+  const [rangePreset, setRangePreset] = useState<"today" | "yesterday" | "thisWeek" | "lastWeek" | "thisMonth" | "custom">("today");
+  const [customDates, setCustomDates] = useState({ from: "", to: "" });
+  const [customDatesModalVisible, setCustomDatesModalVisible] = useState(false);
+
+  const activeRange = useMemo(() => {
+    const today = new Date();
+    const formatLocal = (d: Date) => {
+      return d.toLocaleDateString('en-CA');
+    };
+
+    const todayStr = formatLocal(today);
+
+    if (rangePreset === "today") {
+      return { dateFrom: todayStr, dateTo: todayStr, label: "Today" };
+    }
+    if (rangePreset === "yesterday") {
+      const yesterday = new Date();
+      yesterday.setDate(today.getDate() - 1);
+      return { dateFrom: formatLocal(yesterday), dateTo: formatLocal(yesterday), label: "Yesterday" };
+    }
+    if (rangePreset === "thisWeek") {
+      const startOfWeek = new Date(today);
+      const day = today.getDay();
+      const diff = today.getDate() - day + (day === 0 ? -6 : 1);
+      startOfWeek.setDate(diff);
+      return { dateFrom: formatLocal(startOfWeek), dateTo: todayStr, label: "This Week" };
+    }
+    if (rangePreset === "lastWeek") {
+      const startOfWeek = new Date(today);
+      const day = today.getDay();
+      const diff = today.getDate() - day + (day === 0 ? -6 : 1);
+      startOfWeek.setDate(diff);
+      
+      const startOfLastWeek = new Date(startOfWeek);
+      startOfLastWeek.setDate(startOfWeek.getDate() - 7);
+      const endOfLastWeek = new Date(startOfWeek);
+      endOfLastWeek.setDate(startOfWeek.getDate() - 1);
+      return { dateFrom: formatLocal(startOfLastWeek), dateTo: formatLocal(endOfLastWeek), label: "Last Week" };
+    }
+    if (rangePreset === "thisMonth") {
+      const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+      return { dateFrom: formatLocal(startOfMonth), dateTo: todayStr, label: "This Month" };
+    }
+    return { dateFrom: customDates.from || todayStr, dateTo: customDates.to || todayStr, label: "Custom Range" };
+  }, [rangePreset, customDates]);
   
-  const summaryQuery = useStaffTodaySummaryQuery({ staffId: staff.id, date: todayStr });
+  const summaryQuery = useStaffTodaySummaryQuery({
+    staffId: staff.id,
+    dateFrom: activeRange.dateFrom,
+    dateTo: activeRange.dateTo
+  });
   const attendanceQuery = useAttendanceQuery({ staffId: staff.id });
   const auditLogsQuery = useAuditLogsQuery({ userId: staff.id });
 
   const renderActivityTab = () => {
-    if (summaryQuery.isLoading) return <ActivityIndicator style={{ margin: spacing.lg }} color={colors.primary} />;
-    if (summaryQuery.isError || !summaryQuery.data) {
-      return <Text style={styles.errorText}>Failed to load activity summary.</Text>;
-    }
-    const data = summaryQuery.data;
     return (
       <View style={styles.detailTabContent}>
-        <Text style={styles.tabSectionTitle}>Today's Summary ({data.date})</Text>
-        <View style={styles.metricsGrid}>
-          <View style={styles.metricItem}>
-            <Text style={styles.metricVal}>{data.salesCount}</Text>
-            <Text style={styles.metricLbl}>Sales Count</Text>
-          </View>
-          <View style={styles.metricItem}>
-            <Text style={styles.metricVal}>₹{data.salesTotal}</Text>
-            <Text style={styles.metricLbl}>Sales Volume</Text>
-          </View>
-          <View style={styles.metricItem}>
-            <Text style={styles.metricVal}>{data.dmsCreated}</Text>
-            <Text style={styles.metricLbl}>DMs Created</Text>
-          </View>
-          <View style={styles.metricItem}>
-            <Text style={styles.metricVal}>₹{data.dmTotal}</Text>
-            <Text style={styles.metricLbl}>DM Volume</Text>
-          </View>
-          <View style={styles.metricItem}>
-            <Text style={styles.metricVal}>₹{data.cashCollected}</Text>
-            <Text style={styles.metricLbl}>Cash Collected</Text>
-          </View>
-          <View style={styles.metricItem}>
-            <Text style={styles.metricVal}>₹{data.upiRecorded}</Text>
-            <Text style={styles.metricLbl}>UPI Recorded</Text>
-          </View>
-          <View style={styles.metricItem}>
-            <Text style={styles.metricVal}>{data.ordersPacked}</Text>
-            <Text style={styles.metricLbl}>Orders Packed</Text>
-          </View>
-          <View style={styles.metricItem}>
-            <Text style={styles.metricVal}>{data.stockEntries}</Text>
-            <Text style={styles.metricLbl}>Stock Entries</Text>
-          </View>
-        </View>
-        <View style={styles.footerInfoBox}>
-          <Text style={styles.infoSubtitle}>Day Close Status: <Text style={{fontWeight: 'bold', color: data.dayCloseStatus === 'CLOSED' ? colors.success : colors.warning}}>{data.dayCloseStatus}</Text></Text>
-        </View>
+        <ScrollView 
+          horizontal 
+          showsHorizontalScrollIndicator={false} 
+          contentContainerStyle={styles.presetsScroll}
+          style={{ marginBottom: spacing.md }}
+        >
+          {(["today", "yesterday", "thisWeek", "lastWeek", "thisMonth", "custom"] as const).map((preset) => {
+            const isActive = rangePreset === preset;
+            const labels = {
+              today: "Today",
+              yesterday: "Yesterday",
+              thisWeek: "This Week",
+              lastWeek: "Last Week",
+              thisMonth: "This Month",
+              custom: "Custom...",
+            };
+            return (
+              <Pressable
+                key={preset}
+                onPress={() => {
+                  if (preset === "custom") {
+                    setCustomDatesModalVisible(true);
+                  } else {
+                    setRangePreset(preset);
+                  }
+                }}
+                style={[styles.presetPill, isActive && styles.presetPillActive]}
+              >
+                <Text style={[styles.presetPillText, isActive && styles.presetPillTextActive]}>
+                  {preset === "custom" && rangePreset === "custom" && customDates.from
+                    ? `${customDates.from} - ${customDates.to}`
+                    : labels[preset]}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+
+        {summaryQuery.isLoading ? (
+          <ActivityIndicator style={{ margin: spacing.lg }} color={colors.primary} />
+        ) : summaryQuery.isError || !summaryQuery.data ? (
+          <Text style={styles.errorText}>Failed to load activity summary.</Text>
+        ) : (() => {
+          const data = summaryQuery.data;
+          return (
+            <>
+              <Text style={styles.tabSectionTitle}>
+                {rangePreset === "today" 
+                  ? `Today's Summary (${data.date})` 
+                  : `Activity Summary (${activeRange.label})`}
+              </Text>
+              <View style={styles.metricsGrid}>
+                <View style={styles.metricItem}>
+                  <Text style={styles.metricVal}>{data.salesCount}</Text>
+                  <Text style={styles.metricLbl}>Sales Count</Text>
+                </View>
+                <View style={styles.metricItem}>
+                  <Text style={styles.metricVal}>₹{data.salesTotal}</Text>
+                  <Text style={styles.metricLbl}>Sales Volume</Text>
+                </View>
+                <View style={styles.metricItem}>
+                  <Text style={styles.metricVal}>{data.dmsCreated}</Text>
+                  <Text style={styles.metricLbl}>DMs Created</Text>
+                </View>
+                <View style={styles.metricItem}>
+                  <Text style={styles.metricVal}>₹{data.dmTotal}</Text>
+                  <Text style={styles.metricLbl}>DM Volume</Text>
+                </View>
+                <View style={styles.metricItem}>
+                  <Text style={styles.metricVal}>₹{data.cashCollected}</Text>
+                  <Text style={styles.metricLbl}>Cash Collected</Text>
+                </View>
+                <View style={styles.metricItem}>
+                  <Text style={styles.metricVal}>₹{data.upiRecorded}</Text>
+                  <Text style={styles.metricLbl}>UPI Recorded</Text>
+                </View>
+                <View style={styles.metricItem}>
+                  <Text style={styles.metricVal}>{data.ordersPacked}</Text>
+                  <Text style={styles.metricLbl}>Orders Packed</Text>
+                </View>
+                <View style={styles.metricItem}>
+                  <Text style={styles.metricVal}>{data.stockEntries}</Text>
+                  <Text style={styles.metricLbl}>Stock Entries</Text>
+                </View>
+              </View>
+              {rangePreset === "today" && (
+                <View style={styles.footerInfoBox}>
+                  <Text style={styles.infoSubtitle}>Day Close Status: <Text style={{fontWeight: 'bold', color: data.dayCloseStatus === 'CLOSED' ? colors.success : colors.warning}}>{data.dayCloseStatus}</Text></Text>
+                </View>
+              )}
+            </>
+          );
+        })()}
       </View>
     );
   };
@@ -881,6 +1003,53 @@ export function StaffDetail() {
         {activeTab === "attendance" && renderAttendanceTab()}
         {activeTab === "audit" && renderAuditTab()}
       </ScrollView>
+
+      {/* Custom Dates Dialog */}
+      <Portal>
+        <Dialog visible={customDatesModalVisible} onDismiss={() => setCustomDatesModalVisible(false)} style={{ borderRadius: radius.lg, backgroundColor: colors.surface }}>
+          <Dialog.Title style={{ fontWeight: fontWeight.bold }}>Select Custom Range</Dialog.Title>
+          <Dialog.Content style={{ gap: spacing.md }}>
+            <TextInput
+              mode="outlined"
+              label="Start Date (YYYY-MM-DD)"
+              placeholder="YYYY-MM-DD"
+              value={customDates.from || new Date().toISOString().slice(0, 10)}
+              onChangeText={(v) => setCustomDates((prev) => ({ ...prev, from: v }))}
+              outlineStyle={{ borderRadius: radius.md }}
+              activeOutlineColor={colors.primary}
+              style={{ backgroundColor: colors.surface }}
+            />
+            <TextInput
+              mode="outlined"
+              label="End Date (YYYY-MM-DD)"
+              placeholder="YYYY-MM-DD"
+              value={customDates.to || new Date().toISOString().slice(0, 10)}
+              onChangeText={(v) => setCustomDates((prev) => ({ ...prev, to: v }))}
+              outlineStyle={{ borderRadius: radius.md }}
+              activeOutlineColor={colors.primary}
+              style={{ backgroundColor: colors.surface }}
+            />
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setCustomDatesModalVisible(false)} textColor={colors.textSecondary}>Cancel</Button>
+            <Button
+              onPress={() => {
+                const regex = /^\d{4}-\d{2}-\d{2}$/;
+                if (!regex.test(customDates.from) || !regex.test(customDates.to)) {
+                  Alert.alert("Invalid Format", "Please enter dates as YYYY-MM-DD.");
+                  return;
+                }
+                setRangePreset("custom");
+                setCustomDatesModalVisible(false);
+              }}
+              textColor={colors.primary}
+              labelStyle={{ fontWeight: fontWeight.bold }}
+            >
+              Apply
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
     </Screen>
   );
 }
