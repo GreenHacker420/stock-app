@@ -7,8 +7,9 @@ import { Asset } from 'expo-asset';
 import { createURL } from 'expo-linking';
 import * as SplashScreen from 'expo-splash-screen';
 import * as React from 'react';
-import { AppState, Platform } from 'react-native';
-import { ActivityIndicator, PaperProvider } from 'react-native-paper';
+import { AppState, Platform, Image, StatusBar, StyleSheet, View } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { ActivityIndicator, PaperProvider, Text } from 'react-native-paper';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useAuthStore } from './auth/auth-store';
 import { useShopStore } from './auth/shop-store';
@@ -29,6 +30,7 @@ Asset.loadAsync([
   ...NavigationAssets,
   require('./assets/newspaper.png'),
   require('./assets/bell.png'),
+  require('../assets/splash-icon.png'),
 ]);
 
 SplashScreen.preventAutoHideAsync();
@@ -137,7 +139,7 @@ function AppContent({
   useNotificationSetup();
 
   if (isBootstrapping) {
-    return <ActivityIndicator style={{ flex: 1 }} />;
+    return <AppLoading />;
   }
 
   if (!user) {
@@ -192,3 +194,52 @@ function AuthenticatedApp({ theme, prefix }: { theme: typeof navigationThemes.Li
     />
   );
 }
+
+function AppLoading() {
+  return (
+    <LinearGradient
+      colors={[colors.surface, colors.surfaceOffset]}
+      style={styles.loadingContainer}
+    >
+      <StatusBar barStyle="dark-content" backgroundColor={colors.surface} />
+      <View style={styles.loadingInner}>
+        <Image 
+          source={require('../assets/splash-icon.png')} 
+          style={styles.loadingLogo} 
+          resizeMode="contain"
+        />
+        <Text style={styles.loadingTitle}>ShopControl</Text>
+        <Text style={styles.loadingSubtitle}>Retail & Distribution Operations</Text>
+        <ActivityIndicator size="small" color={colors.primary} style={{ marginTop: 24 }} />
+      </View>
+    </LinearGradient>
+  );
+}
+
+const styles = StyleSheet.create({
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingInner: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  loadingLogo: {
+    width: 100,
+    height: 100,
+    marginBottom: 16,
+  },
+  loadingTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#0f172a',
+    letterSpacing: -0.5,
+  },
+  loadingSubtitle: {
+    fontSize: 13,
+    color: '#64748b',
+    marginTop: 4,
+  },
+});
