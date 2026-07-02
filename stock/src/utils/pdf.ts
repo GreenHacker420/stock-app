@@ -1,15 +1,39 @@
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import { Alert, Platform } from "react-native";
+import qrcode from "qrcode-generator";
 import { type Sale } from "../api/client";
 
-const formatMoney = (val?: string | number | null) => {
-  return `₹${Number(val ?? 0).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+const escapeHtml = (value: unknown): string => {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
 };
 
-const formatDate = (dateStr?: string | Date | null) => {
+const escapeAttr = escapeHtml;
+
+const toFiniteNumber = (value: unknown, fallback = 0): number => {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : fallback;
+};
+
+const formatMoney = (val?: string | number | null): string => {
+  return `₹${toFiniteNumber(val).toLocaleString("en-IN", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  })}`;
+};
+
+const formatDate = (dateStr?: string | Date | null): string => {
   if (!dateStr) return "N/A";
-  return new Date(dateStr).toLocaleString("en-IN", {
+  const date = new Date(dateStr);
+  if (Number.isNaN(date.getTime())) {
+    return "N/A";
+  }
+  return date.toLocaleString("en-IN", {
     dateStyle: "medium",
     timeStyle: "short",
   });
@@ -21,6 +45,7 @@ const getSignatureViewBox = (paths: string[]): string => {
   let maxX = -Infinity;
   let maxY = -Infinity;
   paths.forEach(path => {
+    if (typeof path !== "string") return;
     const matches = path.match(/[-+]?[0-9]*\.?[0-9]+/g);
     if (matches) {
       for (let i = 0; i < matches.length; i += 2) {
@@ -61,36 +86,119 @@ interface ShareInvoiceOptions {
   signatureBase64?: string; // Optional customer signature image base64
 }
 
-const pdfCache: Record<string, { uri: string; timestamp: number }> = {};
+// Code 128 Barcode patterns for 0-106 (Start A, B, C, Stop)
+const CODE128_B_PATTERNS = [
+  "212222", "222122", "222221", "121223", "121322", "131222", "122213", "122312", "132212", "221213",
+  "221312", "231212", "112232", "122132", "122231", "113222", "123122", "123221", "223211", "221132",
+  "221231", "213212", "223112", "312131", "311222", "321122", "321221", "312212", "322112", "322211",
+  "212132", "212231", "222131", "213122", "223121", "233111", "211232", "211322", "212123", "212321",
+  "232121", "111323", "131123", "131321", "112313", "132113", "132311", "211313", "231113", "231311",
+  "112133", "112331", "132131", "113123", "113321", "133121", "131331", "133131", "113133", "113313",
+  "133113", "133311", "113113", "113311", "131133", "131331", "111333", "113133", "113313", "131113",
+  "131311", "133111", "121133", "121331", "131231", "131132", "133211", "132231", "232211", "221113",
+  "221311", "231112", "231211", "221211", "212113", "212311", "231211", "221123", "221321", "231121",
+  "221121", "222113", "222311", "232111", "221131", "221311", "231111", "311122", "311221", "321112",
+  "321211", "312112", "312211",
+  "211412", // 103: Start A
+  "211214", // 104: Start B
+  "211232", // 105: Start C
+  "2331112" // 106: Stop
+];
+
+export function generateCode128BSvg(text: string): string {
+  // Only encode printable ASCII characters (space to ~)
+  const cleanText = text.replace(/[^\x20-\x7E]/g, "");
+
+  // Start with Start Code B (value 104)
+  const codeValues: number[] = [104];
+  let checksum = 104;
+
+  // Add character values
+  for (let i = 0; i < cleanText.length; i++) {
+    const val = cleanText.charCodeAt(i) - 32;
+    codeValues.push(val);
+    checksum += val * (i + 1);
+  }
+
+  // Calculate check digit
+  const checkValue = checksum % 103;
+  codeValues.push(checkValue);
+
+  // End with Stop Code (value 106)
+  codeValues.push(106);
+
+  // Generate binary representation
+  let binary = "";
+  for (const val of codeValues) {
+    const pattern = CODE128_B_PATTERNS[val];
+    if (!pattern) continue;
+    for (let j = 0; j < pattern.length; j++) {
+      const width = parseInt(pattern[j], 10);
+      const isBar = j % 2 === 0;
+      binary += (isBar ? "1" : "0").repeat(width);
+    }
+  }
+
+  // Convert binary to SVG rects
+  let rects = "";
+  let x = 0;
+  for (let i = 0; i < binary.length; i++) {
+    if (binary[i] === "1") {
+      rects += `<rect x="${x}" y="0" width="1" height="30" fill="black" stroke="none" />`;
+    }
+    x += 1;
+  }
+
+  return `
+    <svg viewBox="0 0 ${binary.length} 30" width="100%" height="100%" preserveAspectRatio="none" style="display: block;">
+      ${rects}
+    </svg>
+  `;
+}
 
 async function printHtmlOnWeb(html: string): Promise<void> {
   return new Promise((resolve) => {
+    if (typeof document === "undefined") {
+      resolve();
+      return;
+    }
+
     const iframe = document.createElement("iframe");
+
+    const cleanup = () => {
+      if (iframe.parentNode) {
+        document.body.removeChild(iframe);
+      }
+      resolve();
+    };
+
+    iframe.onload = () => {
+      iframe.contentWindow?.focus();
+      iframe.contentWindow?.print();
+      setTimeout(cleanup, 1000);
+    };
+
     iframe.style.position = "fixed";
     iframe.style.right = "0";
     iframe.style.bottom = "0";
     iframe.style.width = "0";
     iframe.style.height = "0";
     iframe.style.border = "0";
+
     document.body.appendChild(iframe);
-    
+
     const doc = iframe.contentWindow?.document || iframe.contentDocument;
-    if (doc) {
-      doc.open();
-      doc.write(html);
-      doc.close();
-      
-      iframe.onload = () => {
-        iframe.contentWindow?.focus();
-        iframe.contentWindow?.print();
-        setTimeout(() => {
-          document.body.removeChild(iframe);
-          resolve();
-        }, 1000);
-      };
-    } else {
-      resolve();
+
+    if (!doc) {
+      cleanup();
+      return;
     }
+
+    doc.open();
+    doc.write(html);
+    doc.close();
+
+    setTimeout(cleanup, 5000);
   });
 }
 
@@ -114,13 +222,17 @@ export async function generateSaleInvoiceHtml({ sale, shop, signatureBase64 }: S
 
         if (paths.length > 0) {
           const pathElements = paths
-            .map((p) => `<path d="${p}" stroke="var(--primary)" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round" />`)
+            .filter((p) => typeof p === "string")
+            .map((p) => {
+              const safePath = escapeAttr(p);
+              return `<path d="${safePath}" stroke="var(--primary)" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round" />`;
+            })
             .join("");
           signatureHtml = `
             <div class="signature-section" style="margin-top: 30px; text-align: right;">
               <div class="meta-label" style="color: var(--muted); font-weight: 500; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Customer Signature</div>
               <div style="display: inline-block; width: 150px; height: 75px; border-bottom: 1px solid var(--border);">
-                <svg viewBox="${signatureViewBox}" style="width: 100%; height: 100%;">${pathElements}</svg>
+                <svg viewBox="${escapeAttr(signatureViewBox)}" style="width: 100%; height: 100%;">${pathElements}</svg>
               </div>
             </div>
           `;
@@ -132,32 +244,34 @@ export async function generateSaleInvoiceHtml({ sale, shop, signatureBase64 }: S
       signatureHtml = `
         <div class="signature-section" style="margin-top: 30px; text-align: right;">
           <div class="meta-label" style="color: var(--muted); font-weight: 500; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px;">Customer Signature</div>
-          <img class="signature-img" src="${rawSig}" alt="Signature" style="max-height: 50px; max-width: 150px; object-fit: contain; border-bottom: 1px solid var(--border);" />
+          <img class="signature-img" src="${escapeAttr(rawSig)}" alt="Signature" style="max-height: 50px; max-width: 150px; object-fit: contain; border-bottom: 1px solid var(--border);" />
         </div>
       `;
     }
   }
 
-  const shopName = shop?.name || "RETAIL STORE";
-  const shopCity = shop?.city || "";
-  const shopAddress = shop?.address || "";
-  const shopPhone = shop?.phone || "";
-  const shopEmail = shop?.email || "";
-  const shopGstin = shop?.gstin || "";
-  const shopLogo = shop?.logo || "";
+  const shopName = escapeHtml(shop?.name || "RETAIL STORE");
+  const shopCity = escapeHtml(shop?.city || "");
+  const shopAddress = escapeHtml(shop?.address || "");
+  const shopPhone = escapeHtml(shop?.phone || "");
+  const shopEmail = escapeHtml(shop?.email || "");
+  const shopGstin = escapeHtml(shop?.gstin || "");
+  const shopLogo = escapeAttr(shop?.logo || "");
 
-  const customerName = sale.isWalkin ? "Walk-in Customer" : sale.customer?.name || "Valued Customer";
-  const customerPhone = sale.customer?.phone || "";
-  const customerGstin = sale.customer?.gstin || "";
-  const staffName = sale.staff?.name || "";
+  const customerName = escapeHtml(sale.isWalkin ? "Walk-in Customer" : sale.customer?.name || "Valued Customer");
+  const customerPhone = escapeHtml(sale.customer?.phone || "");
+  const customerGstin = escapeHtml(sale.customer?.gstin || "");
+  const staffName = escapeHtml(sale.staff?.name || "");
 
   const uniqueItemsCount = (sale.items || []).length;
-  const totalQuantity = (sale.items || []).reduce((sum, item) => sum + Number(item.quantity), 0);
-  const invoiceHash = (sale.id || "INV").substring(0, 8).toUpperCase();
+  const totalQuantity = (sale.items || []).reduce((sum, item) => sum + toFiniteNumber(item.quantity), 0);
+  const invoiceHash = escapeHtml((sale.id || "INV").substring(0, 8).toUpperCase());
 
   // Payment Status Badge
-  const paid = Number(sale.paidAmount || 0);
-  const total = Number(sale.totalAmount || 0);
+  const paid = toFiniteNumber(sale.paidAmount);
+  const total = toFiniteNumber(sale.totalAmount);
+  const balanceDue = Math.max(toFiniteNumber(sale.balanceAmount), 0);
+
   let statusText = "PAYMENT DUE";
   let statusClass = "due";
   
@@ -174,12 +288,12 @@ export async function generateSaleInvoiceHtml({ sale, shop, signatureBase64 }: S
 
   // Items rows
   const itemsHtml = (sale.items || []).map((item, index) => {
-    const qty = Number(item.quantity);
-    const rate = Number(item.rate);
+    const qty = toFiniteNumber(item.quantity);
+    const rate = toFiniteNumber(item.rate);
     const itemTotal = qty * rate;
-    const itemName = item.item?.name || "Unknown Item";
-    const itemSku = item.item?.sku ? `(${item.item.sku})` : "";
-    const itemUnit = item.item?.unit || "pcs";
+    const itemName = escapeHtml(item.item?.name || "Unknown Item");
+    const itemSku = item.item?.sku ? `(${escapeHtml(item.item.sku)})` : "";
+    const itemUnit = escapeHtml(item.item?.unit || "pcs");
     return `
       <tr style="border-bottom: 1px solid var(--border);">
         <td style="padding: 10px 0; text-align: left;">
@@ -195,14 +309,14 @@ export async function generateSaleInvoiceHtml({ sale, shop, signatureBase64 }: S
 
   // Payments rows
   const paymentsHtml = (sale.payments || []).map((p: any) => {
-    const mode = p.paymentMode || "PAYMENT";
+    const mode = escapeHtml(p.paymentMode || "PAYMENT");
     const date = formatDate(p.receivedAt);
-    const amount = Number(p.amount);
-    const collectedBy = p.receivedBy?.name ? `Collected by: ${p.receivedBy.name}` : "";
+    const amount = toFiniteNumber(p.amount);
+    const collectedBy = p.receivedBy?.name ? `Collected by: ${escapeHtml(p.receivedBy.name)}` : "";
     const details = [];
-    if (p.details?.upiReference) details.push(`UPI Ref: ${p.details.upiReference}`);
-    if (p.details?.chequeNumber) details.push(`Cheque: ${p.details.chequeNumber}`);
-    if (p.details?.bankName) details.push(p.details.bankName);
+    if (p.details?.upiReference) details.push(`UPI Ref: ${escapeHtml(p.details.upiReference)}`);
+    if (p.details?.chequeNumber) details.push(`Cheque: ${escapeHtml(p.details.chequeNumber)}`);
+    if (p.details?.bankName) details.push(escapeHtml(p.details.bankName));
     const detailsText = details.length > 0 ? `(${details.join(", ")})` : "";
 
     return `
@@ -216,12 +330,15 @@ export async function generateSaleInvoiceHtml({ sale, shop, signatureBase64 }: S
     `;
   }).join("");
 
+  // Generate Barcode SVG locally
+  const barcodeSvg = generateCode128BSvg(sale.saleNumber);
+
   return `
     <!DOCTYPE html>
     <html lang="en">
     <head>
       <meta charset="UTF-8">
-      <title>Invoice - ${sale.saleNumber}</title>
+      <title>Invoice - ${escapeHtml(sale.saleNumber)}</title>
       <style>
         :root {
           --primary: #18181b;
@@ -229,7 +346,7 @@ export async function generateSaleInvoiceHtml({ sale, shop, signatureBase64 }: S
           --success: #16a34a;
           --danger: #dc2626;
           --border: #e4e4e7;
-          --background-offset: #f9fafb;
+          --background-offset: #f4f6f4;
         }
         body {
           font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
@@ -457,10 +574,10 @@ export async function generateSaleInvoiceHtml({ sale, shop, signatureBase64 }: S
               <span class="status-badge ${statusClass}">${statusText}</span>
             </div>
             <div class="meta-label">Sale Invoice</div>
-            <div class="meta-value" style="font-size: 15px; color: var(--success);">#${sale.saleNumber}</div>
+            <div class="meta-value" style="font-size: 15px; color: var(--success);">#${escapeHtml(sale.saleNumber)}</div>
             <div style="color: #3f3f46; margin-top: 2px; font-size: 11px;">${formatDate(sale.createdAt)}</div>
-            <div style="margin-top: 8px;">
-              <img src="https://barcode.tec-it.com/barcode.ashx?data=${encodeURIComponent(sale.saleNumber)}&code=Code128&translate-esc=true" style="height: 30px; max-width: 150px; object-fit: contain;" alt="Barcode" />
+            <div style="margin-top: 8px; display: inline-block; width: 140px; height: 30px;">
+              ${barcodeSvg}
             </div>
             ${staffName ? `<div style="color: var(--muted); font-size: 10px; margin-top: 4px;">Billed by: ${staffName}</div>` : ""}
           </div>
@@ -495,30 +612,38 @@ export async function generateSaleInvoiceHtml({ sale, shop, signatureBase64 }: S
             </div>
             <div style="flex: 1; border-right: 1px solid var(--border);">
               <div style="font-size: 10px; color: var(--muted);">Amount Paid</div>
-              <div style="font-size: 14px; font-weight: 700; color: var(--success); margin-top: 2px;">${formatMoney(sale.paidAmount)}</div>
+              <div style="font-size: 14px; font-weight: 700; color: var(--success); margin-top: 2px;">${formatMoney(paid)}</div>
             </div>
             <div style="flex: 1;">
               <div style="font-size: 10px; color: var(--muted);">Balance Due</div>
-              <div style="font-size: 14px; font-weight: 700; color: ${Number(sale.balanceAmount) > 0 ? "var(--danger)" : "var(--primary)"}; margin-top: 2px;">${formatMoney(sale.balanceAmount)}</div>
+              <div style="font-size: 14px; font-weight: 700; color: ${balanceDue > 0 ? "var(--danger)" : "var(--primary)"}; margin-top: 2px;">${formatMoney(balanceDue)}</div>
             </div>
           </div>
         </div>
 
         <!-- Totals & Payment Section -->
         <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-top: 20px;">
-          <!-- Left: Payment QR Code if UPI ID configured -->
+          <!-- Left: Payment QR Code if UPI ID configured and balance is due -->
           <div style="flex: 1.2; margin-right: 20px;">
-            ${shop?.upiId ? (() => {
-              const upiUri = `upi://pay?pa=${shop.upiId}&pn=${encodeURIComponent(shop.upiName || shop.name)}&am=${sale.totalAmount}&cu=INR`;
+            ${shop?.upiId && balanceDue > 0 ? (() => {
+              const upiPayeeName = shop.upiName || shop.name;
+              const upiUri = `upi://pay?pa=${encodeURIComponent(shop.upiId)}&pn=${encodeURIComponent(upiPayeeName)}&am=${total.toFixed(2)}&cu=INR`;
+              
+              // Generate QR code locally offline using qrcode-generator
+              const qr = qrcode(0, 'M');
+              qr.addData(upiUri);
+              qr.make();
+              const qrBase64 = qr.createDataURL(4);
+
               return `
                 <div style="display: flex; align-items: center; border: 1px dashed var(--border); padding: 10px; border-radius: 6px; background-color: var(--background-offset);">
                   <div style="flex: 1; padding-right: 10px;">
                     <div style="font-weight: 700; color: var(--primary); font-size: 11px;">Scan to Pay via UPI</div>
-                    <div style="font-size: 9px; color: var(--muted); margin-top: 2px;">Payee: ${shop.upiName || shop.name}</div>
-                    <div style="font-size: 9px; color: var(--muted);">UPI ID: ${shop.upiId}</div>
-                    <div style="font-size: 9px; color: var(--muted);">Amount: <b>${formatMoney(sale.totalAmount)}</b></div>
+                    <div style="font-size: 9px; color: var(--muted); margin-top: 2px;">Payee: ${escapeHtml(upiPayeeName)}</div>
+                    <div style="font-size: 9px; color: var(--muted);">UPI ID: ${escapeHtml(shop.upiId)}</div>
+                    <div style="font-size: 9px; color: var(--muted);">Amount: <b>${formatMoney(total)}</b></div>
                   </div>
-                  <img src="https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(upiUri)}" style="width: 70px; height: 70px;" alt="UPI QR" />
+                  <img src="${qrBase64}" style="width: 70px; height: 70px;" alt="UPI QR" />
                 </div>
               `;
             })() : ""}
@@ -528,25 +653,25 @@ export async function generateSaleInvoiceHtml({ sale, shop, signatureBase64 }: S
           <div class="totals-section" style="flex: 1; margin-top: 0; min-width: 200px;">
             <div class="totals-row">
               <span style="color: var(--muted);">Subtotal</span>
-              <span style="font-weight: 600;">${formatMoney(sale.totalAmount)}</span>
+              <span style="font-weight: 600;">${formatMoney(total)}</span>
             </div>
-            ${sale.isGstRequired && sale.gstInvoiceNumber ? `
+            ${sale.gstInvoiceNumber ? `
             <div class="totals-row">
               <span style="color: var(--muted);">GST Invoice</span>
-              <span style="font-weight: 600; font-size: 11px;">#${sale.gstInvoiceNumber}</span>
+              <span style="font-weight: 600; font-size: 11px;">#${escapeHtml(sale.gstInvoiceNumber)}</span>
             </div>
             ` : ""}
             <div class="totals-row grand-total">
               <span>Grand Total</span>
-              <span>${formatMoney(sale.totalAmount)}</span>
+              <span>${formatMoney(total)}</span>
             </div>
             <div class="totals-row" style="margin-top: 8px;">
               <span style="color: var(--muted); font-weight: 500;">Amount Paid</span>
-              <span style="color: var(--success); font-weight: 700;">${formatMoney(sale.paidAmount)}</span>
+              <span style="color: var(--success); font-weight: 700;">${formatMoney(paid)}</span>
             </div>
             <div class="totals-row">
               <span style="color: var(--muted); font-weight: 500;">Balance Due</span>
-              <span style="color: ${Number(sale.balanceAmount) > 0 ? "var(--danger)" : "var(--primary)"}; font-weight: 700;">${formatMoney(sale.balanceAmount)}</span>
+              <span style="color: ${balanceDue > 0 ? "var(--danger)" : "var(--primary)"}; font-weight: 700;">${formatMoney(balanceDue)}</span>
             </div>
           </div>
         </div>
@@ -562,7 +687,7 @@ export async function generateSaleInvoiceHtml({ sale, shop, signatureBase64 }: S
         ${sale.notes ? `
           <div class="notes-section">
             <div class="notes-title">Operational Notes</div>
-            <div>${sale.notes}</div>
+            <div>${escapeHtml(sale.notes)}</div>
           </div>
         ` : ""}
 
@@ -607,15 +732,9 @@ export async function shareSaleInvoicePdf(options: ShareInvoiceOptions): Promise
       return;
     }
 
-    const cacheKey = `${sale.id}_${sale.paidAmount}_${sale.balanceAmount}_${(sale.payments || []).length}_${sale.customerSignature ? "signed" : "unsigned"}`;
-    let uri = pdfCache[cacheKey]?.uri;
-    
-    if (!uri) {
-      const html = await generateSaleInvoiceHtml(options);
-      const result = await Print.printToFileAsync({ html });
-      uri = result.uri;
-      pdfCache[cacheKey] = { uri, timestamp: Date.now() };
-    }
+    const html = await generateSaleInvoiceHtml(options);
+    const result = await Print.printToFileAsync({ html });
+    const uri = result.uri;
 
     const isSharingAvailable = await Sharing.isAvailableAsync();
     if (isSharingAvailable) {

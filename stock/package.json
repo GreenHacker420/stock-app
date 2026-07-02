@@ -59,6 +59,8 @@
     "expo-truecaller": "^0.2.4",
     "expo-video": "~56.1.4",
     "expo-web-browser": "^56.0.5",
+    "jsbarcode": "^3.12.3",
+    "qrcode-generator": "^2.0.4",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-hook-form": "^7.76.1",
