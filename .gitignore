@@ -10,7 +10,20 @@ backend/dist/
 stock/web-build/
 stock/.expo/
 
-stock/android
+# Native Android (generated — do not commit)
+stock/android/
+stock/ios/
+
+# Build Artifacts & Releases
+stock/release/
+stock/debug/
+stock/*.tar.gz
+stock/*.apk
+stock/*.aab
+
+# Native module build outputs
+stock/modules/**/android/build/
+stock/modules/**/ios/build/
 
 # Configuration & Secrets
 .env
@@ -21,13 +34,27 @@ stock/.env
 stock/.env.local
 stock/.env*.local
 
+# Firebase / Google Services (contains API keys)
+google-services.json
+GoogleService-Info.plist
+
+# EAS / Expo signing credentials
+*.jks
+*.p8
+*.p12
+*.mobileprovision
+*.keystore
+
+# Verification tokens (Play Store ADI)
+adi-registration.properties
+
 # System Files
 .DS_Store
 Thumbs.db
 *.pem
 *.key
 
-# Local/debug
+# Logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
