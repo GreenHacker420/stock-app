@@ -22,7 +22,7 @@ import { ExpenseList } from "./screens/Expenses";
 import { VerificationQueue } from "./screens/VerificationQueue";
 import { AddEditItem, ItemDetail, ItemList } from "./screens/OwnerItems";
 import { SaleDetail, SalesList } from "./screens/OwnerSales";
-import { AddEditStaff, StaffManagement } from "./screens/OwnerStaff";
+import { AddEditStaff, StaffManagement, StaffDetail } from "./screens/OwnerStaff";
 import {
   GenericPlannedScreen,
   OwnerAlerts,
@@ -561,6 +561,10 @@ const sharedStackScreens = {
     screen: ownerOnlyScreen(AddEditStaff),
     options: { title: "Add/edit staff" },
   },
+  StaffDetail: {
+    screen: ownerOnlyScreen(StaffDetail),
+    options: { title: "Staff details" },
+  },
   AuditLog: {
     screen: ownerOnlyScreen(GenericPlannedScreen),
     options: { title: "Audit log" },
@@ -690,6 +694,7 @@ export type RootStackParamList = {
   DailySummaryList: undefined;
   StaffManagement: undefined;
   AddEditStaff: { staff?: any };
+  StaffDetail: { staff: any };
   AuditLog: undefined;
   Settings: undefined;
   Home: undefined;

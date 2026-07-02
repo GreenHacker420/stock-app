@@ -21,6 +21,7 @@ const staffQuerySchema = z.object({
   query: z.object({
     shopId: z.string().min(1),
     date: z.string().optional(),
+    staffId: z.string().optional(),
   }),
   params: z.object({}).optional(),
   body: z.object({}).optional(),

@@ -4,6 +4,9 @@ import { useRoute } from "@react-navigation/native";
 import { ActivityIndicator, Button, Text, TextInput, Divider, HelperText, Icon, Switch } from "react-native-paper";
 import { ApiUser } from "../../api/client";
 import { useStaffQuery, useCreateStaffMutation, useUpdateStaffMutation } from "../../hooks/useAuth";
+import { useStaffTodaySummaryQuery } from "../../hooks/useDashboard";
+import { useAttendanceQuery } from "../../hooks/useAttendance";
+import { useAuditLogsQuery } from "../../hooks/useAuditLogs";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { Section } from "../../components/ui/Section";
@@ -68,7 +71,7 @@ export function StaffManagement() {
           {(staffQuery.data ?? []).map((staff) => {
             const isActive = staff.status === "ACTIVE" || !staff.status;
             return (
-              <Pressable key={staff.id} onPress={() => navigate("AddEditStaff", { staff })}>
+              <Pressable key={staff.id} onPress={() => navigate("StaffDetail", { staff })}>
                 <View style={styles.staffCard}>
                   <View style={styles.cardHeader}>
                     {/* Left: Round Avatar */}
@@ -415,4 +418,416 @@ const styles = StyleSheet.create({
     marginTop: spacing.xl,
     marginBottom: spacing.xxl,
   },
+  profileSummaryCard: {
+    margin: spacing.lg,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    padding: spacing.lg,
+    ...shadow.sm,
+  },
+  profileHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+  },
+  avatarLarge: {
+    width: 60,
+    height: 60,
+    borderRadius: radius.full,
+    backgroundColor: colors.primaryLight,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: "rgba(22, 163, 74, 0.2)",
+  },
+  avatarLargeText: {
+    color: colors.primaryDark,
+    fontSize: 20,
+    fontWeight: fontWeight.bold,
+  },
+  profileInfo: {
+    gap: 4,
+  },
+  profileName: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  profileRole: {
+    fontSize: 10,
+    fontWeight: fontWeight.black,
+    color: colors.primaryDark,
+    letterSpacing: 1,
+  },
+  profileDetails: {
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+    marginTop: spacing.md,
+  },
+  editBtn: {
+    borderRadius: radius.md,
+    borderColor: colors.primary,
+    marginTop: spacing.sm,
+  },
+  tabsContainer: {
+    flexDirection: "row",
+    paddingHorizontal: spacing.lg,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    backgroundColor: colors.bg,
+  },
+  tabButton: {
+    flex: 1,
+    paddingVertical: spacing.md,
+    alignItems: "center",
+    borderBottomWidth: 2,
+    borderBottomColor: "transparent",
+  },
+  activeTabButton: {
+    borderBottomColor: colors.primary,
+  },
+  tabText: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.medium,
+    color: colors.textSecondary,
+  },
+  activeTabText: {
+    fontWeight: fontWeight.bold,
+    color: colors.primary,
+  },
+  scrollContentDetail: {
+    paddingBottom: spacing.huge,
+  },
+  detailTabContent: {
+    padding: spacing.lg,
+  },
+  tabSectionTitle: {
+    fontSize: 16,
+    fontWeight: fontWeight.extrabold,
+    color: colors.textPrimary,
+    marginBottom: spacing.md,
+    letterSpacing: -0.3,
+  },
+  metricsGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.md,
+  },
+  metricItem: {
+    width: "47%",
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    gap: 4,
+    ...shadow.sm,
+  },
+  metricVal: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  metricLbl: {
+    fontSize: 10,
+    fontWeight: fontWeight.bold,
+    color: colors.textMuted,
+  },
+  footerInfoBox: {
+    marginTop: spacing.lg,
+    padding: spacing.md,
+    backgroundColor: colors.surfaceOffset,
+    borderRadius: radius.md,
+  },
+  infoSubtitle: {
+    fontSize: fontSize.sm,
+    color: colors.textSecondary,
+  },
+  listContainer: {
+    gap: spacing.md,
+  },
+  logCard: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    gap: spacing.sm,
+    ...shadow.sm,
+  },
+  logHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  logDateText: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  logTimes: {
+    flexDirection: "row",
+    gap: spacing.xl,
+  },
+  timeCol: {
+    gap: 2,
+  },
+  timeLbl: {
+    fontSize: 9,
+    fontWeight: fontWeight.bold,
+    color: colors.textMuted,
+  },
+  timeVal: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  logNote: {
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+    fontStyle: "italic",
+    marginTop: 2,
+  },
+  auditCard: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    gap: 4,
+    ...shadow.sm,
+  },
+  auditRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  auditAction: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  auditTime: {
+    fontSize: 10,
+    color: colors.textMuted,
+  },
+  auditEntity: {
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+  },
+  auditReason: {
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+    fontStyle: "italic",
+    marginTop: 2,
+  },
+  emptyText: {
+    fontSize: fontSize.sm,
+    color: colors.textMuted,
+    textAlign: "center",
+    marginVertical: spacing.xl,
+  },
 });
+
+export function StaffDetail() {
+  const route = useRoute();
+  const staff = (route.params as { staff: ApiUser }).staff;
+  const [activeTab, setActiveTab] = useState<"activity" | "attendance" | "audit">("activity");
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+  
+  const summaryQuery = useStaffTodaySummaryQuery({ staffId: staff.id, date: todayStr });
+  const attendanceQuery = useAttendanceQuery({ staffId: staff.id });
+  const auditLogsQuery = useAuditLogsQuery({ userId: staff.id });
+
+  const renderActivityTab = () => {
+    if (summaryQuery.isLoading) return <ActivityIndicator style={{ margin: spacing.lg }} color={colors.primary} />;
+    if (summaryQuery.isError || !summaryQuery.data) {
+      return <Text style={styles.errorText}>Failed to load activity summary.</Text>;
+    }
+    const data = summaryQuery.data;
+    return (
+      <View style={styles.detailTabContent}>
+        <Text style={styles.tabSectionTitle}>Today's Summary ({data.date})</Text>
+        <View style={styles.metricsGrid}>
+          <View style={styles.metricItem}>
+            <Text style={styles.metricVal}>{data.salesCount}</Text>
+            <Text style={styles.metricLbl}>Sales Count</Text>
+          </View>
+          <View style={styles.metricItem}>
+            <Text style={styles.metricVal}>₹{data.salesTotal}</Text>
+            <Text style={styles.metricLbl}>Sales Volume</Text>
+          </View>
+          <View style={styles.metricItem}>
+            <Text style={styles.metricVal}>{data.dmsCreated}</Text>
+            <Text style={styles.metricLbl}>DMs Created</Text>
+          </View>
+          <View style={styles.metricItem}>
+            <Text style={styles.metricVal}>₹{data.dmTotal}</Text>
+            <Text style={styles.metricLbl}>DM Volume</Text>
+          </View>
+          <View style={styles.metricItem}>
+            <Text style={styles.metricVal}>₹{data.cashCollected}</Text>
+            <Text style={styles.metricLbl}>Cash Collected</Text>
+          </View>
+          <View style={styles.metricItem}>
+            <Text style={styles.metricVal}>₹{data.upiRecorded}</Text>
+            <Text style={styles.metricLbl}>UPI Recorded</Text>
+          </View>
+          <View style={styles.metricItem}>
+            <Text style={styles.metricVal}>{data.ordersPacked}</Text>
+            <Text style={styles.metricLbl}>Orders Packed</Text>
+          </View>
+          <View style={styles.metricItem}>
+            <Text style={styles.metricVal}>{data.stockEntries}</Text>
+            <Text style={styles.metricLbl}>Stock Entries</Text>
+          </View>
+        </View>
+        <View style={styles.footerInfoBox}>
+          <Text style={styles.infoSubtitle}>Day Close Status: <Text style={{fontWeight: 'bold', color: data.dayCloseStatus === 'CLOSED' ? colors.success : colors.warning}}>{data.dayCloseStatus}</Text></Text>
+        </View>
+      </View>
+    );
+  };
+
+  const renderAttendanceTab = () => {
+    if (attendanceQuery.isLoading) return <ActivityIndicator style={{ margin: spacing.lg }} color={colors.primary} />;
+    const list = attendanceQuery.data ?? [];
+    if (list.length === 0) {
+      return <Text style={styles.emptyText}>No attendance records found.</Text>;
+    }
+    return (
+      <View style={styles.detailTabContent}>
+        <Text style={styles.tabSectionTitle}>Attendance Logs</Text>
+        <View style={styles.listContainer}>
+          {list.map((log: any) => {
+            const checkInTime = log.checkIn ? new Date(log.checkIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "N/A";
+            const checkOutTime = log.checkOut ? new Date(log.checkOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : "N/A";
+            const logDate = new Date(log.date).toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' });
+            return (
+              <View key={log.id} style={styles.logCard}>
+                <View style={styles.logHeader}>
+                  <Text style={styles.logDateText}>{logDate}</Text>
+                  <StatusPill label={log.status} tone={log.status === "PRESENT" ? "green" : "red"} />
+                </View>
+                <View style={styles.logTimes}>
+                  <View style={styles.timeCol}>
+                    <Text style={styles.timeLbl}>CHECK IN</Text>
+                    <Text style={styles.timeVal}>{checkInTime}</Text>
+                  </View>
+                  <View style={styles.timeCol}>
+                    <Text style={styles.timeLbl}>CHECK OUT</Text>
+                    <Text style={styles.timeVal}>{checkOutTime}</Text>
+                  </View>
+                </View>
+                {log.note ? <Text style={styles.logNote}>Note: "{log.note}"</Text> : null}
+              </View>
+            );
+          })}
+        </View>
+      </View>
+    );
+  };
+
+  const renderAuditTab = () => {
+    if (auditLogsQuery.isLoading) return <ActivityIndicator style={{ margin: spacing.lg }} color={colors.primary} />;
+    const list = auditLogsQuery.data ?? [];
+    if (list.length === 0) {
+      return <Text style={styles.emptyText}>No system activity logs found.</Text>;
+    }
+    return (
+      <View style={styles.detailTabContent}>
+        <Text style={styles.tabSectionTitle}>System Activity (Audit Log)</Text>
+        <View style={styles.listContainer}>
+          {list.map((log: any) => {
+            const time = new Date(log.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const date = new Date(log.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric' });
+            return (
+              <View key={log.id} style={styles.auditCard}>
+                <View style={styles.auditRow}>
+                  <Text style={styles.auditAction}>{log.action}</Text>
+                  <Text style={styles.auditTime}>{date} {time}</Text>
+                </View>
+                <Text style={styles.auditEntity}>{log.entityType} ID: {log.entityId}</Text>
+                {log.reason ? <Text style={styles.auditReason}>Reason: "{log.reason}"</Text> : null}
+              </View>
+            );
+          })}
+        </View>
+      </View>
+    );
+  };
+
+  return (
+    <Screen edges={["top", "left", "right"]} scroll={true}>
+      <AppHeader title="Staff Details" subtitle="View performance and logs." showBack={true} />
+      
+      <View style={styles.profileSummaryCard}>
+        <View style={styles.profileHeader}>
+          <View style={styles.avatarLarge}>
+            <Text style={styles.avatarLargeText}>{getInitials(staff.name)}</Text>
+          </View>
+          <View style={styles.profileInfo}>
+            <Text style={styles.profileName}>{staff.name}</Text>
+            <Text style={styles.profileRole}>STAFF MEMBER</Text>
+          </View>
+        </View>
+        
+        <Divider style={styles.divider} />
+        
+        <View style={styles.profileDetails}>
+          <View style={styles.detailsRow}>
+            <Icon source="phone" size={16} color={colors.textSecondary} />
+            <Text style={styles.secondaryText}>{staff.mobile}</Text>
+          </View>
+          {staff.email ? (
+            <View style={styles.detailsRow}>
+              <Icon source="email-outline" size={16} color={colors.textSecondary} />
+              <Text style={styles.secondaryText}>{staff.email}</Text>
+            </View>
+          ) : null}
+        </View>
+
+        <Button 
+          mode="outlined" 
+          icon="account-cog"
+          onPress={() => navigate("AddEditStaff", { staff })}
+          style={styles.editBtn}
+          textColor={colors.primary}
+        >
+          Edit Staff Account
+        </Button>
+      </View>
+
+      {/* Tabs */}
+      <View style={styles.tabsContainer}>
+        <Pressable 
+          style={[styles.tabButton, activeTab === "activity" && styles.activeTabButton]}
+          onPress={() => setActiveTab("activity")}
+        >
+          <Text style={[styles.tabText, activeTab === "activity" && styles.activeTabText]}>Activity</Text>
+        </Pressable>
+        <Pressable 
+          style={[styles.tabButton, activeTab === "attendance" && styles.activeTabButton]}
+          onPress={() => setActiveTab("attendance")}
+        >
+          <Text style={[styles.tabText, activeTab === "attendance" && styles.activeTabText]}>Attendance</Text>
+        </Pressable>
+        <Pressable 
+          style={[styles.tabButton, activeTab === "audit" && styles.activeTabButton]}
+          onPress={() => setActiveTab("audit")}
+        >
+          <Text style={[styles.tabText, activeTab === "audit" && styles.activeTabText]}>Logs</Text>
+        </Pressable>
+      </View>
+
+      <ScrollView contentContainerStyle={styles.scrollContentDetail}>
+        {activeTab === "activity" && renderActivityTab()}
+        {activeTab === "attendance" && renderAttendanceTab()}
+        {activeTab === "audit" && renderAuditTab()}
+      </ScrollView>
+    </Screen>
+  );
+}

@@ -940,9 +940,10 @@ export async function fetchOwnerDashboard(token: string, options: { shopId?: str
   return apiRequest<OwnerDashboardData>(`/dashboard/owner${query ? `?${query}` : ""}`, { token });
 }
 
-export async function fetchStaffTodaySummary(token: string, shopId: string, date?: string): Promise<StaffTodaySummaryData> {
+export async function fetchStaffTodaySummary(token: string, shopId: string, date?: string, staffId?: string): Promise<StaffTodaySummaryData> {
   const params = new URLSearchParams({ shopId });
   if (date) params.set("date", date);
+  if (staffId) params.set("staffId", staffId);
   return apiRequest<StaffTodaySummaryData>(`/dashboard/staff/today?${params.toString()}`, { token });
 }
 
@@ -1118,4 +1119,46 @@ export async function syncDomainEvents(
     url += `&limit=${limit}`;
   }
   return apiRequest<{ events: any[]; nextCursor: string | null }>(url, { token });
+}
+
+// ATTENDANCE & LEAVES
+export async function fetchAttendance(token: string, filters: { shopId?: string; staffId?: string; dateFrom?: string; dateTo?: string } = {}) {
+  const params = new URLSearchParams();
+  if (filters.shopId) params.append("shopId", filters.shopId);
+  if (filters.staffId) params.append("staffId", filters.staffId);
+  if (filters.dateFrom) params.append("dateFrom", filters.dateFrom);
+  if (filters.dateTo) params.append("dateTo", filters.dateTo);
+  return apiRequest<any[]>(`/attendance?${params.toString()}`, { token });
+}
+
+export async function checkIn(token: string, shopId: string, note?: string) {
+  return apiRequest<any>("/attendance/check-in", {
+    method: "POST",
+    token,
+    body: JSON.stringify({ shopId, note }),
+  });
+}
+
+export async function checkOut(token: string, shopId: string, note?: string) {
+  return apiRequest<any>("/attendance/check-out", {
+    method: "POST",
+    token,
+    body: JSON.stringify({ shopId, note }),
+  });
+}
+
+export async function requestLeave(token: string, data: { startDate: string; endDate: string; reason: string }) {
+  return apiRequest<any>("/attendance/leave", {
+    method: "POST",
+    token,
+    body: JSON.stringify(data),
+  });
+}
+
+export async function respondToLeave(token: string, leaveId: string, status: "APPROVED" | "REJECTED") {
+  return apiRequest<any>(`/attendance/leave/${leaveId}/respond`, {
+    method: "POST",
+    token,
+    body: JSON.stringify({ status }),
+  });
 }

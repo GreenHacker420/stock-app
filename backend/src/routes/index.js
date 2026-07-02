@@ -20,6 +20,7 @@ import rateChangeRoutes from "./rateChange.routes.js";
 import correctionRoutes from "./correction.routes.js";
 import whatsappRoutes from "./whatsapp.routes.js";
 import syncRoutes from "./sync.routes.js";
+import attendanceRoutes from "./attendance.routes.js";
 
 export const appRoutes = [
   ["/auth", authRoutes],
@@ -45,6 +46,7 @@ export const appRoutes = [
   ["/correction-requests", correctionRoutes],
   ["/whatsapp", whatsappRoutes],
   ["/sync", syncRoutes],
+  ["/attendance", attendanceRoutes],
 ];
 
 export function mountAppRoutes(app) {

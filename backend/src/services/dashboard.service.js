@@ -1,5 +1,6 @@
 import prisma from "../lib/db.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
+import { ApiError } from "../utils/ApiError.js";
 
 function dayRange(date = new Date()) {
   const start = new Date(date);
@@ -190,17 +191,26 @@ export async function getOwnerDashboard(user, { shopId, date }) {
   };
 }
 
-export async function getStaffTodaySummary(user, { shopId, date }) {
+export async function getStaffTodaySummary(user, { shopId, date, staffId }) {
   await assertShopAccess(user, shopId);
+
+  let targetStaffId = user.id;
+  if (staffId && staffId !== user.id) {
+    if (user.role !== "OWNER") {
+      throw new ApiError(403, "Only owners can view other staff summaries");
+    }
+    targetStaffId = staffId;
+  }
+
   const { start, end } = dayRange(date ? new Date(date) : new Date());
 
   const [sales, dms, payments, orders, stockMovements, cashSession] = await Promise.all([
-    prisma.sale.findMany({ where: { shopId, staffId: user.id, createdAt: { gte: start, lte: end } } }),
-    prisma.deliveryMemo.findMany({ where: { shopId, staffId: user.id, createdAt: { gte: start, lte: end } } }),
-    prisma.payment.findMany({ where: { shopId, receivedById: user.id, receivedAt: { gte: start, lte: end } } }),
-    prisma.order.findMany({ where: { shopId, assignedStaffId: user.id, updatedAt: { gte: start, lte: end } } }),
-    prisma.stockLedger.findMany({ where: { shopId, createdById: user.id, createdAt: { gte: start, lte: end } } }),
-    prisma.cashSession.findFirst({ where: { shopId, staffId: user.id, openedAt: { gte: start, lte: end } }, orderBy: { openedAt: "desc" } }),
+    prisma.sale.findMany({ where: { shopId, staffId: targetStaffId, createdAt: { gte: start, lte: end } } }),
+    prisma.deliveryMemo.findMany({ where: { shopId, staffId: targetStaffId, createdAt: { gte: start, lte: end } } }),
+    prisma.payment.findMany({ where: { shopId, receivedById: targetStaffId, receivedAt: { gte: start, lte: end } } }),
+    prisma.order.findMany({ where: { shopId, assignedStaffId: targetStaffId, updatedAt: { gte: start, lte: end } } }),
+    prisma.stockLedger.findMany({ where: { shopId, createdById: targetStaffId, createdAt: { gte: start, lte: end } } }),
+    prisma.cashSession.findFirst({ where: { shopId, staffId: targetStaffId, openedAt: { gte: start, lte: end } }, orderBy: { openedAt: "desc" } }),
   ]);
 
   const total = (rows, field = "totalAmount") => rows.reduce((sum, row) => sum + Number(row[field] || 0), 0);

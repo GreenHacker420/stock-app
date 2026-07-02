@@ -24,7 +24,8 @@ export const queryKeys = {
   cheques: (options: { shopId?: string; status?: string }) => ["cheques", options] as const,
   cheque: (id: string) => ["cheque", id] as const,
   ownerDashboard: (shopId?: string, date?: string) => ["owner-dashboard", { shopId, date }] as const,
-  staffTodaySummary: (shopId: string, date?: string) => ["staff-today-summary", shopId, { date }] as const,
+  staffTodaySummary: (shopId: string, date?: string, staffId?: string) => ["staff-today-summary", shopId, { date, staffId }] as const,
   staff: () => ["staff"] as const,
   categories: (shopId: string) => ["categories", shopId] as const,
+  attendance: (filters: { shopId?: string; staffId?: string; dateFrom?: string; dateTo?: string }) => ["attendance", filters] as const,
 };
