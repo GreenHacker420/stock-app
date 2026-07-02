@@ -3,6 +3,7 @@ import { ApiError } from "../utils/ApiError.js";
 import { writeAuditLog } from "../utils/auditLog.js";
 import { EntityType, AuditAction } from "../generated/prisma/index.js";
 import { createDomainEvent, enqueueDomainEvent, enqueueManyDomainEvents } from "./domain-event.service.js";
+import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 
 export async function listShops(user) {
   const includeStaff = {
@@ -146,8 +147,9 @@ export async function updateShop(user, shopId, data) {
 }
 
 export async function assignStaff(user, shopId, staffId) {
+  await assertShopAccess(user, shopId);
   const shop = await prisma.shop.findUnique({ where: { id: shopId } });
-  if (!shop || shop.ownerId !== user.id) {
+  if (!shop) {
     throw new ApiError(404, "Shop not found");
   }
 
@@ -155,8 +157,9 @@ export async function assignStaff(user, shopId, staffId) {
     where: { id: staffId },
   });
 
-  if (!staff || staff.role !== "STAFF" || staff.status !== "ACTIVE" || staff.staffOwnerId !== user.id) {
-    throw new ApiError(400, "Active staff user not found");
+  const groupOwnerId = user.staffOwnerId || user.id;
+  if (!staff || staff.status !== "ACTIVE" || staff.staffOwnerId !== groupOwnerId) {
+    throw new ApiError(400, "Active user not found in your business group");
   }
 
   const access = await prisma.$transaction(async (tx) => {
@@ -258,4 +261,53 @@ export async function setOpeningStock(user, shopId, entries) {
   });
 
   return result;
+}
+
+export async function unassignStaff(user, shopId, staffId) {
+  await assertShopAccess(user, shopId);
+  const shop = await prisma.shop.findUnique({ where: { id: shopId } });
+  if (!shop) throw new ApiError(404, "Shop not found");
+
+  const staff = await prisma.user.findUnique({ where: { id: staffId } });
+  const groupOwnerId = user.staffOwnerId || user.id;
+  if (!staff || staff.staffOwnerId !== groupOwnerId) {
+    throw new ApiError(400, "User not found in your business group");
+  }
+
+  const access = await prisma.staffShopAccess.findUnique({
+    where: { staffId_shopId: { staffId, shopId } },
+  });
+
+  if (!access) {
+    throw new ApiError(400, "Staff is not assigned to this shop");
+  }
+
+  await prisma.$transaction(async (tx) => {
+    await tx.staffShopAccess.delete({
+      where: { id: access.id },
+    });
+
+    await tx.auditLog.create({
+      data: {
+        userId: user.id,
+        shopId,
+        action: AuditAction.DELETED,
+        entityType: EntityType.STAFF_SHOP_ACCESS,
+        entityId: access.id,
+        newValueJson: { unassigned: true, staffId, shopId },
+      }
+    });
+
+    await enqueueDomainEvent(tx, createDomainEvent({
+      shopId,
+      entity: "shop",
+      action: "staff_unassigned",
+      entityId: access.id,
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: false, targetUserIds: [staffId] },
+    }));
+  });
+
+  return { success: true };
 }

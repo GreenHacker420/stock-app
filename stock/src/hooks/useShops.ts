@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "../auth/auth-store";
 import { queryKeys } from "./query-keys";
-import { fetchShops, createShop, updateShop, assignStaffToShop, setOpeningStock, fetchStaff, createDmFromOrder } from "../api/client";
+import { fetchShops, createShop, updateShop, assignStaffToShop, unassignStaffFromShop, setOpeningStock, fetchStaff, createDmFromOrder } from "../api/client";
 import { newIdempotencyKey } from "../utils/idempotency";
 
 export function useShopsQuery() {
@@ -66,6 +66,18 @@ export function useAssignStaffToShopMutation() {
   return useMutation({
     mutationFn: ({ shopId, staffId }: { shopId: string; staffId: string }) =>
       assignStaffToShop(token ?? "", shopId, staffId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.shops() });
+    },
+  });
+}
+
+export function useUnassignStaffFromShopMutation() {
+  const token = useAuthStore((state) => state.token);
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ shopId, staffId }: { shopId: string; staffId: string }) =>
+      unassignStaffFromShop(token ?? "", shopId, staffId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.shops() });
     },

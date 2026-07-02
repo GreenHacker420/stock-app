@@ -33,3 +33,12 @@ export const setOpeningStock = asyncHandler(async (req, res) => {
   );
   res.status(201).json({ success: true, data: rows });
 });
+
+export const unassignStaff = asyncHandler(async (req, res) => {
+  const result = await shopService.unassignStaff(
+    req.user,
+    req.validated.params.id,
+    req.validated.body.staffId,
+  );
+  res.json({ success: true, data: result });
+});

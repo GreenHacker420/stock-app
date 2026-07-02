@@ -399,6 +399,10 @@ export async function assignStaffToShop(token: string, shopId: string, staffId: 
   return apiRequest(`/shops/${shopId}/assign-staff`, { method: "POST", token, body: JSON.stringify({ staffId }) });
 }
 
+export async function unassignStaffFromShop(token: string, shopId: string, staffId: string) {
+  return apiRequest(`/shops/${shopId}/unassign-staff`, { method: "POST", token, body: JSON.stringify({ staffId }) });
+}
+
 export async function setOpeningStock(token: string, shopId: string, entries: any) {
   return apiRequest(`/shops/${shopId}/set-opening-stock`, { method: "POST", token, body: JSON.stringify({ entries }) });
 }

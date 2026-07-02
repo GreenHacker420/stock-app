@@ -7,6 +7,7 @@ import { useStaffQuery, useCreateStaffMutation, useUpdateStaffMutation } from ".
 import { useStaffTodaySummaryQuery } from "../../hooks/useDashboard";
 import { useAttendanceQuery } from "../../hooks/useAttendance";
 import { useAuditLogsQuery } from "../../hooks/useAuditLogs";
+import { useShopsQuery, useAssignStaffToShopMutation, useUnassignStaffFromShopMutation } from "../../hooks/useShops";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { Section } from "../../components/ui/Section";
@@ -706,12 +707,88 @@ const styles = StyleSheet.create({
   presetPillTextActive: {
     color: "#fff",
   },
+  shopAccessCard: {
+    marginHorizontal: spacing.lg,
+    marginBottom: spacing.lg,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    padding: spacing.lg,
+    ...shadow.sm,
+  },
+  sectionHeaderTitle: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  sectionHeaderSubtitle: {
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+    marginBottom: spacing.md,
+  },
+  shopList: {
+    gap: spacing.md,
+  },
+  shopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: spacing.xs,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.surfaceOffset,
+  },
+  shopInfoText: {
+    flex: 1,
+    gap: 2,
+  },
+  shopNameText: {
+    fontSize: fontSize.sm + 1,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  shopCodeText: {
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+  },
 });
 
 export function StaffDetail() {
   const route = useRoute();
   const staff = (route.params as { staff: ApiUser }).staff;
   const [activeTab, setActiveTab] = useState<"activity" | "attendance" | "audit">("activity");
+
+  const shopsQuery = useShopsQuery();
+  const assignMutation = useAssignStaffToShopMutation();
+  const unassignMutation = useUnassignStaffFromShopMutation();
+
+  const isAssigned = (shopId: string) => {
+    const shop = shopsQuery.data?.find((s) => s.id === shopId);
+    const accesses = (shop as any)?.staffAccesses || [];
+    return accesses.some((a: any) => a.staffId === staff.id);
+  };
+
+  const handleToggleShop = (shopId: string, currentAssigned: boolean) => {
+    if (currentAssigned) {
+      unassignMutation.mutate({ shopId, staffId: staff.id }, {
+        onSuccess: () => {
+          Alert.alert("Success", "User removed from shop successfully.");
+        },
+        onError: (err: any) => {
+          Alert.alert("Error", err?.message || "Failed to remove user.");
+        }
+      });
+    } else {
+      assignMutation.mutate({ shopId, staffId: staff.id }, {
+        onSuccess: () => {
+          Alert.alert("Success", "User assigned to shop successfully.");
+        },
+        onError: (err: any) => {
+          Alert.alert("Error", err?.message || "Failed to assign user.");
+        }
+      });
+    }
+  };
 
   const [rangePreset, setRangePreset] = useState<"today" | "yesterday" | "thisWeek" | "lastWeek" | "thisMonth" | "custom">("today");
   const [customDates, setCustomDates] = useState({ from: "", to: "" });
@@ -974,6 +1051,43 @@ export function StaffDetail() {
         >
           Edit Staff Account
         </Button>
+      </View>
+
+      {/* Shop Access Management Section */}
+      <View style={styles.shopAccessCard}>
+        <Text style={styles.sectionHeaderTitle}>Shop Assignments</Text>
+        <Text style={styles.sectionHeaderSubtitle}>Assign this account to shops to grant them access.</Text>
+        
+        {shopsQuery.isLoading ? (
+          <ActivityIndicator style={{ margin: spacing.md }} color={colors.primary} />
+        ) : (
+          <View style={styles.shopList}>
+            {shopsQuery.data?.map((shop) => {
+              const assigned = isAssigned(shop.id);
+              const isMutating = 
+                (assignMutation.isPending && assignMutation.variables?.shopId === shop.id) ||
+                (unassignMutation.isPending && unassignMutation.variables?.shopId === shop.id);
+                
+              return (
+                <View key={shop.id} style={styles.shopRow}>
+                  <View style={styles.shopInfoText}>
+                    <Text style={styles.shopNameText}>{shop.name}</Text>
+                    <Text style={styles.shopCodeText}>{shop.code} • {shop.city}</Text>
+                  </View>
+                  {isMutating ? (
+                    <ActivityIndicator size="small" color={colors.primary} style={{ marginRight: 8 }} />
+                  ) : (
+                    <Switch
+                      value={assigned}
+                      onValueChange={() => handleToggleShop(shop.id, assigned)}
+                      color={colors.primary}
+                    />
+                  )}
+                </View>
+              );
+            })}
+          </View>
+        )}
       </View>
 
       {/* Tabs */}

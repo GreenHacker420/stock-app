@@ -72,6 +72,7 @@ router.get("/", requirePermission(PERMISSIONS.SHOP_VIEW), shopController.listSho
 router.post("/", requireOwner, validate(createShopSchema), shopController.createShop);
 router.patch("/:id", requireOwner, validate(updateShopSchema), shopController.updateShop);
 router.post("/:id/assign-staff", requireOwner, validate(assignStaffSchema), shopController.assignStaff);
+router.post("/:id/unassign-staff", requireOwner, validate(assignStaffSchema), shopController.unassignStaff);
 router.post(
   "/:id/set-opening-stock",
   requireOwner,
