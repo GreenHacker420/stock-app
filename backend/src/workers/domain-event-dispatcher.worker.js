@@ -41,23 +41,70 @@ function getRedis() {
   return redisPub;
 }
 
-async function getTargetUserIds(event) {
-  const ids = new Set(event.visibility?.targetUserIds || []);
+async function getNotificationTargetUserIds(event) {
+  const ids = new Set();
 
-  if (event.visibility?.owners) {
-    const shop = await prisma.shop.findUnique({
-      where: { id: event.shopId },
-      select: { ownerId: true },
-    });
-    if (shop?.ownerId) ids.add(shop.ownerId);
+
+  if (event.visibility?.targetUserIds && event.visibility.targetUserIds.length > 0) {
+    for (const userId of event.visibility.targetUserIds) {
+      ids.add(userId);
+    }
+  } else {
+    if (event.entity === "sale" || event.entity === "payment") {
+      const shop = await prisma.shop.findUnique({
+        where: { id: event.shopId },
+        select: { ownerId: true },
+      });
+      if (shop?.ownerId) {
+        ids.add(shop.ownerId);
+      }
+      
+      const otherOwners = await prisma.staffShopAccess.findMany({
+        where: {
+          shopId: event.shopId,
+          staff: { role: "OWNER" }
+        },
+        select: { staffId: true }
+      });
+      for (const row of otherOwners) {
+        ids.add(row.staffId);
+      }
+    } else {
+      // For other entities (e.g. approvals, orders, attendance), use standard visibility rules:
+      if (event.visibility?.owners) {
+        const shop = await prisma.shop.findUnique({
+          where: { id: event.shopId },
+          select: { ownerId: true },
+        });
+        if (shop?.ownerId) {
+          ids.add(shop.ownerId);
+        }
+
+        const otherOwners = await prisma.staffShopAccess.findMany({
+          where: {
+            shopId: event.shopId,
+            staff: { role: "OWNER" }
+          },
+          select: { staffId: true }
+        });
+        for (const row of otherOwners) {
+          ids.add(row.staffId);
+        }
+      }
+
+      if (event.visibility?.staff) {
+        const staff = await prisma.staffShopAccess.findMany({
+          where: { shopId: event.shopId },
+          select: { staffId: true },
+        });
+        for (const row of staff) ids.add(row.staffId);
+      }
+    }
   }
 
-  if (event.visibility?.staff) {
-    const staff = await prisma.staffShopAccess.findMany({
-      where: { shopId: event.shopId },
-      select: { staffId: true },
-    });
-    for (const row of staff) ids.add(row.staffId);
+  // CRITICAL: Always filter out the actor! Nobody should receive a push/in-app notification for their own action.
+  if (event.actorUserId) {
+    ids.delete(event.actorUserId);
   }
 
   return [...ids];
@@ -65,7 +112,7 @@ async function getTargetUserIds(event) {
 
 async function queuePushNotifications(event) {
   if (!event.notification?.sendPush) return;
-  const targetUserIds = await getTargetUserIds(event);
+  const targetUserIds = await getNotificationTargetUserIds(event);
 
   // Get active device presences in the shop to evaluate suppression
   const activePresences = await listShopPresence(event.shopId).catch(() => []);
