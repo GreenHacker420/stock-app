@@ -58,7 +58,8 @@ export async function canAccessShop(user, shopId) {
   });
 
   if (!shop || shop.status !== "ACTIVE") return false;
-  return (user.role === "OWNER" && shop.ownerId === user.id) || (user.role === "STAFF" && shop.staffAccesses.length > 0);
+  const hasAccessEntry = shop.staffAccesses.length > 0;
+  return (user.role === "OWNER" && (shop.ownerId === user.id || hasAccessEntry)) || (user.role === "STAFF" && hasAccessEntry);
 }
 
 export async function getShopAccess(user, shopId) {
@@ -73,8 +74,9 @@ export async function getShopAccess(user, shopId) {
     },
   });
   if (!shop || shop.status !== "ACTIVE") return null;
-  if (user.role === "OWNER" && shop.ownerId === user.id) return { shop, roleRoom: "owners" };
-  if (user.role === "STAFF" && shop.staffAccesses.length > 0) return { shop, roleRoom: "staff" };
+  const hasAccessEntry = shop.staffAccesses.length > 0;
+  if (user.role === "OWNER" && (shop.ownerId === user.id || hasAccessEntry)) return { shop, roleRoom: "owners" };
+  if (user.role === "STAFF" && hasAccessEntry) return { shop, roleRoom: "staff" };
   return null;
 }
 

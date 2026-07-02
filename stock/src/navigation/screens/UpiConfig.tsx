@@ -1,8 +1,11 @@
-import React, { useState } from "react";
-import { View, ScrollView, StyleSheet } from "react-native";
+import { useRef, useState } from "react";
+import { View, ScrollView, StyleSheet, Modal, Alert, Platform, TouchableOpacity } from "react-native";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Text, TextInput, Card, Icon } from "react-native-paper";
+import { Text, TextInput, Icon } from "react-native-paper";
 import { useRoute, useNavigation } from "@react-navigation/native";
+import type { RouteProp } from "@react-navigation/native";
+import { CameraView, useCameraPermissions } from "expo-camera";
+import * as Haptics from "expo-haptics";
 
 import { updateShop } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
@@ -13,28 +16,174 @@ import { SuccessModal } from "../../components/ui/SuccessModal";
 import { Button } from "../../components/ui/Button";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 
+type UpiConfigRouteParams = {
+  shop: {
+    id: string;
+    name: string;
+    upiId?: string | null;
+    upiName?: string | null;
+  };
+};
+
+const isValidUpiId = (value: string) => {
+  return /^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z][a-zA-Z0-9.\-_]{2,64}$/.test(value.trim());
+};
+
+const extractUpiFromUrl = (url: string): { upiId: string; upiName: string } | null => {
+  try {
+    const trimmed = url.trim();
+    if (!trimmed.toLowerCase().startsWith("upi://pay")) {
+      return null;
+    }
+    
+    const queryStartIndex = trimmed.indexOf("?");
+    if (queryStartIndex === -1) {
+      return null;
+    }
+    
+    const queryString = trimmed.slice(queryStartIndex + 1);
+    const searchParams = new URLSearchParams(queryString);
+    const pa = searchParams.get("pa")?.trim();
+    const pn = searchParams.get("pn")?.trim() ?? "";
+    
+    if (!pa || !isValidUpiId(pa)) {
+      return null;
+    }
+    
+    return {
+      upiId: pa,
+      upiName: pn,
+    };
+  } catch (error) {
+    console.error("Error parsing UPI URL", error);
+    return null;
+  }
+};
+
 export function UpiConfig() {
   const token = useAuthStore((state) => state.token);
   const queryClient = useQueryClient();
   const navigation = useNavigation();
-  const route = useRoute<any>();
+  
+  const route = useRoute<RouteProp<{ UpiConfig: UpiConfigRouteParams }, "UpiConfig">>();
   const shop = route.params?.shop;
+  const shopId = shop?.id;
 
   const [upiId, setUpiId] = useState(shop?.upiId || "");
   const [upiName, setUpiName] = useState(shop?.upiName || "");
   const [successVisible, setSuccessVisible] = useState(false);
 
+  // Scanner states & refs
+  const [isScanning, setIsScanning] = useState(false);
+  const [permission, requestPermission] = useCameraPermissions();
+  const scanLockRef = useRef(false);
+  const lastAlertTimeRef = useRef(0);
+
   const mutation = useMutation({
-    mutationFn: () => updateShop(token ?? "", shop.id, { upiId, upiName }),
+    mutationFn: () => {
+      if (!token) {
+        throw new Error("You are not logged in.");
+      }
+      if (!shopId) {
+        throw new Error("Shop details are missing.");
+      }
+      return updateShop(token, shopId, {
+        upiId: upiId.trim(),
+        upiName: upiName.trim(),
+      });
+    },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["shops"] });
+      void queryClient.invalidateQueries({ queryKey: ["shops"] });
+      if (shopId) {
+        void queryClient.invalidateQueries({ queryKey: ["shop", shopId] });
+      }
       setSuccessVisible(true);
+    },
+    onError: (error) => {
+      Alert.alert(
+        "Save Failed",
+        error instanceof Error ? error.message : "Unable to update UPI configuration."
+      );
     },
   });
 
+  if (!shopId) {
+    return (
+      <Screen edges={["top", "left", "right"]}>
+        <AppHeader title="QR Management" subtitle="Shop not found" />
+        <View style={[styles.container, styles.centerContainer]}>
+          <Text style={styles.errorText}>Unable to configure UPI because shop details are missing.</Text>
+        </View>
+      </Screen>
+    );
+  }
+
+  const handleStartScan = async () => {
+    scanLockRef.current = false;
+    let currentPermission = permission;
+    if (!currentPermission?.granted) {
+      currentPermission = await requestPermission();
+    }
+    if (!currentPermission.granted) {
+      Alert.alert(
+        "Camera Access Required",
+        "Please grant camera permissions in your device settings to scan merchant QR codes."
+      );
+      return;
+    }
+    setIsScanning(true);
+  };
+
+  const handleQrScanned = (data: string) => {
+    if (!data || scanLockRef.current) return;
+    const parsed = extractUpiFromUrl(data);
+    if (parsed) {
+      scanLockRef.current = true;
+      setUpiId(parsed.upiId);
+      if (parsed.upiName) {
+        setUpiName(parsed.upiName);
+      }
+      setIsScanning(false);
+      
+      // Success haptic feedback
+      if (Platform.OS !== "web") {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      }
+      return;
+    }
+
+    const now = Date.now();
+    if (now - lastAlertTimeRef.current > 2500) {
+      lastAlertTimeRef.current = now;
+      Alert.alert(
+        "Invalid UPI QR Code",
+        "The scanned code is not a valid merchant UPI payment QR. Please scan a standard GPay, PhonePe, Paytm, or BHIM QR."
+      );
+    }
+  };
+
+  const handleSave = () => {
+    const trimmedUpiId = upiId.trim();
+
+    if (!trimmedUpiId) {
+      Alert.alert("UPI ID Required", "Please enter or scan a UPI ID.");
+      return;
+    }
+
+    if (!isValidUpiId(trimmedUpiId)) {
+      Alert.alert(
+        "Invalid UPI ID",
+        "Please enter a valid UPI ID, for example shopname@okicici."
+      );
+      return;
+    }
+
+    mutation.mutate();
+  };
+
   return (
     <Screen edges={['top', 'left', 'right']}>
-      <AppHeader title="QR Management" subtitle={`Configure UPI for ${shop?.name}`} />
+      <AppHeader title="QR Management" subtitle={`Configure UPI for ${shop.name}`} />
       
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         <View style={styles.container}>
@@ -55,6 +204,16 @@ export function UpiConfig() {
 
            <Section title="UPI Details">
               <View style={styles.formCard}>
+                 <View style={styles.scanButtonContainer}>
+                    <Button
+                      label="SCAN MERCHANT QR CODE"
+                      icon="qrcode-scan"
+                      onPress={handleStartScan}
+                      variant="secondary"
+                      fullWidth
+                    />
+                 </View>
+
                  <View style={styles.inputGroup}>
                     <Text style={styles.inputLabel}>VPA / UPI ID</Text>
                     <TextInput
@@ -63,9 +222,20 @@ export function UpiConfig() {
                        value={upiId}
                        onChangeText={setUpiId}
                        autoCapitalize="none"
+                       autoCorrect={false}
+                       keyboardType="email-address"
+                       textContentType="none"
                        style={styles.input}
                        outlineStyle={styles.inputOutline}
                        left={<TextInput.Icon icon="at" color={colors.textMuted} />}
+                       right={
+                         <TextInput.Icon
+                           icon="qrcode-scan"
+                           color={colors.primary}
+                           onPress={handleStartScan}
+                           forceTextInputFocus={false}
+                         />
+                       }
                     />
                     <Text style={styles.helperText}>Payments will be settled directly to this ID.</Text>
                  </View>
@@ -101,7 +271,8 @@ export function UpiConfig() {
          <Button
             label="SAVE CONFIGURATION"
             loading={mutation.isPending}
-            onPress={() => mutation.mutate()}
+            disabled={mutation.isPending || !upiId.trim()}
+            onPress={handleSave}
             fullWidth
             size="lg"
          />
@@ -116,6 +287,63 @@ export function UpiConfig() {
           navigation.goBack();
         }}
       />
+
+      {/* QR Code Scanner Overlay */}
+      {isScanning && (
+        <Modal
+          visible={isScanning}
+          animationType="slide"
+          onRequestClose={() => setIsScanning(false)}
+        >
+          <View style={styles.scannerContainer}>
+            <CameraView
+              style={StyleSheet.absoluteFill}
+              facing="back"
+              barcodeScannerSettings={{
+                barcodeTypes: ["qr"],
+              }}
+              onMountError={(event) => {
+                setIsScanning(false);
+                Alert.alert("Camera Error", event.message || "Unable to start the camera.");
+              }}
+              onBarcodeScanned={({ data }) => {
+                handleQrScanned(data);
+              }}
+            />
+            
+            <View style={styles.scannerOverlay}>
+              {/* Top Mask */}
+              <View style={styles.scannerTopMask}>
+                <View style={styles.scannerHeader}>
+                  <Text style={styles.scannerTitle}>Scan UPI QR</Text>
+                  <TouchableOpacity style={styles.closeScannerButton} onPress={() => setIsScanning(false)}>
+                    <Text style={styles.closeScannerText}>Cancel</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Middle Section with Cutout */}
+              <View style={styles.scannerMiddle}>
+                <View style={styles.scannerSideMask} />
+                <View style={styles.scannerCutout}>
+                  <View style={[styles.corner, styles.topLeft]} />
+                  <View style={[styles.corner, styles.topRight]} />
+                  <View style={[styles.corner, styles.bottomLeft]} />
+                  <View style={[styles.corner, styles.bottomRight]} />
+                </View>
+                <View style={styles.scannerSideMask} />
+              </View>
+
+              {/* Bottom Mask */}
+              <View style={styles.scannerBottomMask}>
+                <Text style={styles.scannerInstruction}>
+                  Align any merchant UPI QR (GPay, PhonePe, Paytm, etc.) inside the box to scan.
+                </Text>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
     </Screen>
   );
 }
@@ -127,6 +355,17 @@ const styles = StyleSheet.create({
   container: {
     padding: spacing.lg,
     gap: spacing.xl,
+  },
+  centerContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  errorText: {
+    color: colors.danger,
+    fontSize: fontSize.md,
+    textAlign: "center",
+    paddingHorizontal: spacing.xl,
   },
   heroCard: {
     backgroundColor: colors.primaryDark,
@@ -173,6 +412,9 @@ const styles = StyleSheet.create({
     padding: spacing.xl,
     gap: spacing.xl,
     ...shadow.sm,
+  },
+  scanButtonContainer: {
+    marginBottom: spacing.xs,
   },
   inputGroup: {
     gap: spacing.xs,
@@ -226,5 +468,104 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.border,
     ...shadow.lg,
-  }
+  },
+  
+  // Scanner styles
+  scannerContainer: {
+    flex: 1,
+    backgroundColor: "#000",
+  },
+  scannerOverlay: {
+    flex: 1,
+    backgroundColor: "transparent",
+  },
+  scannerTopMask: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.65)",
+    justifyContent: "flex-start",
+  },
+  scannerHeader: {
+    paddingTop: Platform.OS === "ios" ? 60 : 30,
+    paddingBottom: 20,
+    paddingHorizontal: 20,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  scannerTitle: {
+    color: "#fff",
+    fontSize: 18,
+    fontWeight: "bold",
+  },
+  closeScannerButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    backgroundColor: "rgba(255, 255, 255, 0.25)",
+  },
+  closeScannerText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "bold",
+  },
+  scannerMiddle: {
+    flexDirection: "row",
+    height: 280,
+  },
+  scannerSideMask: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.65)",
+  },
+  scannerCutout: {
+    width: 280,
+    height: 280,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.4)",
+    backgroundColor: "transparent",
+    position: "relative",
+  },
+  corner: {
+    position: "absolute",
+    width: 24,
+    height: 24,
+    borderColor: colors.primary,
+  },
+  topLeft: {
+    top: -2,
+    left: -2,
+    borderTopWidth: 4,
+    borderLeftWidth: 4,
+  },
+  topRight: {
+    top: -2,
+    right: -2,
+    borderTopWidth: 4,
+    borderRightWidth: 4,
+  },
+  bottomLeft: {
+    bottom: -2,
+    left: -2,
+    borderBottomWidth: 4,
+    borderLeftWidth: 4,
+  },
+  bottomRight: {
+    bottom: -2,
+    right: -2,
+    borderBottomWidth: 4,
+    borderRightWidth: 4,
+  },
+  scannerBottomMask: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.65)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 40,
+  },
+  scannerInstruction: {
+    color: "#fff",
+    fontSize: 14,
+    textAlign: "center",
+    lineHeight: 20,
+    opacity: 0.8,
+  },
 });
