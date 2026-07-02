@@ -9,8 +9,10 @@
     "ios": "expo run:ios",
     "typecheck": "tsc --noEmit",
     "doctor": "expo-doctor",
-    "build:android:preview": "npx -p eas-cli eas build --platform android --profile preview",
-    "build:android:production": "npx -p eas-cli eas build --platform android --profile production",
+    "build:android:preview": "eas build --platform android --profile preview",
+    "build:android:preview:local": "eas build --platform android --profile preview --local",
+    "build:android:production": "eas build --platform android --profile production",
+    "build:android:production:local": "eas build --platform android --profile production --local",
     "postinstall": "patch-package"
   },
   "dependencies": {
@@ -86,6 +88,7 @@
     "@babel/core": "^7.20.0",
     "@types/react": "~19.2.10",
     "babel-preset-expo": "^56.0.13",
+    "eas-cli": "^20.5.1",
     "expo-doctor": "^1.20.0",
     "patch-package": "^8.0.1",
     "react-test-renderer": "19.2.3",
