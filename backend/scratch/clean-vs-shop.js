@@ -1,4 +1,4 @@
-import { PrismaClient } from "../generated/prisma/index.js";
+import { PrismaClient } from "/app/src/generated/prisma/index.js";
 import { PrismaPg } from "@prisma/adapter-pg";
 import pg from "pg";
 import "dotenv/config";
@@ -27,8 +27,9 @@ async function main() {
       console.log(`\nDecongesting test shop: ${testShopId}`);
       
       const tablesWithShopId = [
+        "NotificationPushDelivery", "Notification",
         "AuditLog", "StockLedger", "StockBalance", "StockReservation", 
-        "OrderItem", "OrderItem", "OrderEvent", "Order", 
+        "OrderItem", "OrderEvent", "Order", 
         "DeliveryMemoItem", "DeliveryMemo", "SaleItem", "Sale", 
         "PaymentDetail", "Payment", "Customer", "ItemPriceHistory", 
         "Item", "ItemCategory", "Expense", "CashSession", 
@@ -63,11 +64,13 @@ async function main() {
 
     // Deleting transactional records in correct foreign key order
     const deleteQueries = [
+      `DELETE FROM "NotificationPushDelivery" WHERE "notificationId" IN (SELECT id FROM "Notification" WHERE "shopId" = '${VS_OLD_ID}');`,
+      `DELETE FROM "Notification" WHERE "shopId" = '${VS_OLD_ID}';`,
       `DELETE FROM "PaymentDetail" WHERE "paymentId" IN (SELECT id FROM "Payment" WHERE "shopId" = '${VS_OLD_ID}');`,
       `DELETE FROM "Payment" WHERE "shopId" = '${VS_OLD_ID}';`,
       `DELETE FROM "SaleItem" WHERE "saleId" IN (SELECT id FROM "Sale" WHERE "shopId" = '${VS_OLD_ID}');`,
       `DELETE FROM "Sale" WHERE "shopId" = '${VS_OLD_ID}';`,
-      `DELETE FROM "DeliveryMemoItem" WHERE "deliveryMemoId" IN (SELECT id FROM "DeliveryMemo" WHERE "shopId" = '${VS_OLD_ID}');`,
+      `DELETE FROM "DeliveryMemoItem" WHERE "dmId" IN (SELECT id FROM "DeliveryMemo" WHERE "shopId" = '${VS_OLD_ID}');`,
       `DELETE FROM "DeliveryMemo" WHERE "shopId" = '${VS_OLD_ID}';`,
       `DELETE FROM "StockReservation" WHERE "shopId" = '${VS_OLD_ID}';`,
       `DELETE FROM "OrderItem" WHERE "orderId" IN (SELECT id FROM "Order" WHERE "shopId" = '${VS_OLD_ID}');`,
@@ -79,8 +82,8 @@ async function main() {
       `DELETE FROM "Expense" WHERE "shopId" = '${VS_OLD_ID}';`,
       `DELETE FROM "CashSession" WHERE "shopId" = '${VS_OLD_ID}';`,
       `DELETE FROM "ApprovalRequest" WHERE "shopId" = '${VS_OLD_ID}';`,
-      `DELETE FROM "DailySummary" WHERE "shopId" = '${VS_OLD_ID}';`,
-      `DELETE FROM "DailySummaryExport" WHERE "shopId" = '${VS_OLD_ID}';`
+      `DELETE FROM "DailySummaryExport" WHERE "dailySummaryId" IN (SELECT id FROM "DailySummary" WHERE "shopId" = '${VS_OLD_ID}');`,
+      `DELETE FROM "DailySummary" WHERE "shopId" = '${VS_OLD_ID}';`
     ];
 
     for (const sql of deleteQueries) {
