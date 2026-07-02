@@ -19,7 +19,8 @@ export type DomainEvent = {
   entityId: string;
   actorUserId: string;
   sourceDeviceId?: string | null;
-  updatedAt: string;
+  createdAt?: string;
+  updatedAt?: string;
   queryKeys?: string[];
   patch?: Record<string, unknown>;
   notification?: {

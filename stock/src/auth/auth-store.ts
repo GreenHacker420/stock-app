@@ -3,6 +3,7 @@ import * as Crypto from "expo-crypto";
 import { ApiUser, fetchMe, login, truecallerLogin, truecallerOtpLogin } from "../api/client";
 import { useShopStore } from "./shop-store";
 import { deleteToken, getToken, setToken } from "./token-storage";
+import { clearDomainEventCursors } from "../realtime/domainEventCursor";
 
 const TOKEN_KEY = "shopcontrol_token";
 const QUICK_TOKEN_KEY = "shopcontrol_quick_token";
@@ -27,6 +28,11 @@ const globalAuthStore = globalThis as typeof globalThis & {
   __shopControlAuthStore?: AuthStore;
 };
 
+function restoreUserShopSelection(userId: string) {
+  const shopStore = useShopStore.getState();
+  shopStore.setActiveShopId(shopStore.getLastUsedShopIdForUser(userId), userId);
+}
+
 function createAuthStore() {
   return create<AuthState>((set, get) => ({
   token: null,
@@ -45,7 +51,8 @@ function createAuthStore() {
     if (result.user.mobile) {
       await setToken("shopcontrol_last_user_phone", result.user.mobile);
     }
-    set({ token: result.token, user: result.user, isBootstrapping: false });
+	    restoreUserShopSelection(result.user.id);
+	    set({ token: result.token, user: result.user, isBootstrapping: false });
   },
   async signInWithTruecaller(authorizationCode, codeVerifier) {
     const result = await truecallerLogin(authorizationCode, codeVerifier);
@@ -60,7 +67,8 @@ function createAuthStore() {
     if (result.user.mobile) {
       await setToken("shopcontrol_last_user_phone", result.user.mobile);
     }
-    set({ token: result.token, user: result.user, isBootstrapping: false });
+	    restoreUserShopSelection(result.user.id);
+	    set({ token: result.token, user: result.user, isBootstrapping: false });
   },
   async signInWithTruecallerOtp(accessToken) {
     const result = await truecallerOtpLogin(accessToken);
@@ -75,7 +83,8 @@ function createAuthStore() {
     if (result.user.mobile) {
       await setToken("shopcontrol_last_user_phone", result.user.mobile);
     }
-    set({ token: result.token, user: result.user, isBootstrapping: false });
+	    restoreUserShopSelection(result.user.id);
+	    set({ token: result.token, user: result.user, isBootstrapping: false });
   },
   async signInWithSavedToken(pin) {
     const token = await getToken(QUICK_TOKEN_KEY);
@@ -91,7 +100,8 @@ function createAuthStore() {
     }
     const user = await fetchMe(token);
     await setToken(TOKEN_KEY, token);
-    set({ token, user, isBootstrapping: false });
+	    restoreUserShopSelection(user.id);
+	    set({ token, user, isBootstrapping: false });
   },
   async restoreSession() {
     try {
@@ -109,7 +119,8 @@ function createAuthStore() {
       }
 
       const user = await fetchMe(token);
-      set({ token, user, isBootstrapping: false });
+	      restoreUserShopSelection(user.id);
+	      set({ token, user, isBootstrapping: false });
     } catch {
       await get().signOut();
       set({ isBootstrapping: false });
@@ -123,7 +134,9 @@ function createAuthStore() {
     await deleteToken("shopcontrol_pin_set");
     await deleteToken("shopcontrol_last_user_name");
     await deleteToken("shopcontrol_last_user_phone");
-    useShopStore.getState().setActiveShopId(null);
+	    const shopState = useShopStore.getState();
+	    await clearDomainEventCursors(Object.values(shopState.lastUsedShopByUserId));
+	    shopState.clearActiveShop();
     set({ token: null, user: null, isBootstrapping: false });
   },
 }));

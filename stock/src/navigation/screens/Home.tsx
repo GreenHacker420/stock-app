@@ -9,6 +9,7 @@ import { useShopStore } from "../../auth/shop-store";
 import { useShopsQuery } from "../../hooks/useShops";
 import { useCurrentCashSessionQuery } from "../../hooks/useCashSessions";
 import { useOwnerDashboardQuery } from "../../hooks/useDashboard";
+import { useSwitchActiveShop } from "../../hooks/useActiveShop";
 import { Screen } from "../../components/Screen";
 import { ActionTile } from "../../components/ui/ActionTile";
 import { AppHeader } from "../../components/ui/AppHeader";
@@ -48,7 +49,8 @@ function CategoryCard({ title, icon, onPress }: CategoryCardProps) {
 
 export function Home() {
   const user = useAuthStore((state) => state.user);
-  const { activeShopId, setActiveShopId } = useShopStore();
+  const { activeShopId } = useShopStore();
+  const switchActiveShop = useSwitchActiveShop();
   const shopsQuery = useShopsQuery();
   const sessionQuery = useCurrentCashSessionQuery();
 
@@ -103,7 +105,7 @@ export function Home() {
                     subtitle={`${shop.city} • Code: ${shop.code}`}
                     icon="storefront-outline"
                     tone="blue"
-                    onPress={() => setActiveShopId(shop.id)}
+	                    onPress={() => switchActiveShop(shop.id)}
                   />
                 ))
               )}

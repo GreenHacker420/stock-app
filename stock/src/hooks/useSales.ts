@@ -5,6 +5,7 @@ import { queryKeys } from "./query-keys";
 import { fetchSales, fetchSale, createSale, createWalkInSale, CreateSalePayload, updateSaleGst } from "../api/client";
 import { newIdempotencyKey } from "../utils/idempotency";
 import { warmOfflineCache } from "../utils/mmkvCache";
+import { requireActiveShopId } from "./useActiveShop";
 
 export function useSalesQuery() {
   const token = useAuthStore((state) => state.token);
@@ -38,7 +39,7 @@ export function useCreateSaleMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: Omit<CreateSalePayload, "shopId">) =>
-      createSale(token ?? "", { ...data, shopId: activeShopId ?? "" }, {
+      createSale(token ?? "", { ...data, shopId: requireActiveShopId(activeShopId) }, {
         idempotencyKey: newIdempotencyKey("SALE"),
       }),
     onSuccess: () => {
@@ -64,7 +65,7 @@ export function useCreateWalkInSaleMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: any) =>
-      createWalkInSale(token ?? "", { ...data, shopId: activeShopId ?? "" }),
+      createWalkInSale(token ?? "", { ...data, shopId: requireActiveShopId(activeShopId) }),
     onSuccess: () => {
       if (activeShopId) {
         queryClient.invalidateQueries({ queryKey: ["sales", activeShopId] });

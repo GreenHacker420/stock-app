@@ -5,15 +5,35 @@ import { mmkvStorage } from "./mmkv-storage";
 interface ShopState {
   activeShopId: string | null;
   lastUsedShopId: string | null;
-  setActiveShopId: (id: string | null) => void;
+  lastUsedShopByUserId: Record<string, string>;
+  setActiveShopId: (id: string | null, userId?: string | null) => void;
+  getLastUsedShopIdForUser: (userId?: string | null) => string | null;
+  clearActiveShop: () => void;
 }
 
 export const useShopStore = create<ShopState>()(
   persist(
-    (set) => ({
+    (set, get): ShopState => ({
       activeShopId: null,
       lastUsedShopId: null,
-      setActiveShopId: (id) => set((state) => ({ activeShopId: id, lastUsedShopId: id ?? state.lastUsedShopId })),
+      lastUsedShopByUserId: {},
+      setActiveShopId: (id, userId) =>
+        set((state) => ({
+          activeShopId: id,
+          lastUsedShopId: id ?? state.lastUsedShopId,
+          lastUsedShopByUserId:
+            id && userId
+              ? { ...state.lastUsedShopByUserId, [userId]: id }
+              : state.lastUsedShopByUserId,
+        })),
+      getLastUsedShopIdForUser: (userId): string | null => {
+        const state = get();
+        if (userId && state.lastUsedShopByUserId[userId]) {
+          return state.lastUsedShopByUserId[userId];
+        }
+        return state.lastUsedShopId;
+      },
+      clearActiveShop: () => set({ activeShopId: null }),
     }),
     {
       name: "shop-storage",

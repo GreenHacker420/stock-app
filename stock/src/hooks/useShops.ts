@@ -17,7 +17,7 @@ export function useShopsQuery() {
 export function useStaffQuery() {
   const token = useAuthStore((state) => state.token);
   return useQuery({
-    queryKey: ["staff"],
+    queryKey: queryKeys.staff(),
     queryFn: () => fetchStaff(token ?? ""),
     enabled: !!token,
     staleTime: 15 * 60 * 1000, // 15 mins
@@ -43,6 +43,7 @@ export function useCreateShopMutation() {
     mutationFn: (data: any) => createShop(token ?? "", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.shops() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.staff() });
     },
   });
 }
@@ -79,8 +80,8 @@ export function useSetOpeningStockMutation() {
       setOpeningStock(token ?? "", shopId, entries),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.shops() });
-      queryClient.invalidateQueries({ queryKey: ["items"] });
-      queryClient.invalidateQueries({ queryKey: ["current-stock", variables.shopId] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.items(variables.shopId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.currentStock(variables.shopId) });
       queryClient.invalidateQueries({ queryKey: ["item-stock"] });
     },
   });

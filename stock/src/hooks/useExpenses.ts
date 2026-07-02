@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "../auth/auth-store";
 import { useShopStore } from "../auth/shop-store";
 import { apiRequest } from "../api/client";
+import { requireActiveShopId } from "./useActiveShop";
 
 export function useExpensesQuery() {
   const token = useAuthStore((state) => state.token);
@@ -22,7 +23,7 @@ export function useCreateExpenseMutation() {
       apiRequest("/expenses", {
         method: "POST",
         token,
-        body: JSON.stringify({ ...data, shopId: activeShopId }),
+        body: JSON.stringify({ ...data, shopId: requireActiveShopId(activeShopId) }),
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["expenses", activeShopId] });

@@ -3,6 +3,7 @@ import { View, ScrollView, Pressable, StyleSheet } from "react-native";
 import { Button, Text, Icon, TextInput, Portal, Dialog, Divider } from "react-native-paper";
 import { useShopsQuery } from "../../hooks/useShops";
 import { usePaymentsQuery, useVerifyPaymentMutation, useMarkPaymentMismatchMutation } from "../../hooks/usePayments";
+import { useShopStore } from "../../auth/shop-store";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { ShopPicker } from "../../components/ui/ShopPicker";
@@ -11,6 +12,7 @@ import { StatusPill } from "../../components/ui/StatusPill";
 import { colors, spacing, radius, fontWeight } from "../../theme";
 
 export function PaymentVerification() {
+  const activeShopId = useShopStore((state) => state.activeShopId);
   const [shopId, setShopId] = useState<string | undefined>();
   const [activeTab, setActiveTab] = useState("pending");
   const [selectedMode, setSelectedMode] = useState("ALL");
@@ -21,8 +23,13 @@ export function PaymentVerification() {
   const shopsQuery = useShopsQuery();
 
   useEffect(() => {
-    if (!shopId && shopsQuery.data?.[0]) setShopId(shopsQuery.data[0].id);
-  }, [shopId, shopsQuery.data]);
+    if (!shopsQuery.data?.length) return;
+    if (shopId && shopsQuery.data.some((shop) => shop.id === shopId)) return;
+    const activeShop = activeShopId
+      ? shopsQuery.data.find((shop) => shop.id === activeShopId)
+      : undefined;
+    setShopId(activeShop?.id ?? shopsQuery.data[0].id);
+  }, [activeShopId, shopId, shopsQuery.data]);
 
   const paymentsQuery = usePaymentsQuery(shopId);
 

@@ -26,6 +26,7 @@ import {
 } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
+import { requireActiveShopId } from "../../hooks/useActiveShop";
 import {
   useItemsQuery,
   useCreateItemMutation,
@@ -384,7 +385,7 @@ export function AddEditItem() {
   const handleSave = async () => {
     if (!form.name.trim() || !form.unit.trim()) return;
     const payload: CreateItemPayload = {
-      shopId: activeShopId ?? "",
+      shopId: requireActiveShopId(activeShopId),
       name: form.name.trim(),
       unit: form.unit.trim(),
       sku: form.sku.trim() || null,

@@ -6,6 +6,7 @@ import { queryKeys } from "./query-keys";
 import { fetchCustomers, fetchCustomer, createCustomer, updateCustomer, fetchCustomerSales, fetchCustomerPayments, fetchCustomerDMs, fetchCustomerReturns, fetchCustomerTimeline } from "../api/client";
 import { setCachedCustomers, warmOfflineCache } from "../utils/mmkvCache";
 import { newIdempotencyKey } from "../utils/idempotency";
+import { requireActiveShopId } from "./useActiveShop";
 
 export function useCustomersQuery(opts: { search?: string; includeWalkin?: boolean; limit?: number; enabled?: boolean } = {}) {
   const token = useAuthStore((state) => state.token);
@@ -89,7 +90,7 @@ export function useCreateCustomerMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: any) =>
-      createCustomer(token ?? "", { ...data, shopId: activeShopId ?? "" }, {
+      createCustomer(token ?? "", { ...data, shopId: requireActiveShopId(activeShopId) }, {
         idempotencyKey: newIdempotencyKey("CUSTOMER"),
       }),
     onSuccess: () => {

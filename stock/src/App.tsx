@@ -21,6 +21,7 @@ import { RealtimeProvider } from './realtime/RealtimeProvider';
 import { navigationThemes, paperLightTheme } from './theme/paper';
 import { useNotificationSetup } from './notifications/FCMManager';
 import { useNetworkStatus } from './hooks/useNetworkStatus';
+import { useEnsureActiveShop } from './hooks/useActiveShop';
 import { warmOfflineCache } from './utils/mmkvCache';
 import NetInfo from '@react-native-community/netinfo';
 
@@ -155,6 +156,7 @@ function AuthenticatedApp({ theme, prefix }: { theme: typeof navigationThemes.Li
   const user = useAuthStore((state) => state.user);
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
+  useEnsureActiveShop();
   const network = useNetworkStatus();
 
   React.useEffect(() => {

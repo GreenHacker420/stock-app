@@ -28,6 +28,7 @@ import { Button } from "../../components/ui/Button";
 import { navigate, goBack } from "../navigation-ref";
 import { useNetworkStatus } from "../../hooks/useNetworkStatus";
 import { filterCachedCustomers, setCachedCustomers, warmOfflineCache } from "../../utils/mmkvCache";
+import { requireActiveShopId } from "../../hooks/useActiveShop";
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 const internetRequiredMessage = "Internet connection required. Please connect to the internet to complete this action.";
@@ -194,7 +195,7 @@ export function AddEditCustomer() {
         throw new Error(internetRequiredMessage);
       }
       const payload = { 
-        shopId: activeShopId, 
+        shopId: requireActiveShopId(activeShopId), 
         ...form, 
         creditLimit: form.creditLimit ? Number(form.creditLimit) : undefined 
       };

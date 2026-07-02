@@ -26,6 +26,7 @@ import { useShopsQuery } from "../../hooks/useShops";
 import { shareSaleInvoicePdf } from "../../utils/pdf";
 import { useNetworkStatus } from "../../hooks/useNetworkStatus";
 import { filterCachedCustomers, filterCachedProducts } from "../../utils/mmkvCache";
+import { requireActiveShopId } from "../../hooks/useActiveShop";
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 const internetRequiredMessage = "Internet connection required. Please connect to the internet to complete this action.";
@@ -499,7 +500,7 @@ export function RegularSale() {
      }
 
     const payload = {
-      shopId: activeShopId,
+      shopId: requireActiveShopId(activeShopId),
       customerId: customerId || undefined,
       items: cartArray.map(i => ({ 
         itemId: i.item.id, 

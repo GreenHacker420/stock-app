@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { Pressable, ScrollView, View, StyleSheet } from "react-native";
+import { Alert, Pressable, ScrollView, View, StyleSheet } from "react-native";
 import { useRoute } from "@react-navigation/native";
-import { Button, Text, TextInput, Divider, Icon, Switch } from "react-native-paper";
+import { ActivityIndicator, Button, Text, TextInput, Divider, HelperText, Icon, Switch } from "react-native-paper";
 import { ApiUser } from "../../api/client";
 import { useStaffQuery, useCreateStaffMutation, useUpdateStaffMutation } from "../../hooks/useAuth";
 import { Screen } from "../../components/Screen";
@@ -45,6 +45,25 @@ export function StaffManagement() {
         showsVerticalScrollIndicator={false} 
         contentContainerStyle={styles.scrollContent}
       >
+        {staffQuery.isLoading ? (
+          <View style={styles.centerState}>
+            <ActivityIndicator color={colors.primary} />
+            <Text style={styles.secondaryText}>Loading staff accounts...</Text>
+          </View>
+        ) : null}
+
+        {staffQuery.isError ? (
+          <Section title="Unable to load staff">
+            <Text style={styles.errorText}>Check your connection and try again.</Text>
+          </Section>
+        ) : null}
+
+        {!staffQuery.isLoading && !staffQuery.isError && (staffQuery.data ?? []).length === 0 ? (
+          <Section title="No staff yet">
+            <Text style={styles.secondaryText}>Create a staff account, then assign it to one or more shops.</Text>
+          </Section>
+        ) : null}
+
         <View style={styles.listGap}>
           {(staffQuery.data ?? []).map((staff) => {
             const isActive = staff.status === "ACTIVE" || !staff.status;
@@ -86,6 +105,18 @@ export function StaffManagement() {
             );
           })}
         </View>
+
+        <Section title="Staff activity tracking">
+          <View style={styles.infoCard}>
+            <Icon source="chart-timeline-variant" size={22} color={colors.textSecondary} />
+            <View style={styles.infoText}>
+              <Text style={styles.infoTitle}>Requires backend support</Text>
+              <Text style={styles.secondaryText}>
+                Attendance, staff-wise sales, payments, expenses, order packing, cash-session history, and performance dashboards need backend activity endpoints before they can be shown here.
+              </Text>
+            </View>
+          </View>
+        </Section>
       </ScrollView>
     </Screen>
   );
@@ -107,22 +138,47 @@ export function AddEditStaff() {
   
   const createMutation = useCreateStaffMutation();
   const updateMutation = useUpdateStaffMutation();
+  const [error, setError] = useState("");
 
   const handleSave = () => {
+    if (isPending) return;
+    setError("");
+    if (!form.name.trim() || !form.mobile.trim() || (!staff && form.password.length < 4)) {
+      setError("Enter name, mobile number, and a password of at least 4 characters.");
+      return;
+    }
     const payload = { 
       ...form, 
       email: form.email || null, 
       password: form.password || undefined 
     };
-    if (staff) {
+    const save = () => {
+      if (staff) {
       updateMutation.mutate({ id: staff.id, data: payload }, {
-        onSuccess: () => goBack()
+        onSuccess: () => goBack(),
+        onError: (err: any) => setError(err?.message || "Failed to update staff member."),
       });
     } else {
       createMutation.mutate(payload, {
-        onSuccess: () => goBack()
+        onSuccess: () => goBack(),
+        onError: (err: any) => setError(err?.message || "Failed to create staff member."),
       });
     }
+    };
+
+    if (staff && form.status === "INACTIVE" && staff.status !== "INACTIVE") {
+      Alert.alert(
+        "Disable staff account?",
+        "This staff member will no longer be able to log in.",
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Disable", style: "destructive", onPress: save },
+        ],
+      );
+      return;
+    }
+
+    save();
   };
 
   const isPending = createMutation.isPending || updateMutation.isPending;
@@ -181,7 +237,7 @@ export function AddEditStaff() {
             {staff && (
               <>
                 <Divider style={styles.divider} />
-                <View style={styles.statusToggleRow}>
+	                <View style={styles.statusToggleRow}>
                   <View style={styles.toggleTextContainer}>
                     <Text style={styles.toggleTitle}>Active Status</Text>
                     <Text style={styles.toggleSubtitle}>Allow this staff member to log in</Text>
@@ -191,17 +247,18 @@ export function AddEditStaff() {
                     onValueChange={(val) => set("status", val ? "ACTIVE" : "INACTIVE")}
                     color={colors.primary}
                   />
-                </View>
-              </>
-            )}
-          </View>
+	                </View>
+	              </>
+	            )}
+	            {error ? <HelperText type="error">{error}</HelperText> : null}
+	          </View>
         </Section>
         
         <View style={styles.formButtonContainer}>
           <Button 
             mode="contained" 
-            loading={isPending} 
-            disabled={!form.name || !form.mobile || (!staff && form.password.length < 4)} 
+	            loading={isPending} 
+	            disabled={isPending || !form.name.trim() || !form.mobile.trim() || (!staff && form.password.length < 4)} 
             onPress={handleSave} 
             style={styles.addButton} 
             contentStyle={styles.buttonContent}
@@ -241,6 +298,32 @@ const styles = StyleSheet.create({
   },
   listGap: {
     gap: spacing.md,
+  },
+  centerState: {
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingVertical: spacing.xl,
+  },
+  errorText: {
+    color: colors.danger,
+  },
+  infoCard: {
+    flexDirection: "row",
+    gap: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+    padding: spacing.md,
+  },
+  infoText: {
+    flex: 1,
+    gap: 4,
+  },
+  infoTitle: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
   },
   staffCard: {
     borderRadius: radius.lg,

@@ -10,10 +10,12 @@ import { AppHeader } from "../../components/ui/AppHeader";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { navigate } from "../navigation-ref";
 import { newIdempotencyKey } from "../../utils/idempotency";
+import { requireActiveShopId, useSwitchActiveShop } from "../../hooks/useActiveShop";
 
 export function OpenCashSession() {
   const token = useAuthStore((state) => state.token);
-  const { activeShopId, setActiveShopId } = useShopStore();
+  const { activeShopId } = useShopStore();
+  const switchActiveShop = useSwitchActiveShop();
   const queryClient = useQueryClient();
 
   const [shopModalVisible, setShopModalVisible] = useState(false);
@@ -33,7 +35,7 @@ export function OpenCashSession() {
 
   const openMutation = useMutation({
     mutationFn: () =>
-      openCashSession(token ?? "", activeShopId ?? "", { idempotencyKey: newIdempotencyKey("CASH_SESSION_OPEN") }),
+      openCashSession(token ?? "", requireActiveShopId(activeShopId), { idempotencyKey: newIdempotencyKey("CASH_SESSION_OPEN") }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["current-cash-session", activeShopId] });
       queryClient.invalidateQueries({ queryKey: ["cash-sessions", activeShopId] });
@@ -203,7 +205,7 @@ export function OpenCashSession() {
                     description={shop.city || "No City"}
                     descriptionStyle={styles.shopItemDesc}
                     onPress={() => {
-                      setActiveShopId(shop.id);
+                      switchActiveShop(shop.id);
                       setShopModalVisible(false);
                     }}
                     left={props => <List.Icon {...props} icon="storefront" color={isSelected ? colors.primary : colors.textMuted} />}

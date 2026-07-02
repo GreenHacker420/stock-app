@@ -5,6 +5,7 @@ import { useRoute } from "@react-navigation/native";
 import { Button, TextInput, List, HelperText, Portal, Modal, IconButton, Text } from "react-native-paper";
 import { fetchStaff, createStaff, assignStaffToShop, Shop } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
+import { queryKeys } from "../../hooks/query-keys";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { Section } from "../../components/ui/Section";
@@ -27,22 +28,23 @@ export function AssignStaff() {
   const [error, setError] = useState("");
 
   const staffQuery = useQuery({
-    queryKey: ["staff"],
+    queryKey: queryKeys.staff(),
     queryFn: () => fetchStaff(token ?? ""),
     enabled: !!token,
   });
 
   const assignMutation = useMutation({
     mutationFn: (staffId: string) => assignStaffToShop(token ?? "", shop?.id ?? "", staffId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["shops"] });
-    },
+	    onSuccess: () => {
+	      queryClient.invalidateQueries({ queryKey: queryKeys.shops() });
+	      queryClient.invalidateQueries({ queryKey: queryKeys.staff() });
+	    },
   });
 
   const createStaffMutation = useMutation({
     mutationFn: () => createStaff(token ?? "", { name, mobile, email: email || null, password }),
     onSuccess: (newStaff) => {
-      queryClient.invalidateQueries({ queryKey: ["staff"] });
+      queryClient.invalidateQueries({ queryKey: queryKeys.staff() });
       setIsModalOpen(false);
       setName("");
       setMobile("");
@@ -99,7 +101,7 @@ export function AssignStaff() {
                       icon={assigned ? "check-circle" : "plus-circle-outline"}
                       iconColor={assigned ? colors.primary : "#7a8578"}
                       size={24}
-                      disabled={isAssigning}
+                      disabled={assigned || isAssigning}
                       onPress={() => {
                         if (!assigned) {
                           assignMutation.mutate(member.id);
@@ -208,8 +210,8 @@ export function AssignStaff() {
                 buttonColor={colors.primary}
                 style={styles.modalButton}
                 contentStyle={styles.modalButtonContent}
-                loading={createStaffMutation.isPending}
-                disabled={!name || !mobile || createStaffMutation.isPending}
+	                loading={createStaffMutation.isPending}
+	                disabled={!name.trim() || !mobile.trim() || password.length < 4 || createStaffMutation.isPending || assignMutation.isPending}
                 onPress={() => createStaffMutation.mutate()}
               >
                 Create

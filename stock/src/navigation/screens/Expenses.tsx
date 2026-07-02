@@ -16,6 +16,7 @@ import { Button } from "../../components/ui/Button";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { navigate, goBack } from "../navigation-ref";
 import { newIdempotencyKey } from "../../utils/idempotency";
+import { requireActiveShopId } from "../../hooks/useActiveShop";
 
 const expenseCategories = [
   "TEA_SNACKS", "FREIGHT", "COURIER", "PORTER", "PACKAGING", "LABOUR", "PETROL", "ELECTRICITY", "INTERNET", "MISC"
@@ -48,7 +49,7 @@ export function ExpenseList() {
   const [form, setForm] = useState({ amount: "", category: "MISC", note: "" });
   const addMutation = useMutation({
     mutationFn: () =>
-      createExpense(token ?? "", { ...form, amount: Number(form.amount), shopId: activeShopId ?? "" }, { idempotencyKey: newIdempotencyKey("EXPENSE") }),
+      createExpense(token ?? "", { ...form, amount: Number(form.amount), shopId: requireActiveShopId(activeShopId) }, { idempotencyKey: newIdempotencyKey("EXPENSE") }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["expenses", activeShopId] });
       setIsAddModalVisible(false);

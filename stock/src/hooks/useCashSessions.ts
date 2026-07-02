@@ -10,6 +10,7 @@ import {
   reviewCashSession,
 } from "../api/client";
 import { newIdempotencyKey } from "../utils/idempotency";
+import { requireActiveShopId } from "./useActiveShop";
 
 export function useCurrentCashSessionQuery() {
   const token = useAuthStore((state) => state.token);
@@ -39,7 +40,7 @@ export function useOpenCashSessionMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () =>
-      openCashSession(token ?? "", activeShopId ?? "", { idempotencyKey: newIdempotencyKey("CASH_SESSION_OPEN") }),
+      openCashSession(token ?? "", requireActiveShopId(activeShopId), { idempotencyKey: newIdempotencyKey("CASH_SESSION_OPEN") }),
     onSuccess: () => {
       if (activeShopId) {
         queryClient.invalidateQueries({ queryKey: ["current-cash-session", activeShopId] });

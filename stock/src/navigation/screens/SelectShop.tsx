@@ -1,8 +1,9 @@
-import { useEffect } from "react";
 import { View, StyleSheet } from "react-native";
 import { ActivityIndicator, Text } from "react-native-paper";
 import { useShopStore } from "../../auth/shop-store";
 import { useShopsQuery } from "../../hooks/useShops";
+import { useAuthStore } from "../../auth/auth-store";
+import { useSwitchActiveShop } from "../../hooks/useActiveShop";
 import { Screen } from "../../components/Screen";
 import { ActionTile } from "../../components/ui/ActionTile";
 import { AppHeader } from "../../components/ui/AppHeader";
@@ -11,22 +12,12 @@ import { StatusPill } from "../../components/ui/StatusPill";
 import { colors, spacing } from "../../theme";
 
 export function SelectShop() {
-  const { activeShopId, lastUsedShopId, setActiveShopId } = useShopStore();
+  const user = useAuthStore((state) => state.user);
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  const getLastUsedShopIdForUser = useShopStore((state) => state.getLastUsedShopIdForUser);
   const shopsQuery = useShopsQuery();
-
-  useEffect(() => {
-    if (!shopsQuery.data?.length || activeShopId) return;
-
-    const lastUsed = shopsQuery.data.find((shop) => shop.id === lastUsedShopId);
-    if (lastUsed) {
-      setActiveShopId(lastUsed.id);
-      return;
-    }
-
-    if (shopsQuery.data.length === 1) {
-      setActiveShopId(shopsQuery.data[0].id);
-    }
-  }, [activeShopId, lastUsedShopId, setActiveShopId, shopsQuery.data]);
+  const switchActiveShop = useSwitchActiveShop();
+  const lastUsedShopId = getLastUsedShopIdForUser(user?.id);
 
   return (
     <Screen>
@@ -51,21 +42,22 @@ export function SelectShop() {
         </Section>
       ) : null}
 
-      {shopsQuery.data && shopsQuery.data.length > 1 ? (
+      {shopsQuery.data && shopsQuery.data.length > 0 ? (
         <Section title="Available shops">
           <View style={styles.listGap}>
             {shopsQuery.data.map((shop) => (
               <View key={shop.id} style={styles.itemGap}>
                 <ActionTile
                   title={shop.name}
-                  subtitle={`${shop.city} • Code: ${shop.code}`}
-                  icon="storefront-outline"
-                  tone={shop.id === lastUsedShopId ? "blue" : "green"}
-                  onPress={() => setActiveShopId(shop.id)}
-                />
-                <View style={styles.pillRow}>
-                  <StatusPill label="Active" tone="green" />
-                  {shop.id === lastUsedShopId ? <StatusPill label="Last used" tone="blue" /> : null}
+	                  subtitle={`${shop.city} • Code: ${shop.code}`}
+	                  icon="storefront-outline"
+	                  tone={shop.id === activeShopId || shop.id === lastUsedShopId ? "blue" : "green"}
+	                  onPress={() => switchActiveShop(shop.id)}
+	                />
+	                <View style={styles.pillRow}>
+	                  <StatusPill label="Active" tone="green" />
+	                  {shop.id === activeShopId ? <StatusPill label="Selected" tone="blue" /> : null}
+	                  {shop.id === lastUsedShopId ? <StatusPill label="Last used" tone="blue" /> : null}
                 </View>
               </View>
             ))}

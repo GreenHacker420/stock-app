@@ -89,10 +89,11 @@ export async function reconcileDomainEventsForShop(
 
     for (const event of events) {
       try {
-        handleDomainEvent(queryClient, event, currentDeviceId);
-        if (event.updatedAt) {
-          await setDomainEventCursor(shopId, event.updatedAt);
-        }
+	        handleDomainEvent(queryClient, event, currentDeviceId);
+	        const eventCursor = event.createdAt ?? event.updatedAt;
+	        if (eventCursor) {
+	          await setDomainEventCursor(shopId, eventCursor);
+	        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.warn("[reconcile] event processing failed, stopping at eventId", event?.eventId, "—", msg);

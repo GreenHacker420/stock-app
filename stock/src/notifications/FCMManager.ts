@@ -2,7 +2,6 @@ import { useEffect, useRef } from "react";
 import { Platform } from "react-native";
 import * as Notifications from "expo-notifications";
 import * as Device from "expo-device";
-import { requestPermissionsAsync } from "expo-contacts";
 import Constants from "expo-constants";
 import { useAuthStore } from "../auth/auth-store";
 import { useShopStore } from "../auth/shop-store";
@@ -147,10 +146,6 @@ export function useNotificationSetup() {
 
     FCMManager.registerForPushNotificationsAsync(token);
     FCMManager.setupBackgroundNotificationHandlers();
-
-    requestPermissionsAsync().catch((error) => {
-      console.warn("Contacts permission request failed:", error);
-    });
 
     const handleNotificationData = async (data: Record<string, unknown> = {}) => {
       const deviceId = await getDeviceInstallationId();

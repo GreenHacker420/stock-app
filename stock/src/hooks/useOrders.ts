@@ -17,6 +17,7 @@ import {
 } from "../api/client";
 import { warmOfflineCache } from "../utils/mmkvCache";
 import { newIdempotencyKey } from "../utils/idempotency";
+import { requireActiveShopId } from "./useActiveShop";
 
 export function useOrdersQuery(options: { search?: string } = {}) {
   const token = useAuthStore((state) => state.token);
@@ -70,7 +71,7 @@ export function useCreateOrderMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: any) =>
-      createOrder(token ?? "", { ...data, shopId: activeShopId ?? "" }, { idempotencyKey: newIdempotencyKey("ORDER") }),
+      createOrder(token ?? "", { ...data, shopId: requireActiveShopId(activeShopId) }, { idempotencyKey: newIdempotencyKey("ORDER") }),
     onSuccess: () => {
       if (activeShopId) {
         queryClient.invalidateQueries({ queryKey: ["orders", activeShopId] });

@@ -10,6 +10,7 @@ import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { SuccessModal } from "../../components/ui/SuccessModal";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from '../../theme';
+import { requireActiveShopId } from "../../hooks/useActiveShop";
 
 export function DailySummary() {
   const token = useAuthStore((state) => state.token);
@@ -38,7 +39,7 @@ export function DailySummary() {
   const lockMutation = useMutation({
     mutationFn: () => targetId 
       ? lockDailySummaryById(token ?? "", targetId)
-      : lockDailySummary(token ?? "", activeShopId ?? "", targetDate),
+      : lockDailySummary(token ?? "", requireActiveShopId(activeShopId), targetDate),
     onSuccess: () => {
       if (targetId) {
         queryClient.invalidateQueries({ queryKey: ["daily-summary-id", targetId] });

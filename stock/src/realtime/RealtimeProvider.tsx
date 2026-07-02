@@ -181,12 +181,13 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
       });
 
       socket.on("domain:event", (event: DomainEvent) => {
-        const handled = handleDomainEvent(queryClient, event, deviceId);
-        if (handled) {
-          if (event.updatedAt) {
-            // Advance cursor synchronously in MMKV so next reconnect sync starts correctly
-            void setDomainEventCursor(activeShopId, event.updatedAt);
-          }
+	        const handled = handleDomainEvent(queryClient, event, deviceId);
+	        if (handled) {
+	          const eventCursor = event.createdAt ?? event.updatedAt;
+	          if (eventCursor) {
+	            // Advance cursor synchronously in MMKV so next reconnect sync starts correctly
+	            void setDomainEventCursor(activeShopId, eventCursor);
+	          }
           if (event.notification) {
             setToast({
               visible: true,

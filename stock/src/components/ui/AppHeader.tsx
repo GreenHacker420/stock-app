@@ -6,6 +6,7 @@ import { useNavigation } from "@react-navigation/native";
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
 import { useShopsQuery } from "../../hooks/useShops";
+import { useSwitchActiveShop } from "../../hooks/useActiveShop";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 
 type AppHeaderProps = {
@@ -21,7 +22,8 @@ type AppHeaderProps = {
 
 export function AppHeader({ title, subtitle, role, initials, showBack, onBack, hideAvatar, fallbackRoute }: AppHeaderProps) {
   const user = useAuthStore((state) => state.user);
-  const { activeShopId, setActiveShopId } = useShopStore();
+  const { activeShopId } = useShopStore();
+  const switchActiveShop = useSwitchActiveShop();
   
   let navigation: any = null;
   try {
@@ -54,6 +56,7 @@ export function AppHeader({ title, subtitle, role, initials, showBack, onBack, h
   }, [initials, user?.name]);
 
   const displayRole = role ?? user?.role;
+  const canSwitchShop = (shopsQuery.data?.length ?? 0) > 1;
 
   const handleProfilePress = () => {
     if (navigation) {
@@ -88,25 +91,25 @@ export function AppHeader({ title, subtitle, role, initials, showBack, onBack, h
         <View style={styles.titleContainer}>
           <Text style={styles.title} numberOfLines={1}>{title}</Text>
           {activeShopId && selectedShop ? (
-            <Pressable
-              onPress={() => {
-                if (user?.role === "OWNER") {
-                  setModalVisible(true);
-                }
-              }}
-              disabled={user?.role !== "OWNER"}
-              style={({ pressed }) => [
-                styles.shopSelectorPill,
-                (user?.role === "OWNER" && pressed) ? styles.pressed : undefined
-              ].filter(Boolean) as any}
-            >
+	            <Pressable
+	              onPress={() => {
+	                if (canSwitchShop) {
+	                  setModalVisible(true);
+	                }
+	              }}
+	              disabled={!canSwitchShop}
+	              style={({ pressed }) => [
+	                styles.shopSelectorPill,
+	                (canSwitchShop && pressed) ? styles.pressed : undefined
+	              ].filter(Boolean) as any}
+	            >
               <Icon source="storefront-outline" size={14} color={colors.primary} />
               <Text style={styles.shopSelectorText} numberOfLines={1}>
                 {selectedShop.name}
               </Text>
-              {user?.role === "OWNER" && (
-                <Icon source="chevron-down" size={14} color={colors.primary} />
-              )}
+	              {canSwitchShop && (
+	                <Icon source="chevron-down" size={14} color={colors.primary} />
+	              )}
             </Pressable>
           ) : subtitle ? (
             <Text style={styles.subtitle} numberOfLines={1}>
@@ -171,10 +174,10 @@ export function AppHeader({ title, subtitle, role, initials, showBack, onBack, h
                     return (
                       <Pressable
                         key={shop.id}
-                        onPress={() => {
-                          setActiveShopId(shop.id);
-                          setModalVisible(false);
-                        }}
+	                        onPress={() => {
+	                          switchActiveShop(shop.id);
+	                          setModalVisible(false);
+	                        }}
                         style={({ pressed }) => [
                           styles.shopRow,
                           isSelected && styles.shopRowSelected,

@@ -27,6 +27,7 @@ import {
 } from "../api/client";
 import { setCachedProducts, warmOfflineCache } from "../utils/mmkvCache";
 import { newIdempotencyKey } from "../utils/idempotency";
+import { requireActiveShopId } from "./useActiveShop";
 
 export function useItemSummaryQuery() {
   const token = useAuthStore((state) => state.token);
@@ -110,7 +111,7 @@ export function useCreateItemMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: Omit<CreateItemPayload, "shopId">) =>
-      createItem(token ?? "", { ...data, shopId: activeShopId ?? "" }),
+      createItem(token ?? "", { ...data, shopId: requireActiveShopId(activeShopId) }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["items"] });
       if (activeShopId && token) warmOfflineCache(activeShopId, token).catch(() => {});
@@ -160,7 +161,7 @@ export function useAddStockMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: Omit<StockEntryPayload, "shopId">) =>
-      addStock(token ?? "", { ...data, shopId: activeShopId ?? "" }, { idempotencyKey: newIdempotencyKey("STOCK_ENTRY") }),
+      addStock(token ?? "", { ...data, shopId: requireActiveShopId(activeShopId) }, { idempotencyKey: newIdempotencyKey("STOCK_ENTRY") }),
     onSuccess: () => {
       if (activeShopId) {
         queryClient.invalidateQueries({ queryKey: ["current-stock", activeShopId] });
@@ -219,7 +220,7 @@ export function useCreateCategoryMutation() {
   const activeShopId = useShopStore((state) => state.activeShopId);
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (name: string) => createCategory(token ?? "", activeShopId ?? "", name),
+    mutationFn: (name: string) => createCategory(token ?? "", requireActiveShopId(activeShopId), name),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.categories(activeShopId ?? "") });
       queryClient.invalidateQueries({ queryKey: ["items"] });

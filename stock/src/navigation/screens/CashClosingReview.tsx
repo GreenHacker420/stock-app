@@ -5,6 +5,7 @@ import { Text, Card, Icon, Divider } from "react-native-paper";
 
 import { fetchCashSessions, reviewCashSession, fetchShops } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
+import { useShopStore } from "../../auth/shop-store";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { ShopPicker } from "../../components/ui/ShopPicker";
@@ -15,6 +16,7 @@ import { EmptyState } from "../../components/ui/EmptyState";
 
 export function CashClosingReview() {
   const token = useAuthStore((state) => state.token);
+  const activeShopId = useShopStore((state) => state.activeShopId);
   const queryClient = useQueryClient();
 
   const [shopId, setShopId] = useState<string | undefined>();
@@ -27,10 +29,13 @@ export function CashClosingReview() {
   });
 
   useEffect(() => {
-    if (!shopId && shopsQuery.data?.[0]) {
-      setShopId(shopsQuery.data[0].id);
-    }
-  }, [shopId, shopsQuery.data]);
+    if (!shopsQuery.data?.length) return;
+    if (shopId && shopsQuery.data.some((shop) => shop.id === shopId)) return;
+    const activeShop = activeShopId
+      ? shopsQuery.data.find((shop) => shop.id === activeShopId)
+      : undefined;
+    setShopId(activeShop?.id ?? shopsQuery.data[0].id);
+  }, [activeShopId, shopId, shopsQuery.data]);
 
   const sessionsQuery = useQuery({
     queryKey: ["cash-sessions", shopId],

@@ -10,6 +10,7 @@ import {
   fetchDailySummaryById,
   lockDailySummaryById,
 } from "../api/client";
+import { requireActiveShopId } from "./useActiveShop";
 
 export function useDailySummaryQuery(date: string) {
   const token = useAuthStore((state) => state.token);
@@ -27,7 +28,7 @@ export function useLockDailySummaryMutation() {
   const activeShopId = useShopStore((state) => state.activeShopId);
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (date: string) => lockDailySummary(token ?? "", activeShopId ?? "", date),
+    mutationFn: (date: string) => lockDailySummary(token ?? "", requireActiveShopId(activeShopId), date),
     onSuccess: (_, date) => {
       if (activeShopId) {
         queryClient.invalidateQueries({ queryKey: queryKeys.dailySummary(activeShopId, date) });
@@ -42,7 +43,7 @@ export function useGenerateDailySummaryMutation() {
   const activeShopId = useShopStore((state) => state.activeShopId);
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (date: string) => generateDailySummary(token ?? "", activeShopId ?? "", date),
+    mutationFn: (date: string) => generateDailySummary(token ?? "", requireActiveShopId(activeShopId), date),
     onSuccess: (_, date) => {
       if (activeShopId) {
         queryClient.invalidateQueries({ queryKey: queryKeys.dailySummary(activeShopId, date) });
