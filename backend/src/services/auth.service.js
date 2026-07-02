@@ -106,7 +106,7 @@ export async function listStaff(currentUser) {
 
   return prisma.user.findMany({
     where: {
-      role: "STAFF",
+      id: { not: currentUser.id },
       status: "ACTIVE",
       staffShopAccesses: {
         some: {
@@ -120,6 +120,7 @@ export async function listStaff(currentUser) {
       mobile: true,
       email: true,
       status: true,
+      role: true,
     },
     orderBy: {
       name: "asc",
@@ -148,7 +149,7 @@ export async function createStaff(currentUser, data) {
       mobile: data.mobile,
       email: data.email,
       passwordHash,
-      role: "STAFF",
+      role: data.role || "STAFF",
       status: "ACTIVE",
       staffOwnerId: currentUser.id,
     },
@@ -157,6 +158,8 @@ export async function createStaff(currentUser, data) {
       name: true,
       mobile: true,
       email: true,
+      status: true,
+      role: true,
     },
   });
 
@@ -165,8 +168,8 @@ export async function createStaff(currentUser, data) {
 
 export async function updateStaff(currentUser, staffId, data) {
   const existing = await prisma.user.findUnique({ where: { id: staffId } });
-  if (!existing || existing.role !== "STAFF" || existing.staffOwnerId !== currentUser.id) {
-    throw new ApiError(404, "Staff not found");
+  if (!existing || existing.staffOwnerId !== currentUser.id) {
+    throw new ApiError(404, "User not found");
   }
 
   if (data.email) {
@@ -198,6 +201,7 @@ export async function updateStaff(currentUser, staffId, data) {
   if (data.mobile) update.mobile = data.mobile;
   if (data.email !== undefined) update.email = data.email;
   if (data.status) update.status = data.status;
+  if (data.role) update.role = data.role;
   if (data.password) update.passwordHash = await bcrypt.hash(data.password, 10);
 
   return prisma.user.update({
@@ -209,6 +213,7 @@ export async function updateStaff(currentUser, staffId, data) {
       mobile: true,
       email: true,
       status: true,
+      role: true,
     },
   });
 }

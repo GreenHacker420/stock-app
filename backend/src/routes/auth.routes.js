@@ -23,6 +23,7 @@ const createStaffSchema = z.object({
     mobile: z.string().min(10),
     email: z.email().optional().nullable(),
     password: z.string().min(4).optional(),
+    role: z.enum(["STAFF", "OWNER"]).optional(),
   }),
   params: z.object({}).optional(),
   query: z.object({}).optional(),
@@ -46,6 +47,7 @@ const updateStaffSchema = z.object({
     email: z.email().nullable().optional(),
     password: z.string().min(4).optional(),
     status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
+    role: z.enum(["STAFF", "OWNER"]).optional(),
   }),
   query: z.object({}).optional(),
 });

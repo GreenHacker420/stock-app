@@ -79,9 +79,15 @@ export function StaffManagement() {
                       <Text style={styles.avatarText}>{getInitials(staff.name)}</Text>
                     </View>
 
-                    {/* Middle: Details */}
                     <View style={styles.cardInfo}>
-                      <Text style={styles.staffName}>{staff.name}</Text>
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.xs }}>
+                        <Text style={styles.staffName}>{staff.name}</Text>
+                        {staff.role === "OWNER" && (
+                          <View style={{ backgroundColor: colors.primaryLight, paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.sm }}>
+                            <Text style={{ fontSize: 9, fontWeight: fontWeight.black, color: colors.primaryDark }}>OWNER</Text>
+                          </View>
+                        )}
+                      </View>
                       
                       <View style={styles.detailsRow}>
                         <Icon source="phone" size={14} color={colors.textSecondary} />
@@ -134,7 +140,8 @@ export function AddEditStaff() {
     mobile: staff?.mobile ?? "", 
     email: staff?.email ?? "", 
     password: "", 
-    status: staff?.status ?? "ACTIVE" 
+    status: staff?.status ?? "ACTIVE",
+    role: staff?.role ?? "STAFF" as "STAFF" | "OWNER"
   });
   
   const set = (key: keyof typeof form, value: string) => setForm((prev) => ({ ...prev, [key]: value }));
@@ -236,6 +243,28 @@ export function AddEditStaff() {
               activeOutlineColor={colors.primary}
               style={styles.input}
             />
+
+            <Divider style={styles.divider} />
+            <View style={styles.statusToggleRow}>
+              <View style={styles.toggleTextContainer}>
+                <Text style={styles.toggleTitle}>Account Role</Text>
+                <Text style={styles.toggleSubtitle}>Select whether this user is Staff or an Owner</Text>
+              </View>
+              <View style={styles.roleContainer}>
+                <Pressable
+                  style={[styles.roleBtn, form.role === "STAFF" && styles.roleBtnActive]}
+                  onPress={() => set("role", "STAFF")}
+                >
+                  <Text style={[styles.roleBtnText, form.role === "STAFF" && styles.roleBtnTextActive]}>Staff</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.roleBtn, form.role === "OWNER" && styles.roleBtnActive]}
+                  onPress={() => set("role", "OWNER")}
+                >
+                  <Text style={[styles.roleBtnText, form.role === "OWNER" && styles.roleBtnTextActive]}>Owner</Text>
+                </Pressable>
+              </View>
+            </View>
 
             {staff && (
               <>
@@ -417,6 +446,30 @@ const styles = StyleSheet.create({
   formButtonContainer: {
     marginTop: spacing.xl,
     marginBottom: spacing.xxl,
+  },
+  roleContainer: {
+    flexDirection: "row",
+    backgroundColor: colors.surfaceOffset,
+    borderRadius: radius.md,
+    padding: 2,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  roleBtn: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs + 2,
+    borderRadius: radius.sm,
+  },
+  roleBtnActive: {
+    backgroundColor: colors.primary,
+  },
+  roleBtnText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
+    color: colors.textSecondary,
+  },
+  roleBtnTextActive: {
+    color: "#fff",
   },
   profileSummaryCard: {
     margin: spacing.lg,
