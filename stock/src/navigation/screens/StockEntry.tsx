@@ -5,7 +5,9 @@ import {
   KeyboardAvoidingView, 
   Platform, 
   Pressable, 
-  TextInput 
+  TextInput,
+  ScrollView,
+  Alert
 } from "react-native";
 import { useRoute } from "@react-navigation/native";
 import { Searchbar, Text, Icon } from "react-native-paper";
@@ -14,7 +16,7 @@ import { useDebounce } from "use-debounce";
 import * as Haptics from "expo-haptics";
 
 import { Item } from "../../api/client";
-import { useItemsQuery, useAddStockMutation, useItemStockQuery } from "../../hooks/useItems";
+import { useItemsQuery, useAddStockMutation, useItemStockQuery, useCategoriesQuery } from "../../hooks/useItems";
 import { useAuthStore } from "../../auth/auth-store";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
@@ -56,13 +58,17 @@ const StockEntryRow = memo(({
   const color = numericVal > 0 ? colors.success : numericVal < 0 ? colors.danger : colors.textPrimary;
   
   const handleIncrement = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (Platform.OS !== "web") {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    }
     const currentVal = Number(quantity) || 0;
     onChange(String(currentVal + 1));
   };
 
   const handleDecrement = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (Platform.OS !== "web") {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    }
     const currentVal = Number(quantity) || 0;
     onChange(String(currentVal - 1));
   };
@@ -72,7 +78,7 @@ const StockEntryRow = memo(({
       styles.row,
       numericVal > 0 && styles.rowPositive,
       numericVal < 0 && styles.rowNegative,
-      { borderLeftColor: numericVal > 0 ? colors.success : numericVal < 0 ? colors.danger : 'transparent' }
+      { borderLeftColor: numericVal > 0 ? colors.success : numericVal < 0 ? colors.danger : colors.border }
     ]}>
       <View style={styles.rowLeft}>
         <View style={styles.rowIconBg}>
@@ -142,10 +148,16 @@ export function StockEntry() {
 
   const [search, setSearch] = useState("");
   const [debouncedSearch] = useDebounce(search, 300);
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string>("ALL");
   const [entries, setEntries] = useState<Record<string, string>>({});
   const [editedItemsMap, setEditedItemsMap] = useState<Record<string, Item>>({});
   const [showOnlyEdited, setShowOnlyEdited] = useState(false);
+  const [notes, setNotes] = useState("");
   const [successVisible, setSuccessVisible] = useState(false);
+
+  // Categories query
+  const categoriesQuery = useCategoriesQuery();
+  const categories = categoriesQuery.data ?? [];
 
   // If specific item, fetch its details
   const specificItemQuery = useItemStockQuery(specificItemId);
@@ -153,7 +165,8 @@ export function StockEntry() {
 
   const itemsQuery = useItemsQuery({ 
     search: debouncedSearch, 
-    limit: specificItemId ? 0 : 50 // Disable general query if we have a specific item
+    categoryId: selectedCategoryId === "ALL" ? undefined : selectedCategoryId,
+    limit: specificItemId ? 0 : 100 // Disable general query if we have a specific item
   });
 
   const displayItems = useMemo(() => {
@@ -166,14 +179,21 @@ export function StockEntry() {
         const num = Number(qty);
         return qty !== undefined && qty !== "" && !isNaN(num) && num !== 0;
       });
-      if (!search.trim()) return allEdited;
-      return allEdited.filter(item => 
+      
+      // Filter edited by category local filter if selected
+      let filteredEdited = allEdited;
+      if (selectedCategoryId !== "ALL") {
+        filteredEdited = allEdited.filter(item => item.category?.id === selectedCategoryId);
+      }
+
+      if (!search.trim()) return filteredEdited;
+      return filteredEdited.filter(item => 
         item.name.toLowerCase().includes(search.toLowerCase()) ||
         item.sku?.toLowerCase().includes(search.toLowerCase())
       );
     }
     return itemsQuery.data?.items ?? [];
-  }, [specificItemId, specificItem, itemsQuery.data, showOnlyEdited, editedItemsMap, entries, search]);
+  }, [specificItemId, specificItem, itemsQuery.data, showOnlyEdited, editedItemsMap, entries, search, selectedCategoryId]);
 
   const entryItems = useMemo(() => {
     return Object.entries(entries)
@@ -197,16 +217,31 @@ export function StockEntry() {
   const stockMutation = useAddStockMutation();
 
   const handleSubmit = () => {
+    const defaultNote = specificItemId 
+      ? (isStaff ? `Restock for ${specificItem?.name}` : `Manual restock for ${specificItem?.name}`)
+      : (isStaff ? "Bulk stock entry request by staff" : "Bulk stock entry via app");
+
     stockMutation.mutate({
       entries: entryItems,
-      notes: specificItemId 
-        ? (isStaff ? `Restock for ${specificItem?.name}` : `Manual restock for ${specificItem?.name}`)
-        : (isStaff ? "Bulk stock entry request by staff" : "Bulk stock entry via app"),
+      notes: notes.trim() || defaultNote,
     }, {
       onSuccess: () => {
+        if (Platform.OS !== "web") {
+          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+        }
         setSuccessVisible(true);
+      },
+      onError: (err) => {
+        Alert.alert("Submission Failed", err instanceof Error ? err.message : "Something went wrong.");
       }
     });
+  };
+
+  const handleCategoryPress = (catId: string) => {
+    if (Platform.OS !== "web") {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    }
+    setSelectedCategoryId(catId);
   };
 
   return (
@@ -214,7 +249,6 @@ export function StockEntry() {
       <KeyboardAvoidingView 
         style={styles.keyboardView} 
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
         <AppHeader 
           title={specificItemId ? "Update Stock" : "Stock Entry"} 
@@ -223,7 +257,7 @@ export function StockEntry() {
         />
         
         {!specificItemId && (
-          <View style={styles.searchContainer}>
+          <View style={styles.headerContainer}>
             <Searchbar
               placeholder="Search items to restock..."
               onChangeText={setSearch}
@@ -233,10 +267,63 @@ export function StockEntry() {
               elevation={0}
             />
 
+            {/* Category horizontal filters */}
+            <View style={styles.filterSection}>
+              <Text style={styles.filterLabel}>FILTER BY CATEGORY</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.modeTabsContent}>
+                <Pressable 
+                  onPress={() => handleCategoryPress("ALL")}
+                  style={[
+                    styles.modeChip, 
+                    selectedCategoryId === "ALL" ? styles.modeChipActive : styles.modeChipInactive
+                  ]}
+                >
+                  <Icon 
+                    source="format-list-bulleted" 
+                    size={14} 
+                    color={selectedCategoryId === "ALL" ? colors.textInverse : colors.textSecondary} 
+                  />
+                  <Text 
+                    style={[
+                      styles.modeChipText, 
+                      selectedCategoryId === "ALL" ? styles.modeChipTextActive : styles.modeChipTextInactive
+                    ]}
+                  >
+                    All Categories
+                  </Text>
+                </Pressable>
+                {categories.map(cat => (
+                  <Pressable 
+                    key={cat.id} 
+                    onPress={() => handleCategoryPress(cat.id)}
+                    style={[
+                      styles.modeChip, 
+                      selectedCategoryId === cat.id ? styles.modeChipActive : styles.modeChipInactive
+                    ]}
+                  >
+                    <Icon 
+                      source="tag-outline" 
+                      size={14} 
+                      color={selectedCategoryId === cat.id ? colors.textInverse : colors.textSecondary} 
+                    />
+                    <Text 
+                      style={[
+                        styles.modeChipText, 
+                        selectedCategoryId === cat.id ? styles.modeChipTextActive : styles.modeChipTextInactive
+                      ]}
+                    >
+                      {cat.name}
+                    </Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
+
+            {/* List filters: Edited vs All */}
             <View style={styles.filterChipsRow}>
               <Pressable
                 onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
                   setShowOnlyEdited(false);
                 }}
                 style={[styles.filterChip, !showOnlyEdited && styles.filterChipActive]}
@@ -247,7 +334,7 @@ export function StockEntry() {
 
               <Pressable
                 onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                  if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
                   setShowOnlyEdited(true);
                 }}
                 style={[styles.filterChip, showOnlyEdited && styles.filterChipActive]}
@@ -259,7 +346,7 @@ export function StockEntry() {
               {entryCount > 0 && (
                 <Pressable
                   onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+                    if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
                     setEntries({});
                     setEditedItemsMap({});
                     setShowOnlyEdited(false);
@@ -274,6 +361,7 @@ export function StockEntry() {
           </View>
         )}
 
+        {/* Product rows list */}
         <View style={styles.listContainer}>
           {(() => {
             const List = FlashList as any;
@@ -306,11 +394,22 @@ export function StockEntry() {
           })()}
         </View>
 
+        {/* Footer Container */}
         <View style={styles.footer}>
+          {entryCount > 0 && (
+            <TextInput
+              style={styles.notesInput}
+              placeholder="Add stock movement notes (optional)..."
+              value={notes}
+              onChangeText={setNotes}
+              maxLength={200}
+              placeholderTextColor={colors.textMuted}
+            />
+          )}
           <View style={styles.footerInfo}>
             <Text style={styles.footerText}>
               {specificItemId 
-                ? `Adjusting ${specificItem?.name || 'item'} by ${entries[specificItemId || ''] || '0'}` 
+                ? `Adjusting ${specificItem ? formatItemName(specificItem.name) : 'item'} by ${entries[specificItemId || ''] || '0'}` 
                 : `${entryCount} items being updated`}
             </Text>
           </View>
@@ -338,6 +437,7 @@ export function StockEntry() {
           setSuccessVisible(false);
           setEntries({});
           setEditedItemsMap({});
+          setNotes("");
           goBack();
         }}
       />
@@ -349,7 +449,7 @@ const styles = StyleSheet.create({
   keyboardView: {
     flex: 1,
   },
-  searchContainer: {
+  headerContainer: {
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.md,
     backgroundColor: colors.bg,
@@ -362,6 +462,48 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     fontSize: fontSize.md,
+  },
+  filterSection: {
+    marginTop: spacing.md,
+    gap: spacing.xs,
+  },
+  filterLabel: {
+    fontSize: 10,
+    fontWeight: fontWeight.bold,
+    color: colors.textMuted,
+    letterSpacing: 1,
+    marginLeft: 4,
+  },
+  modeTabsContent: {
+    gap: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  modeChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+    borderRadius: radius.md,
+    borderWidth: 1,
+  },
+  modeChipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  modeChipInactive: {
+    backgroundColor: colors.surfaceOffset,
+    borderColor: colors.border,
+  },
+  modeChipText: {
+    fontSize: 12,
+    fontWeight: fontWeight.bold,
+  },
+  modeChipTextActive: {
+    color: colors.textInverse,
+  },
+  modeChipTextInactive: {
+    color: colors.textSecondary,
   },
   filterChipsRow: {
     flexDirection: 'row',
@@ -423,13 +565,14 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
     borderLeftWidth: 4,
     gap: spacing.md,
+    ...shadow.sm,
   },
   rowPositive: {
-    backgroundColor: "rgba(22, 163, 74, 0.04)",
+    backgroundColor: "rgba(22, 163, 74, 0.03)",
     borderColor: "rgba(22, 163, 74, 0.2)",
   },
   rowNegative: {
-    backgroundColor: "rgba(220, 38, 38, 0.04)",
+    backgroundColor: "rgba(220, 38, 38, 0.03)",
     borderColor: "rgba(220, 38, 38, 0.2)",
   },
   rowLeft: {
@@ -505,6 +648,17 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: colors.border,
     ...shadow.md,
+  },
+  notesInput: {
+    backgroundColor: colors.surfaceOffset,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 8,
+    fontSize: 13,
+    color: colors.textPrimary,
+    marginBottom: spacing.md,
   },
   footerInfo: {
     marginBottom: spacing.md,

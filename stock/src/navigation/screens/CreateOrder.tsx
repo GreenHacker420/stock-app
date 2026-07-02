@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, ScrollView, View, Pressable, StyleSheet } from "react-native";
+import { Alert, ScrollView, View, Pressable, StyleSheet, Platform } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Text, TextInput, SegmentedButtons, Icon, Searchbar, List, Divider, Card } from "react-native-paper";
 import { useDebounce } from "use-debounce";
+import * as Haptics from "expo-haptics";
+
 import { createOrder, fetchCustomers, fetchItems, fetchStaff, fetchShops, Item, Customer, ApiUser } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
@@ -130,10 +132,15 @@ export function CreateOrder() {
     return source.slice(0, 5);
   }, [cachedItemsQuery.data, itemSearch, itemsQuery.data, network.isOffline]);
 
-  const selectedCustomer = (network.isOffline ? cachedCustomersQuery.data : customersQuery.data)?.find(c => c.id === customerId);
+  const selectedCustomer = useMemo(() => {
+    const list = network.isOffline ? (cachedCustomersQuery.data ?? []) : (customersQuery.data ?? []);
+    return list.find(c => c.id === customerId);
+  }, [cachedCustomersQuery.data, customersQuery.data, customerId, network.isOffline]);
 
   // Calculations
-  const subtotal = cart.reduce((sum, item) => sum + (item.quantity * item.rate), 0);
+  const subtotal = useMemo(() => {
+    return cart.reduce((sum, item) => sum + (item.quantity * item.rate), 0);
+  }, [cart]);
 
   // Order submission
   const orderMutation = useMutation({
@@ -159,6 +166,9 @@ export function CreateOrder() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["orders", activeShopId] });
       if (activeShopId && token) warmOfflineCache(activeShopId, token).catch(() => {});
+      if (Platform.OS !== "web") {
+        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+      }
       setCart([]);
       setCustomerId(null);
       setAssignedStaffId(null);
@@ -175,6 +185,7 @@ export function CreateOrder() {
   });
 
   const handleSelectItem = (item: Item) => {
+    if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     setSelectedItemToAdd(item);
     setAddQuantity("1");
     setAddRate(String(item.defaultSellingPrice));
@@ -185,7 +196,12 @@ export function CreateOrder() {
     if (!selectedItemToAdd) return;
     const qty = Number(addQuantity);
     const rate = Number(addRate);
-    if (qty <= 0 || rate <= 0) return;
+    if (isNaN(qty) || qty <= 0 || isNaN(rate) || rate <= 0) {
+      Alert.alert("Invalid input", "Please check your quantity and rate.");
+      return;
+    }
+
+    if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
 
     const existing = cart.find(c => c.id === selectedItemToAdd.id);
     if (existing) {
@@ -203,11 +219,23 @@ export function CreateOrder() {
   };
 
   const handleRemoveCartItem = (id: string) => {
+    if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     setCart(cart.filter(c => c.id !== id));
   };
 
   const handlePriorityChange = (value: string) => {
+    if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     setPriority(value as OrderPriority);
+  };
+
+  const handleStaffSelect = (staffId: string | null) => {
+    if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    setAssignedStaffId(staffId);
+  };
+
+  const handleOffsetSelect = (days: number) => {
+    if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    setExpectedOffsetDays(days);
   };
 
   return (
@@ -217,7 +245,7 @@ export function CreateOrder() {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContainer}>
         {/* Customer Section */}
         <Section title="Select Customer">
-          {!selectedCustomer ? (
+          {!customerId || !selectedCustomer ? (
             <View style={styles.searchSectionContainer}>
               <Searchbar
                 placeholder="Search customer name or phone..."
@@ -230,21 +258,28 @@ export function CreateOrder() {
               />
               {customerSearch ? (
                 <View style={styles.searchDropdown}>
-                  {filteredCustomers.map(c => (
-                    <List.Item
-                      key={c.id}
-                      title={c.name}
-                      titleStyle={styles.dropdownTitle}
-                      description={`${c.phone || "No phone"} • Bal: ₹${Math.abs(Number(c.outstandingAmount || 0)).toLocaleString()}`}
-                      descriptionStyle={styles.dropdownDesc}
-                      onPress={() => {
-                        setCustomerId(c.id);
-                        setCustomerSearch("");
-                      }}
-                      right={props => <List.Icon {...props} icon="account-check-outline" color={colors.primary} />}
-                      style={styles.dropdownItem}
-                    />
-                  ))}
+                  {filteredCustomers.map(c => {
+                    const balance = Number(c.outstandingAmount || 0);
+                    const isCredit = balance < 0;
+                    const balanceColor = balance > 0 ? colors.danger : isCredit ? colors.success : colors.textMuted;
+                    
+                    return (
+                      <List.Item
+                        key={c.id}
+                        title={c.name}
+                        titleStyle={styles.dropdownTitle}
+                        description={`${c.phone || "No phone"} • Outstanding: ₹${Math.abs(balance).toLocaleString()}`}
+                        descriptionStyle={[styles.dropdownDesc, { color: balanceColor }]}
+                        onPress={() => {
+                          if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+                          setCustomerId(c.id);
+                          setCustomerSearch("");
+                        }}
+                        right={props => <List.Icon {...props} icon="account-plus-outline" color={colors.primary} />}
+                        style={styles.dropdownItem}
+                      />
+                    );
+                  })}
                   {filteredCustomers.length === 0 && (
                     <View style={styles.dropdownEmpty}>
                       <Text style={styles.dropdownEmptyText}>No customers found</Text>
@@ -262,12 +297,28 @@ export function CreateOrder() {
                 <View style={styles.customerInfoCol}>
                   <Text style={styles.customerNameText}>{selectedCustomer.name}</Text>
                   <Text style={styles.customerSubText}>{selectedCustomer.phone || "No phone number"}</Text>
+                  {selectedCustomer.gstin ? (
+                    <Text style={styles.customerGstinText}>GSTIN: {selectedCustomer.gstin}</Text>
+                  ) : null}
+                  <View style={styles.outstandingBadge}>
+                    <Text style={styles.outstandingBadgeLabel}>OUTSTANDING: </Text>
+                    <Text style={[
+                      styles.outstandingBadgeVal, 
+                      { color: Number(selectedCustomer.outstandingAmount || 0) > 0 ? colors.danger : colors.success }
+                    ]}>
+                      ₹{Math.abs(Number(selectedCustomer.outstandingAmount || 0)).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                    </Text>
+                  </View>
                 </View>
                 <Button 
-                  mode="text" 
+                  mode="outlined" 
                   compact 
-                  textColor={colors.danger} 
-                  onPress={() => setCustomerId(null)}
+                  textColor={colors.danger}
+                  style={styles.changeCustomerBtn}
+                  onPress={() => {
+                    if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                    setCustomerId(null);
+                  }}
                 >
                   CHANGE
                 </Button>
@@ -290,18 +341,31 @@ export function CreateOrder() {
             />
             {itemSearch ? (
               <View style={styles.searchDropdown}>
-                {filteredItems.map(item => (
-                  <List.Item
-                    key={item.id}
-                    title={item.name}
-                    titleStyle={styles.dropdownTitle}
-                    description={`Rate: ₹${item.defaultSellingPrice} • SKU: ${item.sku || "N/A"} • ${item.availableStock && Number(item.availableStock) > 0 ? `Stock: ${item.availableStock}` : 'OUT OF STOCK'}`}
-                    descriptionStyle={[styles.dropdownDesc, (!item.availableStock || Number(item.availableStock) <= 0) && { color: colors.danger, fontWeight: fontWeight.bold }]}
-                    onPress={() => handleSelectItem(item)}
-                    right={props => <List.Icon {...props} icon="plus-circle-outline" color={colors.primary} />}
-                    style={styles.dropdownItem}
-                  />
-                ))}
+                {filteredItems.map(item => {
+                  const stockNum = Number(item.availableStock || 0);
+                  const inStock = stockNum > 0;
+                  
+                  return (
+                    <List.Item
+                      key={item.id}
+                      title={item.name}
+                      titleStyle={styles.dropdownTitle}
+                      description={`Rate: ₹${item.defaultSellingPrice} • SKU: ${item.sku || "N/A"} • ${inStock ? `Stock: ${stockNum} ${item.unit}` : 'OUT OF STOCK'}`}
+                      descriptionStyle={[
+                        styles.dropdownDesc, 
+                        !inStock && { color: colors.danger, fontWeight: fontWeight.bold }
+                      ]}
+                      onPress={() => handleSelectItem(item)}
+                      right={props => <List.Icon {...props} icon="plus" color={inStock ? colors.primary : colors.textMuted} />}
+                      style={styles.dropdownItem}
+                    />
+                  );
+                })}
+                {filteredItems.length === 0 && (
+                  <View style={styles.dropdownEmpty}>
+                    <Text style={styles.dropdownEmptyText}>No items found</Text>
+                  </View>
+                )}
               </View>
             ) : null}
           </View>
@@ -309,7 +373,15 @@ export function CreateOrder() {
           {/* Quick Add Form */}
           {selectedItemToAdd && (
             <View style={styles.quickAddForm}>
-              <Text style={styles.quickAddTitle}>Adding: {selectedItemToAdd.name}</Text>
+              <View style={styles.quickAddHeader}>
+                <View style={styles.quickAddIcon}>
+                  <Icon source="package-variant" size={20} color={colors.primary} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.quickAddTitle}>{selectedItemToAdd.name}</Text>
+                  <Text style={styles.quickAddSub}>MRP: ₹{selectedItemToAdd.mrp || "N/A"} • Min Price: ₹{selectedItemToAdd.minimumAllowedPrice || "N/A"}</Text>
+                </View>
+              </View>
               <View style={styles.inputRow}>
                 <TextInput
                   mode="outlined"
@@ -319,6 +391,7 @@ export function CreateOrder() {
                   keyboardType="numeric"
                   style={[styles.flex1, styles.input]}
                   outlineStyle={styles.inputOutline}
+                  activeOutlineColor={colors.primary}
                 />
                 <TextInput
                   mode="outlined"
@@ -328,11 +401,19 @@ export function CreateOrder() {
                   keyboardType="numeric"
                   style={[styles.flex1, styles.input]}
                   outlineStyle={styles.inputOutline}
+                  activeOutlineColor={colors.primary}
                 />
               </View>
               <View style={styles.quickAddActions}>
-                <Button mode="text" onPress={() => setSelectedItemToAdd(null)}>CANCEL</Button>
-                <Button mode="contained" onPress={handleAddCartItem}>ADD TO ORDER</Button>
+                <Button mode="text" textColor={colors.textSecondary} onPress={() => setSelectedItemToAdd(null)}>CANCEL</Button>
+                <Button 
+                  mode="contained" 
+                  buttonColor={colors.primary} 
+                  onPress={handleAddCartItem}
+                  disabled={!addQuantity || !addRate}
+                >
+                  ADD TO ORDER
+                </Button>
               </View>
             </View>
           )}
@@ -340,17 +421,21 @@ export function CreateOrder() {
           {/* Cart Table */}
           {cart.length > 0 && (
             <View style={styles.cartContainer}>
+              <Text style={styles.cartHeader}>ITEMS IN ORDER ({cart.length})</Text>
               {cart.map((item, idx) => (
                 <View key={item.id}>
                   <View style={styles.cartItem}>
                     <View style={styles.cartItemLeft}>
                       <Text style={styles.cartItemName}>{item.name}</Text>
-                      <Text style={styles.cartItemSub}>{item.quantity} {item.unit} @ ₹{item.rate}</Text>
+                      <Text style={styles.cartItemSub}>{item.quantity} {item.unit} × ₹{item.rate.toLocaleString("en-IN")}</Text>
                     </View>
                     <View style={styles.cartItemRight}>
-                      <Text style={styles.cartItemTotal}>₹{(item.quantity * item.rate).toLocaleString()}</Text>
-                      <Pressable onPress={() => handleRemoveCartItem(item.id)}>
-                        <Icon source="close-circle" size={20} color={colors.danger} />
+                      <Text style={styles.cartItemTotal}>₹{(item.quantity * item.rate).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</Text>
+                      <Pressable 
+                        onPress={() => handleRemoveCartItem(item.id)}
+                        style={({ pressed }) => [styles.cartDeleteBtn, pressed && styles.pressed]}
+                      >
+                        <Icon source="close" size={16} color={colors.danger} />
                       </Pressable>
                     </View>
                   </View>
@@ -359,19 +444,19 @@ export function CreateOrder() {
               ))}
               <View style={styles.totalRow}>
                 <Text style={styles.totalLabel}>ORDER TOTAL</Text>
-                <Text style={styles.totalValue}>₹{subtotal.toLocaleString()}</Text>
+                <Text style={styles.totalValue}>₹{subtotal.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</Text>
               </View>
             </View>
           )}
         </Section>
 
         {/* Fulfillment Settings */}
-        <Section title="Order Details & Fulfillment">
+        <Section title="Fulfillment & Details">
           <View style={styles.settingsCard}>
             <Text style={styles.fieldLabel}>ASSIGN TO STAFF (OPTIONAL)</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.staffScroll}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.staffScroll}>
               <Pressable
-                onPress={() => setAssignedStaffId(null)}
+                onPress={() => handleStaffSelect(null)}
                 style={[styles.staffPill, assignedStaffId === null && styles.staffPillActive]}
               >
                 <Text style={[styles.staffPillText, assignedStaffId === null && styles.staffPillTextActive]}>Any Staff</Text>
@@ -379,7 +464,7 @@ export function CreateOrder() {
               {staffQuery.data?.map(s => (
                 <Pressable
                   key={s.id}
-                  onPress={() => setAssignedStaffId(s.id)}
+                  onPress={() => handleStaffSelect(s.id)}
                   style={[styles.staffPill, assignedStaffId === s.id && styles.staffPillActive]}
                 >
                   <Text style={[styles.staffPillText, assignedStaffId === s.id && styles.staffPillTextActive]}>{s.name.split(' ')[0]}</Text>
@@ -401,10 +486,10 @@ export function CreateOrder() {
               {[1, 2, 3, 5, 7].map(days => (
                 <Pressable
                   key={days}
-                  onPress={() => setExpectedOffsetDays(days)}
+                  onPress={() => handleOffsetSelect(days)}
                   style={[styles.dayPill, expectedOffsetDays === days && styles.dayPillActive]}
                 >
-                  <Text style={[styles.dayPillText, expectedOffsetDays === days && styles.dayPillTextActive]}>{days}D</Text>
+                  <Text style={[styles.dayPillText, expectedOffsetDays === days && styles.dayPillTextActive]}>{days} Day{days > 1 ? 's' : ''}</Text>
                 </Pressable>
               ))}
             </View>
@@ -417,8 +502,9 @@ export function CreateOrder() {
               onChangeText={setNotes}
               multiline
               numberOfLines={3}
-              style={[styles.input, { marginTop: spacing.lg }]}
+              style={[styles.notesTextInput, { marginTop: spacing.lg }]}
               outlineStyle={styles.inputOutline}
+              activeOutlineColor={colors.primary}
             />
           </View>
         </Section>
@@ -435,8 +521,9 @@ export function CreateOrder() {
           onPress={() => orderMutation.mutate()}
           loading={orderMutation.isPending}
           disabled={!customerId || cart.length === 0}
-          style={styles.submitBtn}
+          style={[styles.submitBtn, (!customerId || cart.length === 0) && styles.submitBtnDisabled]}
           labelStyle={styles.submitBtnLabel}
+          buttonColor={colors.primary}
         >
           CONFIRM & CREATE ORDER
         </Button>
@@ -486,6 +573,8 @@ const styles = StyleSheet.create({
   },
   dropdownItem: {
     paddingVertical: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.surfaceOffset,
   },
   dropdownTitle: {
     fontSize: fontSize.sm,
@@ -493,6 +582,7 @@ const styles = StyleSheet.create({
   },
   dropdownDesc: {
     fontSize: 11,
+    marginTop: 2,
   },
   dropdownEmpty: {
     padding: spacing.md,
@@ -505,8 +595,9 @@ const styles = StyleSheet.create({
   selectedCustomerCard: {
     backgroundColor: colors.surface,
     borderWidth: 1,
-    borderColor: colors.primary,
-    borderRadius: radius.lg,
+    borderColor: colors.border,
+    borderRadius: 16,
+    ...shadow.sm,
     elevation: 0,
   },
   customerCardContent: {
@@ -515,15 +606,16 @@ const styles = StyleSheet.create({
     padding: spacing.md,
   },
   customerAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: colors.primaryLight,
     alignItems: 'center',
     justifyContent: 'center',
   },
   customerAvatarText: {
     color: colors.primaryDark,
+    fontSize: fontSize.md,
     fontWeight: fontWeight.bold,
   },
   customerInfoCol: {
@@ -540,17 +632,67 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginTop: 2,
   },
+  customerGstinText: {
+    fontSize: 11,
+    color: colors.textMuted,
+    marginTop: 1,
+  },
+  outstandingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: colors.surfaceOffset,
+    borderRadius: radius.sm,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    marginTop: 6,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  outstandingBadgeLabel: {
+    fontSize: 9,
+    fontWeight: fontWeight.bold,
+    color: colors.textMuted,
+  },
+  outstandingBadgeVal: {
+    fontSize: 10,
+    fontWeight: fontWeight.bold,
+  },
+  changeCustomerBtn: {
+    borderColor: colors.danger,
+    borderRadius: radius.md,
+  },
   quickAddForm: {
     backgroundColor: colors.surfaceOffset,
     padding: spacing.lg,
-    borderRadius: radius.lg,
+    borderRadius: 16,
     marginTop: spacing.md,
     gap: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  quickAddHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  quickAddIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: colors.primaryLight,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   quickAddTitle: {
-    fontSize: fontSize.sm,
+    fontSize: fontSize.md,
     fontWeight: fontWeight.bold,
-    color: colors.primary,
+    color: colors.textPrimary,
+  },
+  quickAddSub: {
+    fontSize: 11,
+    color: colors.textSecondary,
+    marginTop: 2,
   },
   inputRow: {
     flexDirection: 'row',
@@ -566,14 +708,23 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'flex-end',
     gap: spacing.md,
+    alignItems: 'center',
   },
   cartContainer: {
     backgroundColor: colors.surface,
-    borderRadius: radius.lg,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: colors.border,
     padding: spacing.lg,
     marginTop: spacing.md,
+    ...shadow.sm,
+  },
+  cartHeader: {
+    fontSize: 10,
+    fontWeight: fontWeight.bold,
+    color: colors.textMuted,
+    letterSpacing: 1,
+    marginBottom: spacing.md,
   },
   cartItem: {
     flexDirection: 'row',
@@ -587,6 +738,7 @@ const styles = StyleSheet.create({
   cartItemName: {
     fontSize: fontSize.sm,
     fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
   },
   cartItemSub: {
     fontSize: 11,
@@ -600,11 +752,21 @@ const styles = StyleSheet.create({
   },
   cartItemTotal: {
     fontSize: fontSize.sm,
-    fontWeight: fontWeight.black,
+    fontWeight: fontWeight.bold,
     color: colors.textPrimary,
+    fontVariant: ['tabular-nums'],
+  },
+  cartDeleteBtn: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(220, 38, 38, 0.08)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   cartDivider: {
     backgroundColor: colors.surfaceOffset,
+    marginVertical: 4,
   },
   totalRow: {
     flexDirection: 'row',
@@ -616,14 +778,16 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
   },
   totalLabel: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: fontWeight.black,
     color: colors.textMuted,
+    letterSpacing: 0.5,
   },
   totalValue: {
     fontSize: fontSize.lg,
     fontWeight: fontWeight.black,
     color: colors.primary,
+    fontVariant: ['tabular-nums'],
   },
   settingsCard: {
     backgroundColor: colors.surface,
@@ -634,20 +798,20 @@ const styles = StyleSheet.create({
   },
   fieldLabel: {
     fontSize: 10,
-    fontWeight: fontWeight.black,
+    fontWeight: fontWeight.bold,
     color: colors.textMuted,
     letterSpacing: 0.5,
     marginBottom: spacing.sm,
   },
   staffScroll: {
-    marginHorizontal: -spacing.sm,
+    paddingVertical: spacing.xs,
   },
   staffPill: {
     paddingHorizontal: 16,
     paddingVertical: 8,
-    borderRadius: radius.full,
+    borderRadius: radius.md,
     backgroundColor: colors.surfaceOffset,
-    marginHorizontal: spacing.sm,
+    marginRight: spacing.sm,
     borderWidth: 1,
     borderColor: colors.border,
   },
@@ -668,8 +832,8 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
   },
   dayPill: {
-    width: 48,
-    height: 36,
+    flex: 1,
+    height: 38,
     borderRadius: radius.md,
     backgroundColor: colors.surfaceOffset,
     alignItems: 'center',
@@ -692,6 +856,9 @@ const styles = StyleSheet.create({
   priorityBtns: {
     height: 40,
   },
+  notesTextInput: {
+    backgroundColor: colors.surface,
+  },
   errorBox: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -710,13 +877,21 @@ const styles = StyleSheet.create({
   submitBtn: {
     marginTop: spacing.xl,
     borderRadius: radius.lg,
-    backgroundColor: colors.primary,
+    paddingVertical: 6,
+    elevation: 0,
+  },
+  submitBtnDisabled: {
+    backgroundColor: colors.border,
+    opacity: 0.6,
   },
   submitBtnLabel: {
     fontWeight: fontWeight.bold,
-    paddingVertical: 4,
+    fontSize: fontSize.md,
   },
   flex1: {
     flex: 1,
+  },
+  pressed: {
+    opacity: 0.5,
   },
 });
