@@ -940,10 +940,19 @@ export async function fetchOwnerDashboard(token: string, options: { shopId?: str
   return apiRequest<OwnerDashboardData>(`/dashboard/owner${query ? `?${query}` : ""}`, { token });
 }
 
-export async function fetchStaffTodaySummary(token: string, shopId: string, date?: string, staffId?: string): Promise<StaffTodaySummaryData> {
+export async function fetchStaffTodaySummary(
+  token: string,
+  shopId: string,
+  date?: string,
+  staffId?: string,
+  dateFrom?: string,
+  dateTo?: string
+): Promise<StaffTodaySummaryData> {
   const params = new URLSearchParams({ shopId });
   if (date) params.set("date", date);
   if (staffId) params.set("staffId", staffId);
+  if (dateFrom) params.set("dateFrom", dateFrom);
+  if (dateTo) params.set("dateTo", dateTo);
   return apiRequest<StaffTodaySummaryData>(`/dashboard/staff/today?${params.toString()}`, { token });
 }
 

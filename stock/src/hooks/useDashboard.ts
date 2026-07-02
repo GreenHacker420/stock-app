@@ -16,12 +16,12 @@ export function useOwnerDashboardQuery(options: { date?: string } = {}) {
   });
 }
 
-export function useStaffTodaySummaryQuery(options: { date?: string; staffId?: string } = {}) {
+export function useStaffTodaySummaryQuery(options: { date?: string; staffId?: string; dateFrom?: string; dateTo?: string } = {}) {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
   return useQuery({
-    queryKey: queryKeys.staffTodaySummary(activeShopId ?? "", options.date, options.staffId),
-    queryFn: () => fetchStaffTodaySummary(token ?? "", activeShopId ?? "", options.date, options.staffId),
+    queryKey: queryKeys.staffTodaySummary(activeShopId ?? "", options.date, options.staffId, options.dateFrom, options.dateTo),
+    queryFn: () => fetchStaffTodaySummary(token ?? "", activeShopId ?? "", options.date, options.staffId, options.dateFrom, options.dateTo),
     enabled: !!token && !!activeShopId,
     staleTime: 60 * 1000,
     refetchOnReconnect: false,

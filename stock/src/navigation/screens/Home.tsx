@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import { ScrollView, View, Pressable, StyleSheet, ActivityIndicator, Dimensions, useWindowDimensions } from "react-native";
-import { Text, Icon, Button } from "react-native-paper";
+import { ScrollView, View, Pressable, StyleSheet, ActivityIndicator, Dimensions, useWindowDimensions, Alert } from "react-native";
+import { Text, Icon, Button, Portal, Dialog, TextInput } from "react-native-paper";
 import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
 
@@ -10,6 +10,7 @@ import { useShopsQuery } from "../../hooks/useShops";
 import { useCurrentCashSessionQuery } from "../../hooks/useCashSessions";
 import { useOwnerDashboardQuery } from "../../hooks/useDashboard";
 import { useSwitchActiveShop } from "../../hooks/useActiveShop";
+import { useAttendanceQuery, useCheckInMutation, useCheckOutMutation } from "../../hooks/useAttendance";
 import { Screen } from "../../components/Screen";
 import { ActionTile } from "../../components/ui/ActionTile";
 import { AppHeader } from "../../components/ui/AppHeader";
@@ -539,6 +540,52 @@ function OwnerHome({ navigate }: { navigate: (s: any, params?: any) => void }) {
 
 function StaffHome({ navigate, session, sessionLoading }: { navigate: (s: any, params?: any) => void; session?: any; sessionLoading: boolean }) {
   const [isSessionCollapsed, setIsSessionCollapsed] = useState(false);
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  
+  const attendanceQuery = useAttendanceQuery({ shopId: activeShopId ?? "" });
+  const checkInMutation = useCheckInMutation();
+  const checkOutMutation = useCheckOutMutation();
+
+  const [attendanceModalVisible, setAttendanceModalVisible] = useState(false);
+  const [attendanceType, setAttendanceType] = useState<"in" | "out">("in");
+  const [note, setNote] = useState("");
+
+  const todayStr = useMemo(() => new Date().toISOString().slice(0, 10), []);
+
+  const todayLog = useMemo(() => {
+    if (!attendanceQuery.data) return null;
+    return attendanceQuery.data.find((log: any) => {
+      const logDateStr = new Date(log.date).toISOString().slice(0, 10);
+      return logDateStr === todayStr;
+    });
+  }, [attendanceQuery.data, todayStr]);
+
+  const handleAttendanceAction = (type: "in" | "out") => {
+    setAttendanceType(type);
+    setNote("");
+    setAttendanceModalVisible(true);
+  };
+
+  const handleConfirmAttendance = () => {
+    setAttendanceModalVisible(false);
+    if (attendanceType === "in") {
+      checkInMutation.mutate({ shopId: activeShopId ?? "", note }, {
+        onSuccess: () => {
+          Alert.alert("Success", "Checked in successfully.");
+          attendanceQuery.refetch();
+        },
+        onError: (err: any) => Alert.alert("Error", err?.message || "Failed to check in."),
+      });
+    } else {
+      checkOutMutation.mutate({ shopId: activeShopId ?? "", note }, {
+        onSuccess: () => {
+          Alert.alert("Success", "Checked out successfully.");
+          attendanceQuery.refetch();
+        },
+        onError: (err: any) => Alert.alert("Error", err?.message || "Failed to check out."),
+      });
+    }
+  };
 
   if (sessionLoading) {
     return (
@@ -614,6 +661,79 @@ function StaffHome({ navigate, session, sessionLoading }: { navigate: (s: any, p
         )}
       </View>
 
+      {/* Attendance Banner */}
+      <View style={[
+        styles.staffBanner, 
+        { 
+          backgroundColor: todayLog?.checkIn && !todayLog?.checkOut ? colors.primaryLight : colors.surface,
+          borderColor: todayLog?.checkIn && !todayLog?.checkOut ? 'rgba(22, 163, 74, 0.3)' : colors.border,
+          marginTop: spacing.md,
+          padding: spacing.xl,
+          gap: spacing.md,
+        }
+      ]}>
+        <View style={styles.staffBannerHeader}>
+          <View style={[
+            styles.staffBannerIconBg, 
+            { backgroundColor: todayLog?.checkIn && !todayLog?.checkOut ? colors.surface : colors.surfaceOffset }
+          ]}>
+            <Icon 
+              source="clock-outline" 
+              size={24} 
+              color={todayLog?.checkIn && !todayLog?.checkOut ? colors.success : colors.textSecondary} 
+            />
+          </View>
+          <View style={styles.flex1}>
+            <Text style={[
+              styles.staffBannerTitle,
+              { color: todayLog?.checkIn && !todayLog?.checkOut ? colors.success : colors.textPrimary }
+            ]}>
+              {todayLog?.checkIn && !todayLog?.checkOut 
+                ? "Checked In" 
+                : todayLog?.checkOut 
+                  ? "Shift Completed" 
+                  : "Not Checked In"}
+            </Text>
+            <Text style={[styles.staffBannerDesc, { color: colors.textSecondary }]}>
+              {todayLog?.checkIn && !todayLog?.checkOut
+                ? `Started shift at ${new Date(todayLog.checkIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                : todayLog?.checkOut
+                  ? `Shift ended at ${new Date(todayLog.checkOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                  : "Please check in to mark your attendance for today."
+              }
+            </Text>
+          </View>
+        </View>
+        
+        {(!todayLog || !todayLog.checkIn) && (
+          <Button
+            mode="contained"
+            icon="clock-in"
+            onPress={() => handleAttendanceAction("in")}
+            style={[styles.staffBannerButton, { backgroundColor: colors.success }]}
+            contentStyle={styles.staffBannerButtonContent}
+            labelStyle={{ fontWeight: fontWeight.bold, fontSize: fontSize.sm }}
+            loading={checkInMutation.isPending}
+          >
+            Check In
+          </Button>
+        )}
+
+        {(todayLog?.checkIn && !todayLog?.checkOut) && (
+          <Button
+            mode="contained"
+            icon="clock-out"
+            onPress={() => handleAttendanceAction("out")}
+            style={[styles.staffBannerButton, { backgroundColor: colors.danger }]}
+            contentStyle={styles.staffBannerButtonContent}
+            labelStyle={{ fontWeight: fontWeight.bold, fontSize: fontSize.sm }}
+            loading={checkOutMutation.isPending}
+          >
+            Check Out
+          </Button>
+        )}
+      </View>
+
       <View style={styles.categoryHeader}>
         <Text style={styles.staffSectionTitle}>TASKS & OPERATIONS</Text>
       </View>
@@ -653,6 +773,34 @@ function StaffHome({ navigate, session, sessionLoading }: { navigate: (s: any, p
           </Pressable>
         )}
       </View>
+
+      {/* Attendance Notes Modal */}
+      <Portal>
+        <Dialog visible={attendanceModalVisible} onDismiss={() => setAttendanceModalVisible(false)} style={{ borderRadius: radius.lg, backgroundColor: colors.surface }}>
+          <Dialog.Title style={{ fontWeight: fontWeight.bold }}>
+            {attendanceType === "in" ? "Check In Shift" : "Check Out Shift"}
+          </Dialog.Title>
+          <Dialog.Content>
+            <Text style={{ marginBottom: spacing.sm, color: colors.textSecondary }}>
+              Add an optional note (e.g. shift detail, delay reason).
+            </Text>
+            <TextInput
+              mode="outlined"
+              label="Optional Note"
+              placeholder="e.g. Traffic delay, counter handover"
+              value={note}
+              onChangeText={setNote}
+              outlineStyle={{ borderRadius: radius.md }}
+              activeOutlineColor={colors.primary}
+              style={{ backgroundColor: colors.surface }}
+            />
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setAttendanceModalVisible(false)} textColor={colors.textSecondary}>Cancel</Button>
+            <Button onPress={handleConfirmAttendance} textColor={colors.primary} labelStyle={{ fontWeight: fontWeight.bold }}>Confirm</Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
     </View>
   );
 }

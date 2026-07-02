@@ -191,7 +191,7 @@ export async function getOwnerDashboard(user, { shopId, date }) {
   };
 }
 
-export async function getStaffTodaySummary(user, { shopId, date, staffId }) {
+export async function getStaffTodaySummary(user, { shopId, date, staffId, dateFrom, dateTo }) {
   await assertShopAccess(user, shopId);
 
   let targetStaffId = user.id;
@@ -202,7 +202,17 @@ export async function getStaffTodaySummary(user, { shopId, date, staffId }) {
     targetStaffId = staffId;
   }
 
-  const { start, end } = dayRange(date ? new Date(date) : new Date());
+  let start, end;
+  if (dateFrom && dateTo) {
+    start = new Date(dateFrom);
+    start.setHours(0, 0, 0, 0);
+    end = new Date(dateTo);
+    end.setHours(23, 59, 59, 999);
+  } else {
+    const range = dayRange(date ? new Date(date) : new Date());
+    start = range.start;
+    end = range.end;
+  }
 
   const [sales, dms, payments, orders, stockMovements, cashSession] = await Promise.all([
     prisma.sale.findMany({ where: { shopId, staffId: targetStaffId, createdAt: { gte: start, lte: end } } }),
