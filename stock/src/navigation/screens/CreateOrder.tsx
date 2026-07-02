@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, ScrollView, View, Pressable, StyleSheet, Platform, KeyboardAvoidingView } from "react-native";
+import { Alert, ScrollView, View, Pressable, StyleSheet, Platform, TextInput as RNTextInput, KeyboardAvoidingView } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Text, TextInput, SegmentedButtons, Icon, Searchbar, List, Divider, Card } from "react-native-paper";
+import { Button, Text, Searchbar, List, Divider, Card, Icon, SegmentedButtons, TextInput } from "react-native-paper";
 import { useDebounce } from "use-debounce";
 import * as Haptics from "expo-haptics";
 
-import { createOrder, fetchCustomers, fetchItems, fetchStaff, fetchShops, Item, Customer, ApiUser } from "../../api/client";
+import { createOrder, fetchCustomers, fetchItems, fetchStaff, Item, Customer } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
 import { useNetworkStatus } from "../../hooks/useNetworkStatus";
@@ -14,10 +14,9 @@ import { newIdempotencyKey } from "../../utils/idempotency";
 import { requireActiveShopId } from "../../hooks/useActiveShop";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
-import { Section } from "../../components/ui/Section";
 import { SuccessModal } from "../../components/ui/SuccessModal";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from '../../theme';
-import { navigate, goBack } from "../navigation-ref";
+import { goBack } from "../navigation-ref";
 
 const internetRequiredMessage = "Internet connection required. Please connect to the internet to complete this action.";
 
@@ -49,11 +48,8 @@ export function CreateOrder() {
   const queryClient = useQueryClient();
   const network = useNetworkStatus();
 
-  // Multi-step state: 1 = Customer, 2 = Items, 3 = Fulfillment & Review
-  const [step, setStep] = useState<1 | 2 | 3>(1);
-
-  // Selected customer
-  const [customerId, setCustomerId] = useState<string | null>(null);
+  // Selected party object
+  const [selectedParty, setSelectedParty] = useState<Customer | null>(null);
   const [customerSearch, setCustomerSearch] = useState("");
   const [debouncedCustomerSearch] = useDebounce(customerSearch, 300);
 
@@ -62,10 +58,8 @@ export function CreateOrder() {
   const [itemSearch, setItemSearch] = useState("");
   const [debouncedItemSearch] = useDebounce(itemSearch, 300);
 
-  // Item detail form for the active item being added/edited
-  const [selectedItemToAdd, setSelectedItemToAdd] = useState<Item | null>(null);
-  const [addQuantity, setAddQuantity] = useState("1");
-  const [addRate, setAddRate] = useState("");
+  // Advanced details collapse toggle
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   // Order settings
   const [assignedStaffId, setAssignedStaffId] = useState<string | null>(null);
@@ -75,19 +69,22 @@ export function CreateOrder() {
 
   // Modal feedback
   const [successVisible, setSuccessVisible] = useState(false);
+  const [lastPlacedPartyName, setLastPlacedPartyName] = useState("");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Queries
-  const shopsQuery = useQuery({ queryKey: ["shops"], queryFn: () => fetchShops(token ?? ""), enabled: !!token });
-  
   const customersQuery = useQuery({
     queryKey: ["customers", activeShopId, debouncedCustomerSearch],
-    queryFn: () => fetchCustomers(token ?? "", activeShopId ?? "", false, {
-      search: debouncedCustomerSearch,
-      limit: debouncedCustomerSearch ? 20 : 50,
-    }),
+    queryFn: () => {
+      if (!token) return Promise.resolve([]);
+      return fetchCustomers(token, activeShopId ?? "", false, {
+        search: debouncedCustomerSearch,
+        limit: debouncedCustomerSearch ? 20 : 50,
+      });
+    },
     enabled: !!token && !!activeShopId && !network.isOffline,
   });
+
   const cachedCustomersQuery = useQuery({
     queryKey: ["cached-customers", activeShopId, debouncedCustomerSearch],
     queryFn: () => filterCachedCustomers(activeShopId ?? "", debouncedCustomerSearch),
@@ -96,12 +93,16 @@ export function CreateOrder() {
 
   const itemsQuery = useQuery({
     queryKey: ["items", activeShopId, debouncedItemSearch],
-    queryFn: () => fetchItems(token ?? "", activeShopId ?? "", {
-      search: debouncedItemSearch,
-      limit: debouncedItemSearch ? 20 : 50,
-    }),
+    queryFn: () => {
+      if (!token) return Promise.resolve({ items: [], total: 0, page: 1, limit: 50, hasMore: false });
+      return fetchItems(token, activeShopId ?? "", {
+        search: debouncedItemSearch,
+        limit: debouncedItemSearch ? 20 : 50,
+      });
+    },
     enabled: !!token && !!activeShopId && !network.isOffline,
   });
+
   const cachedItemsQuery = useQuery({
     queryKey: ["cached-items", activeShopId, debouncedItemSearch],
     queryFn: () => filterCachedProducts(activeShopId ?? "", debouncedItemSearch),
@@ -110,19 +111,27 @@ export function CreateOrder() {
 
   const staffQuery = useQuery({
     queryKey: ["staff"],
-    queryFn: () => fetchStaff(token ?? ""),
+    queryFn: () => {
+      if (!token) return Promise.resolve([]);
+      return fetchStaff(token);
+    },
     enabled: !!token,
   });
 
+  // Sync cache
   useEffect(() => {
-    if (activeShopId && customersQuery.data) setCachedCustomers(activeShopId, customersQuery.data);
+    if (activeShopId && customersQuery.data) {
+      setCachedCustomers(activeShopId, customersQuery.data);
+    }
   }, [activeShopId, customersQuery.data]);
 
   useEffect(() => {
-    if (activeShopId && itemsQuery.data?.items) setCachedProducts(activeShopId, itemsQuery.data.items);
+    if (activeShopId && itemsQuery.data?.items) {
+      setCachedProducts(activeShopId, itemsQuery.data.items);
+    }
   }, [activeShopId, itemsQuery.data]);
 
-  // Filters
+  // Filters for dropdown lists
   const filteredCustomers = useMemo(() => {
     if (!customerSearch) return [];
     const source = network.isOffline ? (cachedCustomersQuery.data ?? []) : (customersQuery.data ?? []);
@@ -135,26 +144,56 @@ export function CreateOrder() {
     return source.slice(0, 5);
   }, [cachedItemsQuery.data, itemSearch, itemsQuery.data, network.isOffline]);
 
-  const selectedCustomer = useMemo(() => {
-    const list = network.isOffline ? (cachedCustomersQuery.data ?? []) : (customersQuery.data ?? []);
-    return list.find(c => c.id === customerId);
-  }, [cachedCustomersQuery.data, customersQuery.data, customerId, network.isOffline]);
+  // Recent lists when searches are empty
+  const recentParties = useMemo(() => {
+    const source = network.isOffline ? (cachedCustomersQuery.data ?? []) : (customersQuery.data ?? []);
+    return source.slice(0, 5);
+  }, [cachedCustomersQuery.data, customersQuery.data, network.isOffline]);
+
+  const recentItems = useMemo(() => {
+    const source = network.isOffline ? (cachedItemsQuery.data ?? []) : (itemsQuery.data?.items ?? []);
+    return source.slice(0, 5);
+  }, [cachedItemsQuery.data, itemsQuery.data, network.isOffline]);
 
   // Calculations
   const subtotal = useMemo(() => {
     return cart.reduce((sum, item) => sum + (item.quantity * item.rate), 0);
   }, [cart]);
 
-  // Order submission
+  // Expected dispatch date formatter
+  const dispatchDateText = useMemo(() => {
+    const dispatchDate = new Date(Date.now() + expectedOffsetDays * 86400000);
+    const dateStr = dispatchDate.toLocaleDateString("en-IN", {
+      day: "numeric",
+      month: "short",
+      year: "numeric"
+    });
+    if (expectedOffsetDays === 1) {
+      return `Tomorrow (${dateStr})`;
+    }
+    return `In ${expectedOffsetDays} Days (${dateStr})`;
+  }, [expectedOffsetDays]);
+
+  // Order submission mutation
   const orderMutation = useMutation({
     mutationFn: () => {
+      if (!token) {
+        throw new Error("User token missing. Please log in again.");
+      }
       if (network.isOffline) {
         throw new Error(internetRequiredMessage);
       }
+      if (!selectedParty) {
+        throw new Error("Please select a party first.");
+      }
+      if (cart.length === 0) {
+        throw new Error("Your cart is empty.");
+      }
+
       const dispatchDate = new Date(Date.now() + expectedOffsetDays * 86400000);
-      return createOrder(token ?? "", {
+      return createOrder(token, {
         shopId: requireActiveShopId(activeShopId),
-        customerId: customerId ?? "",
+        customerId: selectedParty.id,
         assignedStaffId: assignedStaffId || undefined,
         expectedDispatchDate: dispatchDate.toISOString(),
         priority,
@@ -168,15 +207,20 @@ export function CreateOrder() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["orders", activeShopId] });
-      if (activeShopId && token) warmOfflineCache(activeShopId, token).catch(() => {});
+      if (activeShopId && token) {
+        warmOfflineCache(activeShopId, token).catch(() => {});
+      }
       if (Platform.OS !== "web") {
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       }
+      // Preserve party name before resetting state
+      setLastPlacedPartyName(selectedParty?.name || "Party");
       setCart([]);
-      setCustomerId(null);
+      setSelectedParty(null);
       setAssignedStaffId(null);
       setNotes("");
-      setStep(1);
+      setExpectedOffsetDays(1);
+      setPriority("NORMAL");
       setSuccessVisible(true);
       setErrorMsg(null);
     },
@@ -188,136 +232,95 @@ export function CreateOrder() {
     }
   });
 
-  const handleSelectItem = (item: Item) => {
-    if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    setSelectedItemToAdd(item);
-    setAddQuantity("1");
-    setAddRate(String(item.defaultSellingPrice));
-    setItemSearch("");
-  };
-
-  const handleAddCartItem = () => {
-    if (!selectedItemToAdd) return;
-    const qty = Number(addQuantity);
-    const rate = Number(addRate);
-    if (isNaN(qty) || qty <= 0 || isNaN(rate) || rate <= 0) {
-      Alert.alert("Invalid input", "Please check your quantity and rate.");
-      return;
+  // POS Add Item Action
+  const handleAddItemToCart = (item: Item) => {
+    if (Platform.OS !== "web") {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     }
 
-    if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    setCart(prevCart => {
+      const existing = prevCart.find(c => c.id === item.id);
+      if (existing) {
+        return prevCart.map(c => c.id === item.id ? { ...c, quantity: c.quantity + 1 } : c);
+      } else {
+        return [...prevCart, {
+          id: item.id,
+          name: item.name,
+          quantity: 1,
+          rate: Number(item.defaultSellingPrice) || 0,
+          unit: item.unit
+        }];
+      }
+    });
+    setItemSearch(""); // Clear search bar for fast consecutive inputs
+  };
 
-    const existing = cart.find(c => c.id === selectedItemToAdd.id);
-    if (existing) {
-      setCart(cart.map(c => c.id === selectedItemToAdd.id ? { ...c, quantity: qty, rate: rate } : c));
-    } else {
-      setCart([...cart, {
-        id: selectedItemToAdd.id,
-        name: selectedItemToAdd.name,
-        quantity: qty,
-        rate: rate,
-        unit: selectedItemToAdd.unit
-      }]);
+  // Stepper handlers
+  const handleUpdateQty = (itemId: string, delta: number) => {
+    if (Platform.OS !== "web") {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     }
-    setSelectedItemToAdd(null);
+    setCart(prev => prev.map(c => {
+      if (c.id === itemId) {
+        const nextQty = Math.max(1, c.quantity + delta);
+        return { ...c, quantity: nextQty };
+      }
+      return c;
+    }));
   };
 
-  const handleRemoveCartItem = (id: string) => {
-    if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    setCart(cart.filter(c => c.id !== id));
+  const handleUpdateRate = (itemId: string, newRateStr: string) => {
+    const rate = Number(newRateStr);
+    if (!isNaN(rate)) {
+      setCart(prev => prev.map(c => c.id === itemId ? { ...c, rate } : c));
+    }
   };
 
-  const handlePriorityChange = (value: string) => {
-    if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    setPriority(value as OrderPriority);
+  const handleRemoveCartItem = (itemId: string) => {
+    if (Platform.OS !== "web") {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    }
+    setCart(prev => prev.filter(c => c.id !== itemId));
   };
 
   const handleStaffSelect = (staffId: string | null) => {
-    if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    if (Platform.OS !== "web") {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    }
     setAssignedStaffId(staffId);
   };
 
+  const handlePriorityChange = (value: string) => {
+    if (Platform.OS !== "web") {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    }
+    setPriority(value as OrderPriority);
+  };
+
   const handleOffsetSelect = (days: number) => {
-    if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    if (Platform.OS !== "web") {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    }
     setExpectedOffsetDays(days);
   };
 
-  const nextStep = () => {
-    if (step === 1 && !customerId) {
-      Alert.alert("Validation", "Please select a customer first.");
-      return;
+  // Inline validation label
+  const validationMessage = useMemo(() => {
+    if (!selectedParty) {
+      return "Select a party to place order";
     }
-    if (step === 2 && cart.length === 0) {
-      Alert.alert("Validation", "Please add at least one item to the cart.");
-      return;
+    if (cart.length === 0) {
+      return "Add items to cart to place order";
     }
-    if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-    setStep((s) => (s + 1) as 1 | 2 | 3);
-  };
-
-  const prevStep = () => {
-    if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    setStep((s) => (s - 1) as 1 | 2 | 3);
-  };
-
-  // Step indicator component
-  const renderStepIndicator = () => {
-    return (
-      <View style={styles.stepIndicatorContainer}>
-        {/* Step 1 */}
-        <View style={styles.stepWrapper}>
-          <View style={[
-            styles.stepCircle, 
-            step === 1 ? styles.stepCircleActive : step > 1 ? styles.stepCircleCompleted : styles.stepCircleInactive
-          ]}>
-            {step > 1 ? (
-              <Icon source="check" size={16} color="white" />
-            ) : (
-              <Text style={[styles.stepNumber, step === 1 && styles.stepNumberActive]}>1</Text>
-            )}
-          </View>
-          <Text style={[styles.stepLabel, step === 1 && styles.stepLabelActive]}>Customer</Text>
-        </View>
-
-        <View style={[styles.stepLine, step > 1 ? styles.stepLineCompleted : styles.stepLineInactive]} />
-
-        {/* Step 2 */}
-        <View style={styles.stepWrapper}>
-          <View style={[
-            styles.stepCircle, 
-            step === 2 ? styles.stepCircleActive : step > 2 ? styles.stepCircleCompleted : styles.stepCircleInactive
-          ]}>
-            {step > 2 ? (
-              <Icon source="check" size={16} color="white" />
-            ) : (
-              <Text style={[styles.stepNumber, step === 2 && styles.stepNumberActive]}>2</Text>
-            )}
-          </View>
-          <Text style={[styles.stepLabel, step === 2 && styles.stepLabelActive]}>Products ({cart.length})</Text>
-        </View>
-
-        <View style={[styles.stepLine, step > 2 ? styles.stepLineCompleted : styles.stepLineInactive]} />
-
-        {/* Step 3 */}
-        <View style={styles.stepWrapper}>
-          <View style={[
-            styles.stepCircle, 
-            step === 3 ? styles.stepCircleActive : styles.stepCircleInactive
-          ]}>
-            <Text style={[styles.stepNumber, step === 3 && styles.stepNumberActive]}>3</Text>
-          </View>
-          <Text style={[styles.stepLabel, step === 3 && styles.stepLabelActive]}>Fulfill & Review</Text>
-        </View>
-      </View>
-    );
-  };
+    if (network.isOffline) {
+      return "App is offline. Connection required to place order.";
+    }
+    return null;
+  }, [selectedParty, cart, network.isOffline]);
 
   return (
     <Screen edges={['top', 'left', 'right']}>
-      <AppHeader title="Create Order" subtitle="Book a new order for shop fulfillment" />
-
-      {/* Modern Multi-step Tracker */}
-      {renderStepIndicator()}
+      <AppHeader title="Create Order" subtitle="Take party order" />
 
       <KeyboardAvoidingView 
         style={{ flex: 1 }} 
@@ -328,384 +331,358 @@ export function CreateOrder() {
           contentContainerStyle={styles.scrollContainer}
           keyboardShouldPersistTaps="handled"
         >
-          {/* STEP 1: SELECT CUSTOMER */}
-          {step === 1 && (
-            <View style={styles.stepContent}>
-              <Text style={styles.stepTitle}>Who is this order for?</Text>
-              
-              {!customerId || !selectedCustomer ? (
-                <View style={styles.searchSectionContainer}>
-                  <Searchbar
-                    placeholder="Search customer name or phone..."
-                    onChangeText={setCustomerSearch}
-                    value={customerSearch}
-                    style={styles.searchBar}
-                    inputStyle={styles.searchInput}
-                    placeholderTextColor={colors.textMuted}
-                    iconColor={colors.primary}
-                  />
-                  {customerSearch ? (
-                    <View style={styles.searchDropdown}>
-                      {filteredCustomers.map(c => {
-                        const balance = Number(c.outstandingAmount || 0);
-                        const isCredit = balance < 0;
-                        const balanceColor = balance > 0 ? colors.danger : isCredit ? colors.success : colors.textMuted;
-                        
-                        return (
-                          <List.Item
-                            key={c.id}
-                            title={c.name}
-                            titleStyle={styles.dropdownTitle}
-                            description={`${c.phone || "No phone"} • Outstanding: ₹${Math.abs(balance).toLocaleString()}`}
-                            descriptionStyle={[styles.dropdownDesc, { color: balanceColor }]}
-                            onPress={() => {
-                              if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-                              setCustomerId(c.id);
-                              setCustomerSearch("");
-                            }}
-                            right={props => <List.Icon {...props} icon="account-plus-outline" color={colors.primary} />}
-                            style={styles.dropdownItem}
-                          />
-                        );
-                      })}
-                      {filteredCustomers.length === 0 && (
-                        <View style={styles.dropdownEmpty}>
-                          <Text style={styles.dropdownEmptyText}>No customers found</Text>
-                        </View>
-                      )}
-                    </View>
-                  ) : null}
-                </View>
-              ) : (
-                <Card style={styles.selectedCustomerCard}>
-                  <Card.Content style={styles.customerCardContent}>
-                    <View style={styles.customerAvatar}>
-                      <Text style={styles.customerAvatarText}>{selectedCustomer.name[0].toUpperCase()}</Text>
-                    </View>
-                    <View style={styles.customerInfoCol}>
-                      <Text style={styles.customerNameText}>{selectedCustomer.name}</Text>
-                      <Text style={styles.customerSubText}>{selectedCustomer.phone || "No phone number"}</Text>
-                      {selectedCustomer.gstin ? (
-                        <Text style={styles.customerGstinText}>GSTIN: {selectedCustomer.gstin}</Text>
-                      ) : null}
-                      <View style={styles.outstandingBadge}>
-                        <Text style={styles.outstandingBadgeLabel}>OUTSTANDING: </Text>
-                        <Text style={[
-                          styles.outstandingBadgeVal, 
-                          { color: Number(selectedCustomer.outstandingAmount || 0) > 0 ? colors.danger : colors.success }
-                        ]}>
-                          ₹{Math.abs(Number(selectedCustomer.outstandingAmount || 0)).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
-                        </Text>
-                      </View>
-                    </View>
-                    <Button 
-                      mode="outlined" 
-                      compact 
-                      textColor={colors.danger}
-                      style={styles.changeCustomerBtn}
-                      onPress={() => {
-                        if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                        setCustomerId(null);
-                      }}
-                    >
-                      CHANGE
-                    </Button>
-                  </Card.Content>
-                </Card>
-              )}
-
-              <View style={styles.stepFooter}>
-                <Button
-                  mode="contained"
-                  disabled={!customerId}
-                  onPress={nextStep}
-                  style={[styles.nextBtn, !customerId && styles.submitBtnDisabled]}
-                  labelStyle={styles.submitBtnLabel}
-                  buttonColor={colors.primary}
-                >
-                  NEXT: ADD PRODUCTS
-                </Button>
-              </View>
-            </View>
-          )}
-
-          {/* STEP 2: ADD ITEMS */}
-          {step === 2 && (
-            <View style={styles.stepContent}>
-              <Text style={styles.stepTitle}>Add products to the order</Text>
-
+          {/* PARTY SECTION */}
+          <View style={styles.sectionContainer}>
+            <Text style={styles.sectionTitle}>Party</Text>
+            
+            {!selectedParty ? (
               <View style={styles.searchSectionContainer}>
                 <Searchbar
-                  placeholder="Search items by name or SKU..."
-                  onChangeText={setItemSearch}
-                  value={itemSearch}
+                  placeholder="Search party by name or phone..."
+                  onChangeText={setCustomerSearch}
+                  value={customerSearch}
                   style={styles.searchBar}
                   inputStyle={styles.searchInput}
                   placeholderTextColor={colors.textMuted}
                   iconColor={colors.primary}
                 />
-                {itemSearch ? (
+                
+                {/* Search Dropdown / Recent Parties */}
+                {customerSearch ? (
                   <View style={styles.searchDropdown}>
-                    {filteredItems.map(item => {
-                      const stockNum = Number(item.availableStock || 0);
-                      const inStock = stockNum > 0;
-                      
-                      return (
-                        <List.Item
-                          key={item.id}
-                          title={item.name}
-                          titleStyle={styles.dropdownTitle}
-                          description={`Rate: ₹${item.defaultSellingPrice} • SKU: ${item.sku || "N/A"} • ${inStock ? `Stock: ${stockNum} ${item.unit}` : 'OUT OF STOCK'}`}
-                          descriptionStyle={[
-                            styles.dropdownDesc, 
-                            !inStock && { color: colors.danger, fontWeight: fontWeight.bold }
-                          ]}
-                          onPress={() => handleSelectItem(item)}
-                          right={props => <List.Icon {...props} icon="plus" color={inStock ? colors.primary : colors.textMuted} />}
-                          style={styles.dropdownItem}
-                        />
-                      );
-                    })}
-                    {filteredItems.length === 0 && (
+                    {filteredCustomers.map(c => (
+                      <List.Item
+                        key={c.id}
+                        title={c.name}
+                        titleStyle={styles.dropdownTitle}
+                        description={`${c.phone || "No phone"} • Outstanding: ₹${Math.abs(Number(c.outstandingAmount || 0)).toLocaleString()}`}
+                        descriptionStyle={styles.dropdownDesc}
+                        onPress={() => {
+                          if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+                          setSelectedParty(c);
+                          setCustomerSearch("");
+                        }}
+                        right={props => <List.Icon {...props} icon="account-plus-outline" color={colors.primary} />}
+                        style={styles.dropdownItem}
+                      />
+                    ))}
+                    {filteredCustomers.length === 0 && (
                       <View style={styles.dropdownEmpty}>
-                        <Text style={styles.dropdownEmptyText}>No items found</Text>
+                        <Text style={styles.dropdownEmptyText}>No parties found</Text>
                       </View>
                     )}
                   </View>
-                ) : null}
+                ) : (
+                  recentParties.length > 0 && (
+                    <View style={styles.recentContainer}>
+                      <Text style={styles.recentLabel}>RECENT PARTIES</Text>
+                      {recentParties.map(c => (
+                        <Pressable 
+                          key={c.id}
+                          onPress={() => {
+                            if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+                            setSelectedParty(c);
+                          }}
+                          style={styles.recentPartyRow}
+                        >
+                          <View style={styles.recentPartyInfo}>
+                            <Icon source="account-outline" size={16} color={colors.textSecondary} />
+                            <Text style={styles.recentPartyName}>{c.name}</Text>
+                          </View>
+                          <Text style={styles.recentPartySub}>{c.phone || "No phone"}</Text>
+                        </Pressable>
+                      ))}
+                    </View>
+                  )
+                )}
               </View>
+            ) : (
+              <Card style={styles.selectedCustomerCard}>
+                <Card.Content style={styles.customerCardContent}>
+                  <View style={styles.customerAvatar}>
+                    <Text style={styles.customerAvatarText}>{selectedParty.name[0].toUpperCase()}</Text>
+                  </View>
+                  <View style={styles.customerInfoCol}>
+                    <Text style={styles.customerNameText}>{selectedParty.name}</Text>
+                    <Text style={styles.customerSubText}>{selectedParty.phone || "No phone number"}</Text>
+                    <View style={styles.outstandingBadge}>
+                      <Text style={styles.outstandingBadgeLabel}>OUTSTANDING: </Text>
+                      <Text style={[
+                        styles.outstandingBadgeVal, 
+                        { color: Number(selectedParty.outstandingAmount || 0) > 0 ? colors.danger : colors.success }
+                      ]}>
+                        ₹{Math.abs(Number(selectedParty.outstandingAmount || 0)).toLocaleString("en-IN", { minimumFractionDigits: 2 })}
+                      </Text>
+                    </View>
+                  </View>
+                  <Button 
+                    mode="outlined" 
+                    compact 
+                    textColor={colors.danger}
+                    style={styles.changeCustomerBtn}
+                    onPress={() => {
+                      if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                      setSelectedParty(null);
+                    }}
+                  >
+                    CHANGE
+                  </Button>
+                </Card.Content>
+              </Card>
+            )}
+          </View>
 
-              {/* Quick Add Form Overlay inside Step */}
-              {selectedItemToAdd && (
-                <View style={styles.quickAddForm}>
-                  <View style={styles.quickAddHeader}>
-                    <View style={styles.quickAddIcon}>
-                      <Icon source="package-variant" size={20} color={colors.primary} />
+          {/* PRODUCT ADDITION SECTION (POS pad style) */}
+          <View style={styles.sectionContainer}>
+            <Text style={styles.sectionTitle}>Add Products</Text>
+            <View style={styles.searchSectionContainer}>
+              <Searchbar
+                placeholder="Search item, SKU, or barcode..."
+                onChangeText={setItemSearch}
+                value={itemSearch}
+                style={styles.searchBar}
+                inputStyle={styles.searchInput}
+                placeholderTextColor={colors.textMuted}
+                iconColor={colors.primary}
+              />
+
+              {itemSearch ? (
+                <View style={styles.searchDropdown}>
+                  {filteredItems.map(item => {
+                    const stockNum = Number(item.availableStock || 0);
+                    const inStock = stockNum > 0;
+                    return (
+                      <List.Item
+                        key={item.id}
+                        title={item.name}
+                        titleStyle={styles.dropdownTitle}
+                        description={`Rate: ₹${item.defaultSellingPrice} • SKU: ${item.sku || "N/A"} • ${inStock ? `Stock: ${stockNum} ${item.unit}` : 'OUT OF STOCK'}`}
+                        descriptionStyle={[
+                          styles.dropdownDesc, 
+                          !inStock && { color: colors.danger, fontWeight: fontWeight.bold }
+                        ]}
+                        onPress={() => handleAddItemToCart(item)}
+                        right={props => <List.Icon {...props} icon="plus-circle" color={colors.primary} />}
+                        style={styles.dropdownItem}
+                      />
+                    );
+                  })}
+                  {filteredItems.length === 0 && (
+                    <View style={styles.dropdownEmpty}>
+                      <Text style={styles.dropdownEmptyText}>No products found</Text>
                     </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.quickAddTitle}>{selectedItemToAdd.name}</Text>
-                      <Text style={styles.quickAddSub}>MRP: ₹{selectedItemToAdd.mrp || "N/A"} • Min Price: ₹{selectedItemToAdd.minimumAllowedPrice || "N/A"}</Text>
-                    </View>
-                  </View>
-                  <View style={styles.inputRow}>
-                    <TextInput
-                      mode="outlined"
-                      label={`Qty (${selectedItemToAdd.unit})`}
-                      value={addQuantity}
-                      onChangeText={setAddQuantity}
-                      keyboardType="numeric"
-                      style={[styles.flex1, styles.input]}
-                      outlineStyle={styles.inputOutline}
-                      activeOutlineColor={colors.primary}
-                    />
-                    <TextInput
-                      mode="outlined"
-                      label="Rate (₹)"
-                      value={addRate}
-                      onChangeText={setAddRate}
-                      keyboardType="numeric"
-                      style={[styles.flex1, styles.input]}
-                      outlineStyle={styles.inputOutline}
-                      activeOutlineColor={colors.primary}
-                    />
-                  </View>
-                  <View style={styles.quickAddActions}>
-                    <Button mode="text" textColor={colors.textSecondary} onPress={() => setSelectedItemToAdd(null)}>CANCEL</Button>
-                    <Button 
-                      mode="contained" 
-                      buttonColor={colors.primary} 
-                      onPress={handleAddCartItem}
-                      disabled={!addQuantity || !addRate}
-                    >
-                      ADD TO ORDER
-                    </Button>
-                  </View>
+                  )}
                 </View>
-              )}
-
-              {/* Cart List */}
-              {cart.length > 0 ? (
-                <View style={styles.cartContainer}>
-                  <Text style={styles.cartHeader}>ITEMS IN CART ({cart.length})</Text>
-                  {cart.map((item, idx) => (
-                    <View key={item.id}>
-                      <View style={styles.cartItem}>
-                        <View style={styles.cartItemLeft}>
-                          <Text style={styles.cartItemName}>{item.name}</Text>
-                          <Text style={styles.cartItemSub}>{item.quantity} {item.unit} × ₹{item.rate.toLocaleString("en-IN")}</Text>
+              ) : (
+                recentItems.length > 0 && (
+                  <View style={styles.recentContainer}>
+                    <Text style={styles.recentLabel}>FREQUENT / RECENT ITEMS (TAP TO ADD)</Text>
+                    {recentItems.map(item => (
+                      <Pressable
+                        key={item.id}
+                        onPress={() => handleAddItemToCart(item)}
+                        style={styles.recentItemRow}
+                      >
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.recentItemName} numberOfLines={1}>{item.name}</Text>
+                          <Text style={styles.recentItemSub}>SKU: {item.sku || "N/A"} • Rate: ₹{item.defaultSellingPrice}</Text>
                         </View>
-                        <View style={styles.cartItemRight}>
-                          <Text style={styles.cartItemTotal}>₹{(item.quantity * item.rate).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</Text>
+                        <View style={styles.quickAddIconCircle}>
+                          <Icon source="plus" size={16} color={colors.primary} />
+                        </View>
+                      </Pressable>
+                    ))}
+                  </View>
+                )
+              )}
+            </View>
+          </View>
+
+          {/* CART SECTION */}
+          {cart.length > 0 && (
+            <View style={styles.sectionContainer}>
+              <Text style={styles.sectionTitle}>Cart Items ({cart.length})</Text>
+              <View style={styles.cartContainer}>
+                {cart.map((item, idx) => (
+                  <View key={item.id}>
+                    <View style={styles.cartRow}>
+                      <View style={styles.cartRowLeft}>
+                        <Text style={styles.cartRowName} numberOfLines={1}>{item.name}</Text>
+                        <Text style={styles.cartRowUnit}>Unit: {item.unit}</Text>
+                        
+                        {/* Editable Rate Field */}
+                        <View style={styles.inlineRateInputContainer}>
+                          <Text style={styles.inlineRateSymbol}>Rate: ₹</Text>
+                          <RNTextInput
+                            style={styles.inlineRateInput}
+                            keyboardType="numeric"
+                            value={String(item.rate)}
+                            onChangeText={(text) => handleUpdateRate(item.id, text)}
+                            selectTextOnFocus
+                          />
+                        </View>
+                      </View>
+
+                      <View style={styles.cartRowRight}>
+                        {/* Large Touch Target Stepper */}
+                        <View style={styles.stepperContainer}>
+                          <Pressable
+                            onPress={() => handleUpdateQty(item.id, -1)}
+                            style={({ pressed }) => [styles.stepperBtn, pressed && styles.pressed]}
+                            hitSlop={8}
+                          >
+                            <Icon source="minus" size={16} color={colors.textSecondary} />
+                          </Pressable>
+                          
+                          <Text style={styles.stepperValue}>{item.quantity}</Text>
+                          
+                          <Pressable
+                            onPress={() => handleUpdateQty(item.id, 1)}
+                            style={({ pressed }) => [styles.stepperBtn, pressed && styles.pressed]}
+                            hitSlop={8}
+                          >
+                            <Icon source="plus" size={16} color={colors.textSecondary} />
+                          </Pressable>
+                        </View>
+                        
+                        <View style={styles.cartRowTotalCol}>
+                          <Text style={styles.cartRowTotal}>₹{(item.quantity * item.rate).toLocaleString("en-IN", { minimumFractionDigits: 2 })}</Text>
                           <Pressable 
                             onPress={() => handleRemoveCartItem(item.id)}
-                            style={({ pressed }) => [styles.cartDeleteBtn, pressed && styles.pressed]}
+                            style={styles.cartRowDelete}
+                            hitSlop={12}
                           >
-                            <Icon source="close" size={16} color={colors.danger} />
+                            <Text style={styles.cartRowDeleteText}>Delete</Text>
                           </Pressable>
                         </View>
                       </View>
-                      {idx < cart.length - 1 && <Divider style={styles.cartDivider} />}
                     </View>
-                  ))}
-                  <View style={styles.totalRow}>
-                    <Text style={styles.totalLabel}>ORDER TOTAL</Text>
-                    <Text style={styles.totalValue}>₹{subtotal.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</Text>
+                    {idx < cart.length - 1 && <Divider style={styles.cartDivider} />}
                   </View>
-                </View>
-              ) : (
-                <View style={styles.emptyCartPlaceholder}>
-                  <Icon source="cart-outline" size={48} color={colors.textMuted} />
-                  <Text style={styles.emptyCartText}>Your cart is empty.</Text>
-                  <Text style={styles.emptyCartSub}>Search and select products above to add them to this order.</Text>
-                </View>
-              )}
-
-              <View style={styles.rowButtons}>
-                <Button mode="outlined" onPress={prevStep} style={styles.flex1} labelStyle={styles.btnLabel}>
-                  BACK
-                </Button>
-                <Button
-                  mode="contained"
-                  disabled={cart.length === 0}
-                  onPress={nextStep}
-                  style={[styles.flex1, styles.nextBtn, cart.length === 0 && styles.submitBtnDisabled]}
-                  labelStyle={styles.submitBtnLabel}
-                  buttonColor={colors.primary}
-                >
-                  NEXT: DETAILS
-                </Button>
+                ))}
               </View>
             </View>
           )}
 
-          {/* STEP 3: FULFILLMENT & REVIEW */}
-          {step === 3 && (
-            <View style={styles.stepContent}>
-              <Text style={styles.stepTitle}>Fulfillment & final review</Text>
+          {/* ADVANCED DETAILS (Progressive Disclosure) */}
+          <View style={styles.sectionContainer}>
+            <Pressable 
+              onPress={() => {
+                if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                setShowAdvanced(prev => !prev);
+              }}
+              style={styles.advancedHeaderCard}
+            >
+              <View style={styles.advancedHeaderLeft}>
+                <Icon source="cog-outline" size={18} color={colors.primary} />
+                <Text style={styles.advancedHeaderTitle}>Advanced Details (Optional)</Text>
+              </View>
+              <Icon source={showAdvanced ? "chevron-up" : "chevron-down"} size={20} color={colors.textMuted} />
+            </Pressable>
 
-              <View style={styles.settingsCard}>
-                <Text style={styles.fieldLabel}>ASSIGN TO STAFF (OPTIONAL)</Text>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.staffScroll}>
-                  <Pressable
-                    onPress={() => handleStaffSelect(null)}
-                    style={[styles.staffPill, assignedStaffId === null && styles.staffPillActive]}
-                  >
-                    <Text style={[styles.staffPillText, assignedStaffId === null && styles.staffPillTextActive]}>Any Staff</Text>
-                  </Pressable>
-                  {staffQuery.data?.map(s => (
+            {showAdvanced && (
+              <Card style={styles.advancedSettingsCard}>
+                <Card.Content style={styles.advancedContent}>
+                  {/* Staff Select */}
+                  <Text style={styles.fieldLabel}>ASSIGN STAFF</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.staffScroll}>
                     <Pressable
-                      key={s.id}
-                      onPress={() => handleStaffSelect(s.id)}
-                      style={[styles.staffPill, assignedStaffId === s.id && styles.staffPillActive]}
+                      onPress={() => handleStaffSelect(null)}
+                      style={[styles.staffPill, assignedStaffId === null && styles.staffPillActive]}
                     >
-                      <Text style={[styles.staffPillText, assignedStaffId === s.id && styles.staffPillTextActive]}>{s.name.split(' ')[0]}</Text>
+                      <Text style={[styles.staffPillText, assignedStaffId === null && styles.staffPillTextActive]}>Any Staff</Text>
                     </Pressable>
-                  ))}
-                </ScrollView>
+                    {staffQuery.data?.map(s => (
+                      <Pressable
+                        key={s.id}
+                        onPress={() => handleStaffSelect(s.id)}
+                        style={[styles.staffPill, assignedStaffId === s.id && styles.staffPillActive]}
+                      >
+                        <Text style={[styles.staffPillText, assignedStaffId === s.id && styles.staffPillTextActive]}>{s.name.split(' ')[0]}</Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
 
-                <Text style={[styles.fieldLabel, { marginTop: spacing.lg }]}>ORDER PRIORITY</Text>
-                <SegmentedButtons
-                  value={priority}
-                  onValueChange={handlePriorityChange}
-                  buttons={priorities}
-                  style={styles.priorityBtns}
-                  theme={{ colors: { primary: colors.primary } }}
-                />
+                  {/* Priority */}
+                  <Text style={[styles.fieldLabel, { marginTop: spacing.md }]}>PRIORITY</Text>
+                  <SegmentedButtons
+                    value={priority}
+                    onValueChange={handlePriorityChange}
+                    buttons={priorities}
+                    style={styles.priorityBtns}
+                    theme={{ colors: { primary: colors.primary } }}
+                  />
 
-                <Text style={[styles.fieldLabel, { marginTop: spacing.lg }]}>EXPECTED DISPATCH</Text>
-                <View style={styles.dispatchRow}>
-                  {[1, 2, 3, 5, 7].map(days => (
-                    <Pressable
-                      key={days}
-                      onPress={() => handleOffsetSelect(days)}
-                      style={[styles.dayPill, expectedOffsetDays === days && styles.dayPillActive]}
-                    >
-                      <Text style={[styles.dayPillText, expectedOffsetDays === days && styles.dayPillTextActive]}>{days} Day{days > 1 ? 's' : ''}</Text>
-                    </Pressable>
-                  ))}
-                </View>
+                  {/* Offset days */}
+                  <Text style={[styles.fieldLabel, { marginTop: spacing.md }]}>EXPECTED DISPATCH</Text>
+                  <View style={styles.dispatchRow}>
+                    {[1, 2, 3, 5, 7].map(days => (
+                      <Pressable
+                        key={days}
+                        onPress={() => handleOffsetSelect(days)}
+                        style={[styles.dayPill, expectedOffsetDays === days && styles.dayPillActive]}
+                      >
+                        <Text style={[styles.dayPillText, expectedOffsetDays === days && styles.dayPillTextActive]}>{days} Day{days > 1 ? 's' : ''}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                  <Text style={styles.dispatchHelperText}>Dispatch: <Text style={{ fontWeight: 'bold' }}>{dispatchDateText}</Text></Text>
 
-                <TextInput
-                  mode="outlined"
-                  label="Fulfillment Notes"
-                  placeholder="Packaging instructions or delivery notes..."
-                  value={notes}
-                  onChangeText={setNotes}
-                  multiline
-                  numberOfLines={3}
-                  style={[styles.notesTextInput, { marginTop: spacing.lg }]}
-                  outlineStyle={styles.inputOutline}
-                  activeOutlineColor={colors.primary}
-                />
-              </View>
-
-              {/* Review summary cards */}
-              <View style={styles.reviewSummaryCard}>
-                <Text style={styles.reviewHeader}>ORDER SUMMARY</Text>
-                
-                <View style={styles.reviewRow}>
-                  <Text style={styles.reviewLabel}>Customer</Text>
-                  <Text style={styles.reviewValue}>{selectedCustomer?.name}</Text>
-                </View>
-                
-                <View style={styles.reviewRow}>
-                  <Text style={styles.reviewLabel}>Items</Text>
-                  <Text style={styles.reviewValue}>{cart.length} unique items</Text>
-                </View>
-
-                <View style={styles.reviewRow}>
-                  <Text style={styles.reviewLabel}>Expected Dispatch</Text>
-                  <Text style={styles.reviewValue}>{expectedOffsetDays} Day{expectedOffsetDays > 1 ? 's' : ''} (tomorrow)</Text>
-                </View>
-
-                <View style={styles.reviewRow}>
-                  <Text style={styles.reviewLabel}>Priority</Text>
-                  <Text style={[
-                    styles.reviewValue, 
-                    { fontWeight: 'bold', color: priority === 'URGENT' || priority === 'HIGH' ? colors.danger : colors.textPrimary }
-                  ]}>{priority}</Text>
-                </View>
-
-                <Divider style={{ marginVertical: spacing.md }} />
-                
-                <View style={styles.reviewTotalRow}>
-                  <Text style={styles.reviewTotalLabel}>TOTAL AMOUNT DUE</Text>
-                  <Text style={styles.reviewTotalValue}>₹{subtotal.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</Text>
-                </View>
-              </View>
-
-              {errorMsg && (
-                <View style={styles.errorBox}>
-                  <Icon source="alert-circle" size={18} color={colors.danger} />
-                  <Text style={styles.errorText}>{errorMsg}</Text>
-                </View>
-              )}
-
-              <View style={styles.rowButtons}>
-                <Button mode="outlined" onPress={prevStep} style={styles.flex1} labelStyle={styles.btnLabel}>
-                  BACK
-                </Button>
-                <Button
-                  mode="contained"
-                  onPress={() => orderMutation.mutate()}
-                  loading={orderMutation.isPending}
-                  disabled={!customerId || cart.length === 0 || orderMutation.isPending}
-                  style={[styles.flex1, styles.submitBtn]}
-                  labelStyle={styles.submitBtnLabel}
-                  buttonColor={colors.primary}
-                >
-                  PLACE ORDER
-                </Button>
-              </View>
-            </View>
-          )}
+                  {/* Notes */}
+                  <TextInput
+                    mode="outlined"
+                    label="Fulfillment Notes"
+                    placeholder="Packaging instructions or delivery notes..."
+                    value={notes}
+                    onChangeText={setNotes}
+                    multiline
+                    numberOfLines={3}
+                    style={styles.notesTextInput}
+                    outlineStyle={styles.inputOutline}
+                    activeOutlineColor={colors.primary}
+                  />
+                </Card.Content>
+              </Card>
+            )}
+          </View>
         </ScrollView>
+
+        {/* STICKY FOOTER */}
+        <View style={styles.footer}>
+          <View style={styles.footerTopRow}>
+            <View>
+              <Text style={styles.footerTotalLabel}>ORDER TOTAL</Text>
+              <Text style={styles.footerTotalVal}>₹{subtotal.toLocaleString("en-IN", { minimumFractionDigits: 2 })}</Text>
+            </View>
+            {validationMessage && (
+              <View style={styles.validationContainer}>
+                <Text style={styles.validationText}>{validationMessage}</Text>
+              </View>
+            )}
+          </View>
+
+          {errorMsg && (
+            <Text style={styles.inlineError}>{errorMsg}</Text>
+          )}
+
+          <Button
+            mode="contained"
+            onPress={() => orderMutation.mutate()}
+            loading={orderMutation.isPending}
+            disabled={!selectedParty || cart.length === 0 || orderMutation.isPending}
+            style={[styles.submitBtn, (!selectedParty || cart.length === 0) && styles.submitBtnDisabled]}
+            labelStyle={styles.submitBtnLabel}
+            buttonColor={colors.primary}
+          >
+            PLACE ORDER
+          </Button>
+        </View>
       </KeyboardAvoidingView>
 
       <SuccessModal
         visible={successVisible}
         title="Order Created"
-        message={`Order for ${selectedCustomer?.name} has been placed successfully.`}
+        message={`Order for ${lastPlacedPartyName} has been placed successfully.`}
         onClose={() => {
           setSuccessVisible(false);
           goBack();
@@ -716,83 +693,21 @@ export function CreateOrder() {
 }
 
 const styles = StyleSheet.create({
-  stepIndicatorContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.md,
-    backgroundColor: colors.surfaceOffset,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  stepWrapper: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: 60,
-  },
-  stepCircle: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    borderWidth: 2,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 4,
-  },
-  stepCircleActive: {
-    borderColor: colors.primary,
-    backgroundColor: colors.surface,
-  },
-  stepCircleCompleted: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primary,
-  },
-  stepCircleInactive: {
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceOffset,
-  },
-  stepNumber: {
-    fontSize: 12,
-    fontWeight: fontWeight.bold,
-    color: colors.textMuted,
-  },
-  stepNumberActive: {
-    color: colors.primary,
-  },
-  stepLabel: {
-    fontSize: 10,
-    fontWeight: fontWeight.bold,
-    color: colors.textMuted,
-    textAlign: 'center',
-  },
-  stepLabelActive: {
-    color: colors.primary,
-  },
-  stepLine: {
-    flex: 1,
-    height: 2,
-    marginHorizontal: spacing.xs,
-    marginBottom: 14,
-  },
-  stepLineCompleted: {
-    backgroundColor: colors.primary,
-  },
-  stepLineInactive: {
-    backgroundColor: colors.border,
-  },
   scrollContainer: {
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
-    paddingBottom: 100,
+    paddingBottom: 160, // Ensure space for sticky footer
   },
-  stepContent: {
-    gap: spacing.lg,
+  sectionContainer: {
+    marginBottom: spacing.lg,
   },
-  stepTitle: {
-    fontSize: 16,
+  sectionTitle: {
+    fontSize: 14,
     fontWeight: fontWeight.black,
     color: colors.textPrimary,
+    marginBottom: spacing.xs,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
   },
   searchSectionContainer: {
     zIndex: 10,
@@ -816,6 +731,7 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     ...shadow.md,
     maxHeight: 250,
+    zIndex: 100,
   },
   dropdownItem: {
     paddingVertical: 4,
@@ -829,6 +745,7 @@ const styles = StyleSheet.create({
   dropdownDesc: {
     fontSize: 11,
     marginTop: 2,
+    color: colors.textSecondary,
   },
   dropdownEmpty: {
     padding: spacing.md,
@@ -837,6 +754,69 @@ const styles = StyleSheet.create({
   dropdownEmptyText: {
     fontSize: 12,
     color: colors.textMuted,
+  },
+  recentContainer: {
+    backgroundColor: colors.surfaceOffset,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginTop: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  recentLabel: {
+    fontSize: 9,
+    fontWeight: fontWeight.bold,
+    color: colors.textMuted,
+    letterSpacing: 0.5,
+    marginBottom: spacing.sm,
+  },
+  recentPartyRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  recentPartyInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  recentPartyName: {
+    fontSize: 13,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  recentPartySub: {
+    fontSize: 11,
+    color: colors.textSecondary,
+  },
+  recentItemRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  recentItemName: {
+    fontSize: 13,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  recentItemSub: {
+    fontSize: 11,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  quickAddIconCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: colors.primaryLight,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   selectedCustomerCard: {
     backgroundColor: colors.surface,
@@ -878,11 +858,6 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     marginTop: 2,
   },
-  customerGstinText: {
-    fontSize: 11,
-    color: colors.textMuted,
-    marginTop: 1,
-  },
   outstandingBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -908,174 +883,155 @@ const styles = StyleSheet.create({
     borderColor: colors.danger,
     borderRadius: radius.md,
   },
-  quickAddForm: {
-    backgroundColor: colors.surfaceOffset,
-    padding: spacing.lg,
+  cartContainer: {
+    backgroundColor: colors.surface,
     borderRadius: 16,
-    gap: spacing.md,
     borderWidth: 1,
     borderColor: colors.border,
+    padding: spacing.md,
+    ...shadow.sm,
   },
-  quickAddHeader: {
+  cartRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    paddingVertical: spacing.sm,
+  },
+  cartRowLeft: {
+    flex: 1,
+    paddingRight: spacing.sm,
+  },
+  cartRowName: {
+    fontSize: 13,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  cartRowUnit: {
+    fontSize: 11,
+    color: colors.textMuted,
+    marginTop: 1,
+  },
+  inlineRateInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    backgroundColor: colors.surfaceOffset,
+    borderRadius: radius.sm,
+    paddingHorizontal: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignSelf: 'flex-start',
+    height: 28,
+  },
+  inlineRateSymbol: {
+    fontSize: 11,
+    color: colors.textSecondary,
+  },
+  inlineRateInput: {
+    fontSize: 11,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+    minWidth: 50,
+    height: '100%',
+    padding: 0,
+    marginLeft: 2,
+  },
+  cartRowRight: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.md,
   },
-  quickAddIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: colors.primaryLight,
+  stepperContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surfaceOffset,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    height: 44, // Large touch target height
+    overflow: 'hidden',
+  },
+  stepperBtn: {
+    width: 44, // Large touch target width
+    height: '100%',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  quickAddTitle: {
-    fontSize: fontSize.md,
+  stepperValue: {
+    fontSize: 14,
     fontWeight: fontWeight.bold,
     color: colors.textPrimary,
+    minWidth: 24,
+    textAlign: 'center',
+    fontVariant: ['tabular-nums'],
   },
-  quickAddSub: {
-    fontSize: 11,
-    color: colors.textSecondary,
-    marginTop: 2,
+  cartRowTotalCol: {
+    alignItems: 'flex-end',
+    minWidth: 80,
   },
-  inputRow: {
-    flexDirection: 'row',
-    gap: spacing.md,
-  },
-  input: {
-    backgroundColor: colors.surface,
-  },
-  inputOutline: {
-    borderRadius: radius.md,
-  },
-  quickAddActions: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    gap: spacing.md,
-    alignItems: 'center',
-  },
-  cartContainer: {
-    backgroundColor: colors.surface,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.lg,
-    ...shadow.sm,
-  },
-  cartHeader: {
-    fontSize: 10,
-    fontWeight: fontWeight.bold,
-    color: colors.textMuted,
-    letterSpacing: 1,
-    marginBottom: spacing.md,
-  },
-  cartItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: spacing.sm,
-  },
-  cartItemLeft: {
-    flex: 1,
-  },
-  cartItemName: {
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.bold,
-    color: colors.textPrimary,
-  },
-  cartItemSub: {
-    fontSize: 11,
-    color: colors.textSecondary,
-    marginTop: 2,
-  },
-  cartItemRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  cartItemTotal: {
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.bold,
+  cartRowTotal: {
+    fontSize: 13,
+    fontWeight: fontWeight.black,
     color: colors.textPrimary,
     fontVariant: ['tabular-nums'],
   },
-  cartDeleteBtn: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: 'rgba(220, 38, 38, 0.08)',
-    alignItems: 'center',
-    justifyContent: 'center',
+  cartRowDelete: {
+    marginTop: 4,
+  },
+  cartRowDeleteText: {
+    fontSize: 11,
+    color: colors.danger,
+    fontWeight: fontWeight.bold,
   },
   cartDivider: {
     backgroundColor: colors.surfaceOffset,
     marginVertical: 4,
   },
-  totalRow: {
+  advancedHeaderCard: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: spacing.md,
-    paddingTop: spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  totalLabel: {
-    fontSize: 10,
-    fontWeight: fontWeight.black,
-    color: colors.textMuted,
-    letterSpacing: 0.5,
-  },
-  totalValue: {
-    fontSize: fontSize.lg,
-    fontWeight: fontWeight.black,
-    color: colors.primary,
-    fontVariant: ['tabular-nums'],
-  },
-  emptyCartPlaceholder: {
-    paddingVertical: spacing.xl,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 2,
-    borderStyle: 'dashed',
-    borderColor: colors.border,
-    borderRadius: 20,
     backgroundColor: colors.surfaceOffset,
-  },
-  emptyCartText: {
-    fontSize: 14,
-    fontWeight: fontWeight.bold,
-    color: colors.textSecondary,
-    marginTop: spacing.sm,
-  },
-  emptyCartSub: {
-    fontSize: 11,
-    color: colors.textMuted,
-    textAlign: 'center',
-    paddingHorizontal: spacing.xl,
-    marginTop: 4,
-  },
-  settingsCard: {
-    backgroundColor: colors.surface,
-    borderRadius: 20,
+    padding: spacing.md,
+    borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.border,
-    padding: spacing.lg,
+  },
+  advancedHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  advancedHeaderTitle: {
+    fontSize: 13,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  advancedSettingsCard: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 16,
+    marginTop: spacing.sm,
+    ...shadow.sm,
+    elevation: 0,
+  },
+  advancedContent: {
+    gap: spacing.sm,
   },
   fieldLabel: {
     fontSize: 10,
     fontWeight: fontWeight.bold,
     color: colors.textMuted,
     letterSpacing: 0.5,
-    marginBottom: spacing.sm,
+    marginBottom: spacing.xs,
   },
   staffScroll: {
     paddingVertical: spacing.xs,
   },
   staffPill: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
     borderRadius: radius.md,
     backgroundColor: colors.surfaceOffset,
     marginRight: spacing.sm,
@@ -1087,7 +1043,7 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
   },
   staffPillText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: fontWeight.bold,
     color: colors.textSecondary,
   },
@@ -1100,7 +1056,7 @@ const styles = StyleSheet.create({
   },
   dayPill: {
     flex: 1,
-    height: 38,
+    height: 34,
     borderRadius: radius.md,
     backgroundColor: colors.surfaceOffset,
     alignItems: 'center',
@@ -1113,113 +1069,91 @@ const styles = StyleSheet.create({
     borderColor: colors.primary,
   },
   dayPillText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: fontWeight.bold,
     color: colors.textSecondary,
   },
   dayPillTextActive: {
     color: 'white',
   },
+  dispatchHelperText: {
+    fontSize: 11,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
   priorityBtns: {
-    height: 40,
+    height: 36,
   },
   notesTextInput: {
     backgroundColor: colors.surface,
-  },
-  reviewSummaryCard: {
-    backgroundColor: colors.surface,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: colors.primary,
-    padding: spacing.lg,
-    ...shadow.sm,
-  },
-  reviewHeader: {
-    fontSize: 11,
-    fontWeight: fontWeight.black,
-    color: colors.primary,
-    letterSpacing: 1,
-    marginBottom: spacing.md,
-  },
-  reviewRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 4,
-  },
-  reviewLabel: {
-    fontSize: 12,
-    color: colors.textSecondary,
-  },
-  reviewValue: {
-    fontSize: 12,
-    fontWeight: fontWeight.bold,
-    color: colors.textPrimary,
-  },
-  reviewTotalRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
     marginTop: spacing.xs,
   },
-  reviewTotalLabel: {
-    fontSize: 11,
-    fontWeight: fontWeight.black,
-    color: colors.textSecondary,
+  inputOutline: {
+    borderRadius: radius.md,
   },
-  reviewTotalValue: {
-    fontSize: fontSize.md,
+  footer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: colors.surface,
+    padding: spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    ...shadow.md,
+  },
+  footerTopRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: spacing.sm,
+  },
+  footerTotalLabel: {
+    fontSize: 9,
+    fontWeight: fontWeight.black,
+    color: colors.textMuted,
+    letterSpacing: 0.5,
+  },
+  footerTotalVal: {
+    fontSize: 16,
     fontWeight: fontWeight.black,
     color: colors.primary,
+    fontVariant: ['tabular-nums'],
   },
-  errorBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: spacing.md,
-    backgroundColor: colors.dangerLight,
-    borderRadius: radius.md,
-    gap: spacing.sm,
+  validationContainer: {
+    flex: 1,
+    marginLeft: spacing.md,
+    alignItems: 'flex-end',
   },
-  errorText: {
+  validationText: {
+    fontSize: 11,
+    color: colors.danger,
+    fontWeight: fontWeight.bold,
+    textAlign: 'right',
+  },
+  inlineError: {
     color: colors.danger,
     fontSize: 12,
-    fontWeight: fontWeight.bold,
-    flex: 1,
-  },
-  stepFooter: {
-    marginTop: spacing.md,
-  },
-  rowButtons: {
-    flexDirection: 'row',
-    gap: spacing.md,
-    marginTop: spacing.md,
-  },
-  nextBtn: {
-    borderRadius: radius.lg,
-    paddingVertical: 6,
-    elevation: 0,
+    fontWeight: 'bold',
+    marginBottom: spacing.xs,
   },
   submitBtn: {
     borderRadius: radius.lg,
-    paddingVertical: 6,
+    paddingVertical: 4,
     elevation: 0,
   },
   submitBtnDisabled: {
     backgroundColor: colors.border,
-    opacity: 0.6,
+    opacity: 0.5,
   },
   submitBtnLabel: {
     fontWeight: fontWeight.bold,
     fontSize: fontSize.md,
   },
-  btnLabel: {
-    fontWeight: fontWeight.bold,
-    fontSize: fontSize.md,
+  pressed: {
+    opacity: 0.5,
   },
   flex1: {
     flex: 1,
-  },
-  pressed: {
-    opacity: 0.5,
   },
 });
