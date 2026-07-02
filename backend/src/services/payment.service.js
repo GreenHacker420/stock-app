@@ -38,7 +38,13 @@ export async function listPayments(user, { shopId, customerId, paymentMode, stat
         orderId: null
       } : {})
     },
-    include: { details: true, customer: true, receivedBy: { select: { id: true, name: true } } },
+    include: {
+      details: true,
+      customer: true,
+      receivedBy: { select: { id: true, name: true } },
+      sale: { select: { id: true, saleNumber: true } },
+      order: { select: { id: true, orderNumber: true } }
+    },
     orderBy: { receivedAt: "desc" },
     skip,
     take,
