@@ -36,6 +36,7 @@ stock/.env*.local
 
 # Firebase / Google Services (contains API keys)
 google-services.json
+google-services__.json
 GoogleService-Info.plist
 
 # EAS / Expo signing credentials
