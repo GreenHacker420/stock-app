@@ -71,4 +71,18 @@ router.get("/movements", requirePermission(PERMISSIONS.STOCK_VIEW), validate(que
 router.post("/movements", requirePermission(PERMISSIONS.STOCK_CREATE_MOVEMENT), validate(movementSchema), stockController.createMovement);
 router.post("/entry", requirePermission(PERMISSIONS.STOCK_CREATE_MOVEMENT), validate(entrySchema), stockController.bulkStockEntry);
 
+const transferStockSchema = z.object({
+  body: z.object({
+    sourceShopId: z.string().min(1),
+    targetShopId: z.string().min(1),
+    itemId: z.string().min(1),
+    quantity: z.coerce.number().positive(),
+    reason: z.string().optional(),
+  }),
+  params: z.object({}).optional(),
+  query: z.object({}).optional(),
+});
+
+router.post("/transfer", requirePermission(PERMISSIONS.STOCK_CREATE_MOVEMENT), validate(transferStockSchema), stockController.transferStock);
+
 export default router;

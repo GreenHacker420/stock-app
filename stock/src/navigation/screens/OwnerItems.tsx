@@ -9,8 +9,9 @@ import {
   TouchableWithoutFeedback,
   KeyboardAvoidingView,
   Platform,
+  Alert,
 } from "react-native";
-import { Text, Divider, Icon, TextInput } from "react-native-paper";
+import { Text, Divider, Icon, TextInput, Portal, Dialog, ActivityIndicator } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
 import { useQuery } from "@tanstack/react-query";
@@ -46,6 +47,7 @@ import { EmptyState } from "../../components/ui/EmptyState";
 import { Button } from "../../components/ui/Button";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { navigate, goBack } from "../navigation-ref";
+import { useShopsQuery, useTransferStockMutation } from "../../hooks/useShops";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
@@ -539,9 +541,68 @@ export function ItemDetail() {
   const priceChangeHistoryQuery = useItemPriceChangeHistoryQuery(itemId);
   const movementsQuery = useStockMovementsQuery(itemId);
 
+  const shopsQuery = useShopsQuery();
+  const transferMutation = useTransferStockMutation();
+
+  const [transferModalVisible, setTransferModalVisible] = useState(false);
+  const [targetShopId, setTargetShopId] = useState("");
+  const [transferQty, setTransferQty] = useState("");
+  const [transferReason, setTransferReason] = useState("");
+
   const itemData = (stockQuery.data as any)?.item;
   const stock = (stockQuery.data as any)?.currentStock ?? 0;
   const minStock = Number(itemData?.minimumStock ?? 0);
+
+  const otherShops = useMemo(() => {
+    return (shopsQuery.data ?? []).filter((s: any) => s.id !== itemData?.shopId);
+  }, [shopsQuery.data, itemData?.shopId]);
+
+  const handleOpenTransfer = () => {
+    setTargetShopId("");
+    setTransferQty("");
+    setTransferReason("");
+    setTransferModalVisible(true);
+  };
+
+  const handleConfirmTransfer = () => {
+    if (!targetShopId) {
+      Alert.alert("Error", "Please select a target shop.");
+      return;
+    }
+    const qtyNum = Number(transferQty);
+    if (isNaN(qtyNum) || qtyNum <= 0) {
+      Alert.alert("Error", "Please enter a valid positive quantity.");
+      return;
+    }
+    if (qtyNum > stock) {
+      Alert.alert("Warning", "Transfer quantity exceeds current physical stock. Proceed anyway?", [
+        { text: "Cancel", style: "cancel" },
+        { text: "Proceed", onPress: () => executeTransfer(qtyNum) }
+      ]);
+    } else {
+      executeTransfer(qtyNum);
+    }
+  };
+
+  const executeTransfer = (qtyNum: number) => {
+    setTransferModalVisible(false);
+    transferMutation.mutate({
+      sourceShopId: itemData.shopId,
+      targetShopId,
+      itemId,
+      quantity: qtyNum,
+      reason: transferReason,
+    }, {
+      onSuccess: () => {
+        Alert.alert("Success", "Stock transferred successfully.");
+        stockQuery.refetch();
+        movementsQuery.refetch();
+      },
+      onError: (err: any) => {
+        Alert.alert("Error", err?.message || "Failed to transfer stock.");
+      }
+    });
+  };
 
   const tabs = [
     { id: "overview", label: "Overview", icon: "information-outline" },
@@ -698,12 +759,89 @@ export function ItemDetail() {
             style={{ flex: 1 }}
           />
           <Button
+            label="Transfer Stock"
+            variant="secondary"
+            onPress={handleOpenTransfer}
+            style={{ flex: 1 }}
+          />
+          <Button
             label="Stock Entry"
             onPress={() => navigate("StockEntry", { itemId })}
             style={{ flex: 1 }}
           />
         </View>
       </ScrollView>
+
+      {/* Stock Transfer Dialog */}
+      <Portal>
+        <Dialog visible={transferModalVisible} onDismiss={() => setTransferModalVisible(false)} style={{ borderRadius: radius.lg, backgroundColor: colors.surface }}>
+          <Dialog.Title style={{ fontWeight: fontWeight.bold }}>Inter-Shop Stock Transfer</Dialog.Title>
+          <Dialog.Content style={{ gap: spacing.md }}>
+            <Text style={{ fontSize: fontSize.xs, color: colors.textSecondary, marginBottom: 4 }}>
+              Select target shop for transfer:
+            </Text>
+            
+            <View style={{ maxHeight: 150 }}>
+              <ScrollView nestedScrollEnabled={true}>
+                {otherShops.map((shop: any) => (
+                  <Pressable
+                    key={shop.id}
+                    onPress={() => setTargetShopId(shop.id)}
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      paddingVertical: spacing.sm,
+                      paddingHorizontal: spacing.md,
+                      borderRadius: radius.md,
+                      backgroundColor: targetShopId === shop.id ? colors.primaryLight : colors.surfaceOffset,
+                      borderWidth: 1,
+                      borderColor: targetShopId === shop.id ? colors.primary : colors.border,
+                      marginBottom: 6,
+                    }}
+                  >
+                    <Text style={{
+                      fontWeight: targetShopId === shop.id ? "bold" : "normal",
+                      color: targetShopId === shop.id ? colors.primaryDark : colors.textPrimary,
+                      fontSize: fontSize.sm,
+                    }}>
+                      {shop.name} ({shop.city})
+                    </Text>
+                    {targetShopId === shop.id && <Icon source="check" size={16} color={colors.primary} />}
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
+
+            <TextInput
+              mode="outlined"
+              label={`Quantity (${itemData.unit})`}
+              placeholder="e.g. 10"
+              keyboardType="numeric"
+              value={transferQty}
+              onChangeText={setTransferQty}
+              outlineStyle={{ borderRadius: radius.md }}
+              activeOutlineColor={colors.primary}
+              style={{ backgroundColor: colors.surface }}
+            />
+
+            <TextInput
+              mode="outlined"
+              label="Optional Note / Reason"
+              placeholder="e.g. Stock replenishment"
+              value={transferReason}
+              onChangeText={setTransferReason}
+              outlineStyle={{ borderRadius: radius.md }}
+              activeOutlineColor={colors.primary}
+              style={{ backgroundColor: colors.surface }}
+            />
+          </Dialog.Content>
+          <Dialog.Actions style={{ gap: spacing.sm }}>
+            <Button label="Cancel" variant="secondary" onPress={() => setTransferModalVisible(false)} />
+            <Button label="Transfer" onPress={handleConfirmTransfer} loading={transferMutation.isPending} />
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
     </Screen>
   );
 }

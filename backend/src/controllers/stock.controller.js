@@ -27,13 +27,26 @@ export const createMovement = asyncHandler(async (req, res) => {
 
 export const bulkStockEntry = asyncHandler(async (req, res) => {
   const result = await runIdempotentCreate(
+     req,
+     {
+       endpoint: "POST /stock/entry",
+       resourceType: "STOCK_ENTRY",
+       shopId: req.validated.body.shopId,
+     },
+     () => stockService.bulkStockEntry(req.user, req.validated.body),
+  );
+  res.status(result.statusCode).json({ success: true, data: result.data });
+});
+
+export const transferStock = asyncHandler(async (req, res) => {
+  const result = await runIdempotentCreate(
     req,
     {
-      endpoint: "POST /stock/entry",
-      resourceType: "STOCK_ENTRY",
-      shopId: req.validated.body.shopId,
+      endpoint: "POST /stock/transfer",
+      resourceType: "STOCK_TRANSFER",
+      shopId: req.validated.body.sourceShopId,
     },
-    () => stockService.bulkStockEntry(req.user, req.validated.body),
+    () => stockService.transferStock(req.user, req.validated.body),
   );
   res.status(result.statusCode).json({ success: true, data: result.data });
 });

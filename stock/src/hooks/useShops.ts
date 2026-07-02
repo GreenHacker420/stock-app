@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "../auth/auth-store";
 import { queryKeys } from "./query-keys";
-import { fetchShops, createShop, updateShop, assignStaffToShop, unassignStaffFromShop, setOpeningStock, fetchStaff, createDmFromOrder } from "../api/client";
+import { fetchShops, createShop, updateShop, assignStaffToShop, unassignStaffFromShop, setOpeningStock, fetchStaff, createDmFromOrder, transferStock } from "../api/client";
 import { newIdempotencyKey } from "../utils/idempotency";
 
 export function useShopsQuery() {
@@ -95,6 +95,24 @@ export function useSetOpeningStockMutation() {
       queryClient.invalidateQueries({ queryKey: queryKeys.items(variables.shopId) });
       queryClient.invalidateQueries({ queryKey: queryKeys.currentStock(variables.shopId) });
       queryClient.invalidateQueries({ queryKey: ["item-stock"] });
+    },
+  });
+}
+
+export function useTransferStockMutation() {
+  const token = useAuthStore((state) => state.token);
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { sourceShopId: string; targetShopId: string; itemId: string; quantity: number; reason?: string }) =>
+      transferStock(token ?? "", data),
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.shops() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.items(variables.sourceShopId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.items(variables.targetShopId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.currentStock(variables.sourceShopId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.currentStock(variables.targetShopId) });
+      queryClient.invalidateQueries({ queryKey: ["item-stock", variables.itemId] });
+      queryClient.invalidateQueries({ queryKey: ["stock-movements", variables.itemId] });
     },
   });
 }

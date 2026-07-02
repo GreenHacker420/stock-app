@@ -1175,3 +1175,11 @@ export async function respondToLeave(token: string, leaveId: string, status: "AP
     body: JSON.stringify({ status }),
   });
 }
+
+export async function transferStock(token: string, data: { sourceShopId: string; targetShopId: string; itemId: string; quantity: number; reason?: string }) {
+  return apiRequest<any>("/stock/transfer", {
+    method: "POST",
+    token,
+    body: JSON.stringify(data),
+  });
+}

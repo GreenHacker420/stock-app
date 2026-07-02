@@ -411,3 +411,124 @@ export async function checkAndLockAvailableStock(tx, shopId, items, { excludeOrd
 }
 
 export const checkAndLockStockForWalkin = checkAndLockAvailableStock;
+
+export async function transferStock(user, { sourceShopId, targetShopId, itemId, quantity, reason }) {
+  // Validate shop accesses
+  await assertShopAccess(user, sourceShopId);
+  await assertShopAccess(user, targetShopId);
+
+  if (sourceShopId === targetShopId) {
+    throw new ApiError(400, "Source and target shops must be different");
+  }
+
+  // Find source item
+  const sourceItem = await prisma.item.findUnique({
+    where: { id: itemId }
+  });
+
+  if (!sourceItem || sourceItem.shopId !== sourceShopId) {
+    throw new ApiError(400, "Source item not found in the source shop");
+  }
+
+  if (sourceItem.status !== "ACTIVE") {
+    throw new ApiError(400, "Source item is inactive");
+  }
+
+  if (!sourceItem.sku) {
+    throw new ApiError(400, "Cannot transfer item without an SKU code");
+  }
+
+  // Find or create target item
+  let targetItem = await prisma.item.findFirst({
+    where: { shopId: targetShopId, sku: sourceItem.sku, status: "ACTIVE" }
+  });
+
+  if (!targetItem) {
+    // Clone item from source shop
+    targetItem = await prisma.item.create({
+      data: {
+        shopId: targetShopId,
+        name: sourceItem.name,
+        sku: sourceItem.sku,
+        categoryId: sourceItem.categoryId,
+        unit: sourceItem.unit,
+        defaultSellingPrice: sourceItem.defaultSellingPrice,
+        minimumAllowedPrice: sourceItem.minimumAllowedPrice,
+        purchasePrice: sourceItem.purchasePrice,
+        mrp: sourceItem.mrp,
+        minimumStock: sourceItem.minimumStock,
+        imageUrl: sourceItem.imageUrl,
+        status: "ACTIVE",
+      }
+    });
+  }
+
+  const transferReason = reason || `Stock transfer from ${sourceShopId} to ${targetShopId}`;
+
+  // Execute transfer inside transaction
+  return prisma.$transaction(async (tx) => {
+    // 1. Stock Out from source shop
+    const sourceMovement = await tx.stockLedger.create({
+      data: {
+        shopId: sourceShopId,
+        itemId: sourceItem.id,
+        movementType: "STOCK_OUT",
+        quantityIn: 0,
+        quantityOut: quantity,
+        reason: `Transfer to shop ${targetShopId}. ${transferReason}`,
+        createdById: user.id,
+        approvedById: user.role === "OWNER" ? user.id : undefined,
+      }
+    });
+
+    // 2. Stock In to target shop
+    const targetMovement = await tx.stockLedger.create({
+      data: {
+        shopId: targetShopId,
+        itemId: targetItem.id,
+        movementType: "STOCK_IN",
+        quantityIn: quantity,
+        quantityOut: 0,
+        reason: `Transfer from shop ${sourceShopId}. ${transferReason}`,
+        createdById: user.id,
+        approvedById: user.role === "OWNER" ? user.id : undefined,
+      }
+    });
+
+    // 3. Write audit log
+    await tx.auditLog.create({
+      data: {
+        userId: user.id,
+        shopId: sourceShopId,
+        action: AuditAction.MOVEMENT_CREATED,
+        entityType: EntityType.STOCK_LEDGER,
+        entityId: sourceMovement.id,
+        newValueJson: { sourceMovement, targetMovement },
+        reason: transferReason,
+      }
+    });
+
+    // 4. Enqueue domain events
+    await enqueueDomainEvent(tx, {
+      shopId: sourceShopId,
+      entity: "stock",
+      action: "updated",
+      entityId: sourceItem.id,
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: true },
+    });
+
+    await enqueueDomainEvent(tx, {
+      shopId: targetShopId,
+      entity: "stock",
+      action: "updated",
+      entityId: targetItem.id,
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: true },
+    });
+
+    return { sourceMovement, targetMovement };
+  });
+}
