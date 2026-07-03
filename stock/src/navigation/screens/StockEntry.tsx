@@ -1,4 +1,4 @@
-import React, { useMemo, useState, memo, useCallback, useEffect } from "react";
+import { useMemo, useState, memo, useCallback, useEffect, useRef } from "react";
 import { 
   View, 
   StyleSheet, 
@@ -12,12 +12,13 @@ import {
 import { useRoute } from "@react-navigation/native";
 import { Searchbar, Text, Icon } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
-import { useDebounce } from "use-debounce";
 import * as Haptics from "expo-haptics";
 
 import { Item } from "../../api/client";
-import { useItemsQuery, useAddStockMutation, useItemStockQuery, useCategoriesQuery } from "../../hooks/useItems";
+import { useItemsQuery, useAddStockMutation, useItemStockQuery, useCategoriesQuery, useCurrentStockQuery } from "../../hooks/useItems";
 import { useAuthStore } from "../../auth/auth-store";
+import { useShopStore } from "../../auth/shop-store";
+import { filterCachedProducts } from "../../utils/mmkvCache";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { SkeletonList } from "../../components/ui/SkeletonCard";
@@ -48,11 +49,15 @@ const formatItemName = (name: string) => {
 const StockEntryRow = memo(({ 
   item, 
   quantity, 
-  onChange 
+  onChange,
+  onFocus,
+  currentStock
 }: { 
   item: Item, 
   quantity: string, 
-  onChange: (val: string) => void 
+  onChange: (val: string) => void,
+  onFocus?: () => void,
+  currentStock?: { physicalStock: number; reservedStock: number; availableStock: number }
 }) => {
   const numericVal = Number(quantity) || 0;
   const color = numericVal > 0 ? colors.success : numericVal < 0 ? colors.danger : colors.textPrimary;
@@ -89,7 +94,10 @@ const StockEntryRow = memo(({
       
       <View style={styles.rowFooter}>
         <View style={styles.stockBadge}>
-          <Text style={styles.stockBadgeText}>Unit: {item.unit} • SKU: {item.sku || "N/A"}</Text>
+          <Text style={styles.stockBadgeText}>
+            Unit: {item.unit} • SKU: {item.sku || "N/A"}
+            {currentStock !== undefined && ` • Current: ${currentStock.physicalStock}`}
+          </Text>
         </View>
         
         <View style={styles.counterContainer}>
@@ -106,6 +114,7 @@ const StockEntryRow = memo(({
           <TextInput
             style={[styles.qtyInput, { color }]}
             value={quantity}
+            onFocus={onFocus}
             onChangeText={(text) => {
               if (text === "-" || text === "") {
                 onChange(text);
@@ -136,11 +145,12 @@ const StockEntryRow = memo(({
       </View>
     </View>
   );
-}, (p, n) => p.item.id === n.item.id && p.quantity === n.quantity);
+}, (p, n) => p.item.id === n.item.id && p.quantity === n.quantity && p.currentStock?.physicalStock === n.currentStock?.physicalStock);
 
 export function StockEntry() {
   const route = useRoute();
   const user = useAuthStore((state) => state.user);
+  const activeShopId = useShopStore((state) => state.activeShopId);
   const isStaff = user?.role === "STAFF";
 
   // Check if we are managing a specific item
@@ -148,7 +158,6 @@ export function StockEntry() {
   const specificItemId = routeParams?.itemId;
 
   const [search, setSearch] = useState("");
-  const [debouncedSearch] = useDebounce(search, 300);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string>("ALL");
   const [entries, setEntries] = useState<Record<string, string>>({});
   const [editedItemsMap, setEditedItemsMap] = useState<Record<string, Item>>({});
@@ -156,45 +165,76 @@ export function StockEntry() {
   const [notes, setNotes] = useState("");
   const [successVisible, setSuccessVisible] = useState(false);
 
+  const listRef = useRef<any>(null);
+
   // Categories query
   const categoriesQuery = useCategoriesQuery();
   const categories = categoriesQuery.data ?? [];
+
+  // Fetch real-time stock levels of all items (optimized: only for specific item if in specific mode)
+  const stockQuery = useCurrentStockQuery(specificItemId ? specificItemId : undefined);
+  const stockMap = useMemo(() => {
+    const map = new Map<string, { physicalStock: number; reservedStock: number; availableStock: number }>();
+    if (stockQuery.data) {
+      for (const level of stockQuery.data) {
+        map.set(level.item.id, {
+          physicalStock: level.physicalStock,
+          reservedStock: level.reservedStock,
+          availableStock: level.availableStock,
+        });
+      }
+    }
+    return map;
+  }, [stockQuery.data]);
 
   // If specific item, fetch its details
   const specificItemQuery = useItemStockQuery(specificItemId);
   const specificItem = (specificItemQuery.data as any)?.item as Item | undefined;
 
+  // Load all items of the shop once (cached and up to 1000 items)
   const itemsQuery = useItemsQuery({ 
-    search: debouncedSearch, 
-    categoryId: selectedCategoryId === "ALL" ? undefined : selectedCategoryId,
-    limit: specificItemId ? 0 : 100 // Disable general query if we have a specific item
+    limit: 1000,
+    enabled: !specificItemId
   });
+
+  const allItems = useMemo(() => {
+    return itemsQuery.data?.items ?? filterCachedProducts(activeShopId ?? "", "");
+  }, [itemsQuery.data?.items, activeShopId]);
+
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 200);
+    return () => clearTimeout(t);
+  }, [search]);
 
   const displayItems = useMemo(() => {
     if (specificItemId) {
       return specificItem ? [specificItem] : [];
     }
-    if (showOnlyEdited) {
-      const allEdited = Object.values(editedItemsMap).filter(item => {
-        const qty = entries[item.id];
-        const num = Number(qty);
-        return qty !== undefined && qty !== "" && !isNaN(num) && num !== 0;
-      });
-      
-      // Filter edited by category local filter if selected
-      let filteredEdited = allEdited;
-      if (selectedCategoryId !== "ALL") {
-        filteredEdited = allEdited.filter(item => item.category?.id === selectedCategoryId);
-      }
+    
+    let list = showOnlyEdited 
+      ? Object.values(editedItemsMap).filter(item => {
+          const qty = entries[item.id];
+          const num = Number(qty);
+          return qty !== undefined && qty !== "" && !isNaN(num) && num !== 0;
+        })
+      : allItems;
 
-      if (!search.trim()) return filteredEdited;
-      return filteredEdited.filter(item => 
-        item.name.toLowerCase().includes(search.toLowerCase()) ||
-        item.sku?.toLowerCase().includes(search.toLowerCase())
+    if (selectedCategoryId !== "ALL") {
+      list = list.filter(item => item.category?.id === selectedCategoryId);
+    }
+
+    if (debouncedSearch.trim()) {
+      const q = debouncedSearch.toLowerCase();
+      list = list.filter(item => 
+        item.name.toLowerCase().includes(q) ||
+        (item.sku && item.sku.toLowerCase().includes(q))
       );
     }
-    return itemsQuery.data?.items ?? [];
-  }, [specificItemId, specificItem, itemsQuery.data, showOnlyEdited, editedItemsMap, entries, search, selectedCategoryId]);
+
+    return list;
+  }, [specificItemId, specificItem, allItems, showOnlyEdited, editedItemsMap, entries, debouncedSearch, selectedCategoryId]);
 
   const entryItems = useMemo(() => {
     return Object.entries(entries)
@@ -209,15 +249,34 @@ export function StockEntry() {
 
   const updateEntry = useCallback((item: Item, val: string) => {
     const id = item.id;
-    setEntries(prev => ({ ...prev, [id]: val }));
-    if (val !== "" && val !== "0" && val !== "-") {
-      setEditedItemsMap(prev => ({ ...prev, [id]: item }));
-    }
+    const num = Number(val);
+    
+    setEntries(prev => {
+      const next = { ...prev };
+      if (val === "" || val === "0" || isNaN(num) || num === 0) {
+        delete next[id];
+      } else {
+        next[id] = val;
+      }
+      return next;
+    });
+
+    setEditedItemsMap(prev => {
+      const next = { ...prev };
+      if (val === "" || val === "0" || isNaN(num) || num === 0) {
+        delete next[id];
+      } else {
+        next[id] = item;
+      }
+      return next;
+    });
   }, []);
 
   const stockMutation = useAddStockMutation();
 
   const handleSubmit = () => {
+    if (stockMutation.isPending || entryCount === 0) return;
+
     const defaultNote = specificItemId 
       ? (isStaff ? `Restock for ${specificItem?.name}` : `Manual restock for ${specificItem?.name}`)
       : (isStaff ? "Bulk stock entry request by staff" : "Bulk stock entry via app");
@@ -366,19 +425,48 @@ export function StockEntry() {
         <View style={styles.listContainer}>
           {(() => {
             const List = FlashList as any;
-            const isLoading = specificItemId ? specificItemQuery.isLoading : itemsQuery.isLoading;
+            const isLoading = specificItemId ? specificItemQuery.isLoading : (itemsQuery.isLoading && allItems.length === 0);
+            const isError = specificItemId ? specificItemQuery.isError : itemsQuery.isError;
             
             if (isLoading) return <SkeletonList count={8} itemHeight={80} />;
 
+            if (isError) {
+              return (
+                <EmptyState
+                  icon="alert-circle-outline"
+                  title="Could not load items"
+                  subtitle="Please check your connection and try again."
+                  action={
+                    <Button 
+                      label="Retry" 
+                      onPress={() => {
+                        if (specificItemId) specificItemQuery.refetch();
+                        else itemsQuery.refetch();
+                      }} 
+                    />
+                  }
+                />
+              );
+            }
+
             return (
               <List
+                ref={listRef}
                 data={displayItems}
                 keyExtractor={(item: Item) => item.id}
-                renderItem={({ item }: { item: Item }) => (
+                renderItem={({ item, index }: { item: Item, index: number }) => (
                   <StockEntryRow 
                     item={item} 
                     quantity={entries[item.id] || ""}
                     onChange={(val) => updateEntry(item, val)}
+                    currentStock={stockMap.get(item.id)}
+                    onFocus={() => {
+                      setTimeout(() => {
+                        try {
+                          listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.3 });
+                        } catch (e) {}
+                      }, 120);
+                    }}
                   />
                 )}
                 ListEmptyComponent={
@@ -427,7 +515,7 @@ export function StockEntry() {
             label={specificItemId ? "CONFIRM STOCK UPDATE" : "SUBMIT STOCK ENTRY"} 
             onPress={handleSubmit} 
             loading={stockMutation.isPending}
-            disabled={entryCount === 0}
+            disabled={entryCount === 0 || stockMutation.isPending}
             fullWidth
             size="lg"
             variant="primary"
@@ -629,12 +717,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 18,
-    width: 120,
+    width: 136,
     height: 38,
     overflow: 'hidden',
   },
   counterBtn: {
-    width: 32,
+    width: 42,
     height: '100%',
     alignItems: 'center',
     justifyContent: 'center',

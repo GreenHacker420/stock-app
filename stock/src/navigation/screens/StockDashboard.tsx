@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from "react";
-import { View, StyleSheet, Pressable, ScrollView, ActivityIndicator } from "react-native";
+import React, { useMemo, useState, useCallback } from "react";
+import { View, StyleSheet, Pressable, ScrollView, ActivityIndicator, Platform } from "react-native";
 import { Searchbar, Divider, Text, Icon } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 import * as Haptics from "expo-haptics";
@@ -20,6 +20,13 @@ export function StockDashboard() {
   const [activeTab, setActiveTab] = useState<"all" | "in_stock" | "low" | "out">("all");
 
   const stockQuery = useCurrentStockQuery();
+
+  const onRefresh = useCallback(async () => {
+    if (Platform.OS !== "web") {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    }
+    await stockQuery.refetch();
+  }, [stockQuery]);
 
   const allRecords = stockQuery.data ?? [];
 
@@ -186,6 +193,8 @@ export function StockDashboard() {
                   data={filteredRecords}
                   keyExtractor={(item: StockLevel) => item.item.id}
                   estimatedItemSize={110}
+                  refreshing={stockQuery.isRefetching}
+                  onRefresh={onRefresh}
                   renderItem={({ item }: { item: StockLevel }) => {
                     const minStockVal = Number(item.item.minimumStock);
 	                    const health = getStockHealth(item.availableStock, minStockVal);
@@ -200,7 +209,7 @@ export function StockDashboard() {
                       >
                         <View style={styles.cardHeader}>
                           <View style={styles.cardHeaderLeft}>
-                            <Text style={styles.itemName} numberOfLines={1}>{item.item.name}</Text>
+                            <Text style={styles.itemName}>{item.item.name}</Text>
                             {item.item.sku && (
                               <Text style={styles.skuText}>SKU: {item.item.sku}</Text>
                             )}
@@ -221,7 +230,7 @@ export function StockDashboard() {
 	                            </Text>
 	                          </View>
 
-	                          <View style={styles.qtyCol}>
+ 	                          <View style={styles.qtyCol}>
 	                            <Text style={styles.qtyLabel}>PHYSICAL / RESERVED</Text>
 	                            <Text style={styles.qtyValue}>{item.physicalStock} / {item.reservedStock} {item.item.unit}</Text>
 	                          </View>
