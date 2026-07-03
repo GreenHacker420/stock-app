@@ -65,8 +65,7 @@
         }
       ],
       "expo-sqlite",
-      "expo-image-picker",
-      "expo-image"
+      "expo-image-picker"
     ],
     "extra": {
       "eas": {
