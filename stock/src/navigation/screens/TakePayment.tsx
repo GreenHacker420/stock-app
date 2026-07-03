@@ -10,13 +10,12 @@ import {
   ActivityIndicator,
   Alert
 } from "react-native";
-import { 
-  Text, 
-  Icon, 
-  Searchbar, 
-  List, 
-  Divider, 
-  Switch, 
+import {
+  Text,
+  Icon,
+  List,
+  Divider,
+  Switch,
   SegmentedButtons,
   TextInput
 } from "react-native-paper";
@@ -36,6 +35,7 @@ import { SuccessModal } from "../../components/ui/SuccessModal";
 import { useShopStore } from "../../auth/shop-store";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
+import { AppSearchBar } from "../../components/ui/AppSearchBar";
 import { Section } from "../../components/ui/Section";
 import { Button } from "../../components/ui/Button";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
@@ -226,7 +226,7 @@ export function TakePayment() {
             {!isWalkin ? (
               <View style={styles.customerSelection}>
                 {!selectedCustomer ? (
-                  <Searchbar
+                  <AppSearchBar
                     placeholder="Search name or phone..."
                     onChangeText={setSearchQuery}
                     value={searchQuery}
@@ -605,8 +605,7 @@ const styles = StyleSheet.create({
   },
   searchBar: {
     backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    borderRadius: radius.md,
-    elevation: 0,
+    borderWidth: 0,
     height: 44,
   },
   searchInput: {

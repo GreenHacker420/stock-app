@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { View, StyleSheet, Pressable, ScrollView, Alert, Linking } from "react-native";
-import { Searchbar, Divider, Text, Icon } from "react-native-paper";
+import { Divider, Text, Icon } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
 import { useRoute } from "@react-navigation/native";
@@ -11,6 +11,7 @@ import { usePaymentsQuery, useAttachPaymentMutation } from "../../hooks/usePayme
 import { type Sale } from "../../api/client";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
+import { AppSearchBar } from "../../components/ui/AppSearchBar";
 import { StatusPill } from "../../components/ui/StatusPill";
 import { SkeletonList } from "../../components/ui/SkeletonCard";
 import { EmptyState } from "../../components/ui/EmptyState";
@@ -84,7 +85,7 @@ export function SalesList() {
       <AppHeader title="Sales History" subtitle="Monitor revenue and collections" />
 
       <View style={styles.container}>
-        <Searchbar
+        <AppSearchBar
           placeholder="Search invoice or customer"
           onChangeText={setSearch}
           value={search}
@@ -474,7 +475,7 @@ export function SaleDetail() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, paddingHorizontal: spacing.lg, paddingTop: spacing.md },
-  searchBar: { backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, elevation: 0, height: 44, marginBottom: spacing.md },
+  searchBar: { height: 44, marginBottom: spacing.md },
   searchInput: { fontSize: 14 },
   tabContainer: { height: 38, marginBottom: spacing.lg },
   tabScroll: { gap: spacing.xs },

@@ -1,8 +1,9 @@
 import React, { useMemo, useState } from "react";
 import { View, StyleSheet, ScrollView, Pressable } from "react-native";
-import { Searchbar, Text, Icon, SegmentedButtons, Divider } from "react-native-paper";
+import { Text, Icon, SegmentedButtons, Divider } from "react-native-paper";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
+import { AppSearchBar } from "../../components/ui/AppSearchBar";
 import { useSalesQuery } from "../../hooks/useSales";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { SkeletonList } from "../../components/ui/SkeletonCard";
@@ -115,7 +116,7 @@ export function NewSaleType() {
         </View>
 
         <View style={styles.filterSection}>
-          <Searchbar
+          <AppSearchBar
             placeholder="Search invoice or customer..."
             onChangeText={setSearch}
             value={search}
@@ -279,11 +280,6 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg,
   },
   searchBar: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    elevation: 0,
     height: 48,
   },
   searchInput: {

@@ -2,7 +2,7 @@ import React, { useMemo, useState, memo } from "react";
 import { Alert, Pressable, View, StyleSheet, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform,} from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRoute } from "@react-navigation/native";
-import { Divider, Icon, Searchbar, Text, TextInput } from "react-native-paper";
+import { Divider, Icon, Text, TextInput } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
 
@@ -19,6 +19,7 @@ import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
+import { AppSearchBar } from "../../components/ui/AppSearchBar";
 import { Section } from "../../components/ui/Section";
 import { StatusPill } from "../../components/ui/StatusPill";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
@@ -119,11 +120,10 @@ export function CustomerList() {
         <AppHeader title="Customer Management" subtitle="View and manage customer accounts" />
         
         <View style={styles.headerControls}>
-          <Searchbar 
-            value={search} 
-            onChangeText={setSearch} 
-            placeholder="Search customer or phone" 
-            style={styles.searchBar}
+          <AppSearchBar
+            value={search}
+            onChangeText={setSearch}
+            placeholder="Search customer or phone"
             inputStyle={styles.searchInput}
           />
         </View>
