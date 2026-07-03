@@ -1,57 +1,243 @@
 import prisma from "../lib/db.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
-import { writeAuditLog } from "../utils/auditLog.js";
 import { EntityType, AuditAction, Prisma } from "../generated/prisma/index.js";
 import { generateEmbedding } from "../utils/embeddings.js";
+
+// ---------------------------------------------------------------------------
+// Permission helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Only OWNER role can create/update/delete catalog items and categories.
+ * Staff can VIEW stock and search, but cannot mutate the catalog.
+ */
+function assertCanManageItems(user) {
+  if (user.role !== "OWNER") {
+    throw new ApiError(403, "Only owners can manage products and categories");
+  }
+}
+
+/**
+ * Only OWNER role can directly write to the stock ledger.
+ * Staff must submit a stock entry request (handled in stock.service bulkStockEntry).
+ */
+function assertCanDirectlyAdjustStock(user) {
+  if (user.role !== "OWNER") {
+    throw new ApiError(
+      403,
+      "Direct stock adjustment is restricted to owners. Staff must submit a stock entry request."
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Shared stock map helper (eliminates duplication between attachAvailableStock
+// and getItemSummary — single source of truth for physical/reserved stock)
+// ---------------------------------------------------------------------------
+
+async function getStockMaps(db, shopId, itemIds) {
+  const [ledgerSums, reservationSums] = await Promise.all([
+    db.stockLedger.groupBy({
+      by: ["itemId"],
+      where: { itemId: { in: itemIds }, shopId },
+      _sum: { quantityIn: true, quantityOut: true },
+    }),
+    db.stockReservation.groupBy({
+      by: ["itemId"],
+      where: { itemId: { in: itemIds }, shopId, status: "ACTIVE" },
+      _sum: { reservedQty: true },
+    }),
+  ]);
+
+  const physicalMap = new Map(
+    ledgerSums.map((row) => [
+      row.itemId,
+      Number(row._sum.quantityIn || 0) - Number(row._sum.quantityOut || 0),
+    ])
+  );
+
+  const reservedMap = new Map(
+    reservationSums.map((row) => [
+      row.itemId,
+      Number(row._sum.reservedQty || 0),
+    ])
+  );
+
+  return { physicalMap, reservedMap };
+}
+
+// ---------------------------------------------------------------------------
+// Field whitelisting — never spread raw request body into Prisma
+// ---------------------------------------------------------------------------
+
+function pickItemCreateFields(data) {
+  const allowed = {
+    shopId: data.shopId,
+    name: data.name,
+    sku: data.sku,
+    categoryId: data.categoryId,
+    unit: data.unit,
+    defaultSellingPrice: data.defaultSellingPrice,
+    minimumAllowedPrice: data.minimumAllowedPrice,
+    purchasePrice: data.purchasePrice,
+    mrp: data.mrp,
+    minimumStock: data.minimumStock,
+    imageUrl: data.imageUrl,
+  };
+  return Object.fromEntries(Object.entries(allowed).filter(([, v]) => v !== undefined));
+}
+
+function pickItemUpdateFields(data) {
+  const allowed = {
+    name: data.name,
+    sku: data.sku,
+    categoryId: data.categoryId,
+    unit: data.unit,
+    defaultSellingPrice: data.defaultSellingPrice,
+    minimumAllowedPrice: data.minimumAllowedPrice,
+    purchasePrice: data.purchasePrice,
+    mrp: data.mrp,
+    minimumStock: data.minimumStock,
+    imageUrl: data.imageUrl,
+  };
+  return Object.fromEntries(Object.entries(allowed).filter(([, v]) => v !== undefined));
+}
+
+// ---------------------------------------------------------------------------
+// Price validation
+// ---------------------------------------------------------------------------
+
+function validatePrices({ defaultSellingPrice, minimumAllowedPrice, mrp, purchasePrice }) {
+  const numericFields = { defaultSellingPrice, minimumAllowedPrice, mrp, purchasePrice };
+  for (const [key, val] of Object.entries(numericFields)) {
+    if (val !== undefined && val !== null && (isNaN(Number(val)) || Number(val) < 0)) {
+      throw new ApiError(400, `${key} must be a non-negative number`);
+    }
+  }
+  if (
+    minimumAllowedPrice !== undefined &&
+    defaultSellingPrice !== undefined &&
+    Number(minimumAllowedPrice) > Number(defaultSellingPrice)
+  ) {
+    throw new ApiError(400, "minimumAllowedPrice cannot exceed defaultSellingPrice");
+  }
+}
+
+// ---------------------------------------------------------------------------
+// attachAvailableStock
+// Naming convention (consistent across all endpoints):
+//   physicalStock  = quantityIn - quantityOut  (ledger total)
+//   reservedStock  = sum of active reservations
+//   availableStock = max(0, physical - reserved)
+//   currentStock   = physicalStock  (NOT availableStock)
+// ---------------------------------------------------------------------------
+
+async function attachAvailableStock(shopId, itemsList) {
+  if (!itemsList || itemsList.length === 0) return itemsList;
+  const itemIds = itemsList.map((i) => i.id);
+  const { physicalMap, reservedMap } = await getStockMaps(prisma, shopId, itemIds);
+
+  return itemsList.map((item) => {
+    const physical = physicalMap.get(item.id) || 0;
+    const reserved = reservedMap.get(item.id) || 0;
+    const available = Math.max(0, physical - reserved);
+    return {
+      ...item,
+      physicalStock: physical,
+      reservedStock: reserved,
+      availableStock: available,
+      currentStock: physical, // physical stock — consistent with getItemStock
+    };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// listItems
+// ---------------------------------------------------------------------------
 
 export async function listItems(user, { shopId, search, categoryId, page = 1, limit = 50 }) {
   await assertShopAccess(user, shopId);
 
   const skip = (page - 1) * limit;
+  const normalizedSearch = search?.trim();
 
-  if (search) {
-    const embedding = await generateEmbedding(search);
-    const vectorString = `[${embedding.join(',')}]`;
-    const likePattern = `%${search}%`;
+  if (normalizedSearch && normalizedSearch.length >= 2) {
+    const likePattern = `%${normalizedSearch}%`;
 
-    // Hybrid SQL query combining name/sku ILIKE search and vector similarity ranking
-    const items = await prisma.$queryRaw`
-      SELECT 
-        i.id, i."shopId", i.name, i.sku, i."categoryId", i.unit,
-        i."defaultSellingPrice", i."minimumAllowedPrice", i."purchasePrice", i.mrp,
-        i."minimumStock", i."imageUrl", i.status, i."createdAt", i."updatedAt",
-        c.id as "category_id", c.name as "category_name", c.status as "category_status", 
-        c."createdAt" as "category_createdAt", c."updatedAt" as "category_updatedAt",
-        COALESCE(i.embedding <=> ${vectorString}::vector, 1.0) as distance,
-        (CASE WHEN i.sku ILIKE ${likePattern} THEN 0.0 ELSE 1.0 END) * 0.1 + 
-        (CASE WHEN i.name ILIKE ${likePattern} THEN 0.0 ELSE 1.0 END) * 0.2 + 
-        COALESCE(i.embedding <=> ${vectorString}::vector, 1.0) as score
-      FROM "Item" i
-      LEFT JOIN "ItemCategory" c ON i."categoryId" = c.id
-      WHERE i."shopId" = ${shopId} AND i.status = 'ACTIVE'
-        AND (
-          i.name ILIKE ${likePattern}
-          OR i.sku ILIKE ${likePattern}
-          OR c.name ILIKE ${likePattern}
-          OR COALESCE(i.embedding <=> ${vectorString}::vector, 1.0) < 0.35
-        )
-        ${categoryId ? (categoryId === "__uncat__" ? Prisma.sql`AND i."categoryId" IS NULL` : Prisma.sql`AND i."categoryId" = ${categoryId}`) : Prisma.empty}
-      ORDER BY score ASC
-      LIMIT ${limit}
-      OFFSET ${skip};
-    `;
-
-    const total = await prisma.item.count({
-      where: { 
-        shopId, 
-        status: "ACTIVE",
-        ...(categoryId ? (categoryId === "__uncat__" ? { categoryId: null } : { categoryId }) : {})
+    // Only generate embedding for queries long enough to carry semantic meaning.
+    // Short queries (1-2 chars) get lexical-only search to avoid wasted GPU calls.
+    let embedding = null;
+    try {
+      if (normalizedSearch.length >= 3) {
+        embedding = await generateEmbedding(normalizedSearch);
       }
-    });
+    } catch {
+      embedding = null; // always fallback to lexical — never hard-fail a search
+    }
 
-    const formattedItems = items.map(item => {
-      const { category_id, category_name, category_status, category_createdAt, category_updatedAt, ...rest } = item;
+    let items;
+
+    if (embedding) {
+      const vectorString = `[${embedding.join(",")}]`;
+      items = await prisma.$queryRaw`
+        SELECT
+          i.id, i."shopId", i.name, i.sku, i."categoryId", i.unit,
+          i."defaultSellingPrice", i."minimumAllowedPrice", i."purchasePrice", i.mrp,
+          i."minimumStock", i."imageUrl", i.status, i."createdAt", i."updatedAt",
+          c.id as "category_id", c.name as "category_name", c.status as "category_status",
+          c."createdAt" as "category_createdAt", c."updatedAt" as "category_updatedAt",
+          (CASE WHEN i.sku ILIKE ${likePattern} THEN 0.0 ELSE 1.0 END) * 0.1 +
+          (CASE WHEN i.name ILIKE ${likePattern} THEN 0.0 ELSE 1.0 END) * 0.2 +
+          COALESCE(i.embedding <=> ${vectorString}::vector, 1.0) as score
+        FROM "Item" i
+        LEFT JOIN "ItemCategory" c ON i."categoryId" = c.id
+        WHERE i."shopId" = ${shopId} AND i.status = 'ACTIVE'
+          AND (
+            i.name ILIKE ${likePattern}
+            OR i.sku ILIKE ${likePattern}
+            OR c.name ILIKE ${likePattern}
+            OR COALESCE(i.embedding <=> ${vectorString}::vector, 1.0) < 0.35
+          )
+          ${categoryId ? (categoryId === "__uncat__" ? Prisma.sql`AND i."categoryId" IS NULL` : Prisma.sql`AND i."categoryId" = ${categoryId}`) : Prisma.empty}
+        ORDER BY score ASC
+        LIMIT ${limit}
+        OFFSET ${skip};
+      `;
+    } else {
+      // Lexical-only fallback for short queries or embedding failure
+      items = await prisma.$queryRaw`
+        SELECT
+          i.id, i."shopId", i.name, i.sku, i."categoryId", i.unit,
+          i."defaultSellingPrice", i."minimumAllowedPrice", i."purchasePrice", i.mrp,
+          i."minimumStock", i."imageUrl", i.status, i."createdAt", i."updatedAt",
+          c.id as "category_id", c.name as "category_name", c.status as "category_status",
+          c."createdAt" as "category_createdAt", c."updatedAt" as "category_updatedAt"
+        FROM "Item" i
+        LEFT JOIN "ItemCategory" c ON i."categoryId" = c.id
+        WHERE i."shopId" = ${shopId} AND i.status = 'ACTIVE'
+          AND (
+            i.name ILIKE ${likePattern}
+            OR i.sku ILIKE ${likePattern}
+            OR c.name ILIKE ${likePattern}
+          )
+          ${categoryId ? (categoryId === "__uncat__" ? Prisma.sql`AND i."categoryId" IS NULL` : Prisma.sql`AND i."categoryId" = ${categoryId}`) : Prisma.empty}
+        ORDER BY i.name ASC
+        LIMIT ${limit}
+        OFFSET ${skip};
+      `;
+    }
+
+    const formattedItems = items.map((item) => {
+      const {
+        category_id,
+        category_name,
+        category_status,
+        category_createdAt,
+        category_updatedAt,
+        score,
+        ...rest
+      } = item;
       return {
         ...rest,
         defaultSellingPrice: Number(item.defaultSellingPrice),
@@ -59,31 +245,38 @@ export async function listItems(user, { shopId, search, categoryId, page = 1, li
         purchasePrice: item.purchasePrice ? Number(item.purchasePrice) : null,
         mrp: item.mrp ? Number(item.mrp) : null,
         minimumStock: Number(item.minimumStock),
-        category: category_id ? {
-          id: category_id,
-          name: category_name,
-          status: category_status,
-          createdAt: category_createdAt,
-          updatedAt: category_updatedAt,
-        } : null
+        category: category_id
+          ? {
+              id: category_id,
+              name: category_name,
+              status: category_status,
+              createdAt: category_createdAt,
+              updatedAt: category_updatedAt,
+            }
+          : null,
       };
     });
 
     const itemsWithStock = await attachAvailableStock(shopId, formattedItems);
 
+    // Use result count for hasMore — avoids a separate COUNT(*) that ignores search filter
     return {
       items: itemsWithStock,
-      total,
+      total: formattedItems.length,
       page,
       limit,
-      hasMore: skip + formattedItems.length < total,
+      hasMore: formattedItems.length === limit,
     };
   } else {
-    // Normal non-search catalog listing
+    // Normal non-search catalog listing with accurate pagination
     const where = {
       shopId,
       status: "ACTIVE",
-      ...(categoryId ? (categoryId === "__uncat__" ? { categoryId: null } : { categoryId }) : {})
+      ...(categoryId
+        ? categoryId === "__uncat__"
+          ? { categoryId: null }
+          : { categoryId }
+        : {}),
     };
 
     const [items, total] = await Promise.all([
@@ -97,7 +290,7 @@ export async function listItems(user, { shopId, search, categoryId, page = 1, li
       prisma.item.count({ where }),
     ]);
 
-    const formattedList = items.map(item => ({
+    const formattedList = items.map((item) => ({
       ...item,
       defaultSellingPrice: Number(item.defaultSellingPrice),
       minimumAllowedPrice: item.minimumAllowedPrice ? Number(item.minimumAllowedPrice) : null,
@@ -118,136 +311,55 @@ export async function listItems(user, { shopId, search, categoryId, page = 1, li
   }
 }
 
-async function attachAvailableStock(shopId, itemsList) {
-  if (!itemsList || itemsList.length === 0) return itemsList;
-  const itemIds = itemsList.map(i => i.id);
-
-  // 1. Get physical stock (quantityIn - quantityOut) from stock ledger
-  const ledgerSums = await prisma.stockLedger.groupBy({
-    by: ["itemId"],
-    where: { itemId: { in: itemIds }, shopId },
-    _sum: { quantityIn: true, quantityOut: true }
-  });
-
-  const physicalMap = new Map(
-    ledgerSums.map(row => [
-      row.itemId,
-      Number(row._sum.quantityIn || 0) - Number(row._sum.quantityOut || 0)
-    ])
-  );
-
-  // 2. Get reserved stock from active reservations
-  const reservationSums = await prisma.stockReservation.groupBy({
-    by: ["itemId"],
-    where: { itemId: { in: itemIds }, shopId, status: "ACTIVE" },
-    _sum: { reservedQty: true }
-  });
-
-  const reservedMap = new Map(
-    reservationSums.map(row => [
-      row.itemId,
-      Number(row._sum.reservedQty || 0)
-    ])
-  );
-
-  // 3. Map to each item
-  return itemsList.map(item => {
-    const physical = physicalMap.get(item.id) || 0;
-    const reserved = reservedMap.get(item.id) || 0;
-    const available = physical - reserved;
-    const computedVal = Math.max(0, available);
-    return {
-      ...item,
-      physicalStock: physical,
-      reservedStock: reserved,
-      availableStock: computedVal,
-      currentStock: computedVal
-    };
-  });
-}
+// ---------------------------------------------------------------------------
+// getItemSummary
+// ---------------------------------------------------------------------------
 
 export async function getItemSummary(user, { shopId }) {
   await assertShopAccess(user, shopId);
 
-  // 1. Total items and categories
   const [totalItems, totalCategories] = await Promise.all([
     prisma.item.count({ where: { shopId, status: "ACTIVE" } }),
     prisma.itemCategory.count({ where: { shopId, status: "ACTIVE" } }),
   ]);
 
-  // 2. Fetch all items with their minimumStock to calculate low/out of stock
   const items = await prisma.item.findMany({
     where: { shopId, status: "ACTIVE" },
     select: { id: true, minimumStock: true },
   });
 
   if (items.length === 0) {
-    return {
-      totalItems: 0,
-      totalCategories,
-      outOfStockCount: 0,
-      lowStockCount: 0,
-      countByCat: {},
-      uncategorisedCount: 0,
-    };
+    return { totalItems: 0, totalCategories, outOfStockCount: 0, lowStockCount: 0, countByCat: {}, uncategorisedCount: 0 };
   }
 
-  const itemIds = items.map(i => i.id);
+  const itemIds = items.map((i) => i.id);
+  const { physicalMap, reservedMap } = await getStockMaps(prisma, shopId, itemIds);
 
-  // 3. Get physical stock from ledger
-  const ledgerSums = await prisma.stockLedger.groupBy({
-    by: ["itemId"],
-    where: { itemId: { in: itemIds }, shopId },
-    _sum: { quantityIn: true, quantityOut: true }
-  });
-
-  const physicalMap = new Map(
-    ledgerSums.map(row => [
-      row.itemId,
-      Number(row._sum.quantityIn || 0) - Number(row._sum.quantityOut || 0)
-    ])
-  );
-
-  // 4. Get reserved stock
-  const reservationSums = await prisma.stockReservation.groupBy({
-    by: ["itemId"],
-    where: { itemId: { in: itemIds }, shopId, status: "ACTIVE" },
-    _sum: { reservedQty: true }
-  });
-
-  const reservedMap = new Map(
-    reservationSums.map(row => [
-      row.itemId,
-      Number(row._sum.reservedQty || 0)
-    ])
-  );
-
-  // 5. Calculate stats
   let outOfStockCount = 0;
   let lowStockCount = 0;
 
-  items.forEach(item => {
+  items.forEach((item) => {
     const physical = physicalMap.get(item.id) || 0;
     const reserved = reservedMap.get(item.id) || 0;
     const available = Math.max(0, physical - reserved);
+    const minStock = Number(item.minimumStock);
 
     if (available <= 0) {
       outOfStockCount++;
-    } else if (available <= Number(item.minimumStock)) {
+    } else if (minStock > 0 && available <= minStock) {
       lowStockCount++;
     }
   });
 
-  // 6. Get counts by category
   const catCounts = await prisma.item.groupBy({
     by: ["categoryId"],
     where: { shopId, status: "ACTIVE" },
-    _count: { id: true }
+    _count: { id: true },
   });
 
   const countByCat = {};
   let uncategorisedCount = 0;
-  catCounts.forEach(c => {
+  catCounts.forEach((c) => {
     if (c.categoryId) {
       countByCat[c.categoryId] = c._count.id;
     } else {
@@ -255,36 +367,27 @@ export async function getItemSummary(user, { shopId }) {
     }
   });
 
-  return {
-    totalItems,
-    totalCategories,
-    outOfStockCount,
-    lowStockCount,
-    countByCat,
-    uncategorisedCount,
-  };
+  return { totalItems, totalCategories, outOfStockCount, lowStockCount, countByCat, uncategorisedCount };
 }
+
+// ---------------------------------------------------------------------------
+// Category management — OWNER only
+// ---------------------------------------------------------------------------
 
 export async function createCategory(user, data) {
   await assertShopAccess(user, data.shopId);
+  assertCanManageItems(user);
+
   return prisma.itemCategory.create({
-    data: {
-      shopId: data.shopId,
-      name: data.name,
-    },
+    data: { shopId: data.shopId, name: data.name },
   });
 }
 
 export async function listCategories(user, { shopId }) {
   await assertShopAccess(user, shopId);
   return prisma.itemCategory.findMany({
-    where: {
-      shopId,
-      status: "ACTIVE",
-    },
-    orderBy: {
-      name: "asc",
-    },
+    where: { shopId, status: "ACTIVE" },
+    orderBy: { name: "asc" },
   });
 }
 
@@ -292,38 +395,50 @@ export async function updateCategory(user, id, { name }) {
   const existing = await prisma.itemCategory.findUnique({ where: { id } });
   if (!existing) throw new ApiError(404, "Category not found");
   await assertShopAccess(user, existing.shopId);
+  assertCanManageItems(user);
 
-  return prisma.itemCategory.update({
-    where: { id },
-    data: { name },
-  });
+  return prisma.itemCategory.update({ where: { id }, data: { name } });
 }
 
 export async function deleteCategory(user, id) {
   const existing = await prisma.itemCategory.findUnique({ where: { id } });
   if (!existing) throw new ApiError(404, "Category not found");
   await assertShopAccess(user, existing.shopId);
+  assertCanManageItems(user);
 
-  const itemCount = await prisma.item.count({
-    where: { categoryId: id, status: "ACTIVE" },
-  });
-
+  const itemCount = await prisma.item.count({ where: { categoryId: id, status: "ACTIVE" } });
   if (itemCount > 0) {
     throw new ApiError(400, "Cannot delete category that contains active items");
   }
 
-  // Soft delete or hard delete. Since schema has status, let's soft delete.
-  return prisma.itemCategory.update({
-    where: { id },
-    data: { status: "INACTIVE" },
-  });
+  return prisma.itemCategory.update({ where: { id }, data: { status: "INACTIVE" } });
 }
+
+// ---------------------------------------------------------------------------
+// createItem — OWNER only
+// ---------------------------------------------------------------------------
 
 export async function createItem(user, data) {
   await assertShopAccess(user, data.shopId);
+  assertCanManageItems(user);
 
-  const { initialStock, ...itemData } = data;
+  // Whitelist — never spread raw request body into Prisma
+  const itemData = pickItemCreateFields(data);
 
+  // Validate prices
+  validatePrices(itemData);
+
+  // Validate initialStock
+  const openingStock = data.initialStock !== undefined ? Number(data.initialStock) : 0;
+  if (!Number.isFinite(openingStock) || openingStock < 0) {
+    throw new ApiError(400, "initialStock must be a non-negative number");
+  }
+
+  if (itemData.minimumStock !== undefined && Number(itemData.minimumStock) < 0) {
+    throw new ApiError(400, "minimumStock must be a non-negative number");
+  }
+
+  // Category must belong to this shop
   if (itemData.categoryId) {
     const category = await prisma.itemCategory.findUnique({ where: { id: itemData.categoryId } });
     if (!category || category.shopId !== itemData.shopId) {
@@ -331,38 +446,41 @@ export async function createItem(user, data) {
     }
   }
 
-  // Generate embedding for item name
-  const embedding = await generateEmbedding(itemData.name);
+  // Generate embedding (failures are non-fatal — item still gets created)
+  let embedding = null;
+  try {
+    embedding = await generateEmbedding(itemData.name);
+  } catch {
+    embedding = null;
+  }
 
   return prisma.$transaction(async (tx) => {
-    const item = await tx.item.create({
-      data: itemData,
-    });
+    const item = await tx.item.create({ data: itemData });
 
-    const vectorString = `[${embedding.join(',')}]`;
-    await tx.$executeRawUnsafe(
-      `UPDATE "Item" SET embedding = $1::vector WHERE id = $2`,
-      vectorString,
-      item.id
-    );
+    // Use $executeRaw tagged template — no $executeRawUnsafe
+    if (embedding) {
+      const vectorString = `[${embedding.join(",")}]`;
+      await tx.$executeRaw`UPDATE "Item" SET embedding = ${vectorString}::vector WHERE id = ${item.id}`;
+    }
 
-    // Initial stock entry if provided
-    if (initialStock && Number(initialStock) > 0) {
+    // Opening stock ledger entry (owner approved automatically)
+    if (openingStock > 0) {
       await tx.stockLedger.create({
         data: {
           shopId: item.shopId,
           itemId: item.id,
           movementType: "OPENING_STOCK",
-          quantityIn: Number(initialStock),
+          quantityIn: openingStock,
           quantityOut: 0,
           referenceType: "ADJUSTMENT",
           reason: "Initial opening stock during item creation",
-          createdById: user.id
-        }
+          createdById: user.id,
+          approvedById: user.id,
+        },
       });
     }
 
-    // Initial price history entry
+    // Initial price history
     if (itemData.defaultSellingPrice) {
       await tx.itemPriceHistory.create({
         data: {
@@ -370,31 +488,60 @@ export async function createItem(user, data) {
           oldPrice: 0,
           newPrice: itemData.defaultSellingPrice,
           priceType: "SELLING",
-          changedById: user.id
-        }
+          changedById: user.id,
+        },
       });
     }
 
-    await writeAuditLog({
-      userId: user.id,
-      shopId: item.shopId,
-      action: AuditAction.CREATED,
-      entityType: EntityType.ITEM,
-      entityId: item.id,
-      newValueJson: item,
+    // Audit log inside the transaction — atomic with the item creation
+    await tx.auditLog.create({
+      data: {
+        userId: user.id,
+        shopId: item.shopId,
+        action: AuditAction.CREATED,
+        entityType: EntityType.ITEM,
+        entityId: item.id,
+        newValueJson: item,
+      },
     });
 
     return tx.item.findUnique({ where: { id: item.id } });
   });
 }
 
+// ---------------------------------------------------------------------------
+// updateItem — OWNER only
+// ---------------------------------------------------------------------------
+
 export async function updateItem(user, id, data) {
   const existing = await prisma.item.findUnique({ where: { id } });
   if (!existing) throw new ApiError(404, "Item not found");
   await assertShopAccess(user, existing.shopId);
+  assertCanManageItems(user);
 
-  const { adjustmentStock, ...itemData } = data;
+  const { adjustmentStock, ...rawItemData } = data;
 
+  // Whitelist — never spread raw request body into Prisma
+  const itemData = pickItemUpdateFields(rawItemData);
+
+  // Validate prices if provided
+  validatePrices(itemData);
+
+  // Validate and gate the stock adjustment
+  let validatedAdjustment = undefined;
+  if (adjustmentStock !== undefined) {
+    assertCanDirectlyAdjustStock(user); // belt-and-suspenders on top of assertCanManageItems
+    const adj = Number(adjustmentStock);
+    if (!Number.isFinite(adj) || adj === 0) {
+      throw new ApiError(400, "Stock adjustment must be a non-zero finite number");
+    }
+    if (Math.abs(adj) > 100_000) {
+      throw new ApiError(400, "Stock adjustment value is too large (max ±100,000)");
+    }
+    validatedAdjustment = adj;
+  }
+
+  // Category must belong to this shop
   if (itemData.categoryId) {
     const category = await prisma.itemCategory.findUnique({ where: { id: itemData.categoryId } });
     if (!category || category.shopId !== existing.shopId) {
@@ -402,40 +549,55 @@ export async function updateItem(user, id, data) {
     }
   }
 
+  // Only regenerate embedding if name actually changed
   let embedding = null;
   if (itemData.name && itemData.name !== existing.name) {
-    embedding = await generateEmbedding(itemData.name);
+    try {
+      embedding = await generateEmbedding(itemData.name);
+    } catch {
+      embedding = null;
+    }
   }
 
   return prisma.$transaction(async (tx) => {
-    const item = await tx.item.update({
-      where: { id },
-      data: itemData,
-    });
+    const item = await tx.item.update({ where: { id }, data: itemData });
 
     if (embedding) {
-      const vectorString = `[${embedding.join(',')}]`;
-      await tx.$executeRawUnsafe(
-        `UPDATE "Item" SET embedding = $1::vector WHERE id = $2`,
-        vectorString,
-        item.id
-      );
+      const vectorString = `[${embedding.join(",")}]`;
+      await tx.$executeRaw`UPDATE "Item" SET embedding = ${vectorString}::vector WHERE id = ${item.id}`;
     }
 
-    // Handle stock adjustment if provided
-    if (adjustmentStock !== undefined && adjustmentStock !== 0) {
-      const isPositive = Number(adjustmentStock) > 0;
+    // Stock adjustment — owner-only, validated above
+    if (validatedAdjustment !== undefined) {
+      // Prevent going below zero on negative adjustments
+      if (validatedAdjustment < 0) {
+        const ledgerSum = await tx.stockLedger.aggregate({
+          where: { shopId: item.shopId, itemId: item.id },
+          _sum: { quantityIn: true, quantityOut: true },
+        });
+        const physicalNow =
+          Number(ledgerSum._sum.quantityIn || 0) - Number(ledgerSum._sum.quantityOut || 0);
+        if (physicalNow + validatedAdjustment < 0) {
+          throw new ApiError(
+            400,
+            `Adjustment would make physical stock negative (current: ${physicalNow})`
+          );
+        }
+      }
+
+      const isPositive = validatedAdjustment > 0;
       await tx.stockLedger.create({
         data: {
           shopId: item.shopId,
           itemId: item.id,
-          movementType: isPositive ? "STOCK_IN" : "STOCK_OUT",
-          quantityIn: isPositive ? Number(adjustmentStock) : 0,
-          quantityOut: isPositive ? 0 : Math.abs(Number(adjustmentStock)),
+          movementType: isPositive ? "STOCK_IN" : "MANUAL_ADJUSTMENT",
+          quantityIn: isPositive ? validatedAdjustment : 0,
+          quantityOut: isPositive ? 0 : Math.abs(validatedAdjustment),
           referenceType: "ADJUSTMENT",
           reason: "Manual adjustment from item edit screen",
-          createdById: user.id
-        }
+          createdById: user.id,
+          approvedById: user.id,
+        },
       });
     }
 
@@ -448,32 +610,43 @@ export async function updateItem(user, id, data) {
     ];
 
     for (const { key, label } of priceTypes) {
-      if (itemData[key] !== undefined && itemData[key] !== null && Number(itemData[key]) !== Number(existing[key])) {
+      if (
+        itemData[key] !== undefined &&
+        itemData[key] !== null &&
+        Number(itemData[key]) !== Number(existing[key])
+      ) {
         await tx.itemPriceHistory.create({
           data: {
             itemId: id,
             oldPrice: existing[key] || 0,
             newPrice: itemData[key],
             priceType: label,
-            changedById: user.id
-          }
+            changedById: user.id,
+          },
         });
       }
     }
 
-    await writeAuditLog({
-      userId: user.id,
-      shopId: item.shopId,
-      action: AuditAction.UPDATED,
-      entityType: EntityType.ITEM,
-      entityId: id,
-      oldValueJson: existing,
-      newValueJson: item,
+    // Audit log inside the transaction — atomic with the item update
+    await tx.auditLog.create({
+      data: {
+        userId: user.id,
+        shopId: item.shopId,
+        action: AuditAction.UPDATED,
+        entityType: EntityType.ITEM,
+        entityId: id,
+        oldValueJson: existing,
+        newValueJson: item,
+      },
     });
 
     return tx.item.findUnique({ where: { id } });
   });
 }
+
+// ---------------------------------------------------------------------------
+// getItemStock
+// ---------------------------------------------------------------------------
 
 export async function getItemStock(user, id) {
   const item = await prisma.item.findUnique({ where: { id } });
@@ -488,25 +661,30 @@ export async function getItemStock(user, id) {
     prisma.stockReservation.aggregate({
       where: { itemId: id, shopId: item.shopId, status: "ACTIVE" },
       _sum: { reservedQty: true },
-    })
+    }),
   ]);
 
   const quantityIn = Number(stock._sum.quantityIn || 0);
   const quantityOut = Number(stock._sum.quantityOut || 0);
-  const currentStock = quantityIn - quantityOut;
+  const physicalStock = quantityIn - quantityOut;
   const reservedStock = Number(reservations._sum.reservedQty || 0);
-  const availableStock = Math.max(0, currentStock - reservedStock);
+  const availableStock = Math.max(0, physicalStock - reservedStock);
 
-  return { 
-    item, 
-    quantityIn, 
-    quantityOut, 
-    currentQuantity: currentStock, 
-    currentStock, 
-    reservedStock, 
-    availableStock 
+  return {
+    item,
+    quantityIn,
+    quantityOut,
+    physicalStock,
+    currentStock: physicalStock,   // consistent: currentStock === physicalStock
+    currentQuantity: physicalStock,
+    reservedStock,
+    availableStock,
   };
 }
+
+// ---------------------------------------------------------------------------
+// getPurchaseHistory
+// ---------------------------------------------------------------------------
 
 export async function getPurchaseHistory(user, id, { customerId }) {
   const item = await prisma.item.findUnique({ where: { id } });
@@ -538,7 +716,7 @@ export async function getPurchaseHistory(user, id, { customerId }) {
     ...sales.map((row) => ({ type: "SALE", date: row.sale.createdAt, customer: row.sale.customer, staff: row.sale.staff, quantity: row.quantity, rate: row.rate, recordNumber: row.sale.saleNumber })),
     ...dms.map((row) => ({ type: "DM", date: row.deliveryMemo.createdAt, customer: row.deliveryMemo.customer, staff: row.deliveryMemo.staff, quantity: row.quantity, rate: row.rate, recordNumber: row.deliveryMemo.dmNumber })),
     ...orders.map((row) => ({ type: "ORDER", date: row.order.createdAt, customer: row.order.customer, staff: row.order.createdBy, quantity: row.quantityOrdered, rate: row.rate, recordNumber: row.order.orderNumber })),
-  ].sort((a, b) => new Date(b.date) - new Date(a.date));
+  ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()); // fixed: use .getTime()
 
   const rates = rows.map((row) => Number(row.rate));
   return {
@@ -554,6 +732,10 @@ export async function getPurchaseHistory(user, id, { customerId }) {
   };
 }
 
+// ---------------------------------------------------------------------------
+// getPriceChangeHistory
+// ---------------------------------------------------------------------------
+
 export async function getPriceChangeHistory(user, id) {
   const item = await prisma.item.findUnique({ where: { id } });
   if (!item) throw new ApiError(404, "Item not found");
@@ -565,6 +747,10 @@ export async function getPriceChangeHistory(user, id) {
     orderBy: { createdAt: "desc" },
   });
 }
+
+// ---------------------------------------------------------------------------
+// getRateSuggestion
+// ---------------------------------------------------------------------------
 
 export async function getRateSuggestion(user, id, { customerId }) {
   if (!customerId) throw new ApiError(400, "customerId is required");

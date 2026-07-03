@@ -83,13 +83,13 @@ export function useItemsQuery(opts: { search?: string; categoryId?: string; page
 }
 
 
-export function useCurrentStockQuery(itemId?: string) {
+export function useCurrentStockQuery(itemId?: string, options?: { enabled?: boolean }) {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
   return useQuery({
     queryKey: queryKeys.currentStock(activeShopId ?? "", itemId),
     queryFn: () => fetchCurrentStock(token ?? "", activeShopId ?? "", itemId),
-    enabled: !!token && !!activeShopId,
+    enabled: (options?.enabled ?? true) && !!token && !!activeShopId,
     staleTime: 5 * 60 * 1000, // 5 mins
   });
 }
@@ -184,12 +184,31 @@ export function useAddStockMutation() {
   });
 }
 
-export function useItemStockQuery(itemId?: string) {
+export function useCreateStockRequestMutation() {
+  const token = useAuthStore((state) => state.token);
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: Omit<StockEntryPayload, "shopId">) =>
+      addStock(token ?? "", { ...data, shopId: requireActiveShopId(activeShopId) }, { idempotencyKey: newIdempotencyKey("STOCK_REQUEST") }),
+    onSuccess: () => {
+      if (activeShopId) {
+        queryClient.invalidateQueries({ queryKey: ["current-stock", activeShopId] });
+        queryClient.invalidateQueries({ queryKey: ["stock-movements", activeShopId] });
+        queryClient.invalidateQueries({ queryKey: ["item-stock"] });
+        queryClient.invalidateQueries({ queryKey: ["items"] });
+        if (token) warmOfflineCache(activeShopId, token).catch(() => {});
+      }
+    },
+  });
+}
+
+export function useItemStockQuery(itemId?: string, options?: { enabled?: boolean }) {
   const token = useAuthStore((state) => state.token);
   return useQuery({
     queryKey: ["item-stock", itemId],
     queryFn: () => fetchItemStock(token ?? "", itemId ?? ""),
-    enabled: !!token && !!itemId,
+    enabled: (options?.enabled ?? true) && !!token && !!itemId,
     staleTime: 2 * 60 * 1000, // 2 mins
   });
 }

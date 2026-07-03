@@ -1,7 +1,7 @@
-import { useMemo, useState, useCallback, memo } from "react";
+import { useMemo, useState, useCallback, memo, useRef } from "react";
 import { View, StyleSheet, Pressable, ScrollView, Platform } from "react-native";
 import { Searchbar, Divider, Text, Icon } from "react-native-paper";
-import { FlashList } from "@shopify/flash-list";
+import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import * as Haptics from "expo-haptics";
 
 import { useCurrentStockQuery } from "../../hooks/useItems";
@@ -15,6 +15,7 @@ import { Button } from "../../components/ui/Button";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { navigate } from "../navigation-ref";
 import { useAuthStore } from "../../auth/auth-store";
+import { useShopStore } from "../../auth/shop-store";
 
 // ── Stock Health Helpers ───────────────────────────────────────────────────
 const getSafeMinimumStock = (record: StockLevel) => {
@@ -119,14 +120,33 @@ const StockCard = memo(function StockCard({
 
 // ── Main Dashboard Screen ───────────────────────────────────────────────────
 export function StockDashboard() {
-  const List = FlashList as any;
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  const listRef = useRef<FlashListRef<StockLevel>>(null);
+  const TypedFlashList = FlashList as any;
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState<"all" | "in_stock" | "low" | "out">("all");
 
   const user = useAuthStore((state) => state.user);
   const isOwner = user?.role === "OWNER";
 
-  const stockQuery = useCurrentStockQuery();
+  const stockQuery = useCurrentStockQuery(undefined, { enabled: Boolean(activeShopId) });
+
+  if (!activeShopId) {
+    return (
+      <Screen scroll={false} edges={['top', 'left', 'right']}>
+        <AppHeader 
+          title="Stock Dashboard" 
+          subtitle="Current physical stock and alerts." 
+          fallbackRoute="Home"
+        />
+        <EmptyState
+          icon="store-alert-outline"
+          title="No shop selected"
+          subtitle="Please select a shop before viewing stock."
+        />
+      </Screen>
+    );
+  }
 
   const onRefresh = useCallback(async () => {
     if (Platform.OS !== "web") {
@@ -136,6 +156,7 @@ export function StockDashboard() {
   }, [stockQuery]);
 
   const allRecords = stockQuery.data ?? [];
+  const isShowingCachedData = stockQuery.isError && allRecords.length > 0;
 
   // Calculate overall counts for metrics cards using safe unified helpers
   const totalCount = allRecords.length;
@@ -341,7 +362,8 @@ export function StockDashboard() {
           {stockQuery.isLoading ? (
             <SkeletonList count={5} itemHeight={100} />
           ) : (
-            <List
+            <TypedFlashList
+              ref={listRef}
               data={filteredRecords}
               keyExtractor={(item: StockLevel) => item.item.id}
               estimatedItemSize={110}

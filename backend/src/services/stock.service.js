@@ -135,6 +135,10 @@ export async function listMovements(user, { shopId, itemId, movementType, page =
 export async function createMovement(user, data) {
   await assertShopAccess(user, data.shopId);
 
+  if (user.role === "STAFF") {
+    throw new ApiError(403, "Direct stock adjustment is restricted to owners. Staff must submit updates via Stock Entry requests.");
+  }
+
   const item = await prisma.item.findUnique({ where: { id: data.itemId } });
   if (!item || item.shopId !== data.shopId) {
     throw new ApiError(400, "Item does not belong to this shop");
