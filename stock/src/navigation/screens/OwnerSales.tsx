@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { View, StyleSheet, Pressable, ScrollView, Alert, Linking } from "react-native";
 import { Divider, Text, Icon } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
@@ -18,6 +18,7 @@ import { SkeletonList } from "../../components/ui/SkeletonCard";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { Button } from "../../components/ui/Button";
 import { Section } from "../../components/ui/Section";
+import { SaleCard } from "../../components/domain/sales/SaleCard";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { navigate } from "../navigation-ref";
 import { useShopStore } from "../../auth/shop-store";
@@ -115,35 +116,16 @@ export function SalesList() {
               keyExtractor={(item: Sale) => item.id}
               estimatedItemSize={120}
               renderItem={({ item }: { item: Sale & { staff?: { name: string } | null } }) => (
-                <Pressable 
+                <SaleCard
+                  saleNumber={item.saleNumber}
+                  customerName={item.isWalkin ? "Walk-in Customer" : item.customer?.name}
+                  subtitle={`Billed by: ${item.staff?.name || "System"}`}
+                  amount={money(item.totalAmount)}
+                  paymentStatus={item.paymentStatus || "PENDING"}
+                  statusTone={item.paymentStatus === "PAID" ? "green" : "amber"}
+                  date={new Date(item.createdAt).toLocaleString("en-IN", { dateStyle: "short", timeStyle: "short" })}
                   onPress={() => navigate("SaleDetail", { id: item.id })}
-                  style={({ pressed }) => [styles.saleCard, pressed && styles.pressed]}
-                >
-                  <View style={styles.cardHeader}>
-                    <View style={styles.flex1}>
-                      <Text style={styles.saleNumber}>#{item.saleNumber}</Text>
-                      <Text style={styles.customerName}>{item.isWalkin ? "Walk-in Customer" : item.customer?.name}</Text>
-                      <Text style={styles.staffBilledText}>{`Billed by: ${item.staff?.name || "System"}`}</Text>
-                    </View>
-                    <StatusPill
-                      label={item.paymentStatus || "PENDING"}
-                      tone={item.paymentStatus === 'PAID' ? 'green' : 'amber'}
-                    />
-                  </View>
-                  <Divider style={styles.divider} />
-                  <View style={styles.cardFooter}>
-                    <View>
-                      <Text style={styles.footerLabel}>TOTAL AMOUNT</Text>
-                      <Text style={styles.footerValue}>{money(item.totalAmount)}</Text>
-                    </View>
-                    <View style={{ alignItems: 'flex-end' }}>
-                      <Text style={styles.footerLabel}>DATE & TIME</Text>
-                      <Text style={styles.footerValue}>
-                        {new Date(item.createdAt).toLocaleString("en-IN", { dateStyle: "short", timeStyle: "short" })}
-                      </Text>
-                    </View>
-                  </View>
-                </Pressable>
+                />
               )}
               ListEmptyComponent={<EmptyState icon="receipt" title="No sales found" />}
               contentContainerStyle={styles.listContent}

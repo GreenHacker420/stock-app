@@ -2,13 +2,14 @@ import { useState } from "react";
 import { View, ScrollView, StyleSheet, KeyboardAvoidingView, Platform } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRoute } from "@react-navigation/native";
-import { Button, TextInput, List, HelperText, Portal, Modal, IconButton, Text } from "react-native-paper";
+import { Button, TextInput, HelperText, Portal, Modal, IconButton, Text } from "react-native-paper";
 import { fetchStaff, createStaff, assignStaffToShop, Shop } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
 import { queryKeys } from "../../hooks/query-keys";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { Section } from "../../components/ui/Section";
+import { StaffCard } from "../../components/domain/staff/StaffCard";
 import { colors, spacing, radius, fontSize, fontWeight } from '../../theme';
 import { goBack } from "../navigation-ref";
 
@@ -91,17 +92,19 @@ export function AssignStaff() {
               const isAssigning = assignMutation.isPending && assignMutation.variables === member.id;
 
               return (
-                <List.Item
+                <StaffCard
                   key={member.id}
-                  title={member.name}
-                  description={`${member.mobile} ${member.email ? `• ${member.email}` : ""}`}
-                  titleStyle={styles.memberTitle}
-                  descriptionStyle={styles.memberDescription}
-                  right={() => (
+                  name={member.name}
+                  phone={member.mobile}
+                  email={member.email ?? undefined}
+                  status={assigned ? "Assigned" : "Available"}
+                  assignedShopName={assigned ? shop.name : undefined}
+                  actions={
                     <IconButton
                       icon={assigned ? "check-circle" : "plus-circle-outline"}
                       iconColor={assigned ? colors.primary : "#7a8578"}
                       size={24}
+                      style={styles.staffActionButton}
                       disabled={assigned || isAssigning}
                       onPress={() => {
                         if (!assigned) {
@@ -109,11 +112,7 @@ export function AssignStaff() {
                         }
                       }}
                     />
-                  )}
-                  style={[
-                    styles.listItem,
-                    index === (staffQuery.data?.length ?? 0) - 1 && styles.lastItem
-                  ]}
+                  }
                 />
               );
             })}
@@ -241,20 +240,8 @@ const styles = StyleSheet.create({
   emptyText: {
     color: colors.textSecondary,
   },
-  memberTitle: {
-    fontWeight: fontWeight.bold,
-    color: colors.textPrimary,
-  },
-  memberDescription: {
-    color: colors.textSecondary,
-  },
-  listItem: {
-    borderBottomWidth: 1,
-    borderBottomColor: colors.bg,
-    paddingVertical: spacing.sm,
-  },
-  lastItem: {
-    borderBottomWidth: 0,
+  staffActionButton: {
+    margin: 0,
   },
   footer: {
     gap: spacing.md,

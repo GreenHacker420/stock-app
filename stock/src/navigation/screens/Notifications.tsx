@@ -7,6 +7,7 @@ import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { AppSegmentedControl } from "../../components/ui/AppSegmentedControl";
+import { ActivityRow } from "../../components/ui/ActivityRow";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { 
   useNotificationsQuery, 
@@ -158,32 +159,12 @@ export function Notifications() {
                     pressed && styles.pressed
                   ]}
                 >
-                  <View style={styles.cardHeader}>
-                    <View style={[styles.iconWrapper, { backgroundColor: styleMeta.bg }]}>
-                      <Icon source={styleMeta.icon} size={20} color={styleMeta.color} />
-                    </View>
-                    <View style={styles.cardContent}>
-                      <View style={styles.titleRow}>
-                        <Text style={[
-                          styles.eventTitle, 
-                          !notification.isRead && styles.unreadText
-                        ]}>
-                          {notification.triggerEvent.replace(/_/g, " ").toUpperCase()}
-                        </Text>
-                        <Text style={styles.timeText}>
-                          {formatTimeAgo(notification.createdAt)}
-                        </Text>
-                      </View>
-                      <Text style={styles.messageText}>
-                        {notification.message}
-                      </Text>
-                      {notification.shop && (
-                        <Text style={styles.shopText}>
-                          📍 {notification.shop.name} ({notification.shop.city})
-                        </Text>
-                      )}
-                    </View>
-                  </View>
+                  <ActivityRow
+                    icon={styleMeta.icon}
+                    title={notification.triggerEvent.replace(/_/g, " ").toUpperCase()}
+                    subtitle={`${notification.message}${notification.shop ? ` • ${notification.shop.name} (${notification.shop.city})` : ""}`}
+                    time={formatTimeAgo(notification.createdAt)}
+                  />
 
                   {!notification.isRead && (
                     <View style={styles.unreadDot} />

@@ -7,6 +7,8 @@ import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
+import { MetricGrid } from "../../components/ui/MetricGrid";
+import { ShopCard } from "../../components/domain/shops/ShopCard";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { navigate } from "../navigation-ref";
 import { newIdempotencyKey } from "../../utils/idempotency";
@@ -81,39 +83,12 @@ export function OpenCashSession() {
         </View>
 
         {/* Status Metrics Grid */}
-        <View style={styles.gridContainer}>
-          {/* Card 1: Opening Cash */}
-          <View style={styles.card}>
-            <View style={[styles.iconWrapper, { backgroundColor: "rgba(217, 119, 6, 0.06)" }]}>
-              <Icon source="cash-multiple" size={24} color={colors.warning} />
-            </View>
-            <Text style={styles.cardValue}>
-              ₹{openingCashValue.toLocaleString("en-IN")}
-            </Text>
-            <Text style={styles.cardLabel}>OPENING CASH</Text>
-          </View>
-
-          {/* Card 2: Session Status */}
-          <View style={styles.card}>
-            <View style={[
-              styles.iconWrapper, 
-              { backgroundColor: isSessionOpen ? "rgba(22, 163, 74, 0.06)" : "rgba(2, 132, 199, 0.06)" }
-            ]}>
-              <Icon 
-                source="cash-register" 
-                size={24} 
-                color={isSessionOpen ? colors.success : colors.info} 
-              />
-            </View>
-            <Text style={[
-              styles.cardValue,
-              isSessionOpen ? styles.statusOpenText : styles.statusClosedText
-            ]}>
-              {isSessionOpen ? "OPEN" : "NONE"}
-            </Text>
-            <Text style={styles.cardLabel}>SESSION</Text>
-          </View>
-        </View>
+        <MetricGrid
+          items={[
+            { label: "OPENING CASH", value: `₹${openingCashValue.toLocaleString("en-IN")}`, icon: "cash-multiple", tone: "amber" },
+            { label: "SESSION", value: isSessionOpen ? "OPEN" : "NONE", icon: "cash-register", tone: isSessionOpen ? "green" : "blue" },
+          ]}
+        />
 
         {/* Action / Information Section */}
         <View style={styles.section}>
@@ -195,23 +170,16 @@ export function OpenCashSession() {
             {shopsQuery.data?.map((shop) => {
               const isSelected = shop.id === activeShopId;
               return (
-                <View key={shop.id}>
-                  <List.Item
-                    title={shop.name}
-                    titleStyle={[
-                      styles.shopItemTitle,
-                      isSelected && styles.shopItemTitleActive
-                    ]}
-                    description={shop.city || "No City"}
-                    descriptionStyle={styles.shopItemDesc}
+                <View key={shop.id} style={styles.modalShopRow}>
+                  <ShopCard
+                    name={shop.name}
+                    subtitle={shop.city || "No City"}
+                    selected={isSelected}
                     onPress={() => {
                       switchActiveShop(shop.id);
                       setShopModalVisible(false);
                     }}
-                    left={props => <List.Icon {...props} icon="storefront" color={isSelected ? colors.primary : colors.textMuted} />}
-                    right={props => isSelected ? <List.Icon {...props} icon="check-circle" color={colors.primary} /> : null}
                   />
-                  <Divider style={styles.modalDivider} />
                 </View>
               );
             })}
@@ -391,6 +359,9 @@ const styles = StyleSheet.create({
   },
   modalScroll: {
     paddingBottom: spacing.md,
+  },
+  modalShopRow: {
+    marginBottom: spacing.sm,
   },
   shopItemTitle: {
     fontSize: fontSize.md,

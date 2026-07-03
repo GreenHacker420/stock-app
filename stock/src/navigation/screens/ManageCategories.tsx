@@ -11,7 +11,6 @@ import {
   Platform,
 } from "react-native";
 import { Text, TextInput, Divider, Icon } from "react-native-paper";
-import * as Haptics from "expo-haptics";
 
 import { ItemCategory } from "../../api/client";
 import {
@@ -25,7 +24,9 @@ import { AppHeader } from "../../components/ui/AppHeader";
 import { Button } from "../../components/ui/Button";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { SkeletonList } from "../../components/ui/SkeletonCard";
+import { FormTextField } from "../../components/forms/FormTextField";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
+import { triggerLightHaptic, triggerMediumHaptic } from "../../utils/haptics";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Edit Modal
@@ -63,12 +64,10 @@ function EditModal({
           <TouchableWithoutFeedback>
             <View style={styles.modalCard}>
               <Text style={styles.modalTitle}>Edit Category</Text>
-              <TextInput
-                mode="outlined"
+              <FormTextField
                 label="Category Name"
                 value={name}
                 onChangeText={setName}
-                outlineStyle={styles.inputOutline}
                 style={styles.input}
                 autoFocus
                 returnKeyType="done"
@@ -120,19 +119,25 @@ function CategoryRow({
       <View style={styles.rowActions}>
         <Pressable
           onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+            triggerLightHaptic();
             onEdit(category);
           }}
           style={styles.iconBtn}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={`Edit ${category.name}`}
         >
           <Icon source="pencil-outline" size={16} color={colors.primary} />
         </Pressable>
         <Pressable
           onPress={() => {
-            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            triggerMediumHaptic();
             onDelete(category);
           }}
           style={[styles.iconBtn, styles.deleteBtn]}
+          hitSlop={8}
+          accessibilityRole="button"
+          accessibilityLabel={`Delete ${category.name}`}
         >
           <Icon source="trash-can-outline" size={16} color={colors.danger} />
         </Pressable>
@@ -158,7 +163,7 @@ export function ManageCategories() {
   // ── Add ──
   const handleAdd = useCallback(() => {
     if (!newName.trim()) return;
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    triggerLightHaptic();
     createMutation.mutate(newName.trim(), {
       onSuccess: () => setNewName(""),
     });
@@ -188,7 +193,7 @@ export function ManageCategories() {
             text: "Delete",
             style: "destructive",
             onPress: () => {
-              Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
+              triggerMediumHaptic();
               deleteMutation.mutate(cat.id, {
                 onError: (err: any) => {
                   Alert.alert(
@@ -223,12 +228,10 @@ export function ManageCategories() {
         <View style={styles.addCard}>
           <Text style={styles.sectionLabel}>ADD NEW CATEGORY</Text>
           <View style={styles.addRow}>
-            <TextInput
-              mode="outlined"
+            <FormTextField
               label="Category name"
               value={newName}
               onChangeText={setNewName}
-              outlineStyle={styles.inputOutline}
               style={[styles.input, styles.flex1]}
               returnKeyType="done"
               onSubmitEditing={handleAdd}
@@ -237,6 +240,9 @@ export function ManageCategories() {
             <Pressable
               onPress={handleAdd}
               disabled={!newName.trim() || createMutation.isPending}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel="Add category"
               style={({ pressed }) => [
                 styles.addBtn,
                 pressed && { opacity: 0.8, transform: [{ scale: 0.96 }] },

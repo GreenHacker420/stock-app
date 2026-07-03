@@ -1,42 +1,10 @@
-import React from "react";
-import { View, StyleSheet, Pressable, ScrollView } from "react-native";
-import { Text, Icon } from "react-native-paper";
+import { StyleSheet, ScrollView, View } from "react-native";
+import { Text } from "react-native-paper";
 import { Screen } from "../../components/Screen";
-import { AppHeader } from "../../components/ui/AppHeader";
-import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
+import { ActionTile } from "../../components/ui/ActionTile";
+import { ScreenSection } from "../../components/layout/ScreenSection";
+import { colors, spacing, fontWeight } from "../../theme";
 import { navigate } from "../navigation-ref";
-
-type WorkflowItemProps = {
-  title: string;
-  subtitle: string;
-  icon: string;
-  iconBg: string;
-  iconColor: string;
-  onPress: () => void;
-};
-
-function WorkflowItem({ title, subtitle, icon, iconBg, iconColor, onPress }: WorkflowItemProps) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.itemCard,
-        pressed ? styles.pressed : undefined
-      ].filter(Boolean) as any}
-    >
-      <View style={[styles.iconWrapper, { backgroundColor: iconBg }]}>
-        <Icon source={icon} size={22} color={iconColor} />
-      </View>
-      <View style={styles.textContainer}>
-        <Text style={styles.itemTitle}>{title}</Text>
-        <Text style={styles.itemSubtitle}>{subtitle}</Text>
-      </View>
-      <View style={styles.arrowWrapper}>
-        <Icon source="chevron-right" size={20} color={colors.textMuted} />
-      </View>
-    </Pressable>
-  );
-}
 
 export function StaffWork() {
   return (
@@ -51,79 +19,70 @@ export function StaffWork() {
         </View>
 
         {/* Counter Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionHeader}>Counter</Text>
+        <ScreenSection title="Counter" style={styles.section}>
           <View style={styles.cardContainer}>
-            <WorkflowItem
+            <ActionTile
               title="New sale"
               subtitle="Walk-in or regular customer sale."
               icon="cart-plus"
-              iconBg={colors.primaryLight}
-              iconColor={colors.success}
+              tone="green"
               onPress={() => navigate("NewSaleType")}
             />
             
-            <WorkflowItem
+            <ActionTile
               title="Open cash"
               subtitle="Start the counter session before cash sales."
               icon="cash-register"
-              iconBg="#ccfbf1"
-              iconColor="#0d9488"
+              tone="blue"
               onPress={() => navigate("OpenCashSession")}
             />
 
-            <WorkflowItem
+            <ActionTile
               title="Take payment"
               subtitle="Cash, UPI, card, bank, cheque, or pending."
               icon="credit-card-outline"
-              iconBg={colors.warningLight}
-              iconColor="#d97706"
+              tone="amber"
               onPress={() => navigate("TakePayment")}
             />
           </View>
-        </View>
+        </ScreenSection>
 
         {/* Back Office Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionHeader}>Back office</Text>
+        <ScreenSection title="Back office" style={styles.section}>
           <View style={styles.cardContainer}>
-            <WorkflowItem
+            <ActionTile
               title="Orders to pack"
               subtitle="Pick, pack, shortage, and dispatch flow."
               icon="package-variant-closed"
-              iconBg={colors.primaryLight}
-              iconColor={colors.success}
+              tone="green"
               onPress={() => navigate("OrdersToPack")}
             />
 
-            <WorkflowItem
+            <ActionTile
               title="Stock entry"
               subtitle="Stock in, stock out, damage, and adjustment."
               icon="warehouse"
-              iconBg="#ccfbf1"
-              iconColor="#0d9488"
+              tone="blue"
               onPress={() => navigate("StockEntry")}
             />
 
-            <WorkflowItem
+            <ActionTile
               title="Log expense"
               subtitle="Log daily outgoings (tea, freight, porter, misc)."
               icon="cash-minus"
-              iconBg={colors.dangerLight}
-              iconColor="#ef4444"
+              tone="red"
               onPress={() => navigate("Expenses")}
             />
 
-            <WorkflowItem
+            <ActionTile
               title="Close day"
               subtitle="Expected cash, actual cash, mismatch reason."
               icon="cash-check"
-              iconBg={colors.warningLight}
-              iconColor="#d97706"
+              tone="amber"
               onPress={() => navigate("CloseDay")}
             />
           </View>
-        </View>
+        </ScreenSection>
 
         {/* Informational Footer Caption */}
         <Text style={styles.footerText}>
@@ -159,53 +118,9 @@ const styles = StyleSheet.create({
   section: {
     marginTop: spacing.md,
   },
-  sectionHeader: {
-    fontSize: 18,
-    fontWeight: fontWeight.extrabold,
-    color: colors.textPrimary,
-    marginBottom: spacing.md,
-    letterSpacing: -0.3,
-  },
   cardContainer: {
     gap: spacing.md,
     marginBottom: spacing.lg,
-  },
-  itemCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 20,
-    paddingVertical: 18,
-    paddingHorizontal: 20,
-    gap: spacing.md,
-    ...shadow.sm,
-  },
-  iconWrapper: {
-    width: 48,
-    height: 48,
-    borderRadius: 16,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  textContainer: {
-    flex: 1,
-    gap: 3,
-  },
-  itemTitle: {
-    fontSize: 16,
-    fontWeight: fontWeight.bold,
-    color: colors.textPrimary,
-  },
-  itemSubtitle: {
-    fontSize: 12,
-    color: colors.textSecondary,
-    fontWeight: fontWeight.medium,
-    lineHeight: 16,
-  },
-  arrowWrapper: {
-    paddingLeft: spacing.sm,
   },
   footerText: {
     fontSize: 12,
@@ -215,9 +130,5 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
     marginTop: spacing.md,
     marginBottom: spacing.xl,
-  },
-  pressed: {
-    opacity: 0.75,
-    transform: [{ scale: 0.98 }],
   },
 });
