@@ -206,7 +206,7 @@ export function ItemList() {
   // ───────────────────────────────────────────────────────────────────────────
   return (
     <Screen edges={["top", "left", "right"]} scroll={false}>
-      <AppHeader title="Products" subtitle={activeCatName} fallbackRoute="Home" />
+      <AppHeader title="Products" subtitle={activeCatName} onBack={exitGrid} />
       <View style={{ flex: 1 }}>
         <FlashList<Item>
           data={displayItems}

@@ -18,6 +18,7 @@ import { AppHeader } from "../../components/ui/AppHeader";
 import { SkeletonList } from "../../components/ui/SkeletonCard";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { Button } from "../../components/ui/Button";
+import { AppChipGroup } from "../../components/ui/AppChipGroup";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { navigate } from "../navigation-ref";
 import { useAuthStore } from "../../auth/auth-store";
@@ -232,36 +233,21 @@ export function StockDashboard() {
       <AppHeader title="Inventory" subtitle="Stock levels & health" fallbackRoute="Home" />
 
       {/* ── Summary Chips Row ───────────────────────────────────────────── */}
-      <View style={styles.summaryRow}>
-        {TABS.map((t) => {
-          const active = activeTab === t.key;
-          const chipColor =
-            t.key === "out" ? colors.danger :
-            t.key === "low" ? colors.warning :
-            t.key === "good" ? colors.success :
-            colors.textSecondary;
-          return (
-            <Pressable
-              key={t.key}
-              onPress={() => { haptic(); setActiveTab(t.key); }}
-              style={[
-                styles.summaryChip,
-                active && { borderColor: chipColor, backgroundColor: t.key === "all" ? colors.primaryLight : `${chipColor}15` }
-              ]}
-            >
-              <Icon source={t.icon} size={14} color={active ? chipColor : colors.textMuted} />
-              <Text style={[styles.summaryChipLabel, active && { color: chipColor }]}>
-                {t.label}
-              </Text>
-              <View style={[styles.summaryBadge, active && { backgroundColor: chipColor }]}>
-                <Text style={[styles.summaryBadgeText, active && { color: "#fff" }]}>
-                  {tabCounts[t.key]}
-                </Text>
-              </View>
-            </Pressable>
-          );
-        })}
-      </View>
+      <AppChipGroup
+        value={activeTab}
+        onChange={(value) => {
+          setActiveTab(value);
+        }}
+        variant="summary"
+        options={TABS.map((tab) => ({
+          value: tab.key,
+          label: tab.label,
+          icon: tab.icon,
+          badge: tabCounts[tab.key],
+          tone: tab.key === "out" ? "red" : tab.key === "low" ? "amber" : tab.key === "good" ? "green" : "neutral",
+        }))}
+        style={styles.summaryRow}
+      />
 
       {/* ── Search ──────────────────────────────────────────────────────── */}
       <View style={styles.searchWrap}>
@@ -340,44 +326,9 @@ export function StockDashboard() {
 // ── Styles ───────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   summaryRow: {
-    flexDirection: "row",
-    gap: spacing.sm,
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
     paddingBottom: spacing.sm,
-  },
-  summaryChip: {
-    flex: 1,
-    flexDirection: "column",
-    alignItems: "center",
-    gap: 3,
-    paddingVertical: spacing.sm,
-    paddingHorizontal: 6,
-    borderRadius: radius.lg,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    minHeight: 62,
-    justifyContent: "center",
-  },
-  summaryChipLabel: {
-    fontSize: 10,
-    fontWeight: fontWeight.bold,
-    color: colors.textMuted,
-    letterSpacing: 0.2,
-  },
-  summaryBadge: {
-    backgroundColor: colors.surfaceOffset,
-    borderRadius: radius.full,
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    minWidth: 22,
-    alignItems: "center",
-  },
-  summaryBadgeText: {
-    fontSize: 11,
-    fontWeight: fontWeight.black,
-    color: colors.textSecondary,
   },
   searchWrap: {
     flexDirection: "row",

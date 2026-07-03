@@ -40,7 +40,7 @@ export function AppHeader({ title, subtitle, role, initials, showBack, onBack, h
   );
 
   const hasHistory = navigation ? navigation.canGoBack() : false;
-  const canGoBack = showBack ?? (hasHistory || !!fallbackRoute);
+  const canGoBack = showBack ?? (!!onBack || hasHistory || !!fallbackRoute);
 
   const displayInitials = useMemo(() => {
     if (initials) return initials;

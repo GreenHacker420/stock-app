@@ -1,10 +1,11 @@
-import { View, StyleSheet, Image } from "react-native";
+import { View, StyleSheet } from "react-native";
 import { Text } from "react-native-paper";
 
 import { Item } from "../../api/client";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { getAvatarColor, initialsOf } from "../../utils/items/display";
 import { StockBadge } from "./StockBadge";
+import { CachedThumbnail } from "../ui/CachedThumbnail";
 
 type ItemSummaryCardProps = {
   item: Item;
@@ -20,15 +21,12 @@ export function ItemSummaryCard({ item, availableStock, minStock }: ItemSummaryC
   return (
     <View style={styles.card}>
       <View style={styles.left}>
-        <View style={[styles.avatar, { backgroundColor: avatarColor + "22" }]}>
-          {item.imageUrl ? (
-            <Image source={{ uri: item.imageUrl }} style={styles.avatarImage} />
-          ) : (
-            <Text style={[styles.avatarText, { color: avatarColor }]} numberOfLines={1}>
-              {initialsOf(item.name)}
-            </Text>
-          )}
-        </View>
+        <CachedThumbnail
+          uri={item.imageUrl}
+          fallbackText={initialsOf(item.name)}
+          color={avatarColor}
+          style={styles.avatar}
+        />
         <View style={styles.info}>
           <Text style={styles.name} numberOfLines={2}>
             {item.name}
@@ -78,18 +76,7 @@ const styles = StyleSheet.create({
     width: 52,
     height: 52,
     borderRadius: radius.lg,
-    alignItems: "center",
-    justifyContent: "center",
     flexShrink: 0,
-    overflow: "hidden",
-  },
-  avatarImage: {
-    width: "100%",
-    height: "100%",
-  },
-  avatarText: {
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.black,
   },
   info: {
     flex: 1,

@@ -5,7 +5,6 @@ import {
   Platform,
   Pressable,
   TextInput,
-  ScrollView,
   Alert,
   Keyboard,
 } from "react-native";
@@ -31,6 +30,7 @@ import { SkeletonList } from "../../components/ui/SkeletonCard";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { Button } from "../../components/ui/Button";
 import { AppKeyboardAvoidingView } from "../../components/ui/AppKeyboardAvoidingView";
+import { AppChipGroup } from "../../components/ui/AppChipGroup";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { SuccessModal } from "../../components/ui/SuccessModal";
 import { navigate, goBack } from "../navigation-ref";
@@ -313,47 +313,37 @@ export function StockEntry() {
 
             {/* Category chips */}
             {categories.length > 0 && (
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.catScroll}
-              >
-                {["ALL", ...categories.map((c) => c.id)].map((id) => {
-                  const name = id === "ALL" ? "All" : categories.find((c) => c.id === id)?.name ?? id;
-                  const active = catId === id;
-                  return (
-                    <Pressable
-                      key={id}
-                      onPress={() => { haptic(); setCatId(id); }}
-                      style={[styles.catChip, active && styles.catChipActive]}
-                    >
-                      <Text style={[styles.catChipText, active && styles.catChipTextActive]}>
-                        {name}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </ScrollView>
+              <AppChipGroup
+                scrollable
+                value={catId}
+                onChange={(value) => {
+                  setCatId(value);
+                }}
+                options={[
+                  { value: "ALL", label: "All" },
+                  ...categories.map((category) => ({ value: category.id, label: category.name })),
+                ]}
+              />
             )}
 
             {/* All / Edited toggle row */}
             <View style={styles.toggleRow}>
-              <Pressable
-                onPress={() => { haptic(); setOnlyEdited(false); }}
-                style={[styles.togglePill, !onlyEdited && styles.togglePillActive]}
-              >
-                <Icon source="format-list-bulleted" size={13} color={!onlyEdited ? colors.primary : colors.textMuted} />
-                <Text style={[styles.toggleText, !onlyEdited && styles.toggleTextActive]}>All Items</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => { haptic(); setOnlyEdited(true); }}
-                style={[styles.togglePill, onlyEdited && styles.togglePillActive]}
-              >
-                <Icon source="pencil-box-multiple-outline" size={13} color={onlyEdited ? colors.primary : colors.textMuted} />
-                <Text style={[styles.toggleText, onlyEdited && styles.toggleTextActive]}>
-                  Edited{entryCount > 0 ? ` (${entryCount})` : ""}
-                </Text>
-              </Pressable>
+              <AppChipGroup
+                value={onlyEdited ? "edited" : "all"}
+                onChange={(value) => {
+                  setOnlyEdited(value === "edited");
+                }}
+                options={[
+                  { value: "all", label: "All Items", icon: "format-list-bulleted" },
+                  {
+                    value: "edited",
+                    label: "Edited",
+                    icon: "pencil-box-multiple-outline",
+                    badge: entryCount > 0 ? entryCount : undefined,
+                  },
+                ]}
+                style={styles.toggleChips}
+              />
               {entryCount > 0 && (
                 <Pressable
                   onPress={() => {
@@ -551,57 +541,13 @@ const styles = StyleSheet.create({
     height: "100%",
     padding: 0,
   },
-  catScroll: {
-    gap: spacing.sm,
-    paddingVertical: 2,
-  },
-  catChip: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: 6,
-    borderRadius: radius.full,
-    backgroundColor: colors.surfaceOffset,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  catChipActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  catChipText: {
-    fontSize: 12,
-    fontWeight: fontWeight.semibold,
-    color: colors.textSecondary,
-  },
-  catChipTextActive: {
-    color: colors.textInverse,
-  },
   toggleRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.sm,
   },
-  togglePill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 6,
-    borderRadius: radius.full,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  togglePillActive: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primaryLight,
-  },
-  toggleText: {
-    fontSize: 12,
-    fontWeight: fontWeight.semibold,
-    color: colors.textSecondary,
-  },
-  toggleTextActive: {
-    color: colors.primary,
+  toggleChips: {
+    flex: 1,
   },
   clearBtn: {
     flexDirection: "row",

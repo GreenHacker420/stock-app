@@ -6,7 +6,6 @@ import {
   Alert,
   Modal,
   Pressable,
-  Image,
 } from "react-native";
 import { Text, Icon, TextInput } from "react-native-paper";
 import { useRoute } from "@react-navigation/native";
@@ -23,6 +22,7 @@ import { AppHeader } from "../../../components/ui/AppHeader";
 import { Button } from "../../../components/ui/Button";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { AppKeyboardAvoidingView } from "../../../components/ui/AppKeyboardAvoidingView";
+import { CachedThumbnail } from "../../../components/ui/CachedThumbnail";
 import { CategoryPickerSheet } from "../../../components/items/CategoryPickerSheet";
 import { colors, spacing, radius, fontSize, fontWeight } from "../../../theme";
 import { navigate, goBack } from "../../navigation-ref";
@@ -310,13 +310,13 @@ export function AddEditItem() {
           <View style={styles.aeiCard}>
             <Text style={styles.aeiSectionLabel}>PRODUCT PHOTO</Text>
             <View style={styles.photoRow}>
-              <View style={styles.photoPreview}>
-                {selectedImage?.uri || imageUrl ? (
-                  <Image source={{ uri: selectedImage?.uri || imageUrl }} style={styles.photoImage} />
-                ) : (
-                  <Icon source="image-plus" size={28} color={colors.textMuted} />
-                )}
-              </View>
+              <CachedThumbnail
+                uri={selectedImage?.uri || imageUrl}
+                fallbackText="IMG"
+                fallbackIcon="image-plus"
+                color={colors.textMuted}
+                style={styles.photoPreview}
+              />
               <View style={styles.photoActions}>
                 <Button label="Camera" variant="secondary" icon="camera-outline" onPress={() => pickImage("camera")} />
                 <Button label="Upload" variant="secondary" icon="image-outline" onPress={() => pickImage("library")} />
@@ -480,14 +480,6 @@ const styles = StyleSheet.create({
     borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.surfaceOffset,
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-  },
-  photoImage: {
-    width: "100%",
-    height: "100%",
   },
   photoActions: {
     flex: 1,

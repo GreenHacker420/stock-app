@@ -1,11 +1,12 @@
 import { memo } from "react";
-import { View, StyleSheet, Pressable, Image } from "react-native";
+import { View, StyleSheet, Pressable } from "react-native";
 import { Text, Icon } from "react-native-paper";
 
 import { Item } from "../../api/client";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { getAvatarColor, initialsOf, money } from "../../utils/items/display";
 import { StockBadge } from "./StockBadge";
+import { CachedThumbnail } from "../ui/CachedThumbnail";
 
 export const ItemCard = memo(({
   item,
@@ -34,13 +35,12 @@ export const ItemCard = memo(({
       style={({ pressed }) => [styles.itemCard, pressed && styles.itemCardPressed]}
     >
       {/* Avatar */}
-      <View style={[styles.itemAvatar, { backgroundColor: avatarColor + "22" }]}>
-        {item.imageUrl ? (
-          <Image source={{ uri: item.imageUrl }} style={styles.itemAvatarImage} />
-        ) : (
-          <Text style={[styles.itemAvatarText, { color: avatarColor }]}>{initials}</Text>
-        )}
-      </View>
+      <CachedThumbnail
+        uri={item.imageUrl}
+        fallbackText={initials}
+        color={avatarColor}
+        style={styles.itemAvatar}
+      />
 
       {/* Info */}
       <View style={styles.itemInfo}>
@@ -120,18 +120,7 @@ const styles = StyleSheet.create({
     width: 42,
     height: 42,
     borderRadius: radius.lg,
-    alignItems: "center",
-    justifyContent: "center",
     flexShrink: 0,
-    overflow: "hidden",
-  },
-  itemAvatarImage: {
-    width: "100%",
-    height: "100%",
-  },
-  itemAvatarText: {
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.black,
   },
   itemInfo: {
     flex: 1,
