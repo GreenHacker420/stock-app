@@ -31,9 +31,16 @@ export function refreshToken(user) {
 }
 
 export async function login({ identifier, password }) {
+  // Normalize mobile: strip spaces, and strip leading +91 prefix if present
+  const normalizedIdentifier = identifier.trim().replace(/\s+/g, "").replace(/^\+91/, "");
+
   const user = await prisma.user.findFirst({
     where: {
-      OR: [{ mobile: identifier }, { email: identifier }],
+      OR: [
+        { mobile: normalizedIdentifier },
+        { mobile: identifier.trim() },
+        { email: identifier.trim().toLowerCase() },
+      ],
     },
   });
 
@@ -107,12 +114,16 @@ export async function listStaff(currentUser) {
   return prisma.user.findMany({
     where: {
       id: { not: currentUser.id },
-      status: "ACTIVE",
-      staffShopAccesses: {
-        some: {
-          shopId: { in: shopIds },
+      OR: [
+        { staffOwnerId: currentUser.id },
+        {
+          staffShopAccesses: {
+            some: {
+              shopId: { in: shopIds },
+            },
+          },
         },
-      },
+      ],
     },
     select: {
       id: true,
