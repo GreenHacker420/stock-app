@@ -123,27 +123,37 @@ export function OwnerStock() {
     <Screen edges={["top", "left", "right"]}>
       <AppHeader title="Inventory Ops" subtitle="Monitor and adjust stock levels." />
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <Section title="Physical management">
+        <Section title="Inventory Controls">
           <View style={styles.gridContainer}>
-            <Pressable onPress={() => navigate("StockDashboard")} style={({ pressed }) => [styles.statCard, pressed && styles.pressed]}>
-              <Icon source="warehouse" size={24} color={colors.primary} />
-              <Text style={styles.statLabel}>DASHBOARD</Text>
-              <Text style={styles.statValue}>Alerts</Text>
-            </Pressable>
             <Pressable onPress={() => navigate("StockEntry")} style={({ pressed }) => [styles.statCard, pressed && styles.pressed]}>
               <Icon source="plus-box" size={24} color={colors.primary} />
-              <Text style={styles.statLabel}>ENTRY</Text>
-              <Text style={styles.statValue}>Restock</Text>
+              <Text style={styles.statLabel}>ADD STOCK</Text>
+              <Text style={styles.statValue}>Restock Entry</Text>
+            </Pressable>
+            <Pressable onPress={() => navigate("AddEditItem")} style={({ pressed }) => [styles.statCard, pressed && styles.pressed]}>
+              <Icon source="package-variant-plus" size={24} color={colors.primary} />
+              <Text style={styles.statLabel}>ADD PRODUCT</Text>
+              <Text style={styles.statValue}>New Item</Text>
+            </Pressable>
+            <Pressable onPress={() => navigate("ManageCategories")} style={({ pressed }) => [styles.statCard, pressed && styles.pressed]}>
+              <Icon source="tag-multiple-outline" size={24} color={colors.primary} />
+              <Text style={styles.statLabel}>CATEGORIES</Text>
+              <Text style={styles.statValue}>Manage Cats</Text>
             </Pressable>
             <Pressable onPress={() => navigate("ItemList")} style={({ pressed }) => [styles.statCard, pressed && styles.pressed]}>
               <Icon source="barcode-scan" size={24} color={colors.primary} />
               <Text style={styles.statLabel}>CATALOG</Text>
-              <Text style={styles.statValue}>Pricing</Text>
+              <Text style={styles.statValue}>Browse Items</Text>
             </Pressable>
             <Pressable onPress={() => navigate("StockMovementHistory")} style={({ pressed }) => [styles.statCard, pressed && styles.pressed]}>
               <Icon source="swap-horizontal" size={24} color={colors.primary} />
-              <Text style={styles.statLabel}>LEDGER</Text>
+              <Text style={styles.statLabel}>STOCK LEDGER</Text>
               <Text style={styles.statValue}>History</Text>
+            </Pressable>
+            <Pressable onPress={() => navigate("StockDashboard")} style={({ pressed }) => [styles.statCard, pressed && styles.pressed]}>
+              <Icon source="warehouse" size={24} color={colors.primary} />
+              <Text style={styles.statLabel}>DASHBOARD</Text>
+              <Text style={styles.statValue}>Stock Alerts</Text>
             </Pressable>
           </View>
         </Section>
