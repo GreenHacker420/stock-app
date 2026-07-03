@@ -7,6 +7,8 @@ import {
   Modal as RNModal,
   TouchableWithoutFeedback,
   Alert,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import { Text, TextInput, Divider, Icon } from "react-native-paper";
 import * as Haptics from "expo-haptics";
@@ -211,6 +213,7 @@ export function ManageCategories() {
         fallbackRoute="ItemList"
       />
 
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -287,6 +290,7 @@ export function ManageCategories() {
           </Text>
         </View>
       </ScrollView>
+      </KeyboardAvoidingView>
 
       {/* ── Edit modal ── */}
       <EditModal

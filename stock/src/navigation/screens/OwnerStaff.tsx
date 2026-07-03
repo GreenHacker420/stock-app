@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Alert, Pressable, ScrollView, View, StyleSheet, RefreshControl } from "react-native";
+import { Alert, Pressable, ScrollView, View, StyleSheet, RefreshControl , KeyboardAvoidingView, Platform,} from "react-native";
 import { useRoute } from "@react-navigation/native";
 import { ActivityIndicator, Button, Text, TextInput, Divider, HelperText, Icon, Switch, Portal, Dialog } from "react-native-paper";
 import { ApiUser } from "../../api/client";
@@ -209,7 +209,8 @@ export function AddEditStaff() {
         subtitle="Configure access credentials and status." 
         fallbackRoute="StaffManagement"
       />
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
         <Section title="Account details">
           <View style={styles.formCard}>
             <TextInput 
@@ -309,6 +310,7 @@ export function AddEditStaff() {
           </Button>
         </View>
       </ScrollView>
+      </KeyboardAvoidingView>
     </Screen>
   );
 }

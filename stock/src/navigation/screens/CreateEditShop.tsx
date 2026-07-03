@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { View, StyleSheet, ScrollView } from "react-native";
+import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform } from "react-native";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRoute } from "@react-navigation/native";
 import { Button, TextInput, HelperText } from "react-native-paper";
@@ -110,7 +110,8 @@ export function CreateEditShop() {
         showBack
       />
 
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: spacing.xl }} showsVerticalScrollIndicator={false}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: spacing.xl }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
         <Section title="Shop credentials">
           <View style={styles.formContainer}>
             <TextInput
@@ -238,6 +239,7 @@ export function CreateEditShop() {
           </View>
         </Section>
       </ScrollView>
+      </KeyboardAvoidingView>
     </Screen>
   );
 }

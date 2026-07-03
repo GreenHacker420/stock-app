@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { View, ScrollView, StyleSheet } from "react-native";
+import { View, ScrollView, StyleSheet, KeyboardAvoidingView, Platform } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRoute } from "@react-navigation/native";
 import { Button, TextInput, List, HelperText, Portal, Modal, IconButton, Text } from "react-native-paper";
@@ -76,7 +76,8 @@ export function AssignStaff() {
     <Screen scroll={false}>
       <AppHeader title="Assign Staff" subtitle={`Manage operators for ${shop.name}`} />
 
-      <ScrollView style={{ flex: 1, marginTop: 8 }}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView style={{ flex: 1, marginTop: 8 }} keyboardShouldPersistTaps="handled">
         <Section title="Active Staff Members">
           <View style={styles.staffContainer}>
             {staffQuery.data?.length === 0 ? (
@@ -119,6 +120,7 @@ export function AssignStaff() {
           </View>
         </Section>
       </ScrollView>
+      </KeyboardAvoidingView>
 
       <View style={styles.footer}>
         <Button

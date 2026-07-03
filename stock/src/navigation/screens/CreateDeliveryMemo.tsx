@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { View, StyleSheet, ScrollView, Pressable, ActivityIndicator, Alert } from "react-native";
+import { View, StyleSheet, ScrollView, Pressable, ActivityIndicator, Alert, KeyboardAvoidingView, Platform } from "react-native";
 import { Text, TextInput, Card, Button, Portal, Dialog, Divider, List, Searchbar, Icon } from "react-native-paper";
 import { useCustomersQuery } from "../../hooks/useCustomers";
 import { useItemsQuery } from "../../hooks/useItems";
@@ -47,8 +47,8 @@ export function CreateDeliveryMemo() {
   const filteredCustomers = useMemo(() => {
     const list = customersQuery.data ?? [];
     if (!customerSearch) return list;
-    return list.filter((c: any) => 
-      c.name?.toLowerCase().includes(customerSearch.toLowerCase()) || 
+    return list.filter((c: any) =>
+      c.name?.toLowerCase().includes(customerSearch.toLowerCase()) ||
       c.phone?.includes(customerSearch)
     );
   }, [customersQuery.data, customerSearch]);
@@ -56,8 +56,8 @@ export function CreateDeliveryMemo() {
   const filteredProducts = useMemo(() => {
     const list = itemsQuery.data?.items ?? [];
     if (!productSearch) return list;
-    return list.filter((p: any) => 
-      p.name?.toLowerCase().includes(productSearch.toLowerCase()) || 
+    return list.filter((p: any) =>
+      p.name?.toLowerCase().includes(productSearch.toLowerCase()) ||
       p.sku?.toLowerCase().includes(productSearch.toLowerCase())
     );
   }, [itemsQuery.data, productSearch]);
@@ -179,177 +179,179 @@ export function CreateDeliveryMemo() {
     <Screen edges={["top", "left", "right"]}>
       <AppHeader title="Create Memo" subtitle="Draft direct customer delivery memo." showBack />
 
-      <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-        {/* Step 1: Customer Selection */}
-        <Card style={styles.card}>
-          <Card.Content style={styles.cardContent}>
-            <Text style={styles.sectionHeader}>Customer Details</Text>
-            {selectedCustomer ? (
-              <View style={styles.selectedRow}>
-                <View style={styles.infoCol}>
-                  <Text style={styles.selectedName}>{selectedCustomer.name}</Text>
-                  {selectedCustomer.phone && <Text style={styles.selectedPhone}>{selectedCustomer.phone}</Text>}
-                </View>
-                <Button 
-                  mode="text" 
-                  compact 
-                  onPress={() => setCustomerPickerVisible(true)}
-                  textColor={colors.primary}
-                >
-                  Change
-                </Button>
-              </View>
-            ) : (
-              <Button
-                mode="outlined"
-                icon="account-search-outline"
-                style={styles.pickerBtn}
-                onPress={() => setCustomerPickerVisible(true)}
-              >
-                Pick Customer
-              </Button>
-            )}
-          </Card.Content>
-        </Card>
-
-        {/* Step 2: Item List */}
-        <Card style={styles.card}>
-          <Card.Content style={styles.cardContent}>
-            <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionHeader}>Items & Pricing</Text>
-              <Button 
-                mode="text" 
-                compact 
-                icon="plus" 
-                onPress={() => setProductPickerVisible(true)}
-              >
-                Add Item
-              </Button>
-            </View>
-
-            {cart.length > 0 ? (
-              <View style={styles.cartList}>
-                {cart.map((item) => {
-                  const subtotal = item.quantity * item.rate;
-                  const isBelowMin = item.rate < item.minimumPrice;
-
-                  return (
-                    <View key={item.id} style={styles.cartItem}>
-                      <View style={styles.cartItemHeader}>
-                        <View style={styles.flex1}>
-                          <Text style={styles.cartItemName}>{item.name}</Text>
-                          <Text style={styles.cartItemSku}>{item.sku || "No SKU"} • Min: {money(item.minimumPrice)}</Text>
-                        </View>
-                        <Pressable onPress={() => handleRemoveProduct(item.id)}>
-                          <Icon source="delete-outline" size={20} color={colors.danger} />
-                        </Pressable>
-                      </View>
-
-                      <View style={styles.inputsRow}>
-                        <View style={[styles.flex1, styles.inputCol]}>
-                          <Text style={styles.inputLabel}>Qty ({item.unit})</Text>
-                          <TextInput
-                            mode="flat"
-                            dense
-                            keyboardType="numeric"
-                            value={String(item.quantity)}
-                            onChangeText={(val) => handleUpdateQty(item.id, val)}
-                            style={styles.textInputDense}
-                            activeUnderlineColor={colors.primary}
-                          />
-                        </View>
-                        <View style={[styles.flex1, styles.inputCol]}>
-                          <Text style={styles.inputLabel}>Rate (₹)</Text>
-                          <TextInput
-                            mode="flat"
-                            dense
-                            keyboardType="numeric"
-                            value={String(item.rate)}
-                            onChangeText={(val) => handleUpdateRate(item.id, val)}
-                            style={[styles.textInputDense, isBelowMin && styles.inputError]}
-                            activeUnderlineColor={isBelowMin ? colors.danger : colors.primary}
-                          />
-                        </View>
-                        <View style={styles.itemSubtotalCol}>
-                          <Text style={styles.subtotalLabel}>Line Total</Text>
-                          <Text style={styles.subtotalValue}>{money(subtotal)}</Text>
-                        </View>
-                      </View>
-
-                      {isBelowMin && (
-                        <View style={styles.priceWarningBadge}>
-                          <Icon source="alert-circle-outline" size={14} color={isStaff ? colors.danger : colors.warning} />
-                          <Text style={[styles.priceWarningText, { color: isStaff ? colors.danger : colors.warning }]}>
-                            {isStaff 
-                              ? "Rate below minimum! Staff cannot save." 
-                              : "Below minimum price. Owner approval overridden."}
-                          </Text>
-                        </View>
-                      )}
-                      <Divider style={styles.divider} />
-                    </View>
-                  );
-                })}
-              </View>
-            ) : (
-              <View style={styles.emptyCart}>
-                <Icon source="basket-outline" size={40} color={colors.textMuted} />
-                <Text style={styles.emptyCartText}>Cart is empty. Add products to generate memo.</Text>
-              </View>
-            )}
-          </Card.Content>
-        </Card>
-
-        {/* Step 3: Terms & Dates */}
-        <Card style={styles.card}>
-          <Card.Content style={styles.cardContent}>
-            <Text style={styles.sectionHeader}>Memo Conditions</Text>
-            <TextInput
-              label="Expected Payment Date (YYYY-MM-DD)"
-              mode="outlined"
-              placeholder="e.g. 2026-07-15"
-              value={expectedPaymentDate}
-              onChangeText={setExpectedPaymentDate}
-              style={styles.textInput}
-              outlineColor={colors.border}
-              activeOutlineColor={colors.primary}
-            />
-          </Card.Content>
-        </Card>
-
-        {/* Checkout Summary Card */}
-        {cart.length > 0 && (
-          <Card style={[styles.card, styles.summaryCard]}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+        <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+          {/* Step 1: Customer Selection */}
+          <Card style={styles.card}>
             <Card.Content style={styles.cardContent}>
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Total Items Selected</Text>
-                <Text style={styles.summaryValue}>{totals.totalQty} Units</Text>
-              </View>
-              <Divider style={{ marginVertical: spacing.sm, backgroundColor: "rgba(255, 255, 255, 0.15)" }} />
-              <View style={styles.summaryRow}>
-                <Text style={[styles.summaryLabel, styles.grandLabel]}>Grand Total</Text>
-                <Text style={[styles.summaryValue, styles.grandValue]}>{money(totals.totalAmount)}</Text>
-              </View>
+              <Text style={styles.sectionHeader}>Customer Details</Text>
+              {selectedCustomer ? (
+                <View style={styles.selectedRow}>
+                  <View style={styles.infoCol}>
+                    <Text style={styles.selectedName}>{selectedCustomer.name}</Text>
+                    {selectedCustomer.phone && <Text style={styles.selectedPhone}>{selectedCustomer.phone}</Text>}
+                  </View>
+                  <Button
+                    mode="text"
+                    compact
+                    onPress={() => setCustomerPickerVisible(true)}
+                    textColor={colors.primary}
+                  >
+                    Change
+                  </Button>
+                </View>
+              ) : (
+                <Button
+                  mode="outlined"
+                  icon="account-search-outline"
+                  style={styles.pickerBtn}
+                  onPress={() => setCustomerPickerVisible(true)}
+                >
+                  Pick Customer
+                </Button>
+              )}
             </Card.Content>
           </Card>
-        )}
 
-        <Button
-          mode="contained"
-          style={styles.saveBtn}
-          contentStyle={styles.saveBtnContent}
-          onPress={handleSave}
-          loading={createMutation.isPending}
-          disabled={createMutation.isPending || cart.length === 0}
-        >
-          Generate Delivery Memo
-        </Button>
-      </ScrollView>
+          {/* Step 2: Item List */}
+          <Card style={styles.card}>
+            <Card.Content style={styles.cardContent}>
+              <View style={styles.sectionHeaderRow}>
+                <Text style={styles.sectionHeader}>Items & Pricing</Text>
+                <Button
+                  mode="text"
+                  compact
+                  icon="plus"
+                  onPress={() => setProductPickerVisible(true)}
+                >
+                  Add Item
+                </Button>
+              </View>
+
+              {cart.length > 0 ? (
+                <View style={styles.cartList}>
+                  {cart.map((item) => {
+                    const subtotal = item.quantity * item.rate;
+                    const isBelowMin = item.rate < item.minimumPrice;
+
+                    return (
+                      <View key={item.id} style={styles.cartItem}>
+                        <View style={styles.cartItemHeader}>
+                          <View style={styles.flex1}>
+                            <Text style={styles.cartItemName}>{item.name}</Text>
+                            <Text style={styles.cartItemSku}>{item.sku || "No SKU"} • Min: {money(item.minimumPrice)}</Text>
+                          </View>
+                          <Pressable onPress={() => handleRemoveProduct(item.id)}>
+                            <Icon source="delete-outline" size={20} color={colors.danger} />
+                          </Pressable>
+                        </View>
+
+                        <View style={styles.inputsRow}>
+                          <View style={[styles.flex1, styles.inputCol]}>
+                            <Text style={styles.inputLabel}>Qty ({item.unit})</Text>
+                            <TextInput
+                              mode="flat"
+                              dense
+                              keyboardType="numeric"
+                              value={String(item.quantity)}
+                              onChangeText={(val) => handleUpdateQty(item.id, val)}
+                              style={styles.textInputDense}
+                              activeUnderlineColor={colors.primary}
+                            />
+                          </View>
+                          <View style={[styles.flex1, styles.inputCol]}>
+                            <Text style={styles.inputLabel}>Rate (₹)</Text>
+                            <TextInput
+                              mode="flat"
+                              dense
+                              keyboardType="numeric"
+                              value={String(item.rate)}
+                              onChangeText={(val) => handleUpdateRate(item.id, val)}
+                              style={[styles.textInputDense, isBelowMin && styles.inputError]}
+                              activeUnderlineColor={isBelowMin ? colors.danger : colors.primary}
+                            />
+                          </View>
+                          <View style={styles.itemSubtotalCol}>
+                            <Text style={styles.subtotalLabel}>Line Total</Text>
+                            <Text style={styles.subtotalValue}>{money(subtotal)}</Text>
+                          </View>
+                        </View>
+
+                        {isBelowMin && (
+                          <View style={styles.priceWarningBadge}>
+                            <Icon source="alert-circle-outline" size={14} color={isStaff ? colors.danger : colors.warning} />
+                            <Text style={[styles.priceWarningText, { color: isStaff ? colors.danger : colors.warning }]}>
+                              {isStaff
+                                ? "Rate below minimum! Staff cannot save."
+                                : "Below minimum price. Owner approval overridden."}
+                            </Text>
+                          </View>
+                        )}
+                        <Divider style={styles.divider} />
+                      </View>
+                    );
+                  })}
+                </View>
+              ) : (
+                <View style={styles.emptyCart}>
+                  <Icon source="basket-outline" size={40} color={colors.textMuted} />
+                  <Text style={styles.emptyCartText}>Cart is empty. Add products to generate memo.</Text>
+                </View>
+              )}
+            </Card.Content>
+          </Card>
+
+          {/* Step 3: Terms & Dates */}
+          <Card style={styles.card}>
+            <Card.Content style={styles.cardContent}>
+              <Text style={styles.sectionHeader}>Memo Conditions</Text>
+              <TextInput
+                label="Expected Payment Date (YYYY-MM-DD)"
+                mode="outlined"
+                placeholder="e.g. 2026-07-15"
+                value={expectedPaymentDate}
+                onChangeText={setExpectedPaymentDate}
+                style={styles.textInput}
+                outlineColor={colors.border}
+                activeOutlineColor={colors.primary}
+              />
+            </Card.Content>
+          </Card>
+
+          {/* Checkout Summary Card */}
+          {cart.length > 0 && (
+            <Card style={[styles.card, styles.summaryCard]}>
+              <Card.Content style={styles.cardContent}>
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>Total Items Selected</Text>
+                  <Text style={styles.summaryValue}>{totals.totalQty} Units</Text>
+                </View>
+                <Divider style={{ marginVertical: spacing.sm, backgroundColor: "rgba(255, 255, 255, 0.15)" }} />
+                <View style={styles.summaryRow}>
+                  <Text style={[styles.summaryLabel, styles.grandLabel]}>Grand Total</Text>
+                  <Text style={[styles.summaryValue, styles.grandValue]}>{money(totals.totalAmount)}</Text>
+                </View>
+              </Card.Content>
+            </Card>
+          )}
+
+          <Button
+            mode="contained"
+            style={styles.saveBtn}
+            contentStyle={styles.saveBtnContent}
+            onPress={handleSave}
+            loading={createMutation.isPending}
+            disabled={createMutation.isPending || cart.length === 0}
+          >
+            Generate Delivery Memo
+          </Button>
+        </ScrollView>
+      </KeyboardAvoidingView>
 
       {/* Customer Picker Dialog */}
       <Portal>
-        <Dialog 
-          visible={customerPickerVisible} 
+        <Dialog
+          visible={customerPickerVisible}
           onDismiss={() => setCustomerPickerVisible(false)}
           style={styles.dialog}
         >
@@ -381,8 +383,8 @@ export function CreateDeliveryMemo() {
         </Dialog>
 
         {/* Product Picker Dialog */}
-        <Dialog 
-          visible={productPickerVisible} 
+        <Dialog
+          visible={productPickerVisible}
           onDismiss={() => setProductPickerVisible(false)}
           style={styles.dialog}
         >

@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { View, ScrollView, StyleSheet, Modal, Alert, Platform, TouchableOpacity } from "react-native";
+import { View, ScrollView, StyleSheet, Modal, Alert, Platform, TouchableOpacity , KeyboardAvoidingView } from "react-native";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Text, TextInput, Icon } from "react-native-paper";
 import { useRoute, useNavigation } from "@react-navigation/native";
@@ -185,7 +185,8 @@ export function UpiConfig() {
     <Screen edges={['top', 'left', 'right']}>
       <AppHeader title="QR Management" subtitle={`Configure UPI for ${shop.name}`} />
       
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
         <View style={styles.container}>
            <View style={styles.heroCard}>
               <View style={styles.heroHeader}>
@@ -266,6 +267,7 @@ export function UpiConfig() {
            </View>
         </View>
       </ScrollView>
+      </KeyboardAvoidingView>
 
       <View style={styles.footer}>
          <Button

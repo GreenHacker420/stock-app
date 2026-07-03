@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { View, ScrollView, StyleSheet } from "react-native";
+import { View, ScrollView, StyleSheet, KeyboardAvoidingView, Platform,} from "react-native";
 import { useRoute } from "@react-navigation/native";
 import { Button, TextInput, List, Text, HelperText } from "react-native-paper";
 import { Shop } from "../../api/client";
@@ -85,7 +85,8 @@ export function SetOpeningStock() {
         subtitle={`Set starting quantities for ${shop.name}`}
       />
 
-      <ScrollView style={{ flex: 1, marginTop: 8 }}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView style={{ flex: 1, marginTop: 8 }} keyboardShouldPersistTaps="handled">
         <Section title="Inventory Items">
           {itemsQuery.isLoading ? (
             <View style={styles.loadingItems}>
@@ -134,6 +135,7 @@ export function SetOpeningStock() {
           </View>
         </Section>
       </ScrollView>
+      </KeyboardAvoidingView>
 
       {error ? (
         <View style={styles.errorPadding}>

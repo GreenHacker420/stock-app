@@ -1,21 +1,28 @@
 import { useMemo, useState, memo, useCallback, useEffect, useRef } from "react";
-import { 
-  View, 
-  StyleSheet, 
-  KeyboardAvoidingView, 
-  Platform, 
-  Pressable, 
+import {
+  View,
+  StyleSheet,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
   TextInput,
   ScrollView,
-  Alert
+  Alert,
+  Keyboard,
 } from "react-native";
 import { useRoute } from "@react-navigation/native";
-import { Searchbar, Text, Icon } from "react-native-paper";
+import { Text, Icon } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 import * as Haptics from "expo-haptics";
 
 import { Item } from "../../api/client";
-import { useItemsQuery, useAddStockMutation, useItemStockQuery, useCategoriesQuery, useCurrentStockQuery } from "../../hooks/useItems";
+import {
+  useItemsQuery,
+  useAddStockMutation,
+  useItemStockQuery,
+  useCategoriesQuery,
+  useCurrentStockQuery,
+} from "../../hooks/useItems";
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
 import { filterCachedProducts } from "../../utils/mmkvCache";
@@ -28,246 +35,210 @@ import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../the
 import { SuccessModal } from "../../components/ui/SuccessModal";
 import { navigate, goBack } from "../navigation-ref";
 
-const formatItemName = (name: string) => {
-  return name
-    .split(/\s+/)
-    .map(word => {
-      if (!word) return "";
-      if (
-        /^\d/.test(word) ||
-        ["SKU", "RC", "N/A", "3D", "103D", "1043D", "104A/1104", "1053", "109/1710", "MTR", "HDMI", "USB", "RAM", "SSD"].includes(
-          word.toUpperCase()
-        )
-      ) {
-        return word.toUpperCase();
-      }
-      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
-    })
-    .join(" ");
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const haptic = (s: "light" | "medium" = "light") => {
+  if (Platform.OS !== "web") {
+    void Haptics.impactAsync(
+      s === "medium" ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light
+    ).catch(() => {});
+  }
 };
 
-const StockEntryRow = memo(({ 
-  item, 
-  quantity, 
-  onChange,
-  onFocus,
-  currentStock
-}: { 
-  item: Item, 
-  quantity: string, 
-  onChange: (val: string) => void,
-  onFocus?: () => void,
-  currentStock?: { physicalStock: number; reservedStock: number; availableStock: number }
-}) => {
-  const numericVal = Number(quantity) || 0;
-  const color = numericVal > 0 ? colors.success : numericVal < 0 ? colors.danger : colors.textPrimary;
-  
-  const handleIncrement = () => {
-    if (Platform.OS !== "web") {
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    }
-    const currentVal = Number(quantity) || 0;
-    onChange(String(currentVal + 1));
-  };
+// ── Item Row ──────────────────────────────────────────────────────────────────
+const ItemRow = memo(
+  function ItemRow({
+    item,
+    qty,
+    currentStock,
+    onChange,
+    onFocusScrollTo,
+  }: {
+    item: Item;
+    qty: string;
+    currentStock?: { physicalStock: number };
+    onChange: (val: string) => void;
+    onFocusScrollTo: () => void;
+  }) {
+    const inputRef = useRef<TextInput>(null);
+    const num = Number(qty) || 0;
 
-  const handleDecrement = () => {
-    if (Platform.OS !== "web") {
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    }
-    const currentVal = Number(quantity) || 0;
-    onChange(String(currentVal - 1));
-  };
+    const accentColor =
+      num > 0 ? colors.success :
+      num < 0 ? colors.danger  :
+      "transparent";
 
-  return (
-    <View style={[
-      styles.row,
-      numericVal > 0 && styles.rowPositive,
-      numericVal < 0 && styles.rowNegative,
-      { borderLeftColor: numericVal > 0 ? colors.success : numericVal < 0 ? colors.danger : colors.border }
-    ]}>
-      <View style={styles.rowHeader}>
-        <View style={styles.rowIconBg}>
-          <Icon source="package-variant-closed" size={20} color={colors.textSecondary} />
+    const bump = (delta: number) => {
+      haptic();
+      onChange(String((Number(qty) || 0) + delta));
+    };
+
+    return (
+      <Pressable
+        onPress={() => inputRef.current?.focus()}
+        style={[
+          styles.row,
+          { borderLeftColor: accentColor },
+          num > 0 && styles.rowPositive,
+          num < 0 && styles.rowNegative,
+        ]}
+        accessibilityLabel={`${item.name}, quantity ${qty || 0}`}
+      >
+        {/* Left: info */}
+        <View style={styles.rowInfo}>
+          <Text style={styles.rowName} numberOfLines={2}>{item.name}</Text>
+          <View style={styles.rowMeta}>
+            {item.category?.name && (
+              <View style={styles.catTag}>
+                <Text style={styles.catTagText}>{item.category.name}</Text>
+              </View>
+            )}
+            <View style={styles.stockTag}>
+              <Icon source="cube-outline" size={10} color={colors.textMuted} />
+              <Text style={styles.stockTagText}>
+                {currentStock !== undefined ? currentStock.physicalStock : "—"}
+                {" "}{item.unit}
+              </Text>
+            </View>
+          </View>
         </View>
-        <Text style={styles.itemName}>{formatItemName(item.name)}</Text>
-      </View>
-      
-      <View style={styles.rowFooter}>
-        <View style={styles.stockBadge}>
-          <Text style={styles.stockBadgeText}>
-            Unit: {item.unit} • SKU: {item.sku || "N/A"}
-            {currentStock !== undefined && ` • Current: ${currentStock.physicalStock}`}
-          </Text>
-        </View>
-        
-        <View style={styles.counterContainer}>
-          <Pressable 
-            onPress={handleDecrement}
-            style={({ pressed }) => [
-              styles.counterBtn,
-              pressed && styles.pressed
-            ]}
+
+        {/* Right: stepper */}
+        <View style={styles.stepper}>
+          <Pressable
+            onPress={() => bump(-1)}
+            style={({ pressed }) => [styles.stepBtn, pressed && styles.stepBtnPressed]}
+            hitSlop={4}
+            accessibilityLabel="Decrease"
           >
-            <Icon source="minus" size={16} color={colors.textSecondary} />
+            <Icon source="minus" size={18} color={num > 0 ? colors.textSecondary : colors.danger} />
           </Pressable>
 
           <TextInput
-            style={[styles.qtyInput, { color }]}
-            value={quantity}
-            onFocus={onFocus}
-            onChangeText={(text) => {
-              if (text === "-" || text === "") {
-                onChange(text);
-                return;
-              }
-              const num = Number(text);
-              if (!isNaN(num)) {
-                onChange(text);
-              }
+            ref={inputRef}
+            style={[
+              styles.stepInput,
+              num > 0 && { color: colors.success },
+              num < 0 && { color: colors.danger },
+            ]}
+            value={qty}
+            onFocus={onFocusScrollTo}
+            onChangeText={(t) => {
+              if (t === "" || t === "-") { onChange(t); return; }
+              const n = Number(t);
+              if (!isNaN(n)) onChange(t);
             }}
             keyboardType="numeric"
             placeholder="0"
             placeholderTextColor={colors.textMuted}
             selectTextOnFocus
             returnKeyType="done"
+            onSubmitEditing={() => Keyboard.dismiss()}
           />
 
-          <Pressable 
-            onPress={handleIncrement}
-            style={({ pressed }) => [
-              styles.counterBtn,
-              pressed && styles.pressed
-            ]}
+          <Pressable
+            onPress={() => bump(1)}
+            style={({ pressed }) => [styles.stepBtn, styles.stepBtnPlus, pressed && styles.stepBtnPressed]}
+            hitSlop={4}
+            accessibilityLabel="Increase"
           >
-            <Icon source="plus" size={16} color={colors.textSecondary} />
+            <Icon source="plus" size={18} color={colors.primary} />
           </Pressable>
         </View>
-      </View>
-    </View>
-  );
-}, (p, n) => p.item.id === n.item.id && p.quantity === n.quantity && p.currentStock?.physicalStock === n.currentStock?.physicalStock);
+      </Pressable>
+    );
+  },
+  (p, n) =>
+    p.item.id === n.item.id &&
+    p.qty === n.qty &&
+    p.currentStock?.physicalStock === n.currentStock?.physicalStock
+);
 
+// ── Main Screen ───────────────────────────────────────────────────────────────
 export function StockEntry() {
-  const route = useRoute();
-  const user = useAuthStore((state) => state.user);
-  const activeShopId = useShopStore((state) => state.activeShopId);
-  const isStaff = user?.role === "STAFF";
+  const route       = useRoute();
+  const user        = useAuthStore((s) => s.user);
+  const activeShopId = useShopStore((s) => s.activeShopId);
+  const isStaff     = user?.role === "STAFF";
 
-  // Check if we are managing a specific item
-  const routeParams = route.params as { itemId?: string } | undefined;
-  const specificItemId = routeParams?.itemId;
+  const params        = route.params as { itemId?: string } | undefined;
+  const specificItemId = params?.itemId;
 
-  const [search, setSearch] = useState("");
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string>("ALL");
-  const [entries, setEntries] = useState<Record<string, string>>({});
-  const [editedItemsMap, setEditedItemsMap] = useState<Record<string, Item>>({});
-  const [showOnlyEdited, setShowOnlyEdited] = useState(false);
-  const [notes, setNotes] = useState("");
-  const [successVisible, setSuccessVisible] = useState(false);
+  const [search,       setSearch]       = useState("");
+  const [catId,        setCatId]        = useState<string>("ALL");
+  const [entries,      setEntries]      = useState<Record<string, string>>({});
+  const [editedMap,    setEditedMap]    = useState<Record<string, Item>>({});
+  const [onlyEdited,   setOnlyEdited]   = useState(false);
+  const [notes,        setNotes]        = useState("");
+  const [successVisible, setSuccess]   = useState(false);
 
   const listRef = useRef<any>(null);
 
-  // Categories query
   const categoriesQuery = useCategoriesQuery();
   const categories = categoriesQuery.data ?? [];
 
-  // Fetch real-time stock levels of all items (optimized: only for specific item if in specific mode)
-  const stockQuery = useCurrentStockQuery(specificItemId ? specificItemId : undefined);
-  const stockMap = useMemo(() => {
-    const map = new Map<string, { physicalStock: number; reservedStock: number; availableStock: number }>();
-    if (stockQuery.data) {
-      for (const level of stockQuery.data) {
-        map.set(level.item.id, {
-          physicalStock: level.physicalStock,
-          reservedStock: level.reservedStock,
-          availableStock: level.availableStock,
-        });
-      }
+  const stockQuery = useCurrentStockQuery(specificItemId ?? undefined);
+  const stockMap   = useMemo(() => {
+    const m = new Map<string, { physicalStock: number }>();
+    for (const lvl of stockQuery.data ?? []) {
+      m.set(lvl.item.id, { physicalStock: lvl.physicalStock });
     }
-    return map;
+    return m;
   }, [stockQuery.data]);
 
-  // If specific item, fetch its details
   const specificItemQuery = useItemStockQuery(specificItemId);
-  const specificItem = (specificItemQuery.data as any)?.item as Item | undefined;
+  const specificItem      = (specificItemQuery.data as any)?.item as Item | undefined;
 
-  // Load all items of the shop once (cached and up to 1000 items)
-  const itemsQuery = useItemsQuery({ 
-    limit: 1000,
-    enabled: !specificItemId
-  });
+  const itemsQuery = useItemsQuery({ limit: 1000, enabled: !specificItemId });
+  const allItems   = useMemo(
+    () => itemsQuery.data?.items ?? filterCachedProducts(activeShopId ?? "", ""),
+    [itemsQuery.data?.items, activeShopId]
+  );
 
-  const allItems = useMemo(() => {
-    return itemsQuery.data?.items ?? filterCachedProducts(activeShopId ?? "", "");
-  }, [itemsQuery.data?.items, activeShopId]);
-
-  const [debouncedSearch, setDebouncedSearch] = useState("");
-
+  const [debSearch, setDebSearch] = useState("");
   useEffect(() => {
-    const t = setTimeout(() => setDebouncedSearch(search), 200);
+    const t = setTimeout(() => setDebSearch(search), 180);
     return () => clearTimeout(t);
   }, [search]);
 
   const displayItems = useMemo(() => {
-    if (specificItemId) {
-      return specificItem ? [specificItem] : [];
-    }
-    
-    let list = showOnlyEdited 
-      ? Object.values(editedItemsMap).filter(item => {
-          const qty = entries[item.id];
-          const num = Number(qty);
-          return qty !== undefined && qty !== "" && !isNaN(num) && num !== 0;
+    if (specificItemId) return specificItem ? [specificItem] : [];
+    let list = onlyEdited
+      ? Object.values(editedMap).filter((it) => {
+          const n = Number(entries[it.id]);
+          return !isNaN(n) && n !== 0;
         })
       : allItems;
-
-    if (selectedCategoryId !== "ALL") {
-      list = list.filter(item => item.category?.id === selectedCategoryId);
-    }
-
-    if (debouncedSearch.trim()) {
-      const q = debouncedSearch.toLowerCase();
-      list = list.filter(item => 
-        item.name.toLowerCase().includes(q) ||
-        (item.sku && item.sku.toLowerCase().includes(q))
+    if (catId !== "ALL") list = list.filter((it) => it.category?.id === catId);
+    if (debSearch.trim()) {
+      const q = debSearch.toLowerCase();
+      list = list.filter(
+        (it) => it.name.toLowerCase().includes(q) || (it.sku && it.sku.toLowerCase().includes(q))
       );
     }
-
     return list;
-  }, [specificItemId, specificItem, allItems, showOnlyEdited, editedItemsMap, entries, debouncedSearch, selectedCategoryId]);
+  }, [specificItemId, specificItem, allItems, onlyEdited, editedMap, entries, debSearch, catId]);
 
-  const entryItems = useMemo(() => {
-    return Object.entries(entries)
-      .filter(([_, qty]) => {
-        const num = Number(qty);
-        return !isNaN(num) && num !== 0;
-      })
-      .map(([id, qty]) => ({ itemId: id, quantity: Number(qty) }));
-  }, [entries]);
-
+  const entryItems = useMemo(
+    () =>
+      Object.entries(entries)
+        .filter(([, v]) => { const n = Number(v); return !isNaN(n) && n !== 0; })
+        .map(([id, v]) => ({ itemId: id, quantity: Number(v) })),
+    [entries]
+  );
   const entryCount = entryItems.length;
 
   const updateEntry = useCallback((item: Item, val: string) => {
-    const id = item.id;
+    const id  = item.id;
     const num = Number(val);
-    
-    setEntries(prev => {
+    const empty = val === "" || val === "0" || isNaN(num) || num === 0;
+    setEntries((prev) => {
       const next = { ...prev };
-      if (val === "" || val === "0" || isNaN(num) || num === 0) {
-        delete next[id];
-      } else {
-        next[id] = val;
-      }
+      if (empty) delete next[id]; else next[id] = val;
       return next;
     });
-
-    setEditedItemsMap(prev => {
+    setEditedMap((prev) => {
       const next = { ...prev };
-      if (val === "" || val === "0" || isNaN(num) || num === 0) {
-        delete next[id];
-      } else {
-        next[id] = item;
-      }
+      if (empty) delete next[id]; else next[id] = item;
       return next;
     });
   }, []);
@@ -276,250 +247,262 @@ export function StockEntry() {
 
   const handleSubmit = () => {
     if (stockMutation.isPending || entryCount === 0) return;
+    haptic("medium");
+    const defaultNote =
+      specificItemId
+        ? `${isStaff ? "Restock request" : "Manual restock"} for ${specificItem?.name ?? "item"}`
+        : isStaff
+        ? "Bulk stock entry request by staff"
+        : "Bulk stock entry via app";
 
-    const defaultNote = specificItemId 
-      ? (isStaff ? `Restock for ${specificItem?.name}` : `Manual restock for ${specificItem?.name}`)
-      : (isStaff ? "Bulk stock entry request by staff" : "Bulk stock entry via app");
-
-    stockMutation.mutate({
-      entries: entryItems,
-      notes: notes.trim() || defaultNote,
-    }, {
-      onSuccess: () => {
-        if (Platform.OS !== "web") {
-          void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-        }
-        setSuccessVisible(true);
-      },
-      onError: (err) => {
-        Alert.alert("Submission Failed", err instanceof Error ? err.message : "Something went wrong.");
+    stockMutation.mutate(
+      { entries: entryItems, notes: notes.trim() || defaultNote },
+      {
+        onSuccess: () => {
+          if (Platform.OS !== "web")
+            void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+          setSuccess(true);
+        },
+        onError: (err) =>
+          Alert.alert("Submission Failed", err instanceof Error ? err.message : "Something went wrong."),
       }
-    });
+    );
   };
 
-  const handleCategoryPress = (catId: string) => {
-    if (Platform.OS !== "web") {
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    }
-    setSelectedCategoryId(catId);
-  };
+  const isLoading = specificItemId ? specificItemQuery.isLoading : (itemsQuery.isLoading && allItems.length === 0);
+  const isError   = specificItemId ? specificItemQuery.isError   : itemsQuery.isError;
 
   return (
-    <Screen edges={['top', 'left', 'right', 'bottom']}>
-      <KeyboardAvoidingView 
-        style={styles.keyboardView} 
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    <Screen edges={["top", "left", "right", "bottom"]}>
+      <KeyboardAvoidingView
+        style={styles.kav}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
       >
-        <AppHeader 
-          title={specificItemId ? "Update Stock" : "Stock Entry"} 
-          subtitle={specificItemId ? `Adding stock for ${specificItem?.name || 'item'}...` : "Update inventory levels"} 
+        <AppHeader
+          title={specificItemId ? "Update Stock" : "Stock Entry"}
+          subtitle={
+            specificItemId
+              ? `Adding stock for ${specificItem?.name ?? "item"}`
+              : isStaff
+              ? "Quantities will be submitted for owner approval"
+              : "Update inventory stock levels"
+          }
           fallbackRoute={specificItemId ? "StockDashboard" : "Home"}
         />
-        
-        {!specificItemId && (
-          <View style={styles.headerContainer}>
-            <Searchbar
-              placeholder="Search items to restock..."
-              onChangeText={setSearch}
-              value={search}
-              style={styles.searchBar}
-              inputStyle={styles.searchInput}
-              elevation={0}
-            />
 
-            {/* Category horizontal filters */}
-            <View style={styles.filterSection}>
-              <Text style={styles.filterLabel}>FILTER BY CATEGORY</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.modeTabsContent}>
-                <Pressable 
-                  onPress={() => handleCategoryPress("ALL")}
-                  style={[
-                    styles.modeChip, 
-                    selectedCategoryId === "ALL" ? styles.modeChipActive : styles.modeChipInactive
-                  ]}
-                >
-                  <Icon 
-                    source="format-list-bulleted" 
-                    size={14} 
-                    color={selectedCategoryId === "ALL" ? colors.textInverse : colors.textSecondary} 
-                  />
-                  <Text 
-                    style={[
-                      styles.modeChipText, 
-                      selectedCategoryId === "ALL" ? styles.modeChipTextActive : styles.modeChipTextInactive
-                    ]}
-                  >
-                    All Categories
-                  </Text>
+        {/* ── Filters (only for bulk mode) ──────────────────────────── */}
+        {!specificItemId && (
+          <View style={styles.filtersWrap}>
+            {/* Search */}
+            <View style={styles.searchBox}>
+              <Icon source="magnify" size={18} color={colors.textMuted} />
+              <TextInput
+                style={styles.searchInput}
+                placeholder="Search items..."
+                placeholderTextColor={colors.textMuted}
+                value={search}
+                onChangeText={setSearch}
+                returnKeyType="search"
+                autoCorrect={false}
+                autoCapitalize="none"
+                clearButtonMode="while-editing"
+              />
+              {search.length > 0 && (
+                <Pressable onPress={() => setSearch("")} hitSlop={8}>
+                  <Icon source="close-circle" size={16} color={colors.textMuted} />
                 </Pressable>
-                {categories.map(cat => (
-                  <Pressable 
-                    key={cat.id} 
-                    onPress={() => handleCategoryPress(cat.id)}
-                    style={[
-                      styles.modeChip, 
-                      selectedCategoryId === cat.id ? styles.modeChipActive : styles.modeChipInactive
-                    ]}
-                  >
-                    <Icon 
-                      source="tag-outline" 
-                      size={14} 
-                      color={selectedCategoryId === cat.id ? colors.textInverse : colors.textSecondary} 
-                    />
-                    <Text 
-                      style={[
-                        styles.modeChipText, 
-                        selectedCategoryId === cat.id ? styles.modeChipTextActive : styles.modeChipTextInactive
-                      ]}
-                    >
-                      {cat.name}
-                    </Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
+              )}
             </View>
 
-            {/* List filters: Edited vs All */}
-            <View style={styles.filterChipsRow}>
-              <Pressable
-                onPress={() => {
-                  if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                  setShowOnlyEdited(false);
-                }}
-                style={[styles.filterChip, !showOnlyEdited && styles.filterChipActive]}
+            {/* Category chips */}
+            {categories.length > 0 && (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.catScroll}
               >
-                <Icon source="package-variant" size={14} color={!showOnlyEdited ? colors.primary : colors.textSecondary} />
-                <Text style={[styles.filterChipText, !showOnlyEdited && styles.filterChipTextActive]}>All Items</Text>
-              </Pressable>
+                {["ALL", ...categories.map((c) => c.id)].map((id) => {
+                  const name = id === "ALL" ? "All" : categories.find((c) => c.id === id)?.name ?? id;
+                  const active = catId === id;
+                  return (
+                    <Pressable
+                      key={id}
+                      onPress={() => { haptic(); setCatId(id); }}
+                      style={[styles.catChip, active && styles.catChipActive]}
+                    >
+                      <Text style={[styles.catChipText, active && styles.catChipTextActive]}>
+                        {name}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            )}
 
+            {/* All / Edited toggle row */}
+            <View style={styles.toggleRow}>
               <Pressable
-                onPress={() => {
-                  if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-                  setShowOnlyEdited(true);
-                }}
-                style={[styles.filterChip, showOnlyEdited && styles.filterChipActive]}
+                onPress={() => { haptic(); setOnlyEdited(false); }}
+                style={[styles.togglePill, !onlyEdited && styles.togglePillActive]}
               >
-                <Icon source="pencil-box-multiple-outline" size={14} color={showOnlyEdited ? colors.primary : colors.textSecondary} />
-                <Text style={[styles.filterChipText, showOnlyEdited && styles.filterChipTextActive]}>Edited ({entryCount})</Text>
+                <Icon source="format-list-bulleted" size={13} color={!onlyEdited ? colors.primary : colors.textMuted} />
+                <Text style={[styles.toggleText, !onlyEdited && styles.toggleTextActive]}>All Items</Text>
               </Pressable>
-
+              <Pressable
+                onPress={() => { haptic(); setOnlyEdited(true); }}
+                style={[styles.togglePill, onlyEdited && styles.togglePillActive]}
+              >
+                <Icon source="pencil-box-multiple-outline" size={13} color={onlyEdited ? colors.primary : colors.textMuted} />
+                <Text style={[styles.toggleText, onlyEdited && styles.toggleTextActive]}>
+                  Edited{entryCount > 0 ? ` (${entryCount})` : ""}
+                </Text>
+              </Pressable>
               {entryCount > 0 && (
                 <Pressable
                   onPress={() => {
-                    if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+                    haptic("medium");
                     setEntries({});
-                    setEditedItemsMap({});
-                    setShowOnlyEdited(false);
+                    setEditedMap({});
+                    setOnlyEdited(false);
                   }}
                   style={styles.clearBtn}
+                  hitSlop={8}
                 >
-                  <Icon source="trash-can-outline" size={14} color={colors.danger} />
-                  <Text style={styles.clearBtnText}>Clear All</Text>
+                  <Icon source="trash-can-outline" size={13} color={colors.danger} />
+                  <Text style={styles.clearBtnText}>Clear</Text>
                 </Pressable>
               )}
             </View>
           </View>
         )}
 
-        {/* Product rows list */}
-        <View style={styles.listContainer}>
-          {(() => {
-            const List = FlashList as any;
-            const isLoading = specificItemId ? specificItemQuery.isLoading : (itemsQuery.isLoading && allItems.length === 0);
-            const isError = specificItemId ? specificItemQuery.isError : itemsQuery.isError;
-            
-            if (isLoading) return <SkeletonList count={8} itemHeight={80} />;
-
-            if (isError) {
+        {/* ── List ────────────────────────────────────────────────────── */}
+        <View style={styles.listWrap}>
+          {isLoading ? (
+            <SkeletonList count={8} itemHeight={76} />
+          ) : isError ? (
+            <EmptyState
+              icon="alert-circle-outline"
+              title="Could not load items"
+              subtitle="Check your connection and try again."
+              action={
+                <Button
+                  label="Retry"
+                  onPress={() => {
+                    if (specificItemId) specificItemQuery.refetch();
+                    else itemsQuery.refetch();
+                  }}
+                />
+              }
+            />
+          ) : (
+            (() => {
+              const List = FlashList as any;
               return (
-                <EmptyState
-                  icon="alert-circle-outline"
-                  title="Could not load items"
-                  subtitle="Please check your connection and try again."
-                  action={
-                    <Button 
-                      label="Retry" 
-                      onPress={() => {
-                        if (specificItemId) specificItemQuery.refetch();
-                        else itemsQuery.refetch();
-                      }} 
+                <List
+                  ref={listRef}
+                  data={displayItems}
+                  keyExtractor={(it: Item) => it.id}
+                  estimatedItemSize={84}
+                  renderItem={({ item, index }: { item: Item; index: number }) => (
+                    <ItemRow
+                      item={item}
+                      qty={entries[item.id] ?? ""}
+                      currentStock={stockMap.get(item.id)}
+                      onChange={(val) => updateEntry(item, val)}
+                      onFocusScrollTo={() => {
+                        setTimeout(() => {
+                          try {
+                            listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.3 });
+                          } catch {}
+                        }, 120);
+                      }}
+                    />
+                  )}
+                  ListEmptyComponent={
+                    <EmptyState
+                      icon="package-variant-closed"
+                      title={onlyEdited ? "No edited items yet" : "No items found"}
+                      subtitle={
+                        specificItemId
+                          ? "Failed to load this item."
+                          : onlyEdited
+                          ? "Go to 'All Items' and change a quantity."
+                          : search.trim()
+                          ? `No results for "${search}"`
+                          : "No products in this category."
+                      }
+                      action={
+                        !specificItemId && !onlyEdited ? (
+                          <Button label="Create Product" icon="plus" onPress={() => navigate("AddEditItem")} />
+                        ) : undefined
+                      }
                     />
                   }
+                  contentContainerStyle={styles.listContent}
                 />
               );
-            }
-
-            return (
-              <List
-                ref={listRef}
-                data={displayItems}
-                keyExtractor={(item: Item) => item.id}
-                renderItem={({ item, index }: { item: Item, index: number }) => (
-                  <StockEntryRow 
-                    item={item} 
-                    quantity={entries[item.id] || ""}
-                    onChange={(val) => updateEntry(item, val)}
-                    currentStock={stockMap.get(item.id)}
-                    onFocus={() => {
-                      setTimeout(() => {
-                        try {
-                          listRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.3 });
-                        } catch (e) {}
-                      }, 120);
-                    }}
-                  />
-                )}
-                ListEmptyComponent={
-                  <EmptyState 
-                    icon="package-variant-closed" 
-                    title={showOnlyEdited ? "No edited items" : "No items found"} 
-                    subtitle={specificItemId ? "Failed to load the specific item." : (showOnlyEdited ? "Select 'All Items' and modify a quantity to edit." : "Try searching for a different item name")} 
-                    action={
-                      !specificItemId && !showOnlyEdited && (
-                        <Button 
-                          label="Create Product" 
-                          icon="plus" 
-                          onPress={() => navigate("AddEditItem")}
-                        />
-                      )
-                    }
-                  />
-                }
-                contentContainerStyle={styles.listContent}
-                estimatedItemSize={90}
-              />
-            );
-          })()}
+            })()
+          )}
         </View>
 
-        {/* Footer Container */}
+        {/* ── Sticky footer ────────────────────────────────────────────── */}
         <View style={styles.footer}>
+          {/* Staff notice */}
+          {isStaff && entryCount > 0 && (
+            <View style={styles.staffNotice}>
+              <Icon source="information-outline" size={14} color="#0284c7" />
+              <Text style={styles.staffNoticeText}>
+                Your request will be sent to the owner for approval.
+              </Text>
+            </View>
+          )}
+
+          {/* Notes field */}
           {entryCount > 0 && (
             <TextInput
               style={styles.notesInput}
-              placeholder="Add stock movement notes (optional)..."
+              placeholder="Add a note (optional)..."
+              placeholderTextColor={colors.textMuted}
               value={notes}
               onChangeText={setNotes}
               maxLength={200}
-              placeholderTextColor={colors.textMuted}
+              returnKeyType="done"
+              onSubmitEditing={() => Keyboard.dismiss()}
             />
           )}
-          <View style={styles.footerInfo}>
-            <Text style={styles.footerText}>
-              {specificItemId 
-                ? `Adjusting ${specificItem ? formatItemName(specificItem.name) : 'item'} by ${entries[specificItemId || ''] || '0'}` 
-                : `${entryCount} items being updated`}
-            </Text>
+
+          {/* Summary + CTA */}
+          <View style={styles.footerRow}>
+            <View style={styles.footerSummary}>
+              <Text style={styles.footerCount}>
+                {entryCount === 0 ? "No changes" : `${entryCount} item${entryCount > 1 ? "s" : ""} modified`}
+              </Text>
+              {specificItemId && entries[specificItemId] && (
+                <Text style={styles.footerDelta}>
+                  Δ {entries[specificItemId] > "0" ? "+" : ""}{entries[specificItemId]}
+                </Text>
+              )}
+            </View>
+            <View style={styles.footerCta}>
+              <Button
+                label={
+                  specificItemId
+                    ? "Confirm Update"
+                    : isStaff
+                    ? "Submit Request"
+                    : "Apply to Stock"
+                }
+                onPress={handleSubmit}
+                loading={stockMutation.isPending}
+                disabled={entryCount === 0 || stockMutation.isPending}
+                fullWidth
+                size="lg"
+                variant="primary"
+              />
+            </View>
           </View>
-          <Button 
-            label={specificItemId ? "CONFIRM STOCK UPDATE" : "SUBMIT STOCK ENTRY"} 
-            onPress={handleSubmit} 
-            loading={stockMutation.isPending}
-            disabled={entryCount === 0 || stockMutation.isPending}
-            fullWidth
-            size="lg"
-            variant="primary"
-          />
         </View>
       </KeyboardAvoidingView>
 
@@ -527,14 +510,14 @@ export function StockEntry() {
         visible={successVisible}
         title={isStaff ? "Request Submitted" : "Stock Updated"}
         message={
-          isStaff 
-            ? `Your stock entry request has been sent for owner approval.`
-            : `Successfully updated stock level.`
+          isStaff
+            ? "Your stock entry has been sent for owner approval."
+            : "Inventory levels updated successfully."
         }
         onClose={() => {
-          setSuccessVisible(false);
+          setSuccess(false);
           setEntries({});
-          setEditedItemsMap({});
+          setEditedMap({});
           setNotes("");
           goBack();
         }}
@@ -543,230 +526,264 @@ export function StockEntry() {
   );
 }
 
+// ── Styles ────────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  keyboardView: {
-    flex: 1,
-  },
-  headerContainer: {
+  kav: { flex: 1 },
+
+  // Filters
+  filtersWrap: {
     paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.md,
+    paddingBottom: spacing.sm,
+    gap: spacing.sm,
     backgroundColor: colors.bg,
   },
-  searchBar: {
+  searchBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    height: 44,
     backgroundColor: colors.surface,
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.md,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: fontSize.sm,
+    color: colors.textPrimary,
+    height: "100%",
+    padding: 0,
+  },
+  catScroll: {
+    gap: spacing.sm,
+    paddingVertical: 2,
+  },
+  catChip: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    borderRadius: radius.full,
+    backgroundColor: colors.surfaceOffset,
     borderWidth: 1,
     borderColor: colors.border,
   },
-  searchInput: {
-    fontSize: fontSize.md,
-  },
-  filterSection: {
-    marginTop: spacing.sm,
-    gap: spacing.xs,
-  },
-  filterLabel: {
-    fontSize: 10,
-    fontWeight: fontWeight.bold,
-    color: colors.textMuted,
-    letterSpacing: 1,
-    marginLeft: 4,
-  },
-  modeTabsContent: {
-    gap: spacing.sm,
-    paddingVertical: spacing.xs,
-  },
-  modeChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 6,
-    borderRadius: radius.md,
-    borderWidth: 1,
-  },
-  modeChipActive: {
+  catChipActive: {
     backgroundColor: colors.primary,
     borderColor: colors.primary,
   },
-  modeChipInactive: {
-    backgroundColor: colors.surfaceOffset,
-    borderColor: colors.border,
-  },
-  modeChipText: {
+  catChipText: {
     fontSize: 12,
-    fontWeight: fontWeight.bold,
-  },
-  modeChipTextActive: {
-    color: colors.textInverse,
-  },
-  modeChipTextInactive: {
+    fontWeight: fontWeight.semibold,
     color: colors.textSecondary,
   },
-  filterChipsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    marginTop: spacing.sm,
+  catChipTextActive: {
+    color: colors.textInverse,
   },
-  filterChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
+  toggleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  togglePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: spacing.md,
     paddingVertical: 6,
     borderRadius: radius.full,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
   },
-  filterChipActive: {
+  togglePillActive: {
     borderColor: colors.primary,
     backgroundColor: colors.primaryLight,
   },
-  filterChipText: {
-    fontSize: 11,
-    fontWeight: fontWeight.bold,
+  toggleText: {
+    fontSize: 12,
+    fontWeight: fontWeight.semibold,
     color: colors.textSecondary,
   },
-  filterChipTextActive: {
+  toggleTextActive: {
     color: colors.primary,
   },
   clearBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 4,
-    marginLeft: 'auto',
+    marginLeft: "auto",
     paddingVertical: 6,
   },
   clearBtnText: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: fontWeight.bold,
     color: colors.danger,
   },
-  listContainer: {
-    flex: 1,
-  },
+
+  // List
+  listWrap: { flex: 1 },
   listContent: {
     paddingHorizontal: spacing.lg,
-    paddingBottom: spacing.xl,
+    paddingTop: spacing.sm,
+    paddingBottom: 120,
   },
+
+  // Item Row
   row: {
-    flexDirection: 'column',
-    alignItems: 'stretch',
-    padding: 12,
-    borderRadius: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.surface,
-    marginBottom: spacing.sm,
     borderLeftWidth: 4,
-    gap: spacing.sm,
+    borderLeftColor: "transparent",
+    marginBottom: spacing.sm,
+    padding: spacing.md,
+    gap: spacing.md,
+    minHeight: 72,
     ...shadow.sm,
   },
   rowPositive: {
-    backgroundColor: "rgba(22, 163, 74, 0.03)",
-    borderColor: "rgba(22, 163, 74, 0.2)",
+    backgroundColor: "rgba(22,163,74,0.03)",
+    borderColor: "rgba(22,163,74,0.2)",
   },
   rowNegative: {
-    backgroundColor: "rgba(220, 38, 38, 0.03)",
-    borderColor: "rgba(220, 38, 38, 0.2)",
+    backgroundColor: "rgba(220,38,38,0.03)",
+    borderColor: "rgba(220,38,38,0.2)",
   },
-  rowHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-  },
-  rowFooter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: spacing.md,
-  },
-  rowIconBg: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: colors.surfaceOffset,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  itemName: {
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.bold,
-    color: colors.textPrimary,
+  rowInfo: {
     flex: 1,
+    gap: 4,
   },
-  stockBadge: {
-    backgroundColor: colors.surfaceOffset,
-    alignSelf: 'flex-start',
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-    borderRadius: radius.sm,
-    marginTop: 4,
-  },
-  stockBadgeText: {
-    fontSize: 10,
-    color: colors.textSecondary,
-    fontWeight: fontWeight.medium,
-  },
-  counterContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.surfaceOffset,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 18,
-    width: 136,
-    height: 38,
-    overflow: 'hidden',
-  },
-  counterBtn: {
-    width: 42,
-    height: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  qtyInput: {
-    flex: 1,
-    height: '100%',
-    textAlign: 'center',
+  rowName: {
     fontSize: fontSize.sm,
     fontWeight: fontWeight.bold,
     color: colors.textPrimary,
-    backgroundColor: colors.surface,
-    padding: 0,
-    fontVariant: ['tabular-nums'],
+    lineHeight: 18,
   },
-  pressed: {
+  rowMeta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+  },
+  catTag: {
+    backgroundColor: colors.surfaceOffset,
+    borderRadius: radius.sm,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+  },
+  catTagText: {
+    fontSize: 9,
+    fontWeight: fontWeight.semibold,
+    color: colors.textSecondary,
+  },
+  stockTag: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    backgroundColor: colors.surfaceOffset,
+    borderRadius: radius.sm,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+  },
+  stockTagText: {
+    fontSize: 9,
+    fontWeight: fontWeight.semibold,
+    color: colors.textMuted,
+  },
+
+  // Stepper
+  stepper: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.surfaceOffset,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: "hidden",
+    height: 44,
+    width: 130,
+  },
+  stepBtn: {
+    width: 42,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  stepBtnPlus: {
+    backgroundColor: colors.primaryLight,
+  },
+  stepBtnPressed: {
     opacity: 0.5,
   },
+  stepInput: {
+    flex: 1,
+    height: 44,
+    textAlign: "center",
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.black,
+    color: colors.textPrimary,
+    backgroundColor: colors.surface,
+    padding: 0,
+    fontVariant: ["tabular-nums"],
+  },
+
+  // Footer
   footer: {
     backgroundColor: colors.surface,
-    padding: spacing.lg,
-    paddingBottom: Platform.OS === 'ios' ? spacing.xl : spacing.lg,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: Platform.OS === "ios" ? spacing.xxl : spacing.lg,
     borderTopWidth: 1,
     borderTopColor: colors.border,
+    gap: spacing.sm,
     ...shadow.md,
+  },
+  staffNotice: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    backgroundColor: "#e0f2fe",
+    borderRadius: radius.md,
+    padding: spacing.sm,
+  },
+  staffNoticeText: {
+    flex: 1,
+    fontSize: 11,
+    color: "#0284c7",
+    fontWeight: fontWeight.medium,
   },
   notesInput: {
     backgroundColor: colors.surfaceOffset,
     borderWidth: 1,
     borderColor: colors.border,
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     paddingHorizontal: spacing.md,
-    paddingVertical: 8,
-    fontSize: 13,
-    color: colors.textPrimary,
-    marginBottom: spacing.md,
-  },
-  footerInfo: {
-    marginBottom: spacing.md,
-    alignItems: 'center',
-  },
-  footerText: {
+    paddingVertical: spacing.sm,
     fontSize: fontSize.sm,
-    color: colors.textSecondary,
+    color: colors.textPrimary,
+    minHeight: 40,
+  },
+  footerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+  },
+  footerSummary: {
+    gap: 2,
+  },
+  footerCount: {
+    fontSize: fontSize.xs,
     fontWeight: fontWeight.bold,
-  }
+    color: colors.textSecondary,
+  },
+  footerDelta: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.black,
+    color: colors.primary,
+  },
+  footerCta: {
+    flex: 1,
+  },
 });

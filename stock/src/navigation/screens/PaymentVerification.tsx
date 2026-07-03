@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from "react";
-import { View, ScrollView, Pressable, StyleSheet, Platform, Alert } from "react-native";
+import { View, ScrollView, Pressable, StyleSheet, Platform, Alert , KeyboardAvoidingView } from "react-native";
 import { Button, Text, Icon, TextInput, Portal, Dialog, Divider } from "react-native-paper";
 import * as Haptics from "expo-haptics";
 
@@ -147,7 +147,8 @@ export function PaymentVerification() {
         </ScrollView>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.listContent}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.listContent} keyboardShouldPersistTaps="handled">
         <View style={styles.listGap}>
           {filteredPayments.map(p => (
             <View key={p.id} style={styles.paymentCard}>
@@ -257,6 +258,7 @@ export function PaymentVerification() {
           )}
         </View>
       </ScrollView>
+      </KeyboardAvoidingView>
 
       <Portal>
         <Dialog visible={!!actionType} onDismiss={() => setActionType(null)} style={styles.dialog}>

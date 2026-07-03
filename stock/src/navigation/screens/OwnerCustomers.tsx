@@ -1,5 +1,5 @@
 import React, { useMemo, useState, memo } from "react";
-import { Alert, Pressable, View, StyleSheet, ActivityIndicator, ScrollView } from "react-native";
+import { Alert, Pressable, View, StyleSheet, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform,} from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRoute } from "@react-navigation/native";
 import { Divider, Icon, Searchbar, Text, TextInput } from "react-native-paper";
@@ -223,6 +223,8 @@ export function AddEditCustomer() {
         subtitle="Maintain customer profile settings" 
         fallbackRoute="CustomerList"
       />
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 32 }} keyboardShouldPersistTaps="handled">
       <View style={styles.formContainer}>
         <Section title="Customer details">
           <View style={styles.formCard}>
@@ -317,6 +319,8 @@ export function AddEditCustomer() {
           />
         </View>
       </View>
+      </ScrollView>
+      </KeyboardAvoidingView>
     </Screen>
   );
 }
