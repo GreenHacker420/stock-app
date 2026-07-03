@@ -45,12 +45,12 @@ export async function getCustomerTimeline(user, id) {
   ]);
 
   const timeline = [
-    ...sales.map(s => ({ id: s.id, type: "SALE", date: s.createdAt, title: `Sale #${s.saleNumber}`, amount: s.totalAmount, status: s.saleStatus })),
-    ...payments.map(p => ({ id: p.id, type: "PAYMENT", date: p.receivedAt, title: `${p.paymentMode} Payment`, amount: p.amount, status: p.status })),
-    ...dms.map(d => ({ id: d.id, type: "DM", date: d.createdAt, title: `Delivery Memo #${d.dmNumber}`, amount: d.estimatedAmount, status: d.status })),
-    ...returns.map(r => ({ id: r.id, type: "RETURN", date: r.createdAt, title: `Return #${r.returnNumber}`, amount: r.netAmount, status: r.status })),
-    ...audits.map(a => ({ id: a.id, type: "AUDIT", date: a.createdAt, title: a.action, detail: a.reason })),
-  ].sort((a, b) => new Date(b.date) - new Date(a.date));
+    ...sales.map(s => ({ id: s.id, type: "SALE", createdAt: s.createdAt, event: `Sale #${s.saleNumber}`, description: `Status: ${s.saleStatus}`, amount: s.totalAmount, status: s.saleStatus })),
+    ...payments.map(p => ({ id: p.id, type: "PAYMENT", createdAt: p.receivedAt ?? p.createdAt, event: `${p.paymentMode} Payment`, description: `Status: ${p.status}`, amount: p.amount, status: p.status })),
+    ...dms.map(d => ({ id: d.id, type: "DM", createdAt: d.createdAt, event: `Delivery Memo #${d.dmNumber}`, description: `Status: ${d.status}`, amount: d.estimatedAmount, status: d.status })),
+    ...returns.map(r => ({ id: r.id, type: "RETURN", createdAt: r.createdAt, event: `Return #${r.returnNumber}`, description: `Status: ${r.status}`, amount: r.netAmount, status: r.status })),
+    ...audits.map(a => ({ id: a.id, type: "AUDIT", createdAt: a.createdAt, event: a.action, description: a.reason ?? "", amount: null })),
+  ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   return timeline;
 }

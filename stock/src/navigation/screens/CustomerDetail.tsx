@@ -250,6 +250,13 @@ function ReturnsTab({ query }: { query: any }) {
 function TimelineTab({ query }: { query: any }) {
   const List = FlashList as any;
   if (query.isLoading) return <ActivityIndicator style={{ marginTop: 40 }} />;
+
+  const formatDate = (raw: any) => {
+    if (!raw) return "—";
+    const d = new Date(raw);
+    return isNaN(d.getTime()) ? "—" : d.toLocaleString();
+  };
+
   return (
     <List
       data={query.data ?? []}
@@ -260,10 +267,10 @@ function TimelineTab({ query }: { query: any }) {
               <View style={styles.timelineDot} />
            </View>
            <View style={styles.timelineCard}>
-              <Text style={styles.timelineDate}>{new Date(item.createdAt).toLocaleString()}</Text>
-              <Text style={styles.timelineTitle}>{item.event}</Text>
-              <Text style={styles.timelineDesc}>{item.description}</Text>
-              {item.amount && <Text style={styles.timelineAmount}>{money(item.amount)}</Text>}
+              <Text style={styles.timelineDate}>{formatDate(item.createdAt)}</Text>
+              <Text style={styles.timelineTitle}>{item.event ?? item.title ?? item.type}</Text>
+              {!!item.description && <Text style={styles.timelineDesc}>{item.description}</Text>}
+              {item.amount != null && <Text style={styles.timelineAmount}>{money(item.amount)}</Text>}
            </View>
         </View>
       )}
@@ -272,6 +279,7 @@ function TimelineTab({ query }: { query: any }) {
     />
   );
 }
+
 
 function InfoRow({ label, value }: { label: string; value: string }) {
   return (
