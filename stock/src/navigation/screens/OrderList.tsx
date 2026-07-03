@@ -1,6 +1,5 @@
 import React, { useMemo, useState } from "react";
-import { View, StyleSheet, Pressable } from "react-native";
-import { Divider, Text, Icon } from "react-native-paper";
+import { View, StyleSheet } from "react-native";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
 
@@ -10,10 +9,10 @@ import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { AppSearchBar } from "../../components/ui/AppSearchBar";
 import { AppSegmentedControl } from "../../components/ui/AppSegmentedControl";
-import { StatusPill } from "../../components/ui/StatusPill";
 import { SkeletonList } from "../../components/ui/SkeletonCard";
 import { EmptyState } from "../../components/ui/EmptyState";
-import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
+import { OrderCard } from "../../components/domain/orders/OrderCard";
+import { spacing } from "../../theme";
 import { useShopStore } from "../../auth/shop-store";
 import { navigate } from "../navigation-ref";
 
@@ -30,7 +29,6 @@ export function OrderList() {
     if (activeTab === "ALL") return allOrders;
     return allOrders.filter(o => o.status === activeTab);
   }, [allOrders, activeTab]);
-
   const List = FlashList as any;
 
   return (
@@ -68,32 +66,17 @@ export function OrderList() {
               keyExtractor={(item: Order) => item.id}
               estimatedItemSize={110}
               renderItem={({ item }: { item: Order }) => (
-                <Pressable
+                <OrderCard
+                  orderNumber={item.orderNumber}
+                  customerName={item.customer?.name}
+                  status={item.status}
+                  statusTone={item.status === "PACKED" || item.status === "DISPATCHED" ? "green" : item.status === "CANCELLED" ? "red" : "blue"}
+                  leftLabel="TOTAL VALUE"
+                  leftValue={`₹${Number(item.totalAmount).toLocaleString()}`}
+                  rightLabel="BOOKED ON"
+                  rightValue={new Date(item.createdAt).toLocaleDateString()}
                   onPress={() => navigate("OrderDetail", { orderId: item.id })}
-                  style={({ pressed }) => [styles.orderCard, pressed && styles.pressed]}
-                >
-                  <View style={styles.cardHeader}>
-                    <View>
-                      <Text style={styles.orderNumber}>#{item.orderNumber}</Text>
-                      <Text style={styles.customerName}>{item.customer?.name}</Text>
-                    </View>
-                    <StatusPill 
-                      label={item.status} 
-                      tone={item.status === 'PACKED' || item.status === 'DISPATCHED' ? 'green' : item.status === 'CANCELLED' ? 'red' : 'blue'} 
-                    />
-                  </View>
-                  <Divider style={styles.divider} />
-                  <View style={styles.cardFooter}>
-                    <View>
-                      <Text style={styles.footerLabel}>TOTAL VALUE</Text>
-                      <Text style={styles.footerValue}>₹{Number(item.totalAmount).toLocaleString()}</Text>
-                    </View>
-                    <View style={{ alignItems: 'flex-end' }}>
-                      <Text style={styles.footerLabel}>BOOKED ON</Text>
-                      <Text style={styles.footerValue}>{new Date(item.createdAt).toLocaleDateString()}</Text>
-                    </View>
-                  </View>
-                </Pressable>
+                />
               )}
               ListEmptyComponent={<EmptyState icon="package-variant" title="No orders found" />}
               contentContainerStyle={styles.listContent}
@@ -112,13 +95,4 @@ const styles = StyleSheet.create({
   tabs: { marginBottom: spacing.lg },
   listWrapper: { flex: 1 },
   listContent: { paddingBottom: 100 },
-  orderCard: { backgroundColor: colors.surface, borderRadius: 20, borderWidth: 1, borderColor: colors.border, padding: spacing.lg, marginBottom: spacing.md, ...shadow.sm },
-  pressed: { opacity: 0.72, transform: [{ scale: 0.98 }] },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  orderNumber: { fontSize: 12, fontWeight: fontWeight.bold, color: colors.primary },
-  customerName: { fontSize: 15, fontWeight: fontWeight.black, color: colors.textPrimary, marginTop: 2 },
-  divider: { marginVertical: spacing.md, backgroundColor: colors.surfaceOffset },
-  cardFooter: { flexDirection: 'row', justifyContent: 'space-between' },
-  footerLabel: { fontSize: 8, fontWeight: fontWeight.black, color: colors.textMuted, letterSpacing: 0.5 },
-  footerValue: { fontSize: 12, fontWeight: fontWeight.bold, color: colors.textSecondary, marginTop: 2 }
 });

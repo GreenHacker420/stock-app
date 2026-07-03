@@ -14,6 +14,8 @@ import { Screen } from "../../../components/Screen";
 import { AppHeader } from "../../../components/ui/AppHeader";
 import { SkeletonList } from "../../../components/ui/SkeletonCard";
 import { EmptyState } from "../../../components/ui/EmptyState";
+import { InfoRow } from "../../../components/ui/InfoRow";
+import { StockMovementRow } from "../../../components/domain/stock/StockMovementRow";
 import { StockTransferDialog } from "../../../components/items/StockTransferDialog";
 import { ItemSummaryCard } from "../../../components/items/ItemSummaryCard";
 import { ItemDetailActions } from "../../../components/items/ItemDetailActions";
@@ -106,8 +108,8 @@ export function ItemDetail() {
         {activeTab === "overview" && (
           <View style={styles.detailCard}>
             {[
-              { label: "Available Stock", value: `${availableStock} ${itemData.unit}`, highlight: true, color: availableStock <= 0 ? colors.danger : availableStock <= minStock ? colors.warning : colors.success },
-              { label: "Reserved Stock", value: `${reservedStock} ${itemData.unit}`, color: reservedStock > 0 ? colors.warning : colors.textSecondary },
+              { label: "Available Stock", value: `${availableStock} ${itemData.unit}`, tone: availableStock <= 0 ? "red" : availableStock <= minStock ? "amber" : "green" },
+              { label: "Reserved Stock", value: `${reservedStock} ${itemData.unit}`, tone: reservedStock > 0 ? "amber" : "default" },
               { label: "Physical Stock", value: `${physicalStock} ${itemData.unit}` },
               { label: "Unit", value: itemData.unit },
               { label: "Category", value: itemData.category?.name ?? "—" },
@@ -118,10 +120,7 @@ export function ItemDetail() {
               { label: "Low Stock Alert", value: `${itemData.minimumStock ?? 0} ${itemData.unit}` },
             ].map((row, i, arr) => (
               <Fragment key={row.label}>
-                <View style={styles.detailRow}>
-                  <Text style={[styles.detailRowLabel, row.highlight && { fontWeight: fontWeight.bold, color: colors.textPrimary }]}>{row.label}</Text>
-                  <Text style={[styles.detailRowValue, row.color && { color: row.color, fontWeight: fontWeight.bold }]}>{row.value}</Text>
-                </View>
+                <InfoRow label={row.label} value={row.value} tone={row.tone as any} style={styles.detailRow} />
                 {i < arr.length - 1 && <Divider style={styles.rowDivider} />}
               </Fragment>
             ))}
@@ -137,16 +136,12 @@ export function ItemDetail() {
             ) : (
               (movementsQuery.data as StockMovementEntry[]).map((m, i, arr) => (
                 <Fragment key={m.id}>
-                  <View style={styles.movRow}>
-                    <View style={[styles.movDot, { backgroundColor: m.type === "IN" ? colors.primary : colors.danger }]} />
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <Text style={styles.movType}>{m.type === "IN" ? "Stock In" : "Stock Out"}</Text>
-                      <Text style={styles.movDate}>{new Date(m.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</Text>
-                    </View>
-                    <Text style={[styles.movQty, { color: m.type === "IN" ? colors.primary : colors.danger }]}>
-                      {m.type === "IN" ? "+" : "-"}{m.quantity} {itemData.unit}
-                    </Text>
-                  </View>
+                  <StockMovementRow
+                    title={m.type === "IN" ? "Stock In" : "Stock Out"}
+                    date={new Date(m.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                    quantity={`${m.type === "IN" ? "+" : "-"}${m.quantity} ${itemData.unit}`}
+                    tone={m.type === "IN" ? "green" : "red"}
+                  />
                   {i < arr.length - 1 && <Divider style={styles.rowDivider} />}
                 </Fragment>
               ))
@@ -242,20 +237,6 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.md,
     gap: spacing.md,
     minHeight: 52,
-  },
-  detailRowLabel: {
-    fontSize: fontSize.sm,
-    color: colors.textSecondary,
-    fontWeight: fontWeight.medium,
-    flex: 1,
-    minWidth: 0,
-  },
-  detailRowValue: {
-    fontSize: fontSize.sm,
-    color: colors.textPrimary,
-    fontWeight: fontWeight.bold,
-    flexShrink: 1,
-    textAlign: "right",
   },
   rowDivider: {
     backgroundColor: colors.border,

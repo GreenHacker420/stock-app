@@ -1,12 +1,12 @@
 import React from "react";
-import { View, StyleSheet, ScrollView, Pressable, ActivityIndicator, RefreshControl } from "react-native";
-import { Text, Card, Icon, FAB } from "react-native-paper";
+import { View, StyleSheet, ScrollView, ActivityIndicator, RefreshControl } from "react-native";
+import { FAB } from "react-native-paper";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
-import { StatusPill } from "../../components/ui/StatusPill";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { useDeliveryMemosQuery } from "../../hooks/useDeliveryMemos";
-import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
+import { DeliveryMemoCard } from "../../components/domain/delivery/DeliveryMemoCard";
+import { colors, spacing, radius } from "../../theme";
 import { navigate } from "../navigation-ref";
 
 const money = (value?: string | number | null) => "₹" + Number(value ?? 0).toLocaleString("en-IN");
@@ -69,71 +69,20 @@ export function DeliveryMemoList() {
               });
 
               return (
-                <Pressable
+                <DeliveryMemoCard
                   key={dm.id}
+                  number={dm.dmNumber}
+                  date={dateStr}
+                  customerName={dm.customer?.name || "Walk-in Customer"}
+                  status={dm.status || "CREATED"}
+                  statusTone={getStatusTone(dm.status)}
+                  estimatedAmount={money(dm.estimatedAmount)}
+                  paidAmount={money(dm.paidAmount)}
+                  balanceAmount={money(dm.balanceAmount)}
+                  balanceTone={Number(dm.balanceAmount) > 0 ? "red" : "default"}
+                  itemCount={dm.items?.length || 0}
                   onPress={() => handlePress(dm.id)}
-                  style={({ pressed }) => [
-                    styles.cardPressable,
-                    pressed && styles.pressed
-                  ]}
-                >
-                  <Card style={styles.card}>
-                    <Card.Content style={styles.cardContent}>
-                      <View style={styles.cardHeader}>
-                        <View style={styles.headerTitleCol}>
-                          <Text style={styles.dmNumber}>DM #{dm.dmNumber}</Text>
-                          <Text style={styles.dateText}>{dateStr}</Text>
-                        </View>
-                        <StatusPill 
-                          label={dm.status || "CREATED"} 
-                          tone={getStatusTone(dm.status)} 
-                        />
-                      </View>
-
-                      <View style={styles.customerRow}>
-                        <Icon source="account-circle-outline" size={20} color={colors.textSecondary} />
-                        <Text style={styles.customerName} numberOfLines={1}>
-                          {dm.customer?.name || "Walk-in Customer"}
-                        </Text>
-                      </View>
-
-                      <View style={styles.amountGrid}>
-                        <View style={styles.amountCol}>
-                          <Text style={styles.amountLabel}>ESTIMATED AMOUNT</Text>
-                          <Text style={styles.amountValue}>{money(dm.estimatedAmount)}</Text>
-                        </View>
-                        <View style={styles.amountCol}>
-                          <Text style={styles.amountLabel}>PAID AMOUNT</Text>
-                          <Text style={[styles.amountValue, { color: colors.success }]}>
-                            {money(dm.paidAmount)}
-                          </Text>
-                        </View>
-                        <View style={[styles.amountCol, styles.rightAlign]}>
-                          <Text style={styles.amountLabel}>BALANCE DUE</Text>
-                          <Text style={[
-                            styles.amountValue, 
-                            { color: Number(dm.balanceAmount) > 0 ? colors.danger : colors.textSecondary }
-                          ]}>
-                            {money(dm.balanceAmount)}
-                          </Text>
-                        </View>
-                      </View>
-
-                      <View style={styles.cardFooter}>
-                        <View style={styles.footerInfo}>
-                          <Icon source="package-variant-closed" size={14} color={colors.textMuted} />
-                          <Text style={styles.footerText}>
-                            {dm.items?.length || 0} items listed
-                          </Text>
-                        </View>
-                        <View style={[styles.footerInfo, styles.flexEnd]}>
-                          <Text style={styles.viewLink}>View details</Text>
-                          <Icon source="chevron-right" size={16} color={colors.primary} />
-                        </View>
-                      </View>
-                    </Card.Content>
-                  </Card>
-                </Pressable>
+                />
               );
             })}
           </ScrollView>
@@ -180,105 +129,6 @@ const styles = StyleSheet.create({
     paddingBottom: 110,
     gap: spacing.md,
   },
-  cardPressable: {
-    borderRadius: radius.xl,
-  },
-  card: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    borderColor: colors.border,
-    ...shadow.sm,
-    elevation: 2,
-  },
-  cardContent: {
-    padding: spacing.lg,
-    gap: spacing.md,
-  },
-  cardHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-  },
-  headerTitleCol: {
-    gap: 2,
-  },
-  dmNumber: {
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.black,
-    color: colors.textPrimary,
-  },
-  dateText: {
-    fontSize: fontSize.xs,
-    color: colors.textMuted,
-    fontWeight: fontWeight.semibold,
-  },
-  customerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.xs,
-    backgroundColor: colors.surfaceOffset,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  customerName: {
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.extrabold,
-    color: colors.textPrimary,
-    flex: 1,
-  },
-  amountGrid: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingHorizontal: spacing.xs,
-  },
-  amountCol: {
-    gap: 4,
-  },
-  rightAlign: {
-    alignItems: "flex-end",
-  },
-  amountLabel: {
-    fontSize: 9,
-    fontWeight: fontWeight.extrabold,
-    color: colors.textMuted,
-    letterSpacing: 0.5,
-  },
-  amountValue: {
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.black,
-    color: colors.textPrimary,
-  },
-  cardFooter: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    paddingTop: spacing.xs,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  footerInfo: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  footerText: {
-    fontSize: 11,
-    color: colors.textSecondary,
-    fontWeight: fontWeight.semibold,
-  },
-  flexEnd: {
-    flex: 1,
-    justifyContent: "flex-end",
-  },
-  viewLink: {
-    fontSize: 11,
-    color: colors.primary,
-    fontWeight: fontWeight.extrabold,
-  },
   fab: {
     position: "absolute",
     margin: 24,
@@ -286,9 +136,5 @@ const styles = StyleSheet.create({
     bottom: 24,
     backgroundColor: colors.primary,
     borderRadius: radius.xl,
-  },
-  pressed: {
-    opacity: 0.85,
-    transform: [{ scale: 0.98 }],
   },
 });

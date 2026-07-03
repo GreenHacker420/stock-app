@@ -1,4 +1,4 @@
-import React, { useMemo, useState, memo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Alert, Pressable, View, StyleSheet, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform,} from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRoute } from "@react-navigation/native";
@@ -22,6 +22,7 @@ import { AppHeader } from "../../components/ui/AppHeader";
 import { AppSearchBar } from "../../components/ui/AppSearchBar";
 import { Section } from "../../components/ui/Section";
 import { StatusPill } from "../../components/ui/StatusPill";
+import { CustomerCard } from "../../components/domain/customers/CustomerCard";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { SkeletonList } from "../../components/ui/SkeletonCard";
 import { EmptyState } from "../../components/ui/EmptyState";
@@ -33,54 +34,6 @@ import { requireActiveShopId } from "../../hooks/useActiveShop";
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 const internetRequiredMessage = "Internet connection required. Please connect to the internet to complete this action.";
-
-const CustomerCard = memo(({ 
-  customer, 
-  onPress 
-}: { 
-  customer: Customer, 
-  onPress: () => void 
-}) => {
-  const isPending = Math.abs(Number(customer.outstandingAmount ?? 0)) > 0;
-  
-  return (
-    <Pressable 
-      onPress={onPress} 
-      style={({ pressed }) => [
-        styles.customerCard,
-        pressed && styles.pressed
-      ]}
-    >
-      <View style={styles.customerHeader}>
-        <View style={styles.customerMain}>
-          <Text style={styles.customerName}>{customer.name}</Text>
-          <Text style={styles.customerSubtitle}>
-            {customer.type === "WALK_IN" ? "Counter Walk-in Sales" : `${customer.contactPerson ? `${customer.contactPerson} • ` : ""}${customer.phone || "No phone"}${customer.city ? ` • ${customer.city}` : ""}`}
-          </Text>
-        </View>
-        {customer.type === "WALK_IN" ? (
-          <StatusPill 
-            label="WALK-IN" 
-            tone="blue" 
-          />
-        ) : (
-          <StatusPill 
-            label={isPending ? "PENDING" : "CLEAR"} 
-            tone={isPending ? "red" : "green"} 
-          />
-        )}
-      </View>
-      <View style={styles.customerFooter}>
-        <Text style={styles.outstandingLabel}>
-          Outstanding: <Text style={styles.outstandingValue}>{money(Math.abs(Number(customer.outstandingAmount)))}</Text>
-        </Text>
-        <Text style={styles.limitLabel}>
-          Limit: {money(customer.creditLimit)}
-        </Text>
-      </View>
-    </Pressable>
-  );
-});
 
 export function CustomerList() {
   const token = useAuthStore((state) => state.token);
@@ -104,7 +57,7 @@ export function CustomerList() {
     enabled: !!activeShopId && network.isOffline,
   });
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (activeShopId && customersQuery.data) {
       setCachedCustomers(activeShopId, customersQuery.data);
     }
@@ -135,12 +88,20 @@ export function CustomerList() {
               <List
                 data={filteredData}
                 keyExtractor={(item: any) => item.id}
-                renderItem={({ item }: any) => (
-                  <CustomerCard 
-                    customer={item} 
-                    onPress={() => navigate("CustomerDetail", { customerId: item.id })}
-                  />
-                )}
+                renderItem={({ item }: any) => {
+                  const isPending = Math.abs(Number(item.outstandingAmount ?? 0)) > 0;
+                  return (
+                    <CustomerCard
+                      name={item.name}
+                      subtitle={item.type === "WALK_IN" ? "Counter Walk-in Sales" : `${item.contactPerson ? `${item.contactPerson} • ` : ""}${item.phone || "No phone"}${item.city ? ` • ${item.city}` : ""}`}
+                      statusLabel={item.type === "WALK_IN" ? "WALK-IN" : isPending ? "PENDING" : "CLEAR"}
+                      statusTone={item.type === "WALK_IN" ? "blue" : isPending ? "red" : "green"}
+                      outstandingLabel={`Outstanding: ${money(Math.abs(Number(item.outstandingAmount)))}`}
+                      limitLabel={`Limit: ${money(item.creditLimit)}`}
+                      onPress={() => navigate("CustomerDetail", { customerId: item.id })}
+                    />
+                  );
+                }}
                 ListEmptyComponent={
                   customersQuery.isLoading ? (
                     <SkeletonList count={8} itemHeight={80} />

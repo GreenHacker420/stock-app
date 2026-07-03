@@ -1,14 +1,14 @@
 import { useEffect, useState } from "react";
-import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform } from "react-native";
+import { StyleSheet } from "react-native";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRoute } from "@react-navigation/native";
-import { Button, TextInput, HelperText } from "react-native-paper";
 import { createShop, updateShop, Shop } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
-import { Screen } from "../../components/Screen";
-import { AppHeader } from "../../components/ui/AppHeader";
-import { Section } from "../../components/ui/Section";
-import { colors, spacing, radius, fontSize, fontWeight } from '../../theme';
+import { FormScreen } from "../../components/layout/FormScreen";
+import { ScreenSection } from "../../components/layout/ScreenSection";
+import { StickyFooterActions } from "../../components/layout/StickyFooterActions";
+import { FormTextField } from "../../components/forms/FormTextField";
+import { spacing } from "../../theme";
 import { goBack } from "../navigation-ref";
 
 export function CreateEditShop() {
@@ -103,19 +103,24 @@ export function CreateEditShop() {
     codeError === "";
 
   return (
-    <Screen>
-      <AppHeader
+    <FormScreen
         title={isEditing ? "Edit Shop" : "Add Shop"}
         subtitle={isEditing ? `Modify details for ${shop?.name}` : "Establish a new retail or wholesale counter."}
         showBack
-      />
-
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: spacing.xl }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-          <Section title="Shop credentials">
-            <View style={styles.formContainer}>
-              <TextInput
-                mode="outlined"
+        footer={
+          <StickyFooterActions
+            primary={{
+              label: isEditing ? "Save changes" : "Create shop",
+              onPress: () => mutation.mutate(),
+              loading: mutation.isPending,
+              disabled: !isValid || mutation.isPending,
+              haptic: "medium",
+            }}
+          />
+        }
+      >
+          <ScreenSection title="Shop credentials" card contentStyle={styles.formContainer}>
+              <FormTextField
                 label="Shop name"
                 value={name}
                 onChangeText={(text) => {
@@ -123,39 +128,21 @@ export function CreateEditShop() {
                   setError("");
                 }}
                 placeholder="e.g. Nagpur Branch"
-                outlineStyle={styles.inputOutline}
-                activeOutlineColor={colors.primary}
               />
 
-              <View>
-                <TextInput
-                  mode="outlined"
+              <FormTextField
                   label="Shop unique code"
                   value={code}
                   onChangeText={handleCodeChange}
                   disabled={isEditing}
                   placeholder="e.g. NGP-01"
                   autoCapitalize="characters"
-                  outlineStyle={[
-                    styles.inputOutline,
-                    codeError ? { borderColor: colors.danger } : null,
-                  ]}
-                  activeOutlineColor={codeError ? colors.danger : colors.primary}
                   error={!!codeError}
-                />
-                {codeError ? (
-                  <HelperText type="error" visible={true} style={styles.fieldError}>
-                    {codeError}
-                  </HelperText>
-                ) : (
-                  <HelperText type="info" visible={true} style={styles.fieldHint}>
-                    Uppercase letters, numbers, hyphens only. Cannot be changed later.
-                  </HelperText>
-                )}
-              </View>
+                  errorText={codeError}
+                  helperText="Uppercase letters, numbers, hyphens only. Cannot be changed later."
+              />
 
-              <TextInput
-                mode="outlined"
+              <FormTextField
                 label="City"
                 value={city}
                 onChangeText={(text) => {
@@ -163,115 +150,56 @@ export function CreateEditShop() {
                   setError("");
                 }}
                 placeholder="e.g. Nagpur"
-                outlineStyle={styles.inputOutline}
-                activeOutlineColor={colors.primary}
               />
 
-              <TextInput
-                mode="outlined"
+              <FormTextField
                 label="Address (Optional)"
                 value={address}
                 onChangeText={setAddress}
                 placeholder="e.g. Near Metro Station"
                 multiline
                 numberOfLines={3}
-                outlineStyle={styles.inputOutline}
-                activeOutlineColor={colors.primary}
               />
 
-              <TextInput
-                mode="outlined"
+              <FormTextField
                 label="Phone (Optional)"
                 value={phone}
                 onChangeText={setPhone}
                 placeholder="e.g. +91 98765 43210"
                 keyboardType="phone-pad"
-                outlineStyle={styles.inputOutline}
-                activeOutlineColor={colors.primary}
               />
 
-              <TextInput
-                mode="outlined"
+              <FormTextField
                 label="Email (Optional)"
                 value={email}
                 onChangeText={setEmail}
                 placeholder="e.g. info@abc.com"
                 keyboardType="email-address"
-                outlineStyle={styles.inputOutline}
-                activeOutlineColor={colors.primary}
               />
 
-              <TextInput
-                mode="outlined"
+              <FormTextField
                 label="GSTIN (Optional)"
                 value={gstin}
                 onChangeText={setGstin}
                 placeholder="e.g. 27AAAAA1111A1Z1"
                 autoCapitalize="characters"
-                outlineStyle={styles.inputOutline}
-                activeOutlineColor={colors.primary}
               />
 
-              <TextInput
-                mode="outlined"
+              <FormTextField
                 label="Logo URL (Optional)"
                 value={logo}
                 onChangeText={setLogo}
                 placeholder="e.g. https://domain.com/logo.png"
                 keyboardType="url"
-                outlineStyle={styles.inputOutline}
-                activeOutlineColor={colors.primary}
+                errorText={error}
               />
-
-              {error ? <HelperText type="error">{error}</HelperText> : null}
-
-              <Button
-                mode="contained"
-                disabled={!isValid || mutation.isPending}
-                loading={mutation.isPending}
-                style={styles.submitButton}
-                contentStyle={styles.buttonContent}
-                buttonColor={colors.primary}
-                onPress={() => mutation.mutate()}
-              >
-                {isEditing ? "Save changes" : "Create shop"}
-              </Button>
-            </View>
-          </Section>
-        </ScrollView>
-      </KeyboardAvoidingView>
-    </Screen>
+          </ScreenSection>
+    </FormScreen>
   );
 }
 
 const styles = StyleSheet.create({
   formContainer: {
     gap: spacing.lg,
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-    padding: spacing.lg,
-  },
-  inputOutline: {
-    borderRadius: radius.md,
-    borderColor: colors.border,
-  },
-  submitButton: {
-    borderRadius: radius.md,
-    marginTop: spacing.sm,
-  },
-  buttonContent: {
-    height: 50,
-  },
-  fieldError: {
-    fontSize: fontSize.xs,
-    color: colors.danger,
-    marginTop: -4,
-  },
-  fieldHint: {
-    fontSize: fontSize.xs,
-    color: colors.textMuted,
-    marginTop: -4,
   },
 });

@@ -14,9 +14,9 @@ import { SkeletonList } from "../../../components/ui/SkeletonCard";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { Button } from "../../../components/ui/Button";
 import { SummaryPillRow } from "../../../components/ui/SummaryPillRow";
+import { AppSearchBar } from "../../../components/ui/AppSearchBar";
 import { ItemCard } from "../../../components/items/ItemCard";
 import { AllItemsCard, CategoryCard, UncatCard } from "../../../components/items/CategoryCard";
-import { SearchBar } from "../../../components/items/SearchBar";
 import { FilterChips, StockFilter } from "../../../components/items/FilterChips";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../../theme";
 import { navigate } from "../../navigation-ref";
@@ -146,9 +146,10 @@ export function ItemList() {
           />
 
           {/* Search — typing auto-exits to list */}
-          <SearchBar
+          <AppSearchBar
+            placeholder="Search products"
             value={search}
-            onChange={(v) => {
+            onChangeText={(v) => {
               setSearch(v);
               if (v.trim()) setSelectedCat("ALL");
             }}
@@ -215,7 +216,7 @@ export function ItemList() {
           refreshing={listQuery.isFetching || summaryQuery.isFetching || categoriesQuery.isFetching}
           ListHeaderComponent={
             <View style={styles.listHeader}>
-              <SearchBar value={search} onChange={setSearch} />
+              <AppSearchBar value={search} onChangeText={setSearch} placeholder="Search products" />
               <FilterChips value={filter} onChange={setFilter} />
             </View>
           }

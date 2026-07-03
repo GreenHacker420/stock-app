@@ -22,7 +22,7 @@ import { AppHeader } from "../../../components/ui/AppHeader";
 import { Button } from "../../../components/ui/Button";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { AppKeyboardAvoidingView } from "../../../components/ui/AppKeyboardAvoidingView";
-import { CachedThumbnail } from "../../../components/ui/CachedThumbnail";
+import { ImagePickerField } from "../../../components/forms/ImagePickerField";
 import { CategoryPickerSheet } from "../../../components/items/CategoryPickerSheet";
 import { colors, spacing, radius, fontSize, fontWeight } from "../../../theme";
 import { navigate, goBack } from "../../navigation-ref";
@@ -309,19 +309,12 @@ export function AddEditItem() {
 
           <View style={styles.aeiCard}>
             <Text style={styles.aeiSectionLabel}>PRODUCT PHOTO</Text>
-            <View style={styles.photoRow}>
-              <CachedThumbnail
-                uri={selectedImage?.uri || imageUrl}
-                fallbackText="IMG"
-                fallbackIcon="image-plus"
-                color={colors.textMuted}
-                style={styles.photoPreview}
-              />
-              <View style={styles.photoActions}>
-                <Button label="Camera" variant="secondary" icon="camera-outline" onPress={() => pickImage("camera")} />
-                <Button label="Upload" variant="secondary" icon="image-outline" onPress={() => pickImage("library")} />
-              </View>
-            </View>
+            <ImagePickerField
+              uri={selectedImage?.uri || imageUrl}
+              onCamera={() => pickImage("camera")}
+              onLibrary={() => pickImage("library")}
+              uploading={uploadingImage}
+            />
             <Text style={styles.photoHint}>
               Stored under shop/category/item folders in S3 after saving.
             </Text>
@@ -468,22 +461,6 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xs,
     color: colors.info,
     lineHeight: 17,
-  },
-  photoRow: {
-    flexDirection: "row",
-    gap: spacing.md,
-    alignItems: "center",
-  },
-  photoPreview: {
-    width: 92,
-    height: 92,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  photoActions: {
-    flex: 1,
-    gap: spacing.sm,
   },
   photoHint: {
     fontSize: fontSize.xs,

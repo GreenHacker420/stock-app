@@ -11,7 +11,6 @@ import {
 import { useRoute } from "@react-navigation/native";
 import { Text, Icon } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
-import * as Haptics from "expo-haptics";
 
 import { Item } from "../../api/client";
 import {
@@ -34,14 +33,12 @@ import { AppChipGroup } from "../../components/ui/AppChipGroup";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { SuccessModal } from "../../components/ui/SuccessModal";
 import { navigate, goBack } from "../navigation-ref";
+import { triggerLightHaptic, triggerMediumHaptic } from "../../utils/haptics";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const haptic = (s: "light" | "medium" = "light") => {
-  if (Platform.OS !== "web") {
-    void Haptics.impactAsync(
-      s === "medium" ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light
-    ).catch(() => {});
-  }
+  if (s === "medium") triggerMediumHaptic();
+  else triggerLightHaptic();
 };
 
 // ── Item Row ──────────────────────────────────────────────────────────────────
@@ -259,8 +256,7 @@ export function StockEntry() {
       { entries: entryItems, notes: notes.trim() || defaultNote },
       {
         onSuccess: () => {
-          if (Platform.OS !== "web")
-            void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+          triggerMediumHaptic();
           setSuccess(true);
         },
         onError: (err) =>

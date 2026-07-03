@@ -5,10 +5,10 @@ import { useShopsQuery } from "../../hooks/useShops";
 import { useAuthStore } from "../../auth/auth-store";
 import { useSwitchActiveShop } from "../../hooks/useActiveShop";
 import { Screen } from "../../components/Screen";
-import { ActionTile } from "../../components/ui/ActionTile";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { Section } from "../../components/ui/Section";
 import { StatusPill } from "../../components/ui/StatusPill";
+import { ShopCard } from "../../components/domain/shops/ShopCard";
 import { colors, spacing } from "../../theme";
 
 export function SelectShop() {
@@ -47,13 +47,12 @@ export function SelectShop() {
           <View style={styles.listGap}>
             {shopsQuery.data.map((shop) => (
               <View key={shop.id} style={styles.itemGap}>
-                <ActionTile
-                  title={shop.name}
-	                  subtitle={`${shop.city} • Code: ${shop.code}`}
-	                  icon="storefront-outline"
-	                  tone={shop.id === activeShopId || shop.id === lastUsedShopId ? "blue" : "green"}
-	                  onPress={() => switchActiveShop(shop.id)}
-	                />
+                <ShopCard
+                  name={shop.name}
+                  subtitle={`${shop.city} • Code: ${shop.code}`}
+                  selected={shop.id === activeShopId}
+                  onPress={() => switchActiveShop(shop.id)}
+                />
 	                <View style={styles.pillRow}>
 	                  <StatusPill label="Active" tone="green" />
 	                  {shop.id === activeShopId ? <StatusPill label="Selected" tone="blue" /> : null}

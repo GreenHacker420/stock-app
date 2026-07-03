@@ -1,13 +1,13 @@
 import React, { useState } from "react";
-import { View, StyleSheet, ScrollView, Pressable, ActivityIndicator } from "react-native";
+import { View, StyleSheet, ActivityIndicator } from "react-native";
 import { Text, Icon } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
-import * as Haptics from "expo-haptics";
 
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { StatusPill } from "../../components/ui/StatusPill";
 import { EmptyState } from "../../components/ui/EmptyState";
+import { AppChipGroup } from "../../components/ui/AppChipGroup";
 import { useStockMovementsQuery } from "../../hooks/useItems";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 
@@ -101,7 +101,7 @@ export function StockMovementHistory() {
   const { data: movements, isLoading, isFetching, refetch } = useStockMovementsQuery(undefined, filterType);
 
   const filterTabs = [
-    { label: "ALL", value: undefined },
+    { label: "ALL", value: "ALL" },
     { label: "STOCK IN", value: "STOCK_IN" },
     { label: "SALES", value: "SALE" },
     { label: "MEMOS", value: "DM" },
@@ -121,35 +121,12 @@ export function StockMovementHistory() {
 
       {/* Filter Pill Row */}
       <View style={styles.filterOuterContainer}>
-        <ScrollView 
-          horizontal 
-          showsHorizontalScrollIndicator={false} 
-          contentContainerStyle={styles.filterContainer}
-        >
-          {filterTabs.map((tab) => {
-            const isActive = filterType === tab.value;
-            return (
-              <Pressable
-                key={tab.label}
-                onPress={() => {
-                  Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-                  setFilterType(tab.value);
-                }}
-                style={[
-                  styles.filterPill,
-                  isActive && styles.filterPillActive
-                ]}
-              >
-                <Text style={[
-                  styles.filterPillText,
-                  isActive && styles.filterPillTextActive
-                ]}>
-                  {tab.label}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
+        <AppChipGroup
+          scrollable
+          value={filterType ?? "ALL"}
+          onChange={(value) => setFilterType(value === "ALL" ? undefined : value)}
+          options={filterTabs.map((tab) => ({ value: tab.value, label: tab.label }))}
+        />
       </View>
 
       <View style={styles.listWrapper}>
