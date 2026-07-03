@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Alert, Pressable, ScrollView, View, StyleSheet } from "react-native";
+import { Alert, Pressable, ScrollView, View, StyleSheet, RefreshControl } from "react-native";
 import { useRoute } from "@react-navigation/native";
 import { ActivityIndicator, Button, Text, TextInput, Divider, HelperText, Icon, Switch, Portal, Dialog } from "react-native-paper";
 import { ApiUser } from "../../api/client";
@@ -49,6 +49,13 @@ export function StaffManagement() {
       <ScrollView 
         showsVerticalScrollIndicator={false} 
         contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl
+            refreshing={staffQuery.isRefetching}
+            onRefresh={() => staffQuery.refetch()}
+            colors={[colors.primary]}
+          />
+        }
       >
         {staffQuery.isLoading ? (
           <View style={styles.centerState}>

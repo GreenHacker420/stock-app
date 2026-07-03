@@ -80,58 +80,59 @@ const StockEntryRow = memo(({
       numericVal < 0 && styles.rowNegative,
       { borderLeftColor: numericVal > 0 ? colors.success : numericVal < 0 ? colors.danger : colors.border }
     ]}>
-      <View style={styles.rowLeft}>
+      <View style={styles.rowHeader}>
         <View style={styles.rowIconBg}>
           <Icon source="package-variant-closed" size={20} color={colors.textSecondary} />
         </View>
-        <View style={styles.rowInfo}>
-          <Text style={styles.itemName} numberOfLines={2}>{formatItemName(item.name)}</Text>
-          <View style={styles.stockBadge}>
-            <Text style={styles.stockBadgeText}>Unit: {item.unit} • SKU: {item.sku || "N/A"}</Text>
-          </View>
-        </View>
+        <Text style={styles.itemName}>{formatItemName(item.name)}</Text>
       </View>
       
-      <View style={styles.counterContainer}>
-        <Pressable 
-          onPress={handleDecrement}
-          style={({ pressed }) => [
-            styles.counterBtn,
-            pressed && styles.pressed
-          ]}
-        >
-          <Icon source="minus" size={16} color={colors.textSecondary} />
-        </Pressable>
+      <View style={styles.rowFooter}>
+        <View style={styles.stockBadge}>
+          <Text style={styles.stockBadgeText}>Unit: {item.unit} • SKU: {item.sku || "N/A"}</Text>
+        </View>
+        
+        <View style={styles.counterContainer}>
+          <Pressable 
+            onPress={handleDecrement}
+            style={({ pressed }) => [
+              styles.counterBtn,
+              pressed && styles.pressed
+            ]}
+          >
+            <Icon source="minus" size={16} color={colors.textSecondary} />
+          </Pressable>
 
-        <TextInput
-          style={[styles.qtyInput, { color }]}
-          value={quantity}
-          onChangeText={(text) => {
-            if (text === "-" || text === "") {
-              onChange(text);
-              return;
-            }
-            const num = Number(text);
-            if (!isNaN(num)) {
-              onChange(text);
-            }
-          }}
-          keyboardType="numeric"
-          placeholder="0"
-          placeholderTextColor={colors.textMuted}
-          selectTextOnFocus
-          returnKeyType="done"
-        />
+          <TextInput
+            style={[styles.qtyInput, { color }]}
+            value={quantity}
+            onChangeText={(text) => {
+              if (text === "-" || text === "") {
+                onChange(text);
+                return;
+              }
+              const num = Number(text);
+              if (!isNaN(num)) {
+                onChange(text);
+              }
+            }}
+            keyboardType="numeric"
+            placeholder="0"
+            placeholderTextColor={colors.textMuted}
+            selectTextOnFocus
+            returnKeyType="done"
+          />
 
-        <Pressable 
-          onPress={handleIncrement}
-          style={({ pressed }) => [
-            styles.counterBtn,
-            pressed && styles.pressed
-          ]}
-        >
-          <Icon source="plus" size={16} color={colors.textSecondary} />
-        </Pressable>
+          <Pressable 
+            onPress={handleIncrement}
+            style={({ pressed }) => [
+              styles.counterBtn,
+              pressed && styles.pressed
+            ]}
+          >
+            <Icon source="plus" size={16} color={colors.textSecondary} />
+          </Pressable>
+        </View>
       </View>
     </View>
   );
@@ -464,7 +465,7 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
   },
   filterSection: {
-    marginTop: spacing.md,
+    marginTop: spacing.sm,
     gap: spacing.xs,
   },
   filterLabel: {
@@ -483,7 +484,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     paddingHorizontal: spacing.md,
-    paddingVertical: 8,
+    paddingVertical: 6,
     borderRadius: radius.md,
     borderWidth: 1,
   },
@@ -509,7 +510,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.sm,
-    marginTop: spacing.md,
+    marginTop: spacing.sm,
   },
   filterChip: {
     flexDirection: 'row',
@@ -554,17 +555,16 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.xl,
   },
   row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: spacing.md,
+    flexDirection: 'column',
+    alignItems: 'stretch',
+    padding: 12,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: colors.border,
     backgroundColor: colors.surface,
     marginBottom: spacing.sm,
     borderLeftWidth: 4,
-    gap: spacing.md,
+    gap: spacing.sm,
     ...shadow.sm,
   },
   rowPositive: {
@@ -575,10 +575,15 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(220, 38, 38, 0.03)",
     borderColor: "rgba(220, 38, 38, 0.2)",
   },
-  rowLeft: {
-    flex: 1,
+  rowHeader: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: spacing.md,
+  },
+  rowFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     gap: spacing.md,
   },
   rowIconBg: {
@@ -589,13 +594,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  rowInfo: {
-    flex: 1,
-  },
   itemName: {
     fontSize: fontSize.md,
     fontWeight: fontWeight.bold,
     color: colors.textPrimary,
+    flex: 1,
   },
   stockBadge: {
     backgroundColor: colors.surfaceOffset,

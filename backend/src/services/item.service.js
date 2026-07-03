@@ -30,6 +30,12 @@ export async function listItems(user, { shopId, search, categoryId, page = 1, li
       FROM "Item" i
       LEFT JOIN "ItemCategory" c ON i."categoryId" = c.id
       WHERE i."shopId" = ${shopId} AND i.status = 'ACTIVE'
+        AND (
+          i.name ILIKE ${likePattern}
+          OR i.sku ILIKE ${likePattern}
+          OR c.name ILIKE ${likePattern}
+          OR COALESCE(i.embedding <=> ${vectorString}::vector, 1.0) < 0.35
+        )
         ${categoryId ? (categoryId === "__uncat__" ? Prisma.sql`AND i."categoryId" IS NULL` : Prisma.sql`AND i."categoryId" = ${categoryId}`) : Prisma.empty}
       ORDER BY score ASC
       LIMIT ${limit}

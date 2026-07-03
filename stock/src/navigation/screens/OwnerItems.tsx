@@ -375,6 +375,7 @@ export function AddEditItem() {
     purchasePrice: existingItem?.purchasePrice?.toString() ?? "",
     minimumStock: existingItem?.minimumStock?.toString() ?? "0",
     categoryId: existingItem?.category?.id ?? "",
+    initialStock: "",
   });
 
   const [showCatPicker, setShowCatPicker] = useState(false);
@@ -397,6 +398,7 @@ export function AddEditItem() {
       mrp: form.mrp ? Number(form.mrp) : null,
       purchasePrice: form.purchasePrice ? Number(form.purchasePrice) : null,
       minimumStock: form.minimumStock ? Number(form.minimumStock) : 0,
+      initialStock: !existingItem && form.initialStock ? Number(form.initialStock) : undefined,
     };
     if (existingItem) {
       updateMutation.mutate({ id: existingItem.id, data: payload as UpdateItemPayload }, { onSuccess: () => goBack() });
@@ -471,12 +473,15 @@ export function AddEditItem() {
             <Text style={styles.aeiSectionLabel}>STOCK SETTINGS</Text>
             <TextInput {...inputProps("minimumStock", "Low Stock Alert Below", "numeric")} />
             {!existingItem && (
-              <View style={styles.aeiInfoTip}>
-                <Icon source="information-outline" size={14} color={colors.info} />
-                <Text style={styles.aeiInfoTipText}>
-                  You can add opening stock after creating the product via Stock Entry.
-                </Text>
-              </View>
+              <>
+                <TextInput {...inputProps("initialStock", "Initial Stock Qty", "numeric")} placeholder="0" />
+                <View style={styles.aeiInfoTip}>
+                  <Icon source="information-outline" size={14} color={colors.info} />
+                  <Text style={styles.aeiInfoTipText}>
+                    Enter the starting stock quantity here to initialize it directly.
+                  </Text>
+                </View>
+              </>
             )}
           </View>
 

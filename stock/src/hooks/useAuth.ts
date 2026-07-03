@@ -68,7 +68,7 @@ export function useStaffQuery() {
     queryKey: queryKeys.staff(),
     queryFn: () => fetchStaff(token ?? ""),
     enabled: !!token,
-    staleTime: 15 * 60 * 1000, // 15 mins
+    staleTime: 5000, // 5 seconds
   });
 }
 
