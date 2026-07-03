@@ -32,6 +32,7 @@ import { SkeletonList } from "../../components/ui/SkeletonCard";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { Button } from "../../components/ui/Button";
 import { Section } from "../../components/ui/Section";
+import { InfoRow } from "../../components/ui/InfoRow";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { shareSaleInvoicePdf, printSaleInvoiceDirect } from "../../utils/pdf";
 
@@ -717,24 +718,12 @@ export function WalkInSale() {
 
                 {/* Transaction Details */}
                 <View style={styles.receiptSection}>
-                  <View style={styles.receiptDetailRow}>
-                    <Text style={styles.receiptDetailLabel}>Sale Number</Text>
-                    <Text style={styles.receiptDetailVal}>{completedSaleNumber || "N/A"}</Text>
-                  </View>
-                  <View style={styles.receiptDetailRow}>
-                    <Text style={styles.receiptDetailLabel}>Customer</Text>
-                    <Text style={styles.receiptDetailVal}>{customerId ? selectedCustomer?.name : (customerName || "Walk-in Customer")}</Text>
-                  </View>
+                  <InfoRow label="Sale Number" value={completedSaleNumber || "N/A"} />
+                  <InfoRow label="Customer" value={customerId ? selectedCustomer?.name : (customerName || "Walk-in Customer")} />
                   {customerPhone ? (
-                    <View style={styles.receiptDetailRow}>
-                      <Text style={styles.receiptDetailLabel}>Mobile</Text>
-                      <Text style={styles.receiptDetailVal}>{customerPhone}</Text>
-                    </View>
+                    <InfoRow label="Mobile" value={customerPhone} />
                   ) : null}
-                  <View style={styles.receiptDetailRow}>
-                    <Text style={styles.receiptDetailLabel}>Payment Mode</Text>
-                    <Text style={styles.receiptDetailVal}>{paymentMode}</Text>
-                  </View>
+                  <InfoRow label="Payment Mode" value={paymentMode} />
                   {notes ? (
                     <View style={styles.receiptDetailRowCol}>
                       <Text style={styles.receiptDetailLabel}>Notes</Text>
@@ -753,14 +742,8 @@ export function WalkInSale() {
                   </View>
                   {paymentMode === "CASH" && amountReceived ? (
                     <>
-                      <View style={styles.receiptBreakdownRow}>
-                        <Text style={styles.receiptBreakdownLabel}>Amount Received</Text>
-                        <Text style={styles.receiptBreakdownVal}>{money(amountReceived)}</Text>
-                      </View>
-                      <View style={styles.receiptBreakdownRow}>
-                        <Text style={styles.receiptBreakdownLabel}>Change Returned</Text>
-                        <Text style={[styles.receiptBreakdownVal, { color: colors.success }]}>{money(calculatedChange)}</Text>
-                      </View>
+                      <InfoRow label="Amount Received" value={money(amountReceived)} />
+                      <InfoRow label="Change Returned" value={money(calculatedChange)} tone="green" />
                     </>
                   ) : null}
                 </View>
@@ -1448,10 +1431,6 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.bold,
     color: colors.textPrimary,
   },
-  receiptDetailRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
   receiptDetailRowCol: {
     flexDirection: 'column',
     gap: 4,
@@ -1460,11 +1439,6 @@ const styles = StyleSheet.create({
   receiptDetailLabel: {
     fontSize: fontSize.sm,
     color: colors.textSecondary,
-  },
-  receiptDetailVal: {
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.bold,
-    color: colors.textPrimary,
   },
   receiptDetailValNotes: {
     fontSize: fontSize.sm,
@@ -1480,15 +1454,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-  },
-  receiptBreakdownLabel: {
-    fontSize: fontSize.sm,
-    color: colors.textSecondary,
-  },
-  receiptBreakdownVal: {
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.bold,
-    color: colors.textPrimary,
   },
   receiptTotalRow: {
     marginTop: spacing.xs,

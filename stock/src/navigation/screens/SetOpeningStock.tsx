@@ -1,14 +1,17 @@
-import { useEffect, useState } from "react";
-import { View, ScrollView, StyleSheet, KeyboardAvoidingView, Platform,} from "react-native";
+import { useState } from "react";
+import { View, StyleSheet } from "react-native";
 import { useRoute } from "@react-navigation/native";
-import { Button, TextInput, List, Text, HelperText } from "react-native-paper";
+import { TextInput, Text, HelperText } from "react-native-paper";
 import { Shop } from "../../api/client";
 import { useShopStore } from "../../auth/shop-store";
 import { useShopsQuery, useSetOpeningStockMutation } from "../../hooks/useShops";
 import { useItemsQuery } from "../../hooks/useItems";
 import { Screen } from "../../components/Screen";
-import { AppHeader } from "../../components/ui/AppHeader";
-import { Section } from "../../components/ui/Section";
+import { FormScreen } from "../../components/layout/FormScreen";
+import { ScreenSection } from "../../components/layout/ScreenSection";
+import { StickyFooterActions } from "../../components/layout/StickyFooterActions";
+import { EmptyState } from "../../components/ui/EmptyState";
+import { LoadingState } from "../../components/feedback/LoadingState";
 import { colors, spacing, radius, fontWeight } from "../../theme";
 import { goBack } from "../navigation-ref";
 
@@ -65,7 +68,7 @@ export function SetOpeningStock() {
   if (!shop && shopsQuery.isLoading) {
     return (
       <Screen>
-        <Text>Loading shop...</Text>
+        <LoadingState label="Loading shop..." />
       </Screen>
     );
   }
@@ -73,108 +76,78 @@ export function SetOpeningStock() {
   if (!shop) {
     return (
       <Screen>
-        <Text>Shop not found.</Text>
+        <EmptyState title="Shop not found." />
       </Screen>
     );
   }
 
   return (
-    <Screen scroll={false}>
-      <AppHeader
-        title="Opening Stock"
-        subtitle={`Set starting quantities for ${shop.name}`}
-      />
-
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView style={{ flex: 1, marginTop: 8 }} keyboardShouldPersistTaps="handled">
-        <Section title="Inventory Items">
-          {itemsQuery.isLoading ? (
-            <View style={styles.loadingItems}>
-              <Text>Loading items...</Text>
-            </View>
-          ) : null}
-
-          {!itemsQuery.isLoading && itemsQuery.data?.items?.length === 0 ? (
-            <View style={styles.emptyItemsBox}>
-              <Text variant="titleMedium" style={styles.emptyItemsTitle}>No Items Found</Text>
-              <Text variant="bodySmall" style={styles.emptyItemsSubtitle}>
-                Add items to this shop before configuring their opening stocks.
-              </Text>
-            </View>
-          ) : null}
-
-          <View style={styles.listGap}>
-            {itemsQuery.data?.items?.map((item) => (
-              <View
-                key={item.id}
-                style={styles.itemCard}
-              >
-                <View style={styles.itemInfo}>
-                  <Text variant="titleMedium" style={styles.itemTitle}>
-                    {item.name}
-                  </Text>
-                  <Text variant="bodySmall" style={styles.itemSubtitle}>
-                    SKU: {item.sku || "N/A"} • Unit: {item.unit} • Default Price: ₹{item.defaultSellingPrice}
-                  </Text>
-                </View>
-                <View style={styles.qtyInputBox}>
-                  <TextInput
-                    mode="outlined"
-                    dense
-                    label="Qty"
-                    keyboardType="numeric"
-                    placeholder="0"
-                    value={quantities[item.id] || ""}
-                    onChangeText={(val) => handleQtyChange(item.id, val)}
-                    outlineStyle={styles.inputOutline}
-                    activeOutlineColor={colors.primary}
-                  />
-                </View>
-              </View>
-            ))}
+    <FormScreen
+      title="Opening Stock"
+      subtitle={`Set starting quantities for ${shop.name}`}
+      footer={
+        <StickyFooterActions
+          secondary={{ label: "Cancel", onPress: () => goBack(), variant: "secondary" }}
+          primary={{
+            label: "Save & Lock",
+            onPress: handleSave,
+            loading: setOpeningStockMutation.isPending,
+            disabled: setOpeningStockMutation.isPending || itemsQuery.data?.items?.length === 0,
+            haptic: "medium",
+          }}
+        >
+          <View style={styles.warningBox}>
+            <Text style={styles.warningText}>
+              WARNING: Opening stock can only be set once. It will be locked for editing after you submit.
+            </Text>
           </View>
-        </Section>
-      </ScrollView>
-      </KeyboardAvoidingView>
+          {error ? (
+            <HelperText type="error" visible={!!error}>
+              {error}
+            </HelperText>
+          ) : null}
+        </StickyFooterActions>
+      }
+    >
+      <ScreenSection title="Inventory Items">
+        {itemsQuery.isLoading ? <LoadingState label="Loading items..." /> : null}
 
-      {error ? (
-        <View style={styles.errorPadding}>
-          <HelperText type="error" visible={!!error}>
-            {error}
-          </HelperText>
-        </View>
-      ) : null}
+        {!itemsQuery.isLoading && itemsQuery.data?.items?.length === 0 ? (
+          <EmptyState
+            title="No Items Found"
+            subtitle="Add items to this shop before configuring their opening stocks."
+          />
+        ) : null}
 
-      <View style={styles.footer}>
-        <View style={styles.warningBox}>
-          <Text style={styles.warningText}>
-            WARNING: Opening stock can only be set once. It will be locked for editing after you submit.
-          </Text>
+        <View style={styles.listGap}>
+          {itemsQuery.data?.items?.map((item) => (
+            <View key={item.id} style={styles.itemCard}>
+              <View style={styles.itemInfo}>
+                <Text variant="titleMedium" style={styles.itemTitle}>
+                  {item.name}
+                </Text>
+                <Text variant="bodySmall" style={styles.itemSubtitle}>
+                  SKU: {item.sku || "N/A"} • Unit: {item.unit} • Default Price: ₹{item.defaultSellingPrice}
+                </Text>
+              </View>
+              <View style={styles.qtyInputBox}>
+                <TextInput
+                  mode="outlined"
+                  dense
+                  label="Qty"
+                  keyboardType="numeric"
+                  placeholder="0"
+                  value={quantities[item.id] || ""}
+                  onChangeText={(val) => handleQtyChange(item.id, val)}
+                  outlineStyle={styles.inputOutline}
+                  activeOutlineColor={colors.primary}
+                />
+              </View>
+            </View>
+          ))}
         </View>
-
-        <View style={styles.footerActions}>
-          <Button
-            mode="outlined"
-            style={styles.footerButton}
-            contentStyle={styles.buttonContent}
-            onPress={() => goBack()}
-          >
-            Cancel
-          </Button>
-          <Button
-            mode="contained"
-            buttonColor={colors.primary}
-            style={styles.footerButton}
-            contentStyle={styles.buttonContent}
-            loading={setOpeningStockMutation.isPending}
-            disabled={setOpeningStockMutation.isPending || itemsQuery.data?.items?.length === 0}
-            onPress={handleSave}
-          >
-            Save & Lock
-          </Button>
-        </View>
-      </View>
-    </Screen>
+      </ScreenSection>
+    </FormScreen>
   );
 }
 
@@ -186,24 +159,6 @@ const styles = StyleSheet.create({
   loadingItems: {
     padding: spacing.xxl,
     alignItems: "center",
-  },
-  emptyItemsBox: {
-    borderRadius: radius.xl,
-    borderWidth: 1,
-    borderStyle: "dashed",
-    borderColor: '#b9c3b5',
-    backgroundColor: colors.surface,
-    padding: spacing.xxl,
-    alignItems: "center",
-  },
-  emptyItemsTitle: {
-    fontWeight: fontWeight.bold,
-    color: colors.textPrimary,
-  },
-  emptyItemsSubtitle: {
-    color: colors.textSecondary,
-    marginTop: spacing.xs,
-    textAlign: "center",
   },
   listGap: {
     gap: spacing.md,
@@ -237,16 +192,6 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     borderColor: colors.border,
   },
-  errorPadding: {
-    padding: spacing.lg,
-  },
-  footer: {
-    gap: spacing.md,
-    padding: spacing.lg,
-    backgroundColor: colors.bg,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
   warningBox: {
     backgroundColor: colors.warningLight,
     padding: 14,
@@ -260,16 +205,5 @@ const styles = StyleSheet.create({
     color: "#3f2800",
     fontWeight: fontWeight.bold,
     lineHeight: 15,
-  },
-  footerActions: {
-    flexDirection: "row",
-    gap: spacing.md,
-  },
-  footerButton: {
-    flex: 1,
-    borderRadius: radius.md,
-  },
-  buttonContent: {
-    height: 50,
   },
 });

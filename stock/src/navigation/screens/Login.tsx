@@ -21,6 +21,7 @@ import { getToken } from "../../auth/token-storage";
 import { useAuthStore } from "../../auth/auth-store";
 import { Screen } from "../../components/Screen";
 import { Button } from "../../components/ui/Button";
+import { FormTextField } from "../../components/forms/FormTextField";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 
 const LAST_IDENTIFIER_KEY = "shopcontrol_last_identifier";
@@ -613,8 +614,7 @@ export function Login() {
                 <View style={styles.form}>
                   <View style={styles.inputGroup}>
                     <Text style={styles.label}>MOBILE / EMAIL</Text>
-                    <PaperInput
-                      mode="outlined"
+                    <FormTextField
                       placeholder="Enter mobile or email"
                       value={identifier}
                       keyboardType="email-address"
@@ -631,17 +631,16 @@ export function Login() {
                     <View style={styles.labelRow}>
                       <Text style={styles.label}>PASSWORD</Text>
                     </View>
-                    <PaperInput
-                      mode="outlined"
+                    <FormTextField
                       placeholder="Enter password"
                       value={password}
                       secureTextEntry={secureText}
                       onChangeText={setPassword}
                       left={<PaperInput.Icon icon="lock-outline" color={colors.textMuted} />}
-                      right={<PaperInput.Icon 
-                        icon={secureText ? "eye-off-outline" : "eye-outline"} 
-                        color={colors.textMuted} 
-                        onPress={() => setSecureText(!secureText)} 
+                      right={<PaperInput.Icon
+                        icon={secureText ? "eye-off-outline" : "eye-outline"}
+                        color={colors.textMuted}
+                        onPress={() => setSecureText(!secureText)}
                         accessibilityLabel={secureText ? "Show password" : "Hide password"}
                       />}
                       outlineStyle={styles.inputOutline}

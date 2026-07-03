@@ -18,6 +18,7 @@ import { SuccessModal } from "../../components/ui/SuccessModal";
 import { SignaturePad } from "../../components/ui/SignaturePad";
 import { Button } from "../../components/ui/Button";
 import { Section } from "../../components/ui/Section";
+import { InfoRow } from "../../components/ui/InfoRow";
 import { SkeletonList } from "../../components/ui/SkeletonCard";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
@@ -985,37 +986,15 @@ export function RegularSale() {
               </Text>
               
               <View style={styles.receiptCard}>
-                <View style={styles.receiptRow}>
-                  <Text style={styles.receiptLabel}>Sale Number</Text>
-                  <Text style={styles.receiptValue}>{(saleMutation.data as any)?.saleNumber || "N/A"}</Text>
-                </View>
-                <View style={styles.receiptRow}>
-                  <Text style={styles.receiptLabel}>Customer</Text>
-                  <Text style={styles.receiptValue}>{selectedCustomer?.name}</Text>
-                </View>
-                <View style={styles.receiptRow}>
-                  <Text style={styles.receiptLabel}>Payment Mode</Text>
-                  <Text style={styles.receiptValue}>{paymentType}</Text>
-                </View>
-                <View style={styles.receiptRow}>
-                  <Text style={styles.receiptLabel}>Amount Received</Text>
-                  <Text style={styles.receiptValue}>{money(amountPaid || (paymentType === "CREDIT" ? 0 : cartTotal))}</Text>
-                </View>
+                <InfoRow label="Sale Number" value={(saleMutation.data as any)?.saleNumber || "N/A"} />
+                <InfoRow label="Customer" value={selectedCustomer?.name} />
+                <InfoRow label="Payment Mode" value={paymentType} />
+                <InfoRow label="Amount Received" value={money(amountPaid || (paymentType === "CREDIT" ? 0 : cartTotal))} />
                 {Number(amountPaid) > cartTotal && (
-                  <View style={styles.receiptRow}>
-                    <Text style={styles.receiptLabel}>Change Returned</Text>
-                    <Text style={[styles.receiptValue, { color: colors.success }]}>
-                      {money(Number(amountPaid) - cartTotal)}
-                    </Text>
-                  </View>
+                  <InfoRow label="Change Returned" value={money(Number(amountPaid) - cartTotal)} tone="green" />
                 )}
                 {isCredit && balance > 0 && (
-                  <View style={styles.receiptRow}>
-                    <Text style={styles.receiptLabel}>Balance to Credit</Text>
-                    <Text style={[styles.receiptValue, { color: colors.danger }]}>
-                      {money(balance)}
-                    </Text>
-                  </View>
+                  <InfoRow label="Balance to Credit" value={money(balance)} tone="red" />
                 )}
               </View>
               
@@ -1808,21 +1787,6 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     marginBottom: spacing.xxxl,
     ...shadow.md,
-  },
-  receiptRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  receiptLabel: {
-    fontSize: fontSize.sm,
-    color: colors.textSecondary,
-    fontWeight: fontWeight.medium,
-  },
-  receiptValue: {
-    fontSize: fontSize.sm,
-    color: colors.textPrimary,
-    fontWeight: fontWeight.bold,
   },
   newSaleBtn: {
     width: '100%',

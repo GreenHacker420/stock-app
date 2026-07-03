@@ -34,10 +34,9 @@ import { filterCachedCustomers } from "../../utils/mmkvCache";
 import { SuccessModal } from "../../components/ui/SuccessModal";
 import { useShopStore } from "../../auth/shop-store";
 import { Screen } from "../../components/Screen";
-import { AppHeader } from "../../components/ui/AppHeader";
 import { AppSearchBar } from "../../components/ui/AppSearchBar";
-import { Section } from "../../components/ui/Section";
 import { Button } from "../../components/ui/Button";
+import { FormTextField } from "../../components/forms/FormTextField";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { goBack } from "../navigation-ref";
 
@@ -470,28 +469,20 @@ export function TakePayment() {
             {showMetadata && (
               <View style={styles.metadataFields}>
                 {paymentMode !== 'CASH' && (upiOption === 'REGISTER' || paymentMode !== 'UPI') && (
-                  <TextInput
-                     mode="outlined"
+                  <FormTextField
                      label={paymentMode === 'CHEQUE' ? "Cheque Number" : "Reference / UTR Number"}
                      value={reference}
                      onChangeText={setReference}
-                     style={styles.metadataInput}
-                     outlineStyle={styles.inputOutline}
-                     activeOutlineColor={colors.primary}
                      placeholder={paymentMode === 'CHEQUE' ? "e.g. 123456" : "e.g. UTR12345678"}
                   />
                 )}
 
-                <TextInput
-                   mode="outlined"
+                <FormTextField
                    label="Notes (Optional)"
                    value={notes}
                    onChangeText={setNote}
                    multiline
                    numberOfLines={2}
-                   style={styles.metadataInput}
-                   outlineStyle={styles.inputOutline}
-                   activeOutlineColor={colors.primary}
                    placeholder="Add internal notes about this payment..."
                 />
               </View>
@@ -937,12 +928,6 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     borderTopWidth: 1,
     borderTopColor: colors.border,
-  },
-  metadataInput: {
-    backgroundColor: colors.surface,
-  },
-  inputOutline: {
-    borderRadius: radius.md,
   },
   errorContainer: {
     flexDirection: 'row',

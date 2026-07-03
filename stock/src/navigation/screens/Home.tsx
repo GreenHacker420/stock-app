@@ -15,6 +15,7 @@ import { Screen } from "../../components/Screen";
 import { ActionTile } from "../../components/ui/ActionTile";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { StatusPill } from "../../components/ui/StatusPill";
+import { LoadingState } from "../../components/feedback/LoadingState";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { navigate } from "../navigation-ref";
 
@@ -312,12 +313,7 @@ function OwnerHome({ navigate }: { navigate: (s: any, params?: any) => void }) {
   const activeAlerts = useMemo(() => alertCards.filter(card => card.count > 0), [alertCards]);
 
   if (dashboardQuery.isLoading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Fetching operations data...</Text>
-      </View>
-    );
+    return <LoadingState label="Fetching operations data..." />;
   }
 
   const renderCategoryCards = () => {
@@ -542,12 +538,7 @@ function StaffHome({ navigate, session, sessionLoading }: { navigate: (s: any, p
   const [isSessionCollapsed, setIsSessionCollapsed] = useState(false);
 
   if (sessionLoading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={colors.primary} />
-        <Text style={styles.loadingText}>Loading session status...</Text>
-      </View>
-    );
+    return <LoadingState label="Loading session status..." />;
   }
 
   const isOpen = session?.status === "OPEN";
@@ -678,11 +669,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.md,
-  },
-  loadingText: {
-    color: colors.textSecondary,
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.medium,
   },
   statusSection: {
     marginTop: spacing.xxl,

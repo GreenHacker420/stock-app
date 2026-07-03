@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { View, ScrollView, StyleSheet, ActivityIndicator } from "react-native";
+import { View, ScrollView, StyleSheet } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Text, Card, Icon, Divider } from "react-native-paper";
+import { Text, Icon } from "react-native-paper";
 
 import { fetchCashSessions, reviewCashSession, fetchShops } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
@@ -12,8 +12,10 @@ import { ShopPicker } from "../../components/ui/ShopPicker";
 import { StatusPill } from "../../components/ui/StatusPill";
 import { Button } from "../../components/ui/Button";
 import { AppSegmentedControl } from "../../components/ui/AppSegmentedControl";
+import { InfoRow } from "../../components/ui/InfoRow";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { EmptyState } from "../../components/ui/EmptyState";
+import { LoadingState } from "../../components/feedback/LoadingState";
 
 export function CashClosingReview() {
   const token = useAuthStore((state) => state.token);
@@ -90,10 +92,7 @@ export function CashClosingReview() {
 
       <ScrollView style={styles.listContainer} showsVerticalScrollIndicator={false} contentContainerStyle={styles.listContent}>
           {sessionsQuery.isLoading ? (
-            <View style={styles.loadingWrapper}>
-               <ActivityIndicator color={colors.primary} />
-               <Text style={styles.loadingText}>Scanning ledger records...</Text>
-            </View>
+            <LoadingState label="Scanning ledger records..." />
           ) : null}
 
           {!sessionsQuery.isLoading && filteredSessions.length === 0 ? (
@@ -134,11 +133,11 @@ export function CashClosingReview() {
                     </View>
 
 	                    <View style={styles.detailsBox}>
-	                      <DetailRow label="Handover Amount" value={`₹${(session.cashHandover || 0).toLocaleString()}`} />
+	                      <InfoRow label="Handover Amount" value={`₹${(session.cashHandover || 0).toLocaleString()}`} />
 
 	                      {isMismatched ? (
                         <View style={styles.mismatchBox}>
-                           <DetailRow label="Reconciliation Gap" value={`${diff > 0 ? "+" : ""}₹${diff.toFixed(2)}`} isAlert />
+                           <InfoRow label="Reconciliation Gap" value={`${diff > 0 ? "+" : ""}₹${diff.toFixed(2)}`} tone="red" />
                            <Text style={styles.mismatchReason}>Remark: {session.differenceReason || "No explanation provided"}</Text>
                         </View>
                       ) : (
@@ -173,15 +172,6 @@ export function CashClosingReview() {
           </View>
       </ScrollView>
     </Screen>
-  );
-}
-
-function DetailRow({ label, value, isAlert }: { label: string, value: string, isAlert?: boolean }) {
-  return (
-    <View style={styles.row}>
-      <Text style={styles.rowLabel}>{label}</Text>
-      <Text style={[styles.rowValue, isAlert && styles.alertValue]}>{value}</Text>
-    </View>
   );
 }
 
@@ -222,16 +212,6 @@ const styles = StyleSheet.create({
   listContent: {
     padding: spacing.lg,
     paddingBottom: 40,
-  },
-  loadingWrapper: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginVertical: spacing.xxl,
-    gap: spacing.md,
-  },
-  loadingText: {
-    color: colors.textSecondary,
-    fontSize: fontSize.sm,
   },
   sessionList: {
     gap: spacing.lg,
@@ -293,24 +273,6 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     borderWidth: 1,
     borderColor: colors.border,
-  },
-  row: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  rowLabel: {
-    color: colors.textSecondary,
-    fontSize: 12,
-    fontWeight: fontWeight.medium,
-  },
-  rowValue: {
-    color: colors.textPrimary,
-    fontSize: 13,
-    fontWeight: fontWeight.bold,
-  },
-  alertValue: {
-    color: colors.danger,
   },
   deductionRow: {
     paddingTop: spacing.sm,

@@ -1,5 +1,5 @@
-import { useEffect, useState, useMemo } from "react";
-import { View, ScrollView, StyleSheet, KeyboardAvoidingView, Platform, Pressable } from "react-native";
+import { useEffect, useState } from "react";
+import { View, StyleSheet } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { TextInput, Text, Icon, Divider, Checkbox } from "react-native-paper";
 
@@ -9,7 +9,10 @@ import { useShopStore } from "../../auth/shop-store";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { ShopPicker } from "../../components/ui/ShopPicker";
-import { Section } from "../../components/ui/Section";
+import { FormScreen } from "../../components/layout/FormScreen";
+import { ScreenSection } from "../../components/layout/ScreenSection";
+import { StickyFooterActions } from "../../components/layout/StickyFooterActions";
+import { AmountBreakdown } from "../../components/ui/AmountBreakdown";
 import { SuccessModal } from "../../components/ui/SuccessModal";
 import { Button } from "../../components/ui/Button";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
@@ -95,133 +98,128 @@ export function CloseDay() {
   }
 
   return (
-    <Screen edges={['top', 'left', 'right']}>
-      <KeyboardAvoidingView 
-        style={styles.keyboardView} 
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
-      >
-        <AppHeader title="Day Closing" subtitle={new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })} />
-        
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-          <View style={styles.contentContainer}>
-            <ShopPicker shops={shopsQuery.data ?? []} selectedShopId={shopId} onSelect={setShopId} />
-
-            <View style={styles.calculationCard}>
-               <View style={styles.calculationHeader}>
-                  <Text style={styles.calculationHeaderTitle}>SYSTEM CALCULATION</Text>
-                  <Icon source="calculator-variant-outline" size={20} color={colors.textMuted} />
-               </View>
-               <View style={styles.calculationBody}>
-                  <View style={styles.expectedRow}>
-                     <View>
-                        <Text style={styles.expectedLabel}>FINAL EXPECTED CASH</Text>
-                        <Text style={styles.expectedValue}>₹{finalExpected.toLocaleString("en-IN")}</Text>
-                     </View>
-                     <View style={styles.ledgerBadge}>
-                        <Text style={styles.ledgerBadgeText}>LEDGER BASE</Text>
-                     </View>
-                  </View>
-                  <Divider style={styles.divider} />
-                  <View style={styles.breakdownContainer}>
-                     <BreakdownRow label="Opening Cash (+)" value={`₹${openingCash.toLocaleString("en-IN")}`} />
-                     <BreakdownRow label="Net Cash Collections (+)" value={`₹${netCollections.toLocaleString("en-IN")}`} />
-                  </View>
-               </View>
-            </View>
-
-            <Section title="Physical Reconciliation">
-               <View style={styles.reconciliationCard}>
-                  <View style={styles.inputGroup}>
-                     <Text style={styles.inputLabel}>ACTUAL CASH IN DRAWER</Text>
-                     <TextInput
-                        mode="outlined"
-                        placeholder="0"
-                        keyboardType="numeric"
-                        value={actualCash}
-                        onChangeText={setActualCash}
-                        selectTextOnFocus
-                        style={styles.largeInput}
-                        outlineStyle={styles.inputOutline}
-                        textColor={colors.textPrimary}
-                        left={<TextInput.Affix text="₹" />}
-                     />
-                  </View>
-
-                  {isMismatched ? (
-                    <View style={styles.mismatchAlert}>
-                       <View style={styles.alertHeader}>
-                          <View style={styles.alertTitleRow}>
-                             <Icon source="alert-circle" size={20} color={colors.danger} />
-                             <Text style={styles.alertTitle}>Discrepancy Detected</Text>
-                          </View>
-                          <Text style={styles.alertAmount}>{difference > 0 ? "+" : ""}₹{difference.toFixed(2)}</Text>
-                       </View>
-                       <TextInput
-                          mode="outlined"
-                          label="Reason for Mismatch"
-                          placeholder="Why is there a difference?"
-                          value={differenceReason}
-                          onChangeText={setDifferenceReason}
-                          style={styles.input}
-                          outlineStyle={styles.inputOutlineSmall}
-                       />
-                    </View>
-                  ) : actualCash !== "" ? (
-                    <View style={styles.balancedAlert}>
-                       <Icon source="checkbox-marked-circle" size={24} color={colors.success} />
-                       <Text style={styles.balancedText}>Reconciliation Balanced</Text>
-                    </View>
-                  ) : null}
-
-                  <Divider style={styles.divider} />
-
-                  <View style={styles.otherEntries}>
-                     <View style={styles.inlineInputRow}>
-                        <Text style={styles.inlineLabel}>Cash Handover</Text>
-                        <TextInput
-                          mode="flat"
-                          dense
-                          placeholder="₹0"
-                          keyboardType="numeric"
-                          selectTextOnFocus
-                          value={cashHandover}
-                          onChangeText={setCashHandover}
-                          style={styles.smallInlineInput}
-                        />
-                     </View>
-                  </View>
-               </View>
-            </Section>
-
-            <View style={styles.confirmationSection}>
-               <Checkbox.Item
-                  label="I certify that the above physical count is accurate and matches the current drawer state."
-                  status={confirmed ? 'checked' : 'unchecked'}
-                  onPress={() => setConfirmed(!confirmed)}
-                  mode="android"
-                  labelStyle={styles.checkboxLabel}
-                  color={colors.primary}
-               />
-            </View>
-
-            <Button
-               variant="primary"
-               label="SUBMIT & CLOSE SESSION"
-               size="lg"
-               onPress={() => closeMutation.mutate()}
-               loading={closeMutation.isPending}
-               disabled={!confirmed || actualCash === "" || (isMismatched && !differenceReason.trim())}
-               fullWidth
+    <>
+      <FormScreen
+        title="Day Closing"
+        subtitle={new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+        footer={
+          <StickyFooterActions
+            primary={{
+              label: "SUBMIT & CLOSE SESSION",
+              onPress: () => closeMutation.mutate(),
+              loading: closeMutation.isPending,
+              disabled: !confirmed || actualCash === "" || (isMismatched && !differenceReason.trim()),
+              haptic: "medium",
+            }}
+          >
+            <Checkbox.Item
+               label="I certify that the above physical count is accurate and matches the current drawer state."
+               status={confirmed ? 'checked' : 'unchecked'}
+               onPress={() => setConfirmed(!confirmed)}
+               mode="android"
+               labelStyle={styles.checkboxLabel}
+               color={colors.primary}
+               style={styles.checkboxItem}
             />
-            
-            <View style={styles.infoBox}>
-               <Icon source="information-outline" size={18} color={colors.textSecondary} />
-               <Text style={styles.infoText}>Once submitted, you will not be able to record any more sales for this shop today until a new session is opened.</Text>
-            </View>
-          </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+          </StickyFooterActions>
+        }
+      >
+        <ShopPicker shops={shopsQuery.data ?? []} selectedShopId={shopId} onSelect={setShopId} />
+
+        <View style={styles.calculationCard}>
+           <View style={styles.calculationHeader}>
+              <Text style={styles.calculationHeaderTitle}>SYSTEM CALCULATION</Text>
+              <Icon source="calculator-variant-outline" size={20} color={colors.textMuted} />
+           </View>
+           <View style={styles.calculationBody}>
+              <View style={styles.expectedRow}>
+                 <View>
+                    <Text style={styles.expectedLabel}>FINAL EXPECTED CASH</Text>
+                    <Text style={styles.expectedValue}>₹{finalExpected.toLocaleString("en-IN")}</Text>
+                 </View>
+                 <View style={styles.ledgerBadge}>
+                    <Text style={styles.ledgerBadgeText}>LEDGER BASE</Text>
+                 </View>
+              </View>
+              <Divider style={styles.divider} />
+              <AmountBreakdown
+                rows={[
+                  { label: "Opening Cash (+)", value: `₹${openingCash.toLocaleString("en-IN")}` },
+                  { label: "Net Cash Collections (+)", value: `₹${netCollections.toLocaleString("en-IN")}` },
+                ]}
+              />
+           </View>
+        </View>
+
+        <ScreenSection title="Physical Reconciliation">
+           <View style={styles.reconciliationCard}>
+              <View style={styles.inputGroup}>
+                 <Text style={styles.inputLabel}>ACTUAL CASH IN DRAWER</Text>
+                 <TextInput
+                    mode="outlined"
+                    placeholder="0"
+                    keyboardType="numeric"
+                    value={actualCash}
+                    onChangeText={setActualCash}
+                    selectTextOnFocus
+                    style={styles.largeInput}
+                    outlineStyle={styles.inputOutline}
+                    textColor={colors.textPrimary}
+                    left={<TextInput.Affix text="₹" />}
+                 />
+              </View>
+
+              {isMismatched ? (
+                <View style={styles.mismatchAlert}>
+                   <View style={styles.alertHeader}>
+                      <View style={styles.alertTitleRow}>
+                         <Icon source="alert-circle" size={20} color={colors.danger} />
+                         <Text style={styles.alertTitle}>Discrepancy Detected</Text>
+                      </View>
+                      <Text style={styles.alertAmount}>{difference > 0 ? "+" : ""}₹{difference.toFixed(2)}</Text>
+                   </View>
+                   <TextInput
+                      mode="outlined"
+                      label="Reason for Mismatch"
+                      placeholder="Why is there a difference?"
+                      value={differenceReason}
+                      onChangeText={setDifferenceReason}
+                      style={styles.input}
+                      outlineStyle={styles.inputOutlineSmall}
+                   />
+                </View>
+              ) : actualCash !== "" ? (
+                <View style={styles.balancedAlert}>
+                   <Icon source="checkbox-marked-circle" size={24} color={colors.success} />
+                   <Text style={styles.balancedText}>Reconciliation Balanced</Text>
+                </View>
+              ) : null}
+
+              <Divider style={styles.divider} />
+
+              <View style={styles.otherEntries}>
+                 <View style={styles.inlineInputRow}>
+                    <Text style={styles.inlineLabel}>Cash Handover</Text>
+                    <TextInput
+                      mode="flat"
+                      dense
+                      placeholder="₹0"
+                      keyboardType="numeric"
+                      selectTextOnFocus
+                      value={cashHandover}
+                      onChangeText={setCashHandover}
+                      style={styles.smallInlineInput}
+                    />
+                 </View>
+              </View>
+           </View>
+        </ScreenSection>
+
+        <View style={styles.infoBox}>
+           <Icon source="information-outline" size={18} color={colors.textSecondary} />
+           <Text style={styles.infoText}>Once submitted, you will not be able to record any more sales for this shop today until a new session is opened.</Text>
+        </View>
+      </FormScreen>
 
       <SuccessModal
         visible={successVisible}
@@ -232,31 +230,11 @@ export function CloseDay() {
           goBack();
         }}
       />
-    </Screen>
-  );
-}
-
-function BreakdownRow({ label, value, isNegative }: { label: string; value: string; isNegative?: boolean }) {
-  return (
-    <View style={styles.breakdownRow}>
-      <Text style={styles.breakdownLabel}>{label}</Text>
-      <Text style={[styles.breakdownValue, isNegative && { color: colors.danger }]}>{value}</Text>
-    </View>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  keyboardView: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingBottom: 100,
-  },
-  contentContainer: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-    gap: spacing.lg,
-  },
   calculationCard: {
     backgroundColor: colors.surface,
     borderRadius: 24,
@@ -308,23 +286,6 @@ const styles = StyleSheet.create({
   },
   divider: {
     backgroundColor: colors.surfaceOffset,
-  },
-  breakdownContainer: {
-    gap: spacing.sm,
-  },
-  breakdownRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  breakdownLabel: {
-    fontSize: 11,
-    color: colors.textSecondary,
-    fontWeight: fontWeight.medium,
-  },
-  breakdownValue: {
-    fontSize: 11,
-    fontWeight: fontWeight.bold,
-    color: colors.textPrimary,
   },
   reconciliationCard: {
     backgroundColor: colors.surface,
@@ -423,8 +384,9 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
     fontWeight: fontWeight.bold,
   },
-  confirmationSection: {
-    marginTop: spacing.sm,
+  checkboxItem: {
+    paddingHorizontal: 0,
+    marginBottom: spacing.sm,
   },
   checkboxLabel: {
     fontSize: 12,

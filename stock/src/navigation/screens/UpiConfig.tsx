@@ -1,5 +1,5 @@
 import { useRef, useState } from "react";
-import { View, ScrollView, StyleSheet, Modal, Alert, Platform, TouchableOpacity , KeyboardAvoidingView } from "react-native";
+import { View, StyleSheet, Modal, Alert, Platform, TouchableOpacity } from "react-native";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Text, TextInput, Icon } from "react-native-paper";
 import { useRoute, useNavigation } from "@react-navigation/native";
@@ -11,7 +11,10 @@ import { updateShop } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
-import { Section } from "../../components/ui/Section";
+import { FormScreen } from "../../components/layout/FormScreen";
+import { ScreenSection } from "../../components/layout/ScreenSection";
+import { StickyFooterActions } from "../../components/layout/StickyFooterActions";
+import { FormTextField } from "../../components/forms/FormTextField";
 import { SuccessModal } from "../../components/ui/SuccessModal";
 import { Button } from "../../components/ui/Button";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
@@ -182,103 +185,86 @@ export function UpiConfig() {
   };
 
   return (
-    <Screen edges={['top', 'left', 'right']}>
-      <AppHeader title="QR Management" subtitle={`Configure UPI for ${shop.name}`} />
-      
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-        <View style={styles.container}>
-           <View style={styles.heroCard}>
-              <View style={styles.heroHeader}>
-                 <Icon source="qrcode-scan" size={32} color={colors.textInverse} />
-                 <View style={styles.heroBadge}>
-                    <Text style={styles.heroBadgeText}>DYNAMIC GENERATION</Text>
-                 </View>
-              </View>
-              <View style={styles.heroBody}>
-                 <Text style={styles.heroTitle}>Dynamic QR Codes</Text>
-                 <Text style={styles.heroSubtitle}>
-                    Setting a UPI ID allows staff to generate custom payment QR codes for every transaction, including the exact amount and shop name.
-                 </Text>
+    <>
+      <FormScreen
+        title="QR Management"
+        subtitle={`Configure UPI for ${shop.name}`}
+        footer={
+          <StickyFooterActions
+            primary={{
+              label: "SAVE CONFIGURATION",
+              onPress: handleSave,
+              loading: mutation.isPending,
+              disabled: mutation.isPending || !upiId.trim(),
+              haptic: "medium",
+            }}
+          />
+        }
+      >
+        <View style={styles.heroCard}>
+           <View style={styles.heroHeader}>
+              <Icon source="qrcode-scan" size={32} color={colors.textInverse} />
+              <View style={styles.heroBadge}>
+                 <Text style={styles.heroBadgeText}>DYNAMIC GENERATION</Text>
               </View>
            </View>
-
-           <Section title="UPI Details">
-              <View style={styles.formCard}>
-                 <View style={styles.scanButtonContainer}>
-                    <Button
-                      label="SCAN MERCHANT QR CODE"
-                      icon="qrcode-scan"
-                      onPress={handleStartScan}
-                      variant="secondary"
-                      fullWidth
-                    />
-                 </View>
-
-                 <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>VPA / UPI ID</Text>
-                    <TextInput
-                       mode="outlined"
-                       placeholder="e.g. shopname@okicici"
-                       value={upiId}
-                       onChangeText={setUpiId}
-                       autoCapitalize="none"
-                       autoCorrect={false}
-                       keyboardType="email-address"
-                       textContentType="none"
-                       style={styles.input}
-                       outlineStyle={styles.inputOutline}
-                       left={<TextInput.Icon icon="at" color={colors.textMuted} />}
-                       right={
-                         <TextInput.Icon
-                           icon="qrcode-scan"
-                           color={colors.primary}
-                           onPress={handleStartScan}
-                           forceTextInputFocus={false}
-                         />
-                       }
-                    />
-                    <Text style={styles.helperText}>Payments will be settled directly to this ID.</Text>
-                 </View>
-
-                 <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>DISPLAY NAME (ON QR)</Text>
-                    <TextInput
-                       mode="outlined"
-                       placeholder="e.g. Nagpur Retail Store"
-                       value={upiName}
-                       onChangeText={setUpiName}
-                       style={styles.input}
-                       outlineStyle={styles.inputOutline}
-                       left={<TextInput.Icon icon="account-outline" color={colors.textMuted} />}
-                    />
-                 </View>
-              </View>
-           </Section>
-
-           <View style={styles.alertBox}>
-              <Icon source="shield-check-outline" size={20} color={colors.warning} />
-              <View style={{ flex: 1 }}>
-                 <Text style={styles.alertTitle}>Security Note</Text>
-                 <Text style={styles.alertSubtitle}>
-                    Ensure the UPI ID is correct. ShopControl does not verify the ID with banks. Test with a small amount after saving.
-                 </Text>
-              </View>
+           <View style={styles.heroBody}>
+              <Text style={styles.heroTitle}>Dynamic QR Codes</Text>
+              <Text style={styles.heroSubtitle}>
+                 Setting a UPI ID allows staff to generate custom payment QR codes for every transaction, including the exact amount and shop name.
+              </Text>
            </View>
         </View>
-      </ScrollView>
-      </KeyboardAvoidingView>
 
-      <View style={styles.footer}>
-         <Button
-            label="SAVE CONFIGURATION"
-            loading={mutation.isPending}
-            disabled={mutation.isPending || !upiId.trim()}
-            onPress={handleSave}
-            fullWidth
-            size="lg"
-         />
-      </View>
+        <ScreenSection title="UPI Details" contentStyle={styles.formCard}>
+           <Button
+             label="SCAN MERCHANT QR CODE"
+             icon="qrcode-scan"
+             onPress={handleStartScan}
+             variant="secondary"
+             fullWidth
+           />
+
+           <FormTextField
+              label="VPA / UPI ID"
+              placeholder="e.g. shopname@okicici"
+              value={upiId}
+              onChangeText={setUpiId}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="email-address"
+              textContentType="none"
+              helperText="Payments will be settled directly to this ID."
+              left={<TextInput.Icon icon="at" color={colors.textMuted} />}
+              right={
+                <TextInput.Icon
+                  icon="qrcode-scan"
+                  color={colors.primary}
+                  onPress={handleStartScan}
+                  forceTextInputFocus={false}
+                />
+              }
+           />
+
+           <FormTextField
+              label="Display name (on QR)"
+              placeholder="e.g. Nagpur Retail Store"
+              value={upiName}
+              onChangeText={setUpiName}
+              left={<TextInput.Icon icon="account-outline" color={colors.textMuted} />}
+           />
+        </ScreenSection>
+
+        <View style={styles.alertBox}>
+           <Icon source="shield-check-outline" size={20} color={colors.warning} />
+           <View style={{ flex: 1 }}>
+              <Text style={styles.alertTitle}>Security Note</Text>
+              <Text style={styles.alertSubtitle}>
+                 Ensure the UPI ID is correct. ShopControl does not verify the ID with banks. Test with a small amount after saving.
+              </Text>
+           </View>
+        </View>
+      </FormScreen>
 
       <SuccessModal
         visible={successVisible}
@@ -346,14 +332,11 @@ export function UpiConfig() {
           </View>
         </Modal>
       )}
-    </Screen>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  scrollContent: {
-    paddingBottom: 100,
-  },
   container: {
     padding: spacing.lg,
     gap: spacing.xl,
@@ -415,31 +398,6 @@ const styles = StyleSheet.create({
     gap: spacing.xl,
     ...shadow.sm,
   },
-  scanButtonContainer: {
-    marginBottom: spacing.xs,
-  },
-  inputGroup: {
-    gap: spacing.xs,
-  },
-  inputLabel: {
-    fontSize: 10,
-    fontWeight: fontWeight.black,
-    color: colors.textMuted,
-    letterSpacing: 1,
-  },
-  input: {
-    backgroundColor: colors.surface,
-    height: 56,
-  },
-  inputOutline: {
-    borderRadius: radius.md,
-  },
-  helperText: {
-    fontSize: 11,
-    color: colors.textSecondary,
-    marginTop: 4,
-    marginLeft: 4,
-  },
   alertBox: {
     backgroundColor: colors.warningLight,
     borderWidth: 1,
@@ -460,18 +418,6 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginTop: 2,
   },
-  footer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: spacing.lg,
-    backgroundColor: colors.surface,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    ...shadow.lg,
-  },
-  
   // Scanner styles
   scannerContainer: {
     flex: 1,
