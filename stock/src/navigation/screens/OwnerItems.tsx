@@ -163,7 +163,7 @@ const ItemCard = memo(({
 
       {/* Info */}
       <View style={styles.itemInfo}>
-        <Text style={styles.itemName} numberOfLines={1}>{item.name}</Text>
+        <Text style={styles.itemName}>{item.name}</Text>
         <View style={styles.itemMeta}>
           {item.category && (
             <Text style={styles.itemCategory}>{item.category.name}</Text>
