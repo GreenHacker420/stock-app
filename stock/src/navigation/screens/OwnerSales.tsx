@@ -12,6 +12,7 @@ import { type Sale } from "../../api/client";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { AppSearchBar } from "../../components/ui/AppSearchBar";
+import { AppSegmentedControl } from "../../components/ui/AppSegmentedControl";
 import { StatusPill } from "../../components/ui/StatusPill";
 import { SkeletonList } from "../../components/ui/SkeletonCard";
 import { EmptyState } from "../../components/ui/EmptyState";
@@ -93,24 +94,17 @@ export function SalesList() {
           inputStyle={styles.searchInput}
         />
 
-        <View style={styles.tabContainer}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabScroll}>
-            {[
-              { key: "ALL", label: "All Sales" },
-              { key: "PAID", label: "Paid" },
-              { key: "PENDING", label: "Pending" },
-              { key: "gst_pending", label: "GST Pending" },
-            ].map(tab => (
-              <Pressable
-                key={tab.key}
-                onPress={() => setActiveTab(tab.key)}
-                style={[styles.tabButton, activeTab === tab.key && styles.tabButtonActive]}
-              >
-                <Text style={[styles.tabText, activeTab === tab.key && styles.tabTextActive]}>{tab.label.toUpperCase()}</Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-        </View>
+        <AppSegmentedControl
+          value={activeTab}
+          onChange={setActiveTab}
+          options={[
+            { value: "ALL", label: "All" },
+            { value: "PAID", label: "Paid" },
+            { value: "PENDING", label: "Due" },
+            { value: "gst_pending", label: "GST" },
+          ]}
+          style={styles.tabs}
+        />
 
         <View style={styles.listWrapper}>
           {salesQuery.isLoading ? (
@@ -477,12 +471,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, paddingHorizontal: spacing.lg, paddingTop: spacing.md },
   searchBar: { height: 44, marginBottom: spacing.md },
   searchInput: { fontSize: 14 },
-  tabContainer: { height: 38, marginBottom: spacing.lg },
-  tabScroll: { gap: spacing.xs },
-  tabButton: { paddingHorizontal: spacing.xl, borderRadius: radius.full, backgroundColor: colors.surfaceOffset, borderWidth: 1, borderColor: colors.border, justifyContent: 'center', height: 34 },
-  tabButtonActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  tabText: { fontSize: 10, fontWeight: fontWeight.bold, color: colors.textSecondary },
-  tabTextActive: { color: 'white' },
+  tabs: { marginBottom: spacing.lg },
   listWrapper: { flex: 1 },
   listContent: { paddingBottom: 100 },
   saleCard: { backgroundColor: colors.surface, borderRadius: 20, borderWidth: 1, borderColor: colors.border, padding: spacing.lg, marginBottom: spacing.md, ...shadow.sm },

@@ -14,6 +14,7 @@ import { AppHeader } from "../../../components/ui/AppHeader";
 import { SkeletonList } from "../../../components/ui/SkeletonCard";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { Button } from "../../../components/ui/Button";
+import { SummaryPillRow } from "../../../components/ui/SummaryPillRow";
 import { ItemCard } from "../../../components/items/ItemCard";
 import { AllItemsCard, CategoryCard, UncatCard } from "../../../components/items/CategoryCard";
 import { SearchBar } from "../../../components/items/SearchBar";
@@ -150,24 +151,14 @@ export function ItemList() {
           keyboardShouldPersistTaps="handled"
         >
           {/* Summary pills */}
-          <View style={styles.summaryRow}>
-            <View style={styles.summaryPill}>
-              <Text style={styles.summaryPillNum}>{totalCount}</Text>
-              <Text style={styles.summaryPillLabel}>ITEMS</Text>
-            </View>
-            <View style={styles.summaryPill}>
-              <Text style={[styles.summaryPillNum, outCount > 0 && { color: colors.danger }]}>{outCount}</Text>
-              <Text style={styles.summaryPillLabel}>OUT</Text>
-            </View>
-            <View style={styles.summaryPill}>
-              <Text style={[styles.summaryPillNum, lowCount > 0 && { color: colors.warning }]}>{lowCount}</Text>
-              <Text style={styles.summaryPillLabel}>LOW</Text>
-            </View>
-            <View style={styles.summaryPill}>
-              <Text style={styles.summaryPillNum}>{categories.length}</Text>
-              <Text style={styles.summaryPillLabel}>CATS</Text>
-            </View>
-          </View>
+          <SummaryPillRow
+            items={[
+              { label: "ITEMS", value: totalCount },
+              { label: "OUT", value: outCount, tone: outCount > 0 ? "red" : "default" },
+              { label: "LOW", value: lowCount, tone: lowCount > 0 ? "amber" : "default" },
+              { label: "CATS", value: categories.length },
+            ]}
+          />
 
           {/* Search — typing auto-exits to list */}
           <SearchBar
@@ -307,32 +298,6 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     paddingBottom: 120,
     gap: spacing.lg,
-  },
-  summaryRow: {
-    flexDirection: "row",
-    gap: spacing.sm,
-  },
-  summaryPill: {
-    flex: 1,
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: "center",
-    paddingVertical: spacing.md,
-    gap: 2,
-    ...shadow.sm,
-  },
-  summaryPillNum: {
-    fontSize: fontSize.lg,
-    fontWeight: fontWeight.black,
-    color: colors.textPrimary,
-  },
-  summaryPillLabel: {
-    fontSize: 9,
-    fontWeight: fontWeight.black,
-    color: colors.textSecondary,
-    letterSpacing: 0.8,
   },
   gridLabelRow: {
     flexDirection: "row",

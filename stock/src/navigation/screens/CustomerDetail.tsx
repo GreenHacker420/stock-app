@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { View, StyleSheet, ScrollView, Pressable } from "react-native";
+import { View, StyleSheet, ScrollView } from "react-native";
 import { useRoute } from "@react-navigation/native";
 import { Divider, Icon, Text, ActivityIndicator } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
@@ -11,6 +11,7 @@ import { AppHeader } from "../../components/ui/AppHeader";
 import { Section } from "../../components/ui/Section";
 import { Button } from "../../components/ui/Button";
 import { StatusPill } from "../../components/ui/StatusPill";
+import { AppSegmentedControl } from "../../components/ui/AppSegmentedControl";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { SkeletonList } from "../../components/ui/SkeletonCard";
@@ -52,20 +53,14 @@ export function CustomerDetail() {
       <AppHeader title={customer.name} subtitle={customer.phone ?? "No phone"} fallbackRoute="CustomerList" />
       
       {/* Tab Bar */}
-      <View style={styles.tabContainer}>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabScroll}>
-          {tabs.map((tab) => (
-            <Pressable
-              key={tab.key}
-              onPress={() => setActiveTab(tab.key)}
-              style={[styles.tabItem, activeTab === tab.key && styles.activeTabItem]}
-            >
-              <Icon source={tab.icon} size={20} color={activeTab === tab.key ? colors.primary : colors.textMuted} />
-              <Text style={[styles.tabLabel, activeTab === tab.key && styles.activeTabLabel]}>{tab.label}</Text>
-            </Pressable>
-          ))}
-        </ScrollView>
-      </View>
+      <AppSegmentedControl
+        scrollable
+        minOptionWidth={104}
+        value={activeTab}
+        onChange={setActiveTab}
+        options={tabs.map((tab) => ({ value: tab.key, label: tab.label, icon: tab.icon }))}
+        style={styles.tabs}
+      />
 
       <View style={styles.content}>
         {activeTab === "OVERVIEW" && <OverviewTab customer={customer} />}
@@ -291,34 +286,9 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 }
 
 const styles = StyleSheet.create({
-  tabContainer: {
+  tabs: {
     backgroundColor: colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    height: 52,
-  },
-  tabScroll: {
-    paddingHorizontal: spacing.lg,
-    gap: spacing.xl,
-  },
-  tabItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    borderBottomWidth: 3,
-    borderBottomColor: 'transparent',
-    paddingHorizontal: 4,
-  },
-  activeTabItem: {
-    borderBottomColor: colors.primary,
-  },
-  tabLabel: {
-    fontSize: 13,
-    fontWeight: fontWeight.bold,
-    color: colors.textMuted,
-  },
-  activeTabLabel: {
-    color: colors.primary,
+    paddingVertical: spacing.sm,
   },
   content: {
     flex: 1,

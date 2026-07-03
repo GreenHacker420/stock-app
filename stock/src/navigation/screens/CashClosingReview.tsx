@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from "react";
-import { View, ScrollView, Pressable, StyleSheet, ActivityIndicator } from "react-native";
+import { useEffect, useState } from "react";
+import { View, ScrollView, StyleSheet, ActivityIndicator } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Text, Card, Icon, Divider } from "react-native-paper";
 
@@ -11,6 +11,7 @@ import { AppHeader } from "../../components/ui/AppHeader";
 import { ShopPicker } from "../../components/ui/ShopPicker";
 import { StatusPill } from "../../components/ui/StatusPill";
 import { Button } from "../../components/ui/Button";
+import { AppSegmentedControl } from "../../components/ui/AppSegmentedControl";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { EmptyState } from "../../components/ui/EmptyState";
 
@@ -73,20 +74,15 @@ export function CashClosingReview() {
       </View>
 
       <View style={styles.tabBar}>
-         <View style={styles.tabRow}>
-            <Pressable 
-              onPress={() => setFilter("pending")} 
-              style={[styles.tabItem, filter === "pending" && styles.tabItemActive]}
-            >
-              <Text style={[styles.tabText, filter === "pending" && styles.tabTextActive]}>PENDING</Text>
-            </Pressable>
-            <Pressable 
-              onPress={() => setFilter("reviewed")} 
-              style={[styles.tabItem, filter === "reviewed" && styles.tabItemActive]}
-            >
-              <Text style={[styles.tabText, filter === "reviewed" && styles.tabTextActive]}>HISTORY</Text>
-            </Pressable>
-         </View>
+         <AppSegmentedControl
+           value={filter}
+           onChange={setFilter}
+           options={[
+             { value: "pending", label: "Pending" },
+             { value: "reviewed", label: "History" },
+           ]}
+           style={styles.tabs}
+         />
          <View style={styles.recordBadge}>
             <Text style={styles.recordBadgeText}>{filteredSessions.length} RECORDS</Text>
          </View>
@@ -205,25 +201,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
-  tabRow: {
-    flexDirection: 'row',
-    gap: spacing.xl,
-  },
-  tabItem: {
-    paddingBottom: spacing.sm,
-    borderBottomWidth: 2,
-    borderBottomColor: 'transparent',
-  },
-  tabItemActive: {
-    borderBottomColor: colors.primary,
-  },
-  tabText: {
-    fontWeight: fontWeight.bold,
-    color: colors.textMuted,
-    fontSize: 13,
-  },
-  tabTextActive: {
-    color: colors.primary,
+  tabs: {
+    width: 180,
   },
   recordBadge: {
     backgroundColor: colors.primaryLight,

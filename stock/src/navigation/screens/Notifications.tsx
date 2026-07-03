@@ -6,6 +6,7 @@ import { useAuthStore } from "../../auth/auth-store";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { EmptyState } from "../../components/ui/EmptyState";
+import { AppSegmentedControl } from "../../components/ui/AppSegmentedControl";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { 
   useNotificationsQuery, 
@@ -107,34 +108,15 @@ export function Notifications() {
 
       {/* Segmented Button / Tabs */}
       <View style={styles.tabContainer}>
-        <View style={styles.tabBar}>
-          <Pressable 
-            onPress={() => setFilterUnread(false)}
-            style={[styles.tabButton, !filterUnread && styles.tabButtonActive]}
-          >
-            <Text style={[styles.tabButtonText, !filterUnread && styles.tabButtonTextActive]}>
-              ALL
-            </Text>
-            {notificationsQuery.data && notificationsQuery.data.length > 0 && (
-              <View style={styles.badgeCount}>
-                <Text style={styles.badgeText}>{notificationsQuery.data.length}</Text>
-              </View>
-            )}
-          </Pressable>
-          <Pressable 
-            onPress={() => setFilterUnread(true)}
-            style={[styles.tabButton, filterUnread && styles.tabButtonActive]}
-          >
-            <Text style={[styles.tabButtonText, filterUnread && styles.tabButtonTextActive]}>
-              UNREAD
-            </Text>
-            {unreadCount > 0 && (
-              <View style={[styles.badgeCount, { backgroundColor: colors.danger }]}>
-                <Text style={styles.badgeText}>{unreadCount}</Text>
-              </View>
-            )}
-          </Pressable>
-        </View>
+        <AppSegmentedControl
+          value={filterUnread ? "UNREAD" : "ALL"}
+          onChange={(value) => setFilterUnread(value === "UNREAD")}
+          options={[
+            { value: "ALL", label: "All", badge: notificationsQuery.data?.length || undefined },
+            { value: "UNREAD", label: "Unread", badge: unreadCount || undefined },
+          ]}
+          style={styles.tabs}
+        />
 
         {unreadCount > 0 && (
           <Pressable 
@@ -242,42 +224,9 @@ const styles = StyleSheet.create({
     marginTop: spacing.sm,
     marginBottom: spacing.md,
   },
-  tabBar: {
-    flexDirection: "row",
-    gap: spacing.md,
-  },
-  tabButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: spacing.xs,
-    borderBottomWidth: 2,
-    borderBottomColor: "transparent",
-    gap: 6,
-  },
-  tabButtonActive: {
-    borderBottomColor: colors.primary,
-  },
-  tabButtonText: {
-    fontSize: 12,
-    fontWeight: fontWeight.extrabold,
-    color: colors.textSecondary,
-    letterSpacing: 0.8,
-  },
-  tabButtonTextActive: {
-    color: colors.primary,
-  },
-  badgeCount: {
-    backgroundColor: colors.textSecondary,
-    borderRadius: 8,
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  badgeText: {
-    fontSize: 9,
-    color: colors.textInverse,
-    fontWeight: fontWeight.bold,
+  tabs: {
+    flex: 1,
+    maxWidth: 220,
   },
   markAllReadBtn: {
     paddingVertical: 4,
