@@ -1,5 +1,5 @@
-import React, { useMemo, useState, useCallback } from "react";
-import { View, StyleSheet, Pressable, ScrollView, ActivityIndicator, Platform } from "react-native";
+import { useMemo, useState, useCallback, memo } from "react";
+import { View, StyleSheet, Pressable, ScrollView, Platform } from "react-native";
 import { Searchbar, Divider, Text, Icon } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 import * as Haptics from "expo-haptics";
@@ -14,10 +14,117 @@ import { EmptyState } from "../../components/ui/EmptyState";
 import { Button } from "../../components/ui/Button";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { navigate } from "../navigation-ref";
+import { useAuthStore } from "../../auth/auth-store";
 
+// ── Stock Health Helpers ───────────────────────────────────────────────────
+const getSafeMinimumStock = (record: StockLevel) => {
+  const min = Number(record.item?.minimumStock ?? 0);
+  return Number.isFinite(min) ? min : 0;
+};
+
+const isOutOfStock = (record: StockLevel) => record.availableStock <= 0;
+
+const isLowStock = (record: StockLevel) => {
+  const min = getSafeMinimumStock(record);
+  return record.availableStock > 0 && record.availableStock <= min;
+};
+
+const isHealthyStock = (record: StockLevel) => {
+  const min = getSafeMinimumStock(record);
+  return record.availableStock > min;
+};
+
+const getStockHealth = (record: StockLevel) => {
+  if (isOutOfStock(record)) {
+    return { label: "OUT OF STOCK", tone: "red" as const };
+  }
+  if (isLowStock(record)) {
+    return { label: "LOW STOCK", tone: "amber" as const };
+  }
+  return { label: "HEALTHY", tone: "green" as const };
+};
+
+const triggerLightHaptic = () => {
+  if (Platform.OS !== "web") {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+  }
+};
+
+const triggerMediumHaptic = () => {
+  if (Platform.OS !== "web") {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+  }
+};
+
+// ── Memoized Stock Card ─────────────────────────────────────────────────────
+const StockCard = memo(function StockCard({
+  item,
+  onPress,
+  onLongPress,
+}: {
+  item: StockLevel;
+  onPress: () => void;
+  onLongPress: () => void;
+}) {
+  const minStockVal = getSafeMinimumStock(item);
+  const health = getStockHealth(item);
+
+  return (
+    <Pressable
+      onPress={onPress}
+      onLongPress={onLongPress}
+      style={({ pressed }) => [
+        styles.stockCard,
+        pressed && styles.pressed
+      ]}
+    >
+      <View style={styles.cardHeader}>
+        <View style={styles.cardHeaderLeft}>
+          <Text style={styles.itemName}>{item.item.name}</Text>
+          {item.item.sku && (
+            <Text style={styles.skuText}>SKU: {item.item.sku}</Text>
+          )}
+        </View>
+        <StatusPill label={health.label} tone={health.tone} />
+      </View>
+
+      <Divider style={styles.divider} />
+
+      <View style={styles.cardFooter}>
+        <View style={styles.qtyCol}>
+          <Text style={styles.qtyLabel}>AVAILABLE STOCK</Text>
+          <Text style={[
+            styles.qtyValue,
+            item.availableStock <= 0 ? styles.textRed : item.availableStock <= minStockVal ? styles.textAmber : styles.textGreen
+          ]}>
+            {item.availableStock} {item.item.unit}
+          </Text>
+        </View>
+
+        <View style={styles.qtyCol}>
+          <Text style={styles.qtyLabel}>PHYSICAL / RESERVED</Text>
+          <Text style={styles.qtyValue}>{item.physicalStock} / {item.reservedStock} {item.item.unit}</Text>
+        </View>
+
+        <View style={[styles.qtyCol, { alignItems: 'flex-end' }]}>
+          <Text style={styles.qtyLabel}>TOTAL IN / OUT</Text>
+          <Text style={styles.qtySubText}>
+            In: {item.quantityIn} | Out: {item.quantityOut}
+          </Text>
+        </View>
+      </View>
+    </Pressable>
+  );
+});
+
+// ── Main Dashboard Screen ───────────────────────────────────────────────────
 export function StockDashboard() {
+  const List = FlashList as any;
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState<"all" | "in_stock" | "low" | "out">("all");
+
+  const user = useAuthStore((state) => state.user);
+  const isOwner = user?.role === "OWNER";
 
   const stockQuery = useCurrentStockQuery();
 
@@ -30,58 +137,90 @@ export function StockDashboard() {
 
   const allRecords = stockQuery.data ?? [];
 
-  // 1. Calculate overall counts for metrics cards
+  // Calculate overall counts for metrics cards using safe unified helpers
   const totalCount = allRecords.length;
-  
-  const lowStockCount = useMemo(() => 
-    allRecords.filter(r => r.isLowStock && r.availableStock > 0).length,
-    [allRecords]
-  );
+  const lowStockCount = useMemo(() => allRecords.filter(isLowStock).length, [allRecords]);
+  const outOfStockCount = useMemo(() => allRecords.filter(isOutOfStock).length, [allRecords]);
+  const inStockCount = useMemo(() => allRecords.filter(isHealthyStock).length, [allRecords]);
 
-  const outOfStockCount = useMemo(() => 
-    allRecords.filter(r => r.availableStock <= 0).length,
-    [allRecords]
-  );
+  // Normalize search query once
+  const query = useMemo(() => search.trim().toLowerCase(), [search]);
 
-  const inStockCount = useMemo(() => 
-    allRecords.filter(r => r.availableStock > Number(r.item?.minimumStock ?? 0)).length,
-    [allRecords]
-  );
-
-  // 2. Filter records by search and active tab
+  // Filter records by search and active tab
   const filteredRecords = useMemo(() => {
     return allRecords.filter((record) => {
-      const itemName = record.item?.name || "";
-      const itemSku = record.item?.sku || "";
+      const itemName = record.item?.name?.toLowerCase() ?? "";
+      const itemSku = record.item?.sku?.toLowerCase() ?? "";
+      
       const matchesSearch = 
-        itemName.toLowerCase().includes(search.toLowerCase()) || 
-        itemSku.toLowerCase().includes(search.toLowerCase());
+        !query || 
+        itemName.includes(query) || 
+        itemSku.includes(query);
 
       if (!matchesSearch) return false;
 
-      if (activeTab === "in_stock") return record.availableStock > Number(record.item?.minimumStock ?? 0);
-      if (activeTab === "low") return record.isLowStock && record.availableStock > 0;
-      if (activeTab === "out") return record.availableStock <= 0;
+      if (activeTab === "in_stock") return isHealthyStock(record);
+      if (activeTab === "low") return isLowStock(record);
+      if (activeTab === "out") return isOutOfStock(record);
 
       return true;
     });
-  }, [allRecords, activeTab, search]);
+  }, [allRecords, activeTab, query]);
 
-  const getStockHealth = (qty: number, minStock: number) => {
-    if (qty <= 0) {
-      return { label: "OUT OF STOCK", tone: "red" as const };
-    }
-    if (qty <= minStock) {
-      return { label: "LOW STOCK", tone: "amber" as const };
-    }
-    return { label: "HEALTHY", tone: "green" as const };
-  };
+  // Dynamic Empty State text based on tab/search context
+  const emptyTitle = search.trim()
+    ? "No matching products"
+    : activeTab === "all"
+      ? "No stock records found"
+      : activeTab === "low"
+        ? "No low-stock items"
+        : activeTab === "out"
+          ? "No out-of-stock items"
+          : "No in-stock items";
+
+  const emptySubtitle = search.trim()
+    ? "Try searching by a different product name or SKU."
+    : "Stock records will appear here once products are created and stock is added.";
+
+  const renderItem = useCallback(({ item }: { item: StockLevel }) => (
+    <StockCard
+      item={item}
+      onPress={() => navigate("ItemDetail", { itemId: item.item.id })}
+      onLongPress={() => {
+        triggerMediumHaptic();
+        navigate("StockEntry", { itemId: item.item.id });
+      }}
+    />
+  ), []);
+
+  if (stockQuery.isError) {
+    return (
+      <Screen scroll={false} edges={['top', 'left', 'right']}>
+        <AppHeader 
+          title="Stock Dashboard" 
+          subtitle="Current physical stock and alerts." 
+          fallbackRoute="Home"
+        />
+        <EmptyState
+          icon="alert-circle-outline"
+          title="Could not load stock"
+          subtitle="Please check your connection and try again."
+          action={
+            <Button
+              label="Retry"
+              onPress={() => stockQuery.refetch()}
+            />
+          }
+        />
+      </Screen>
+    );
+  }
 
   return (
     <Screen scroll={false} edges={['top', 'left', 'right']}>
       <AppHeader 
         title="Stock Dashboard" 
-        subtitle="Real-time physical stock and alerts." 
+        subtitle="Current physical stock and alerts." 
         fallbackRoute="Home"
       />
 
@@ -90,7 +229,7 @@ export function StockDashboard() {
         <View style={styles.statsRow}>
           <Pressable 
             onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              triggerLightHaptic();
               setActiveTab("all");
             }}
             style={[styles.statCard, activeTab === "all" && styles.statCardSelected]}
@@ -101,7 +240,7 @@ export function StockDashboard() {
           
           <Pressable 
             onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              triggerLightHaptic();
               setActiveTab("low");
             }}
             style={[
@@ -116,7 +255,7 @@ export function StockDashboard() {
 
           <Pressable 
             onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              triggerLightHaptic();
               setActiveTab("out");
             }}
             style={[
@@ -130,22 +269,34 @@ export function StockDashboard() {
           </Pressable>
         </View>
 
-        {/* Action Buttons */}
+        {/* Permission / Role-Aware Action Buttons */}
         <View style={styles.actionRow}>
-          <Button
-            variant="primary"
-            label="New Stock Entry"
-            icon={<Icon source="plus-box" size={18} color={colors.textInverse} />}
-            onPress={() => navigate("StockEntry")}
-            style={{ flex: 1 }}
-          />
-          <Button
-            variant="secondary"
-            label="Add Product"
-            icon={<Icon source="cube-outline" size={18} color={colors.primary} />}
-            onPress={() => navigate("AddEditItem")}
-            style={{ flex: 0.8 }}
-          />
+          {isOwner ? (
+            <>
+              <Button
+                variant="primary"
+                label="New Stock Entry"
+                icon={<Icon source="plus-box" size={18} color={colors.textInverse} />}
+                onPress={() => navigate("StockEntry")}
+                style={{ flex: 1 }}
+              />
+              <Button
+                variant="secondary"
+                label="Add Product"
+                icon={<Icon source="cube-outline" size={18} color={colors.primary} />}
+                onPress={() => navigate("AddEditItem")}
+                style={{ flex: 0.8 }}
+              />
+            </>
+          ) : (
+            <Button
+              variant="primary"
+              label="Request Stock Update"
+              icon={<Icon source="plus-box" size={18} color={colors.textInverse} />}
+              onPress={() => navigate("StockEntry")}
+              style={{ flex: 1 }}
+            />
+          )}
         </View>
 
         {/* Searchbar */}
@@ -162,12 +313,16 @@ export function StockDashboard() {
         <View style={styles.tabContainer}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabScroll}>
             {(["all", "in_stock", "low", "out"] as const).map((tab) => {
-              const label = tab === "all" ? "All Items" : tab === "in_stock" ? "In Stock" : tab === "low" ? "Low Stock" : "Out of Stock";
+              const label = 
+                tab === "all" ? "All Items" : 
+                tab === "in_stock" ? `In Stock (${inStockCount})` : 
+                tab === "low" ? `Low Stock (${lowStockCount})` : 
+                `Out of Stock (${outOfStockCount})`;
               return (
                 <Pressable
                   key={tab}
                   onPress={() => {
-                    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                    triggerLightHaptic();
                     setActiveTab(tab);
                   }}
                   style={[styles.tabButton, activeTab === tab && styles.tabButtonActive]}
@@ -186,76 +341,22 @@ export function StockDashboard() {
           {stockQuery.isLoading ? (
             <SkeletonList count={5} itemHeight={100} />
           ) : (
-            (() => {
-              const List = FlashList as any;
-              return (
-                <List
-                  data={filteredRecords}
-                  keyExtractor={(item: StockLevel) => item.item.id}
-                  estimatedItemSize={110}
-                  refreshing={stockQuery.isRefetching}
-                  onRefresh={onRefresh}
-                  renderItem={({ item }: { item: StockLevel }) => {
-                    const minStockVal = Number(item.item.minimumStock);
-	                    const health = getStockHealth(item.availableStock, minStockVal);
-
-                    return (
-                      <Pressable
-                        onPress={() => navigate("ItemDetail", { itemId: item.item.id })}
-                        style={({ pressed }) => [
-                          styles.stockCard,
-                          pressed && styles.pressed
-                        ]}
-                      >
-                        <View style={styles.cardHeader}>
-                          <View style={styles.cardHeaderLeft}>
-                            <Text style={styles.itemName}>{item.item.name}</Text>
-                            {item.item.sku && (
-                              <Text style={styles.skuText}>SKU: {item.item.sku}</Text>
-                            )}
-                          </View>
-                          <StatusPill label={health.label} tone={health.tone} />
-                        </View>
-
-                        <Divider style={styles.divider} />
-
-                        <View style={styles.cardFooter}>
-                          <View style={styles.qtyCol}>
-	                            <Text style={styles.qtyLabel}>AVAILABLE STOCK</Text>
-	                            <Text style={[
-	                              styles.qtyValue,
-	                              item.availableStock <= 0 ? styles.textRed : item.availableStock <= minStockVal ? styles.textAmber : styles.textGreen
-	                            ]}>
-	                              {item.availableStock} {item.item.unit}
-	                            </Text>
-	                          </View>
-
- 	                          <View style={styles.qtyCol}>
-	                            <Text style={styles.qtyLabel}>PHYSICAL / RESERVED</Text>
-	                            <Text style={styles.qtyValue}>{item.physicalStock} / {item.reservedStock} {item.item.unit}</Text>
-	                          </View>
-
-                          <View style={[styles.qtyCol, { alignItems: 'flex-end' }]}>
-                            <Text style={styles.qtyLabel}>TOTAL IN / OUT</Text>
-                            <Text style={styles.qtySubText}>
-                              In: {item.quantityIn} | Out: {item.quantityOut}
-                            </Text>
-                          </View>
-                        </View>
-                      </Pressable>
-                    );
-                  }}
-                  ListEmptyComponent={
-                    <EmptyState
-                      icon="warehouse"
-                      title="No stock alerts"
-                      subtitle={`No items found in "${activeTab}" view.`}
-                    />
-                  }
-                  contentContainerStyle={styles.listContent}
+            <List
+              data={filteredRecords}
+              keyExtractor={(item: StockLevel) => item.item.id}
+              estimatedItemSize={110}
+              refreshing={stockQuery.isRefetching}
+              onRefresh={onRefresh}
+              renderItem={renderItem}
+              ListEmptyComponent={
+                <EmptyState
+                  icon="warehouse"
+                  title={emptyTitle}
+                  subtitle={emptySubtitle}
                 />
-              );
-            })()
+              }
+              contentContainerStyle={styles.listContent}
+            />
           )}
         </View>
       </View>
