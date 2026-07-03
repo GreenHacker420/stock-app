@@ -74,9 +74,6 @@ export async function getApprovalRequest(user, id) {
   return request;
 }
 
-// NOTE: The actual application of the approved change should be handled by 
-// specialized handlers in each module (Sale, Stock, etc.)
-// This service provides the generic approval/rejection wrapper.
 export async function respondToRequest(user, id, { status, rejectedReason }) {
   if (user.role !== "OWNER") throw new ApiError(403, "Owner access required");
 

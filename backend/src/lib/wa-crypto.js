@@ -3,18 +3,13 @@ import crypto from "crypto";
 const ALGORITHM = "aes-256-gcm";
 const IV_LENGTH = 12; // 12 bytes is standard for AES-GCM
 
-/**
- * Derives a 32-byte key from the MASTER_ENCRYPTION_KEY environment variable.
- */
+
 function getSecretKey() {
   const rawKey = process.env.MASTER_ENCRYPTION_KEY || "dev-master-encryption-key-for-shopcontrol-whatsapp-layer";
   return crypto.scryptSync(rawKey, "whatsapp-salt", 32);
 }
 
-/**
- * Encrypts cleartext using AES-256-GCM.
- * Returns the combined format: iv:authTag:encryptedText
- */
+
 export function encrypt(text) {
   if (!text) return "";
   
@@ -30,10 +25,6 @@ export function encrypt(text) {
   return `${iv.toString("hex")}:${authTag}:${encrypted}`;
 }
 
-/**
- * Decrypts AES-256-GCM encrypted text.
- * Falls back to returning the input string if it is not in the encrypted format (enables backward compatibility).
- */
 export function decrypt(encryptedText) {
   if (!encryptedText) return "";
   

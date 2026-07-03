@@ -24,13 +24,7 @@ if (process.env.AWS_S3_ENDPOINT) {
 
 export const s3Client = new S3Client(s3Config);
 
-/**
- * Uploads a media buffer/stream to Amazon S3.
- * Amazon S3 is the only supported media storage backend.
- * @param {Buffer|Uint8Array|Blob|string|ReadableStream} body - File content
- * @param {string} key - S3 destination key (e.g. shops/{shopId}/media/{mediaId})
- * @param {string} mimeType - The mime type of the file
- */
+
 export async function uploadToS3(body, key, mimeType) {
   const command = new PutObjectCommand({
     Bucket: bucketName,
@@ -48,12 +42,7 @@ export async function uploadToS3(body, key, mimeType) {
   };
 }
 
-/**
- * Generates a pre-signed URL for viewing private S3 media.
- * Pre-signed URLs are valid for 1 hour by default.
- * @param {string} key - S3 object key
- * @param {number} expiresIn - Expiry duration in seconds (default: 3600)
- */
+
 export async function getSignedMediaUrl(key, expiresIn = 3600) {
   if (!key) return null;
   

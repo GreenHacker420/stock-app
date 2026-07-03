@@ -17,10 +17,7 @@ const tenantMemCache = new LRUCache({
   ttl: 4 * 60 * 1000,
 });
 
-/**
- * Fetches decrypted WhatsApp credentials for a shop.
- * Checks LRU cache first, then Redis, and falls back to database lookup.
- */
+
 export async function getWaCredentials(shopId) {
   const cacheKey = `wa:creds:${shopId}`;
   
@@ -68,9 +65,7 @@ export async function getWaCredentials(shopId) {
   return credentials;
 }
 
-/**
- * Resolves a Phone Number ID to its corresponding Shop ID.
- */
+
 export async function getTenantByPhoneNumberId(phoneNumberId) {
   const cacheKey = `wa:tenant:${phoneNumberId}`;
   
@@ -112,9 +107,6 @@ export async function getTenantByPhoneNumberId(phoneNumberId) {
   return { shopId };
 }
 
-/**
- * Invalidates and flushes caches for a specific shop.
- */
 export async function invalidateWaCredentials(shopId) {
   const credsKey = `wa:creds:${shopId}`;
   credsMemCache.delete(credsKey);
@@ -141,9 +133,7 @@ export async function invalidateWaCredentials(shopId) {
   }
 }
 
-/**
- * Pre-warms the cache with all connected shop integrations.
- */
+
 export async function warmTenantCache() {
   try {
     const integrations = await prisma.waIntegration.findMany({
