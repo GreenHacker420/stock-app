@@ -480,13 +480,32 @@ export async function getItemStock(user, id) {
   if (!item) throw new ApiError(404, "Item not found");
   await assertShopAccess(user, item.shopId);
 
-  const stock = await prisma.stockLedger.aggregate({
-    where: { itemId: id, shopId: item.shopId },
-    _sum: { quantityIn: true, quantityOut: true },
-  });
+  const [stock, reservations] = await Promise.all([
+    prisma.stockLedger.aggregate({
+      where: { itemId: id, shopId: item.shopId },
+      _sum: { quantityIn: true, quantityOut: true },
+    }),
+    prisma.stockReservation.aggregate({
+      where: { itemId: id, shopId: item.shopId, status: "ACTIVE" },
+      _sum: { reservedQty: true },
+    })
+  ]);
+
   const quantityIn = Number(stock._sum.quantityIn || 0);
   const quantityOut = Number(stock._sum.quantityOut || 0);
-  return { item, quantityIn, quantityOut, currentQuantity: quantityIn - quantityOut };
+  const currentStock = quantityIn - quantityOut;
+  const reservedStock = Number(reservations._sum.reservedQty || 0);
+  const availableStock = Math.max(0, currentStock - reservedStock);
+
+  return { 
+    item, 
+    quantityIn, 
+    quantityOut, 
+    currentQuantity: currentStock, 
+    currentStock, 
+    reservedStock, 
+    availableStock 
+  };
 }
 
 export async function getPurchaseHistory(user, id, { customerId }) {

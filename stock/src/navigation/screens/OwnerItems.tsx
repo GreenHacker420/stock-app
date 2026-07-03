@@ -569,6 +569,8 @@ export function ItemDetail() {
 
   const itemData = (stockQuery.data as any)?.item;
   const stock = (stockQuery.data as any)?.currentStock ?? 0;
+  const reservedStock = (stockQuery.data as any)?.reservedStock ?? 0;
+  const availableStock = (stockQuery.data as any)?.availableStock ?? 0;
   const minStock = Number(itemData?.minimumStock ?? 0);
 
   const otherShops = useMemo(() => {
@@ -649,8 +651,8 @@ export function ItemDetail() {
               {itemData.name.split(" ").map((w: string) => w[0]).slice(0, 2).join("").toUpperCase()}
             </Text>
           </View>
-          <View>
-            <Text style={styles.detailName}>{itemData.name}</Text>
+          <View style={{ flex: 1, minWidth: 0, paddingRight: spacing.sm }}>
+            <Text style={styles.detailName} numberOfLines={2}>{itemData.name}</Text>
             <Text style={styles.detailSku}>{itemData.sku || "No SKU"}</Text>
           </View>
         </View>
@@ -681,6 +683,9 @@ export function ItemDetail() {
         {activeTab === "overview" && (
           <View style={styles.detailCard}>
             {[
+              { label: "Available Stock", value: `${availableStock} ${itemData.unit}`, highlight: true, color: availableStock <= 0 ? colors.danger : availableStock <= minStock ? colors.warning : colors.success },
+              { label: "Reserved Stock", value: `${reservedStock} ${itemData.unit}`, color: reservedStock > 0 ? colors.warning : colors.textSecondary },
+              { label: "Physical Stock", value: `${stock} ${itemData.unit}` },
               { label: "Unit", value: itemData.unit },
               { label: "Category", value: itemData.category?.name ?? "—" },
               { label: "MRP", value: money(itemData.mrp) },
@@ -688,11 +693,11 @@ export function ItemDetail() {
               { label: "Min Allowed Price", value: money(itemData.minimumAllowedPrice) },
               { label: "Purchase Price", value: money(itemData.purchasePrice) },
               { label: "Low Stock Alert", value: `${itemData.minimumStock ?? 0} ${itemData.unit}` },
-            ].map((row, i, arr) => (
+            ].map((row: any, i, arr) => (
               <React.Fragment key={row.label}>
                 <View style={styles.detailRow}>
-                  <Text style={styles.detailRowLabel}>{row.label}</Text>
-                  <Text style={styles.detailRowValue}>{row.value}</Text>
+                  <Text style={[styles.detailRowLabel, row.highlight && { fontWeight: fontWeight.bold, color: colors.textPrimary }]}>{row.label}</Text>
+                  <Text style={[styles.detailRowValue, row.color && { color: row.color, fontWeight: fontWeight.bold }]}>{row.value}</Text>
                 </View>
                 {i < arr.length - 1 && <Divider style={styles.rowDivider} />}
               </React.Fragment>
