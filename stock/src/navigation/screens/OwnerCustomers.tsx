@@ -54,7 +54,7 @@ const CustomerCard = memo(({
         <View style={styles.customerMain}>
           <Text style={styles.customerName}>{customer.name}</Text>
           <Text style={styles.customerSubtitle}>
-            {customer.type === "WALK_IN" ? "Counter Walk-in Sales" : `${customer.phone || "No phone"} • ${customer.city || "No city"}`}
+            {customer.type === "WALK_IN" ? "Counter Walk-in Sales" : `${customer.contactPerson ? `${customer.contactPerson} • ` : ""}${customer.phone || "No phone"}${customer.city ? ` • ${customer.city}` : ""}`}
           </Text>
         </View>
         {customer.type === "WALK_IN" ? (
@@ -186,6 +186,7 @@ export function AddEditCustomer() {
     address: customer?.address ?? "",
     city: customer?.city ?? "",
     gstin: customer?.gstin ?? "",
+    contactPerson: customer?.contactPerson ?? "",
     creditLimit: String(customer?.creditLimit ?? ""),
     notes: customer?.notes ?? "",
   });
@@ -202,7 +203,7 @@ export function AddEditCustomer() {
         ...form, 
         creditLimit: form.creditLimit ? Number(form.creditLimit) : undefined 
       };
-      return customer ? updateCustomer(token ?? "", customer.id, payload) : createCustomer(token ?? "", payload);
+      return (customer && customer.id) ? updateCustomer(token ?? "", customer.id, payload) : createCustomer(token ?? "", payload);
     },
     onSuccess: (result: any) => {
       if (result?.ok === false) return;
@@ -218,7 +219,7 @@ export function AddEditCustomer() {
   return (
     <Screen edges={['top', 'left', 'right']}>
       <AppHeader 
-        title={customer ? "Edit Customer" : "Add Customer"} 
+        title={(customer && customer.id) ? "Edit Customer" : "Add Customer"} 
         subtitle="Maintain customer profile settings" 
         fallbackRoute="CustomerList"
       />
@@ -227,7 +228,7 @@ export function AddEditCustomer() {
           <View style={styles.formCard}>
             <TextInput 
               mode="outlined" 
-              label="Customer Name * (Required)" 
+              label="Firm Name * (Required)" 
               value={form.name} 
               onChangeText={(v) => set("name", v)} 
               outlineStyle={styles.inputOutline} 
@@ -235,11 +236,20 @@ export function AddEditCustomer() {
             />
             <TextInput 
               mode="outlined" 
-              label="Phone Number (Optional)" 
+              label="Contact Person Name * (Required)" 
+              value={form.contactPerson} 
+              onChangeText={(v) => set("contactPerson", v)} 
+              outlineStyle={styles.inputOutline} 
+              style={styles.input} 
+            />
+            <TextInput 
+              mode="outlined" 
+              label="Mobile Number * (Required)" 
               value={form.phone ?? ""} 
               onChangeText={(v) => set("phone", v)} 
               outlineStyle={styles.inputOutline} 
               style={styles.input} 
+              keyboardType="phone-pad"
             />
             <TextInput 
               mode="outlined" 
@@ -301,7 +311,7 @@ export function AddEditCustomer() {
             label="Save Customer"
             onPress={() => mutation.mutate()} 
             loading={mutation.isPending} 
-            disabled={!form.name.trim()}
+            disabled={!form.name.trim() || !form.phone.trim() || !form.contactPerson.trim()}
             fullWidth
             size="lg"
           />

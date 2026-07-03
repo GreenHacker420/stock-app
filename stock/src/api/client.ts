@@ -70,6 +70,7 @@ export type Customer = {
   address?: string | null;
   city?: string | null;
   gstin?: string | null;
+  contactPerson?: string | null;
   creditLimit?: string | null;
   outstandingAmount?: string;
   notes?: string | null;

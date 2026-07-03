@@ -99,6 +99,8 @@ function OverviewTab({ customer }: { customer: any }) {
 
       <Section title="Profile Details">
         <View style={styles.infoCard}>
+          <InfoRow label="Contact Person" value={customer.contactPerson || "Not provided"} />
+          <InfoRow label="Phone / Mobile" value={customer.phone || "Not provided"} />
           <InfoRow label="GSTIN" value={customer.gstin || "Not provided"} />
           <InfoRow label="Address" value={customer.address || "No address"} />
           <InfoRow label="City" value={customer.city || "No city"} />

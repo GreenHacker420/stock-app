@@ -386,6 +386,15 @@ export function StockEntry() {
                     icon="package-variant-closed" 
                     title={showOnlyEdited ? "No edited items" : "No items found"} 
                     subtitle={specificItemId ? "Failed to load the specific item." : (showOnlyEdited ? "Select 'All Items' and modify a quantity to edit." : "Try searching for a different item name")} 
+                    action={
+                      !specificItemId && !showOnlyEdited && (
+                        <Button 
+                          label="Create Product" 
+                          icon="plus" 
+                          onPress={() => navigate("AddEditItem")}
+                        />
+                      )
+                    }
                   />
                 }
                 contentContainerStyle={styles.listContent}

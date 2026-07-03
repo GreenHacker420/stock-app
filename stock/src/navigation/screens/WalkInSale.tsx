@@ -409,6 +409,18 @@ export function WalkInSale() {
                           </Pressable>
                         </View>
 
+                        {customerSearch && filteredCustomers.length === 0 ? (
+                          <Pressable 
+                            onPress={network.isOffline ? () => Alert.alert("Internet required", internetRequiredMessage) : () => navigation.navigate("AddEditCustomer", { customer: { name: customerSearch } })}
+                            style={styles.addNewCustomerRow}
+                          >
+                            <Icon source="account-plus-outline" size={20} color={colors.primary} />
+                            <Text style={styles.addNewCustomerText}>
+                              No matches. Create "{customerSearch}"?
+                            </Text>
+                          </Pressable>
+                        ) : null}
+
                         {customerSearch && filteredCustomers.length > 0 ? (
                           <View style={styles.searchDropdown}>
                             {filteredCustomers.map(c => (
@@ -946,6 +958,23 @@ export function WalkInSale() {
 }
 
 const styles = StyleSheet.create({
+  addNewCustomerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.primaryLight,
+    borderWidth: 1,
+    borderColor: 'rgba(22, 163, 74, 0.2)',
+    marginTop: spacing.sm,
+  },
+  addNewCustomerText: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.primaryDark,
+    flex: 1,
+  },
   keyboardView: {
     flex: 1,
   },

@@ -10,12 +10,13 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  BackHandler,
 } from "react-native";
 import { Text, Divider, Icon, TextInput, Portal, Dialog, ActivityIndicator } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
 import { useQuery } from "@tanstack/react-query";
-import { useRoute } from "@react-navigation/native";
+import { useRoute, useFocusEffect } from "@react-navigation/native";
 import * as Haptics from "expo-haptics";
 
 import {
@@ -944,6 +945,20 @@ export function ItemList() {
     setFilter("ALL");
   }, []);
 
+  useFocusEffect(
+    useCallback(() => {
+      const onBackPress = () => {
+        if (selectedCat !== null) {
+          exitGrid();
+          return true; // Intercept and handle locally
+        }
+        return false; // Let navigation handle it
+      };
+      const subscription = BackHandler.addEventListener("hardwareBackPress", onBackPress);
+      return () => subscription.remove();
+    }, [selectedCat, exitGrid])
+  );
+
   const activeCatName =
     selectedCat === "ALL"
       ? "All Items"
@@ -1042,7 +1057,7 @@ export function ItemList() {
   // ───────────────────────────────────────────────────────────────────────────
   return (
     <Screen edges={["top", "left", "right"]} scroll={false}>
-      <AppHeader title="Products" subtitle={activeCatName} />
+      <AppHeader title="Products" subtitle={activeCatName} onBack={exitGrid} />
       <View style={{ flex: 1 }}>
         <List
           data={displayItems}
@@ -1084,6 +1099,13 @@ export function ItemList() {
                 icon="package-variant-closed"
                 title="No items found"
                 subtitle="Adjust filters or add a new product."
+                action={
+                  <Button 
+                    label="Add Product" 
+                    icon="plus" 
+                    onPress={() => navigate("AddEditItem")}
+                  />
+                }
               />
             )
           }
