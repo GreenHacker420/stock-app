@@ -21,12 +21,12 @@ import { FilterChips, StockFilter } from "../../../components/items/FilterChips"
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../../theme";
 import { navigate } from "../../navigation-ref";
 import { triggerLightHaptic } from "../../../utils/haptics";
-import { STOCK_MOVEMENT_PERMISSION } from "../../../utils/items/permissions";
+import { STOCK_MOVEMENT_PERMISSION, hasPermission } from "../../../utils/items/permissions";
 
 export function ItemList() {
   const user = useAuthStore((s) => s.user);
   const isOwner = user?.role === "OWNER";
-  const canManageStock = !!user?.permissions?.includes(STOCK_MOVEMENT_PERMISSION);
+  const canManageStock = hasPermission(user, STOCK_MOVEMENT_PERMISSION);
   const { activeShopId } = useShopStore();
 
   const [search, setSearch] = useState("");

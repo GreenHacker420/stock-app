@@ -1,3 +1,8 @@
-// Matches backend PERMISSIONS.STOCK_CREATE_MOVEMENT (backend/src/utils/permissions.js) — grants
-// staff access to stock entry / inter-shop transfer without full owner rights.
+import { ApiUser } from "../../api/client";
+
+
 export const STOCK_MOVEMENT_PERMISSION = "stock:create_movement";
+
+export function hasPermission(user: ApiUser | null | undefined, permission: string): boolean {
+  return !!user?.permissions?.includes(permission);
+}

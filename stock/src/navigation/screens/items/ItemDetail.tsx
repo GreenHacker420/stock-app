@@ -21,7 +21,7 @@ import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../../
 import { navigate } from "../../navigation-ref";
 import { getAvatarColor, initialsOf, money } from "../../../utils/items/display";
 import { triggerLightHaptic } from "../../../utils/haptics";
-import { STOCK_MOVEMENT_PERMISSION } from "../../../utils/items/permissions";
+import { STOCK_MOVEMENT_PERMISSION, hasPermission } from "../../../utils/items/permissions";
 import { ItemDetailRouteParams, ItemStockResponse, PriceChangeHistoryEntry, StockMovementEntry } from "../../../types/items";
 
 export function ItemDetail() {
@@ -31,7 +31,7 @@ export function ItemDetail() {
 
   const user = useAuthStore((s) => s.user);
   const isOwner = user?.role === "OWNER";
-  const canManageStock = !!user?.permissions?.includes(STOCK_MOVEMENT_PERMISSION);
+  const canManageStock = hasPermission(user, STOCK_MOVEMENT_PERMISSION);
 
   const stockQuery = useItemStockQuery(itemId);
   const priceChangeHistoryQuery = useItemPriceChangeHistoryQuery(itemId);
