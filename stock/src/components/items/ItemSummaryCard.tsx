@@ -1,4 +1,4 @@
-import { View, StyleSheet } from "react-native";
+import { View, StyleSheet, Image } from "react-native";
 import { Text } from "react-native-paper";
 
 import { Item } from "../../api/client";
@@ -21,9 +21,13 @@ export function ItemSummaryCard({ item, availableStock, minStock }: ItemSummaryC
     <View style={styles.card}>
       <View style={styles.left}>
         <View style={[styles.avatar, { backgroundColor: avatarColor + "22" }]}>
-          <Text style={[styles.avatarText, { color: avatarColor }]} numberOfLines={1}>
-            {initialsOf(item.name)}
-          </Text>
+          {item.imageUrl ? (
+            <Image source={{ uri: item.imageUrl }} style={styles.avatarImage} />
+          ) : (
+            <Text style={[styles.avatarText, { color: avatarColor }]} numberOfLines={1}>
+              {initialsOf(item.name)}
+            </Text>
+          )}
         </View>
         <View style={styles.info}>
           <Text style={styles.name} numberOfLines={2}>
@@ -77,6 +81,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
+    overflow: "hidden",
+  },
+  avatarImage: {
+    width: "100%",
+    height: "100%",
   },
   avatarText: {
     fontSize: fontSize.md,

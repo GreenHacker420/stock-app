@@ -2,7 +2,6 @@ import { useMemo, useState, memo, useCallback, useEffect, useRef } from "react";
 import {
   View,
   StyleSheet,
-  KeyboardAvoidingView,
   Platform,
   Pressable,
   TextInput,
@@ -31,6 +30,7 @@ import { AppHeader } from "../../components/ui/AppHeader";
 import { SkeletonList } from "../../components/ui/SkeletonCard";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { Button } from "../../components/ui/Button";
+import { AppKeyboardAvoidingView } from "../../components/ui/AppKeyboardAvoidingView";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { SuccessModal } from "../../components/ui/SuccessModal";
 import { navigate, goBack } from "../navigation-ref";
@@ -274,11 +274,7 @@ export function StockEntry() {
 
   return (
     <Screen edges={["top", "left", "right", "bottom"]}>
-      <KeyboardAvoidingView
-        style={styles.kav}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
-      >
+      <AppKeyboardAvoidingView style={styles.kav}>
         <AppHeader
           title={specificItemId ? "Update Stock" : "Stock Entry"}
           subtitle={
@@ -504,7 +500,7 @@ export function StockEntry() {
             </View>
           </View>
         </View>
-      </KeyboardAvoidingView>
+      </AppKeyboardAvoidingView>
 
       <SuccessModal
         visible={successVisible}

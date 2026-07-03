@@ -1,9 +1,8 @@
 import { useMemo, useState, useCallback } from "react";
-import { View, StyleSheet, Pressable, ScrollView, BackHandler } from "react-native";
+import { View, StyleSheet, Pressable, ScrollView } from "react-native";
 import { Text, Icon } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
-import { useFocusEffect } from "@react-navigation/native";
 
 import { Item, ItemCategory } from "../../../api/client";
 import { useAuthStore } from "../../../auth/auth-store";
@@ -103,20 +102,6 @@ export function ItemList() {
     setSearch("");
     setFilter("ALL");
   }, []);
-
-  useFocusEffect(
-    useCallback(() => {
-      const onBackPress = () => {
-        if (selectedCat !== null) {
-          exitGrid();
-          return true; // Intercept and handle locally
-        }
-        return false; // Let navigation handle it
-      };
-      const subscription = BackHandler.addEventListener("hardwareBackPress", onBackPress);
-      return () => subscription.remove();
-    }, [selectedCat, exitGrid])
-  );
 
   const activeCatName =
     selectedCat === "ALL"
@@ -221,7 +206,7 @@ export function ItemList() {
   // ───────────────────────────────────────────────────────────────────────────
   return (
     <Screen edges={["top", "left", "right"]} scroll={false}>
-      <AppHeader title="Products" subtitle={activeCatName} onBack={exitGrid} />
+      <AppHeader title="Products" subtitle={activeCatName} fallbackRoute="Home" />
       <View style={{ flex: 1 }}>
         <FlashList<Item>
           data={displayItems}
@@ -230,17 +215,6 @@ export function ItemList() {
           refreshing={listQuery.isFetching || summaryQuery.isFetching || categoriesQuery.isFetching}
           ListHeaderComponent={
             <View style={styles.listHeader}>
-              {/* Back to grid breadcrumb */}
-              {!isSearchActive && (
-                <Pressable onPress={exitGrid} style={styles.breadcrumb}>
-                  <Icon source="arrow-left" size={16} color={colors.primary} />
-                  <Text style={styles.breadcrumbText}>
-                    {activeCatName}
-                    <Text style={styles.breadcrumbCount}> · {displayItems.length}</Text>
-                  </Text>
-                </Pressable>
-              )}
-
               <SearchBar value={search} onChange={setSearch} />
               <FilterChips value={filter} onChange={setFilter} />
             </View>
@@ -336,27 +310,6 @@ const styles = StyleSheet.create({
   listContent: {
     paddingHorizontal: spacing.lg,
     paddingBottom: 120,
-  },
-  breadcrumb: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
-    backgroundColor: colors.primaryLight,
-    borderRadius: radius.full,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 6,
-    alignSelf: "flex-start",
-    borderWidth: 1,
-    borderColor: colors.primary + "40",
-  },
-  breadcrumbText: {
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.bold,
-    color: colors.primary,
-  },
-  breadcrumbCount: {
-    fontWeight: fontWeight.medium,
-    color: colors.primaryDark,
   },
   fab: {
     position: "absolute",

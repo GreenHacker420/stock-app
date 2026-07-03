@@ -3,15 +3,18 @@ import {
   View,
   StyleSheet,
   ScrollView,
-  KeyboardAvoidingView,
-  Platform,
   Alert,
+  Modal,
+  Pressable,
+  Image,
 } from "react-native";
 import { Text, Icon, TextInput } from "react-native-paper";
-import { Pressable } from "react-native";
 import { useRoute } from "@react-navigation/native";
+import { CameraView, useCameraPermissions } from "expo-camera";
+import * as ImagePicker from "expo-image-picker";
 
-import { ItemCategory, CreateItemPayload, UpdateItemPayload } from "../../../api/client";
+import { ItemCategory, CreateItemPayload, UpdateItemPayload, LocalItemImage, uploadItemImage } from "../../../api/client";
+import { useAuthStore } from "../../../auth/auth-store";
 import { useShopStore } from "../../../auth/shop-store";
 import { requireActiveShopId } from "../../../hooks/useActiveShop";
 import { useCategoriesQuery, useCreateItemMutation, useUpdateItemMutation } from "../../../hooks/useItems";
@@ -19,6 +22,7 @@ import { Screen } from "../../../components/Screen";
 import { AppHeader } from "../../../components/ui/AppHeader";
 import { Button } from "../../../components/ui/Button";
 import { EmptyState } from "../../../components/ui/EmptyState";
+import { AppKeyboardAvoidingView } from "../../../components/ui/AppKeyboardAvoidingView";
 import { CategoryPickerSheet } from "../../../components/items/CategoryPickerSheet";
 import { colors, spacing, radius, fontSize, fontWeight } from "../../../theme";
 import { navigate, goBack } from "../../navigation-ref";
@@ -48,6 +52,8 @@ export function AddEditItem() {
   const createMutation = useCreateItemMutation();
   const updateMutation = useUpdateItemMutation();
   const { activeShopId } = useShopStore();
+  const token = useAuthStore((s) => s.token);
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
 
   const [form, setForm] = useState<FormState>({
     name: existingItem?.name ?? "",
@@ -63,6 +69,10 @@ export function AddEditItem() {
   });
 
   const [showCatPicker, setShowCatPicker] = useState(false);
+  const [scannerVisible, setScannerVisible] = useState(false);
+  const [selectedImage, setSelectedImage] = useState<LocalItemImage | null>(null);
+  const [imageUrl, setImageUrl] = useState(existingItem?.imageUrl ?? "");
+  const [uploadingImage, setUploadingImage] = useState(false);
 
   const set = (key: keyof FormState) => (v: string) => setForm((f) => ({ ...f, [key]: v }));
 
@@ -81,7 +91,83 @@ export function AddEditItem() {
     );
   }
 
-  const handleSave = () => {
+  const openSkuScanner = async () => {
+    if (!cameraPermission?.granted) {
+      const permission = await requestCameraPermission();
+      if (!permission.granted) {
+        Alert.alert("Camera access required", "Allow camera access to scan product barcodes.");
+        return;
+      }
+    }
+    setScannerVisible(true);
+  };
+
+  const pickImage = async (source: "camera" | "library") => {
+    if (source === "camera") {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert("Camera access required", "Allow camera access to capture product photos.");
+        return;
+      }
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ["images"],
+        quality: 0.8,
+        allowsEditing: true,
+        aspect: [1, 1],
+      });
+      if (result.canceled) return;
+      const asset = result.assets[0];
+      setSelectedImage({
+        uri: asset.uri,
+        name: asset.fileName || `product-${Date.now()}.jpg`,
+        mimeType: asset.mimeType || "image/jpeg",
+      });
+      return;
+    }
+
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert("Photo access required", "Allow photo access to choose product photos.");
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      quality: 0.8,
+      allowsEditing: true,
+      aspect: [1, 1],
+    });
+    if (result.canceled) return;
+    const asset = result.assets[0];
+    setSelectedImage({
+      uri: asset.uri,
+      name: asset.fileName || `product-${Date.now()}.jpg`,
+      mimeType: asset.mimeType || "image/jpeg",
+    });
+  };
+
+  const uploadSelectedImage = async () => {
+    if (!selectedImage) return imageUrl || null;
+    if (!token || !activeShopId) throw new Error("You must be logged in to upload a product photo.");
+
+    setUploadingImage(true);
+    try {
+      const uploaded = await uploadItemImage(
+        token,
+        {
+          shopId: requireActiveShopId(activeShopId),
+          categoryId: form.categoryId || null,
+          itemId: existingItem?.id ?? null,
+        },
+        selectedImage,
+      );
+      setImageUrl(uploaded.url);
+      return uploaded.url;
+    } finally {
+      setUploadingImage(false);
+    }
+  };
+
+  const handleSave = async () => {
     if (!form.name.trim() || !form.unit.trim()) return;
 
     const mrp = parseAmount(form.mrp, null);
@@ -125,10 +211,19 @@ export function AddEditItem() {
       return;
     }
 
+    let uploadedImageUrl: string | null = imageUrl || null;
+    try {
+      uploadedImageUrl = await uploadSelectedImage();
+    } catch (err: any) {
+      Alert.alert("Photo Upload Failed", err?.message || "Could not upload product photo.");
+      return;
+    }
+
     const basePayload = {
       name: form.name.trim(),
       unit: form.unit.trim(),
       sku: form.sku.trim() || null,
+      imageUrl: uploadedImageUrl,
       categoryId: form.categoryId || null,
       defaultSellingPrice: sellingPrice,
       minimumAllowedPrice,
@@ -158,7 +253,7 @@ export function AddEditItem() {
     }
   };
 
-  const isPending = createMutation.isPending || updateMutation.isPending;
+  const isPending = createMutation.isPending || updateMutation.isPending || uploadingImage;
   const isValid = !!form.name.trim() && !!form.unit.trim();
 
   const inputProps = (key: keyof FormState, label: string, keyboardType?: "default" | "numeric", placeholder?: string) => ({
@@ -179,10 +274,7 @@ export function AddEditItem() {
         subtitle={existingItem ? "Update product details" : "Add to your catalogue"}
         fallbackRoute="ItemList"
       />
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        style={{ flex: 1 }}
-      >
+      <AppKeyboardAvoidingView>
         <ScrollView
           contentContainerStyle={styles.aeiScroll}
           showsVerticalScrollIndicator={false}
@@ -194,6 +286,11 @@ export function AddEditItem() {
             <TextInput {...inputProps("name", "Product Name *")} />
             <View style={styles.aeiRow}>
               <TextInput {...inputProps("sku", "SKU / Code")} style={[styles.aeiInput, { flex: 1 }]} />
+              <Pressable onPress={openSkuScanner} style={styles.scanButton} accessibilityRole="button" accessibilityLabel="Scan SKU barcode">
+                <Icon source="barcode-scan" size={22} color={colors.primary} />
+              </Pressable>
+            </View>
+            <View style={styles.aeiRow}>
               <TextInput {...inputProps("unit", "Unit *")} style={[styles.aeiInput, { flex: 1 }]} placeholder="pcs / kg / box" />
             </View>
 
@@ -208,6 +305,26 @@ export function AddEditItem() {
               </Text>
               <Icon source="chevron-down" size={18} color={colors.textMuted} />
             </Pressable>
+          </View>
+
+          <View style={styles.aeiCard}>
+            <Text style={styles.aeiSectionLabel}>PRODUCT PHOTO</Text>
+            <View style={styles.photoRow}>
+              <View style={styles.photoPreview}>
+                {selectedImage?.uri || imageUrl ? (
+                  <Image source={{ uri: selectedImage?.uri || imageUrl }} style={styles.photoImage} />
+                ) : (
+                  <Icon source="image-plus" size={28} color={colors.textMuted} />
+                )}
+              </View>
+              <View style={styles.photoActions}>
+                <Button label="Camera" variant="secondary" icon="camera-outline" onPress={() => pickImage("camera")} />
+                <Button label="Upload" variant="secondary" icon="image-outline" onPress={() => pickImage("library")} />
+              </View>
+            </View>
+            <Text style={styles.photoHint}>
+              Stored under shop/category/item folders in S3 after saving.
+            </Text>
           </View>
 
           {/* Pricing */}
@@ -243,7 +360,7 @@ export function AddEditItem() {
             disabled={!isValid || isPending}
           />
         </ScrollView>
-      </KeyboardAvoidingView>
+      </AppKeyboardAvoidingView>
 
       <CategoryPickerSheet
         visible={showCatPicker}
@@ -255,6 +372,29 @@ export function AddEditItem() {
         }}
         onDismiss={() => setShowCatPicker(false)}
       />
+
+      <Modal visible={scannerVisible} animationType="slide" onRequestClose={() => setScannerVisible(false)}>
+        <View style={styles.scannerScreen}>
+          <CameraView
+            style={StyleSheet.absoluteFill}
+            facing="back"
+            barcodeScannerSettings={{
+              barcodeTypes: ["ean13", "ean8", "code128", "code39", "upc_a", "upc_e", "itf14"],
+            }}
+            onBarcodeScanned={({ data }) => {
+              set("sku")(String(data));
+              setScannerVisible(false);
+            }}
+          />
+          <View style={styles.scannerTopBar}>
+            <Pressable onPress={() => setScannerVisible(false)} style={styles.scannerClose}>
+              <Icon source="close" size={24} color={colors.textInverse} />
+            </Pressable>
+            <Text style={styles.scannerTitle}>Scan SKU Barcode</Text>
+          </View>
+          <View style={styles.scanFrame} />
+        </View>
+      </Modal>
     </Screen>
   );
 }
@@ -282,6 +422,15 @@ const styles = StyleSheet.create({
   aeiRow: {
     flexDirection: "row",
     gap: spacing.md,
+  },
+  scanButton: {
+    width: 52,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.primaryLight,
+    alignItems: "center",
+    justifyContent: "center",
   },
   aeiInput: {
     backgroundColor: colors.surface,
@@ -319,5 +468,71 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xs,
     color: colors.info,
     lineHeight: 17,
+  },
+  photoRow: {
+    flexDirection: "row",
+    gap: spacing.md,
+    alignItems: "center",
+  },
+  photoPreview: {
+    width: 92,
+    height: 92,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceOffset,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+  },
+  photoImage: {
+    width: "100%",
+    height: "100%",
+  },
+  photoActions: {
+    flex: 1,
+    gap: spacing.sm,
+  },
+  photoHint: {
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+    lineHeight: 17,
+  },
+  scannerScreen: {
+    flex: 1,
+    backgroundColor: "#000",
+  },
+  scannerTopBar: {
+    position: "absolute",
+    top: 48,
+    left: spacing.lg,
+    right: spacing.lg,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+  },
+  scannerClose: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.full,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  scannerTitle: {
+    color: colors.textInverse,
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.black,
+  },
+  scanFrame: {
+    position: "absolute",
+    left: "12%",
+    right: "12%",
+    top: "38%",
+    height: 180,
+    borderRadius: radius.lg,
+    borderWidth: 2,
+    borderColor: colors.primary,
+    backgroundColor: "transparent",
   },
 });

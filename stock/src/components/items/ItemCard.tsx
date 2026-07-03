@@ -1,5 +1,5 @@
 import { memo } from "react";
-import { View, StyleSheet, Pressable } from "react-native";
+import { View, StyleSheet, Pressable, Image } from "react-native";
 import { Text, Icon } from "react-native-paper";
 
 import { Item } from "../../api/client";
@@ -35,7 +35,11 @@ export const ItemCard = memo(({
     >
       {/* Avatar */}
       <View style={[styles.itemAvatar, { backgroundColor: avatarColor + "22" }]}>
-        <Text style={[styles.itemAvatarText, { color: avatarColor }]}>{initials}</Text>
+        {item.imageUrl ? (
+          <Image source={{ uri: item.imageUrl }} style={styles.itemAvatarImage} />
+        ) : (
+          <Text style={[styles.itemAvatarText, { color: avatarColor }]}>{initials}</Text>
+        )}
       </View>
 
       {/* Info */}
@@ -119,6 +123,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
+    overflow: "hidden",
+  },
+  itemAvatarImage: {
+    width: "100%",
+    height: "100%",
   },
   itemAvatarText: {
     fontSize: fontSize.sm,

@@ -41,6 +41,11 @@ export const updateItem = asyncHandler(async (req, res) => {
   res.json({ success: true, data: item });
 });
 
+export const uploadItemImage = asyncHandler(async (req, res) => {
+  const upload = await itemService.uploadItemImage(req.user, req.validated.body, req.file);
+  res.status(201).json({ success: true, data: upload });
+});
+
 export const getItemStock = asyncHandler(async (req, res) => {
   const stock = await itemService.getItemStock(req.user, req.validated.params.id);
   res.json({ success: true, data: stock });

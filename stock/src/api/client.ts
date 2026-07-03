@@ -38,6 +38,7 @@ export type Item = {
   id: string;
   name: string;
   sku?: string | null;
+  imageUrl?: string | null;
   unit: string;
   defaultSellingPrice: string;
   minimumAllowedPrice?: string | null;
@@ -252,6 +253,7 @@ export interface CreateItemPayload {
   shopId: string;
   name: string;
   sku?: string | null;
+  imageUrl?: string | null;
   unit: string;
   defaultSellingPrice: number;
   minimumAllowedPrice?: number | null;
@@ -445,6 +447,49 @@ export async function createItem(token: string, data: CreateItemPayload) {
 
 export async function updateItem(token: string, id: string, data: UpdateItemPayload) {
   return apiRequest<Item>(`/items/${id}`, { method: "PATCH", token, body: JSON.stringify(data) });
+}
+
+export type LocalItemImage = {
+  uri: string;
+  name: string;
+  mimeType: string;
+};
+
+export function uploadItemImage(
+  token: string,
+  data: { shopId: string; categoryId?: string | null; itemId?: string | null },
+  image: LocalItemImage,
+) {
+  return new Promise<{ bucket: string; key: string; url: string }>((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open("POST", `${API_BASE_URL}/items/image`);
+    request.setRequestHeader("Authorization", `Bearer ${token}`);
+    request.onload = () => {
+      try {
+        const payload = JSON.parse(request.responseText);
+        if (request.status >= 200 && request.status < 300 && payload.success) {
+          resolve(payload.data);
+        } else {
+          reject(new Error(payload.message || "Product photo upload failed"));
+        }
+      } catch {
+        reject(new Error("Invalid product photo upload response"));
+      }
+    };
+    request.onerror = () => reject(new Error("Network error while uploading product photo"));
+
+    const form = new FormData();
+    form.append("shopId", data.shopId);
+    if (data.categoryId) form.append("categoryId", data.categoryId);
+    if (data.itemId) form.append("itemId", data.itemId);
+    form.append("file", {
+      uri: image.uri,
+      name: image.name,
+      type: image.mimeType,
+    } as any);
+
+    request.send(form);
+  });
 }
 
 export async function fetchCategories(token: string, shopId: string) {
@@ -1226,4 +1271,3 @@ export async function copyCatalog(token: string, data: { sourceShopId: string; t
     body: JSON.stringify(data),
   });
 }
-

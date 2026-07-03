@@ -5,9 +5,17 @@ import { requireAuth } from "../middleware/auth.middleware.js";
 import { requirePermission } from "../middleware/rbac.middleware.js";
 import { validate } from "../middleware/validate.js";
 import { PERMISSIONS } from "../utils/permissions.js";
+import multer from "multer";
 
 const router = Router();
 const idParams = z.object({ id: z.string().min(1) });
+const imageUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    files: 1,
+    fileSize: 8 * 1024 * 1024,
+  },
+});
 
 const listSchema = z.object({
   query: z.object({
@@ -73,6 +81,16 @@ const updateItemSchema = z.object({
   query: z.object({}).optional(),
 });
 
+const uploadItemImageSchema = z.object({
+  body: z.object({
+    shopId: z.string().min(1),
+    categoryId: z.string().nullable().optional(),
+    itemId: z.string().nullable().optional(),
+  }),
+  params: z.object({}).optional(),
+  query: z.object({}).optional(),
+});
+
 router.use(requireAuth);
 
 // SUMMARY & CATEGORIES (Must be before parameterized routes)
@@ -85,6 +103,13 @@ router.delete("/categories/:id", requirePermission(PERMISSIONS.ITEM_UPDATE), val
 // ITEMS
 router.get("/", requirePermission(PERMISSIONS.ITEM_VIEW), validate(listSchema), itemController.listItems);
 router.post("/", requirePermission(PERMISSIONS.ITEM_CREATE), validate(createItemSchema), itemController.createItem);
+router.post(
+  "/image",
+  requirePermission(PERMISSIONS.ITEM_CREATE),
+  imageUpload.single("file"),
+  validate(uploadItemImageSchema),
+  itemController.uploadItemImage,
+);
 
 // INDIVIDUAL ITEM ROUTES
 router.get("/:id/stock", requirePermission(PERMISSIONS.ITEM_VIEW), validate(z.object({ params: idParams })), itemController.getItemStock);

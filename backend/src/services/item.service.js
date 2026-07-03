@@ -3,6 +3,7 @@ import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 import { EntityType, AuditAction, Prisma } from "../generated/prisma/index.js";
 import { generateEmbedding } from "../utils/embeddings.js";
+import { uploadToS3 } from "../lib/wa-media.js";
 
 // ---------------------------------------------------------------------------
 // Permission helpers
@@ -29,6 +30,15 @@ function assertCanDirectlyAdjustStock(user) {
       "Direct stock adjustment is restricted to owners. Staff must submit a stock entry request."
     );
   }
+}
+
+function slugPart(value, fallback) {
+  return String(value || fallback)
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64) || fallback;
 }
 
 // ---------------------------------------------------------------------------
@@ -642,6 +652,47 @@ export async function updateItem(user, id, data) {
 
     return tx.item.findUnique({ where: { id } });
   });
+}
+
+export async function uploadItemImage(user, data, file) {
+  await assertShopAccess(user, data.shopId);
+  assertCanManageItems(user);
+
+  if (!file) throw new ApiError(400, "Image file is required");
+  if (!["image/jpeg", "image/png", "image/webp"].includes(file.mimetype)) {
+    throw new ApiError(400, "Only JPG, PNG, and WebP product photos are supported");
+  }
+
+  let categoryPath = "uncategorised";
+  if (data.categoryId) {
+    const category = await prisma.itemCategory.findUnique({ where: { id: data.categoryId } });
+    if (!category || category.shopId !== data.shopId) {
+      throw new ApiError(400, "Category does not belong to this shop");
+    }
+    categoryPath = `${slugPart(category.name, "category")}-${category.id}`;
+  }
+
+  let itemPath = "new";
+  if (data.itemId) {
+    const item = await prisma.item.findUnique({ where: { id: data.itemId } });
+    if (!item || item.shopId !== data.shopId) {
+      throw new ApiError(400, "Item does not belong to this shop");
+    }
+    itemPath = `${slugPart(item.name, "item")}-${item.id}`;
+  }
+
+  const extension = file.mimetype === "image/png" ? "png" : file.mimetype === "image/webp" ? "webp" : "jpg";
+  const key = [
+    "shops",
+    data.shopId,
+    "categories",
+    categoryPath,
+    "items",
+    itemPath,
+    `${Date.now()}-${slugPart(file.originalname, "photo")}.${extension}`,
+  ].join("/");
+
+  return uploadToS3(file.buffer, key, file.mimetype);
 }
 
 // ---------------------------------------------------------------------------
