@@ -1,6 +1,6 @@
 import { Fragment, useMemo, useState } from "react";
-import { View, StyleSheet, Pressable, ScrollView, Alert } from "react-native";
-import { Text, Divider, Icon } from "react-native-paper";
+import { View, StyleSheet, ScrollView, Alert } from "react-native";
+import { Text, Divider } from "react-native-paper";
 import { useRoute } from "@react-navigation/native";
 
 import { useAuthStore } from "../../../auth/auth-store";
@@ -14,20 +14,20 @@ import { Screen } from "../../../components/Screen";
 import { AppHeader } from "../../../components/ui/AppHeader";
 import { SkeletonList } from "../../../components/ui/SkeletonCard";
 import { EmptyState } from "../../../components/ui/EmptyState";
-import { Button } from "../../../components/ui/Button";
-import { StockBadge } from "../../../components/items/StockBadge";
 import { StockTransferDialog } from "../../../components/items/StockTransferDialog";
+import { ItemSummaryCard } from "../../../components/items/ItemSummaryCard";
+import { ItemDetailActions } from "../../../components/items/ItemDetailActions";
+import { ItemDetailTabId, ItemTabBar } from "../../../components/items/ItemTabBar";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../../theme";
 import { navigate } from "../../navigation-ref";
-import { getAvatarColor, initialsOf, money } from "../../../utils/items/display";
-import { triggerLightHaptic } from "../../../utils/haptics";
+import { money } from "../../../utils/items/display";
 import { STOCK_MOVEMENT_PERMISSION, hasPermission } from "../../../utils/items/permissions";
 import { ItemDetailRouteParams, ItemStockResponse, PriceChangeHistoryEntry, StockMovementEntry } from "../../../types/items";
 
 export function ItemDetail() {
   const route = useRoute();
   const { itemId } = route.params as ItemDetailRouteParams;
-  const [activeTab, setActiveTab] = useState<"overview" | "stock" | "pricing" | "history">("overview");
+  const [activeTab, setActiveTab] = useState<ItemDetailTabId>("overview");
 
   const user = useAuthStore((s) => s.user);
   const isOwner = user?.role === "OWNER";
@@ -99,41 +99,8 @@ export function ItemDetail() {
     <Screen edges={["top", "left", "right"]} scroll={false}>
       <AppHeader title={itemData.name} subtitle={itemData.category?.name ?? "No Category"} fallbackRoute="ItemList" />
 
-      {/* Hero strip */}
-      <View style={styles.detailHero}>
-        <View style={styles.detailHeroLeft}>
-          <View style={[styles.detailAvatar, { backgroundColor: getAvatarColor(itemData.name) + "22" }]}>
-            <Text style={[styles.detailAvatarText, { color: getAvatarColor(itemData.name) }]}>
-              {initialsOf(itemData.name)}
-            </Text>
-          </View>
-          <View style={{ flex: 1, minWidth: 0, paddingRight: spacing.sm }}>
-            <Text style={styles.detailName} numberOfLines={2}>{itemData.name}</Text>
-            <Text style={styles.detailSku}>{itemData.sku || "No SKU"}</Text>
-          </View>
-        </View>
-        <View style={styles.detailHeroRight}>
-          <StockBadge stock={availableStock} min={minStock} />
-          <Text style={[styles.detailStockNum, { color: availableStock <= 0 ? colors.danger : availableStock <= minStock ? colors.warning : colors.primary }]}>
-            {availableStock}
-          </Text>
-          <Text style={styles.detailStockUnit}>Available {itemData.unit}</Text>
-        </View>
-      </View>
-
-      {/* Tabs */}
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabRow}>
-        {tabs.map((t) => (
-          <Pressable
-            key={t.id}
-            onPress={() => { triggerLightHaptic(); setActiveTab(t.id); }}
-            style={[styles.tab, activeTab === t.id && styles.tabActive]}
-          >
-            <Icon source={t.icon} size={14} color={activeTab === t.id ? colors.primary : colors.textMuted} />
-            <Text style={[styles.tabText, activeTab === t.id && styles.tabTextActive]}>{t.label}</Text>
-          </Pressable>
-        ))}
-      </ScrollView>
+      <ItemSummaryCard item={itemData} availableStock={availableStock} minStock={minStock} />
+      <ItemTabBar tabs={tabs} activeTab={activeTab} onChange={setActiveTab} />
 
       <ScrollView contentContainerStyle={styles.detailContent} showsVerticalScrollIndicator={false}>
         {activeTab === "overview" && (
@@ -172,7 +139,7 @@ export function ItemDetail() {
                 <Fragment key={m.id}>
                   <View style={styles.movRow}>
                     <View style={[styles.movDot, { backgroundColor: m.type === "IN" ? colors.primary : colors.danger }]} />
-                    <View style={{ flex: 1 }}>
+                    <View style={{ flex: 1, minWidth: 0 }}>
                       <Text style={styles.movType}>{m.type === "IN" ? "Stock In" : "Stock Out"}</Text>
                       <Text style={styles.movDate}>{new Date(m.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</Text>
                     </View>
@@ -215,7 +182,7 @@ export function ItemDetail() {
               (priceChangeHistoryQuery.data as PriceChangeHistoryEntry[]).map((h, i, arr) => (
                 <Fragment key={h.id}>
                   <View style={styles.movRow}>
-                    <View style={{ flex: 1 }}>
+                    <View style={{ flex: 1, minWidth: 0 }}>
                       <Text style={styles.movType}>{h.priceType}</Text>
                       <Text style={styles.movDate}>{new Date(h.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}</Text>
                     </View>
@@ -230,37 +197,14 @@ export function ItemDetail() {
           </View>
         )}
 
-        {(showEdit || showTransfer || showStockEntry) && (
-          <View style={styles.detailActions}>
-            {(showEdit || showTransfer) && (
-              <View style={styles.detailActionsRow}>
-                {showEdit && (
-                  <Button
-                    label="Edit Product"
-                    variant="secondary"
-                    onPress={() => navigate("AddEditItem", { item: itemData })}
-                    style={{ flex: 1 }}
-                  />
-                )}
-                {showTransfer && (
-                  <Button
-                    label="Transfer Stock"
-                    variant="secondary"
-                    onPress={() => setTransferModalVisible(true)}
-                    style={{ flex: 1 }}
-                  />
-                )}
-              </View>
-            )}
-            {showStockEntry && (
-              <Button
-                label="Stock Entry"
-                onPress={() => navigate("StockEntry", { itemId })}
-                fullWidth
-              />
-            )}
-          </View>
-        )}
+        <ItemDetailActions
+          showEdit={showEdit}
+          showTransfer={showTransfer}
+          showStockEntry={showStockEntry}
+          onEdit={() => navigate("AddEditItem", { item: itemData })}
+          onTransfer={() => setTransferModalVisible(true)}
+          onStockEntry={() => navigate("StockEntry", { itemId })}
+        />
       </ScrollView>
 
       <StockTransferDialog
@@ -277,90 +221,6 @@ export function ItemDetail() {
 }
 
 const styles = StyleSheet.create({
-  detailHero: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: colors.surface,
-    marginHorizontal: spacing.lg,
-    marginTop: spacing.sm,
-    marginBottom: spacing.xs,
-    borderRadius: radius.xxl,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: spacing.lg,
-    ...shadow.sm,
-  },
-  detailHeroLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    flex: 1,
-  },
-  detailAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: radius.lg,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  detailAvatarText: {
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.black,
-  },
-  detailName: {
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.black,
-    color: colors.textPrimary,
-    maxWidth: 140,
-  },
-  detailSku: {
-    fontSize: fontSize.xs,
-    color: colors.textMuted,
-    marginTop: 2,
-  },
-  detailHeroRight: {
-    alignItems: "flex-end",
-    gap: 2,
-  },
-  detailStockNum: {
-    fontSize: fontSize.xxxl,
-    fontWeight: fontWeight.black,
-    lineHeight: 36,
-  },
-  detailStockUnit: {
-    fontSize: fontSize.xs,
-    color: colors.textSecondary,
-  },
-  tabRow: {
-    paddingHorizontal: spacing.lg,
-    gap: spacing.sm,
-    paddingBottom: spacing.sm,
-  },
-  tab: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 7,
-    borderRadius: radius.full,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surface,
-  },
-  tabActive: {
-    borderColor: colors.primary,
-    backgroundColor: colors.primaryLight,
-  },
-  tabText: {
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.medium,
-    color: colors.textMuted,
-  },
-  tabTextActive: {
-    color: colors.primary,
-    fontWeight: fontWeight.bold,
-  },
   detailContent: {
     padding: spacing.lg,
     paddingBottom: 100,
@@ -380,16 +240,22 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
+    gap: spacing.md,
+    minHeight: 52,
   },
   detailRowLabel: {
     fontSize: fontSize.sm,
     color: colors.textSecondary,
     fontWeight: fontWeight.medium,
+    flex: 1,
+    minWidth: 0,
   },
   detailRowValue: {
     fontSize: fontSize.sm,
     color: colors.textPrimary,
     fontWeight: fontWeight.bold,
+    flexShrink: 1,
+    textAlign: "right",
   },
   rowDivider: {
     backgroundColor: colors.border,
@@ -425,6 +291,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
     gap: spacing.md,
+    minHeight: 56,
   },
   movDot: {
     width: 8,
@@ -445,12 +312,7 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
     fontWeight: fontWeight.black,
     color: colors.textPrimary,
-  },
-  detailActions: {
-    gap: spacing.md,
-  },
-  detailActionsRow: {
-    flexDirection: "row",
-    gap: spacing.md,
+    flexShrink: 1,
+    textAlign: "right",
   },
 });

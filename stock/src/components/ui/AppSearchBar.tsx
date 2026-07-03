@@ -1,6 +1,6 @@
 import { StyleSheet, StyleProp, ViewStyle, TextStyle } from "react-native";
 import { Searchbar } from "react-native-paper";
-import { colors, radius } from "../../theme";
+import { colors, radius, fontSize, fontWeight } from "../../theme";
 
 interface Props {
   value: string;
@@ -11,6 +11,7 @@ interface Props {
   iconColor?: string;
   placeholderTextColor?: string;
   autoFocus?: boolean;
+  testID?: string;
 }
 
 export function AppSearchBar({
@@ -22,6 +23,7 @@ export function AppSearchBar({
   iconColor,
   placeholderTextColor,
   autoFocus,
+  testID,
 }: Props) {
   return (
     <Searchbar
@@ -29,10 +31,12 @@ export function AppSearchBar({
       value={value}
       onChangeText={onChangeText}
       style={[styles.bar, style]}
-      inputStyle={inputStyle}
-      iconColor={iconColor}
-      placeholderTextColor={placeholderTextColor}
+      inputStyle={[styles.input, inputStyle]}
+      iconColor={iconColor ?? colors.textMuted}
+      placeholderTextColor={placeholderTextColor ?? colors.textMuted}
       autoFocus={autoFocus}
+      testID={testID}
+      elevation={0}
     />
   );
 }
@@ -40,9 +44,19 @@ export function AppSearchBar({
 const styles = StyleSheet.create({
   bar: {
     backgroundColor: colors.surface,
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
     elevation: 0,
+    minHeight: 48,
+    justifyContent: "center",
+  },
+  input: {
+    minHeight: 48,
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.medium,
+    color: colors.textPrimary,
+    paddingVertical: 0,
+    includeFontPadding: false,
   },
 });

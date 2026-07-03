@@ -78,7 +78,7 @@ export function Button({
             styles[`${variant}Label`], 
             styles[`size_${size}Label`],
             isDisabled && styles.disabledLabel
-          ]}>
+          ]} numberOfLines={2}>
             {label}
           </Text>
         </>
@@ -88,7 +88,7 @@ export function Button({
 }
 
 const styles = StyleSheet.create({
-  base:            { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderRadius: radius.lg, gap: spacing.sm },
+  base:            { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', borderRadius: radius.lg, gap: spacing.sm, minWidth: 0 },
   fullWidth:       { width: '100%' },
   pressed:         { opacity: 0.72, transform: [{ scale: 0.975 }] },
   disabled:        { backgroundColor: '#e5e7eb', borderWidth: 1, borderColor: '#d1d5db' },
@@ -104,7 +104,7 @@ const styles = StyleSheet.create({
   size_md:         { paddingVertical: spacing.md + 2, paddingHorizontal: spacing.xl, minHeight: 48 },
   size_lg:         { paddingVertical: spacing.lg, paddingHorizontal: spacing.xxl, minHeight: 56 },
 
-  label:           { fontWeight: fontWeight.bold },
+  label:           { fontWeight: fontWeight.bold, textAlign: 'center', flexShrink: 1 },
   primaryLabel:    { color: colors.textInverse, fontSize: fontSize.md },
   secondaryLabel:  { color: colors.primary, fontSize: fontSize.md },
   dangerLabel:     { color: colors.textInverse, fontSize: fontSize.md },

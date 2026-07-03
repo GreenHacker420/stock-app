@@ -234,12 +234,14 @@ const styles = StyleSheet.create({
   },
   titleContainer: {
     flex: 1,
+    minWidth: 0,
   },
   title: {
     fontSize: fontSize.xl,
     fontWeight: fontWeight.extrabold,
     color: colors.primary,
-    letterSpacing: -0.5,
+    letterSpacing: 0,
+    lineHeight: 25,
   },
   subtitle: {
     fontSize: fontSize.sm,
@@ -249,6 +251,7 @@ const styles = StyleSheet.create({
   rightSection: {
     alignItems: 'flex-end',
     gap: 4,
+    flexShrink: 0,
   },
   avatarContainer: {
     ...shadow.sm,
