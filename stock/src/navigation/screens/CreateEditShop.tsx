@@ -36,7 +36,7 @@ export function CreateEditShop() {
       setName(shop.name);
       setCode(shop.code);
       setCity(shop.city);
-      setAddress(shop.address || ""); 
+      setAddress(shop.address || "");
       setPhone(shop.phone || "");
       setEmail(shop.email || "");
       setGstin(shop.gstin || "");
@@ -111,134 +111,134 @@ export function CreateEditShop() {
       />
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: spacing.xl }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-        <Section title="Shop credentials">
-          <View style={styles.formContainer}>
-            <TextInput
-              mode="outlined"
-              label="Shop name"
-              value={name}
-              onChangeText={(text) => {
-                setName(text);
-                setError("");
-              }}
-              placeholder="e.g. Nagpur Branch"
-              outlineStyle={styles.inputOutline}
-              activeOutlineColor={colors.primary}
-            />
-
-            <View>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: spacing.xl }} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+          <Section title="Shop credentials">
+            <View style={styles.formContainer}>
               <TextInput
                 mode="outlined"
-                label="Shop unique code"
-                value={code}
-                onChangeText={handleCodeChange}
-                disabled={isEditing}
-                placeholder="e.g. NGP-01"
-                autoCapitalize="characters"
-                outlineStyle={[
-                  styles.inputOutline,
-                  codeError ? { borderColor: colors.danger } : null,
-                ]}
-                activeOutlineColor={codeError ? colors.danger : colors.primary}
-                error={!!codeError}
+                label="Shop name"
+                value={name}
+                onChangeText={(text) => {
+                  setName(text);
+                  setError("");
+                }}
+                placeholder="e.g. Nagpur Branch"
+                outlineStyle={styles.inputOutline}
+                activeOutlineColor={colors.primary}
               />
-              {codeError ? (
-                <HelperText type="error" visible={true} style={styles.fieldError}>
-                  {codeError}
-                </HelperText>
-              ) : (
-                <HelperText type="info" visible={true} style={styles.fieldHint}>
-                  Uppercase letters, numbers, hyphens only. Cannot be changed later.
-                </HelperText>
-              )}
+
+              <View>
+                <TextInput
+                  mode="outlined"
+                  label="Shop unique code"
+                  value={code}
+                  onChangeText={handleCodeChange}
+                  disabled={isEditing}
+                  placeholder="e.g. NGP-01"
+                  autoCapitalize="characters"
+                  outlineStyle={[
+                    styles.inputOutline,
+                    codeError ? { borderColor: colors.danger } : null,
+                  ]}
+                  activeOutlineColor={codeError ? colors.danger : colors.primary}
+                  error={!!codeError}
+                />
+                {codeError ? (
+                  <HelperText type="error" visible={true} style={styles.fieldError}>
+                    {codeError}
+                  </HelperText>
+                ) : (
+                  <HelperText type="info" visible={true} style={styles.fieldHint}>
+                    Uppercase letters, numbers, hyphens only. Cannot be changed later.
+                  </HelperText>
+                )}
+              </View>
+
+              <TextInput
+                mode="outlined"
+                label="City"
+                value={city}
+                onChangeText={(text) => {
+                  setCity(text);
+                  setError("");
+                }}
+                placeholder="e.g. Nagpur"
+                outlineStyle={styles.inputOutline}
+                activeOutlineColor={colors.primary}
+              />
+
+              <TextInput
+                mode="outlined"
+                label="Address (Optional)"
+                value={address}
+                onChangeText={setAddress}
+                placeholder="e.g. Near Metro Station"
+                multiline
+                numberOfLines={3}
+                outlineStyle={styles.inputOutline}
+                activeOutlineColor={colors.primary}
+              />
+
+              <TextInput
+                mode="outlined"
+                label="Phone (Optional)"
+                value={phone}
+                onChangeText={setPhone}
+                placeholder="e.g. +91 98765 43210"
+                keyboardType="phone-pad"
+                outlineStyle={styles.inputOutline}
+                activeOutlineColor={colors.primary}
+              />
+
+              <TextInput
+                mode="outlined"
+                label="Email (Optional)"
+                value={email}
+                onChangeText={setEmail}
+                placeholder="e.g. info@abc.com"
+                keyboardType="email-address"
+                outlineStyle={styles.inputOutline}
+                activeOutlineColor={colors.primary}
+              />
+
+              <TextInput
+                mode="outlined"
+                label="GSTIN (Optional)"
+                value={gstin}
+                onChangeText={setGstin}
+                placeholder="e.g. 27AAAAA1111A1Z1"
+                autoCapitalize="characters"
+                outlineStyle={styles.inputOutline}
+                activeOutlineColor={colors.primary}
+              />
+
+              <TextInput
+                mode="outlined"
+                label="Logo URL (Optional)"
+                value={logo}
+                onChangeText={setLogo}
+                placeholder="e.g. https://domain.com/logo.png"
+                keyboardType="url"
+                outlineStyle={styles.inputOutline}
+                activeOutlineColor={colors.primary}
+              />
+
+              {error ? <HelperText type="error">{error}</HelperText> : null}
+
+              <Button
+                mode="contained"
+                disabled={!isValid || mutation.isPending}
+                loading={mutation.isPending}
+                style={styles.submitButton}
+                contentStyle={styles.buttonContent}
+                buttonColor={colors.primary}
+                onPress={() => mutation.mutate()}
+              >
+                {isEditing ? "Save changes" : "Create shop"}
+              </Button>
             </View>
-
-            <TextInput
-              mode="outlined"
-              label="City"
-              value={city}
-              onChangeText={(text) => {
-                setCity(text);
-                setError("");
-              }}
-              placeholder="e.g. Nagpur"
-              outlineStyle={styles.inputOutline}
-              activeOutlineColor={colors.primary}
-            />
-
-            <TextInput
-              mode="outlined"
-              label="Address (Optional)"
-              value={address}
-              onChangeText={setAddress}
-              placeholder="e.g. Near Metro Station"
-              multiline
-              numberOfLines={3}
-              outlineStyle={styles.inputOutline}
-              activeOutlineColor={colors.primary}
-            />
-
-            <TextInput
-              mode="outlined"
-              label="Phone (Optional)"
-              value={phone}
-              onChangeText={setPhone}
-              placeholder="e.g. +91 98765 43210"
-              keyboardType="phone-pad"
-              outlineStyle={styles.inputOutline}
-              activeOutlineColor={colors.primary}
-            />
-
-            <TextInput
-              mode="outlined"
-              label="Email (Optional)"
-              value={email}
-              onChangeText={setEmail}
-              placeholder="e.g. info@abc.com"
-              keyboardType="email-address"
-              outlineStyle={styles.inputOutline}
-              activeOutlineColor={colors.primary}
-            />
-
-            <TextInput
-              mode="outlined"
-              label="GSTIN (Optional)"
-              value={gstin}
-              onChangeText={setGstin}
-              placeholder="e.g. 27AAAAA1111A1Z1"
-              autoCapitalize="characters"
-              outlineStyle={styles.inputOutline}
-              activeOutlineColor={colors.primary}
-            />
-
-            <TextInput
-              mode="outlined"
-              label="Logo URL (Optional)"
-              value={logo}
-              onChangeText={setLogo}
-              placeholder="e.g. https://domain.com/logo.png"
-              keyboardType="url"
-              outlineStyle={styles.inputOutline}
-              activeOutlineColor={colors.primary}
-            />
-
-            {error ? <HelperText type="error">{error}</HelperText> : null}
-
-            <Button
-              mode="contained"
-              disabled={!isValid || mutation.isPending}
-              loading={mutation.isPending}
-              style={styles.submitButton}
-              contentStyle={styles.buttonContent}
-              buttonColor={colors.primary}
-              onPress={() => mutation.mutate()}
-            >
-              {isEditing ? "Save changes" : "Create shop"}
-            </Button>
-          </View>
-        </Section>
-      </ScrollView>
+          </Section>
+        </ScrollView>
       </KeyboardAvoidingView>
     </Screen>
   );
