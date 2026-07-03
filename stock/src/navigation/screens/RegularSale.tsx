@@ -707,6 +707,13 @@ export function RegularSale() {
                           icon="magnify" 
                           title="No products found" 
                           subtitle="Try searching by name or SKU" 
+                          action={
+                            <Button 
+                              label="Create Product" 
+                              icon="plus" 
+                              onPress={() => navigate("AddEditItem")}
+                            />
+                          }
                         />
                       )
                     }
