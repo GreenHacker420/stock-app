@@ -6,6 +6,7 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { View, Pressable, useWindowDimensions, StyleSheet, Platform, Text } from "react-native";
 import { Icon } from "react-native-paper";
 import { useAuthStore } from "../auth/auth-store";
+import type { Item } from "../api/client";
 import { AssignStaff } from "./screens/AssignStaff";
 import { CashClosingReview } from "./screens/CashClosingReview";
 import { CloseDay } from "./screens/CloseDay";
@@ -20,7 +21,9 @@ import { AddEditCustomer, CustomerList } from "./screens/OwnerCustomers";
 import { CustomerDetail } from "./screens/CustomerDetail";
 import { ExpenseList } from "./screens/Expenses";
 import { VerificationQueue } from "./screens/VerificationQueue";
-import { AddEditItem, ItemDetail, ItemList } from "./screens/OwnerItems";
+import { AddEditItem } from "./screens/items/AddEditItem";
+import { ItemDetail } from "./screens/items/ItemDetail";
+import { ItemList } from "./screens/items/ItemList";
 import { SaleDetail, SalesList } from "./screens/OwnerSales";
 import { AddEditStaff, StaffManagement, StaffDetail } from "./screens/OwnerStaff";
 import {
@@ -691,7 +694,7 @@ export type RootStackParamList = {
   CustomerDetail: { customerId: string };
   CustomerOutstandingList: undefined;
   ItemList: undefined;
-  AddEditItem: { item?: any };
+  AddEditItem: { item?: Item };
   ItemDetail: { itemId: string };
   StockDashboard: undefined;
   CashSessionDetail: undefined;

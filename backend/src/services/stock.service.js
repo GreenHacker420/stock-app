@@ -475,6 +475,9 @@ export async function transferStock(user, { sourceShopId, targetShopId, itemId, 
 
   // Execute transfer inside transaction
   return prisma.$transaction(async (tx) => {
+    // 0. Reject if quantity exceeds available (physical - reserved) stock
+    await checkAndLockAvailableStock(tx, sourceShopId, [{ itemId: sourceItem.id, quantity }]);
+
     // 1. Stock Out from source shop
     const sourceMovement = await tx.stockLedger.create({
       data: {
