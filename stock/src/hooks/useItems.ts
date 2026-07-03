@@ -114,6 +114,11 @@ export function useCreateItemMutation() {
       createItem(token ?? "", { ...data, shopId: requireActiveShopId(activeShopId) }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["items"] });
+      if (activeShopId) {
+        queryClient.invalidateQueries({ queryKey: ["item-summary", activeShopId] });
+        queryClient.invalidateQueries({ queryKey: ["current-stock", activeShopId] });
+        queryClient.invalidateQueries({ queryKey: ["stock-movements", activeShopId] });
+      }
       if (activeShopId && token) warmOfflineCache(activeShopId, token).catch(() => {});
     },
   });
@@ -131,6 +136,11 @@ export function useUpdateItemMutation() {
       queryClient.invalidateQueries({ queryKey: ["item-price-history", id] });
       queryClient.invalidateQueries({ queryKey: ["item-price-change-history", id] });
       queryClient.invalidateQueries({ queryKey: ["item-stock", id] });
+      if (activeShopId) {
+        queryClient.invalidateQueries({ queryKey: ["item-summary", activeShopId] });
+        queryClient.invalidateQueries({ queryKey: ["current-stock", activeShopId] });
+        queryClient.invalidateQueries({ queryKey: ["stock-movements", activeShopId] });
+      }
       if (activeShopId && token) warmOfflineCache(activeShopId, token).catch(() => {});
     },
   });

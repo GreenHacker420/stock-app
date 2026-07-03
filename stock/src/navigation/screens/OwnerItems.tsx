@@ -401,9 +401,21 @@ export function AddEditItem() {
       initialStock: !existingItem && form.initialStock ? Number(form.initialStock) : undefined,
     };
     if (existingItem) {
-      updateMutation.mutate({ id: existingItem.id, data: payload as UpdateItemPayload }, { onSuccess: () => goBack() });
+      updateMutation.mutate(
+        { id: existingItem.id, data: payload as UpdateItemPayload },
+        { 
+          onSuccess: () => goBack(),
+          onError: (err: any) => Alert.alert("Failed to Update Product", err?.message || "Something went wrong.")
+        }
+      );
     } else {
-      createMutation.mutate(payload, { onSuccess: () => goBack() });
+      createMutation.mutate(
+        payload,
+        { 
+          onSuccess: () => goBack(),
+          onError: (err: any) => Alert.alert("Failed to Create Product", err?.message || "Something went wrong.")
+        }
+      );
     }
   };
 
