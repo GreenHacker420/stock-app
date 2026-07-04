@@ -5,11 +5,12 @@ import { queryKeys } from "./query-keys";
 import { fetchCustomers, fetchCustomer, createCustomer, updateCustomer, fetchCustomerSales, fetchCustomerPayments, fetchCustomerDMs, fetchCustomerReturns, fetchCustomerTimeline } from "../api/client";
 import { newIdempotencyKey } from "../utils/idempotency";
 import { requireActiveShopId } from "./useActiveShop";
-import { useCustomerReadModel } from "../local/read-model/read-model-selectors";
+import { useCustomerReadModel, useReadModelRefresh } from "../local/read-model/read-model-selectors";
 
 export function useCustomersQuery(opts: { search?: string; includeWalkin?: boolean; limit?: number; enabled?: boolean } = {}) {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
+  const refreshReadModel = useReadModelRefresh(activeShopId);
   const localCustomers = useCustomerReadModel({
     search: opts.search,
     includeWalkin: opts.includeWalkin,
@@ -30,6 +31,7 @@ export function useCustomersQuery(opts: { search?: string; includeWalkin?: boole
     data: localCustomers.hasReadModel ? (localCustomers.data ?? []) : serverQuery.data,
     isLoading: localCustomers.hasReadModel ? false : serverQuery.isLoading,
     isFetching: serverQuery.isFetching || localCustomers.isFetching,
+    refetch: localCustomers.hasReadModel ? refreshReadModel : serverQuery.refetch,
   };
 }
 

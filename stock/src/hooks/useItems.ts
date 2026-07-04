@@ -26,7 +26,7 @@ import {
 } from "../api/client";
 import { newIdempotencyKey } from "../utils/idempotency";
 import { requireActiveShopId } from "./useActiveShop";
-import { useCategoryReadModel } from "../local/read-model/read-model-selectors";
+import { useCategoryReadModel, useReadModelRefresh } from "../local/read-model/read-model-selectors";
 
 export function useItemSummaryQuery() {
   const token = useAuthStore((state) => state.token);
@@ -225,6 +225,7 @@ export function useCategoriesQuery() {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
   const localCategories = useCategoryReadModel();
+  const refreshReadModel = useReadModelRefresh(activeShopId);
   const serverQuery = useQuery({
     queryKey: queryKeys.categories(activeShopId ?? ""),
     queryFn: () => fetchCategories(token ?? "", activeShopId ?? ""),
@@ -237,6 +238,7 @@ export function useCategoriesQuery() {
     data: localCategories.hasReadModel ? (localCategories.data ?? []) : serverQuery.data,
     isLoading: localCategories.hasReadModel ? false : serverQuery.isLoading,
     isFetching: serverQuery.isFetching || localCategories.isFetching,
+    refetch: localCategories.hasReadModel ? refreshReadModel : serverQuery.refetch,
   };
 }
 

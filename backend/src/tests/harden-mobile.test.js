@@ -353,6 +353,20 @@ test.describe("DATA-01B mobile read-model cache boundary", () => {
         updatedAt: "2026-07-04T10:00:00.000Z",
       },
       {
+        id: "c2",
+        shopId: "shop_a",
+        name: "भारत Stationery",
+        type: "REGULAR",
+        phone: "8888812345",
+        address: null,
+        city: "Mumbai",
+        gstin: "27ABCDE1234F1Z5",
+        contactPerson: "Meera",
+        creditLimit: "1000",
+        outstandingAmount: "0",
+        updatedAt: "2026-07-04T10:00:00.000Z",
+      },
+      {
         id: "walkin",
         shopId: "shop_a",
         name: "Walk In Customer",
@@ -367,10 +381,18 @@ test.describe("DATA-01B mobile read-model cache boundary", () => {
         updatedAt: "2026-07-04T10:00:00.000Z",
       },
     ];
+    const before = JSON.stringify(customers);
 
     assert.deepStrictEqual(selectCustomers(customers, { search: "asha" }).map((c) => c.id), ["c1"]);
-    assert.deepStrictEqual(selectCustomers(customers).map((c) => c.id), ["c1"]);
-    assert.deepStrictEqual(selectCustomers(customers, { includeWalkin: true }).map((c) => c.id), ["c1", "walkin"]);
+    assert.deepStrictEqual(selectCustomers(customers, { search: "  MEERA  " }).map((c) => c.id), ["c2"]);
+    assert.deepStrictEqual(selectCustomers(customers, { search: "12345" }).map((c) => c.id), ["c2"]);
+    assert.deepStrictEqual(selectCustomers(customers, { search: "abcde" }).map((c) => c.id), ["c2"]);
+    assert.deepStrictEqual(selectCustomers(customers, { search: "भारत" }).map((c) => c.id), ["c2"]);
+    assert.deepStrictEqual(selectCustomers(customers, { search: "no-match" }), []);
+    assert.deepStrictEqual(selectCustomers(customers).map((c) => c.id), ["c1", "c2"]);
+    assert.deepStrictEqual(selectCustomers(customers, { includeWalkin: true }).map((c) => c.id), ["c1", "c2", "walkin"]);
+    assert.deepStrictEqual(selectCustomers(customers, { limit: 1 }).map((c) => c.id), ["c1"]);
+    assert.strictEqual(JSON.stringify(customers), before, "selector must not mutate the shared bootstrap array");
   });
 
   test("category and item selectors stay discovery-only", () => {

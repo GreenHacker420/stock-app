@@ -1,8 +1,10 @@
 import { useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
 import { queryKeys } from "../../hooks/query-keys";
 import type { ItemCatalogReadModel, LocalReadModelEnvelope } from "./read-model-types";
+import { refreshReadModelBootstrap } from "./read-model-coordinator";
 import { selectCategories, selectCustomers, selectItemCatalog } from "./read-model-search-core";
 
 export function useReadModelBootstrap(shopIdOverride?: string | null) {
@@ -18,6 +20,25 @@ export function useReadModelBootstrap(shopIdOverride?: string | null) {
     staleTime: Infinity,
     gcTime: 24 * 60 * 60 * 1000,
   });
+}
+
+export function useReadModelRefresh(shopIdOverride?: string | null) {
+  const queryClient = useQueryClient();
+  const token = useAuthStore((state) => state.token);
+  const userId = useAuthStore((state) => state.user?.id);
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  const shopId = shopIdOverride ?? activeShopId ?? "";
+
+  return async () => {
+    if (!token || !userId || !shopId) return null;
+    return refreshReadModelBootstrap({
+      userId,
+      shopId,
+      token,
+      queryClient,
+      reason: "bootstrap",
+    });
+  };
 }
 
 export function useCustomerReadModel(options: {
