@@ -4,6 +4,11 @@ import { ApiError } from "../utils/ApiError.js";
 import { EntityType, AuditAction, Prisma } from "../generated/prisma/index.js";
 import { generateEmbedding } from "../utils/embeddings.js";
 import { uploadToS3 } from "../lib/wa-media.js";
+import { createDomainEvent, enqueueDomainEvent } from "./domain-event.service.js";
+import {
+  bestEffortInvalidateForDomainEvent,
+  readThroughDomainCache,
+} from "../cache/domain-read-cache.js";
 
 // ---------------------------------------------------------------------------
 // Permission helpers
@@ -166,9 +171,7 @@ async function attachAvailableStock(shopId, itemsList) {
 // listItems
 // ---------------------------------------------------------------------------
 
-export async function listItems(user, { shopId, search, categoryId, page = 1, limit = 50 }) {
-  await assertShopAccess(user, shopId);
-
+async function listItemsFromDb({ shopId, search, categoryId, page = 1, limit = 50 }) {
   const skip = (page - 1) * limit;
   const normalizedSearch = search?.trim();
 
@@ -321,6 +324,24 @@ export async function listItems(user, { shopId, search, categoryId, page = 1, li
   }
 }
 
+export async function listItems(user, { shopId, search, categoryId, page = 1, limit = 50 }) {
+  await assertShopAccess(user, shopId);
+  const normalizedSearch = search?.trim() || null;
+  const query = {
+    search: normalizedSearch,
+    categoryId: categoryId || null,
+    page: Number(page) || 1,
+    limit: Number(limit) || 50,
+  };
+
+  return readThroughDomainCache({
+    shopId,
+    domain: "items",
+    query,
+    loader: () => listItemsFromDb({ shopId, ...query }),
+  });
+}
+
 // ---------------------------------------------------------------------------
 // getItemSummary
 // ---------------------------------------------------------------------------
@@ -388,16 +409,37 @@ export async function createCategory(user, data) {
   await assertShopAccess(user, data.shopId);
   assertCanManageItems(user);
 
-  return prisma.itemCategory.create({
-    data: { shopId: data.shopId, name: data.name },
+  const result = await prisma.$transaction(async (tx) => {
+    const category = await tx.itemCategory.create({
+      data: { shopId: data.shopId, name: data.name },
+    });
+    const event = createDomainEvent({
+      shopId: category.shopId,
+      entity: "category",
+      action: "created",
+      entityId: category.id,
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: true },
+    });
+    await enqueueDomainEvent(tx, event);
+    return { category, event };
   });
+
+  await bestEffortInvalidateForDomainEvent(result.event);
+  return result.category;
 }
 
 export async function listCategories(user, { shopId }) {
   await assertShopAccess(user, shopId);
-  return prisma.itemCategory.findMany({
-    where: { shopId, status: "ACTIVE" },
-    orderBy: { name: "asc" },
+  return readThroughDomainCache({
+    shopId,
+    domain: "categories",
+    query: {},
+    loader: () => prisma.itemCategory.findMany({
+      where: { shopId, status: "ACTIVE" },
+      orderBy: { name: "asc" },
+    }),
   });
 }
 
@@ -407,7 +449,23 @@ export async function updateCategory(user, id, { name }) {
   await assertShopAccess(user, existing.shopId);
   assertCanManageItems(user);
 
-  return prisma.itemCategory.update({ where: { id }, data: { name } });
+  const result = await prisma.$transaction(async (tx) => {
+    const category = await tx.itemCategory.update({ where: { id }, data: { name } });
+    const event = createDomainEvent({
+      shopId: existing.shopId,
+      entity: "category",
+      action: "updated",
+      entityId: id,
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: true },
+    });
+    await enqueueDomainEvent(tx, event);
+    return { category, event };
+  });
+
+  await bestEffortInvalidateForDomainEvent(result.event);
+  return result.category;
 }
 
 export async function deleteCategory(user, id) {
@@ -421,7 +479,23 @@ export async function deleteCategory(user, id) {
     throw new ApiError(400, "Cannot delete category that contains active items");
   }
 
-  return prisma.itemCategory.update({ where: { id }, data: { status: "INACTIVE" } });
+  const result = await prisma.$transaction(async (tx) => {
+    const category = await tx.itemCategory.update({ where: { id }, data: { status: "INACTIVE" } });
+    const event = createDomainEvent({
+      shopId: existing.shopId,
+      entity: "category",
+      action: "deleted",
+      entityId: id,
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: true },
+    });
+    await enqueueDomainEvent(tx, event);
+    return { category, event };
+  });
+
+  await bestEffortInvalidateForDomainEvent(result.event);
+  return result.category;
 }
 
 // ---------------------------------------------------------------------------
@@ -464,7 +538,7 @@ export async function createItem(user, data) {
     embedding = null;
   }
 
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const item = await tx.item.create({ data: itemData });
 
     // Use $executeRaw tagged template — no $executeRawUnsafe
@@ -515,8 +589,23 @@ export async function createItem(user, data) {
       },
     });
 
-    return tx.item.findUnique({ where: { id: item.id } });
+    const event = createDomainEvent({
+      shopId: item.shopId,
+      entity: "item",
+      action: "created",
+      entityId: item.id,
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: true },
+    });
+    await enqueueDomainEvent(tx, event);
+
+    const createdItem = await tx.item.findUnique({ where: { id: item.id } });
+    return { item: createdItem, event };
   });
+
+  await bestEffortInvalidateForDomainEvent(result.event);
+  return result.item;
 }
 
 // ---------------------------------------------------------------------------
@@ -569,7 +658,7 @@ export async function updateItem(user, id, data) {
     }
   }
 
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const item = await tx.item.update({ where: { id }, data: itemData });
 
     if (embedding) {
@@ -650,8 +739,23 @@ export async function updateItem(user, id, data) {
       },
     });
 
-    return tx.item.findUnique({ where: { id } });
+    const event = createDomainEvent({
+      shopId: item.shopId,
+      entity: "item",
+      action: "updated",
+      entityId: id,
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: true },
+    });
+    await enqueueDomainEvent(tx, event);
+
+    const updatedItem = await tx.item.findUnique({ where: { id } });
+    return { item: updatedItem, event };
   });
+
+  await bestEffortInvalidateForDomainEvent(result.event);
+  return result.item;
 }
 
 export async function uploadItemImage(user, data, file) {

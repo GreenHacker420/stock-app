@@ -7,6 +7,7 @@ const DEFAULT_QUERY_KEYS = {
   payment: ["payments", "dashboard", "customers", "cashSessions"],
   stock: ["items", "stock", "dashboard"],
   item: ["items", "stock", "dashboard"],
+  category: ["items", "categories", "stock"],
   customer: ["customers"],
   deliveryMemo: ["deliveryMemos", "dashboard", "customers"],
   order: ["orders", "dashboard"],

@@ -1,13 +1,16 @@
 import prisma from "../lib/db.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
-import { writeAuditLog } from "../utils/auditLog.js";
 import { money } from "../utils/money.js";
 import { listSales } from "./sale.service.js";
 import { listPayments } from "./payment.service.js";
 import { listDeliveryMemos } from "./deliveryMemo.service.js";
 import { EntityType, AuditAction } from "../generated/prisma/index.js";
 import { createDomainEvent, enqueueDomainEvent } from "./domain-event.service.js";
+import {
+  bestEffortInvalidateForDomainEvent,
+  readThroughDomainCache,
+} from "../cache/domain-read-cache.js";
 
 export async function listCustomerSales(user, id, query) {
   const customer = await getCustomer(user, id);
@@ -55,8 +58,7 @@ export async function getCustomerTimeline(user, id) {
   return timeline;
 }
 
-export async function listCustomers(user, { shopId, search, includeWalkin = false, type, page = 1, limit = 100 }) {
-  await assertShopAccess(user, shopId);
+async function listCustomersFromDb({ shopId, search, includeWalkin = false, type, page = 1, limit = 100 }) {
   const take = Math.min(Number(limit) || 100, 200);
   const skip = (Number(page) - 1) * take;
 
@@ -95,6 +97,24 @@ export async function listCustomers(user, { shopId, search, includeWalkin = fals
     orderBy: { createdAt: "desc" },
     skip,
     take,
+  });
+}
+
+export async function listCustomers(user, { shopId, search, includeWalkin = false, type, page = 1, limit = 100 }) {
+  await assertShopAccess(user, shopId);
+  const query = {
+    search: search || null,
+    includeWalkin: Boolean(includeWalkin),
+    type: type || null,
+    page: Number(page) || 1,
+    limit: Math.min(Number(limit) || 100, 200),
+  };
+
+  return readThroughDomainCache({
+    shopId,
+    domain: "customers",
+    query,
+    loader: () => listCustomersFromDb({ shopId, ...query }),
   });
 }
 
@@ -151,7 +171,7 @@ export async function getCustomerSummary(user, id) {
 /**
  * Get the default Walk-in customer for a shop. Creates it if missing.
  */
-export async function getOrCreateWalkIn(shopId, userId) {
+export async function getOrCreateWalkIn(shopId, userId, actorRole) {
   const walkin = await prisma.customer.findFirst({
     where: {
       shopId,
@@ -161,16 +181,34 @@ export async function getOrCreateWalkIn(shopId, userId) {
 
   if (walkin) return walkin;
 
-  return prisma.customer.create({
-    data: {
+  const result = await prisma.$transaction(async (tx) => {
+    const customer = await tx.customer.create({
+      data: {
+        shopId,
+        name: "Walk In Customer",
+        type: "WALK_IN",
+        createdById: userId,
+        outstandingAmount: 0,
+        advanceBalance: 0,
+      },
+    });
+
+    const event = createDomainEvent({
       shopId,
-      name: "Walk In Customer",
-      type: "WALK_IN",
-      createdById: userId,
-      outstandingAmount: 0,
-      advanceBalance: 0,
-    },
+      entity: "customer",
+      action: "created",
+      entityId: customer.id,
+      actorUserId: userId,
+      actorRole,
+      visibility: { owners: true, staff: true },
+    });
+    await enqueueDomainEvent(tx, event);
+
+    return { customer, event };
   });
+
+  await bestEffortInvalidateForDomainEvent(result.event);
+  return result.customer;
 }
 
 /**
@@ -180,7 +218,7 @@ export async function captureCustomer(user, { shopId, name, phone, email }) {
   await assertShopAccess(user, shopId);
 
   if (!phone && !name) {
-    return getOrCreateWalkIn(shopId, user.id);
+    return getOrCreateWalkIn(shopId, user.id, user.role);
   }
 
   if (phone) {
@@ -194,28 +232,45 @@ export async function captureCustomer(user, { shopId, name, phone, email }) {
     if (existing) return existing;
   }
 
-  // Auto-create as REGULAR
-  const customer = await prisma.customer.create({
-    data: {
+  const result = await prisma.$transaction(async (tx) => {
+    const customer = await tx.customer.create({
+      data: {
+        shopId,
+        name: name || "New Customer",
+        phone,
+        email,
+        type: "REGULAR",
+        createdById: user.id,
+      },
+    });
+
+    await tx.auditLog.create({
+      data: {
+        userId: user.id,
+        shopId,
+        action: AuditAction.CREATED,
+        entityType: EntityType.CUSTOMER,
+        entityId: customer.id,
+        newValueJson: customer,
+      },
+    });
+
+    const event = createDomainEvent({
       shopId,
-      name: name || "New Customer",
-      phone,
-      email,
-      type: "REGULAR",
-      createdById: user.id,
-    },
+      entity: "customer",
+      action: "created",
+      entityId: customer.id,
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: true },
+    });
+    await enqueueDomainEvent(tx, event);
+
+    return { customer, event };
   });
 
-  await writeAuditLog({
-    userId: user.id,
-    shopId,
-    action: AuditAction.CREATED,
-    entityType: EntityType.CUSTOMER,
-    entityId: customer.id,
-    newValueJson: customer,
-  });
-
-  return customer;
+  await bestEffortInvalidateForDomainEvent(result.event);
+  return result.customer;
 }
 
 export async function createCustomer(user, data) {
@@ -232,7 +287,7 @@ export async function createCustomer(user, data) {
     if (existing) return { ...existing, merged: true, conflictType: "CUSTOMER_ALREADY_EXISTS" };
   }
 
-  return prisma.$transaction(async (tx) => {
+  const result = await prisma.$transaction(async (tx) => {
     const customer = await tx.customer.create({
       data: {
         shopId: data.shopId,
@@ -263,7 +318,7 @@ export async function createCustomer(user, data) {
       },
     });
 
-    await enqueueDomainEvent(tx, createDomainEvent({
+    const event = createDomainEvent({
       shopId: customer.shopId,
       entity: "customer",
       action: "created",
@@ -271,10 +326,14 @@ export async function createCustomer(user, data) {
       actorUserId: user.id,
       actorRole: user.role,
       visibility: { owners: true, staff: true },
-    }));
+    });
+    await enqueueDomainEvent(tx, event);
 
-    return customer;
+    return { customer, event };
   });
+
+  await bestEffortInvalidateForDomainEvent(result.event);
+  return result.customer;
 }
 
 export async function updateCustomer(user, id, data) {
@@ -288,22 +347,40 @@ export async function updateCustomer(user, id, data) {
     updateData.creditLimit = updateData.creditLimit ? money(updateData.creditLimit) : null;
   }
 
-  const customer = await prisma.customer.update({
-    where: { id },
-    data: updateData,
+  const result = await prisma.$transaction(async (tx) => {
+    const customer = await tx.customer.update({
+      where: { id },
+      data: updateData,
+    });
+
+    await tx.auditLog.create({
+      data: {
+        userId: user.id,
+        shopId: existing.shopId,
+        action: AuditAction.UPDATED,
+        entityType: EntityType.CUSTOMER,
+        entityId: id,
+        oldValueJson: existing,
+        newValueJson: customer,
+      },
+    });
+
+    const event = createDomainEvent({
+      shopId: existing.shopId,
+      entity: "customer",
+      action: "updated",
+      entityId: id,
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: true },
+    });
+    await enqueueDomainEvent(tx, event);
+
+    return { customer, event };
   });
 
-  await writeAuditLog({
-    userId: user.id,
-    shopId: existing.shopId,
-    action: AuditAction.UPDATED,
-    entityType: EntityType.CUSTOMER,
-    entityId: id,
-    oldValueJson: existing,
-    newValueJson: customer,
-  });
-
-  return customer;
+  await bestEffortInvalidateForDomainEvent(result.event);
+  return result.customer;
 }
 
 export async function getOutstanding(user, id) {

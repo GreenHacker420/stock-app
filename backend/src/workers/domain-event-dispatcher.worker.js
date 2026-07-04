@@ -2,6 +2,8 @@ import Redis from "ioredis";
 import prisma from "../lib/db.js";
 import { listShopPresence } from "../services/device-presence.service.js";
 import { createNotification } from "../services/notification.service.js";
+import { invalidateForDomainEvent } from "../cache/domain-read-cache.js";
+import { closeReadCacheRedis } from "../cache/redis-read-cache.js";
 
 const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
 const DOMAIN_EVENT_CHANNEL = "domain-events";
@@ -15,6 +17,7 @@ const ENTITY_TYPE_MAP = {
   sale: "SALE",
   payment: "PAYMENT",
   item: "ITEM",
+  category: "ITEM",
   stock: "STOCK_LEDGER",
   deliveryMemo: "DELIVERY_MEMO",
   order: "ORDER",
@@ -39,6 +42,10 @@ function notificationTriggerFor(event) {
 function getRedis() {
   if (!redisPub) redisPub = new Redis(REDIS_URL, { maxRetriesPerRequest: null });
   return redisPub;
+}
+
+export function setDomainEventRedisForTests(client) {
+  redisPub = client;
 }
 
 async function getNotificationTargetUserIds(event) {
@@ -218,6 +225,7 @@ export async function dispatchPendingDomainEvents() {
         }
 
         console.log(`[DomainEventDispatcher] Dispatching event: id=${event.eventId}, shopId=${event.shopId}, entity=${event.entity}, action=${event.action}`);
+        await invalidateForDomainEvent(event);
         await publishEvent(event);
 
         await prisma.domainEventOutbox.update({
@@ -290,4 +298,5 @@ export async function closeRedis() {
     }
     redisPub = null;
   }
+  await closeReadCacheRedis();
 }
