@@ -22,11 +22,15 @@ export type DomainCacheInstance = {
 };
 
 const CACHE_VERSION = 1;
-const SECURE_KEY_PREFIX = "domain-read-cache:key:v1:user:";
+const SECURE_KEY_PREFIX = "domain-read-cache.key.v1.user.";
 const STORAGE_ID_PREFIX = "domain-read-cache:v1:user:";
 
 function encodePart(value: string) {
   return encodeURIComponent(value.trim());
+}
+
+function encodeSecureStorePart(value: string) {
+  return value.trim().replace(/[^A-Za-z0-9._-]/g, "_");
 }
 
 export function domainReadCacheStorageId(userId: string) {
@@ -36,7 +40,7 @@ export function domainReadCacheStorageId(userId: string) {
 
 export function domainReadCacheSecretKey(userId: string) {
   if (!userId.trim()) throw new Error("Domain read cache requires userId");
-  return `${SECURE_KEY_PREFIX}${encodePart(userId)}`;
+  return `${SECURE_KEY_PREFIX}${encodeSecureStorePart(userId)}`;
 }
 
 export function domainReadCacheKey(shopId: string, domain: DomainCacheDomain) {

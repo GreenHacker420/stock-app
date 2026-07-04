@@ -6,12 +6,21 @@ import {
 } from "../local/read-model/read-model-cache-core";
 
 export async function getDomainEventCursor(userId: string, shopId: string): Promise<string | null> {
-  return getStoredSequenceCursor(getDomainReadCache().storage, userId, shopId);
+  try {
+    return getStoredSequenceCursor(getDomainReadCache().storage, userId, shopId);
+  } catch {
+    return null;
+  }
 }
 
 
 export async function setDomainEventCursor(userId: string, shopId: string, cursor: string | null): Promise<void> {
-  setStoredSequenceCursor(getDomainReadCache().storage, userId, shopId, cursor);
+  try {
+    setStoredSequenceCursor(getDomainReadCache().storage, userId, shopId, cursor);
+  } catch {
+    // Cursor writes require the encrypted domain cache. If it is unavailable,
+    // the next bootstrap/reconciliation pass will recover from the snapshot.
+  }
 }
 
 

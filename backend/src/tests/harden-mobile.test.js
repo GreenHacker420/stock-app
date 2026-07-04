@@ -90,6 +90,7 @@ test.describe("HARDEN-01 mobile persistence boundary", () => {
   test("domain cache storage and secret keys are user-scoped", () => {
     assert.notStrictEqual(domainReadCacheStorageId("user_a"), domainReadCacheStorageId("user_b"));
     assert.notStrictEqual(domainReadCacheSecretKey("user_a"), domainReadCacheSecretKey("user_b"));
+    assert.match(domainReadCacheSecretKey("user:with/slash"), /^[A-Za-z0-9._-]+$/);
   });
 
   test("shop keys are isolated per domain and shop", () => {
