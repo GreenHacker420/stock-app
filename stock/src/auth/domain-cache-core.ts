@@ -30,7 +30,9 @@ function encodePart(value: string) {
 }
 
 function encodeSecureStorePart(value: string) {
-  return value.trim().replace(/[^A-Za-z0-9._-]/g, "_");
+  return Array.from(value.trim())
+    .map((char) => char.codePointAt(0)?.toString(16).padStart(6, "0") ?? "")
+    .join("");
 }
 
 export function domainReadCacheStorageId(userId: string) {

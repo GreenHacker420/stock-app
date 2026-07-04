@@ -91,6 +91,11 @@ test.describe("HARDEN-01 mobile persistence boundary", () => {
     assert.notStrictEqual(domainReadCacheStorageId("user_a"), domainReadCacheStorageId("user_b"));
     assert.notStrictEqual(domainReadCacheSecretKey("user_a"), domainReadCacheSecretKey("user_b"));
     assert.match(domainReadCacheSecretKey("user:with/slash"), /^[A-Za-z0-9._-]+$/);
+    assert.notStrictEqual(
+      domainReadCacheSecretKey("user:a"),
+      domainReadCacheSecretKey("user/a"),
+      "distinct user IDs must not collapse to the same SecureStore key",
+    );
   });
 
   test("shop keys are isolated per domain and shop", () => {
@@ -295,6 +300,16 @@ test.describe("DATA-01B mobile read-model cache boundary", () => {
       "domain_event_cursor:shop_a",
       "domain_event_cursor:shop_b",
     ]);
+  });
+
+  test("early cursor access is guarded when encrypted domain cache is unavailable", () => {
+    const source = readStock("realtime/domainEventCursor.ts");
+    assert.match(source, /catch\s*\{\s*return null;\s*\}/s);
+    assert.match(source, /catch\s*\{[\s\S]*next bootstrap\/reconciliation pass will recover/s);
+    assert.ok(
+      !source.includes("mmkvStorage.setItem"),
+      "early cursor failure must not write to unencrypted legacy storage",
+    );
   });
 
   test("event relevance policy covers read-model dependencies conservatively", () => {
