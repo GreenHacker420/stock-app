@@ -1085,12 +1085,20 @@ model DomainEventOutbox {
   status      String    @default("pending")
   attempts    Int       @default(0)
   lastError   String?
+  sequence    BigInt
   createdAt   DateTime  @default(now())
   publishedAt DateTime?
 
+  @@unique([shopId, sequence])
   @@index([status, createdAt])
   @@index([shopId, entity, action])
   @@index([entity, entityId])
+  @@index([shopId, status, sequence])
+}
+
+model ShopEventSequence {
+  shopId String @id
+  value  BigInt @default(0)
 }
 
 model ApprovalRequest {

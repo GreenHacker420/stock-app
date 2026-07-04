@@ -211,6 +211,7 @@ test.describe("ShopControl Realtime & Outbox Hardening Tests", () => {
           action: "review_required",
           entityId: "session123",
           status: "pending",
+          sequence: 1,
           eventJson: {
             eventId: "evt_test_dedupe_123",
             shopId: shop.id,
@@ -259,6 +260,7 @@ test.describe("ShopControl Realtime & Outbox Hardening Tests", () => {
           action: "created",
           entityId: "sale123",
           status: "pending",
+          sequence: 1,
           eventJson: {
             eventId: "evt_invalid_val_1",
             // missing shopId, entity, etc.
@@ -294,31 +296,31 @@ test.describe("ShopControl Realtime & Outbox Hardening Tests", () => {
       await prisma.domainEventOutbox.deleteMany({});
     });
 
-    test("1. Owner gets delivered events for owned shop, sorted ASC", async () => {
+    test("1. Owner gets published events for owned shop, sorted ASC", async () => {
       const time1 = new Date(Date.now() - 10_000);
       const time2 = new Date(Date.now() - 5_000);
 
       await prisma.domainEventOutbox.createMany({
         data: [
-          { id: "evt_s1", shopId: shop.id, entity: "stock", action: "updated", entityId: "item_1", status: "delivered", createdAt: time1, eventJson: { eventId: "evt_s1", shopId: shop.id, entity: "stock", action: "updated", entityId: "item_1", actorUserId: owner.id, updatedAt: time1.toISOString() } },
-          { id: "evt_s2", shopId: shop.id, entity: "sale", action: "created", entityId: "sale_1", status: "delivered", createdAt: time2, eventJson: { eventId: "evt_s2", shopId: shop.id, entity: "sale", action: "created", entityId: "sale_1", actorUserId: owner.id, updatedAt: time2.toISOString() } },
-          { id: "evt_other", shopId: otherShop.id, entity: "stock", action: "updated", entityId: "item_2", status: "delivered", eventJson: { eventId: "evt_other", shopId: otherShop.id, entity: "stock", action: "updated", entityId: "item_2", actorUserId: otherOwner.id, updatedAt: new Date().toISOString() } },
-          { id: "evt_pending", shopId: shop.id, entity: "order", action: "created", entityId: "order_1", status: "pending", eventJson: { eventId: "evt_pending", shopId: shop.id, entity: "order", action: "created", entityId: "order_1", actorUserId: owner.id, updatedAt: new Date().toISOString() } },
+          { id: "evt_s1", shopId: shop.id, entity: "stock", action: "updated", entityId: "item_1", status: "published", sequence: 1, createdAt: time1, eventJson: { eventId: "evt_s1", shopId: shop.id, entity: "stock", action: "updated", entityId: "item_1", actorUserId: owner.id, updatedAt: time1.toISOString() } },
+          { id: "evt_s2", shopId: shop.id, entity: "sale", action: "created", entityId: "sale_1", status: "published", sequence: 2, createdAt: time2, eventJson: { eventId: "evt_s2", shopId: shop.id, entity: "sale", action: "created", entityId: "sale_1", actorUserId: owner.id, updatedAt: time2.toISOString() } },
+          { id: "evt_other", shopId: otherShop.id, entity: "stock", action: "updated", entityId: "item_2", status: "published", sequence: 1, eventJson: { eventId: "evt_other", shopId: otherShop.id, entity: "stock", action: "updated", entityId: "item_2", actorUserId: otherOwner.id, updatedAt: new Date().toISOString() } },
+          { id: "evt_pending", shopId: shop.id, entity: "order", action: "created", entityId: "order_1", status: "pending", sequence: 3, eventJson: { eventId: "evt_pending", shopId: shop.id, entity: "order", action: "created", entityId: "order_1", actorUserId: owner.id, updatedAt: new Date().toISOString() } },
         ]
       });
 
       const result = await callSync(ownerReq());
       assert.ok(result.success);
-      assert.strictEqual(result.data.events.length, 2, "Returns 2 delivered events for the shop only");
+      assert.strictEqual(result.data.events.length, 2, "Returns 2 published events for the shop only");
       assert.strictEqual(result.data.events[0].eventId, "evt_s1");
       assert.strictEqual(result.data.events[1].eventId, "evt_s2");
       assert.ok(result.data.nextCursor, "Returns a nextCursor");
     });
 
-    test("2. Staff gets delivered events for their assigned shop", async () => {
+    test("2. Staff gets published events for their assigned shop", async () => {
       const time1 = new Date(Date.now() - 5_000);
       await prisma.domainEventOutbox.create({
-        data: { id: "evt_staff_1", shopId: shop.id, entity: "sale", action: "created", entityId: "sale_1", status: "delivered", createdAt: time1, eventJson: { eventId: "evt_staff_1", shopId: shop.id, entity: "sale", action: "created", entityId: "sale_1", actorUserId: staff.id, updatedAt: time1.toISOString() } }
+        data: { id: "evt_staff_1", shopId: shop.id, entity: "sale", action: "created", entityId: "sale_1", status: "published", sequence: 1, createdAt: time1, eventJson: { eventId: "evt_staff_1", shopId: shop.id, entity: "sale", action: "created", entityId: "sale_1", actorUserId: staff.id, updatedAt: time1.toISOString() } }
       });
 
       const result = await callSync({ user: { id: staff.id, role: "STAFF" }, validated: { query: { shopId: shop.id, after: undefined, limit: 10 } } });
@@ -343,18 +345,18 @@ test.describe("ShopControl Realtime & Outbox Hardening Tests", () => {
       );
     });
 
-    test("5. Cursor filter excludes events at or before the cursor timestamp", async () => {
+    test("5. Cursor filter excludes events at or before the cursor sequence", async () => {
       const time1 = new Date(Date.now() - 10_000);
       const time2 = new Date(Date.now() - 5_000);
 
       await prisma.domainEventOutbox.createMany({
         data: [
-          { id: "evt_old", shopId: shop.id, entity: "stock", action: "updated", entityId: "item_1", status: "delivered", createdAt: time1, eventJson: { eventId: "evt_old", shopId: shop.id, entity: "stock", action: "updated", entityId: "item_1", actorUserId: owner.id, updatedAt: time1.toISOString() } },
-          { id: "evt_new", shopId: shop.id, entity: "sale", action: "created", entityId: "sale_1", status: "delivered", createdAt: time2, eventJson: { eventId: "evt_new", shopId: shop.id, entity: "sale", action: "created", entityId: "sale_1", actorUserId: owner.id, updatedAt: time2.toISOString() } },
+          { id: "evt_old", shopId: shop.id, entity: "stock", action: "updated", entityId: "item_1", status: "published", sequence: 1, createdAt: time1, eventJson: { eventId: "evt_old", shopId: shop.id, entity: "stock", action: "updated", entityId: "item_1", actorUserId: owner.id, updatedAt: time1.toISOString() } },
+          { id: "evt_new", shopId: shop.id, entity: "sale", action: "created", entityId: "sale_1", status: "published", sequence: 2, createdAt: time2, eventJson: { eventId: "evt_new", shopId: shop.id, entity: "sale", action: "created", entityId: "sale_1", actorUserId: owner.id, updatedAt: time2.toISOString() } },
         ]
       });
 
-      const result = await callSync(ownerReq({ after: time1.toISOString() }));
+      const result = await callSync(ownerReq({ after: "1" }));
       assert.ok(result.success);
       assert.strictEqual(result.data.events.length, 1, "Only events after the cursor");
       assert.strictEqual(result.data.events[0].eventId, "evt_new");
@@ -366,8 +368,8 @@ test.describe("ShopControl Realtime & Outbox Hardening Tests", () => {
 
       await prisma.domainEventOutbox.createMany({
         data: [
-          { id: "evt_p1", shopId: shop.id, entity: "stock", action: "updated", entityId: "i1", status: "delivered", createdAt: time1, eventJson: { eventId: "evt_p1", shopId: shop.id, entity: "stock", action: "updated", entityId: "i1", actorUserId: owner.id, updatedAt: time1.toISOString() } },
-          { id: "evt_p2", shopId: shop.id, entity: "sale", action: "created", entityId: "s1", status: "delivered", createdAt: time2, eventJson: { eventId: "evt_p2", shopId: shop.id, entity: "sale", action: "created", entityId: "s1", actorUserId: owner.id, updatedAt: time2.toISOString() } },
+          { id: "evt_p1", shopId: shop.id, entity: "stock", action: "updated", entityId: "i1", status: "published", sequence: 1, createdAt: time1, eventJson: { eventId: "evt_p1", shopId: shop.id, entity: "stock", action: "updated", entityId: "i1", actorUserId: owner.id, updatedAt: time1.toISOString() } },
+          { id: "evt_p2", shopId: shop.id, entity: "sale", action: "created", entityId: "s1", status: "published", sequence: 2, createdAt: time2, eventJson: { eventId: "evt_p2", shopId: shop.id, entity: "sale", action: "created", entityId: "s1", actorUserId: owner.id, updatedAt: time2.toISOString() } },
         ]
       });
 
@@ -381,7 +383,7 @@ test.describe("ShopControl Realtime & Outbox Hardening Tests", () => {
     });
 
     test("7. When no events exist, nextCursor equals the passed-in cursor", async () => {
-      const cursor = new Date(Date.now() - 1000).toISOString();
+      const cursor = "42";
       const result = await callSync(ownerReq({ after: cursor }));
       assert.ok(result.success);
       assert.strictEqual(result.data.events.length, 0);
@@ -391,7 +393,7 @@ test.describe("ShopControl Realtime & Outbox Hardening Tests", () => {
     test("8. Event payload does not contain sensitive PII fields", async () => {
       const t = new Date(Date.now() - 1000);
       await prisma.domainEventOutbox.create({
-        data: { id: "evt_clean", shopId: shop.id, entity: "sale", action: "created", entityId: "sale_1", status: "delivered", createdAt: t, eventJson: { eventId: "evt_clean", shopId: shop.id, entity: "sale", action: "created", entityId: "sale_1", actorUserId: owner.id, updatedAt: t.toISOString() } }
+        data: { id: "evt_clean", shopId: shop.id, entity: "sale", action: "created", entityId: "sale_1", status: "published", sequence: 1, createdAt: t, eventJson: { eventId: "evt_clean", shopId: shop.id, entity: "sale", action: "created", entityId: "sale_1", actorUserId: owner.id, updatedAt: t.toISOString() } }
       });
 
       const result = await callSync(ownerReq());
@@ -404,13 +406,13 @@ test.describe("ShopControl Realtime & Outbox Hardening Tests", () => {
       assert.strictEqual(ev.entity, "sale");
     });
 
-    test("9. Events are sorted in ascending createdAt order", async () => {
+    test("9. Events are sorted in ascending sequence order", async () => {
       const times = [new Date(Date.now() - 15_000), new Date(Date.now() - 10_000), new Date(Date.now() - 5_000)];
 
       await prisma.domainEventOutbox.createMany({
         data: times.map((t, i) => ({
           id: "evt_order_" + i, shopId: shop.id, entity: "stock", action: "updated", entityId: "item_" + i,
-          status: "delivered", createdAt: t,
+          status: "published", sequence: i + 1, createdAt: t,
           eventJson: { eventId: "evt_order_" + i, shopId: shop.id, entity: "stock", action: "updated", entityId: "item_" + i, actorUserId: owner.id, updatedAt: t.toISOString() }
         }))
       });
@@ -427,39 +429,64 @@ test.describe("ShopControl Realtime & Outbox Hardening Tests", () => {
       assert.strictEqual(schema.safeParse({ limit: 500 }).success, true, "500 should pass");
     });
 
-    test("11. Only 'delivered' status events are returned (pending and failed excluded)", async () => {
+    test("11. Only 'published' status events are returned (pending and failed excluded)", async () => {
       const t = new Date(Date.now() - 1000);
       await prisma.domainEventOutbox.createMany({
         data: [
-          { id: "evt_delivered", shopId: shop.id, entity: "sale", action: "created", entityId: "s1", status: "delivered", createdAt: t, eventJson: { eventId: "evt_delivered", shopId: shop.id, entity: "sale", action: "created", entityId: "s1", actorUserId: owner.id, updatedAt: t.toISOString() } },
-          { id: "evt_pend", shopId: shop.id, entity: "sale", action: "created", entityId: "s2", status: "pending", createdAt: t, eventJson: { eventId: "evt_pend", shopId: shop.id, entity: "sale", action: "created", entityId: "s2", actorUserId: owner.id, updatedAt: t.toISOString() } },
-          { id: "evt_fail", shopId: shop.id, entity: "sale", action: "created", entityId: "s3", status: "failed", createdAt: t, eventJson: { eventId: "evt_fail", shopId: shop.id, entity: "sale", action: "created", entityId: "s3", actorUserId: owner.id, updatedAt: t.toISOString() } },
+          { id: "evt_delivered", shopId: shop.id, entity: "sale", action: "created", entityId: "s1", status: "published", sequence: 1, createdAt: t, eventJson: { eventId: "evt_delivered", shopId: shop.id, entity: "sale", action: "created", entityId: "s1", actorUserId: owner.id, updatedAt: t.toISOString() } },
+          { id: "evt_pend", shopId: shop.id, entity: "sale", action: "created", entityId: "s2", status: "pending", sequence: 2, createdAt: t, eventJson: { eventId: "evt_pend", shopId: shop.id, entity: "sale", action: "created", entityId: "s2", actorUserId: owner.id, updatedAt: t.toISOString() } },
+          { id: "evt_fail", shopId: shop.id, entity: "sale", action: "created", entityId: "s3", status: "failed", sequence: 3, createdAt: t, eventJson: { eventId: "evt_fail", shopId: shop.id, entity: "sale", action: "created", entityId: "s3", actorUserId: owner.id, updatedAt: t.toISOString() } },
         ]
       });
 
       const result = await callSync(ownerReq());
-      assert.strictEqual(result.data.events.length, 1, "Only delivered events returned");
+      assert.strictEqual(result.data.events.length, 1, "Only published events returned");
       assert.strictEqual(result.data.events[0].eventId, "evt_delivered");
     });
 
-    test("12. Socket sync uses createdAt cursor and does not require outbox updatedAt", async () => {
+    test("12. Socket sync uses sequence cursor and does not require outbox updatedAt", async () => {
       const time1 = new Date(Date.now() - 10_000);
       const time2 = new Date(Date.now() - 5_000);
       await prisma.domainEventOutbox.createMany({
         data: [
-          { id: "evt_socket_old", shopId: shop.id, entity: "stock", action: "updated", entityId: "i1", status: "delivered", createdAt: time1, eventJson: { eventId: "evt_socket_old", shopId: shop.id, entity: "stock", action: "updated", entityId: "i1", actorUserId: owner.id } },
-          { id: "evt_socket_new", shopId: shop.id, entity: "sale", action: "created", entityId: "s1", status: "delivered", createdAt: time2, eventJson: { eventId: "evt_socket_new", shopId: shop.id, entity: "sale", action: "created", entityId: "s1", actorUserId: owner.id } },
+          { id: "evt_socket_old", shopId: shop.id, entity: "stock", action: "updated", entityId: "i1", status: "published", sequence: 1, createdAt: time1, eventJson: { eventId: "evt_socket_old", shopId: shop.id, entity: "stock", action: "updated", entityId: "i1", actorUserId: owner.id } },
+          { id: "evt_socket_new", shopId: shop.id, entity: "sale", action: "created", entityId: "s1", status: "published", sequence: 2, createdAt: time2, eventJson: { eventId: "evt_socket_new", shopId: shop.id, entity: "sale", action: "created", entityId: "s1", actorUserId: owner.id } },
         ],
       });
 
-      const payload = await getRealtimeSyncPayload(owner, { shopId: shop.id, since: time1.toISOString() });
+      const payload = await getRealtimeSyncPayload(owner, { shopId: shop.id, since: "1" });
       assert.strictEqual(payload.events.length, 1);
       assert.strictEqual(payload.events[0].eventId, "evt_socket_new");
-      assert.strictEqual(payload.nextCursor, time2.toISOString());
+      assert.strictEqual(payload.nextCursor, "2");
 
-      const empty = await getRealtimeSyncPayload(owner, { shopId: shop.id, since: time2.toISOString() });
+      const empty = await getRealtimeSyncPayload(owner, { shopId: shop.id, since: "2" });
       assert.strictEqual(empty.events.length, 0);
-      assert.strictEqual(empty.nextCursor, time2.toISOString());
+      assert.strictEqual(empty.nextCursor, "2");
+    });
+
+    test("13. Real dispatcher path: mutation -> pending -> dispatched -> published -> reconcilable", async () => {
+      const before = await callSync(ownerReq({ after: undefined }));
+      const baseCursor = before.data.nextCursor;
+
+      const customer = await customerService.createCustomer(owner, {
+        shopId: shop.id,
+        name: "Reconcile Test Customer",
+        type: "REGULAR",
+      });
+
+      const pendingRow = await prisma.domainEventOutbox.findFirst({
+        where: { shopId: shop.id, entity: "customer", entityId: customer.id },
+      });
+      assert.strictEqual(pendingRow.status, "pending", "Event starts pending before dispatch");
+
+      await dispatchPendingDomainEvents();
+
+      const dispatchedRow = await prisma.domainEventOutbox.findUnique({ where: { id: pendingRow.id } });
+      assert.strictEqual(dispatchedRow.status, "published", "Real dispatcher marks event published");
+
+      const after = await callSync(ownerReq({ after: baseCursor ?? undefined }));
+      const found = after.data.events.find((e) => e.entityId === customer.id && e.entity === "customer");
+      assert.ok(found, "/sync/domain-events must surface the real dispatched event, not just direct-insert fixtures");
     });
   });
 });

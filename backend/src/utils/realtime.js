@@ -7,6 +7,7 @@ import {
   disconnectDevicePresence,
   updateDevicePresence,
 } from "../services/device-presence.service.js";
+import { parseEventSequenceCursor } from "../lib/validate.js";
 
 const MAX_SYNC_EVENTS = 100;
 
@@ -95,22 +96,23 @@ export async function getRealtimeSyncPayload(user, { shopId, since, limit = MAX_
   }
 
   const take = Math.min(Number(limit) || MAX_SYNC_EVENTS, MAX_SYNC_EVENTS);
+  const sinceSequence = since !== undefined ? parseEventSequenceCursor(String(since)) : undefined;
   const where = {
     shopId,
-    status: "delivered",
-    ...(since ? { createdAt: { gt: new Date(since) } } : {}),
+    status: "published",
+    ...(sinceSequence !== undefined ? { sequence: { gt: sinceSequence } } : {}),
   };
   const outbox = await prisma.domainEventOutbox.findMany({
     where,
-    orderBy: { createdAt: "asc" },
+    orderBy: { sequence: "asc" },
     take,
-    select: { createdAt: true, eventJson: true },
+    select: { sequence: true, eventJson: true },
   });
 
   return {
     events: outbox.map((row) => row.eventJson),
     nextCursor: outbox.length > 0
-      ? outbox[outbox.length - 1].createdAt.toISOString()
+      ? outbox[outbox.length - 1].sequence.toString()
       : since || null,
   };
 }

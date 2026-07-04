@@ -173,7 +173,7 @@ async function claimRows() {
         { status: "failed", attempts: { lt: MAX_ATTEMPTS } },
       ],
     },
-    orderBy: { createdAt: "asc" },
+    orderBy: { sequence: "asc" },
     take: 25,
   });
 

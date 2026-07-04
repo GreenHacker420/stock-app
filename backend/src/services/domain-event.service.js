@@ -65,8 +65,18 @@ export function createDomainEvent({
   };
 }
 
+export async function allocateShopEventSequence(tx, shopId) {
+  const rows = await tx.$queryRaw`
+    INSERT INTO "ShopEventSequence" ("shopId", "value") VALUES (${shopId}, 1)
+    ON CONFLICT ("shopId") DO UPDATE SET "value" = "ShopEventSequence"."value" + 1
+    RETURNING "value"
+  `;
+  return rows[0].value;
+}
+
 export async function enqueueDomainEvent(tx, eventInput) {
   const event = eventInput.eventId ? eventInput : createDomainEvent(eventInput);
+  const sequence = await allocateShopEventSequence(tx, event.shopId);
   await tx.domainEventOutbox.create({
     data: {
       id: event.eventId,
@@ -77,6 +87,7 @@ export async function enqueueDomainEvent(tx, eventInput) {
       entityId: event.entityId,
       eventJson: event,
       status: "pending",
+      sequence,
     },
   });
   return event;
