@@ -25,6 +25,7 @@ import {
   writeLocalReadModelEnvelope,
 } from "../../../stock/src/local/read-model/read-model-cache-core.ts";
 import { getReadModelImpact } from "../../../stock/src/local/read-model/read-model-event-policy.ts";
+import { selectCategories, selectCustomers, selectItemCatalog } from "../../../stock/src/local/read-model/read-model-search-core.ts";
 
 const root = path.resolve(import.meta.dirname, "../../..");
 const stockSrc = path.join(root, "stock/src");
@@ -333,5 +334,72 @@ test.describe("DATA-01B mobile read-model cache boundary", () => {
       items: false,
       categories: false,
     });
+  });
+
+  test("customer selector searches complete local projection without walk-in leakage by default", () => {
+    const customers = [
+      {
+        id: "c1",
+        shopId: "shop_a",
+        name: "Asha Traders",
+        type: "REGULAR",
+        phone: "99999",
+        address: null,
+        city: "Pune",
+        gstin: "GST123",
+        contactPerson: "Asha",
+        creditLimit: "1000",
+        outstandingAmount: "50",
+        updatedAt: "2026-07-04T10:00:00.000Z",
+      },
+      {
+        id: "walkin",
+        shopId: "shop_a",
+        name: "Walk In Customer",
+        type: "WALK_IN",
+        phone: null,
+        address: null,
+        city: null,
+        gstin: null,
+        contactPerson: null,
+        creditLimit: null,
+        outstandingAmount: "0",
+        updatedAt: "2026-07-04T10:00:00.000Z",
+      },
+    ];
+
+    assert.deepStrictEqual(selectCustomers(customers, { search: "asha" }).map((c) => c.id), ["c1"]);
+    assert.deepStrictEqual(selectCustomers(customers).map((c) => c.id), ["c1"]);
+    assert.deepStrictEqual(selectCustomers(customers, { includeWalkin: true }).map((c) => c.id), ["c1", "walkin"]);
+  });
+
+  test("category and item selectors stay discovery-only", () => {
+    assert.deepStrictEqual(
+      selectCategories([{ id: "cat_1", name: "Toner", updatedAt: "2026-07-04T10:00:00.000Z" }]),
+      [{ id: "cat_1", name: "Toner" }],
+    );
+
+    const items = [
+      {
+        id: "item_1",
+        shopId: "shop_a",
+        name: "Evergreen Cartridge",
+        sku: "12A",
+        imageUrl: null,
+        unit: "pcs",
+        defaultSellingPrice: "400",
+        minimumAllowedPrice: "350",
+        mrp: "1999",
+        minimumStock: "15",
+        categoryId: "cat_1",
+        categoryName: "Toner",
+        updatedAt: "2026-07-04T10:00:00.000Z",
+      },
+    ];
+
+    const result = selectItemCatalog(items, { search: "12a", categoryId: "cat_1" });
+    assert.strictEqual(result.length, 1);
+    assert.strictEqual("availableStock" in result[0], false);
+    assert.strictEqual("physicalStock" in result[0], false);
   });
 });

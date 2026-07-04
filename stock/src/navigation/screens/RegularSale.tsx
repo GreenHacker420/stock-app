@@ -3,12 +3,12 @@ import { useNavigation } from "@react-navigation/native";
 import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Pressable, Modal, Alert, Animated, PanResponder } from "react-native";
 import { Searchbar, Text, Icon, List, TextInput, Switch, SegmentedButtons, Divider } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useQuery } from "@tanstack/react-query";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
 
-import { fetchCustomers, Item } from "../../api/client";
+import { Item } from "../../api/client";
 import { useItemsQuery } from "../../hooks/useItems";
+import { useCustomersQuery } from "../../hooks/useCustomers";
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
 import { useCreateSaleMutation } from "../../hooks/useSales";
@@ -402,18 +402,15 @@ export function RegularSale() {
   const [signatureKey, setSignatureKey] = useState(0);
   const [scrollEnabled, setScrollEnabled] = useState(true);
 
-  const customersQuery = useQuery({
-    queryKey: ["customers", activeShopId, debouncedCustomerSearch],
-    queryFn: () => fetchCustomers(token ?? "", activeShopId ?? "", false, {
-      search: debouncedCustomerSearch,
-      limit: debouncedCustomerSearch ? 20 : 50,
-    }),
-    enabled: !!token && !!activeShopId && !network.isOffline,
+  const customersQuery = useCustomersQuery({
+    search: debouncedCustomerSearch,
+    limit: debouncedCustomerSearch ? 20 : 50,
+    enabled: !network.isOffline,
   });
   const itemsQuery = useItemsQuery({ search: debouncedItemSearch, limit: 50, enabled: !network.isOffline });
   const mergedCustomers = useMemo(() => {
-    return network.isOffline ? [] : (customersQuery.data ?? []);
-  }, [customersQuery.data, network.isOffline]);
+    return customersQuery.data ?? [];
+  }, [customersQuery.data]);
 
   const displayItems = useMemo(() => {
     if (!network.isOffline) return itemsQuery.data?.items ?? [];

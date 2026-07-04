@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Alert, Pressable, View, StyleSheet, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform,} from "react-native";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRoute } from "@react-navigation/native";
 import { Divider, Icon, Text, TextInput } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
@@ -12,7 +12,6 @@ import {
   fetchCustomer, 
   fetchCustomerOutstanding, 
   fetchCustomerPriceHistory, 
-  fetchCustomers, 
   updateCustomer 
 } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
@@ -30,30 +29,27 @@ import { Button } from "../../components/ui/Button";
 import { navigate, goBack } from "../navigation-ref";
 import { useNetworkStatus } from "../../hooks/useNetworkStatus";
 import { requireActiveShopId } from "../../hooks/useActiveShop";
+import { useCustomersQuery } from "../../hooks/useCustomers";
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 const internetRequiredMessage = "Internet connection required. Please connect to the internet to complete this action.";
 
 export function CustomerList() {
-  const token = useAuthStore((state) => state.token);
-  const activeShopId = useShopStore((state) => state.activeShopId);
   const network = useNetworkStatus();
   
   const [search, setSearch] = useState("");
   const [debouncedSearch] = useDebounce(search, 300);
 
-  const customersQuery = useQuery({ 
-    queryKey: ["customers", activeShopId, "includeWalkin", debouncedSearch], 
-    queryFn: () => fetchCustomers(token ?? "", activeShopId ?? "", true, {
-      search: debouncedSearch,
-      limit: debouncedSearch ? 50 : 100,
-    }), 
-    enabled: !!token && !!activeShopId && !network.isOffline 
+  const customersQuery = useCustomersQuery({
+    search: debouncedSearch,
+    includeWalkin: true,
+    limit: debouncedSearch ? 50 : 100,
+    enabled: !network.isOffline,
   });
 
   const filteredData = useMemo(() => {
-    return network.isOffline ? [] : (customersQuery.data ?? []);
-  }, [customersQuery.data, network.isOffline]);
+    return customersQuery.data ?? [];
+  }, [customersQuery.data]);
 
   return (
     <Screen edges={['top', 'left', 'right']}>

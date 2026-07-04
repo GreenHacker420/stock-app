@@ -183,8 +183,8 @@ export function WalkInSale() {
   const itemsQuery = useItemsQuery({ search: debouncedSearch, limit: 50, enabled: !network.isOffline });
   const customersQuery = useCustomersQuery({ enabled: !network.isOffline });
   const mergedCustomers = useMemo(() => {
-    return network.isOffline ? [] : (customersQuery.data ?? []);
-  }, [customersQuery.data, network.isOffline]);
+    return customersQuery.data ?? [];
+  }, [customersQuery.data]);
   const displayItems = useMemo(() => {
     if (!network.isOffline) return itemsQuery.data?.items ?? [];
     return [];

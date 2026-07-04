@@ -31,7 +31,7 @@ export function CreateDeliveryMemo() {
   const user = useAuthStore((state) => state.user);
   const isStaff = user?.role === "STAFF";
 
-  const customersQuery = useCustomersQuery();
+  const customersQuery = useCustomersQuery({ includeWalkin: true });
   const itemsQuery = useItemsQuery();
   const createMutation = useCreateDeliveryMemoMutation();
 

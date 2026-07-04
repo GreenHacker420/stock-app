@@ -155,8 +155,8 @@ export function TakePayment() {
     enabled: !network.isOffline,
   });
   const mergedCustomers = useMemo(() => {
-    return network.isOffline ? [] : (customersQuery.data ?? []);
-  }, [customersQuery.data, network.isOffline]);
+    return customersQuery.data ?? [];
+  }, [customersQuery.data]);
 
   const filteredCustomers = useMemo(() => {
     if (!searchQuery) return [];

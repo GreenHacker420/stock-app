@@ -26,6 +26,7 @@ import {
 } from "../api/client";
 import { newIdempotencyKey } from "../utils/idempotency";
 import { requireActiveShopId } from "./useActiveShop";
+import { useCategoryReadModel } from "../local/read-model/read-model-selectors";
 
 export function useItemSummaryQuery() {
   const token = useAuthStore((state) => state.token);
@@ -223,12 +224,20 @@ export function useItemPriceChangeHistoryQuery(itemId?: string) {
 export function useCategoriesQuery() {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
-  return useQuery({
+  const localCategories = useCategoryReadModel();
+  const serverQuery = useQuery({
     queryKey: queryKeys.categories(activeShopId ?? ""),
     queryFn: () => fetchCategories(token ?? "", activeShopId ?? ""),
-    enabled: !!token && !!activeShopId,
+    enabled: !!token && !!activeShopId && !localCategories.hasReadModel,
     staleTime: 5 * 60 * 1000,
   });
+
+  return {
+    ...serverQuery,
+    data: localCategories.hasReadModel ? (localCategories.data ?? []) : serverQuery.data,
+    isLoading: localCategories.hasReadModel ? false : serverQuery.isLoading,
+    isFetching: serverQuery.isFetching || localCategories.isFetching,
+  };
 }
 
 export function useCreateCategoryMutation() {

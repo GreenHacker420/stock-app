@@ -5,20 +5,32 @@ import { queryKeys } from "./query-keys";
 import { fetchCustomers, fetchCustomer, createCustomer, updateCustomer, fetchCustomerSales, fetchCustomerPayments, fetchCustomerDMs, fetchCustomerReturns, fetchCustomerTimeline } from "../api/client";
 import { newIdempotencyKey } from "../utils/idempotency";
 import { requireActiveShopId } from "./useActiveShop";
+import { useCustomerReadModel } from "../local/read-model/read-model-selectors";
 
 export function useCustomersQuery(opts: { search?: string; includeWalkin?: boolean; limit?: number; enabled?: boolean } = {}) {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
-  return useQuery({
+  const localCustomers = useCustomerReadModel({
+    search: opts.search,
+    includeWalkin: opts.includeWalkin,
+    limit: opts.limit,
+  });
+  const serverQuery = useQuery({
     queryKey: [...queryKeys.customers(activeShopId ?? ""), { search: opts.search, includeWalkin: opts.includeWalkin, limit: opts.limit }],
     queryFn: () => fetchCustomers(token ?? "", activeShopId ?? "", opts.includeWalkin ?? false, {
       search: opts.search,
       limit: opts.limit,
     }),
-    enabled: (opts.enabled ?? true) && !!token && !!activeShopId,
+    enabled: (opts.enabled ?? true) && !!token && !!activeShopId && !localCustomers.hasReadModel,
     staleTime: 15 * 60 * 1000, // 15 mins
   });
 
+  return {
+    ...serverQuery,
+    data: localCustomers.hasReadModel ? (localCustomers.data ?? []) : serverQuery.data,
+    isLoading: localCustomers.hasReadModel ? false : serverQuery.isLoading,
+    isFetching: serverQuery.isFetching || localCustomers.isFetching,
+  };
 }
 
 export function useCustomerDetailQuery(id: string) {

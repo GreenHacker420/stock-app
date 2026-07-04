@@ -5,10 +5,11 @@ import { Button, Text, Searchbar, List, Divider, Card, Icon, SegmentedButtons, T
 import { useDebounce } from "use-debounce";
 import * as Haptics from "expo-haptics";
 
-import { createOrder, fetchCustomers, fetchItems, fetchStaff, Item, Customer } from "../../api/client";
+import { createOrder, fetchItems, fetchStaff, Item, Customer } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
 import { useNetworkStatus } from "../../hooks/useNetworkStatus";
+import { useCustomersQuery } from "../../hooks/useCustomers";
 import { newIdempotencyKey } from "../../utils/idempotency";
 import { requireActiveShopId } from "../../hooks/useActiveShop";
 import { Screen } from "../../components/Screen";
@@ -88,16 +89,10 @@ export function CreateOrder() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   // Queries
-  const customersQuery = useQuery({
-    queryKey: ["customers", activeShopId, debouncedCustomerSearch],
-    queryFn: () => {
-      if (!token) return Promise.resolve([]);
-      return fetchCustomers(token, activeShopId ?? "", false, {
-        search: debouncedCustomerSearch,
-        limit: debouncedCustomerSearch ? 20 : 50,
-      });
-    },
-    enabled: !!token && !!activeShopId && !network.isOffline,
+  const customersQuery = useCustomersQuery({
+    search: debouncedCustomerSearch,
+    limit: debouncedCustomerSearch ? 20 : 50,
+    enabled: !network.isOffline,
   });
 
   const itemsQuery = useQuery({
@@ -124,9 +119,9 @@ export function CreateOrder() {
   // Filters for dropdown lists
   const filteredCustomers = useMemo(() => {
     if (!customerSearch) return [];
-    const source = network.isOffline ? [] : (customersQuery.data ?? []);
+    const source = customersQuery.data ?? [];
     return source.slice(0, 5);
-  }, [customersQuery.data, customerSearch, network.isOffline]);
+  }, [customersQuery.data, customerSearch]);
 
   const filteredItems = useMemo(() => {
     if (!itemSearch) return [];
@@ -136,9 +131,9 @@ export function CreateOrder() {
 
   // Recent lists when searches are empty
   const recentParties = useMemo(() => {
-    const source = network.isOffline ? [] : (customersQuery.data ?? []);
+    const source = customersQuery.data ?? [];
     return source.slice(0, 5);
-  }, [customersQuery.data, network.isOffline]);
+  }, [customersQuery.data]);
 
   const recentItems = useMemo(() => {
     const source = network.isOffline ? [] : (itemsQuery.data?.items ?? []);
