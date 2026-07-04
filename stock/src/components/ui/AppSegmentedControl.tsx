@@ -28,7 +28,7 @@ export function AppSegmentedControl<T extends string>({
   minOptionWidth,
 }: AppSegmentedControlProps<T>) {
   const content = (
-    <View style={[styles.row, scrollable && styles.scrollRow, style]}>
+    <View style={[styles.row, scrollable && styles.scrollRow, !scrollable && style]}>
       {options.map((option) => {
         const active = option.value === value;
         return (
@@ -66,7 +66,12 @@ export function AppSegmentedControl<T extends string>({
 
   if (scrollable) {
     return (
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+        style={[styles.scrollContainer, style]}
+      >
         {content}
       </ScrollView>
     );
@@ -76,6 +81,9 @@ export function AppSegmentedControl<T extends string>({
 }
 
 const styles = StyleSheet.create({
+  scrollContainer: {
+    flexGrow: 0,
+  },
   row: {
     flexDirection: "row",
     gap: spacing.xs,
