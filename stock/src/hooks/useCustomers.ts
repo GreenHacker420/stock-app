@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "../auth/auth-store";
 import { useShopStore } from "../auth/shop-store";
 import { queryKeys } from "./query-keys";
@@ -6,6 +6,31 @@ import { fetchCustomers, fetchCustomer, createCustomer, updateCustomer, fetchCus
 import { newIdempotencyKey } from "../utils/idempotency";
 import { requireActiveShopId } from "./useActiveShop";
 import { useCustomerReadModel, useReadModelRefresh } from "../local/read-model/read-model-selectors";
+import { refreshReadModelDomains } from "../local/read-model/read-model-coordinator";
+
+function refreshCustomerReadModelAfterMutation({
+  userId,
+  shopId,
+  token,
+  queryClient,
+}: {
+  userId?: string;
+  shopId?: string | null;
+  token?: string | null;
+  queryClient: QueryClient;
+}) {
+  if (!userId || !shopId || !token) return;
+  void refreshReadModelDomains({
+    userId,
+    shopId,
+    token,
+    queryClient,
+    reason: "reconciliation",
+    writeCursor: false,
+  }, ["customers"]).catch((error) => {
+    if (__DEV__) console.warn("[read-model] customer mutation refresh failed", error);
+  });
+}
 
 export function useCustomersQuery(opts: { search?: string; includeWalkin?: boolean; limit?: number; enabled?: boolean } = {}) {
   const token = useAuthStore((state) => state.token);
@@ -92,6 +117,7 @@ export function useCustomerTimelineQuery(id: string) {
 
 export function useCreateCustomerMutation() {
   const token = useAuthStore((state) => state.token);
+  const userId = useAuthStore((state) => state.user?.id);
   const activeShopId = useShopStore((state) => state.activeShopId);
   const queryClient = useQueryClient();
   return useMutation({
@@ -102,6 +128,7 @@ export function useCreateCustomerMutation() {
     onSuccess: () => {
       if (activeShopId) {
         queryClient.invalidateQueries({ queryKey: ["customers", activeShopId] });
+        refreshCustomerReadModelAfterMutation({ userId, shopId: activeShopId, token, queryClient });
       }
     },
   });
@@ -109,6 +136,7 @@ export function useCreateCustomerMutation() {
 
 export function useUpdateCustomerMutation() {
   const token = useAuthStore((state) => state.token);
+  const userId = useAuthStore((state) => state.user?.id);
   const activeShopId = useShopStore((state) => state.activeShopId);
   const queryClient = useQueryClient();
   return useMutation({
@@ -117,6 +145,7 @@ export function useUpdateCustomerMutation() {
     onSuccess: (_, variables) => {
       if (activeShopId) {
         queryClient.invalidateQueries({ queryKey: ["customers", activeShopId] });
+        refreshCustomerReadModelAfterMutation({ userId, shopId: activeShopId, token, queryClient });
       }
       queryClient.invalidateQueries({ queryKey: ["customer", variables.id] });
     },

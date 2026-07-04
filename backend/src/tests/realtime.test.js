@@ -444,6 +444,78 @@ test.describe("ShopControl Realtime & Outbox Hardening Tests", () => {
       assert.strictEqual(result.data.events[0].eventId, "evt_delivered");
     });
 
+    test("11a. Pending lower sequence blocks later published event", async () => {
+      const t = new Date(Date.now() - 1000);
+      await prisma.domainEventOutbox.createMany({
+        data: [
+          { id: "evt_gap_pending", shopId: shop.id, entity: "customer", action: "updated", entityId: "c1", status: "pending", sequence: 101, createdAt: t, eventJson: { eventId: "evt_gap_pending", shopId: shop.id, entity: "customer", action: "updated", entityId: "c1", actorUserId: owner.id } },
+          { id: "evt_gap_later", shopId: shop.id, entity: "customer", action: "updated", entityId: "c2", status: "published", sequence: 102, createdAt: t, eventJson: { eventId: "evt_gap_later", shopId: shop.id, entity: "customer", action: "updated", entityId: "c2", actorUserId: owner.id } },
+        ],
+      });
+
+      const result = await callSync(ownerReq({ after: "100" }));
+      assert.strictEqual(result.data.events.length, 0);
+      assert.strictEqual(result.data.nextCursor, "100");
+    });
+
+    test("11b. Reconciliation returns only the contiguous published prefix", async () => {
+      const t = new Date(Date.now() - 1000);
+      await prisma.domainEventOutbox.createMany({
+        data: [
+          { id: "evt_prefix_101", shopId: shop.id, entity: "customer", action: "updated", entityId: "c101", status: "published", sequence: 101, createdAt: t, eventJson: { eventId: "evt_prefix_101", shopId: shop.id, entity: "customer", action: "updated", entityId: "c101", actorUserId: owner.id } },
+          { id: "evt_prefix_102", shopId: shop.id, entity: "customer", action: "updated", entityId: "c102", status: "published", sequence: 102, createdAt: t, eventJson: { eventId: "evt_prefix_102", shopId: shop.id, entity: "customer", action: "updated", entityId: "c102", actorUserId: owner.id } },
+          { id: "evt_prefix_103", shopId: shop.id, entity: "customer", action: "updated", entityId: "c103", status: "pending", sequence: 103, createdAt: t, eventJson: { eventId: "evt_prefix_103", shopId: shop.id, entity: "customer", action: "updated", entityId: "c103", actorUserId: owner.id } },
+          { id: "evt_prefix_104", shopId: shop.id, entity: "customer", action: "updated", entityId: "c104", status: "published", sequence: 104, createdAt: t, eventJson: { eventId: "evt_prefix_104", shopId: shop.id, entity: "customer", action: "updated", entityId: "c104", actorUserId: owner.id } },
+        ],
+      });
+
+      const first = await callSync(ownerReq({ after: "100" }));
+      assert.deepStrictEqual(first.data.events.map((event) => event.eventId), ["evt_prefix_101", "evt_prefix_102"]);
+      assert.strictEqual(first.data.nextCursor, "102");
+
+      await prisma.domainEventOutbox.update({ where: { id: "evt_prefix_103" }, data: { status: "published" } });
+      const second = await callSync(ownerReq({ after: "102" }));
+      assert.deepStrictEqual(second.data.events.map((event) => event.eventId), ["evt_prefix_103", "evt_prefix_104"]);
+      assert.strictEqual(second.data.nextCursor, "104");
+    });
+
+    test("11c. Pagination respects the contiguous frontier", async () => {
+      const t = new Date(Date.now() - 1000);
+      await prisma.domainEventOutbox.createMany({
+        data: [
+          { id: "evt_page_101", shopId: shop.id, entity: "customer", action: "updated", entityId: "c101", status: "published", sequence: 101, createdAt: t, eventJson: { eventId: "evt_page_101", shopId: shop.id, entity: "customer", action: "updated", entityId: "c101", actorUserId: owner.id } },
+          { id: "evt_page_102", shopId: shop.id, entity: "customer", action: "updated", entityId: "c102", status: "pending", sequence: 102, createdAt: t, eventJson: { eventId: "evt_page_102", shopId: shop.id, entity: "customer", action: "updated", entityId: "c102", actorUserId: owner.id } },
+          { id: "evt_page_103", shopId: shop.id, entity: "customer", action: "updated", entityId: "c103", status: "published", sequence: 103, createdAt: t, eventJson: { eventId: "evt_page_103", shopId: shop.id, entity: "customer", action: "updated", entityId: "c103", actorUserId: owner.id } },
+        ],
+      });
+
+      const first = await callSync(ownerReq({ after: "100", limit: 1 }));
+      assert.deepStrictEqual(first.data.events.map((event) => event.eventId), ["evt_page_101"]);
+      assert.strictEqual(first.data.nextCursor, "101");
+
+      const blocked = await callSync(ownerReq({ after: "101", limit: 10 }));
+      assert.deepStrictEqual(blocked.data.events, []);
+      assert.strictEqual(blocked.data.nextCursor, "101");
+    });
+
+    test("11d. Transaction rollback does not permanently consume a shop sequence", async () => {
+      const { allocateShopEventSequence } = await import("../services/domain-event.service.js");
+      await prisma.domainEventOutbox.deleteMany({ where: { shopId: shop.id } });
+      await prisma.shopEventSequence.deleteMany({ where: { shopId: shop.id } });
+
+      await assert.rejects(
+        prisma.$transaction(async (tx) => {
+          const sequence = await allocateShopEventSequence(tx, shop.id);
+          assert.strictEqual(sequence, 1n);
+          throw new Error("rollback sequence allocation");
+        }),
+        /rollback sequence allocation/,
+      );
+
+      const sequence = await prisma.$transaction((tx) => allocateShopEventSequence(tx, shop.id));
+      assert.strictEqual(sequence, 1n);
+    });
+
     test("12. Socket sync uses sequence cursor and does not require outbox updatedAt", async () => {
       const time1 = new Date(Date.now() - 10_000);
       const time2 = new Date(Date.now() - 5_000);
@@ -462,6 +534,16 @@ test.describe("ShopControl Realtime & Outbox Hardening Tests", () => {
       const empty = await getRealtimeSyncPayload(owner, { shopId: shop.id, since: "2" });
       assert.strictEqual(empty.events.length, 0);
       assert.strictEqual(empty.nextCursor, "2");
+
+      await prisma.domainEventOutbox.createMany({
+        data: [
+          { id: "evt_socket_pending", shopId: shop.id, entity: "sale", action: "created", entityId: "s2", status: "pending", sequence: 3, eventJson: { eventId: "evt_socket_pending", shopId: shop.id, entity: "sale", action: "created", entityId: "s2", actorUserId: owner.id } },
+          { id: "evt_socket_later", shopId: shop.id, entity: "sale", action: "created", entityId: "s3", status: "published", sequence: 4, eventJson: { eventId: "evt_socket_later", shopId: shop.id, entity: "sale", action: "created", entityId: "s3", actorUserId: owner.id } },
+        ],
+      });
+      const blocked = await getRealtimeSyncPayload(owner, { shopId: shop.id, since: "2" });
+      assert.strictEqual(blocked.events.length, 0);
+      assert.strictEqual(blocked.nextCursor, "2");
     });
 
     test("13. Real dispatcher path: mutation -> pending -> dispatched -> published -> reconcilable", async () => {

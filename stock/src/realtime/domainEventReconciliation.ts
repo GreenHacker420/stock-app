@@ -3,22 +3,15 @@ import { apiRequest } from "../api/client";
 import { handleDomainEvent, type DomainEvent } from "./domainEvents";
 import { getDomainEventCursor, setDomainEventCursor } from "./domainEventCursor";
 import {
-  doesReadModelBatchNeedRefresh,
   getReadModelReconciliationCursor,
   hydrateReadModelForShop,
-  refreshReadModelBootstrap,
+  refreshReadModelDomains,
 } from "../local/read-model/read-model-coordinator";
+import { getReadModelDomainsForBatch } from "../local/read-model/read-model-event-policy";
 
 // ─── Throttle / In-flight guard ──────────────────────────────────────────────
 
-const MIN_RECONCILE_INTERVAL_MS = 5_000; // min 5 s between reconcile calls per shop
-const lastReconcileAt = new Map<string, number>();
-const inFlight = new Set<string>();
-
-function isThrottled(shopId: string): boolean {
-  const last = lastReconcileAt.get(shopId) ?? 0;
-  return Date.now() - last < MIN_RECONCILE_INTERVAL_MS;
-}
+const syncFlights = new Map<string, { rerun: boolean; promise: Promise<"processed" | "error"> }>();
 
 // ─── Targeted fallback invalidation ─────────────────────────────────────────
 
@@ -67,14 +60,42 @@ export async function reconcileDomainEventsForShop(
   token: string,
   queryClient: QueryClient,
   currentDeviceId?: string | null,
-): Promise<"processed" | "throttled" | "in-flight" | "error"> {
+): Promise<"processed" | "coalesced" | "error"> {
   if (!userId || !shopId || !token) return "error";
-  if (isThrottled(shopId)) return "throttled";
-  if (inFlight.has(shopId)) return "in-flight";
+  const key = `${userId}:${shopId}`;
+  const existing = syncFlights.get(key);
+  if (existing) {
+    existing.rerun = true;
+    return "coalesced";
+  }
 
-  inFlight.add(shopId);
-  lastReconcileAt.set(shopId, Date.now());
+  const flight = {
+    rerun: false,
+    promise: Promise.resolve<"processed" | "error">("processed"),
+  };
 
+  flight.promise = (async () => {
+    let result: "processed" | "error" = "processed";
+    do {
+      flight.rerun = false;
+      result = await runReconciliation(userId, shopId, token, queryClient, currentDeviceId);
+    } while (flight.rerun && result !== "error");
+    return result;
+  })().finally(() => {
+    syncFlights.delete(key);
+  });
+
+  syncFlights.set(key, flight);
+  return flight.promise;
+}
+
+async function runReconciliation(
+  userId: string,
+  shopId: string,
+  token: string,
+  queryClient: QueryClient,
+  currentDeviceId?: string | null,
+): Promise<"processed" | "error"> {
   try {
     await hydrateReadModelForShop({ userId, shopId, token, queryClient, reason: "bootstrap" });
 
@@ -101,9 +122,9 @@ export async function reconcileDomainEventsForShop(
         handleDomainEvent(queryClient, event, currentDeviceId);
       }
 
-      if (doesReadModelBatchNeedRefresh(events, shopId)) {
-        await refreshReadModelBootstrap({ userId, shopId, token, queryClient, reason: "reconciliation" });
-        return "processed";
+      const domains = getReadModelDomainsForBatch(events.filter((event) => event?.shopId === shopId));
+      if (domains.length > 0) {
+        await refreshReadModelDomains({ userId, shopId, token, queryClient, reason: "reconciliation", writeCursor: false }, domains);
       }
 
       if (nextCursor) {
@@ -122,11 +143,9 @@ export async function reconcileDomainEventsForShop(
     console.warn("[reconcile] endpoint failed for shop", shopId, "—", msg, "— falling back to targeted invalidation");
     invalidateCriticalQueriesForShop(queryClient, shopId);
     return "error";
-  } finally {
-    inFlight.delete(shopId);
   }
 }
 
 export function resetReconcileThrottle(shopId: string): void {
-  lastReconcileAt.delete(shopId);
+  syncFlights.delete(shopId);
 }

@@ -1,4 +1,5 @@
 import type { DomainEvent } from "../../realtime/domainEvents";
+import type { ReadModelDomain } from "./read-model-types";
 
 export type ReadModelImpact = {
   customers: boolean;
@@ -33,4 +34,15 @@ export function getReadModelImpact(event: Pick<DomainEvent, "entity" | "action">
 export function doesEventAffectReadModels(event: Pick<DomainEvent, "entity" | "action"> | null | undefined) {
   const impact = getReadModelImpact(event);
   return impact.customers || impact.items || impact.categories;
+}
+
+export function getReadModelDomainsForBatch(events: Array<Pick<DomainEvent, "entity" | "action"> | null | undefined>) {
+  const domains = new Set<ReadModelDomain>();
+  for (const event of events) {
+    const impact = getReadModelImpact(event);
+    if (impact.customers) domains.add("customers");
+    if (impact.items) domains.add("items");
+    if (impact.categories) domains.add("categories");
+  }
+  return [...domains];
 }

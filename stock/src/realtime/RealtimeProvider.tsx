@@ -13,7 +13,6 @@ import { reconcileDomainEventsForShop } from "./domainEventReconciliation";
 import {
   activateReadModelContext,
   deactivateReadModelContext,
-  handleReadModelLiveEvent,
   hydrateReadModelForShop,
 } from "../local/read-model/read-model-coordinator";
 
@@ -160,16 +159,9 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
 
       socket.on("domain:event", (event: DomainEvent) => {
 	        const handled = handleDomainEvent(queryClient, event, deviceId);
-	        void handleReadModelLiveEvent({
-	          userId,
-	          shopId: activeShopId,
-	          token,
-	          queryClient,
-	          reason: "realtime",
-	          event,
-	        }).catch((error) => {
-	          if (__DEV__) console.warn("[read-model] live refresh failed", error);
-	        });
+	        if (event?.shopId === activeShopId) {
+	          reconcile();
+	        }
 	        if (handled) {
           if (event.notification) {
             setToast({

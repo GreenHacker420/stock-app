@@ -248,6 +248,15 @@ test.describe("DATA-01B mobile read-model cache boundary", () => {
     assert.strictEqual(readLocalReadModelEnvelope(storage, "shop_b"), null);
   });
 
+  test("repair writes can preserve previous base cursor until durable cursor advances", () => {
+    const storage = createStorage();
+    writeLocalReadModelEnvelope(storage, bootstrap("shop_a"));
+    const repaired = writeLocalReadModelEnvelope(storage, { ...bootstrap("shop_a"), baseCursor: "99" }, { baseCursor: "42" });
+
+    assert.strictEqual(repaired.baseCursor, "42");
+    assert.strictEqual(readLocalReadModelEnvelope(storage, "shop_a")?.baseCursor, "42");
+  });
+
   test("corrupt, wrong-schema, and wrong-shop envelopes are rejected safely", () => {
     const storage = createStorage();
     storage.set(readModelBootstrapKey("shop_a"), "{bad json");
@@ -423,5 +432,37 @@ test.describe("DATA-01B mobile read-model cache boundary", () => {
     assert.strictEqual(result.length, 1);
     assert.strictEqual("availableStock" in result[0], false);
     assert.strictEqual("physicalStock" in result[0], false);
+  });
+});
+
+test.describe("DATA-03 realtime read-model coherence contracts", () => {
+  test("live socket events request reconciliation instead of direct cursor advancement or MMKV patching", () => {
+    const provider = readStock("realtime/RealtimeProvider.tsx");
+    const liveHandler = provider.slice(provider.indexOf('socket.on("domain:event"'));
+
+    assert.ok(liveHandler.includes("reconcile();"));
+    assert.ok(!liveHandler.includes("setDomainEventCursor("));
+    assert.ok(!liveHandler.includes("handleReadModelLiveEvent"));
+    assert.ok(!liveHandler.includes(".storage.set("));
+  });
+
+  test("reconciliation refreshes read models before advancing the durable cursor", () => {
+    const source = readStock("realtime/domainEventReconciliation.ts");
+    const refreshIndex = source.indexOf("refreshReadModelDomains({ userId, shopId, token, queryClient, reason: \"reconciliation\", writeCursor: false }, domains)");
+    const cursorIndex = source.indexOf("await setDomainEventCursor(userId, shopId, nextCursor)");
+
+    assert.ok(refreshIndex > -1, "reconciliation must repair affected read-model domains without writing bootstrap cursor");
+    assert.ok(cursorIndex > -1, "reconciliation must still advance cursor after successful processing");
+    assert.ok(refreshIndex < cursorIndex, "read-model persistence must happen before cursor advancement");
+  });
+
+  test("same-device customer and catalog mutation refreshes do not advance the sequence cursor", () => {
+    const customers = readStock("hooks/useCustomers.ts");
+    const items = readStock("hooks/useItems.ts");
+
+    assert.ok(customers.includes("refreshCustomerReadModelAfterMutation"));
+    assert.ok(customers.includes("writeCursor: false"));
+    assert.ok(items.includes("refreshCatalogReadModelAfterMutation"));
+    assert.ok(items.includes("writeCursor: false"));
   });
 });

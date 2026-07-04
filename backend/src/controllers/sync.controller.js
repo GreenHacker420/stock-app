@@ -1,9 +1,13 @@
-import prisma from "../lib/db.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { parseEventSequenceCursor } from "../lib/validate.js";
-import { getShopReadModelBootstrap } from "../services/read-model-snapshot.service.js";
+import {
+  getShopCategoryReadModel,
+  getShopCustomerReadModel,
+  getShopItemCatalogReadModel,
+  getShopReadModelBootstrap,
+} from "../services/read-model-snapshot.service.js";
+import { getContiguousPublishedDomainEvents } from "../services/domain-event-reconciliation.service.js";
 
-const RECONCILE_STATUS = "published";
 const DEFAULT_LIMIT = 100;
 
 export const syncDomainEvents = asyncHandler(async (req, res) => {
@@ -12,18 +16,10 @@ export const syncDomainEvents = asyncHandler(async (req, res) => {
   const userId = req.user?.id ?? "unknown";
   const afterSequence = after !== undefined ? parseEventSequenceCursor(after) : undefined;
 
-  const where = {
+  const outboxEntries = await getContiguousPublishedDomainEvents({
     shopId,
-    status: RECONCILE_STATUS,
-    ...(afterSequence !== undefined ? { sequence: { gt: afterSequence } } : {}),
-  };
-
-  const outboxEntries = await prisma.domainEventOutbox.findMany({
-    where,
-    orderBy: { sequence: "asc" },
-    take: parsedLimit,
-    // Only expose the eventJson blob — no internal outbox metadata
-    select: { id: true, sequence: true, eventJson: true },
+    afterSequence,
+    limit: parsedLimit,
   });
 
   const events = outboxEntries.map((entry) => {
@@ -56,4 +52,31 @@ export const getReadModelBootstrap = asyncHandler(async (req, res) => {
   const { shopId } = req.validated.query;
   const snapshot = await getShopReadModelBootstrap(req.user, shopId);
   res.json({ success: true, data: snapshot });
+});
+
+function repairEnvelope(shopId, records) {
+  return {
+    schemaVersion: 1,
+    shopId,
+    complete: true,
+    records,
+  };
+}
+
+export const getCustomerReadModel = asyncHandler(async (req, res) => {
+  const { shopId } = req.validated.query;
+  const records = await getShopCustomerReadModel(req.user, shopId);
+  res.json({ success: true, data: repairEnvelope(shopId, records) });
+});
+
+export const getItemCatalogReadModel = asyncHandler(async (req, res) => {
+  const { shopId } = req.validated.query;
+  const records = await getShopItemCatalogReadModel(req.user, shopId);
+  res.json({ success: true, data: repairEnvelope(shopId, records) });
+});
+
+export const getCategoryReadModel = asyncHandler(async (req, res) => {
+  const { shopId } = req.validated.query;
+  const records = await getShopCategoryReadModel(req.user, shopId);
+  res.json({ success: true, data: repairEnvelope(shopId, records) });
 });

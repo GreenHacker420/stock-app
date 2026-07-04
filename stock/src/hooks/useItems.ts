@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, useInfiniteQuery, type QueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "../auth/auth-store";
 import { useShopStore } from "../auth/shop-store";
 import { queryKeys } from "./query-keys";
@@ -27,6 +27,34 @@ import {
 import { newIdempotencyKey } from "../utils/idempotency";
 import { requireActiveShopId } from "./useActiveShop";
 import { useCategoryReadModel, useReadModelRefresh } from "../local/read-model/read-model-selectors";
+import { refreshReadModelDomains } from "../local/read-model/read-model-coordinator";
+import type { ReadModelDomain } from "../local/read-model/read-model-types";
+
+function refreshCatalogReadModelAfterMutation({
+  userId,
+  shopId,
+  token,
+  queryClient,
+  domains,
+}: {
+  userId?: string;
+  shopId?: string | null;
+  token?: string | null;
+  queryClient: QueryClient;
+  domains: ReadModelDomain[];
+}) {
+  if (!userId || !shopId || !token) return;
+  void refreshReadModelDomains({
+    userId,
+    shopId,
+    token,
+    queryClient,
+    reason: "reconciliation",
+    writeCursor: false,
+  }, domains).catch((error) => {
+    if (__DEV__) console.warn("[read-model] catalog mutation refresh failed", error);
+  });
+}
 
 export function useItemSummaryQuery() {
   const token = useAuthStore((state) => state.token);
@@ -100,6 +128,7 @@ export function useStockMovementsQuery(itemId?: string, movementType?: string) {
 
 export function useCreateItemMutation() {
   const token = useAuthStore((state) => state.token);
+  const userId = useAuthStore((state) => state.user?.id);
   const activeShopId = useShopStore((state) => state.activeShopId);
   const queryClient = useQueryClient();
   return useMutation({
@@ -111,6 +140,7 @@ export function useCreateItemMutation() {
         queryClient.invalidateQueries({ queryKey: ["item-summary", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["current-stock", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["stock-movements", activeShopId] });
+        refreshCatalogReadModelAfterMutation({ userId, shopId: activeShopId, token, queryClient, domains: ["items"] });
       }
     },
   });
@@ -118,6 +148,7 @@ export function useCreateItemMutation() {
 
 export function useUpdateItemMutation() {
   const token = useAuthStore((state) => state.token);
+  const userId = useAuthStore((state) => state.user?.id);
   const activeShopId = useShopStore((state) => state.activeShopId);
   const queryClient = useQueryClient();
   return useMutation({
@@ -132,6 +163,7 @@ export function useUpdateItemMutation() {
         queryClient.invalidateQueries({ queryKey: ["item-summary", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["current-stock", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["stock-movements", activeShopId] });
+        refreshCatalogReadModelAfterMutation({ userId, shopId: activeShopId, token, queryClient, domains: ["items"] });
       }
     },
   });
@@ -244,6 +276,7 @@ export function useCategoriesQuery() {
 
 export function useCreateCategoryMutation() {
   const token = useAuthStore((state) => state.token);
+  const userId = useAuthStore((state) => state.user?.id);
   const activeShopId = useShopStore((state) => state.activeShopId);
   const queryClient = useQueryClient();
   return useMutation({
@@ -251,6 +284,7 @@ export function useCreateCategoryMutation() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.categories(activeShopId ?? "") });
       queryClient.invalidateQueries({ queryKey: ["items"] });
+      refreshCatalogReadModelAfterMutation({ userId, shopId: activeShopId, token, queryClient, domains: ["items", "categories"] });
     },
   });
 }
@@ -258,6 +292,7 @@ export function useCreateCategoryMutation() {
 export function useUpdateCategoryMutation() {
   const activeShopId = useShopStore((state) => state.activeShopId);
   const token = useAuthStore((state) => state.token);
+  const userId = useAuthStore((state) => state.user?.id);
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ id, name }: { id: string; name: string }) => updateCategory(token ?? "", id, name),
@@ -265,6 +300,7 @@ export function useUpdateCategoryMutation() {
       queryClient.invalidateQueries({ queryKey: queryKeys.categories(activeShopId ?? "") });
       // Also refresh items in case category names are shown inline
       queryClient.invalidateQueries({ queryKey: ["items"] });
+      refreshCatalogReadModelAfterMutation({ userId, shopId: activeShopId, token, queryClient, domains: ["items", "categories"] });
     },
   });
 }
@@ -272,12 +308,14 @@ export function useUpdateCategoryMutation() {
 export function useDeleteCategoryMutation() {
   const activeShopId = useShopStore((state) => state.activeShopId);
   const token = useAuthStore((state) => state.token);
+  const userId = useAuthStore((state) => state.user?.id);
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => deleteCategory(token ?? "", id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.categories(activeShopId ?? "") });
       queryClient.invalidateQueries({ queryKey: ["items"] });
+      refreshCatalogReadModelAfterMutation({ userId, shopId: activeShopId, token, queryClient, domains: ["items", "categories"] });
     },
   });
 }

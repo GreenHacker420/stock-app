@@ -45,6 +45,35 @@ function projectItem(item) {
   const { category, ...rest } = item;
   return { ...rest, categoryName: category?.name ?? null };
 }
+
+export async function getShopCustomerReadModel(user, shopId) {
+  await assertShopAccess(user, shopId);
+  return prisma.customer.findMany({
+    where: { shopId, status: "ACTIVE" },
+    select: CUSTOMER_SELECT,
+    orderBy: [{ name: "asc" }, { id: "asc" }],
+  });
+}
+
+export async function getShopItemCatalogReadModel(user, shopId) {
+  await assertShopAccess(user, shopId);
+  const items = await prisma.item.findMany({
+    where: { shopId, status: "ACTIVE" },
+    select: ITEM_SELECT,
+    orderBy: [{ name: "asc" }, { id: "asc" }],
+  });
+  return items.map(projectItem);
+}
+
+export async function getShopCategoryReadModel(user, shopId) {
+  await assertShopAccess(user, shopId);
+  return prisma.itemCategory.findMany({
+    where: { shopId, status: "ACTIVE" },
+    select: CATEGORY_SELECT,
+    orderBy: [{ name: "asc" }, { id: "asc" }],
+  });
+}
+
 export async function getShopReadModelBootstrap(user, shopId) {
   await assertShopAccess(user, shopId);
 

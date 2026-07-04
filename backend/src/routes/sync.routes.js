@@ -42,4 +42,28 @@ router.get(
   syncController.getReadModelBootstrap,
 );
 
+router.get(
+  "/read-models/customers",
+  requirePermission(PERMISSIONS.SHOP_VIEW),
+  validate(readModelBootstrapQuerySchema),
+  requireShopAccess((req) => req.validated.query.shopId),
+  syncController.getCustomerReadModel,
+);
+
+router.get(
+  "/read-models/items",
+  requirePermission(PERMISSIONS.SHOP_VIEW),
+  validate(readModelBootstrapQuerySchema),
+  requireShopAccess((req) => req.validated.query.shopId),
+  syncController.getItemCatalogReadModel,
+);
+
+router.get(
+  "/read-models/categories",
+  requirePermission(PERMISSIONS.SHOP_VIEW),
+  validate(readModelBootstrapQuerySchema),
+  requireShopAccess((req) => req.validated.query.shopId),
+  syncController.getCategoryReadModel,
+);
+
 export default router;

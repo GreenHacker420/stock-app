@@ -1,5 +1,11 @@
 import type { DomainCacheStorage } from "../../auth/domain-cache-core";
-import type { LocalReadModelEnvelope, MobileReadModelBootstrap } from "./read-model-types";
+import type {
+  LocalReadModelEnvelope,
+  MobileReadModelBootstrap,
+  MobileReadModelDomainRepair,
+  ReadModelDomain,
+  ReadModelDomainRecords,
+} from "./read-model-types";
 
 export const EVENT_SEQUENCE_MIGRATION_MARKER = "storage-migration:event-sequence:v1";
 export const NUMERIC_CURSOR_PATTERN = /^\d+$/;
@@ -48,13 +54,14 @@ export function validateLocalReadModelEnvelope(
 export function toLocalReadModelEnvelope(
   bootstrap: MobileReadModelBootstrap,
   writtenAt = new Date().toISOString(),
+  baseCursor = bootstrap.baseCursor,
 ): LocalReadModelEnvelope {
   return {
     schemaVersion: 1,
     shopId: bootstrap.shopId,
     serverGeneratedAt: bootstrap.generatedAt,
     writtenAt,
-    baseCursor: bootstrap.baseCursor,
+    baseCursor,
     complete: true,
     customers: bootstrap.customers,
     items: bootstrap.items,
@@ -70,6 +77,17 @@ export function validateBootstrapResponse(value: unknown, shopId: string): value
   if (typeof value.generatedAt !== "string") return false;
   if (value.baseCursor !== null && !isNumericSequenceCursor(value.baseCursor as string | null)) return false;
   return Array.isArray(value.customers) && Array.isArray(value.items) && Array.isArray(value.categories);
+}
+
+export function validateDomainRepairResponse<T extends ReadModelDomain>(
+  value: unknown,
+  shopId: string,
+): value is MobileReadModelDomainRepair<T> {
+  if (!isObject(value)) return false;
+  if (value.schemaVersion !== 1) return false;
+  if (value.shopId !== shopId) return false;
+  if (value.complete !== true) return false;
+  return Array.isArray(value.records);
 }
 
 export function readLocalReadModelEnvelope(storage: DomainCacheStorage, shopId: string) {
@@ -88,9 +106,32 @@ export function readLocalReadModelEnvelope(storage: DomainCacheStorage, shopId: 
   return null;
 }
 
-export function writeLocalReadModelEnvelope(storage: DomainCacheStorage, bootstrap: MobileReadModelBootstrap) {
-  const envelope = toLocalReadModelEnvelope(bootstrap);
+export function writeLocalReadModelEnvelope(
+  storage: DomainCacheStorage,
+  bootstrap: MobileReadModelBootstrap,
+  options: { baseCursor?: string | null } = {},
+) {
+  const envelope = toLocalReadModelEnvelope(bootstrap, new Date().toISOString(), options.baseCursor ?? bootstrap.baseCursor);
   storage.set(readModelBootstrapKey(bootstrap.shopId), JSON.stringify(envelope));
+  return envelope;
+}
+
+export function writeLocalReadModelDomains(
+  storage: DomainCacheStorage,
+  shopId: string,
+  updates: Partial<ReadModelDomainRecords>,
+) {
+  const current = readLocalReadModelEnvelope(storage, shopId);
+  if (!current) return null;
+
+  const envelope: LocalReadModelEnvelope = {
+    ...current,
+    writtenAt: new Date().toISOString(),
+    customers: updates.customers ?? current.customers,
+    items: updates.items ?? current.items,
+    categories: updates.categories ?? current.categories,
+  };
+  storage.set(readModelBootstrapKey(shopId), JSON.stringify(envelope));
   return envelope;
 }
 

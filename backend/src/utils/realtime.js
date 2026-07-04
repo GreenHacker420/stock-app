@@ -8,6 +8,7 @@ import {
   updateDevicePresence,
 } from "../services/device-presence.service.js";
 import { parseEventSequenceCursor } from "../lib/validate.js";
+import { getContiguousPublishedDomainEvents } from "../services/domain-event-reconciliation.service.js";
 
 const MAX_SYNC_EVENTS = 100;
 
@@ -97,16 +98,10 @@ export async function getRealtimeSyncPayload(user, { shopId, since, limit = MAX_
 
   const take = Math.min(Number(limit) || MAX_SYNC_EVENTS, MAX_SYNC_EVENTS);
   const sinceSequence = since !== undefined ? parseEventSequenceCursor(String(since)) : undefined;
-  const where = {
+  const outbox = await getContiguousPublishedDomainEvents({
     shopId,
-    status: "published",
-    ...(sinceSequence !== undefined ? { sequence: { gt: sinceSequence } } : {}),
-  };
-  const outbox = await prisma.domainEventOutbox.findMany({
-    where,
-    orderBy: { sequence: "asc" },
-    take,
-    select: { sequence: true, eventJson: true },
+    afterSequence: sinceSequence,
+    limit: take,
   });
 
   return {

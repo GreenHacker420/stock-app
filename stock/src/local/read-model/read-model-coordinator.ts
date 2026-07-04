@@ -3,18 +3,20 @@ import { ApiError } from "../../api/client";
 import { getDomainReadCache, initializeDomainReadCache } from "../../auth/domain-cache";
 import { queryKeys } from "../../hooks/query-keys";
 import type { DomainEvent } from "../../realtime/domainEvents";
-import { fetchReadModelBootstrap } from "./read-model-api";
+import { fetchReadModelBootstrap, fetchReadModelDomain } from "./read-model-api";
 import {
   getStoredSequenceCursor,
   readLocalReadModelEnvelope,
   removeLocalReadModelEnvelope,
   removeStoredSequenceCursor,
   setStoredSequenceCursor,
+  validateDomainRepairResponse,
   validateBootstrapResponse,
+  writeLocalReadModelDomains,
   writeLocalReadModelEnvelope,
 } from "./read-model-cache-core";
 import { doesEventAffectReadModels } from "./read-model-event-policy";
-import type { LocalReadModelEnvelope } from "./read-model-types";
+import type { LocalReadModelEnvelope, ReadModelDomain, ReadModelDomainRecords } from "./read-model-types";
 
 type Context = {
   userId: string;
@@ -25,6 +27,7 @@ type RefreshOptions = Context & {
   token: string;
   queryClient: QueryClient;
   reason: "bootstrap" | "reconciliation" | "realtime";
+  writeCursor?: boolean;
 };
 
 const activeTokens = new Map<string, number>();
@@ -106,6 +109,40 @@ export async function refreshReadModelBootstrap(options: RefreshOptions): Promis
   return promise;
 }
 
+export async function refreshReadModelDomains(
+  options: RefreshOptions,
+  domains: ReadModelDomain[],
+): Promise<LocalReadModelEnvelope | null> {
+  const uniqueDomains = [...new Set(domains)];
+  if (uniqueDomains.length === 0) return readLocalReadModelEnvelope(await ensureStorage(options.userId), options.shopId);
+
+  const context = { userId: options.userId, shopId: options.shopId };
+  const token = getActiveToken(context);
+  const storage = await ensureStorage(options.userId);
+  if (!isStillActive(context, token)) return null;
+
+  const current = readLocalReadModelEnvelope(storage, options.shopId);
+  if (!current) {
+    return refreshReadModelBootstrap({ ...options, writeCursor: false });
+  }
+
+  const updates: Partial<ReadModelDomainRecords> = {};
+  for (const domain of uniqueDomains) {
+    const response = await fetchReadModelDomain(options.token, options.shopId, domain);
+    if (!validateDomainRepairResponse<typeof domain>(response, options.shopId)) {
+      throw new Error(`Invalid ${domain} read-model repair response`);
+    }
+    updates[domain] = response.records as never;
+  }
+  if (!isStillActive(context, token)) return null;
+
+  const envelope = writeLocalReadModelDomains(storage, options.shopId, updates);
+  if (envelope) {
+    options.queryClient.setQueryData(queryKeys.readModels.bootstrap(options.shopId), envelope);
+  }
+  return envelope;
+}
+
 async function runRefresh(options: RefreshOptions) {
   const context = { userId: options.userId, shopId: options.shopId };
   const token = getActiveToken(context);
@@ -119,9 +156,14 @@ async function runRefresh(options: RefreshOptions) {
     }
     if (!isStillActive(context, token)) return null;
 
-    const envelope = writeLocalReadModelEnvelope(storage, bootstrap);
+    const previous = options.writeCursor === false ? readLocalReadModelEnvelope(storage, options.shopId) : null;
+    const envelope = writeLocalReadModelEnvelope(storage, bootstrap, {
+      baseCursor: options.writeCursor === false ? previous?.baseCursor ?? null : bootstrap.baseCursor,
+    });
     options.queryClient.setQueryData(queryKeys.readModels.bootstrap(options.shopId), envelope);
-    setStoredSequenceCursor(storage, options.userId, options.shopId, bootstrap.baseCursor);
+    if (options.writeCursor !== false) {
+      setStoredSequenceCursor(storage, options.userId, options.shopId, bootstrap.baseCursor);
+    }
     return envelope;
   } catch (error) {
     if (error instanceof ApiError && error.status === 403) {

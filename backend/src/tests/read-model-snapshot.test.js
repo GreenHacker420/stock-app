@@ -1,7 +1,12 @@
 import test from "node:test";
 import assert from "node:assert";
 import prisma from "../lib/db.js";
-import { getShopReadModelBootstrap } from "../services/read-model-snapshot.service.js";
+import {
+  getShopCategoryReadModel,
+  getShopCustomerReadModel,
+  getShopItemCatalogReadModel,
+  getShopReadModelBootstrap,
+} from "../services/read-model-snapshot.service.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { syncDomainEvents } from "../controllers/sync.controller.js";
 import { dispatchPendingDomainEvents, closeRedis } from "../workers/domain-event-dispatcher.worker.js";
@@ -318,5 +323,37 @@ test.describe("DATA-01A read-model bootstrap snapshot", () => {
     const result = await callSync(req);
     const found = result.data.events.find((e) => e.entity === "customer" && e.entityId === customer.id);
     assert.ok(found, "Event committed after the bootstrap baseCursor must be discoverable via /sync/domain-events");
+  });
+
+  test("13. Domain repair read models reuse bootstrap projections without stock authority", async () => {
+    const customer = await customerService.createCustomer(owner, { shopId: shop.id, name: "Repair Customer", type: "REGULAR" });
+    const cat = await itemService.createCategory(owner, { shopId: shop.id, name: "Repair Cat" });
+    const item = await itemService.createItem(owner, {
+      shopId: shop.id,
+      name: "Repair Item",
+      unit: "pcs",
+      sku: "REP1",
+      defaultSellingPrice: 100,
+      minimumAllowedPrice: 90,
+      purchasePrice: 60,
+      mrp: 120,
+      categoryId: cat.id,
+      initialStock: 25,
+    });
+
+    const customers = await getShopCustomerReadModel(owner, shop.id);
+    const items = await getShopItemCatalogReadModel(owner, shop.id);
+    const categories = await getShopCategoryReadModel(owner, shop.id);
+
+    assert.ok(customers.some((row) => row.id === customer.id));
+    assert.ok(categories.some((row) => row.id === cat.id));
+
+    const repairedItem = items.find((row) => row.id === item.id);
+    assert.ok(repairedItem);
+    assert.strictEqual(repairedItem.categoryName, "Repair Cat");
+    assert.strictEqual(repairedItem.purchasePrice, undefined);
+    assert.strictEqual(repairedItem.availableStock, undefined);
+    assert.strictEqual(repairedItem.physicalStock, undefined);
+    assert.strictEqual(repairedItem.reservedStock, undefined);
   });
 });

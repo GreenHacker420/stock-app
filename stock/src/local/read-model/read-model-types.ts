@@ -45,6 +45,22 @@ export type MobileReadModelBootstrap = {
   items: ItemCatalogReadModel[];
   categories: CategoryReadModel[];
 };
+
+export type ReadModelDomain = "customers" | "items" | "categories";
+
+export type ReadModelDomainRecords = {
+  customers: CustomerReadModel[];
+  items: ItemCatalogReadModel[];
+  categories: CategoryReadModel[];
+};
+
+export type MobileReadModelDomainRepair<T extends ReadModelDomain = ReadModelDomain> = {
+  schemaVersion: 1;
+  shopId: string;
+  complete: true;
+  records: ReadModelDomainRecords[T];
+};
+
 export type LocalReadModelEnvelope = {
   schemaVersion: 1;
   shopId: string;
