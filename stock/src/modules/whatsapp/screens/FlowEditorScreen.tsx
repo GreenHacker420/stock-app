@@ -27,6 +27,7 @@ import {
 } from "../../../api/whatsapp.api";
 import { useAuthStore } from "../../../auth/auth-store";
 import { useShopStore } from "../../../auth/shop-store";
+import { FormTextField } from "../../../components/forms/FormTextField";
 import { waColors } from "../whatsapp-ui";
 
 const STARTER_FLOW = {
@@ -210,8 +211,8 @@ export function FlowEditorScreen() {
       )}
 
       <Section title="Flow">
-        <TextInput mode="outlined" label="Name" disabled={!editable} value={name} onChangeText={setName} />
-        <TextInput mode="outlined" label="Description" disabled={!editable} value={description} onChangeText={setDescription} />
+        <FormTextField label="Name" disabled={!editable} value={name} onChangeText={setName} />
+        <FormTextField label="Description" disabled={!editable} value={description} onChangeText={setDescription} />
         <Text style={styles.label}>Category</Text>
         <SegmentedButtons
           value={category}
@@ -251,7 +252,7 @@ export function FlowEditorScreen() {
         </View>
         {endpointEnabled && (
           <>
-            <TextInput mode="outlined" label="Handler key" disabled={!editable} value={handlerKey} onChangeText={setHandlerKey} />
+            <FormTextField label="Handler key" disabled={!editable} value={handlerKey} onChangeText={setHandlerKey} />
             {!!flow?.endpointUrl && <Text selectable style={styles.endpoint}>{flow.endpointUrl}</Text>}
             {!!flowId && <Button mode="outlined" icon="key" loading={keyMutation.isPending} onPress={() => keyMutation.mutate()}>Register public key</Button>}
           </>

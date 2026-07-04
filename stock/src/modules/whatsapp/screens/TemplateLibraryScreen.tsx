@@ -16,6 +16,8 @@ import {
 } from "../../../api/whatsapp.api";
 import { useAuthStore } from "../../../auth/auth-store";
 import { useShopStore } from "../../../auth/shop-store";
+import { EmptyState } from "../../../components/ui/EmptyState";
+import { ErrorState } from "../../../components/feedback/ErrorState";
 import { waColors, waScreen } from "../whatsapp-ui";
 
 const STATUS_TABS = ["ALL", "APPROVED", "PENDING", "REJECTED", "PAUSED"] as const;
@@ -143,13 +145,7 @@ export function TemplateLibraryScreen() {
       {query.isLoading || (syncMutation.isPending && query.data?.meta.total === 0) ? (
         <ActivityIndicator style={styles.loader} color={waColors.green} />
       ) : query.isError ? (
-        <View style={styles.empty}>
-          <Text variant="titleMedium">Templates unavailable</Text>
-          <Text style={styles.emptyText}>{query.error.message}</Text>
-          <Button mode="outlined" icon="refresh" onPress={() => query.refetch()}>
-            Try again
-          </Button>
-        </View>
+        <ErrorState title="Templates unavailable" message={query.error.message} onRetry={() => query.refetch()} />
       ) : (
         <FlashList
           data={query.data?.data || []}
@@ -157,19 +153,22 @@ export function TemplateLibraryScreen() {
           refreshControl={<RefreshControl refreshing={query.isRefetching} onRefresh={query.refetch} />}
           contentContainerStyle={styles.list}
           ListEmptyComponent={
-            <View style={styles.empty}>
-              <Text variant="titleMedium">No templates</Text>
-              <Text style={styles.emptyText}>No templates are stored for this shop yet.</Text>
-              <Button
-                mode="contained"
-                icon="sync"
-                loading={syncMutation.isPending}
-                disabled={syncMutation.isPending}
-                onPress={() => syncMutation.mutate()}
-              >
-                Fetch from Meta
-              </Button>
-            </View>
+            <EmptyState
+              icon="card-text-outline"
+              title="No templates"
+              subtitle="No templates are stored for this shop yet."
+              action={
+                <Button
+                  mode="contained"
+                  icon="sync"
+                  loading={syncMutation.isPending}
+                  disabled={syncMutation.isPending}
+                  onPress={() => syncMutation.mutate()}
+                >
+                  Fetch from Meta
+                </Button>
+              }
+            />
           }
           renderItem={({ item }) => (
             <Pressable
@@ -301,8 +300,6 @@ const styles = StyleSheet.create({
   statusText: { color: waColors.text, fontSize: 9, fontWeight: "700" },
   mapping: { color: waColors.green, fontSize: 11, paddingTop: 4 },
   mappingWarning: { color: "#B7791F" },
-  empty: { padding: 50, alignItems: "center", gap: 6 },
-  emptyText: { color: waColors.textSecondary, textAlign: "center" },
   fab: { position: "absolute", right: 18, backgroundColor: waColors.green },
   attributeDialog: { maxHeight: "78%", backgroundColor: waColors.surface },
   attributeContent: { height: 430 },

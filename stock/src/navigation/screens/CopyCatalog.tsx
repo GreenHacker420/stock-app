@@ -1,14 +1,15 @@
 import { useState } from "react";
-import { View, StyleSheet, ScrollView, Alert } from "react-native";
-import { Text, Divider, Switch, Portal, Dialog, RadioButton, ActivityIndicator } from "react-native-paper";
-import { Screen } from "../../components/Screen";
-import { AppHeader } from "../../components/ui/AppHeader";
-import { Section } from "../../components/ui/Section";
+import { View, StyleSheet, Alert } from "react-native";
+import { Text, Divider, Switch, Portal, Dialog, Icon } from "react-native-paper";
+import { ScrollScreen } from "../../components/layout/ScrollScreen";
+import { ScreenSection } from "../../components/layout/ScreenSection";
+import { StickyFooterActions } from "../../components/layout/StickyFooterActions";
+import { LoadingState } from "../../components/feedback/LoadingState";
 import { Button } from "../../components/ui/Button";
+import { ShopCard } from "../../components/domain/shops/ShopCard";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { useShopsQuery, useCopyCatalogMutation } from "../../hooks/useShops";
 import { goBack } from "../navigation-ref";
-import { Icon } from "react-native-paper";
 import { Shop } from "../../api/client";
 
 export function CopyCatalog() {
@@ -78,17 +79,28 @@ export function CopyCatalog() {
   };
 
   return (
-    <Screen edges={["top", "left", "right"]}>
-      <AppHeader title="Import/Export Catalog" subtitle="Copy products between your shops." showBack={true} />
-
-      {loadingShops ? (
-        <View style={styles.loader}>
-          <ActivityIndicator size="large" color={colors.primary} />
-        </View>
-      ) : (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
-          <Section title="Source & Target Selection">
-            <View style={styles.card}>
+    <>
+      <ScrollScreen
+        title="Import/Export Catalog"
+        subtitle="Copy products between your shops."
+        showBack
+        footer={
+          !loadingShops ? (
+            <StickyFooterActions
+              primary={{
+                label: "Start Catalog Transfer",
+                onPress: handleCopy,
+                loading: copyMutation.isPending,
+              }}
+            />
+          ) : undefined
+        }
+      >
+        {loadingShops ? (
+          <LoadingState label="Loading shops..." />
+        ) : (
+          <>
+            <ScreenSection title="Source & Target Selection" contentStyle={styles.card}>
               {/* Source Shop Selector */}
               <View style={styles.selectorRow}>
                 <View style={styles.selectorIconBg}>
@@ -128,11 +140,9 @@ export function CopyCatalog() {
                   style={styles.selectBtn}
                 />
               </View>
-            </View>
-          </Section>
+            </ScreenSection>
 
-          <Section title="Copy Options">
-            <View style={styles.card}>
+            <ScreenSection title="Copy Options" contentStyle={styles.card}>
               <View style={styles.switchRow}>
                 <View style={styles.switchContent}>
                   <Text style={styles.switchTitle}>Auto-Split Color Variants</Text>
@@ -162,65 +172,48 @@ export function CopyCatalog() {
                   color={colors.primary}
                 />
               </View>
-            </View>
-          </Section>
-
-          <View style={styles.footer}>
-            <Button
-              label="Start Catalog Transfer"
-              onPress={handleCopy}
-              loading={copyMutation.isPending}
-              style={styles.transferBtn}
-            />
-          </View>
-        </ScrollView>
-      )}
+            </ScreenSection>
+          </>
+        )}
+      </ScrollScreen>
 
       {/* Dialogs */}
       <Portal>
         <Dialog visible={sourceDialogVisible} onDismiss={() => setSourceDialogVisible(false)} style={styles.dialog}>
           <Dialog.Title>Select Source Shop</Dialog.Title>
-          <Dialog.Content>
-            <RadioButton.Group onValueChange={(val) => { setSourceShopId(val); setSourceDialogVisible(false); }} value={sourceShopId}>
-              {(shops || []).map((shop: Shop) => (
-                <View key={shop.id} style={styles.radioRow}>
-                  <RadioButton value={shop.id} color={colors.primary} />
-                  <Text style={styles.radioLabel}>{shop.name} ({shop.code})</Text>
-                </View>
-              ))}
-            </RadioButton.Group>
+          <Dialog.Content style={styles.dialogContent}>
+            {(shops || []).map((shop: Shop) => (
+              <ShopCard
+                key={shop.id}
+                name={shop.name}
+                subtitle={shop.code}
+                selected={shop.id === sourceShopId}
+                onPress={() => { setSourceShopId(shop.id); setSourceDialogVisible(false); }}
+              />
+            ))}
           </Dialog.Content>
         </Dialog>
 
         <Dialog visible={targetDialogVisible} onDismiss={() => setTargetDialogVisible(false)} style={styles.dialog}>
           <Dialog.Title>Select Target Shop</Dialog.Title>
-          <Dialog.Content>
-            <RadioButton.Group onValueChange={(val) => { setTargetShopId(val); setTargetDialogVisible(false); }} value={targetShopId}>
-              {(shops || []).map((shop: Shop) => (
-                <View key={shop.id} style={styles.radioRow}>
-                  <RadioButton value={shop.id} color={colors.primary} />
-                  <Text style={styles.radioLabel}>{shop.name} ({shop.code})</Text>
-                </View>
-              ))}
-            </RadioButton.Group>
+          <Dialog.Content style={styles.dialogContent}>
+            {(shops || []).map((shop: Shop) => (
+              <ShopCard
+                key={shop.id}
+                name={shop.name}
+                subtitle={shop.code}
+                selected={shop.id === targetShopId}
+                onPress={() => { setTargetShopId(shop.id); setTargetDialogVisible(false); }}
+              />
+            ))}
           </Dialog.Content>
         </Dialog>
       </Portal>
-    </Screen>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  loader: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  scrollContent: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.xs,
-    paddingBottom: spacing.huge,
-  },
   card: {
     backgroundColor: colors.surface,
     borderRadius: 20,
@@ -286,25 +279,11 @@ const styles = StyleSheet.create({
     marginTop: 4,
     lineHeight: 16,
   },
-  footer: {
-    marginTop: spacing.xl,
-  },
-  transferBtn: {
-    width: "100%",
-  },
   dialog: {
     backgroundColor: colors.surface,
     borderRadius: radius.lg,
   },
-  radioRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: spacing.md,
-  },
-  radioLabel: {
-    fontSize: fontSize.md,
-    color: colors.textPrimary,
-    marginLeft: spacing.sm,
-    fontWeight: fontWeight.medium,
+  dialogContent: {
+    gap: spacing.sm,
   },
 });

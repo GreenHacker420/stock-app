@@ -14,6 +14,7 @@ import {
 } from "../../../api/whatsapp.api";
 import { useAuthStore } from "../../../auth/auth-store";
 import { useShopStore } from "../../../auth/shop-store";
+import { EmptyState } from "../../../components/ui/EmptyState";
 import { waColors } from "../whatsapp-ui";
 
 const STATUS_TABS: Array<"ALL" | WaFlowStatus> = [
@@ -113,11 +114,11 @@ export function FlowLibraryScreen() {
           refreshControl={<RefreshControl refreshing={query.isRefetching} onRefresh={query.refetch} />}
           contentContainerStyle={styles.list}
           ListEmptyComponent={
-            <View style={styles.empty}>
-              <IconButton icon="form-select" size={52} iconColor={waColors.textMuted} />
-              <Text variant="titleMedium" style={styles.emptyTitle}>No Flows</Text>
-              <Text style={styles.emptyText}>Create a JSON draft or sync Flows already managed in Meta.</Text>
-            </View>
+            <EmptyState
+              icon="form-select"
+              title="No Flows"
+              subtitle="Create a JSON draft or sync Flows already managed in Meta."
+            />
           }
           renderItem={({ item }) => (
             <Pressable
@@ -200,8 +201,5 @@ const styles = StyleSheet.create({
   status: { fontSize: 10, fontWeight: "800" },
   revision: { color: waColors.textSecondary, fontSize: 10 },
   errorText: { color: waColors.danger, fontSize: 10, paddingTop: 4 },
-  empty: { paddingTop: 80, alignItems: "center", paddingHorizontal: 36 },
-  emptyTitle: { color: waColors.text },
-  emptyText: { color: waColors.textSecondary, textAlign: "center", paddingTop: 4 },
   fab: { position: "absolute", right: 18, bottom: 20, backgroundColor: waColors.green },
 });

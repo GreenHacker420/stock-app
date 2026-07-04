@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
-import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Alert, ActivityIndicator, TouchableOpacity, DeviceEventEmitter } from "react-native";
-import { Button, TextInput, Text, Divider, Card, HelperText, SegmentedButtons } from "react-native-paper";
+import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Alert, TouchableOpacity, DeviceEventEmitter } from "react-native";
+import { Button, Text, Divider, Card, HelperText, SegmentedButtons } from "react-native-paper";
 import * as WebBrowser from "expo-web-browser";
 import * as Clipboard from "expo-clipboard";
 import { useShopStore } from "../../../auth/shop-store";
 import { WaOnboardingSession, whatsappSetupApi } from "../../../api/whatsapp-setup.api";
 import { Screen } from "../../../components/Screen";
+import { LoadingState } from "../../../components/feedback/LoadingState";
+import { FormTextField } from "../../../components/forms/FormTextField";
 import { colors as Colors } from "../../../theme";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
@@ -264,10 +266,7 @@ export const WhatsAppSetupScreen = () => {
   if (loading) {
     return (
       <Screen>
-        <View style={styles.center}>
-          <ActivityIndicator size="large" color={Colors.primary} />
-          <Text style={{ marginTop: 10, color: Colors.textSecondary }}>Fetching Integration Status...</Text>
-        </View>
+        <LoadingState label="Fetching Integration Status..." />
       </Screen>
     );
   }
@@ -550,23 +549,20 @@ export const WhatsAppSetupScreen = () => {
                     Advanced: Manually override integration credentials and IDs.
                   </Text>
 
-                  <TextInput
-                    mode="outlined"
+                  <FormTextField
                     label="Webhook Verify Token"
                     value={verifyToken}
                     onChangeText={setVerifyToken}
                     style={styles.input}
                   />
-                  <TextInput
-                    mode="outlined"
+                  <FormTextField
                     label="App Secret"
                     value={appSecret}
                     onChangeText={setAppSecret}
                     secureTextEntry
                     style={styles.input}
                   />
-                  <TextInput
-                    mode="outlined"
+                  <FormTextField
                     label="Permanent Access Token"
                     value={accessToken}
                     onChangeText={setAccessToken}
@@ -575,30 +571,26 @@ export const WhatsAppSetupScreen = () => {
                     multiline
                     numberOfLines={3}
                   />
-                  <TextInput
-                    mode="outlined"
+                  <FormTextField
                     label="WhatsApp Business Account ID"
                     value={businessAccountId}
                     onChangeText={setBusinessAccountId}
                     style={styles.input}
                   />
-                  <TextInput
-                    mode="outlined"
+                  <FormTextField
                     label="Phone Number ID"
                     value={phoneNumberId}
                     onChangeText={setPhoneNumberId}
                     style={styles.input}
                   />
-                  <TextInput
-                    mode="outlined"
+                  <FormTextField
                     label="Phone Number (E.164)"
                     value={phoneNumber}
                     onChangeText={setPhoneNumber}
                     style={styles.input}
                     placeholder="919876543210"
                   />
-                  <TextInput
-                    mode="outlined"
+                  <FormTextField
                     label="Business Verified Name"
                     value={businessName}
                     onChangeText={setBusinessName}
@@ -625,7 +617,6 @@ export const WhatsAppSetupScreen = () => {
 
 const styles = StyleSheet.create({
   flex1: { flex: 1, backgroundColor: waColors.surface },
-  center: { flex: 1, justifyContent: "center", alignItems: "center" },
   scrollContent: { paddingBottom: 40 },
   
   // Status Banner

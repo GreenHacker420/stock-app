@@ -1,17 +1,16 @@
 import React, { useMemo, useState } from "react";
-import { 
-  ScrollView, 
-  View, 
-  StyleSheet, 
-  Pressable, 
-  ActivityIndicator,
+import {
+  ScrollView,
+  View,
+  StyleSheet,
+  Pressable,
   Linking
 } from "react-native";
-import { 
-  Text, 
-  Icon, 
-  Divider, 
-  Portal, 
+import {
+  Text,
+  Icon,
+  Divider,
+  Portal,
   Modal,
   TextInput
 } from "react-native-paper";
@@ -21,11 +20,11 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useOrderQuery, useUpdateOrderStatusMutation, useCancelOrderMutation } from "../../hooks/useOrders";
 import { useAddDeliveryMemoMutation } from "../../hooks/useShops";
 import { useStaffQuery } from "../../hooks/useShops";
-import { Screen } from "../../components/Screen";
-import { AppHeader } from "../../components/ui/AppHeader";
+import { DetailScreen } from "../../components/layout/DetailScreen";
+import { ScreenSection } from "../../components/layout/ScreenSection";
+import { LoadingState } from "../../components/feedback/LoadingState";
 import { StatusPill } from "../../components/ui/StatusPill";
 import { Button } from "../../components/ui/Button";
-import { Section } from "../../components/ui/Section";
 import { SuccessModal } from "../../components/ui/SuccessModal";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { useAuthStore } from "../../auth/auth-store";
@@ -53,7 +52,7 @@ export function OrderDetail() {
   const [shortageModalVisible, setShortageModalVisible] = useState(false);
   const [disburseModalVisible, setDisburseModalVisible] = useState(false);
   const [successVisible, setSuccessVisible] = useState(false);
-  
+
   const [selectedShortageItem, setSelectedShortageItem] = useState<any>(null);
   const [shortageQty, setShortageQty] = useState("");
   const [disburseMode, setDisburseMode] = useState<"DM" | "SALE">("DM");
@@ -97,9 +96,9 @@ export function OrderDetail() {
 
   const handleReportShortage = () => {
     if (!selectedShortageItem || !shortageQty) return;
-    updateStatusMutation.mutate({ 
-      orderId, 
-      shortage: { itemId: selectedShortageItem.itemId, quantity: Number(shortageQty) } 
+    updateStatusMutation.mutate({
+      orderId,
+      shortage: { itemId: selectedShortageItem.itemId, quantity: Number(shortageQty) }
     }, {
       onSuccess: () => {
         setShortageModalVisible(false);
@@ -137,12 +136,7 @@ export function OrderDetail() {
   };
 
   if (orderQuery.isLoading) {
-    return (
-      <View style={styles.centerWrapper}>
-        <ActivityIndicator color={colors.primary} size="large" />
-        <Text style={styles.loadingText}>Fetching order details...</Text>
-      </View>
-    );
+    return <LoadingState label="Fetching order details..." />;
   }
 
   if (!order) {
@@ -156,10 +150,8 @@ export function OrderDetail() {
   }
 
   return (
-    <Screen edges={['top', 'left', 'right']}>
-      <AppHeader title={`Order #${order.orderNumber}`} subtitle="Fulfillment & Operations" showBack />
-
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+    <>
+      <DetailScreen title={`Order #${order.orderNumber}`} subtitle="Fulfillment & Operations" showBack>
         {/* Main Status Header Card */}
         <View style={styles.orderCard}>
           <View style={styles.cardHeader}>
@@ -168,9 +160,9 @@ export function OrderDetail() {
               <Text style={styles.dateText}>Booked: {new Date(order.createdAt).toLocaleDateString()}</Text>
             </View>
             <View style={styles.headerStatusCol}>
-              <StatusPill 
-                label={order.status} 
-                tone={order.status === 'PACKED' ? 'green' : order.status === 'CANCELLED' ? 'red' : 'blue'} 
+              <StatusPill
+                label={order.status}
+                tone={order.status === 'PACKED' ? 'green' : order.status === 'CANCELLED' ? 'red' : 'blue'}
               />
               <View style={[styles.priorityBadge, { backgroundColor: colors.surfaceOffset, marginTop: 8 }]}>
                 <Text style={styles.priorityText}>{order.priority}</Text>
@@ -191,7 +183,7 @@ export function OrderDetail() {
             </View>
             <View style={styles.metricCol}>
               <Text style={styles.metricLabel}>ASSIGNED TO</Text>
-              <Pressable 
+              <Pressable
                 onPress={() => isOwner && setAssignModalVisible(true)}
                 style={styles.staffRow}
                 disabled={!isOwner}
@@ -206,77 +198,74 @@ export function OrderDetail() {
         </View>
 
         {/* Operational Actions */}
-        <Section title="Operations">
+        <ScreenSection title="Operations">
           <View style={styles.actionGrid}>
             {order.status === 'CONFIRMED' && (
-              <Button 
-                label="Start Packing" 
-                variant="primary" 
+              <Button
+                label="Start Packing"
+                variant="primary"
                 style={styles.actionBtn}
                 onPress={() => handleUpdateStatus("PACKING")}
               />
             )}
             {order.status === 'PACKING' && (
-              <Button 
-                label="Finish Packing" 
-                variant="success" 
+              <Button
+                label="Finish Packing"
+                variant="success"
                 style={styles.actionBtn}
                 onPress={() => handleUpdateStatus("PACKED")}
               />
             )}
             {order.status === 'PACKED' && (
-              <Button 
-                label="Disburse Goods" 
-                variant="primary" 
+              <Button
+                label="Disburse Goods"
+                variant="primary"
                 style={styles.actionBtn}
                 onPress={() => setDisburseModalVisible(true)}
               />
             )}
             {isOwner && order.status !== 'CANCELLED' && order.status !== 'DISPATCHED' && (
-              <Button 
-                label="Cancel Order" 
-                variant="danger" 
+              <Button
+                label="Cancel Order"
+                variant="danger"
                 style={styles.actionBtn}
                 onPress={handleCancelOrder}
                 loading={cancelOrderMutation.isPending}
               />
             )}
-            <Button 
-              label="Contact" 
-              variant="secondary" 
+            <Button
+              label="Contact"
+              variant="secondary"
               style={styles.actionBtn}
               onPress={() => order.customer?.phone && Linking.openURL(`tel:${order.customer.phone}`)}
               icon={<Icon source="phone" size={16} color={colors.primary} />}
             />
           </View>
-        </Section>
+        </ScreenSection>
 
         {/* Ready To Disburse Banner */}
         {order.status === 'PACKED' && (
           <View style={styles.readyCard}>
-            <Section title="">
-              <View style={styles.readyContent}>
-                <Icon source="package-variant" size={28} color={colors.success} />
-                <View style={styles.flex1}>
-                  <Text style={styles.readyTitle}>Order is Packed</Text>
-                  <Text style={styles.readySubtitle}>Ready for DM generation or conversion to sale.</Text>
-                </View>
+            <View style={styles.readyContent}>
+              <Icon source="package-variant" size={28} color={colors.success} />
+              <View style={styles.flex1}>
+                <Text style={styles.readyTitle}>Order is Packed</Text>
+                <Text style={styles.readySubtitle}>Ready for DM generation or conversion to sale.</Text>
               </View>
-            </Section>
+            </View>
           </View>
         )}
 
         {/* Items List */}
-        <Section title="Order Items">
-          <View style={styles.itemsCard}>
-            {order.items.map((item, idx) => {
+        <ScreenSection title="Order Items" card>
+          {order.items.map((item, idx) => {
               const shortageQtyNum = Number(item.quantityShortage || 0);
               const isShort = shortageQtyNum > 0;
               const isPacked = item.quantityPacked === item.quantityOrdered;
 
               return (
                 <View key={item.id}>
-                  <Pressable 
+                  <Pressable
                     onPress={() => {
                       if (order.status === 'PACKING') {
                         setSelectedShortageItem(item);
@@ -286,10 +275,10 @@ export function OrderDetail() {
                     }}
                     style={({ pressed }) => [styles.itemRow, pressed && order.status === 'PACKING' && styles.pressed]}
                   >
-                    <Icon 
-                      source={isPacked ? "check-circle" : isShort ? "alert-circle" : "circle-outline"} 
-                      size={20} 
-                      color={isPacked ? colors.success : isShort ? colors.danger : colors.textMuted} 
+                    <Icon
+                      source={isPacked ? "check-circle" : isShort ? "alert-circle" : "circle-outline"}
+                      size={20}
+                      color={isPacked ? colors.success : isShort ? colors.danger : colors.textMuted}
                     />
                     <View style={styles.itemInfo}>
                       <Text style={[styles.itemName, isPacked && styles.packedText]}>{item.item.name}</Text>
@@ -308,45 +297,40 @@ export function OrderDetail() {
                 </View>
               );
             })}
-          </View>
-        </Section>
+        </ScreenSection>
 
         {/* Notes & Customer Detail */}
-        <Section title="Notes">
-          <View style={styles.customerCard}>
-            <Text style={styles.contactText}>{order.ownerNotes || "No notes from owner provided."}</Text>
-          </View>
-        </Section>
+        <ScreenSection title="Notes" card>
+          <Text style={styles.contactText}>{order.ownerNotes || "No notes from owner provided."}</Text>
+        </ScreenSection>
 
-        <Section title="Customer info">
-           <View style={styles.customerCard}>
-              <View style={styles.contactRow}>
-                <Icon source="account-outline" size={20} color={colors.textSecondary} />
-                <Text style={styles.contactText}>{order.customer?.name}</Text>
-              </View>
-              <View style={styles.contactRow}>
-                <Icon source="phone-outline" size={20} color={colors.textSecondary} />
-                <Text style={styles.contactText}>{order.customer?.phone || "No phone"}</Text>
-              </View>
-              <View style={styles.contactRow}>
-                <Icon source="map-marker-outline" size={20} color={colors.textSecondary} />
-                <Text style={styles.contactText} numberOfLines={1}>{order.customer?.address || "No address"}</Text>
-              </View>
-           </View>
-        </Section>
+        <ScreenSection title="Customer info" card>
+          <View style={styles.contactRow}>
+            <Icon source="account-outline" size={20} color={colors.textSecondary} />
+            <Text style={styles.contactText}>{order.customer?.name}</Text>
+          </View>
+          <View style={styles.contactRow}>
+            <Icon source="phone-outline" size={20} color={colors.textSecondary} />
+            <Text style={styles.contactText}>{order.customer?.phone || "No phone"}</Text>
+          </View>
+          <View style={styles.contactRow}>
+            <Icon source="map-marker-outline" size={20} color={colors.textSecondary} />
+            <Text style={styles.contactText} numberOfLines={1}>{order.customer?.address || "No address"}</Text>
+          </View>
+        </ScreenSection>
 
         {/* Danger Zone */}
         {isOwner && (
-          <Section title="Danger zone">
-             <Button 
-               label="Cancel Order" 
-               variant="danger" 
-               onPress={() => handleUpdateStatus("CANCELLED")} 
+          <ScreenSection title="Danger zone">
+             <Button
+               label="Cancel Order"
+               variant="danger"
+               onPress={() => handleUpdateStatus("CANCELLED")}
                disabled={['DISPATCHED', 'CANCELLED'].includes(order.status)}
              />
-          </Section>
+          </ScreenSection>
         )}
-      </ScrollView>
+      </DetailScreen>
 
       {/* Assignment Modal */}
       <Portal>
@@ -355,8 +339,8 @@ export function OrderDetail() {
           <Text style={styles.modalSubtitle}>Pick a staff member to fulfill this order.</Text>
           <ScrollView style={styles.staffScroll}>
             {staffQuery.data?.map((s) => (
-              <Pressable 
-                key={s.id} 
+              <Pressable
+                key={s.id}
                 onPress={() => handleAssignStaff(s.id)}
                 style={({ pressed }) => [styles.staffItemRow, pressed && styles.pressed]}
               >
@@ -392,16 +376,16 @@ export function OrderDetail() {
         <Modal visible={disburseModalVisible} onDismiss={() => setDisburseModalVisible(false)} contentContainerStyle={styles.modalContent}>
           <Text style={styles.modalTitle}>Disburse Goods</Text>
           <Text style={styles.modalSubtitle}>Move goods out of the shop.</Text>
-          
+
           <View style={styles.disburseTabs}>
-            <Pressable 
-              onPress={() => setDisburseMode("DM")} 
+            <Pressable
+              onPress={() => setDisburseMode("DM")}
               style={[styles.disburseTab, disburseMode === 'DM' && styles.disburseTabActive]}
             >
               <Text style={[styles.disburseTabText, disburseMode === 'DM' && styles.disburseTabTextActive]}>CREATE DM</Text>
             </Pressable>
-            <Pressable 
-              onPress={() => setDisburseMode("SALE")} 
+            <Pressable
+              onPress={() => setDisburseMode("SALE")}
               style={[styles.disburseTab, disburseMode === 'SALE' && styles.disburseTabActive]}
             >
               <Text style={[styles.disburseTabText, disburseMode === 'SALE' && styles.disburseTabTextActive]}>CONVERT TO SALE</Text>
@@ -446,11 +430,11 @@ export function OrderDetail() {
 
           <View style={styles.modalActions}>
             <Button variant="ghost" label="Cancel" onPress={() => setDisburseModalVisible(false)} style={{ flex: 1 }} />
-            <Button 
-              label="Disburse Goods" 
-              onPress={handleConfirmDisburse} 
+            <Button
+              label="Disburse Goods"
+              onPress={handleConfirmDisburse}
               loading={createDmMutation.isPending || convertSaleMutation.isPending}
-              style={{ flex: 2 }} 
+              style={{ flex: 2 }}
             />
           </View>
         </Modal>
@@ -462,7 +446,7 @@ export function OrderDetail() {
         message={successMessage}
         onClose={() => setSuccessVisible(false)}
       />
-    </Screen>
+    </>
   );
 }
 
@@ -474,20 +458,10 @@ const styles = StyleSheet.create({
     gap: spacing.md,
     padding: spacing.xl,
   },
-  loadingText: {
-    color: colors.textSecondary,
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.medium,
-  },
   errorText: {
     color: colors.danger,
     fontSize: fontSize.md,
     fontWeight: fontWeight.bold,
-  },
-  scrollContent: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-    paddingBottom: 120,
   },
   orderCard: {
     backgroundColor: colors.surface,
@@ -495,7 +469,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     padding: spacing.xl,
-    marginBottom: spacing.lg,
     ...shadow.sm,
   },
   cardHeader: {
@@ -569,7 +542,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: spacing.md,
-    paddingHorizontal: spacing.sm,
   },
   actionBtn: {
     flex: 1,
@@ -580,7 +552,7 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderRadius: 22,
     backgroundColor: 'rgba(22, 163, 74, 0.02)',
-    marginHorizontal: spacing.sm,
+    padding: spacing.lg,
     ...shadow.sm,
   },
   readyContent: {
@@ -597,15 +569,6 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xs,
     color: colors.textSecondary,
     marginTop: 2,
-  },
-  itemsCard: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 22,
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.md,
-    ...shadow.sm,
   },
   itemRow: {
     flexDirection: 'row',
@@ -649,15 +612,6 @@ const styles = StyleSheet.create({
     fontSize: 9,
     color: colors.danger,
     fontWeight: fontWeight.bold,
-  },
-  customerCard: {
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 20,
-    padding: spacing.lg,
-    gap: spacing.md,
-    ...shadow.sm,
   },
   contactRow: {
     flexDirection: 'row',

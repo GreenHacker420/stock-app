@@ -750,9 +750,8 @@ export function Login() {
                 {verificationStatus === "CALL_RECEIVED" && (
                   <View style={styles.modalBody}>
                     <Text style={styles.modalSubText}>Drop call received successfully! Please enter your name to complete registration:</Text>
-                    
-                    <PaperInput
-                      mode="outlined"
+
+                    <FormTextField
                       label="First Name"
                       placeholder="Enter first name"
                       value={firstName}
@@ -761,9 +760,8 @@ export function Login() {
                       activeOutlineColor={colors.primary}
                       style={styles.modalInput}
                     />
-                    
-                    <PaperInput
-                      mode="outlined"
+
+                    <FormTextField
                       label="Last Name"
                       placeholder="Enter last name (optional)"
                       value={lastName}
@@ -786,9 +784,8 @@ export function Login() {
                 {(verificationStatus === "OTP_RECEIVED" || verificationStatus === "OTP_INITIATED") && (
                   <View style={styles.modalBody}>
                     <Text style={styles.modalSubText}>Please enter details to verify:</Text>
-                    
-                    <PaperInput
-                      mode="outlined"
+
+                    <FormTextField
                       label="First Name"
                       placeholder="Enter first name"
                       value={firstName}
@@ -797,9 +794,8 @@ export function Login() {
                       activeOutlineColor={colors.primary}
                       style={styles.modalInput}
                     />
-                    
-                    <PaperInput
-                      mode="outlined"
+
+                    <FormTextField
                       label="Last Name"
                       placeholder="Enter last name (optional)"
                       value={lastName}
@@ -809,8 +805,7 @@ export function Login() {
                       style={styles.modalInput}
                     />
 
-                    <PaperInput
-                      mode="outlined"
+                    <FormTextField
                       label="OTP Code"
                       placeholder="Enter SMS OTP"
                       value={otpCode}

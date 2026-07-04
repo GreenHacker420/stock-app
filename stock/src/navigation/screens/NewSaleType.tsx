@@ -1,9 +1,9 @@
 import React, { useMemo, useState } from "react";
-import { View, StyleSheet, ScrollView, Pressable } from "react-native";
-import { Text, Icon, SegmentedButtons, Divider } from "react-native-paper";
-import { Screen } from "../../components/Screen";
-import { AppHeader } from "../../components/ui/AppHeader";
+import { View, StyleSheet, Pressable } from "react-native";
+import { Text, SegmentedButtons, Divider } from "react-native-paper";
+import { ScrollScreen } from "../../components/layout/ScrollScreen";
 import { AppSearchBar } from "../../components/ui/AppSearchBar";
+import { ActionTile } from "../../components/ui/ActionTile";
 import { useSalesQuery } from "../../hooks/useSales";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { SkeletonList } from "../../components/ui/SkeletonCard";
@@ -33,7 +33,7 @@ export function NewSaleType() {
     return sales.filter(s => {
       const query = search.toLowerCase();
       const numMatch = s.saleNumber.toLowerCase().includes(query);
-      const nameMatch = s.isWalkin 
+      const nameMatch = s.isWalkin
         ? "walk-in".includes(query)
         : s.customer?.name.toLowerCase().includes(query);
 
@@ -56,218 +56,120 @@ export function NewSaleType() {
   };
 
   return (
-    <Screen edges={['top', 'left', 'right']}>
-      <AppHeader title="Sales Hub" subtitle="Register payments and log customer transactions" showBack />
+    <ScrollScreen title="Sales Hub" subtitle="Register payments and log customer transactions" showBack>
+      {/* Action Grid */}
+      <View style={styles.actionGrid}>
+        <ActionTile
+          title="Walk-in Sale"
+          subtitle="No customer account required. Paid instantly."
+          icon="walk"
+          tone="green"
+          onPress={handleStartWalkIn}
+        />
+        <ActionTile
+          title="Regular Sale"
+          subtitle="Link to customer. Allows credit, terms, or split payment."
+          icon="account-cash-outline"
+          tone="blue"
+          onPress={handleStartRegular}
+        />
+      </View>
 
-      <ScrollView 
-        showsVerticalScrollIndicator={false} 
-        contentContainerStyle={styles.scrollContent}
-      >
-        {/* Action Grid */}
-        <View style={styles.actionGrid}>
-          <Pressable 
-            onPress={handleStartWalkIn} 
-            style={({ pressed }) => [
-              styles.actionCard, 
-              styles.walkinCard,
-              pressed && styles.pressedCard
-            ]}
-          >
-            <View style={[styles.iconContainer, styles.walkinIconContainer]}>
-              <Icon source="walk" size={28} color={colors.primary} />
-            </View>
-            <View style={styles.cardTextContent}>
-              <Text style={styles.cardTitle}>Walk-in Sale</Text>
-              <Text style={styles.cardSubtitle}>
-                No customer account required. Paid instantly.
-              </Text>
-            </View>
-            <View style={styles.arrowIcon}>
-              <Icon source="chevron-right" size={20} color={colors.primary} />
-            </View>
-          </Pressable>
+      {/* History Section */}
+      <View style={styles.historyHeader}>
+        <Text style={styles.sectionTitle}>Recent Transactions</Text>
+      </View>
 
-          <Pressable 
-            onPress={handleStartRegular}
-            style={({ pressed }) => [
-              styles.actionCard,
-              styles.regularCard,
-              pressed && styles.pressedCard
-            ]}
-          >
-            <View style={[styles.iconContainer, styles.regularIconContainer]}>
-              <Icon source="account-cash-outline" size={28} color="#0d9488" />
-            </View>
-            <View style={styles.cardTextContent}>
-              <Text style={styles.cardTitle}>Regular Sale</Text>
-              <Text style={styles.cardSubtitle}>
-                Link to customer. Allows credit, terms, or split payment.
-              </Text>
-            </View>
-            <View style={styles.arrowIcon}>
-              <Icon source="chevron-right" size={20} color="#0d9488" />
-            </View>
-          </Pressable>
-        </View>
+      <View style={styles.filterSection}>
+        <AppSearchBar
+          placeholder="Search invoice or customer..."
+          onChangeText={setSearch}
+          value={search}
+        />
+        <SegmentedButtons
+          value={statusFilter}
+          onValueChange={setStatusFilter}
+          buttons={[
+            { value: "ALL", label: "All" },
+            { value: "PAID", label: "Paid" },
+            { value: "PENDING", label: "Pending" },
+            { value: "PARTIAL", label: "Partial" },
+          ]}
+          style={styles.segmentedFilter}
+          theme={{ colors: { primary: colors.primary } }}
+        />
+      </View>
 
-        {/* History Section */}
-        <View style={styles.historyHeader}>
-          <Text style={styles.sectionTitle}>Recent Transactions</Text>
-        </View>
+      {isLoading ? (
+        <SkeletonList count={5} itemHeight={76} />
+      ) : filteredSales.length === 0 ? (
+        <EmptyState
+          icon="receipt"
+          title="No transactions found"
+          subtitle={search || statusFilter !== "ALL" ? "Try adjusting your filters" : "Start by registering a new sale above"}
+        />
+      ) : (
+        <View style={styles.salesListContainer}>
+          {filteredSales.map((sale, idx) => {
+            const statusColors = getStatusColor(sale.paymentStatus);
+            const initials = sale.isWalkin
+              ? "WK"
+              : (sale.customer?.name ? sale.customer.name.substring(0, 2).toUpperCase() : "SL");
 
-        <View style={styles.filterSection}>
-          <AppSearchBar
-            placeholder="Search invoice or customer..."
-            onChangeText={setSearch}
-            value={search}
-            style={styles.searchBar}
-            inputStyle={styles.searchInput}
-            placeholderTextColor={colors.textMuted}
-            iconColor={colors.primary}
-          />
-          <SegmentedButtons
-            value={statusFilter}
-            onValueChange={setStatusFilter}
-            buttons={[
-              { value: "ALL", label: "All" },
-              { value: "PAID", label: "Paid" },
-              { value: "PENDING", label: "Pending" },
-              { value: "PARTIAL", label: "Partial" },
-            ]}
-            style={styles.segmentedFilter}
-            theme={{ colors: { primary: colors.primary } }}
-          />
-        </View>
+            const saleDate = new Date(sale.createdAt).toLocaleDateString("en-IN", {
+              day: "numeric",
+              month: "short",
+              hour: "2-digit",
+              minute: "2-digit"
+            });
 
-        {isLoading ? (
-          <View style={styles.loaderContainer}>
-            <SkeletonList count={5} itemHeight={76} />
-          </View>
-        ) : filteredSales.length === 0 ? (
-          <View style={styles.emptyContainer}>
-            <EmptyState 
-              icon="receipt"
-              title="No transactions found"
-              subtitle={search || statusFilter !== "ALL" ? "Try adjusting your filters" : "Start by registering a new sale above"}
-            />
-          </View>
-        ) : (
-          <View style={styles.salesListContainer}>
-            {filteredSales.map((sale, idx) => {
-              const statusColors = getStatusColor(sale.paymentStatus);
-              const initials = sale.isWalkin 
-                ? "WK" 
-                : (sale.customer?.name ? sale.customer.name.substring(0, 2).toUpperCase() : "SL");
+            return (
+              <View key={sale.id}>
+                {idx > 0 && <Divider style={styles.divider} />}
+                <Pressable
+                  onPress={() => navigate("SaleDetail", { id: sale.id })}
+                  style={({ pressed }) => [
+                    styles.saleItemRow,
+                    pressed && styles.pressedRow
+                  ]}
+                >
+                  <View style={[styles.avatarCircle, sale.isWalkin ? styles.walkinAvatar : styles.customerAvatar]}>
+                    <Text style={styles.avatarText}>{initials}</Text>
+                  </View>
 
-              const saleDate = new Date(sale.createdAt).toLocaleDateString("en-IN", {
-                day: "numeric",
-                month: "short",
-                hour: "2-digit",
-                minute: "2-digit"
-              });
+                  <View style={styles.saleInfo}>
+                    <Text style={styles.saleCustomer} numberOfLines={1}>
+                      {sale.isWalkin ? "Walk-in Customer" : sale.customer?.name}
+                    </Text>
+                    <Text style={styles.saleDetails}>
+                      {sale.saleNumber} • {saleDate}
+                    </Text>
+                  </View>
 
-              return (
-                <View key={sale.id}>
-                  {idx > 0 && <Divider style={styles.divider} />}
-                  <Pressable 
-                    onPress={() => navigate("SaleDetail", { id: sale.id })}
-                    style={({ pressed }) => [
-                      styles.saleItemRow,
-                      pressed && styles.pressedRow
-                    ]}
-                  >
-                    <View style={[styles.avatarCircle, sale.isWalkin ? styles.walkinAvatar : styles.customerAvatar]}>
-                      <Text style={styles.avatarText}>{initials}</Text>
-                    </View>
-
-                    <View style={styles.saleInfo}>
-                      <Text style={styles.saleCustomer} numberOfLines={1}>
-                        {sale.isWalkin ? "Walk-in Customer" : sale.customer?.name}
-                      </Text>
-                      <Text style={styles.saleDetails}>
-                        {sale.saleNumber} • {saleDate}
+                  <View style={styles.salePriceInfo}>
+                    <Text style={styles.saleAmount}>{money(sale.totalAmount)}</Text>
+                    <View style={[styles.statusBadge, { backgroundColor: statusColors.bg }]}>
+                      <Text style={[styles.statusBadgeText, { color: statusColors.text }]}>
+                        {sale.paymentStatus}
                       </Text>
                     </View>
-
-                    <View style={styles.salePriceInfo}>
-                      <Text style={styles.saleAmount}>{money(sale.totalAmount)}</Text>
-                      <View style={[styles.statusBadge, { backgroundColor: statusColors.bg }]}>
-                        <Text style={[styles.statusBadgeText, { color: statusColors.text }]}>
-                          {sale.paymentStatus}
-                        </Text>
-                      </View>
-                    </View>
-                  </Pressable>
-                </View>
-              );
-            })}
-          </View>
-        )}
-      </ScrollView>
-    </Screen>
+                  </View>
+                </Pressable>
+              </View>
+            );
+          })}
+        </View>
+      )}
+    </ScrollScreen>
   );
 }
 
 const styles = StyleSheet.create({
-  scrollContent: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-    paddingBottom: 100,
-  },
   actionGrid: {
     gap: spacing.md,
-    marginBottom: spacing.xxl,
-  },
-  actionCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: spacing.xl,
-    borderRadius: 24,
-    borderWidth: 1,
-    ...shadow.sm,
-  },
-  walkinCard: {
-    backgroundColor: '#f0fdf4',
-    borderColor: 'rgba(22, 163, 74, 0.25)',
-  },
-  regularCard: {
-    backgroundColor: '#f0fdfa',
-    borderColor: 'rgba(13, 148, 136, 0.25)',
-  },
-  iconContainer: {
-    width: 52,
-    height: 52,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  walkinIconContainer: {
-    backgroundColor: colors.primaryLight,
-  },
-  regularIconContainer: {
-    backgroundColor: '#ccfbf1',
-  },
-  cardTextContent: {
-    flex: 1,
-    marginLeft: spacing.lg,
-    gap: 2,
-  },
-  cardTitle: {
-    fontSize: fontSize.lg,
-    fontWeight: fontWeight.extrabold,
-    color: colors.textPrimary,
-  },
-  cardSubtitle: {
-    fontSize: fontSize.xs,
-    color: colors.textSecondary,
-    lineHeight: 16,
-    paddingRight: spacing.sm,
-  },
-  arrowIcon: {
-    opacity: 0.5,
   },
   historyHeader: {
-    marginBottom: spacing.md,
+    marginTop: spacing.md,
   },
   sectionTitle: {
     fontSize: 18,
@@ -277,13 +179,6 @@ const styles = StyleSheet.create({
   },
   filterSection: {
     gap: spacing.md,
-    marginBottom: spacing.lg,
-  },
-  searchBar: {
-    height: 48,
-  },
-  searchInput: {
-    fontSize: 14,
   },
   segmentedFilter: {
     height: 40,
@@ -357,16 +252,6 @@ const styles = StyleSheet.create({
   },
   divider: {
     backgroundColor: colors.surfaceOffset,
-  },
-  loaderContainer: {
-    paddingTop: spacing.md,
-  },
-  emptyContainer: {
-    paddingVertical: spacing.huge,
-  },
-  pressedCard: {
-    opacity: 0.85,
-    transform: [{ scale: 0.98 }],
   },
   pressedRow: {
     backgroundColor: colors.surfaceOffset,

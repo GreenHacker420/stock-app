@@ -11,6 +11,7 @@ import { fetchWaConversations, whatsappApi, WaConversation } from "../../../api/
 import { useShopStore } from "../../../auth/shop-store";
 import { useAuthStore } from "../../../auth/auth-store";
 import { useWhatsAppRealtime } from "../hooks/useWhatsAppRealtime";
+import { EmptyState } from "../../../components/ui/EmptyState";
 import { initials, waColors } from "../whatsapp-ui";
 
 export const ChatListScreen = () => {
@@ -119,11 +120,11 @@ export const ChatListScreen = () => {
         refreshControl={<RefreshControl refreshing={query.isRefetching} onRefresh={query.refetch} />}
         contentContainerStyle={{ paddingBottom: tabBarHeight + 88 }}
         ListEmptyComponent={
-          <View style={styles.empty}>
-            <MaterialCommunityIcons name="message-text-outline" size={54} color="#AEBAC1" />
-            <Text variant="titleMedium" style={styles.emptyTitle}>No conversations</Text>
-            <Text style={styles.emptyText}>Customer messages and new chats will appear here.</Text>
-          </View>
+          <EmptyState
+            icon="message-text-outline"
+            title="No conversations"
+            subtitle="Customer messages and new chats will appear here."
+          />
         }
         renderItem={({ item }) => {
           const lastMessage = item.messages?.[0];
@@ -257,9 +258,6 @@ const styles = StyleSheet.create({
   unreadPreview: { color: waColors.text, fontWeight: "500" },
   unreadBadge: { minWidth: 20, height: 20, paddingHorizontal: 5, borderRadius: 10, alignItems: "center", justifyContent: "center", backgroundColor: waColors.greenBright },
   unreadBadgeText: { color: "#fff", fontSize: 10, fontWeight: "700", fontVariant: ["tabular-nums"] },
-  empty: { paddingTop: 90, alignItems: "center", gap: 7, paddingHorizontal: 40 },
-  emptyTitle: { color: waColors.text },
-  emptyText: { color: waColors.textSecondary, textAlign: "center" },
   fab: { position: "absolute", right: 18, backgroundColor: waColors.green },
   overlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.35)" },
   menu: { padding: 16, paddingBottom: 28, backgroundColor: waColors.surface, borderTopLeftRadius: 16, borderTopRightRadius: 16 },

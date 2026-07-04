@@ -9,8 +9,7 @@ import { updateMe } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
 import { Screen } from "../../components/Screen";
-import { AppHeader } from "../../components/ui/AppHeader";
-import { Section } from "../../components/ui/Section";
+import { ScreenSection } from "../../components/layout/ScreenSection";
 import { StatusPill } from "../../components/ui/StatusPill";
 import { SuccessModal } from "../../components/ui/SuccessModal";
 import { getToken, setToken } from "../../auth/token-storage";
@@ -215,7 +214,7 @@ export function Profile() {
 
           <View style={styles.sectionsContainer}>
             {/* Account Info */}
-            <Section title="Account details">
+            <ScreenSection title="Account details">
               <View style={styles.detailsCard}>
                 <View style={styles.detailRow}>
                   <View style={styles.detailLeft}>
@@ -241,10 +240,10 @@ export function Profile() {
                   <StatusPill label={user?.role ?? "USER"} tone={user?.role === 'OWNER' ? 'green' : 'blue'} />
                 </View>
               </View>
-            </Section>
+            </ScreenSection>
 
             {/* App Settings */}
-            <Section title="App settings">
+            <ScreenSection title="App settings">
               <View style={styles.detailsCard}>
                 {user?.role === 'OWNER' && (
                   <SettingItem 
@@ -280,10 +279,10 @@ export function Profile() {
                   />
                 )} */}
               </View>
-            </Section>
+            </ScreenSection>
 
             {/* Security & Quick Login */}
-            <Section title="Security & quick login">
+            <ScreenSection title="Security & quick login">
               <View style={styles.detailsCard}>
                 <View style={styles.settingToggle}>
                   <View style={styles.detailLeft}>
@@ -351,10 +350,10 @@ export function Profile() {
                   </Button>
                 </View>
               </View>
-            </Section>
+            </ScreenSection>
 
             {/* Edit Profile */}
-            <Section title="Update profile">
+            <ScreenSection title="Update profile">
               <View style={styles.formCard}>
                 <TextInput
                   mode="outlined"
@@ -409,7 +408,7 @@ export function Profile() {
                   SAVE CHANGES
                 </Button>
               </View>
-            </Section>
+            </ScreenSection>
 
             {/* Sign Out Card */}
             <View style={styles.signOutContainer}>

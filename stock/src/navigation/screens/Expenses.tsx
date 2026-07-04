@@ -1,20 +1,20 @@
-import React, { useMemo, useState } from "react";
-import { View, StyleSheet, ScrollView, Pressable, Platform, KeyboardAvoidingView } from "react-native";
-import { Searchbar, Text, Icon, List, Divider, Card, TextInput, Avatar, HelperText, Modal, Portal } from "react-native-paper";
+import React, { useState } from "react";
+import { View, StyleSheet, Pressable } from "react-native";
+import { Text, Icon, Divider, Modal, Portal } from "react-native-paper";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useRoute } from "@react-navigation/native";
 
-import { fetchExpenses, createExpense, verifyExpense, fetchShops, Shop, Expense } from "../../api/client";
+import { fetchExpenses, createExpense, verifyExpense, Expense } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
-import { Screen } from "../../components/Screen";
-import { AppHeader } from "../../components/ui/AppHeader";
-import { Section } from "../../components/ui/Section";
+import { FormScreen } from "../../components/layout/FormScreen";
+import { ScreenSection } from "../../components/layout/ScreenSection";
 import { StatusPill } from "../../components/ui/StatusPill";
+import { EmptyState } from "../../components/ui/EmptyState";
 import { SuccessModal } from "../../components/ui/SuccessModal";
 import { Button } from "../../components/ui/Button";
+import { FormTextField } from "../../components/forms/FormTextField";
+import { AmountInput } from "../../components/forms/AmountInput";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
-import { navigate, goBack } from "../navigation-ref";
 import { newIdempotencyKey } from "../../utils/idempotency";
 import { requireActiveShopId } from "../../hooks/useActiveShop";
 
@@ -61,95 +61,87 @@ export function ExpenseList() {
   const isOwner = user?.role === "OWNER";
 
   return (
-    <Screen edges={['top', 'left', 'right']}>
-      <AppHeader title="Shop Expenses" subtitle="Track and verify daily outgoings" showBack />
-      
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        <View style={styles.actionRow}>
-           <Button 
-             variant="primary" 
-             label="Log Expense" 
-             icon={<Icon source="plus" size={18} color="white" />} 
-             onPress={() => setIsAddModalVisible(true)}
-             style={{ flex: 1 }}
-           />
-        </View>
+    <>
+      <FormScreen title="Shop Expenses" subtitle="Track and verify daily outgoings" showBack>
+        <Button
+          variant="primary"
+          label="Log Expense"
+          icon={<Icon source="plus" size={18} color="white" />}
+          onPress={() => setIsAddModalVisible(true)}
+        />
 
-        <Section title="Recent Expenses">
-           <View style={styles.listContainer}>
-              {expensesQuery.data?.map((exp: Expense, idx: number) => (
-                <View key={exp.id}>
-                  <View style={styles.expenseItem}>
-                     <View style={styles.expenseInfo}>
-                        <Text style={styles.amountText}>{money(exp.amount)}</Text>
-                        <Text style={styles.categoryText}>{exp.category.replace('_', ' ')}</Text>
-                        <Text style={styles.noteText}>{exp.note || "No note provided"}</Text>
-                        <Text style={styles.createdByText}>By {exp.createdBy.name} • {new Date(exp.createdAt).toLocaleDateString()}</Text>
-                     </View>
-                     <View style={styles.expenseStatus}>
-                        <StatusPill 
-                          label={exp.status} 
-                          tone={exp.status === 'APPROVED' ? 'green' : exp.status === 'PENDING' ? 'amber' : 'red'} 
-                        />
-                        {isOwner && exp.status === 'PENDING' && (
-                          <Button 
-                            label="Verify" 
-                            variant="ghost" 
-                            onPress={() => verifyMutation.mutate(exp.id)} 
-                            loading={verifyMutation.isPending && verifyMutation.variables === exp.id}
-                            style={{ marginTop: 8 }}
-                          />
-                        )}
-                     </View>
+        <ScreenSection title="Recent Expenses">
+          <View style={styles.listContainer}>
+            {expensesQuery.data?.map((exp: Expense, idx: number) => (
+              <View key={exp.id}>
+                <View style={styles.expenseItem}>
+                  <View style={styles.expenseInfo}>
+                    <Text style={styles.amountText}>{money(exp.amount)}</Text>
+                    <Text style={styles.categoryText}>{exp.category.replace('_', ' ')}</Text>
+                    <Text style={styles.noteText}>{exp.note || "No note provided"}</Text>
+                    <Text style={styles.createdByText}>By {exp.createdBy.name} • {new Date(exp.createdAt).toLocaleDateString()}</Text>
                   </View>
-                  {idx < (expensesQuery.data?.length ?? 0) - 1 && <Divider style={styles.divider} />}
+                  <View style={styles.expenseStatus}>
+                    <StatusPill
+                      label={exp.status}
+                      tone={exp.status === 'APPROVED' ? 'green' : exp.status === 'PENDING' ? 'amber' : 'red'}
+                    />
+                    {isOwner && exp.status === 'PENDING' && (
+                      <Button
+                        label="Verify"
+                        variant="ghost"
+                        onPress={() => verifyMutation.mutate(exp.id)}
+                        loading={verifyMutation.isPending && verifyMutation.variables === exp.id}
+                        style={{ marginTop: 8 }}
+                      />
+                    )}
+                  </View>
                 </View>
-              ))}
-              {expensesQuery.data?.length === 0 && <Text style={styles.emptyText}>No expenses logged for this shop.</Text>}
-           </View>
-        </Section>
-      </ScrollView>
+                {idx < (expensesQuery.data?.length ?? 0) - 1 && <Divider style={styles.divider} />}
+              </View>
+            ))}
+            {expensesQuery.data?.length === 0 && (
+              <EmptyState title="No expenses yet" subtitle="No expenses logged for this shop." />
+            )}
+          </View>
+        </ScreenSection>
+      </FormScreen>
 
       <Portal>
         <Modal visible={isAddModalVisible} onDismiss={() => setIsAddModalVisible(false)} contentContainerStyle={styles.modalContent}>
-           <Text style={styles.modalTitle}>Log Expense</Text>
-           <TextInput
-              mode="outlined"
-              label="Amount (₹)"
-              value={form.amount}
-              onChangeText={(v) => setForm(f => ({ ...f, amount: v }))}
-              keyboardType="numeric"
-              style={styles.input}
-              outlineStyle={{ borderRadius: radius.md }}
-           />
-            <View style={styles.categoryGrid}>
-               {expenseCategories.map(cat => (
-                 <Pressable 
-                   key={cat} 
-                   onPress={() => setForm(f => ({ ...f, category: cat }))}
-                   style={[styles.catBtn, form.category === cat && styles.catBtnActive]}
-                 >
-                   <Text style={[styles.catBtnText, form.category === cat && styles.catBtnTextActive]}>{cat.replace('_', ' ')}</Text>
-                 </Pressable>
-               ))}
-            </View>
-           <TextInput
-              mode="outlined"
-              label="Notes / Purpose"
-              value={form.note}
-              onChangeText={(v) => setForm(f => ({ ...f, note: v }))}
-              multiline
-              numberOfLines={2}
-              style={styles.input}
-              outlineStyle={{ borderRadius: radius.md }}
-           />
-           <Button 
-              variant="primary" 
-              label="Save Expense" 
-              onPress={() => addMutation.mutate()} 
-              loading={addMutation.isPending}
-              disabled={!form.amount || Number(form.amount) <= 0}
-           />
+          <Text style={styles.modalTitle}>Log Expense</Text>
+          <AmountInput
+            label="Amount"
+            value={form.amount}
+            onChangeText={(v) => setForm(f => ({ ...f, amount: v }))}
+            style={styles.input}
+          />
+          <View style={styles.categoryGrid}>
+            {expenseCategories.map(cat => (
+              <Pressable
+                key={cat}
+                onPress={() => setForm(f => ({ ...f, category: cat }))}
+                style={[styles.catBtn, form.category === cat && styles.catBtnActive]}
+              >
+                <Text style={[styles.catBtnText, form.category === cat && styles.catBtnTextActive]}>{cat.replace('_', ' ')}</Text>
+              </Pressable>
+            ))}
+          </View>
+          <FormTextField
+            label="Notes / Purpose"
+            value={form.note}
+            onChangeText={(v) => setForm(f => ({ ...f, note: v }))}
+            multiline
+            numberOfLines={2}
+            style={styles.input}
+          />
+          <Button
+            variant="primary"
+            label="Save Expense"
+            onPress={() => addMutation.mutate()}
+            loading={addMutation.isPending}
+            disabled={!form.amount || Number(form.amount) <= 0}
+          />
         </Modal>
       </Portal>
 
@@ -159,13 +151,11 @@ export function ExpenseList() {
         message="The expense has been successfully recorded and sent for verification."
         onClose={() => setSuccessVisible(false)}
       />
-    </Screen>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  scrollContent: { paddingHorizontal: spacing.lg, paddingBottom: 100 },
-  actionRow: { marginVertical: spacing.md },
   listContainer: { backgroundColor: colors.surface, borderRadius: 20, borderWidth: 1, borderColor: colors.border, padding: spacing.md, ...shadow.sm },
   expenseItem: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: spacing.md },
   expenseInfo: { flex: 1, gap: 2 },
@@ -175,7 +165,6 @@ const styles = StyleSheet.create({
   createdByText: { fontSize: 11, color: colors.textMuted, marginTop: 4 },
   expenseStatus: { alignItems: 'flex-end' },
   divider: { backgroundColor: colors.surfaceOffset },
-  emptyText: { textAlign: 'center', padding: spacing.xl, color: colors.textMuted },
   modalContent: { backgroundColor: colors.surface, margin: spacing.xl, padding: spacing.xl, borderRadius: radius.xl },
   modalTitle: { fontSize: 20, fontWeight: fontWeight.black, marginBottom: spacing.lg, textAlign: 'center' },
   input: { backgroundColor: colors.surface, marginBottom: spacing.md },

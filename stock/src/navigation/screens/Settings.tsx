@@ -1,13 +1,12 @@
 import { useState, useEffect } from "react";
-import { View, StyleSheet, ScrollView, Pressable, Platform } from "react-native";
+import { View, StyleSheet, Pressable } from "react-native";
 import { Text, Icon, Divider, Portal, Modal, Button, Switch } from "react-native-paper";
-import { Screen } from "../../components/Screen";
-import { AppHeader } from "../../components/ui/AppHeader";
-import { Section } from "../../components/ui/Section";
+import { ScrollScreen } from "../../components/layout/ScrollScreen";
+import { ScreenSection } from "../../components/layout/ScreenSection";
 import { useAuthStore } from "../../auth/auth-store";
 import { getToken, setToken } from "../../auth/token-storage";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
-import { navigate, goBack } from "../navigation-ref";
+import { navigate } from "../navigation-ref";
 
 type SettingRowProps = {
   icon: string;
@@ -21,16 +20,16 @@ type SettingRowProps = {
   color?: string;
 };
 
-function SettingRow({ 
-  icon, 
-  label, 
-  value, 
-  showSwitch, 
-  isEnabled, 
-  onToggle, 
-  onPress, 
+function SettingRow({
+  icon,
+  label,
+  value,
+  showSwitch,
+  isEnabled,
+  onToggle,
+  onPress,
   isLast,
-  color = colors.textPrimary 
+  color = colors.textPrimary
 }: SettingRowProps) {
   const Content = (
     <View style={[styles.row, isLast && styles.noBorder]}>
@@ -43,10 +42,10 @@ function SettingRow({
       <View style={styles.rowRight}>
         {value && <Text style={styles.value}>{value}</Text>}
         {showSwitch && (
-          <Switch 
-            value={isEnabled} 
-            onValueChange={onToggle} 
-            color={colors.primary} 
+          <Switch
+            value={isEnabled}
+            onValueChange={onToggle}
+            color={colors.primary}
           />
         )}
         {!showSwitch && !value && (
@@ -69,19 +68,19 @@ function SettingRow({
 
 export function Settings() {
   const user = useAuthStore((state) => state.user);
-  
+
   const [notifications, setNotifications] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(true);
   const [lowStockAlerts, setLowStockAlerts] = useState(true);
   const [dailyReport, setDailyReport] = useState(true);
-  
+
   const [aboutVisible, setAboutVisible] = useState(false);
 
   useEffect(() => {
     async function loadSettings() {
       const notif = await getToken("settings_notifications");
       if (notif !== null) setNotifications(notif === "true");
-      
+
       const sound = await getToken("settings_sound");
       if (sound !== null) setSoundEnabled(sound === "true");
     }
@@ -99,15 +98,10 @@ export function Settings() {
   };
 
   return (
-    <Screen edges={['top', 'left', 'right']}>
-      <AppHeader title="Settings" subtitle="App preferences and information." showBack={true} />
-
-      <ScrollView 
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-      >
+    <>
+      <ScrollScreen title="Settings" subtitle="App preferences and information." showBack>
         {/* Notifications Section */}
-        <Section title="Notifications">
+        <ScreenSection title="Notifications">
           <View style={styles.card}>
             <SettingRow
               icon="bell-outline"
@@ -139,11 +133,11 @@ export function Settings() {
               isLast
             />
           </View>
-        </Section>
+        </ScreenSection>
 
         {/* Business Tools - Owner Only */}
         {user?.role === 'OWNER' && (
-          <Section title="Business management">
+          <ScreenSection title="Business management">
             <View style={styles.card}>
               <SettingRow
                 icon="qrcode-edit"
@@ -167,11 +161,11 @@ export function Settings() {
                 isLast
               />
             </View>
-          </Section>
+          </ScreenSection>
         )}
 
         {/* Support Section */}
-        <Section title="Support & info">
+        <ScreenSection title="Support & info">
           <View style={styles.card}>
             <SettingRow
               icon="help-circle-outline"
@@ -190,7 +184,7 @@ export function Settings() {
               isLast
             />
           </View>
-        </Section>
+        </ScreenSection>
 
         {/* Account Status */}
         <View style={styles.statusFooter}>
@@ -198,7 +192,7 @@ export function Settings() {
           <Text style={styles.statusValue}>{user?.name} ({user?.role})</Text>
           <Text style={styles.versionText}>Version 1.0.4 (2026.06.14)</Text>
         </View>
-      </ScrollView>
+      </ScrollScreen>
 
       <Portal>
         <Modal
@@ -215,8 +209,8 @@ export function Settings() {
           </Text>
           <Divider style={styles.modalDivider} />
           <Text style={styles.copyright}>© 2026 ShopControl Inc.</Text>
-          <Button 
-            mode="contained" 
+          <Button
+            mode="contained"
             onPress={() => setAboutVisible(false)}
             style={styles.closeBtn}
           >
@@ -224,16 +218,11 @@ export function Settings() {
           </Button>
         </Modal>
       </Portal>
-    </Screen>
+    </>
   );
 }
 
 const styles = StyleSheet.create({
-  scrollContent: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.xs,
-    paddingBottom: spacing.huge,
-  },
   card: {
     backgroundColor: colors.surface,
     borderRadius: 20,

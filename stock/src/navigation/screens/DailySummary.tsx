@@ -1,13 +1,17 @@
 import { useEffect, useState, useMemo } from "react";
-import { View, ScrollView, StyleSheet, ActivityIndicator } from "react-native";
+import { View, ScrollView, StyleSheet } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Button, Text, Card, Icon, Divider, List } from "react-native-paper";
+import { Text, Card, Icon, Divider, List } from "react-native-paper";
 import { useRoute } from "@react-navigation/native";
 import { fetchDailySummary, lockDailySummary, fetchDailySummaryById, lockDailySummaryById } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
+import { ScreenScaffold } from "../../components/layout/ScreenScaffold";
+import { StickyFooterActions } from "../../components/layout/StickyFooterActions";
+import { AmountBreakdown } from "../../components/ui/AmountBreakdown";
+import { LoadingState } from "../../components/feedback/LoadingState";
 import { SuccessModal } from "../../components/ui/SuccessModal";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from '../../theme';
 import { requireActiveShopId } from "../../hooks/useActiveShop";
@@ -60,10 +64,7 @@ export function DailySummary() {
     return (
       <Screen>
         <AppHeader title="Daily Report" subtitle="Retrieving today's operations..." />
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingText}>Fetching summary data...</Text>
-        </View>
+        <LoadingState label="Fetching summary data..." />
       </Screen>
     );
   }
@@ -74,9 +75,30 @@ export function DailySummary() {
   const isMatch = actualCash === expectedCash;
 
   return (
-    <Screen scroll={false} edges={['top', 'left', 'right']}>
-      <AppHeader title="Daily Report" subtitle={new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })} />
-
+    <ScreenScaffold
+      title="Daily Report"
+      subtitle={new Date().toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long' })}
+      footer={
+        <StickyFooterActions
+          secondary={{
+            label: "Export PDF",
+            variant: "secondary",
+            onPress: () => {
+              setSuccessTitle("PDF Exported");
+              setSuccessMessage("Daily Summary PDF has been exported successfully!");
+              setSuccessVisible(true);
+            },
+          }}
+          primary={{
+            label: isLocked ? "Report Locked" : "Lock Daily Summary",
+            onPress: () => lockMutation.mutate(),
+            disabled: isLocked || lockMutation.isPending,
+            loading: lockMutation.isPending,
+            haptic: "medium",
+          }}
+        />
+      }
+    >
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         <View style={styles.mainContainer}>
           
@@ -171,41 +193,19 @@ export function DailySummary() {
               style={styles.accordion}
             >
               <View style={styles.accordionContent}>
-                <BreakdownItem label="Cash" amount={summary?.totalCashCollected} />
-                <BreakdownItem label="UPI" amount={summary?.totalUpiCollected} />
-                <BreakdownItem label="Card" amount={summary?.totalCardCollected} />
-                <BreakdownItem label="Bank Transfer" amount={summary?.totalBankCollected} />
+                <AmountBreakdown
+                  rows={[
+                    { label: "Cash", value: `₹${Number(summary?.totalCashCollected || 0).toLocaleString("en-IN")}` },
+                    { label: "UPI", value: `₹${Number(summary?.totalUpiCollected || 0).toLocaleString("en-IN")}` },
+                    { label: "Card", value: `₹${Number(summary?.totalCardCollected || 0).toLocaleString("en-IN")}` },
+                    { label: "Bank Transfer", value: `₹${Number(summary?.totalBankCollected || 0).toLocaleString("en-IN")}` },
+                  ]}
+                />
               </View>
             </List.Accordion>
           </View>
         </View>
       </ScrollView>
-
-      {/* Glassmorphic Footer Actions */}
-      <View style={styles.footer}>
-        <Button 
-          mode="outlined" 
-          style={styles.footerButtonOutline} 
-          textColor={colors.textSecondary} 
-          onPress={() => {
-            setSuccessTitle("PDF Exported");
-            setSuccessMessage("Daily Summary PDF has been exported successfully!");
-            setSuccessVisible(true);
-          }}
-        >
-          Export PDF
-        </Button>
-        <Button 
-          mode="contained" 
-          style={[styles.footerButtonPrimary, { backgroundColor: isLocked ? colors.success : colors.primary }]} 
-          contentStyle={styles.footerButtonContent}
-          onPress={() => lockMutation.mutate()}
-          disabled={isLocked || lockMutation.isPending}
-          loading={lockMutation.isPending}
-        >
-          {isLocked ? "Report Locked" : "Lock Daily Summary"}
-        </Button>
-      </View>
 
       <SuccessModal
         visible={successVisible}
@@ -213,7 +213,7 @@ export function DailySummary() {
         message={successMessage}
         onClose={() => setSuccessVisible(false)}
       />
-    </Screen>
+    </ScreenScaffold>
   );
 }
 
@@ -229,26 +229,7 @@ function MetricRow({ label, value, detail }: { label: string, value: string, det
   );
 }
 
-function BreakdownItem({ label, amount }: { label: string, amount: any }) {
-  return (
-    <View style={styles.breakdownItem}>
-      <Text style={styles.breakdownLabel}>{label}</Text>
-      <Text style={styles.breakdownValue}>₹{Number(amount || 0).toLocaleString("en-IN")}</Text>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
-  loadingContainer: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.md,
-  },
-  loadingText: {
-    color: colors.textSecondary,
-    fontSize: fontSize.sm,
-  },
   scrollContent: {
     paddingBottom: 130,
   },
@@ -467,48 +448,6 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.black,
     color: colors.textPrimary,
     fontSize: fontSize.md,
-  },
-  breakdownItem: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  breakdownLabel: {
-    color: colors.textSecondary,
-    fontWeight: fontWeight.semibold,
-    fontSize: fontSize.sm,
-  },
-  breakdownValue: {
-    color: colors.textPrimary,
-    fontWeight: fontWeight.extrabold,
-    fontSize: fontSize.sm,
-  },
-  footer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    padding: spacing.lg,
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    flexDirection: 'row',
-    gap: spacing.md,
-    alignItems: 'center',
-  },
-  footerButtonOutline: {
-    borderRadius: radius.md,
-    flex: 1,
-    borderColor: colors.border,
-  },
-  footerButtonPrimary: {
-    flex: 2,
-    borderRadius: radius.md,
-  },
-  footerButtonContent: {
-    height: 50,
   },
   flex1: {
     flex: 1,
