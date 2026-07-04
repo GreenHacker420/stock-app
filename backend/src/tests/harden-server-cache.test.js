@@ -15,6 +15,7 @@ import {
   setDomainEventRedisForTests,
 } from "../workers/domain-event-dispatcher.worker.js";
 import { closePushQueue } from "../services/notification.push.queue.js";
+import { allocateShopEventSequence } from "../services/domain-event.service.js";
 
 class FakeRedis {
   constructor({ failGet = false, failSet = false, failIncr = false, onOperation } = {}) {
@@ -248,24 +249,28 @@ test.describe("HARDEN-02 server read cache and domain event coherence", () => {
     setDomainEventRedisForTests(publisher);
     const { owner, shop } = await seed();
 
-    await prisma.domainEventOutbox.create({
-      data: {
-        id: "evt_h2_ordering",
-        shopId: shop.id,
-        entity: "customer",
-        action: "updated",
-        entityId: "customer_1",
-        status: "pending",
-        eventJson: {
-          eventId: "evt_h2_ordering",
+    await prisma.$transaction(async (tx) => {
+      const sequence = await allocateShopEventSequence(tx, shop.id);
+      await tx.domainEventOutbox.create({
+        data: {
+          id: "evt_h2_ordering",
           shopId: shop.id,
           entity: "customer",
           action: "updated",
           entityId: "customer_1",
-          actorUserId: owner.id,
-          updatedAt: new Date().toISOString(),
+          status: "pending",
+          sequence,
+          eventJson: {
+            eventId: "evt_h2_ordering",
+            shopId: shop.id,
+            entity: "customer",
+            action: "updated",
+            entityId: "customer_1",
+            actorUserId: owner.id,
+            updatedAt: new Date().toISOString(),
+          },
         },
-      },
+      });
     });
 
     await dispatchPendingDomainEvents();
@@ -277,24 +282,28 @@ test.describe("HARDEN-02 server read cache and domain event coherence", () => {
     assert.strictEqual(published.status, "published");
 
     setReadCacheRedisForTests(new FakeRedis({ failIncr: true }));
-    await prisma.domainEventOutbox.create({
-      data: {
-        id: "evt_h2_retry",
-        shopId: shop.id,
-        entity: "item",
-        action: "updated",
-        entityId: "item_1",
-        status: "pending",
-        eventJson: {
-          eventId: "evt_h2_retry",
+    await prisma.$transaction(async (tx) => {
+      const sequence = await allocateShopEventSequence(tx, shop.id);
+      await tx.domainEventOutbox.create({
+        data: {
+          id: "evt_h2_retry",
           shopId: shop.id,
           entity: "item",
           action: "updated",
           entityId: "item_1",
-          actorUserId: owner.id,
-          updatedAt: new Date().toISOString(),
+          status: "pending",
+          sequence,
+          eventJson: {
+            eventId: "evt_h2_retry",
+            shopId: shop.id,
+            entity: "item",
+            action: "updated",
+            entityId: "item_1",
+            actorUserId: owner.id,
+            updatedAt: new Date().toISOString(),
+          },
         },
-      },
+      });
     });
 
     await dispatchPendingDomainEvents();
