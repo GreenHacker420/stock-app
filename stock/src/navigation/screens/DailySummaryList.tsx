@@ -1,8 +1,7 @@
 import React from "react";
-import { View, StyleSheet, ScrollView, Pressable, ActivityIndicator, RefreshControl } from "react-native";
+import { View, StyleSheet, Pressable } from "react-native";
 import { Text, Card, Icon } from "react-native-paper";
-import { Screen } from "../../components/Screen";
-import { AppHeader } from "../../components/ui/AppHeader";
+import { ListScreen } from "../../components/layout/ListScreen";
 import { StatusPill } from "../../components/ui/StatusPill";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { useDailySummariesQuery } from "../../hooks/useDailySummary";
@@ -31,30 +30,23 @@ export function DailySummaryList() {
   };
 
   return (
-    <Screen edges={["top", "left", "right"]}>
-      <AppHeader 
-        title="Day End Reports" 
-        subtitle="Historical records of shop-end closing balances." 
-        showBack
-      />
-
-      {isLoading ? (
-        <View style={styles.centerContainer}>
-          <ActivityIndicator size="large" color={colors.primary} />
-        </View>
-      ) : summaries && summaries.length > 0 ? (
-        <ScrollView 
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl 
-              refreshing={isFetching} 
-              onRefresh={refetch} 
-              colors={[colors.primary]} 
-            />
-          }
-        >
-          {summaries.map((item: any) => {
+    <ListScreen
+      title="Day End Reports"
+      subtitle="Historical records of shop-end closing balances."
+      showBack
+      data={summaries ?? []}
+      keyExtractor={(item: any) => item.id}
+      isLoading={isLoading}
+      isRefreshing={isFetching}
+      onRefresh={refetch}
+      empty={
+        <EmptyState
+          title="No reports compiled yet"
+          subtitle="Reports will appear once staff closes the counter session for a day."
+          icon="file-chart-outline"
+        />
+      }
+      renderItem={({ item }: { item: any }) => {
             const dateStr = new Date(item.date).toLocaleDateString("en-IN", {
               day: "numeric",
               month: "short",
@@ -65,9 +57,8 @@ export function DailySummaryList() {
             const expected = Number(item.expectedCash || 0);
             const diff = actual - expected;
 
-            return (
+        return (
               <Pressable
-                key={item.id}
                 onPress={() => handlePress(item)}
                 style={({ pressed }) => [
                   styles.cardPressable,
@@ -134,30 +125,16 @@ export function DailySummaryList() {
                   </Card.Content>
                 </Card>
               </Pressable>
-            );
-          })}
-        </ScrollView>
-      ) : (
-        <EmptyState 
-          title="No reports compiled yet" 
-          subtitle="Reports will appear once staff closes the counter session for a day."
-          icon="file-chart-outline"
-        />
-      )}
-    </Screen>
+        );
+      }}
+      contentContainerStyle={styles.listContent}
+    />
   );
 }
 
 const styles = StyleSheet.create({
-  centerContainer: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  scrollContent: {
-    padding: spacing.lg,
+  listContent: {
     paddingBottom: 100,
-    gap: spacing.md,
   },
   cardPressable: {
     borderRadius: radius.xl,

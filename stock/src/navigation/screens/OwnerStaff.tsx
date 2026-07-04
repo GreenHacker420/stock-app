@@ -12,6 +12,11 @@ import { useShopsQuery, useAssignStaffToShopMutation, useUnassignStaffFromShopMu
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { Section } from "../../components/ui/Section";
+import { ListScreen } from "../../components/layout/ListScreen";
+import { ScreenSection } from "../../components/layout/ScreenSection";
+import { FormTextField } from "../../components/forms/FormTextField";
+import { StaffCard } from "../../components/domain/staff/StaffCard";
+import { EmptyState } from "../../components/ui/EmptyState";
 import { StatusPill } from "../../components/ui/StatusPill";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { navigate, goBack } from "../navigation-ref";
@@ -30,10 +35,16 @@ export function StaffManagement() {
   const staffQuery = useStaffQuery();
 
   return (
-    <Screen scroll={false}>
-      <AppHeader title="Staff Management" subtitle="Manage accounts, status, and permissions." />
-      
-      <View style={styles.headerButtonContainer}>
+    <ListScreen
+      title="Staff Management"
+      subtitle="Manage accounts, status, and permissions."
+      data={staffQuery.data ?? []}
+      keyExtractor={(staff: ApiUser) => staff.id}
+      isLoading={staffQuery.isLoading}
+      isRefreshing={staffQuery.isRefetching}
+      onRefresh={() => staffQuery.refetch()}
+      header={
+        <View style={styles.headerButtonContainer}>
         <Button 
           mode="contained" 
           icon="account-plus" 
@@ -44,87 +55,30 @@ export function StaffManagement() {
         >
           Add Staff Member
         </Button>
-      </View>
-
-      <ScrollView 
-        showsVerticalScrollIndicator={false} 
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={staffQuery.isRefetching}
-            onRefresh={() => staffQuery.refetch()}
-            colors={[colors.primary]}
-          />
-        }
-      >
-        {staffQuery.isLoading ? (
-          <View style={styles.centerState}>
-            <ActivityIndicator color={colors.primary} />
-            <Text style={styles.secondaryText}>Loading staff accounts...</Text>
-          </View>
-        ) : null}
-
-        {staffQuery.isError ? (
-          <Section title="Unable to load staff">
-            <Text style={styles.errorText}>Check your connection and try again.</Text>
-          </Section>
-        ) : null}
-
-        {!staffQuery.isLoading && !staffQuery.isError && (staffQuery.data ?? []).length === 0 ? (
-          <Section title="No staff yet">
-            <Text style={styles.secondaryText}>Create a staff account, then assign it to one or more shops.</Text>
-          </Section>
-        ) : null}
-
-        <View style={styles.listGap}>
-          {(staffQuery.data ?? []).map((staff) => {
-            const isActive = staff.status === "ACTIVE" || !staff.status;
-            return (
-              <Pressable key={staff.id} onPress={() => navigate("StaffDetail", { staff })}>
-                <View style={styles.staffCard}>
-                  <View style={styles.cardHeader}>
-                    {/* Left: Round Avatar */}
-                    <View style={styles.avatar}>
-                      <Text style={styles.avatarText}>{getInitials(staff.name)}</Text>
-                    </View>
-
-                    <View style={styles.cardInfo}>
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.xs }}>
-                        <Text style={styles.staffName}>{staff.name}</Text>
-                        {staff.role === "OWNER" && (
-                          <View style={{ backgroundColor: colors.primaryLight, paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.sm }}>
-                            <Text style={{ fontSize: 9, fontWeight: fontWeight.black, color: colors.primaryDark }}>OWNER</Text>
-                          </View>
-                        )}
-                      </View>
-                      
-                      <View style={styles.detailsRow}>
-                        <Icon source="phone" size={14} color={colors.textSecondary} />
-                        <Text style={styles.secondaryText}>{staff.mobile}</Text>
-                      </View>
-                      
-                      {staff.email ? (
-                        <View style={styles.detailsRow}>
-                          <Icon source="email-outline" size={14} color={colors.textSecondary} />
-                          <Text style={styles.secondaryText}>{staff.email}</Text>
-                        </View>
-                      ) : null}
-                    </View>
-
-                    {/* Right: Status Pill */}
-                    <StatusPill 
-                      label={isActive ? "ACTIVE" : "INACTIVE"} 
-                      tone={isActive ? "green" : "neutral"} 
-                      style={styles.statusPill}
-                    />
-                  </View>
-                </View>
-              </Pressable>
-            );
-          })}
         </View>
-
-        <Section title="Staff activity tracking">
+      }
+      empty={
+        <EmptyState
+          icon={staffQuery.isError ? "alert-circle-outline" : "account-group-outline"}
+          title={staffQuery.isError ? "Unable to load staff" : "No staff yet"}
+          subtitle={staffQuery.isError ? "Check your connection and try again." : "Create a staff account, then assign it to one or more shops."}
+        />
+      }
+      renderItem={({ item: staff }: { item: ApiUser }) => {
+        const isActive = staff.status === "ACTIVE" || !staff.status;
+        return (
+          <StaffCard
+            name={staff.name}
+            role={staff.role}
+            phone={staff.mobile}
+            email={staff.email ?? undefined}
+            status={isActive ? "ACTIVE" : "INACTIVE"}
+            onPress={() => navigate("StaffDetail", { staff })}
+          />
+        );
+      }}
+      ListFooterComponent={
+        <ScreenSection title="Staff activity tracking" style={styles.activitySection}>
           <View style={styles.infoCard}>
             <Icon source="chart-timeline-variant" size={22} color={colors.primary} />
             <View style={styles.infoText}>
@@ -134,9 +88,9 @@ export function StaffManagement() {
               </Text>
             </View>
           </View>
-        </Section>
-      </ScrollView>
-    </Screen>
+        </ScreenSection>
+      }
+    />
   );
 }
 
@@ -213,43 +167,35 @@ export function AddEditStaff() {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
         <Section title="Account details">
           <View style={styles.formCard}>
-            <TextInput 
-              mode="outlined" 
+            <FormTextField
               label="Full Name" 
               value={form.name} 
               onChangeText={(v) => set("name", v)} 
-              outlineStyle={styles.inputOutline}
               activeOutlineColor={colors.primary}
               style={styles.input}
             />
-            <TextInput 
-              mode="outlined" 
+            <FormTextField
               label="Mobile Number" 
               keyboardType="phone-pad" 
               value={form.mobile} 
               onChangeText={(v) => set("mobile", v)} 
-              outlineStyle={styles.inputOutline}
               activeOutlineColor={colors.primary}
               style={styles.input}
             />
-            <TextInput 
-              mode="outlined" 
+            <FormTextField
               label="Email Address" 
               keyboardType="email-address"
               autoCapitalize="none"
               value={form.email ?? ""} 
               onChangeText={(v) => set("email", v)} 
-              outlineStyle={styles.inputOutline}
               activeOutlineColor={colors.primary}
               style={styles.input}
             />
-            <TextInput 
-              mode="outlined" 
+            <FormTextField
               label={staff ? "New Password (optional)" : "Password"} 
               secureTextEntry 
               value={form.password} 
               onChangeText={(v) => set("password", v)} 
-              outlineStyle={styles.inputOutline}
               activeOutlineColor={colors.primary}
               style={styles.input}
             />
@@ -330,10 +276,10 @@ const styles = StyleSheet.create({
     height: 48,
   },
   headerButtonContainer: {
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
     paddingBottom: spacing.md,
-    backgroundColor: colors.bg,
+  },
+  activitySection: {
+    marginTop: spacing.md,
   },
   scrollContent: {
     paddingHorizontal: spacing.lg,

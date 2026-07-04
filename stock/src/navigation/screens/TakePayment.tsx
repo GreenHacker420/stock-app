@@ -1,5 +1,4 @@
 import { useMemo, useState } from "react";
-import { LinearGradient } from "expo-linear-gradient";
 import { 
   ScrollView, 
   View, 
@@ -10,6 +9,7 @@ import {
   ActivityIndicator,
   Alert
 } from "react-native";
+import * as Haptics from "expo-haptics";
 import {
   Text,
   Icon,
@@ -67,6 +67,14 @@ const getPaymentModeColor = (mode: string) => {
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 const internetRequiredMessage = "Internet connection required. Please connect to the internet to complete this action.";
+
+const haptic = (s: "light" | "medium" = "light") => {
+  if (Platform.OS !== "web") {
+    void Haptics.impactAsync(
+      s === "medium" ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light
+    ).catch(() => {});
+  }
+};
 
 export function TakePayment() {
   const { activeShopId } = useShopStore();
@@ -203,22 +211,26 @@ export function TakePayment() {
           contentContainerStyle={styles.scrollContent}
         >
           {/* Curved Brand Customer Header Card */}
-          <LinearGradient
-            colors={[colors.primaryDark, colors.primaryMid]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.customerCard}
-          >
+          <View style={styles.customerCard}>
             <View style={styles.customerHeader}>
               <Text style={styles.customerLabel}>Customer Info</Text>
-              <View style={styles.walkinToggleContainer}>
-                <Text style={styles.walkinToggleLabel}>Walk-in</Text>
-                <Switch 
-                  value={isWalkin} 
-                  onValueChange={(v) => { setIsWalkin(v); if(v) setCustomerId(undefined); }} 
-                  color={colors.primaryLight}
-                  style={{ transform: [{ scaleX: 0.8 }, { scaleY: 0.8 }] }}
-                />
+              
+              {/* Custom Toggle Pills */}
+              <View style={styles.toggleRow}>
+                <Pressable
+                  onPress={() => { haptic(); setIsWalkin(true); setCustomerId(undefined); }}
+                  style={[styles.togglePill, isWalkin && styles.togglePillActive]}
+                >
+                  <Icon source="walk" size={12} color={isWalkin ? colors.primary : colors.textMuted} />
+                  <Text style={[styles.togglePillText, isWalkin && styles.togglePillTextActive]}>Walk-in</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => { haptic(); setIsWalkin(false); }}
+                  style={[styles.togglePill, !isWalkin && styles.togglePillActive]}
+                >
+                  <Icon source="account-search-outline" size={12} color={!isWalkin ? colors.primary : colors.textMuted} />
+                  <Text style={[styles.togglePillText, !isWalkin && styles.togglePillTextActive]}>Search</Text>
+                </Pressable>
               </View>
             </View>
 
@@ -236,14 +248,14 @@ export function TakePayment() {
                 ) : (
                   <View style={styles.selectedCustomerCard}>
                      <View style={styles.customerRow}>
-                        <View style={styles.customerAvatar}>
-                          <Text style={styles.customerAvatarText}>
+                        <View style={[styles.customerAvatar, styles.customerAvatarTint]}>
+                          <Text style={styles.customerAvatarTextTint}>
                             {selectedCustomer.name[0].toUpperCase()}
                           </Text>
                         </View>
                         <View style={styles.flex1}>
-                           <Text style={styles.customerName}>{selectedCustomer.name}</Text>
-                           <Text style={styles.customerPhone}>
+                           <Text style={styles.customerNameText}>{selectedCustomer.name}</Text>
+                           <Text style={styles.customerPhoneText}>
                              {selectedCustomer.phone}
                              {orderId ? " • Linked Order" : dmId ? " • Linked Delivery Memo" : ""}
                            </Text>
@@ -277,16 +289,16 @@ export function TakePayment() {
               </View>
             ) : (
               <View style={styles.customerRow}>
-                <View style={styles.customerAvatar}>
-                  <Text style={styles.customerAvatarText}>W</Text>
+                <View style={[styles.customerAvatar, styles.walkinAvatar]}>
+                  <Text style={styles.customerAvatarTextTint}>W</Text>
                 </View>
                 <View style={styles.flex1}>
-                  <Text style={styles.customerName}>Walk-in Customer</Text>
-                  <Text style={styles.customerPhone}>No linked profile</Text>
+                  <Text style={styles.customerNameText}>Walk-in Customer</Text>
+                  <Text style={styles.customerPhoneText}>No linked profile</Text>
                 </View>
               </View>
             )}
-          </LinearGradient>
+          </View>
 
           {/* Amount Received Display (Digital POS Theme) */}
           <View style={styles.amountDisplayContainer}>
@@ -564,10 +576,13 @@ const styles = StyleSheet.create({
   customerCard: {
     marginHorizontal: spacing.lg,
     marginTop: spacing.md,
-    borderRadius: 24,
-    padding: spacing.lg,
+    borderRadius: radius.xl,
+    padding: spacing.md,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
     gap: spacing.md,
-    ...shadow.md,
+    ...shadow.sm,
   },
   customerHeader: {
     flexDirection: 'row',
@@ -577,25 +592,44 @@ const styles = StyleSheet.create({
   customerLabel: {
     fontSize: 10,
     fontWeight: fontWeight.bold,
-    color: 'rgba(255, 255, 255, 0.65)',
+    color: colors.textMuted,
     textTransform: 'uppercase',
     letterSpacing: 1,
   },
-  walkinToggleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
+  toggleRow: {
+    flexDirection: "row",
+    backgroundColor: colors.surfaceOffset,
+    borderRadius: radius.full,
+    padding: 2,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
-  walkinToggleLabel: {
-    color: 'white',
-    fontSize: fontSize.xs,
+  togglePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: radius.full,
+  },
+  togglePillActive: {
+    backgroundColor: colors.surface,
+    ...shadow.sm,
+  },
+  togglePillText: {
+    fontSize: 11,
+    fontWeight: fontWeight.semibold,
+    color: colors.textMuted,
+  },
+  togglePillTextActive: {
+    color: colors.primary,
     fontWeight: fontWeight.bold,
   },
   customerSelection: {
     gap: spacing.sm,
   },
   searchBar: {
-    backgroundColor: 'rgba(255, 255, 255, 0.95)',
+    backgroundColor: colors.surfaceOffset,
     borderWidth: 0,
     height: 44,
   },
@@ -612,14 +646,14 @@ const styles = StyleSheet.create({
     ...shadow.md,
   },
   selectedCustomerCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    backgroundColor: colors.surfaceOffset,
     padding: spacing.md,
     borderRadius: radius.lg,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.25)',
+    borderColor: colors.border,
   },
   customerRow: {
     flexDirection: 'row',
@@ -631,24 +665,30 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1.5,
-    borderColor: 'rgba(255, 255, 255, 0.4)',
   },
-  customerAvatarText: {
-    color: 'white',
+  customerAvatarTint: {
+    backgroundColor: colors.primaryLight,
+    borderColor: "rgba(30,64,175,0.1)",
+  },
+  walkinAvatar: {
+    backgroundColor: colors.successLight,
+    borderColor: "rgba(22,163,74,0.1)",
+  },
+  customerAvatarTextTint: {
+    color: colors.primary,
     fontWeight: fontWeight.bold,
     fontSize: fontSize.md,
   },
-  customerName: {
-    color: 'white',
+  customerNameText: {
+    color: colors.textPrimary,
     fontWeight: fontWeight.extrabold,
     fontSize: fontSize.md,
   },
-  customerPhone: {
-    color: 'rgba(255, 255, 255, 0.75)',
+  customerPhoneText: {
+    color: colors.textSecondary,
     fontSize: fontSize.xs,
     marginTop: 2,
   },
@@ -670,18 +710,18 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.lg,
     marginTop: spacing.md,
     marginBottom: spacing.md,
-    backgroundColor: '#0f172a', // Premium deep slate dark panel
-    borderWidth: 1.5,
-    borderColor: '#334155', // Slate 700 border
-    borderRadius: 24,
-    ...shadow.md,
+    backgroundColor: colors.surfaceOffset, // Light premium panel
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.xl,
+    ...shadow.sm,
   },
   amountCurrency: {
     fontSize: 10,
-    fontWeight: fontWeight.black,
-    color: '#94a3b8', // Soft slate
+    fontWeight: fontWeight.bold,
+    color: colors.textMuted,
     letterSpacing: 1.5,
-    marginBottom: 6,
+    marginBottom: 4,
     textTransform: 'uppercase',
   },
   amountDisplayRow: {
@@ -692,20 +732,20 @@ const styles = StyleSheet.create({
   amountSymbol: {
     fontSize: 24,
     fontWeight: fontWeight.bold,
-    color: colors.primaryMid, // Glowing green symbol
+    color: colors.primary, // Clean green symbol
     marginRight: 4,
     marginTop: 2,
   },
   amountValue: {
     fontSize: 38,
     fontWeight: fontWeight.black,
-    color: '#ffffff', // High contrast white
+    color: colors.textPrimary, // Charcoal black text
     letterSpacing: -0.5,
   },
   blinkingCursor: {
     fontSize: 34,
     fontWeight: fontWeight.regular,
-    color: colors.primaryMid,
+    color: colors.primary,
     marginLeft: 2,
     opacity: 0.8,
   },
