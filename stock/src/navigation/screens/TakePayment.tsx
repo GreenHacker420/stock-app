@@ -17,7 +17,9 @@ import {
   Divider,
   Switch,
   SegmentedButtons,
-  TextInput
+  TextInput,
+  Portal,
+  Dialog
 } from "react-native-paper";
 import { useRoute } from "@react-navigation/native";
 import { useQuery } from "@tanstack/react-query";
@@ -26,7 +28,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useDebounce } from "use-debounce";
 
 import { useShopsQuery } from "../../hooks/useShops";
-import { useCustomersQuery } from "../../hooks/useCustomers";
+import { useCustomersQuery, useCreateCustomerMutation } from "../../hooks/useCustomers";
 import { useAddPaymentMutation } from "../../hooks/usePayments";
 import { useAuthStore } from "../../auth/auth-store";
 import { useNetworkStatus } from "../../hooks/useNetworkStatus";
@@ -101,6 +103,51 @@ export function TakePayment() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successVisible, setSuccessVisible] = useState(false);
   const [showMetadata, setShowMetadata] = useState(false);
+
+  // Quick Customer Creation States
+  const [quickCreateVisible, setQuickCreateVisible] = useState(false);
+  const [newCustName, setNewCustName] = useState("");
+  const [newCustPhone, setNewCustPhone] = useState("");
+  const [newCustGstin, setNewCustGstin] = useState("");
+
+  const createCustomerMutation = useCreateCustomerMutation();
+
+  const handleOpenQuickCreate = () => {
+    haptic();
+    const query = searchQuery.trim();
+    const isPhoneNumber = /^\d{5,15}$/.test(query); // 5 to 15 digits
+    if (isPhoneNumber) {
+      setNewCustPhone(query);
+      setNewCustName("");
+    } else {
+      setNewCustName(query);
+      setNewCustPhone("");
+    }
+    setNewCustGstin("");
+    setQuickCreateVisible(true);
+  };
+
+  const handleSaveQuickCustomer = () => {
+    if (!newCustName.trim()) {
+      Alert.alert("Required", "Firm Name is required.");
+      return;
+    }
+    createCustomerMutation.mutate({
+      name: newCustName.trim(),
+      phone: newCustPhone.trim() || undefined,
+      gstin: newCustGstin.trim() || undefined,
+    }, {
+      onSuccess: (newCust: any) => {
+        haptic("medium");
+        setCustomerId(newCust.id);
+        setSearchQuery("");
+        setQuickCreateVisible(false);
+      },
+      onError: (err: any) => {
+        Alert.alert("Error", err.message || "Failed to create customer");
+      }
+    });
+  };
 
   const shopsQuery = useShopsQuery();
   const activeShop = shopsQuery.data?.find(s => s.id === activeShopId);
@@ -284,6 +331,14 @@ export function TakePayment() {
                         right={props => <List.Icon {...props} icon="account-check-outline" color={colors.primary} />}
                       />
                     ))}
+                    {filteredCustomers.length > 0 && <Divider />}
+                    <List.Item
+                      title={`+ Add "${searchQuery}"`}
+                      description="Create new customer profile"
+                      onPress={handleOpenQuickCreate}
+                      titleStyle={{ color: colors.primary, fontWeight: fontWeight.bold }}
+                      left={props => <List.Icon {...props} icon="account-plus-outline" color={colors.primary} />}
+                    />
                   </View>
                 ) : null}
               </View>
@@ -528,6 +583,64 @@ export function TakePayment() {
           </View>
         )}
       </KeyboardAvoidingView>
+
+      {/* Quick Create Customer Dialog */}
+      <Portal>
+        <Dialog
+          visible={quickCreateVisible}
+          onDismiss={() => setQuickCreateVisible(false)}
+          style={styles.dialog}
+        >
+          <Dialog.Title style={styles.dialogTitle}>Quick Add Customer</Dialog.Title>
+          <Dialog.Content style={styles.dialogContent}>
+            <TextInput
+              label="Firm Name * (Required)"
+              mode="outlined"
+              value={newCustName}
+              onChangeText={setNewCustName}
+              style={styles.dialogInput}
+              activeOutlineColor={colors.primary}
+              outlineColor={colors.border}
+            />
+            <TextInput
+              label="Phone Number (Optional)"
+              mode="outlined"
+              keyboardType="phone-pad"
+              value={newCustPhone}
+              onChangeText={setNewCustPhone}
+              style={styles.dialogInput}
+              activeOutlineColor={colors.primary}
+              outlineColor={colors.border}
+            />
+            <TextInput
+              label="GSTIN (Optional)"
+              mode="outlined"
+              autoCapitalize="characters"
+              value={newCustGstin}
+              onChangeText={setNewCustGstin}
+              style={styles.dialogInput}
+              activeOutlineColor={colors.primary}
+              outlineColor={colors.border}
+            />
+          </Dialog.Content>
+          <Dialog.Actions style={styles.dialogActions}>
+            <Button
+              variant="ghost"
+              label="Cancel"
+              onPress={() => setQuickCreateVisible(false)}
+              style={styles.dialogBtn}
+            />
+            <Button
+              variant="primary"
+              label="Create & Select"
+              onPress={handleSaveQuickCustomer}
+              loading={createCustomerMutation.isPending}
+              disabled={createCustomerMutation.isPending || !newCustName.trim()}
+              style={styles.dialogBtn}
+            />
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
 
       <SuccessModal
         visible={successVisible}
@@ -1002,6 +1115,31 @@ const styles = StyleSheet.create({
     transform: [{ scale: 0.98 }],
   },
   flex1: {
+    flex: 1,
+  },
+  dialog: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+  },
+  dialogTitle: {
+    fontSize: 18,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  dialogContent: {
+    gap: spacing.md,
+    paddingTop: spacing.xs,
+  },
+  dialogInput: {
+    backgroundColor: colors.surface,
+    height: 48,
+  },
+  dialogActions: {
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.md,
+    gap: spacing.sm,
+  },
+  dialogBtn: {
     flex: 1,
   },
 });
