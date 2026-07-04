@@ -1,7 +1,13 @@
 import type { QueryClient } from "@tanstack/react-query";
-import { API_BASE_URL } from "../api/client";
+import { apiRequest } from "../api/client";
 import { handleDomainEvent, type DomainEvent } from "./domainEvents";
 import { getDomainEventCursor, setDomainEventCursor } from "./domainEventCursor";
+import {
+  doesReadModelBatchNeedRefresh,
+  getReadModelReconciliationCursor,
+  hydrateReadModelForShop,
+  refreshReadModelBootstrap,
+} from "../local/read-model/read-model-coordinator";
 
 // ─── Throttle / In-flight guard ──────────────────────────────────────────────
 
@@ -46,27 +52,23 @@ async function fetchMissedEvents(
   after: string | null,
   token: string,
 ): Promise<ReconcileResponse> {
-  let url = `${API_BASE_URL}/sync/domain-events?shopId=${encodeURIComponent(shopId)}&limit=100`;
+  let url = `/sync/domain-events?shopId=${encodeURIComponent(shopId)}&limit=100`;
   if (after) {
     url += `&after=${encodeURIComponent(after)}`;
   }
-  const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!res.ok) {
-    throw new Error(`Reconciliation HTTP ${res.status}`);
-  }
-  return res.json() as Promise<ReconcileResponse>;
+  const data = await apiRequest<ReconcileResponse["data"]>(url, { token });
+  return { success: true, data };
 }
 
 // ─── Main reconciliation function ────────────────────────────────────────────
 export async function reconcileDomainEventsForShop(
+  userId: string,
   shopId: string,
   token: string,
   queryClient: QueryClient,
   currentDeviceId?: string | null,
 ): Promise<"processed" | "throttled" | "in-flight" | "error"> {
-  if (!shopId || !token) return "error";
+  if (!userId || !shopId || !token) return "error";
   if (isThrottled(shopId)) return "throttled";
   if (inFlight.has(shopId)) return "in-flight";
 
@@ -74,35 +76,44 @@ export async function reconcileDomainEventsForShop(
   lastReconcileAt.set(shopId, Date.now());
 
   try {
-    const cursor = await getDomainEventCursor(shopId);
-    const response = await fetchMissedEvents(shopId, cursor, token);
+    await hydrateReadModelForShop({ userId, shopId, token, queryClient, reason: "bootstrap" });
 
-    if (!response.success || !Array.isArray(response.data?.events)) {
-      console.warn("[reconcile] unexpected response shape for shop", shopId);
-      invalidateCriticalQueriesForShop(queryClient, shopId);
-      return "error";
+    let cursor = await getDomainEventCursor(userId, shopId);
+    if (!cursor) {
+      cursor = await getReadModelReconciliationCursor(userId, shopId);
     }
 
-    const { events, nextCursor } = response.data;
+    for (let page = 0; page < 20; page += 1) {
+      const response = await fetchMissedEvents(shopId, cursor, token);
 
-    console.log("[reconcile] processing", events.length, "events for shop", shopId, "cursor:", cursor ?? "none");
+      if (!response.success || !Array.isArray(response.data?.events)) {
+        console.warn("[reconcile] unexpected response shape for shop", shopId);
+        invalidateCriticalQueriesForShop(queryClient, shopId);
+        return "error";
+      }
 
-    for (const event of events) {
-      try {
-	        handleDomainEvent(queryClient, event, currentDeviceId);
-	        const eventCursor = event.createdAt ?? event.updatedAt;
-	        if (eventCursor) {
-	          await setDomainEventCursor(shopId, eventCursor);
-	        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.warn("[reconcile] event processing failed, stopping at eventId", event?.eventId, "—", msg);
+      const { events, nextCursor } = response.data;
+
+      console.log("[reconcile] processing", events.length, "events for shop", shopId, "cursor:", cursor ?? "none");
+
+      for (const event of events) {
+        if (event?.shopId !== shopId) continue;
+        handleDomainEvent(queryClient, event, currentDeviceId);
+      }
+
+      if (doesReadModelBatchNeedRefresh(events, shopId)) {
+        await refreshReadModelBootstrap({ userId, shopId, token, queryClient, reason: "reconciliation" });
+        return "processed";
+      }
+
+      if (nextCursor) {
+        await setDomainEventCursor(userId, shopId, nextCursor);
+      }
+
+      if (!nextCursor || nextCursor === cursor || events.length < 100) {
         break;
       }
-    }
-
-    if (nextCursor) {
-      await setDomainEventCursor(shopId, nextCursor);
+      cursor = nextCursor;
     }
 
     return "processed";

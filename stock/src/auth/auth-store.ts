@@ -138,7 +138,9 @@ function createAuthStore() {
     await deleteToken("shopcontrol_last_user_name");
     await deleteToken("shopcontrol_last_user_phone");
 	    const shopState = useShopStore.getState();
-	    await clearDomainEventCursors(Object.values(shopState.lastUsedShopByUserId));
+	    if (currentUserId) {
+	      await clearDomainEventCursors(currentUserId, Object.values(shopState.lastUsedShopByUserId));
+	    }
     clearRuntimeQueryState();
     if (currentUserId) {
       await clearDomainReadCacheForUser(currentUserId);

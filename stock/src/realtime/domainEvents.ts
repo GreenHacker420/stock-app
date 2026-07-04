@@ -14,7 +14,8 @@ export type DomainEvent = {
     | "cashSession"
     | "approval"
     | "dashboard"
-    | "notification";
+    | "notification"
+    | "category";
   action: string;
   entityId: string;
   actorUserId: string;
@@ -71,6 +72,11 @@ export function invalidateForDomainEvent(queryClient: QueryClient, event: Domain
     invalidate(["current-stock", shopId]);
     invalidate(["stock-movements", shopId]);
     invalidate(["owner-dashboard", { shopId }]);
+  }
+
+  if (event.entity === "category") {
+    invalidate(["categories", shopId]);
+    invalidate(["items", shopId]);
   }
 
   if (event.entity === "customer") {

@@ -11,6 +11,7 @@ export const queryKeys = {
   order: (id: string) => ["order", id] as const,
   customers: (shopId: string) => ["customers", shopId] as const,
   customer: (id: string) => ["customer", id] as const,
+  readModels: { bootstrap: (shopId: string) => ["read-models", "bootstrap", shopId] as const },
   payments: (shopId: string, status?: string) => ["payments", shopId, { status }] as const,
   currentCashSession: (shopId: string) => ["current-cash-session", shopId] as const,
   cashSessions: (shopId: string) => ["cash-sessions", shopId] as const,

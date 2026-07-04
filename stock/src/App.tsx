@@ -12,7 +12,7 @@ import { ActivityIndicator, PaperProvider, Text } from 'react-native-paper';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useAuthStore } from './auth/auth-store';
 import { useShopStore } from './auth/shop-store';
-import { runDataHardeningStorageMigration } from './auth/mmkv-storage';
+import { runDataHardeningStorageMigration, runEventSequenceCursorMigration } from './auth/mmkv-storage';
 import { initializeDomainReadCache } from './auth/domain-cache';
 import { OwnerNavigation, StaffNavigation } from './navigation';
 import { navigationRef } from './navigation/navigation-ref';
@@ -82,6 +82,7 @@ export function App() {
 
   React.useEffect(() => {
     runDataHardeningStorageMigration();
+    runEventSequenceCursorMigration();
     restoreSession();
   }, [restoreSession]);
 

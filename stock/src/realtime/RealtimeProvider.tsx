@@ -8,9 +8,14 @@ import { createRealtimeSocket, type RealtimeEvent } from "./socket";
 import { NotificationToast } from "../components/ui/NotificationToast";
 import { getDeviceInstallationId } from "../notifications/device-identity";
 import { handleDomainEvent, type DomainEvent } from "./domainEvents";
-import { setDomainEventCursor } from "./domainEventCursor";
+import { getDomainEventCursor } from "./domainEventCursor";
 import { reconcileDomainEventsForShop } from "./domainEventReconciliation";
-import { mmkvStorage } from "../auth/mmkv-storage";
+import {
+  activateReadModelContext,
+  deactivateReadModelContext,
+  handleReadModelLiveEvent,
+  hydrateReadModelForShop,
+} from "../local/read-model/read-model-coordinator";
 
 /**
  * Legacy Socket.IO events for non-migrated core paths.
@@ -30,6 +35,7 @@ const legacyEvents: RealtimeEvent[] = [
 
 export function RealtimeProvider({ children }: PropsWithChildren) {
   const token = useAuthStore((state) => state.token);
+  const userId = useAuthStore((state) => state.user?.id);
   const activeShopId = useShopStore((state) => state.activeShopId);
   const queryClient = useQueryClient();
   const socketRef = useRef<Socket | null>(null);
@@ -90,21 +96,26 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
   };
 
   useEffect(() => {
-    if (!token || !activeShopId) return;
+    if (!token || !userId || !activeShopId) return;
 
     let cancelled = false;
     let socket: Socket | null = null;
     let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
     let deviceIdResolved = "";
 
+    activateReadModelContext(userId, activeShopId);
+    void hydrateReadModelForShop({ userId, shopId: activeShopId, token, queryClient, reason: "bootstrap" }).catch((error) => {
+      if (__DEV__) console.warn("[read-model] bootstrap failed", error);
+    });
+
     const reconcile = () => {
       if (!token || !activeShopId || !deviceIdResolved) return;
-      void reconcileDomainEventsForShop(activeShopId, token, queryClient, deviceIdResolved);
+      void reconcileDomainEventsForShop(userId, activeShopId, token, queryClient, deviceIdResolved);
     };
 
-    const requestSocketSync = () => {
+    const requestSocketSync = async () => {
       if (!socket?.connected) return;
-      const since = mmkvStorage.getItem(`domain_event_cursor:${activeShopId}`) ?? undefined;
+      const since = await getDomainEventCursor(userId, activeShopId) ?? undefined;
       socket.emit("sync:request", { shopId: activeShopId, since });
     };
 
@@ -121,7 +132,7 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
       emitPresence(nextAppState);
       if (nextAppState === "active") {
         // App returned to foreground — request missed events from both paths
-        requestSocketSync();
+        void requestSocketSync();
         reconcile();
       }
     };
@@ -137,7 +148,7 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
       socket.on("connect", () => {
         socket?.emit("shop:join", { shopId: activeShopId });
         emitPresence();
-        requestSocketSync();
+        void requestSocketSync();
         reconcile();
       });
 
@@ -149,12 +160,17 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
 
       socket.on("domain:event", (event: DomainEvent) => {
 	        const handled = handleDomainEvent(queryClient, event, deviceId);
+	        void handleReadModelLiveEvent({
+	          userId,
+	          shopId: activeShopId,
+	          token,
+	          queryClient,
+	          reason: "realtime",
+	          event,
+	        }).catch((error) => {
+	          if (__DEV__) console.warn("[read-model] live refresh failed", error);
+	        });
 	        if (handled) {
-	          const eventCursor = event.createdAt ?? event.updatedAt;
-	          if (eventCursor) {
-	            // Advance cursor synchronously in MMKV so next reconnect sync starts correctly
-	            void setDomainEventCursor(activeShopId, eventCursor);
-	          }
           if (event.notification) {
             setToast({
               visible: true,
@@ -166,11 +182,7 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
         }
       });
 
-      socket.on("sync:complete", ({ nextCursor }: { shopId: string; count: number; nextCursor: string | null }) => {
-        if (nextCursor) {
-          void setDomainEventCursor(activeShopId, nextCursor);
-        }
-      });
+      socket.on("sync:complete", () => {});
 
       // Legacy events for non-migrated core paths
       for (const event of legacyEvents) {
@@ -201,8 +213,9 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
       }
       socket?.disconnect();
       socketRef.current = null;
+      deactivateReadModelContext(userId, activeShopId);
     };
-  }, [activeShopId, invalidationMap, queryClient, token]);
+  }, [activeShopId, invalidationMap, queryClient, token, userId]);
 
   return (
     <>

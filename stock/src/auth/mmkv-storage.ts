@@ -2,6 +2,7 @@ import { Platform } from "react-native";
 import { createMMKV } from "react-native-mmkv";
 import { StateStorage } from "zustand/middleware";
 import { DATA_HARDENING_MIGRATION_MARKER, getUnsafeLegacyStorageKeys } from "./storage-migration-core";
+import { EVENT_SEQUENCE_MIGRATION_MARKER, getLegacyDomainEventCursorKeys } from "../local/read-model/read-model-cache-core";
 
 interface SimpleStorage {
   set: (key: string, value: string) => void;
@@ -68,6 +69,16 @@ export function runDataHardeningStorageMigration() {
     storage.remove(key);
   }
   storage.set(DATA_HARDENING_MIGRATION_MARKER, "done");
+}
+
+export function runEventSequenceCursorMigration() {
+  if (storage.getString(EVENT_SEQUENCE_MIGRATION_MARKER) === "done") return;
+
+  const keys = storage.getAllKeys?.() ?? [];
+  for (const key of getLegacyDomainEventCursorKeys(keys)) {
+    storage.remove(key);
+  }
+  storage.set(EVENT_SEQUENCE_MIGRATION_MARKER, "done");
 }
 
 export { DATA_HARDENING_MIGRATION_MARKER, getUnsafeLegacyStorageKeys };
