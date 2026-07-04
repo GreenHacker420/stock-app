@@ -19,5 +19,5 @@ Known pre-existing functional blockers, not introduced by QA-01:
 
 | Defect ID | Severity | Scenario | Reproduction | Root Cause | Fix | Regression Test | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| BLOCKER-FUNCTIONAL-01 | P1 | `OrderDetail` convert-to-sale path can report fake success | Trigger convert-to-sale path in `OrderDetail.tsx` | Placeholder `Promise.resolve({})` conversion mutation | Separate functional implementation required | Add integration test for real conversion mutation | OPEN |
-| BLOCKER-FUNCTIONAL-02 | P1 | `DailySummary` PDF export fake success path | Trigger PDF export flow | Pre-existing fake success behavior | Separate functional implementation required | Add PDF export integration test | OPEN |
+| BLOCKER-FUNCTIONAL-01 | P1 | `OrderDetail` convert-to-sale path can report fake success | Trigger convert-to-sale path in `OrderDetail.tsx` | Placeholder `Promise.resolve({})` conversion mutation | Wired screen to existing `useConvertOrderToSaleMutation`; success appears only after server mutation success | `RELEASE-01 functional blocker closure contracts` source guard | CLOSED |
+| BLOCKER-FUNCTIONAL-02 | P1 | `DailySummary` PDF export fake success path | Trigger PDF export flow | Pre-existing fake success behavior | Added real local PDF generation/share helper and removed immediate success path | `RELEASE-01 functional blocker closure contracts` source guard | CLOSED |

@@ -2,7 +2,7 @@ import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import { Alert, Platform } from "react-native";
 import qrcode from "qrcode-generator";
-import { type Sale } from "../api/client";
+import { type DailySummary, type Sale, type Shop } from "../api/client";
 
 const escapeHtml = (value: unknown): string => {
   return String(value ?? "")
@@ -84,6 +84,12 @@ interface ShareInvoiceOptions {
     upiName?: string | null;
   } | null;
   signatureBase64?: string; // Optional customer signature image base64
+}
+
+interface ShareDailySummaryOptions {
+  summary: DailySummary;
+  shop?: Pick<Shop, "name" | "code" | "city" | "address" | "phone" | "gstin"> | null;
+  reportDate: string;
 }
 
 // Code 128 Barcode patterns for 0-106 (Start A, B, C, Stop)
@@ -750,6 +756,241 @@ export async function shareSaleInvoicePdf(options: ShareInvoiceOptions): Promise
     console.error("Failed to generate or share PDF invoice:", error);
     Alert.alert("Export Failed", error?.message || "An error occurred while generating the PDF.");
   }
+}
+
+export async function generateDailySummaryHtml({ summary, shop, reportDate }: ShareDailySummaryOptions): Promise<string> {
+  const totalCollections =
+    toFiniteNumber(summary.totalCashCollected) +
+    toFiniteNumber(summary.totalUpiCollected) +
+    toFiniteNumber(summary.totalCardCollected) +
+    toFiniteNumber(summary.totalBankCollected) +
+    toFiniteNumber(summary.totalChequeReceived);
+  const expectedCash = toFiniteNumber(summary.expectedCash);
+  const actualCash = toFiniteNumber(summary.actualCash);
+  const cashDifference = actualCash - expectedCash;
+  const generatedAt = formatDate(new Date());
+  const dateLabel = formatDate(summary.summaryDate || reportDate);
+
+  const rows = [
+    ["Opening Cash", formatMoney(summary.openingCash)],
+    ["Expected Cash", formatMoney(summary.expectedCash)],
+    ["Actual Cash", formatMoney(summary.actualCash)],
+    ["Cash Difference", `${cashDifference >= 0 ? "+" : "-"}${formatMoney(Math.abs(cashDifference))}`],
+    ["Total Sales", formatMoney(summary.totalSales)],
+    ["Walk-in Sales", formatMoney(summary.walkinSales)],
+    ["Cash Collected", formatMoney(summary.totalCashCollected)],
+    ["UPI Collected", formatMoney(summary.totalUpiCollected)],
+    ["Card Collected", formatMoney(summary.totalCardCollected)],
+    ["Bank Collected", formatMoney(summary.totalBankCollected)],
+    ["Cheque Received", formatMoney(summary.totalChequeReceived)],
+    ["Credit Pending", formatMoney(summary.totalCreditPending)],
+    ["Total Collections", formatMoney(totalCollections)],
+    ["Sales Count", String(summary.salesCount ?? 0)],
+    ["Orders Created", String(summary.ordersCreatedCount ?? 0)],
+    ["Orders Dispatched", String(summary.ordersDispatchedCount ?? 0)],
+    ["Delivery Memos", String(summary.dmCreatedCount ?? 0)],
+    ["Expenses Count", String(summary.expenseCount ?? 0)],
+  ];
+
+  return `
+    <!DOCTYPE html>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>Daily Summary ${escapeHtml(dateLabel)}</title>
+        <style>
+          :root {
+            --ink: #111827;
+            --muted: #6b7280;
+            --line: #e5e7eb;
+            --accent: #16a34a;
+            --soft: #f8fafc;
+          }
+          * { box-sizing: border-box; }
+          body {
+            margin: 0;
+            padding: 32px;
+            color: var(--ink);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            background: #ffffff;
+          }
+          .header {
+            display: flex;
+            justify-content: space-between;
+            gap: 24px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid var(--line);
+          }
+          .shop-name {
+            margin: 0 0 6px;
+            font-size: 24px;
+            font-weight: 800;
+          }
+          .meta {
+            color: var(--muted);
+            font-size: 12px;
+            line-height: 1.5;
+          }
+          .report-box {
+            min-width: 190px;
+            padding: 14px;
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            background: var(--soft);
+            text-align: right;
+          }
+          .report-title {
+            margin: 0;
+            color: var(--accent);
+            font-size: 16px;
+            font-weight: 800;
+          }
+          .status {
+            display: inline-block;
+            margin-top: 8px;
+            padding: 4px 8px;
+            border-radius: 999px;
+            background: rgba(22, 163, 74, 0.1);
+            color: var(--accent);
+            font-size: 11px;
+            font-weight: 700;
+          }
+          .summary {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin: 24px 0;
+          }
+          .tile {
+            padding: 14px;
+            border: 1px solid var(--line);
+            border-radius: 14px;
+          }
+          .tile-label {
+            color: var(--muted);
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+          }
+          .tile-value {
+            margin-top: 6px;
+            font-size: 20px;
+            font-weight: 800;
+          }
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            overflow: hidden;
+          }
+          th {
+            text-align: left;
+            padding: 12px 14px;
+            color: var(--muted);
+            background: var(--soft);
+            border-bottom: 1px solid var(--line);
+            font-size: 11px;
+            text-transform: uppercase;
+          }
+          td {
+            padding: 12px 14px;
+            border-bottom: 1px solid var(--line);
+            font-size: 13px;
+          }
+          tr:last-child td { border-bottom: 0; }
+          td:last-child {
+            text-align: right;
+            font-weight: 700;
+          }
+          .footer {
+            margin-top: 22px;
+            color: var(--muted);
+            font-size: 11px;
+          }
+        </style>
+      </head>
+      <body>
+        <section class="header">
+          <div>
+            <h1 class="shop-name">${escapeHtml(shop?.name || "Shop")}</h1>
+            <div class="meta">
+              ${escapeHtml([shop?.code, shop?.city].filter(Boolean).join(" • "))}<br />
+              ${escapeHtml(shop?.address || "")}<br />
+              ${shop?.phone ? `Phone: ${escapeHtml(shop.phone)}<br />` : ""}
+              ${shop?.gstin ? `GSTIN: ${escapeHtml(shop.gstin)}` : ""}
+            </div>
+          </div>
+          <div class="report-box">
+            <p class="report-title">Daily Summary</p>
+            <div class="meta">${escapeHtml(dateLabel)}</div>
+            <span class="status">${escapeHtml(summary.status)}</span>
+          </div>
+        </section>
+
+        <section class="summary">
+          <div class="tile">
+            <div class="tile-label">Sales</div>
+            <div class="tile-value">${formatMoney(summary.totalSales)}</div>
+          </div>
+          <div class="tile">
+            <div class="tile-label">Collections</div>
+            <div class="tile-value">${formatMoney(totalCollections)}</div>
+          </div>
+          <div class="tile">
+            <div class="tile-label">Cash on Hand</div>
+            <div class="tile-value">${formatMoney(summary.actualCash)}</div>
+          </div>
+        </section>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Metric</th>
+              <th>Value</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows
+              .map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${escapeHtml(value)}</td></tr>`)
+              .join("")}
+          </tbody>
+        </table>
+
+        <div class="footer">
+          Generated locally from app data at ${escapeHtml(generatedAt)}.
+        </div>
+      </body>
+    </html>
+  `;
+}
+
+export async function shareDailySummaryPdf(options: ShareDailySummaryOptions): Promise<string> {
+  const html = await generateDailySummaryHtml(options);
+
+  if (Platform.OS === "web") {
+    await printHtmlOnWeb(html);
+    return "web-print";
+  }
+
+  const result = await Print.printToFileAsync({ html });
+  const uri = result.uri;
+  if (!uri) {
+    throw new Error("PDF generation did not return a file URI.");
+  }
+
+  const isSharingAvailable = await Sharing.isAvailableAsync();
+  if (!isSharingAvailable) {
+    throw new Error("Native sharing is not available on this device.");
+  }
+
+  await Sharing.shareAsync(uri, {
+    mimeType: "application/pdf",
+    dialogTitle: `Daily Summary - ${options.reportDate}`,
+    UTI: "com.adobe.pdf",
+  });
+
+  return uri;
 }
 
 export async function printSaleInvoiceDirect(options: ShareInvoiceOptions): Promise<void> {

@@ -466,3 +466,26 @@ test.describe("DATA-03 realtime read-model coherence contracts", () => {
     assert.ok(items.includes("writeCursor: false"));
   });
 });
+
+test.describe("RELEASE-01 functional blocker closure contracts", () => {
+  test("OrderDetail uses the real order-to-sale mutation and no fake conversion success path", () => {
+    const source = readStock("navigation/screens/OrderDetail.tsx");
+
+    assert.ok(source.includes("useConvertOrderToSaleMutation"));
+    assert.ok(source.includes("convertSaleMutation.mutate"));
+    assert.ok(!source.includes("Promise.resolve({})"));
+    assert.ok(!source.includes("Conversion to Sale logic here"));
+  });
+
+  test("DailySummary export calls the real PDF generator before showing success", () => {
+    const source = readStock("navigation/screens/DailySummary.tsx");
+    const helper = readStock("utils/pdf.ts");
+
+    assert.ok(source.includes("shareDailySummaryPdf"));
+    assert.ok(source.indexOf("await shareDailySummaryPdf") < source.indexOf('setSuccessTitle("PDF Exported")'));
+    assert.ok(!source.includes('setSuccessMessage("Daily Summary PDF has been exported successfully!")'));
+    assert.ok(helper.includes("export async function shareDailySummaryPdf"));
+    assert.ok(helper.includes("Print.printToFileAsync"));
+    assert.ok(helper.includes("Sharing.shareAsync"));
+  });
+});

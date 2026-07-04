@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from "react";
 import {
+  Alert,
   ScrollView,
   View,
   StyleSheet,
@@ -15,9 +16,13 @@ import {
   TextInput
 } from "react-native-paper";
 import { useRoute } from "@react-navigation/native";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import { useOrderQuery, useUpdateOrderStatusMutation, useCancelOrderMutation } from "../../hooks/useOrders";
+import {
+  useOrderQuery,
+  useUpdateOrderStatusMutation,
+  useCancelOrderMutation,
+  useConvertOrderToSaleMutation,
+} from "../../hooks/useOrders";
 import { useAddDeliveryMemoMutation } from "../../hooks/useShops";
 import { useStaffQuery } from "../../hooks/useShops";
 import { DetailScreen } from "../../components/layout/DetailScreen";
@@ -28,13 +33,12 @@ import { Button } from "../../components/ui/Button";
 import { SuccessModal } from "../../components/ui/SuccessModal";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { useAuthStore } from "../../auth/auth-store";
-import { navigate, goBack } from "../navigation-ref";
+import { goBack } from "../navigation-ref";
 
 export function OrderDetail() {
   const user = useAuthStore((state) => state.user);
   const route = useRoute<any>();
   const orderId = route.params?.orderId;
-  const queryClient = useQueryClient();
 
   const orderQuery = useOrderQuery(orderId);
   const order = orderQuery.data;
@@ -43,9 +47,7 @@ export function OrderDetail() {
   const updateStatusMutation = useUpdateOrderStatusMutation();
   const cancelOrderMutation = useCancelOrderMutation();
   const createDmMutation = useAddDeliveryMemoMutation();
-  const convertSaleMutation = useMutation({
-    mutationFn: (data: any) => Promise.resolve({}), // Placeholder for conversion
-  });
+  const convertSaleMutation = useConvertOrderToSaleMutation();
 
   // Modal States
   const [assignModalVisible, setAssignModalVisible] = useState(false);
@@ -126,13 +128,31 @@ export function OrderDetail() {
           setSuccessVisible(true);
         }
       });
-    } else {
-      // Conversion to Sale logic here
-      setDisburseModalVisible(false);
-      setSuccessTitle("Order Converted");
-      setSuccessMessage("Order has been successfully converted to a Sale.");
-      setSuccessVisible(true);
+      return;
     }
+
+    const rawAmountPaid = amountPaid.trim();
+    const paidNow = Number(rawAmountPaid || 0);
+    if (rawAmountPaid && (!Number.isFinite(paidNow) || paidNow < 0)) {
+      Alert.alert("Invalid payment", "Enter a valid amount paid, or leave it blank to convert as unpaid.");
+      return;
+    }
+
+    convertSaleMutation.mutate({
+      orderId,
+      data: {
+        payments: paidNow > 0 ? [{ paymentMode, amount: paidNow }] : undefined,
+      },
+    }, {
+      onSuccess: () => {
+        setDisburseModalVisible(false);
+        setAmountPaid("");
+        setPaymentMode("CASH");
+        setSuccessTitle("Order Converted");
+        setSuccessMessage("Order has been successfully converted to a sale.");
+        setSuccessVisible(true);
+      }
+    });
   };
 
   if (orderQuery.isLoading) {

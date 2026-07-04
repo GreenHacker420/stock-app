@@ -1,5 +1,5 @@
 import { useEffect, useState, useMemo } from "react";
-import { View, ScrollView, StyleSheet } from "react-native";
+import { Alert, View, ScrollView, StyleSheet } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Text, Card, Icon, Divider, List } from "react-native-paper";
 import { useRoute } from "@react-navigation/native";
@@ -14,13 +14,15 @@ import { AmountBreakdown } from "../../components/ui/AmountBreakdown";
 import { LoadingState } from "../../components/feedback/LoadingState";
 import { SuccessModal } from "../../components/ui/SuccessModal";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from '../../theme';
-import { requireActiveShopId } from "../../hooks/useActiveShop";
+import { requireActiveShopId, useEnsureActiveShop } from "../../hooks/useActiveShop";
+import { shareDailySummaryPdf } from "../../utils/pdf";
 
 export function DailySummary() {
   const token = useAuthStore((state) => state.token);
   const { activeShopId } = useShopStore();
   const queryClient = useQueryClient();
   const route = useRoute<any>();
+  const { selectedShop } = useEnsureActiveShop();
 
   const today = new Date().toISOString().split('T')[0];
   const targetDate = route.params?.date || today;
@@ -29,6 +31,7 @@ export function DailySummary() {
   const [successVisible, setSuccessVisible] = useState(false);
   const [successTitle, setSuccessTitle] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const [isExportingPdf, setIsExportingPdf] = useState(false);
   
   const summaryQuery = useQuery({ 
     queryKey: targetId 
@@ -60,6 +63,29 @@ export function DailySummary() {
   const summary = summaryQuery.data;
   const isLocked = summary?.status === "LOCKED";
 
+  const handleExportPdf = async () => {
+    if (!summary) {
+      Alert.alert("Export unavailable", "Daily summary data is not available yet.");
+      return;
+    }
+
+    setIsExportingPdf(true);
+    try {
+      await shareDailySummaryPdf({
+        summary,
+        shop: selectedShop,
+        reportDate: targetDate,
+      });
+      setSuccessTitle("PDF Exported");
+      setSuccessMessage("Daily Summary PDF has been generated and shared successfully.");
+      setSuccessVisible(true);
+    } catch (error: any) {
+      Alert.alert("Export Failed", error?.message || "Unable to generate the daily summary PDF.");
+    } finally {
+      setIsExportingPdf(false);
+    }
+  };
+
   if (summaryQuery.isLoading) {
     return (
       <Screen>
@@ -83,11 +109,9 @@ export function DailySummary() {
           secondary={{
             label: "Export PDF",
             variant: "secondary",
-            onPress: () => {
-              setSuccessTitle("PDF Exported");
-              setSuccessMessage("Daily Summary PDF has been exported successfully!");
-              setSuccessVisible(true);
-            },
+            onPress: handleExportPdf,
+            disabled: !summary || isExportingPdf,
+            loading: isExportingPdf,
           }}
           primary={{
             label: isLocked ? "Report Locked" : "Lock Daily Summary",
