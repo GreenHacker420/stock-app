@@ -1,8 +1,7 @@
 import { Assets as NavigationAssets } from '@react-navigation/elements';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { ThemeProvider as RneThemeProvider, createTheme } from '@rneui/themed';
-import { focusManager, onlineManager, QueryClient } from '@tanstack/react-query';
-import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
+import { focusManager, onlineManager, QueryClientProvider } from '@tanstack/react-query';
 import { Asset } from 'expo-asset';
 import { createURL } from 'expo-linking';
 import * as SplashScreen from 'expo-splash-screen';
@@ -13,7 +12,8 @@ import { ActivityIndicator, PaperProvider, Text } from 'react-native-paper';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { useAuthStore } from './auth/auth-store';
 import { useShopStore } from './auth/shop-store';
-import { clientPersister } from './auth/mmkv-storage';
+import { runDataHardeningStorageMigration } from './auth/mmkv-storage';
+import { initializeDomainReadCache } from './auth/domain-cache';
 import { OwnerNavigation, StaffNavigation } from './navigation';
 import { navigationRef } from './navigation/navigation-ref';
 import { Login } from './navigation/screens/Login';
@@ -21,9 +21,8 @@ import { SelectShop } from './navigation/screens/SelectShop';
 import { RealtimeProvider } from './realtime/RealtimeProvider';
 import { navigationThemes, paperLightTheme } from './theme/paper';
 import { useNotificationSetup } from './notifications/FCMManager';
-import { useNetworkStatus } from './hooks/useNetworkStatus';
 import { useEnsureActiveShop } from './hooks/useActiveShop';
-import { warmOfflineCache } from './utils/mmkvCache';
+import { queryClient } from './query/queryClient';
 import NetInfo from '@react-native-community/netinfo';
 
 Asset.loadAsync([
@@ -36,20 +35,6 @@ Asset.loadAsync([
 SplashScreen.preventAutoHideAsync();
 
 const prefix = createURL('/');
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime:            5 * 60 * 1000,  // 5 minutes
-      gcTime:               24 * 60 * 60 * 1000, // 24 hours garbage collection (persists in MMKV)
-      retry:                2,
-      refetchOnWindowFocus: false,
-      refetchOnReconnect:   false,
-    },
-    mutations: {
-      retry: 1,
-    },
-  },
-});
 const paperSettings = {
   icon: ({ name, color, size, testID }: any) => (
     <MaterialCommunityIcons name={name as never} color={color ?? "#6b7280"} size={size} testID={testID} />
@@ -96,6 +81,7 @@ export function App() {
   const user = useAuthStore((state) => state.user);
 
   React.useEffect(() => {
+    runDataHardeningStorageMigration();
     restoreSession();
   }, [restoreSession]);
 
@@ -105,10 +91,7 @@ export function App() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <PersistQueryClientProvider
-          client={queryClient}
-          persistOptions={{ persister: clientPersister }}
-        >
+        <QueryClientProvider client={queryClient}>
           <PaperProvider theme={paperTheme} settings={paperSettings}>
             <RneThemeProvider theme={rneTheme}>
               <AppContent
@@ -119,7 +102,7 @@ export function App() {
               />
             </RneThemeProvider>
           </PaperProvider>
-        </PersistQueryClientProvider>
+        </QueryClientProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
@@ -137,6 +120,13 @@ function AppContent({
   prefix: string;
 }) {
   useNotificationSetup();
+
+  React.useEffect(() => {
+    if (!user?.id) return;
+    initializeDomainReadCache(user.id).catch((error) => {
+      if (__DEV__) console.warn("[domain-cache] initialization failed", error);
+    });
+  }, [user?.id]);
 
   if (isBootstrapping) {
     return <AppLoading />;
@@ -156,23 +146,14 @@ function AppContent({
 
 function AuthenticatedApp({ theme, prefix }: { theme: typeof navigationThemes.LightTheme; prefix: string }) {
   const user = useAuthStore((state) => state.user);
-  const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
   useEnsureActiveShop();
-  const network = useNetworkStatus();
 
   React.useEffect(() => {
     if (!activeShopId) {
       SplashScreen.hideAsync();
     }
   }, [activeShopId]);
-
-  React.useEffect(() => {
-    if (!activeShopId || !token || !network.isOnline) return;
-    warmOfflineCache(activeShopId, token).catch((error) => {
-      if (__DEV__) console.warn("[billing-cache] warmup failed", error);
-    });
-  }, [activeShopId, network.isOnline, token]);
 
   if (!activeShopId) {
     return <SelectShop />;

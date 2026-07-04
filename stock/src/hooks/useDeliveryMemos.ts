@@ -2,7 +2,6 @@ import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from "@tansta
 import { useAuthStore } from "../auth/auth-store";
 import { useShopStore } from "../auth/shop-store";
 import { fetchDeliveryMemos, fetchDeliveryMemo, createDeliveryMemo } from "../api/client";
-import { warmOfflineCache } from "../utils/mmkvCache";
 import { newIdempotencyKey } from "../utils/idempotency";
 import { requireActiveShopId } from "./useActiveShop";
 
@@ -69,7 +68,6 @@ export function useCreateDeliveryMemoMutation() {
       queryClient.invalidateQueries({ queryKey: ["stock-movements", activeShopId] });
       queryClient.invalidateQueries({ queryKey: ["items"] });
       queryClient.invalidateQueries({ queryKey: ["owner-dashboard"] });
-      if (activeShopId && token) warmOfflineCache(activeShopId, token).catch(() => {});
     },
   });
 }

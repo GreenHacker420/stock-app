@@ -4,6 +4,8 @@ import { ApiUser, fetchMe, login, truecallerLogin, truecallerOtpLogin } from "..
 import { useShopStore } from "./shop-store";
 import { deleteToken, getToken, setToken } from "./token-storage";
 import { clearDomainEventCursors } from "../realtime/domainEventCursor";
+import { clearDomainReadCacheForUser, destroyDomainReadCache } from "./domain-cache";
+import { clearRuntimeQueryState } from "../query/queryClient";
 
 const TOKEN_KEY = "shopcontrol_token";
 const QUICK_TOKEN_KEY = "shopcontrol_quick_token";
@@ -127,6 +129,7 @@ function createAuthStore() {
     }
   },
   async signOut() {
+    const currentUserId = get().user?.id;
     await deleteToken(TOKEN_KEY);
     await deleteToken(QUICK_TOKEN_KEY);
     await deleteToken(QUICK_PIN_HASH_KEY);
@@ -136,6 +139,12 @@ function createAuthStore() {
     await deleteToken("shopcontrol_last_user_phone");
 	    const shopState = useShopStore.getState();
 	    await clearDomainEventCursors(Object.values(shopState.lastUsedShopByUserId));
+    clearRuntimeQueryState();
+    if (currentUserId) {
+      await clearDomainReadCacheForUser(currentUserId);
+    } else {
+      destroyDomainReadCache();
+    }
 	    shopState.clearActiveShop();
     set({ token: null, user: null, isBootstrapping: false });
   },

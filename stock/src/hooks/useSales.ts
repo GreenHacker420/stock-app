@@ -4,7 +4,6 @@ import { useShopStore } from "../auth/shop-store";
 import { queryKeys } from "./query-keys";
 import { fetchSales, fetchSale, createSale, createWalkInSale, CreateSalePayload, updateSaleGst } from "../api/client";
 import { newIdempotencyKey } from "../utils/idempotency";
-import { warmOfflineCache } from "../utils/mmkvCache";
 import { requireActiveShopId } from "./useActiveShop";
 
 const SALES_PAGE_SIZE = 30;
@@ -82,7 +81,6 @@ export function useCreateSaleMutation() {
         queryClient.invalidateQueries({ queryKey: ["cash-sessions", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["current-cash-session", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["customers", activeShopId] });
-        if (token) warmOfflineCache(activeShopId, token).catch(() => {});
       }
     },
   });
@@ -106,7 +104,6 @@ export function useCreateWalkInSaleMutation() {
         queryClient.invalidateQueries({ queryKey: ["cash-sessions", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["current-cash-session", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["customers", activeShopId] });
-        if (token) warmOfflineCache(activeShopId, token).catch(() => {});
       }
     },
   });

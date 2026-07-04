@@ -1,12 +1,13 @@
 import { Platform } from "react-native";
 import { createMMKV } from "react-native-mmkv";
 import { StateStorage } from "zustand/middleware";
-import { Persister } from "@tanstack/react-query-persist-client";
+import { DATA_HARDENING_MIGRATION_MARKER, getUnsafeLegacyStorageKeys } from "./storage-migration-core";
 
 interface SimpleStorage {
   set: (key: string, value: string) => void;
   getString: (key: string) => string | undefined;
   remove: (key: string) => boolean;
+  getAllKeys?: () => string[];
 }
 
 let storage: SimpleStorage;
@@ -32,6 +33,12 @@ if (Platform.OS === "web") {
       }
       return false;
     },
+    getAllKeys: () => {
+      if (typeof window !== "undefined") {
+        return Object.keys(window.localStorage);
+      }
+      return [];
+    },
   };
 } else {
   storage = createMMKV({
@@ -51,20 +58,16 @@ export const mmkvStorage: StateStorage = {
   },
 };
 
-export const clientPersister: Persister = {
-  persistClient: async (client) => {
-    storage.set("react-query-cache", JSON.stringify(client));
-  },
-  restoreClient: async () => {
-    const cache = storage.getString("react-query-cache");
-    if (!cache) return undefined;
-    try {
-      return JSON.parse(cache);
-    } catch {
-      return undefined;
-    }
-  },
-  removeClient: async () => {
-    storage.remove("react-query-cache");
-  },
-};
+export function runDataHardeningStorageMigration() {
+  if (storage.getString(DATA_HARDENING_MIGRATION_MARKER) === "done") return;
+
+  const keys = storage.getAllKeys?.() ?? [
+    "react-query-cache",
+  ];
+  for (const key of getUnsafeLegacyStorageKeys(keys)) {
+    storage.remove(key);
+  }
+  storage.set(DATA_HARDENING_MIGRATION_MARKER, "done");
+}
+
+export { DATA_HARDENING_MIGRATION_MARKER, getUnsafeLegacyStorageKeys };

@@ -55,15 +55,6 @@ import { CreateDeliveryMemo } from "./screens/CreateDeliveryMemo";
 import { DeliveryMemoDetail } from "./screens/DeliveryMemoDetail";
 import { ManageCategories } from "./screens/ManageCategories";
 import { CopyCatalog } from "./screens/CopyCatalog";
-// import { ChatListScreen } from "../modules/whatsapp/screens/ChatListScreen";
-// import { ChatDetailScreen } from "../modules/whatsapp/screens/ChatDetailScreen";
-// import { WhatsAppSetupScreen } from "../modules/whatsapp/screens/WhatsAppSetupScreen";
-// import { ContactBookScreen } from "../modules/whatsapp/screens/ContactBookScreen";
-// import { TemplateLibraryScreen } from "../modules/whatsapp/screens/TemplateLibraryScreen";
-// import { TemplateEditorScreen } from "../modules/whatsapp/screens/TemplateEditorScreen";
-// import { FlowLibraryScreen } from "../modules/whatsapp/screens/FlowLibraryScreen";
-// import { FlowEditorScreen } from "../modules/whatsapp/screens/FlowEditorScreen";
-
 // import { colors } from "../theme";
 
 import { shadow } from "../theme";
@@ -110,8 +101,6 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
             iconName = isFocused ? "cash-register" : "cash-register";
           } else if (route.name === "Notifications" || route.name === "OwnerAlerts") {
             iconName = isFocused ? "bell" : "bell-outline";
-          // } else if (route.name === "StaffChats" || route.name === "OwnerChats") {
-          //   iconName = isFocused ? "whatsapp" : "whatsapp";
           } else if (route.name === "Profile") {
             iconName = isFocused ? "account-circle" : "account-circle-outline";
           }
@@ -263,12 +252,6 @@ const StaffTabs = createBottomTabNavigator({
         title: "POS",
       },
     },
-    // StaffChats: {
-    //   screen: ChatListScreen,
-    //   options: {
-    //     title: "Chats",
-    //   },
-    // },
     Notifications: {
       screen: Notifications,
       options: {
@@ -306,12 +289,6 @@ const OwnerTabs = createBottomTabNavigator({
         title: "Stock",
       },
     },
-    // OwnerChats: {
-    //   screen: ChatListScreen,
-    //   options: {
-    //     title: "Chats",
-    //   },
-    // },
     OwnerAlerts: {
       screen: OwnerAlerts,
       options: {
@@ -457,34 +434,6 @@ const sharedStackScreens = {
     screen: CreateOrder,
     options: { title: "Create order" },
   },
-  // ChatDetail: {
-  //   screen: ChatDetailScreen,
-  //   options: { title: "Chat" },
-  // },
-  // WhatsAppSetup: {
-  //   screen: WhatsAppSetupScreen,
-  //   options: { title: "WhatsApp Setup" },
-  // },
-  // ContactBook: {
-  //   screen: ContactBookScreen,
-  //   options: { title: "Contact Book" },
-  // },
-  // TemplateLibrary: {
-  //   screen: TemplateLibraryScreen,
-  //   options: { title: "Message templates" },
-  // },
-  // TemplateEditor: {
-  //   screen: TemplateEditorScreen,
-  //   options: { title: "Template" },
-  // },
-  // FlowLibrary: {
-  //   screen: FlowLibraryScreen,
-  //   options: { title: "WhatsApp Flows" },
-  // },
-  // FlowEditor: {
-  //   screen: FlowEditorScreen,
-  //   options: { title: "Flow" },
-  // },
   OrderList: {
     screen: OrderList,
     options: { title: "Orders" },
@@ -623,7 +572,6 @@ export type StaffTabParamList = {
   StaffHome: undefined;
   StaffWork: undefined;
   StaffPayments: undefined;
-  // StaffChats: undefined;
   Notifications: undefined;
   Profile: undefined;
 };
@@ -632,7 +580,6 @@ export type OwnerTabParamList = {
   OwnerDashboard: undefined;
   OwnerRecords: undefined;
   OwnerStock: undefined;
-  // OwnerChats: undefined;
   OwnerAlerts: undefined;
   Profile: undefined;
 };
@@ -645,13 +592,6 @@ export type RootStackParamList = {
   // Shared Stack Screens
   NotFound: undefined;
   NotificationHistory: undefined;
-  // ChatDetail: { conversationId: string; phone: string };
-  // WhatsAppSetup: undefined;
-  // ContactBook: undefined;
-  // TemplateLibrary: undefined;
-  // TemplateEditor: { templateId?: string };
-  // FlowLibrary: undefined;
-  // FlowEditor: { flowId?: string };
   WalkInSale: undefined;
   NewSaleType: undefined;
   RegularSale: undefined;

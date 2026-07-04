@@ -4,7 +4,6 @@ import { useShopStore } from "../auth/shop-store";
 import { queryKeys } from "./query-keys";
 import { fetchPayments, verifyPayment, addPayment, markPaymentMismatch, attachPayment, PaymentStatus } from "../api/client";
 import { newIdempotencyKey } from "../utils/idempotency";
-import { warmOfflineCache } from "../utils/mmkvCache";
 import { requireActiveShopId } from "./useActiveShop";
 
 const PAYMENTS_PAGE_SIZE = 30;
@@ -63,7 +62,6 @@ export function useAddPaymentMutation() {
         queryClient.invalidateQueries({ queryKey: ["orders", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["owner-dashboard"] });
         queryClient.invalidateQueries({ queryKey: ["staff-today-summary", activeShopId] });
-        if (token) warmOfflineCache(activeShopId, token).catch(() => {});
       }
     },
   });

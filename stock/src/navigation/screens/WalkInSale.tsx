@@ -7,8 +7,7 @@ import {
   Pressable, 
   TextInput as RNTextInput,
   ScrollView,
-  Alert,
-  Linking
+  Alert
 } from "react-native";
 import { Searchbar, Text, Icon, TextInput, SegmentedButtons, List, Divider } from "react-native-paper";
 import { useNavigation } from "@react-navigation/native";
@@ -24,8 +23,6 @@ import { useShopsQuery } from "../../hooks/useShops";
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
 import { useNetworkStatus } from "../../hooks/useNetworkStatus";
-import { useQuery } from "@tanstack/react-query";
-import { filterCachedCustomers, filterCachedProducts } from "../../utils/mmkvCache";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { SkeletonList } from "../../components/ui/SkeletonCard";
@@ -185,23 +182,13 @@ export function WalkInSale() {
 
   const itemsQuery = useItemsQuery({ search: debouncedSearch, limit: 50, enabled: !network.isOffline });
   const customersQuery = useCustomersQuery({ enabled: !network.isOffline });
-  const localCustomersQuery = useQuery({
-    queryKey: ["cached-customers", activeShopId, customerSearch],
-    queryFn: () => filterCachedCustomers(activeShopId ?? "", customerSearch),
-    enabled: !!activeShopId && network.isOffline,
-  });
-  const localItemsQuery = useQuery({
-    queryKey: ["cached-items", activeShopId, debouncedSearch],
-    queryFn: () => filterCachedProducts(activeShopId ?? "", debouncedSearch),
-    enabled: !!activeShopId && network.isOffline,
-  });
   const mergedCustomers = useMemo(() => {
-    return network.isOffline ? (localCustomersQuery.data ?? []) : (customersQuery.data ?? []);
-  }, [customersQuery.data, localCustomersQuery.data, network.isOffline]);
+    return network.isOffline ? [] : (customersQuery.data ?? []);
+  }, [customersQuery.data, network.isOffline]);
   const displayItems = useMemo(() => {
     if (!network.isOffline) return itemsQuery.data?.items ?? [];
-    return localItemsQuery.data ?? [];
-  }, [itemsQuery.data, localItemsQuery.data, network.isOffline]);
+    return [];
+  }, [itemsQuery.data, network.isOffline]);
 
   const selectedCustomer = useMemo(() => 
     mergedCustomers.find((c: any) => c.id === customerId),
@@ -851,49 +838,6 @@ export function WalkInSale() {
                       } finally {
                         setIsSharing(false);
                       }
-                    }}
-                    style={styles.receiptActionBtn}
-                  />
-                  <Button
-                    label="WhatsApp"
-                    variant="ghost"
-                    icon="whatsapp"
-                    disabled={isPrinting || isSharing}
-                    onPress={() => {
-                      const saleObj = completedSale || {
-                        saleNumber: completedSaleNumber || "N/A",
-                        totalAmount: String(cartTotal),
-                        paidAmount: String(cartTotal),
-                        balanceAmount: "0",
-                        isWalkin: !customerId,
-                        createdAt: new Date().toISOString(),
-                        customer: customerId ? selectedCustomer : null,
-                      };
-                      const shopName = selectedShop?.name || "Vardaman Sales";
-                      const text = `*${shopName}*\n` +
-                        `Invoice: *#${saleObj.saleNumber}*\n` +
-                        `Date: ${new Date(saleObj.createdAt).toLocaleDateString("en-IN")}\n` +
-                        `Customer: ${saleObj.isWalkin ? "Walk-in" : saleObj.customer?.name || "Customer"}\n` +
-                        `Total Amount: *₹${Number(saleObj.totalAmount).toLocaleString("en-IN")}*\n` +
-                        `Paid: ₹${Number(saleObj.paidAmount).toLocaleString("en-IN")}\n` +
-                        `Balance: *₹${Number(saleObj.balanceAmount).toLocaleString("en-IN")}*\n` +
-                        `Status: *PAID*\n\n` +
-                        `Thank you for your business!`;
-                      
-                      let url = `https://wa.me/?text=${encodeURIComponent(text)}`;
-                      if (saleObj.customer?.phone) {
-                        const cleanPhone = saleObj.customer.phone.replace(/\D/g, "");
-                        const finalPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
-                        url = `https://wa.me/${finalPhone}?text=${encodeURIComponent(text)}`;
-                      } else if (customerPhone) {
-                        const cleanPhone = customerPhone.replace(/\D/g, "");
-                        const finalPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
-                        url = `https://wa.me/${finalPhone}?text=${encodeURIComponent(text)}`;
-                      }
-
-                      Linking.openURL(url).catch(() => {
-                        Alert.alert("Error", "Could not open WhatsApp.");
-                      });
                     }}
                     style={styles.receiptActionBtn}
                   />

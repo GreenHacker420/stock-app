@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect } from "react";
+import { useMemo, useState } from "react";
 import { Alert, Pressable, View, StyleSheet, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform,} from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRoute } from "@react-navigation/native";
@@ -29,7 +29,6 @@ import { EmptyState } from "../../components/ui/EmptyState";
 import { Button } from "../../components/ui/Button";
 import { navigate, goBack } from "../navigation-ref";
 import { useNetworkStatus } from "../../hooks/useNetworkStatus";
-import { filterCachedCustomers, setCachedCustomers, warmOfflineCache } from "../../utils/mmkvCache";
 import { requireActiveShopId } from "../../hooks/useActiveShop";
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
@@ -51,21 +50,10 @@ export function CustomerList() {
     }), 
     enabled: !!token && !!activeShopId && !network.isOffline 
   });
-  const cachedCustomersQuery = useQuery({
-    queryKey: ["cached-customers", activeShopId, debouncedSearch],
-    queryFn: () => filterCachedCustomers(activeShopId ?? "", debouncedSearch, 100),
-    enabled: !!activeShopId && network.isOffline,
-  });
-
-  useEffect(() => {
-    if (activeShopId && customersQuery.data) {
-      setCachedCustomers(activeShopId, customersQuery.data);
-    }
-  }, [activeShopId, customersQuery.data]);
 
   const filteredData = useMemo(() => {
-    return network.isOffline ? (cachedCustomersQuery.data ?? []) : (customersQuery.data ?? []);
-  }, [cachedCustomersQuery.data, customersQuery.data, network.isOffline]);
+    return network.isOffline ? [] : (customersQuery.data ?? []);
+  }, [customersQuery.data, network.isOffline]);
 
   return (
     <Screen edges={['top', 'left', 'right']}>
@@ -169,7 +157,6 @@ export function AddEditCustomer() {
     onSuccess: (result: any) => {
       if (result?.ok === false) return;
       queryClient.invalidateQueries({ queryKey: ["customers", activeShopId] });
-      if (activeShopId && token) warmOfflineCache(activeShopId, token).catch(() => {});
       goBack();
     },
     onError: (error: Error) => {

@@ -22,7 +22,6 @@ import {
 } from "../../hooks/useItems";
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
-import { filterCachedProducts } from "../../utils/mmkvCache";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { SkeletonList } from "../../components/ui/SkeletonCard";
@@ -187,8 +186,8 @@ export function StockEntry() {
 
   const itemsQuery = useItemsQuery({ limit: 1000, enabled: !specificItemId });
   const allItems   = useMemo(
-    () => itemsQuery.data?.items ?? filterCachedProducts(activeShopId ?? "", ""),
-    [itemsQuery.data?.items, activeShopId]
+    () => itemsQuery.data?.items ?? [],
+    [itemsQuery.data?.items]
   );
 
   const [debSearch, setDebSearch] = useState("");

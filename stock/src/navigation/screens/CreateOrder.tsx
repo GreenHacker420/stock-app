@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Alert, ScrollView, View, Pressable, StyleSheet, Platform, TextInput as RNTextInput, KeyboardAvoidingView, useWindowDimensions, PixelRatio } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Text, Searchbar, List, Divider, Card, Icon, SegmentedButtons, TextInput } from "react-native-paper";
@@ -9,7 +9,6 @@ import { createOrder, fetchCustomers, fetchItems, fetchStaff, Item, Customer } f
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
 import { useNetworkStatus } from "../../hooks/useNetworkStatus";
-import { filterCachedCustomers, filterCachedProducts, setCachedCustomers, setCachedProducts, warmOfflineCache } from "../../utils/mmkvCache";
 import { newIdempotencyKey } from "../../utils/idempotency";
 import { requireActiveShopId } from "../../hooks/useActiveShop";
 import { Screen } from "../../components/Screen";
@@ -101,12 +100,6 @@ export function CreateOrder() {
     enabled: !!token && !!activeShopId && !network.isOffline,
   });
 
-  const cachedCustomersQuery = useQuery({
-    queryKey: ["cached-customers", activeShopId, debouncedCustomerSearch],
-    queryFn: () => filterCachedCustomers(activeShopId ?? "", debouncedCustomerSearch),
-    enabled: !!activeShopId && network.isOffline,
-  });
-
   const itemsQuery = useQuery({
     queryKey: ["items", activeShopId, debouncedItemSearch],
     queryFn: () => {
@@ -119,12 +112,6 @@ export function CreateOrder() {
     enabled: !!token && !!activeShopId && !network.isOffline,
   });
 
-  const cachedItemsQuery = useQuery({
-    queryKey: ["cached-items", activeShopId, debouncedItemSearch],
-    queryFn: () => filterCachedProducts(activeShopId ?? "", debouncedItemSearch),
-    enabled: !!activeShopId && network.isOffline,
-  });
-
   const staffQuery = useQuery({
     queryKey: ["staff"],
     queryFn: () => {
@@ -134,42 +121,29 @@ export function CreateOrder() {
     enabled: !!token,
   });
 
-  // Sync cache
-  useEffect(() => {
-    if (activeShopId && customersQuery.data) {
-      setCachedCustomers(activeShopId, customersQuery.data);
-    }
-  }, [activeShopId, customersQuery.data]);
-
-  useEffect(() => {
-    if (activeShopId && itemsQuery.data?.items) {
-      setCachedProducts(activeShopId, itemsQuery.data.items);
-    }
-  }, [activeShopId, itemsQuery.data]);
-
   // Filters for dropdown lists
   const filteredCustomers = useMemo(() => {
     if (!customerSearch) return [];
-    const source = network.isOffline ? (cachedCustomersQuery.data ?? []) : (customersQuery.data ?? []);
+    const source = network.isOffline ? [] : (customersQuery.data ?? []);
     return source.slice(0, 5);
-  }, [cachedCustomersQuery.data, customersQuery.data, customerSearch, network.isOffline]);
+  }, [customersQuery.data, customerSearch, network.isOffline]);
 
   const filteredItems = useMemo(() => {
     if (!itemSearch) return [];
-    const source = network.isOffline ? (cachedItemsQuery.data ?? []) : (itemsQuery.data?.items ?? []);
+    const source = network.isOffline ? [] : (itemsQuery.data?.items ?? []);
     return source.slice(0, 5);
-  }, [cachedItemsQuery.data, itemSearch, itemsQuery.data, network.isOffline]);
+  }, [itemSearch, itemsQuery.data, network.isOffline]);
 
   // Recent lists when searches are empty
   const recentParties = useMemo(() => {
-    const source = network.isOffline ? (cachedCustomersQuery.data ?? []) : (customersQuery.data ?? []);
+    const source = network.isOffline ? [] : (customersQuery.data ?? []);
     return source.slice(0, 5);
-  }, [cachedCustomersQuery.data, customersQuery.data, network.isOffline]);
+  }, [customersQuery.data, network.isOffline]);
 
   const recentItems = useMemo(() => {
-    const source = network.isOffline ? (cachedItemsQuery.data ?? []) : (itemsQuery.data?.items ?? []);
+    const source = network.isOffline ? [] : (itemsQuery.data?.items ?? []);
     return source.slice(0, 5);
-  }, [cachedItemsQuery.data, itemsQuery.data, network.isOffline]);
+  }, [itemsQuery.data, network.isOffline]);
 
   // Calculations
   const subtotal = useMemo(() => {
@@ -233,9 +207,6 @@ export function CreateOrder() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["orders", activeShopId] });
-      if (activeShopId && token) {
-        warmOfflineCache(activeShopId, token).catch(() => {});
-      }
       if (Platform.OS !== "web") {
         void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
       }

@@ -269,15 +269,6 @@ export function Profile() {
                     isLast={true}
                   />
                 )}
-                {/* {user?.role === 'OWNER' && (
-                  <SettingItem 
-                    icon="whatsapp" 
-                    title="WhatsApp Setup" 
-                    subtitle="Configure Meta Cloud API"
-                    onPress={() => navigate("WhatsAppSetup")}
-                    isLast={true}
-                  />
-                )} */}
               </View>
             </ScreenSection>
 

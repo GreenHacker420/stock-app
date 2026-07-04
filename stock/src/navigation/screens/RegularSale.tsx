@@ -1,6 +1,6 @@
 import { useState, useMemo, memo, useCallback, useRef, useEffect } from "react";
 import { useNavigation } from "@react-navigation/native";
-import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Pressable, Modal, Alert, Linking, Animated, PanResponder } from "react-native";
+import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Pressable, Modal, Alert, Animated, PanResponder } from "react-native";
 import { Searchbar, Text, Icon, List, TextInput, Switch, SegmentedButtons, Divider } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useQuery } from "@tanstack/react-query";
@@ -26,7 +26,6 @@ import { goBack, navigate } from "../navigation-ref";
 import { useShopsQuery } from "../../hooks/useShops";
 import { shareSaleInvoicePdf } from "../../utils/pdf";
 import { useNetworkStatus } from "../../hooks/useNetworkStatus";
-import { filterCachedCustomers, filterCachedProducts } from "../../utils/mmkvCache";
 import { requireActiveShopId } from "../../hooks/useActiveShop";
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
@@ -411,27 +410,15 @@ export function RegularSale() {
     }),
     enabled: !!token && !!activeShopId && !network.isOffline,
   });
-  const localCustomersQuery = useQuery({
-    queryKey: ["cached-customers", activeShopId, debouncedCustomerSearch],
-    queryFn: () => filterCachedCustomers(activeShopId ?? "", debouncedCustomerSearch),
-    enabled: !!activeShopId && network.isOffline,
-  });
-
   const itemsQuery = useItemsQuery({ search: debouncedItemSearch, limit: 50, enabled: !network.isOffline });
-  const localItemsQuery = useQuery({
-    queryKey: ["cached-items", activeShopId, debouncedItemSearch],
-    queryFn: () => filterCachedProducts(activeShopId ?? "", debouncedItemSearch),
-    enabled: !!activeShopId && network.isOffline,
-  });
-
   const mergedCustomers = useMemo(() => {
-    return network.isOffline ? (localCustomersQuery.data ?? []) : (customersQuery.data ?? []);
-  }, [customersQuery.data, localCustomersQuery.data, network.isOffline]);
+    return network.isOffline ? [] : (customersQuery.data ?? []);
+  }, [customersQuery.data, network.isOffline]);
 
   const displayItems = useMemo(() => {
     if (!network.isOffline) return itemsQuery.data?.items ?? [];
-    return localItemsQuery.data ?? [];
-  }, [itemsQuery.data, localItemsQuery.data, network.isOffline]);
+    return [];
+  }, [itemsQuery.data, network.isOffline]);
 
   const selectedCustomer = useMemo(() => 
     mergedCustomers.find((c: any) => c.id === customerId),
@@ -1030,44 +1017,6 @@ export function RegularSale() {
                       },
                       shop: activeShop,
                       signatureBase64: customerSignature,
-                    });
-                  }}
-                  style={styles.halfBtn}
-                />
-                <Button
-                  label="WHATSAPP SHARE"
-                  variant="success"
-                  icon={<Icon source="whatsapp" size={18} color="white" />}
-                  onPress={() => {
-                    const saleObj = completedSale || {
-                      saleNumber: (saleMutation.data as any)?.saleNumber || "N/A",
-                      totalAmount: String(cartTotal),
-                      paidAmount: String(amountPaid || (paymentType === "CREDIT" ? 0 : cartTotal)),
-                      balanceAmount: String(isCredit ? balance : 0),
-                      isWalkin: false,
-                      createdAt: new Date().toISOString(),
-                      customer: selectedCustomer,
-                    };
-                    const shopName = activeShop?.name || "Vardaman Sales";
-                    const text = `*${shopName}*\n` +
-                      `Invoice: *#${saleObj.saleNumber}*\n` +
-                      `Date: ${new Date(saleObj.createdAt).toLocaleDateString("en-IN")}\n` +
-                      `Customer: ${saleObj.isWalkin ? "Walk-in" : saleObj.customer?.name || "Customer"}\n` +
-                      `Total Amount: *₹${Number(saleObj.totalAmount).toLocaleString("en-IN")}*\n` +
-                      `Paid: ₹${Number(saleObj.paidAmount).toLocaleString("en-IN")}\n` +
-                      `Balance: *₹${Number(saleObj.balanceAmount).toLocaleString("en-IN")}*\n` +
-                      `Status: *${Number(saleObj.balanceAmount) <= 0 ? "PAID" : "CREDIT"}*\n\n` +
-                      `Thank you for your business!`;
-                    
-                    let url = `https://wa.me/?text=${encodeURIComponent(text)}`;
-                    if (saleObj.customer?.phone) {
-                      const cleanPhone = saleObj.customer.phone.replace(/\D/g, "");
-                      const finalPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
-                      url = `https://wa.me/${finalPhone}?text=${encodeURIComponent(text)}`;
-                    }
-
-                    Linking.openURL(url).catch(() => {
-                      Alert.alert("Error", "Could not open WhatsApp.");
                     });
                   }}
                   style={styles.halfBtn}

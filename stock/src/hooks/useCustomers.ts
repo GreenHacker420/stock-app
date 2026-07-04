@@ -1,17 +1,15 @@
-import { useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "../auth/auth-store";
 import { useShopStore } from "../auth/shop-store";
 import { queryKeys } from "./query-keys";
 import { fetchCustomers, fetchCustomer, createCustomer, updateCustomer, fetchCustomerSales, fetchCustomerPayments, fetchCustomerDMs, fetchCustomerReturns, fetchCustomerTimeline } from "../api/client";
-import { setCachedCustomers, warmOfflineCache } from "../utils/mmkvCache";
 import { newIdempotencyKey } from "../utils/idempotency";
 import { requireActiveShopId } from "./useActiveShop";
 
 export function useCustomersQuery(opts: { search?: string; includeWalkin?: boolean; limit?: number; enabled?: boolean } = {}) {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
-  const query = useQuery({
+  return useQuery({
     queryKey: [...queryKeys.customers(activeShopId ?? ""), { search: opts.search, includeWalkin: opts.includeWalkin, limit: opts.limit }],
     queryFn: () => fetchCustomers(token ?? "", activeShopId ?? "", opts.includeWalkin ?? false, {
       search: opts.search,
@@ -21,12 +19,6 @@ export function useCustomersQuery(opts: { search?: string; includeWalkin?: boole
     staleTime: 15 * 60 * 1000, // 15 mins
   });
 
-  useEffect(() => {
-    if (!activeShopId || !query.data) return;
-    setCachedCustomers(activeShopId, query.data);
-  }, [activeShopId, query.data]);
-
-  return query;
 }
 
 export function useCustomerDetailQuery(id: string) {
@@ -96,7 +88,6 @@ export function useCreateCustomerMutation() {
     onSuccess: () => {
       if (activeShopId) {
         queryClient.invalidateQueries({ queryKey: ["customers", activeShopId] });
-        if (token) warmOfflineCache(activeShopId, token).catch(() => {});
       }
     },
   });
@@ -112,7 +103,6 @@ export function useUpdateCustomerMutation() {
     onSuccess: (_, variables) => {
       if (activeShopId) {
         queryClient.invalidateQueries({ queryKey: ["customers", activeShopId] });
-        if (token) warmOfflineCache(activeShopId, token).catch(() => {});
       }
       queryClient.invalidateQueries({ queryKey: ["customer", variables.id] });
     },

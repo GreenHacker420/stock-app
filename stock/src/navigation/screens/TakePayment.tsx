@@ -22,7 +22,6 @@ import {
   Dialog
 } from "react-native-paper";
 import { useRoute } from "@react-navigation/native";
-import { useQuery } from "@tanstack/react-query";
 import QRCode from "react-native-qrcode-svg";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useDebounce } from "use-debounce";
@@ -32,7 +31,6 @@ import { useCustomersQuery, useCreateCustomerMutation } from "../../hooks/useCus
 import { useAddPaymentMutation } from "../../hooks/usePayments";
 import { useAuthStore } from "../../auth/auth-store";
 import { useNetworkStatus } from "../../hooks/useNetworkStatus";
-import { filterCachedCustomers } from "../../utils/mmkvCache";
 import { SuccessModal } from "../../components/ui/SuccessModal";
 import { useShopStore } from "../../auth/shop-store";
 import { Screen } from "../../components/Screen";
@@ -156,14 +154,9 @@ export function TakePayment() {
     limit: debouncedSearchQuery ? 20 : 50,
     enabled: !network.isOffline,
   });
-  const localCustomersQuery = useQuery({
-    queryKey: ["cached-customers", activeShopId, debouncedSearchQuery],
-    queryFn: () => filterCachedCustomers(activeShopId ?? "", debouncedSearchQuery),
-    enabled: !!activeShopId && network.isOffline,
-  });
   const mergedCustomers = useMemo(() => {
-    return network.isOffline ? (localCustomersQuery.data ?? []) : (customersQuery.data ?? []);
-  }, [customersQuery.data, localCustomersQuery.data, network.isOffline]);
+    return network.isOffline ? [] : (customersQuery.data ?? []);
+  }, [customersQuery.data, network.isOffline]);
 
   const filteredCustomers = useMemo(() => {
     if (!searchQuery) return [];

@@ -1,4 +1,3 @@
-import { useEffect } from "react";
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
 import { useAuthStore } from "../auth/auth-store";
 import { useShopStore } from "../auth/shop-store";
@@ -25,7 +24,6 @@ import {
   ItemCategory,
   ItemSummary,
 } from "../api/client";
-import { setCachedProducts, warmOfflineCache } from "../utils/mmkvCache";
 import { newIdempotencyKey } from "../utils/idempotency";
 import { requireActiveShopId } from "./useActiveShop";
 
@@ -61,7 +59,7 @@ export function useInfiniteItemsQuery(opts: { search?: string; limit?: number } 
 export function useItemsQuery(opts: { search?: string; categoryId?: string; page?: number; limit?: number; enabled?: boolean } = {}) {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
-  const query = useQuery({
+  return useQuery({
     queryKey: [...queryKeys.items(activeShopId ?? "", opts.search), opts.categoryId],
     queryFn: () =>
       fetchItems(token ?? "", activeShopId ?? "", {
@@ -74,12 +72,6 @@ export function useItemsQuery(opts: { search?: string; categoryId?: string; page
     staleTime: 30 * 60 * 1000,
   });
 
-  useEffect(() => {
-    if (!activeShopId || !query.data?.items) return;
-    setCachedProducts(activeShopId, query.data.items);
-  }, [activeShopId, query.data]);
-
-  return query;
 }
 
 
@@ -119,7 +111,6 @@ export function useCreateItemMutation() {
         queryClient.invalidateQueries({ queryKey: ["current-stock", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["stock-movements", activeShopId] });
       }
-      if (activeShopId && token) warmOfflineCache(activeShopId, token).catch(() => {});
     },
   });
 }
@@ -141,7 +132,6 @@ export function useUpdateItemMutation() {
         queryClient.invalidateQueries({ queryKey: ["current-stock", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["stock-movements", activeShopId] });
       }
-      if (activeShopId && token) warmOfflineCache(activeShopId, token).catch(() => {});
     },
   });
 }
@@ -159,7 +149,6 @@ export function useCreateStockMovementMutation() {
         queryClient.invalidateQueries({ queryKey: ["stock-movements", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["item-stock"] });
         queryClient.invalidateQueries({ queryKey: ["items"] });
-        if (token) warmOfflineCache(activeShopId, token).catch(() => {});
       }
     },
   });
@@ -178,7 +167,6 @@ export function useAddStockMutation() {
         queryClient.invalidateQueries({ queryKey: ["stock-movements", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["item-stock"] });
         queryClient.invalidateQueries({ queryKey: ["items"] });
-        if (token) warmOfflineCache(activeShopId, token).catch(() => {});
       }
     },
   });
@@ -197,7 +185,6 @@ export function useCreateStockRequestMutation() {
         queryClient.invalidateQueries({ queryKey: ["stock-movements", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["item-stock"] });
         queryClient.invalidateQueries({ queryKey: ["items"] });
-        if (token) warmOfflineCache(activeShopId, token).catch(() => {});
       }
     },
   });
@@ -253,7 +240,6 @@ export function useCreateCategoryMutation() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.categories(activeShopId ?? "") });
       queryClient.invalidateQueries({ queryKey: ["items"] });
-      if (activeShopId && token) warmOfflineCache(activeShopId, token).catch(() => {});
     },
   });
 }
@@ -268,7 +254,6 @@ export function useUpdateCategoryMutation() {
       queryClient.invalidateQueries({ queryKey: queryKeys.categories(activeShopId ?? "") });
       // Also refresh items in case category names are shown inline
       queryClient.invalidateQueries({ queryKey: ["items"] });
-      if (activeShopId && token) warmOfflineCache(activeShopId, token).catch(() => {});
     },
   });
 }
@@ -282,7 +267,6 @@ export function useDeleteCategoryMutation() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.categories(activeShopId ?? "") });
       queryClient.invalidateQueries({ queryKey: ["items"] });
-      if (activeShopId && token) warmOfflineCache(activeShopId, token).catch(() => {});
     },
   });
 }

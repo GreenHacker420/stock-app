@@ -1,6 +1,6 @@
 import { PropsWithChildren, useEffect, useMemo, useRef, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { AppState, AppStateStatus, DeviceEventEmitter } from "react-native";
+import { AppState, AppStateStatus } from "react-native";
 import type { Socket } from "socket.io-client";
 import { useAuthStore } from "../auth/auth-store";
 import { useShopStore } from "../auth/shop-store";
@@ -13,8 +13,8 @@ import { reconcileDomainEventsForShop } from "./domainEventReconciliation";
 import { mmkvStorage } from "../auth/mmkv-storage";
 
 /**
- * Legacy Socket.IO events (kept for WhatsApp and legacy compatibility).
- * All core domain state changes travel via the `domain:event` channel.
+ * Legacy Socket.IO events for non-migrated core paths.
+ * All primary domain state changes travel via the `domain:event` channel.
  */
 const legacyEvents: RealtimeEvent[] = [
   "order:updated",
@@ -26,11 +26,6 @@ const legacyEvents: RealtimeEvent[] = [
   "daily-summary:updated",
   "shop:updated",
   "notification:created",
-  "wa:message_received",
-  "wa:message_sent",
-  "wa:status_updated",
-  "wa:message_failed",
-  "wa:integration_health_updated",
 ];
 
 export function RealtimeProvider({ children }: PropsWithChildren) {
@@ -57,11 +52,6 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
       "daily-summary:updated": [["daily-summary", activeShopId]],
       "shop:updated": [["shops"]],
       "notification:created": [["notifications", activeShopId], ["rate-change-requests", activeShopId], ["correction-requests", activeShopId]],
-      "wa:message_received": [["wa-messages"], ["wa-conversations"]],
-      "wa:message_sent": [["wa-messages"], ["wa-conversations"]],
-      "wa:status_updated": [["wa-messages"]],
-      "wa:message_failed": [["wa-messages"]],
-      "wa:integration_health_updated": [["wa-integration-health", activeShopId]],
     }),
     [activeShopId],
   );
@@ -77,42 +67,19 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
     let cleanMessage = "New activity detected.";
     let type = "info";
 
-    const isWhatsApp = event?.startsWith("wa:") || (payload?.conversationId && (payload?.messageId || payload?.message));
+    if (typeof payload?.message === "string") {
+      cleanMessage = payload.message;
+    } else if (payload?.message && typeof payload.message === "object") {
+      cleanMessage = (payload.message as Record<string, string>).text || (payload.message as Record<string, string>).message || "New activity detected.";
+    }
 
-    if (isWhatsApp) {
-      if (payload.status === "FAILED" || payload.error) {
-        cleanTitle = "WHATSAPP ERROR";
-        cleanMessage = payload.error || "Failed to send message.";
-        type = "danger";
-      } else if (payload.message && payload.message.direction === "INBOUND") {
-        cleanTitle = "NEW WHATSAPP MESSAGE";
-        const msgContent = payload.message.content;
-        if (typeof msgContent === "string") {
-          cleanMessage = msgContent;
-        } else if (msgContent && typeof msgContent === "object") {
-          cleanMessage = (msgContent as Record<string, string>).text || "Received a new message.";
-        } else {
-          cleanMessage = "Received a new message.";
-        }
-        type = "info";
-      } else {
-        return; // Don't show toast for sent/status updates
-      }
-    } else {
-      if (typeof payload?.message === "string") {
-        cleanMessage = payload.message;
-      } else if (payload?.message && typeof payload.message === "object") {
-        cleanMessage = (payload.message as Record<string, string>).text || (payload.message as Record<string, string>).message || "New activity detected.";
-      }
-
-      const ev = (payload?.triggerEvent || event || "").toLowerCase();
-      if (ev.includes("sale") || ev.includes("payment")) {
-        type = "success";
-      } else if (ev.includes("rate") || ev.includes("price") || ev.includes("stock") || ev.includes("inventory")) {
-        type = "warning";
-      } else if (ev.includes("correction") || ev.includes("mismatch") || ev.includes("bounce") || ev.includes("danger") || ev.includes("shortage")) {
-        type = "danger";
-      }
+    const ev = (payload?.triggerEvent || event || "").toLowerCase();
+    if (ev.includes("sale") || ev.includes("payment")) {
+      type = "success";
+    } else if (ev.includes("rate") || ev.includes("price") || ev.includes("stock") || ev.includes("inventory")) {
+      type = "warning";
+    } else if (ev.includes("correction") || ev.includes("mismatch") || ev.includes("bounce") || ev.includes("danger") || ev.includes("shortage")) {
+      type = "danger";
     }
 
     if (typeof cleanMessage !== "string") {
@@ -205,21 +172,14 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
         }
       });
 
-      // Legacy events for WhatsApp and any non-migrated paths
+      // Legacy events for non-migrated core paths
       for (const event of legacyEvents) {
         socket.on(event, (payload?: any) => {
           for (const queryKey of invalidationMap[event] || []) {
-            if (payload?.conversationId && queryKey[0] === "wa-messages") {
-              queryClient.invalidateQueries({ queryKey: ["wa-messages", payload.conversationId] });
-            } else {
-              queryClient.invalidateQueries({ queryKey });
-            }
+            queryClient.invalidateQueries({ queryKey });
           }
-          if ((event === "notification:created" || event === "wa:message_received" || event === "wa:message_failed") && payload) {
+          if (event === "notification:created" && payload) {
             showToast(payload, event);
-          }
-          if (event.startsWith("wa:")) {
-            DeviceEventEmitter.emit(event, payload);
           }
         });
       }

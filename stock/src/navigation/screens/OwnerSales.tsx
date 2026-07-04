@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { View, StyleSheet, Pressable, ScrollView, Alert, Linking } from "react-native";
+import { View, StyleSheet, Pressable, ScrollView, Alert } from "react-native";
 import { Divider, Text, Icon } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
@@ -170,30 +170,6 @@ export function SaleDetail() {
       shop: activeShop,
     });
     setSharing(false);
-  };
-
-  const handleWhatsAppShare = () => {
-    const shopName = activeShop?.name || "Vardaman Sales";
-    const text = `*${shopName}*\n` +
-      `Invoice: *#${sale.saleNumber}*\n` +
-      `Date: ${new Date(sale.createdAt).toLocaleDateString("en-IN")}\n` +
-      `Customer: ${sale.isWalkin ? "Walk-in" : sale.customer?.name || "Customer"}\n` +
-      `Total Amount: *₹${Number(sale.totalAmount).toLocaleString("en-IN")}*\n` +
-      `Paid: ₹${Number(sale.paidAmount).toLocaleString("en-IN")}\n` +
-      `Balance: *₹${Number(sale.balanceAmount).toLocaleString("en-IN")}*\n` +
-      `Status: *${sale.paymentStatus}*\n\n` +
-      `Thank you for your business!`;
-    
-    let url = `https://wa.me/?text=${encodeURIComponent(text)}`;
-    if (sale.customer?.phone) {
-      const cleanPhone = sale.customer.phone.replace(/\D/g, "");
-      const finalPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
-      url = `https://wa.me/${finalPhone}?text=${encodeURIComponent(text)}`;
-    }
-
-    Linking.openURL(url).catch(() => {
-      Alert.alert("Error", "Could not open WhatsApp.");
-    });
   };
 
   return (
@@ -434,13 +410,6 @@ export function SaleDetail() {
             loading={sharing}
             disabled={sharing}
             onPress={handleSharePdf}
-            style={styles.halfBtn}
-          />
-          <Button
-            label="WHATSAPP SHARE"
-            variant="success"
-            icon={<Icon source="whatsapp" size={18} color="white" />}
-            onPress={handleWhatsAppShare}
             style={styles.halfBtn}
           />
         </View>
