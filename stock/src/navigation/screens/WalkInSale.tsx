@@ -27,6 +27,7 @@ import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { SkeletonList } from "../../components/ui/SkeletonCard";
 import { EmptyState } from "../../components/ui/EmptyState";
+import { SerialNumberScannerModal } from "../../components/items/SerialNumberScannerModal";
 import { Button } from "../../components/ui/Button";
 import { Section } from "../../components/ui/Section";
 import { InfoRow } from "../../components/ui/InfoRow";
@@ -41,11 +42,15 @@ const internetRequiredMessage = "Internet connection required. Please connect to
 const SaleItemCard = memo(({ 
   item, 
   quantity, 
+  serialNumbers,
+  onScanPress,
   onAdd, 
   onRemove 
 }: { 
   item: Item, 
   quantity: number, 
+  serialNumbers?: string[],
+  onScanPress?: () => void,
   onAdd: () => void, 
   onRemove: () => void 
 }) => {
@@ -91,6 +96,25 @@ const SaleItemCard = memo(({
             </View>
           )}
         </View>
+        {hasQty && !!item.requiresSerialNumber && (
+          <Pressable onPress={onScanPress} style={styles.serialStatusRow}>
+            {serialNumbers && serialNumbers.length === quantity ? (
+              <>
+                <Icon source="check-circle" size={14} color={colors.success} />
+                <Text style={styles.serialStatusSuccessText} numberOfLines={1}>
+                  S/N: {serialNumbers.join(", ")}
+                </Text>
+              </>
+            ) : (
+              <>
+                <Icon source="alert-circle" size={14} color={colors.danger} />
+                <Text style={styles.serialStatusWarningText} numberOfLines={1}>
+                  Tap to scan {quantity - (serialNumbers?.length ?? 0)} serial(s)
+                </Text>
+              </>
+            )}
+          </Pressable>
+        )}
       </View>
       
       <View style={styles.quantityControls}>
@@ -141,7 +165,11 @@ const SaleItemCard = memo(({
       </View>
     </View>
   );
-}, (p, n) => p.item.id === n.item.id && p.quantity === n.quantity);
+}, (p, n) => 
+  p.item.id === n.item.id && 
+  p.quantity === n.quantity &&
+  p.serialNumbers?.join(",") === n.serialNumbers?.join(",")
+);
 
 export function WalkInSale() {
   const navigation = useNavigation<any>();
@@ -159,7 +187,8 @@ export function WalkInSale() {
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
   const [search, setSearch] = useState("");
   const [debouncedSearch] = useDebounce(search, 300);
-  const [cart, setCart] = useState<Record<string, { item: Item, quantity: number }>>({});
+  const [cart, setCart] = useState<Record<string, { item: Item, quantity: number, serialNumbers?: string[] }>>({});
+  const [activeSerialScanItemId, setActiveSerialScanItemId] = useState<string | null>(null);
   
   const [completedSaleNumber, setCompletedSaleNumber] = useState<string | null>(null);
   const [completedSale, setCompletedSale] = useState<any | null>(null);
@@ -232,14 +261,18 @@ export function WalkInSale() {
 
   const updateQuantity = useCallback((item: Item, delta: number) => {
     setCart(prev => {
-      const current = prev[item.id] || { item, quantity: 0 };
+      const current = prev[item.id] || { item, quantity: 0, serialNumbers: [] };
       const nextQty = Math.max(0, current.quantity + delta);
       
       const nextCart = { ...prev };
       if (nextQty === 0) {
         delete nextCart[item.id];
       } else {
-        nextCart[item.id] = { ...current, quantity: nextQty };
+        let serials = current.serialNumbers || [];
+        if (serials.length > nextQty) {
+          serials = serials.slice(0, nextQty);
+        }
+        nextCart[item.id] = { ...current, quantity: nextQty, serialNumbers: serials };
       }
       return nextCart;
     });
@@ -247,17 +280,38 @@ export function WalkInSale() {
 
   const saleMutation = useCreateSaleMutation();
 
+  const isSerialsComplete = useMemo(() => {
+    return cartArray.every(
+      (i) => !i.item.requiresSerialNumber || (i.serialNumbers && i.serialNumbers.length === i.quantity)
+    );
+  }, [cartArray]);
+
   const handleCompleteSale = () => {
     if (saleMutation.isPending) return;
     if (network.isOffline) {
       Alert.alert("Internet required", internetRequiredMessage);
       return;
     }
+
+    // Validate serial numbers before submitting
+    for (const i of cartArray) {
+      if (i.item.requiresSerialNumber) {
+        if (!i.serialNumbers || i.serialNumbers.length !== i.quantity) {
+          Alert.alert(
+            "Serial Numbers Required",
+            `Please scan all serial numbers for "${i.item.name}" before completing the sale.`
+          );
+          return;
+        }
+      }
+    }
+
     saleMutation.mutate({
       items: cartArray.map(i => ({ 
         itemId: i.item.id, 
         quantity: i.quantity, 
-        rate: Number(i.item.defaultSellingPrice) 
+        rate: Number(i.item.defaultSellingPrice),
+        serialNumbers: i.serialNumbers || [],
       })),
       isWalkin: !customerId,
       customerId: customerId || undefined,
@@ -492,6 +546,8 @@ export function WalkInSale() {
                       <SaleItemCard 
                         item={item} 
                         quantity={cart[item.id]?.quantity ?? 0}
+                        serialNumbers={cart[item.id]?.serialNumbers}
+                        onScanPress={() => setActiveSerialScanItemId(item.id)}
                         onAdd={() => updateQuantity(item, 1)}
                         onRemove={() => updateQuantity(item, -1)}
                       />
@@ -849,22 +905,30 @@ export function WalkInSale() {
 
         {/* Action Bottom Bars */}
         {currentStep === 1 && cartItemCount > 0 && (
-          <View style={[styles.cartSummary, { paddingBottom: bottomPadding }]}>
-            <View style={styles.cartInfo}>
-              <Text style={styles.cartCount}>{cartItemCount} items</Text>
-              <Text style={styles.cartTotal}>{money(cartTotal)}</Text>
+          <View style={[styles.cartSummary, { paddingBottom: bottomPadding, flexDirection: "column", gap: spacing.xs }]}>
+            <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", width: "100%" }}>
+              <View style={styles.cartInfo}>
+                <Text style={styles.cartCount}>{cartItemCount} items</Text>
+                <Text style={styles.cartTotal}>{money(cartTotal)}</Text>
+              </View>
+              <Button 
+                label="Proceed to Payment →" 
+                variant="success"
+                onPress={() => {
+                  setCurrentStep(2);
+                  if (paymentMode === "UPI") {
+                    setAmountReceived(String(cartTotal));
+                  }
+                }} 
+                disabled={!isSerialsComplete}
+                style={styles.checkoutButton}
+              />
             </View>
-            <Button 
-              label="Proceed to Payment →" 
-              variant="success"
-              onPress={() => {
-                setCurrentStep(2);
-                if (paymentMode === "UPI") {
-                  setAmountReceived(String(cartTotal));
-                }
-              }} 
-              style={styles.checkoutButton}
-            />
+            {!isSerialsComplete && (
+              <Text style={{ color: colors.danger, fontSize: 11, alignSelf: "flex-end", fontWeight: "bold" }}>
+                * Some items require serial scans
+              </Text>
+            )}
           </View>
         )}
 
@@ -881,17 +945,55 @@ export function WalkInSale() {
               variant="success"
               onPress={handleCompleteSale} 
               loading={saleMutation.isPending}
-              disabled={!isPaymentValid}
+              disabled={!isPaymentValid || !isSerialsComplete}
               style={{ flex: 1.8 }}
             />
           </View>
         )}
       </KeyboardAvoidingView>
+      {!!activeSerialScanItemId && !!cart[activeSerialScanItemId] && (
+        <SerialNumberScannerModal
+          visible={!!activeSerialScanItemId}
+          itemName={cart[activeSerialScanItemId].item.name}
+          quantity={cart[activeSerialScanItemId].quantity}
+          serialNumbers={cart[activeSerialScanItemId].serialNumbers || []}
+          onDismiss={() => setActiveSerialScanItemId(null)}
+          onSave={(serials) => {
+            setCart(prev => {
+              if (!prev[activeSerialScanItemId]) return prev;
+              return {
+                ...prev,
+                [activeSerialScanItemId]: {
+                  ...prev[activeSerialScanItemId],
+                  serialNumbers: serials
+                }
+              };
+            });
+            setActiveSerialScanItemId(null);
+          }}
+        />
+      )}
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
+  serialStatusRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 4,
+  },
+  serialStatusSuccessText: {
+    fontSize: 11,
+    color: colors.success,
+    fontWeight: fontWeight.semibold,
+  },
+  serialStatusWarningText: {
+    fontSize: 11,
+    color: colors.danger,
+    fontWeight: fontWeight.bold,
+  },
   addNewCustomerRow: {
     flexDirection: 'row',
     alignItems: 'center',

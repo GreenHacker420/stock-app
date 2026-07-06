@@ -23,6 +23,8 @@ const saleItemSchema = z.object({
   quantity: z.coerce.number().nonnegative(),
   rate: z.coerce.number().nonnegative(),
   discountAmount: z.coerce.number().nonnegative().optional(),
+  serialNumbers: z.array(z.string()).optional(),
+  description: z.string().optional(),
 });
 
 const customerInfoSchema = z.object({

@@ -39,6 +39,22 @@ export async function createSale(user, data) {
 
     await checkAndLockAvailableStock(tx, data.shopId, items);
 
+    // Validate serial numbers if required by the item
+    for (const item of items) {
+      const dbItem = await tx.item.findUnique({ where: { id: item.itemId } });
+      if (!dbItem) {
+        throw new ApiError(400, `Item not found: ${item.itemId}`);
+      }
+      if (dbItem.requiresSerialNumber) {
+        if (!item.serialNumbers || !Array.isArray(item.serialNumbers) || item.serialNumbers.length !== Number(item.quantity)) {
+          throw new ApiError(
+            400,
+            `Product "${dbItem.name}" requires exactly ${item.quantity} serial number(s). Scanned: ${item.serialNumbers ? item.serialNumbers.length : 0}`
+          );
+        }
+      }
+    }
+
     const saleNumber = await generateRecordNumber(tx, {
       shopId: data.shopId,
       model: "sale",
@@ -66,13 +82,19 @@ export async function createSale(user, data) {
         saleStatus: "CONFIRMED",
         customerSignature: data.customerSignature || null,
         items: {
-          create: items.map((item) => ({
-            itemId: item.itemId,
-            quantity: item.quantity,
-            rate: money(item.rate),
-            discountAmount: money(item.discountAmount),
-            totalAmount: money(item.lineTotal),
-          })),
+          create: items.map((item) => {
+            const snList = item.serialNumbers || [];
+            const desc = item.description || (snList.length > 0 ? `S/N: ${snList.join(", ")}` : null);
+            return {
+              itemId: item.itemId,
+              quantity: item.quantity,
+              rate: money(item.rate),
+              discountAmount: money(item.discountAmount),
+              totalAmount: money(item.lineTotal),
+              serialNumbers: snList.length > 0 ? snList : null,
+              description: desc,
+            };
+          }),
         },
       },
     });

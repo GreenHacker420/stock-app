@@ -59,6 +59,7 @@ export type Item = {
   reservedStock?: number;
   availableStock?: number;
   currentStock?: number;
+  requiresSerialNumber?: boolean;
   bundleComponents?: Array<{
     id?: string;
     parentItemId?: string;
@@ -278,6 +279,7 @@ export interface CreateItemPayload {
   categoryId?: string | null;
   brandId?: string | null;
   initialStock?: number;
+  requiresSerialNumber?: boolean;
   bundleComponents?: Array<{ componentItemId: string; quantity: number }>;
 }
 
@@ -291,7 +293,7 @@ export interface CreateSalePayload {
   customerInfo?: { name?: string; phone?: string; email?: string };
   isWalkin?: boolean;
   dueDate?: string;
-  items: Array<{ itemId: string; quantity: number; rate: number; discountAmount?: number }>;
+  items: Array<{ itemId: string; quantity: number; rate: number; discountAmount?: number; serialNumbers?: string[]; description?: string }>;
   payments?: Array<{ paymentMode: PaymentMode; amount: number; referenceNumber?: string; notes?: string }>;
   notes?: string;
   customerSignature?: string;

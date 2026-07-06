@@ -100,6 +100,7 @@ function pickItemCreateFields(data) {
     mrp: data.mrp,
     minimumStock: data.minimumStock,
     imageUrl: data.imageUrl,
+    requiresSerialNumber: data.requiresSerialNumber,
   };
   return Object.fromEntries(Object.entries(allowed).filter(([, v]) => v !== undefined));
 }
@@ -117,6 +118,7 @@ function pickItemUpdateFields(data) {
     mrp: data.mrp,
     minimumStock: data.minimumStock,
     imageUrl: data.imageUrl,
+    requiresSerialNumber: data.requiresSerialNumber,
   };
   return Object.fromEntries(Object.entries(allowed).filter(([, v]) => v !== undefined));
 }

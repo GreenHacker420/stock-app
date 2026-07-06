@@ -87,6 +87,7 @@ const createItemSchema = z.object({
     minimumStock: z.coerce.number().nonnegative().optional(),
     imageUrl: z.url().nullable().optional(),
     initialStock: z.coerce.number().optional(),
+    requiresSerialNumber: z.boolean().optional(),
   }),
   params: z.object({}).optional(),
   query: z.object({}).optional(),

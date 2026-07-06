@@ -93,6 +93,7 @@ export function AddEditItem() {
   const [uploadingImage, setUploadingImage] = useState(false);
   const [componentSearch, setComponentSearch] = useState("");
   const [isBundle, setIsBundle] = useState((existingItem?.bundleComponents ?? []).length > 0);
+  const [requiresSerialNumber, setRequiresSerialNumber] = useState(existingItem?.requiresSerialNumber ?? false);
   const [bundleComponents, setBundleComponents] = useState<BundleComponentForm[]>(
     (existingItem?.bundleComponents ?? []).map((component) => ({
       componentItemId: component.componentItemId,
@@ -329,6 +330,7 @@ export function AddEditItem() {
       mrp,
       purchasePrice,
       minimumStock: minimumStock ?? 0,
+      requiresSerialNumber,
       bundleComponents: normalizedBundleComponents as Array<{ componentItemId: string; quantity: number }>,
     };
 
@@ -364,6 +366,7 @@ export function AddEditItem() {
             });
             setBundleComponents([]);
             setIsBundle(false);
+            setRequiresSerialNumber(false);
             setSelectedImage(null);
             setImageUrl("");
             Alert.alert("Success", `${basePayload.name} created! Add the next item.`);
@@ -443,6 +446,20 @@ export function AddEditItem() {
               </Text>
               <Icon source="chevron-down" size={18} color={colors.textMuted} />
             </Pressable>
+
+            {/* Serial Number Tracking Toggle */}
+            <View style={[styles.toggleRow, { marginTop: spacing.md }]}>
+              <View style={styles.toggleTextWrap}>
+                <Text style={styles.toggleLabel}>Track Serial Number?</Text>
+                <Text style={styles.toggleDesc}>Scan/enter serial numbers at the time of sale</Text>
+              </View>
+              <Switch
+                value={requiresSerialNumber}
+                onValueChange={setRequiresSerialNumber}
+                thumbColor={requiresSerialNumber ? colors.primary : "#f4f3f4"}
+                trackColor={{ false: "#767577", true: colors.primaryLight }}
+              />
+            </View>
           </View>
 
           <View style={styles.aeiCard}>
