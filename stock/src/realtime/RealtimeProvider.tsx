@@ -35,6 +35,7 @@ const legacyEvents: RealtimeEvent[] = [
 export function RealtimeProvider({ children }: PropsWithChildren) {
   const token = useAuthStore((state) => state.token);
   const userId = useAuthStore((state) => state.user?.id);
+  const signOut = useAuthStore((state) => state.signOut);
   const activeShopId = useShopStore((state) => state.activeShopId);
   const clearActiveShop = useShopStore((state) => state.clearActiveShop);
   const queryClient = useQueryClient();
@@ -166,7 +167,16 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
           event.shopId === activeShopId &&
           userId &&
           event.visibility?.targetUserIds?.includes(userId);
+        const wasCurrentStaffDeleted =
+          event?.entity === "staff" &&
+          (event.action === "deleted" || event.action === "deactivated") &&
+          userId &&
+          event.visibility?.targetUserIds?.includes(userId);
 
+        if (wasCurrentStaffDeleted) {
+          void signOut();
+          return;
+        }
         if (wasUnassignedFromActiveShop) {
           clearActiveShop();
         }
@@ -218,7 +228,7 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
       socketRef.current = null;
       deactivateReadModelContext(userId, activeShopId);
     };
-  }, [activeShopId, clearActiveShop, invalidationMap, queryClient, token, userId]);
+  }, [activeShopId, clearActiveShop, invalidationMap, queryClient, signOut, token, userId]);
 
   return (
     <>

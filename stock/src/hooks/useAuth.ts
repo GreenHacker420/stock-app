@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "../auth/auth-store";
 import { queryKeys } from "./query-keys";
-import { fetchMe, updateMe, fetchStaff, createStaff, updateStaff } from "../api/client";
+import { fetchMe, updateMe, fetchStaff, createStaff, updateStaff, deleteStaff } from "../api/client";
 
 export function useMeQuery() {
   const token = useAuthStore((state) => state.token);
@@ -91,6 +91,18 @@ export function useUpdateStaffMutation() {
       updateStaff(token ?? "", id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.staff() });
+    },
+  });
+}
+
+export function useDeleteStaffMutation() {
+  const token = useAuthStore((state) => state.token);
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => deleteStaff(token ?? "", id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.staff() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.shops() });
     },
   });
 }

@@ -386,6 +386,10 @@ export async function updateStaff(token: string, id: string, data: any) {
   return apiRequest<ApiUser>(`/auth/staff/${id}`, { method: "PATCH", token, body: JSON.stringify(data) });
 }
 
+export async function deleteStaff(token: string, id: string) {
+  return apiRequest<ApiUser>(`/auth/staff/${id}`, { method: "DELETE", token });
+}
+
 // SHOPS
 export async function fetchShops(token: string) {
   return apiRequest<Shop[]>("/shops", { token });

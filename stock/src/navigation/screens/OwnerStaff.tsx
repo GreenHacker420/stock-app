@@ -3,7 +3,7 @@ import { Alert, Pressable, ScrollView, View, StyleSheet, RefreshControl , Keyboa
 import { useRoute } from "@react-navigation/native";
 import { ActivityIndicator, Button, Text, TextInput, Divider, HelperText, Icon, Switch, Portal, Dialog } from "react-native-paper";
 import { ApiUser } from "../../api/client";
-import { useStaffQuery, useCreateStaffMutation, useUpdateStaffMutation } from "../../hooks/useAuth";
+import { useStaffQuery, useCreateStaffMutation, useUpdateStaffMutation, useDeleteStaffMutation } from "../../hooks/useAuth";
 import { useStaffTodaySummaryQuery } from "../../hooks/useDashboard";
 import { useAttendanceQuery, useCheckInMutation, useCheckOutMutation } from "../../hooks/useAttendance";
 import { useAuditLogsQuery } from "../../hooks/useAuditLogs";
@@ -111,6 +111,7 @@ export function AddEditStaff() {
   
   const createMutation = useCreateStaffMutation();
   const updateMutation = useUpdateStaffMutation();
+  const deleteMutation = useDeleteStaffMutation();
   const [error, setError] = useState("");
 
   const handleSave = () => {
@@ -154,7 +155,28 @@ export function AddEditStaff() {
     save();
   };
 
-  const isPending = createMutation.isPending || updateMutation.isPending;
+  const handleDelete = () => {
+    if (!staff || isPending) return;
+    Alert.alert(
+      "Delete staff access?",
+      "This will deactivate the staff account, remove all shop access, revoke registered devices, and clear app data on the staff device when it receives the access removal event.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => {
+            deleteMutation.mutate(staff.id, {
+              onSuccess: () => goBack(),
+              onError: (err: any) => setError(err?.message || "Failed to delete staff member."),
+            });
+          },
+        },
+      ],
+    );
+  };
+
+  const isPending = createMutation.isPending || updateMutation.isPending || deleteMutation.isPending;
 
   return (
     <Screen>
@@ -254,6 +276,20 @@ export function AddEditStaff() {
           >
             {staff ? "Update Staff Member" : "Create Staff Member"}
           </Button>
+          {staff ? (
+            <Button
+              mode="outlined"
+              icon="delete-outline"
+              textColor={colors.danger}
+              loading={deleteMutation.isPending}
+              disabled={isPending}
+              onPress={handleDelete}
+              style={styles.deleteButton}
+              contentStyle={styles.buttonContent}
+            >
+              Delete Staff Access
+            </Button>
+          ) : null}
         </View>
       </ScrollView>
       </KeyboardAvoidingView>
@@ -266,6 +302,10 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     backgroundColor: colors.primary,
     ...shadow.md,
+  },
+  deleteButton: {
+    borderRadius: radius.md,
+    borderColor: colors.danger,
   },
   addButtonLabel: {
     fontSize: fontSize.md,
