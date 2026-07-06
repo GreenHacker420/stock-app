@@ -370,23 +370,23 @@ export async function bulkStockEntry(user, data) {
 }
 
 export async function reserveStockForOrder(tx, shopId, orderId, orderItems) {
-  const itemIds = orderItems.map((item) => item.itemId);
-  if (itemIds.length === 0) return;
-  await assertNoVirtualBundleItems(
-    tx,
-    itemIds,
-    "Order reservations do not support bundle products yet. Use direct sale/DM for bundles or add component products separately."
-  );
+  if (orderItems.length === 0) return;
 
-  // 1. Pessimistic Row Lock on Item rows
+  // 1. Retrieve component requirements
+  const requirements = await expandStockRequirements(tx, shopId, orderItems);
+  const componentItemIds = requirements.map((r) => r.itemId);
+  const parentItemIds = orderItems.map((item) => item.itemId);
+  const allItemIdsToLock = [...new Set([...parentItemIds, ...componentItemIds])];
+
+  // 2. Pessimistic Row Lock on all involved Item rows
   await tx.$queryRawUnsafe(
-    `SELECT id FROM "Item" WHERE id IN (${itemIds.map((_, i) => `$${i + 1}`).join(", ")}) FOR UPDATE`,
-    ...itemIds
+    `SELECT id FROM "Item" WHERE id IN (${allItemIdsToLock.map((_, i) => `$${i + 1}`).join(", ")}) FOR UPDATE`,
+    ...allItemIdsToLock
   );
 
-  // 2. Fetch stock levels and active reservations for all items
-  for (const orderItem of orderItems) {
-    const { itemId, quantityOrdered } = orderItem;
+  // 3. Verify stock availability at the component level
+  for (const req of requirements) {
+    const { itemId, quantity } = req;
 
     // A. Physical stock (quantityIn - quantityOut)
     const ledgerSum = await tx.stockLedger.aggregate({
@@ -415,7 +415,7 @@ export async function reserveStockForOrder(tx, shopId, orderId, orderItems) {
 
     // C. Available stock
     const available = physical.minus(reserved);
-    const needed = qty(quantityOrdered);
+    const needed = qty(quantity);
 
     if (available.lt(needed)) {
       const item = await tx.item.findUnique({ where: { id: itemId } });
@@ -424,19 +424,43 @@ export async function reserveStockForOrder(tx, shopId, orderId, orderItems) {
         `Insufficient stock for item "${item?.name || itemId}". Physical: ${physical.toString()}, Reserved: ${reserved.toString()}, Available: ${available.toString()}, Requested: ${needed.toString()}`
       );
     }
+  }
 
-    // D. Create stock reservation
-    await tx.stockReservation.create({
-      data: {
-        shopId,
-        orderId,
-        orderItemId: orderItem.id,
-        itemId,
-        reservedQty: needed,
-        packedQty: ZERO,
-        status: "ACTIVE"
-      }
+  // 4. Create stock reservations
+  for (const orderItem of orderItems) {
+    const { itemId, quantityOrdered } = orderItem;
+
+    const bundleComponents = await tx.itemBundleComponent.findMany({
+      where: { parentItemId: itemId }
     });
+
+    if (bundleComponents.length > 0) {
+      for (const component of bundleComponents) {
+        await tx.stockReservation.create({
+          data: {
+            shopId,
+            orderId,
+            orderItemId: orderItem.id,
+            itemId: component.componentItemId,
+            reservedQty: qty(quantityOrdered).times(qty(component.quantity)),
+            packedQty: ZERO,
+            status: "ACTIVE"
+          }
+        });
+      }
+    } else {
+      await tx.stockReservation.create({
+        data: {
+          shopId,
+          orderId,
+          orderItemId: orderItem.id,
+          itemId,
+          reservedQty: qty(quantityOrdered),
+          packedQty: ZERO,
+          status: "ACTIVE"
+        }
+      });
+    }
   }
 }
 

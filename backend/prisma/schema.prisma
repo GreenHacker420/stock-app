@@ -809,7 +809,7 @@ model OrderItem {
   order         Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
   item          Item              @relation(fields: [itemId], references: [id])
   dispatchItems DispatchItem[]
-  reservation   StockReservation?
+  reservations  StockReservation[]
 
   @@index([orderId])
   @@index([itemId])
@@ -1256,7 +1256,7 @@ model StockReservation {
   id             String                    @id @default(cuid())
   shopId         String
   orderId        String
-  orderItemId    String                    @unique
+  orderItemId    String
   itemId         String
   reservedQty    Decimal                   @db.Decimal(12, 3)
   packedQty      Decimal                   @default(0) @db.Decimal(12, 3)

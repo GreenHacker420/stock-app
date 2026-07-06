@@ -256,11 +256,82 @@ test.describe("Phase 2 core business correctness", () => {
     assert.strictEqual(quantityOutByItem.get(chip.id), 1);
     assert.strictEqual(quantityOutByItem.get(kit.id), undefined);
 
-    await assertRejectsApi(() => orderService.createOrder(owner, {
+    // Test end-to-end bundle order flow
+    const order = await orderService.createOrder(owner, {
       shopId: shop.id,
       customerId: customer.id,
-      items: [{ itemId: kit.id, quantityOrdered: 1, rate: 380 }],
-    }), 400);
+      items: [{ itemId: kit.id, quantityOrdered: 2, rate: 380 }],
+    });
+
+    assert.strictEqual(order.items.length, 1);
+    const orderItemId = order.items[0].id;
+
+    // Confirm Order (reserves components)
+    await orderService.confirmOrder(owner, order.id);
+
+    // Verify component reservations
+    const reservations = await prisma.stockReservation.findMany({
+      where: { orderId: order.id }
+    });
+    assert.strictEqual(reservations.length, 2);
+    const reservationByItem = new Map(reservations.map((r) => [r.itemId, r]));
+
+    const cartridgeRes = reservationByItem.get(cartridge.id);
+    assert.ok(cartridgeRes);
+    assert.strictEqual(Number(cartridgeRes.reservedQty), 2);
+    assert.strictEqual(Number(cartridgeRes.packedQty), 0);
+    assert.strictEqual(cartridgeRes.status, "ACTIVE");
+
+    const chipRes = reservationByItem.get(chip.id);
+    assert.ok(chipRes);
+    assert.strictEqual(Number(chipRes.reservedQty), 2);
+    assert.strictEqual(Number(chipRes.packedQty), 0);
+    assert.strictEqual(chipRes.status, "ACTIVE");
+
+    // Pack 1 unit of parent kit (should pack 1 cartridge and 1 chip)
+    await orderService.markItemPacked(owner, order.id, {
+      orderItemId,
+      quantityPacked: 1
+    });
+
+    const packedReservations = await prisma.stockReservation.findMany({
+      where: { orderId: order.id }
+    });
+    const packedResByItem = new Map(packedReservations.map((r) => [r.itemId, r]));
+    assert.strictEqual(Number(packedResByItem.get(cartridge.id).packedQty), 1);
+    assert.strictEqual(Number(packedResByItem.get(chip.id).packedQty), 1);
+
+    // Convert to DM
+    const dmFromOrder = await orderService.createDmFromOrder(owner, order.id, {
+      items: [{
+        orderItemId,
+        itemId: kit.id,
+        quantity: 1,
+        rate: 380
+      }]
+    });
+
+    // Verify component physical stock out
+    const dmStockLedger = await prisma.stockLedger.findMany({
+      where: { shopId: shop.id, referenceType: "DeliveryMemo", referenceId: dmFromOrder.id },
+      select: { itemId: true, quantityOut: true },
+    });
+    const dmOutByItem = new Map(dmStockLedger.map((row) => [row.itemId, Number(row.quantityOut)]));
+    assert.strictEqual(dmOutByItem.get(cartridge.id), 1);
+    assert.strictEqual(dmOutByItem.get(chip.id), 1);
+    assert.strictEqual(dmOutByItem.get(kit.id), undefined);
+
+    // Clean up
+    await prisma.dispatchItem.deleteMany({ where: { orderItemId } });
+    await prisma.dispatch.deleteMany({ where: { orderId: order.id } });
+    await prisma.stockReservation.deleteMany({ where: { orderId: order.id } });
+    await prisma.packingTask.deleteMany({ where: { orderId: order.id } });
+    await prisma.orderEvent.deleteMany({ where: { orderId: order.id } });
+    await prisma.orderItem.deleteMany({ where: { orderId: order.id } });
+    await prisma.order.deleteMany({ where: { id: order.id } });
+    await prisma.deliveryMemoItem.deleteMany({ where: { dmId: dmFromOrder.id } });
+    await prisma.deliveryMemo.deleteMany({ where: { id: dmFromOrder.id } });
+    await prisma.stockLedger.deleteMany({ where: { referenceId: dmFromOrder.id } });
   });
 
   test("daily summary calculates credit, payment, and expense totals without cross-shop data", async () => {

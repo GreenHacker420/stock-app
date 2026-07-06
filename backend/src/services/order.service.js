@@ -12,7 +12,7 @@ import {
   prisma,
   increaseCustomerDebt,
 } from "./transactionHelpers.js";
-import { reserveStockForOrder } from "./stock.service.js";
+import { reserveStockForOrder, expandStockRequirements } from "./stock.service.js";
 import { qty, money } from "../utils/money.js";
 import { EntityType, AuditAction } from "../generated/prisma/index.js";
 
@@ -81,13 +81,7 @@ export async function createOrder(user, data) {
     await assertStaffAssignableToShop(user, data.shopId, data.assignedStaffId);
   }
 
-  const orderItemIds = data.items.map((item) => item.itemId);
-  const bundleOrderItemCount = await prisma.itemBundleComponent.count({
-    where: { parentItemId: { in: orderItemIds } },
-  });
-  if (bundleOrderItemCount > 0) {
-    throw new ApiError(400, "Orders do not support bundle products yet. Use direct sale/DM for bundles or add component products separately.");
-  }
+
 
   const { items, subtotal, discountAmount, totalAmount } = calculateItemTotals(
     data.items.map((item) => ({ ...item, quantity: item.quantityOrdered })),
@@ -394,13 +388,18 @@ export async function markItemPacked(user, id, { orderItemId, quantityPacked }) 
   }
 
   await prisma.$transaction(async (tx) => {
-    // Update StockReservation packedQty
-    await tx.stockReservation.update({
-      where: { orderItemId },
-      data: {
-        packedQty: qty(nextPacked)
-      }
+    // Update StockReservation packedQty for all component reservations proportionally
+    const reservations = await tx.stockReservation.findMany({
+      where: { orderItemId }
     });
+    for (const res of reservations) {
+      const ratio = qty(res.reservedQty).dividedBy(qty(item.quantityOrdered));
+      const resNextPacked = qty(nextPacked).times(ratio);
+      await tx.stockReservation.update({
+        where: { id: res.id },
+        data: { packedQty: resNextPacked }
+      });
+    }
 
     await tx.orderItem.update({
       where: { id: orderItemId },
@@ -449,16 +448,23 @@ export async function reportShortage(user, id, { orderItemId, availableQuantity,
   if (!item) throw new ApiError(404, "Order item not found");
 
   await prisma.$transaction(async (tx) => {
-    // Truncate reservation quantity and release shortage back to Available pool
-    await tx.stockReservation.update({
-      where: { orderItemId },
-      data: {
-        reservedQty: qty(availableQuantity),
-        packedQty: qty(availableQuantity),
-        releasedAt: new Date(),
-        releasedReason: "SHORTAGE"
-      }
+    // Truncate reservation quantity and release shortage back to Available pool proportionally for all component reservations
+    const reservations = await tx.stockReservation.findMany({
+      where: { orderItemId }
     });
+    for (const res of reservations) {
+      const ratio = qty(res.reservedQty).dividedBy(qty(item.quantityOrdered));
+      const resAv = qty(availableQuantity).times(ratio);
+      await tx.stockReservation.update({
+        where: { id: res.id },
+        data: {
+          reservedQty: resAv,
+          packedQty: resAv,
+          releasedAt: new Date(),
+          releasedReason: "SHORTAGE"
+        }
+      });
+    }
 
     await tx.orderItem.update({
       where: { id: orderItemId },
@@ -674,11 +680,12 @@ export async function createDmFromOrder(user, id, data) {
       },
     });
 
-    for (const item of items) {
+    const stockRequirements = await expandStockRequirements(tx, order.shopId, items);
+    for (const req of stockRequirements) {
       await createStockOut(tx, {
         shopId: order.shopId,
-        itemId: item.itemId,
-        quantity: item.quantity,
+        itemId: req.itemId,
+        quantity: req.quantity,
         movementType: "DM",
         referenceType: "DeliveryMemo",
         referenceId: dm.id,
@@ -798,11 +805,12 @@ export async function convertOrderToSale(user, id, data) {
       },
     });
 
-    for (const item of items) {
+    const stockRequirements = await expandStockRequirements(tx, order.shopId, items);
+    for (const req of stockRequirements) {
       await createStockOut(tx, {
         shopId: order.shopId,
-        itemId: item.itemId,
-        quantity: item.quantity,
+        itemId: req.itemId,
+        quantity: req.quantity,
         movementType: "SALE",
         referenceType: "Sale",
         referenceId: sale.id,
