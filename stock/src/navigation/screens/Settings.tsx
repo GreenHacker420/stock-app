@@ -1,9 +1,11 @@
 import { useState, useEffect } from "react";
-import { View, StyleSheet, Pressable } from "react-native";
+import { View, StyleSheet, Pressable, Alert } from "react-native";
 import { Text, Icon, Divider, Portal, Modal, Button, Switch } from "react-native-paper";
 import { ScrollScreen } from "../../components/layout/ScrollScreen";
 import { ScreenSection } from "../../components/layout/ScreenSection";
 import { useAuthStore } from "../../auth/auth-store";
+import { useShopStore } from "../../auth/shop-store";
+import { useShopsQuery } from "../../hooks/useShops";
 import { getToken, setToken } from "../../auth/token-storage";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { navigate } from "../navigation-ref";
@@ -68,6 +70,9 @@ function SettingRow({
 
 export function Settings() {
   const user = useAuthStore((state) => state.user);
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  const shopsQuery = useShopsQuery();
+  const activeShop = shopsQuery.data?.find((s) => s.id === activeShopId);
 
   const [notifications, setNotifications] = useState(true);
   const [soundEnabled, setSoundEnabled] = useState(true);
@@ -142,7 +147,13 @@ export function Settings() {
               <SettingRow
                 icon="qrcode-edit"
                 label="UPI Configuration"
-                onPress={() => navigate("UpiConfig")}
+                onPress={() => {
+                  if (activeShop) {
+                    navigate("UpiConfig", { shop: activeShop });
+                  } else {
+                    Alert.alert("Error", "Active shop details not loaded yet.");
+                  }
+                }}
               />
               <SettingRow
                 icon="storefront-outline"

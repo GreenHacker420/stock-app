@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useRef, useState, useEffect } from "react";
 import { View, StyleSheet, Modal, Alert, Platform, TouchableOpacity } from "react-native";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Text, TextInput, Icon } from "react-native-paper";
@@ -9,6 +9,8 @@ import * as Haptics from "expo-haptics";
 
 import { updateShop } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
+import { useShopStore } from "../../auth/shop-store";
+import { useShopsQuery } from "../../hooks/useShops";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { FormScreen } from "../../components/layout/FormScreen";
@@ -68,12 +70,22 @@ export function UpiConfig() {
   const queryClient = useQueryClient();
   const navigation = useNavigation();
   
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  const shopsQuery = useShopsQuery();
+
   const route = useRoute<RouteProp<{ UpiConfig: UpiConfigRouteParams }, "UpiConfig">>();
-  const shop = route.params?.shop;
+  const shop = route.params?.shop || shopsQuery.data?.find(s => s.id === activeShopId);
   const shopId = shop?.id;
 
-  const [upiId, setUpiId] = useState(shop?.upiId || "");
-  const [upiName, setUpiName] = useState(shop?.upiName || "");
+  const [upiId, setUpiId] = useState("");
+  const [upiName, setUpiName] = useState("");
+
+  useEffect(() => {
+    if (shop) {
+      setUpiId(shop.upiId || "");
+      setUpiName(shop.upiName || "");
+    }
+  }, [shop]);
   const [successVisible, setSuccessVisible] = useState(false);
 
   // Scanner states & refs

@@ -619,7 +619,14 @@ export type RootStackParamList = {
   PaymentVerification: undefined;
   CashClosingReview: undefined;
   DailySummary: { id?: string; date?: string };
-  UpiConfig: undefined;
+  UpiConfig: {
+    shop?: {
+      id: string;
+      name: string;
+      upiId?: string | null;
+      upiName?: string | null;
+    };
+  } | undefined;
   Updates: undefined;
   CreateOrder: undefined;
   OrderList: undefined;
