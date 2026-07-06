@@ -111,7 +111,8 @@ export function AppHeader({ title, subtitle, role, initials, showBack, onBack, h
 	                <Icon source="chevron-down" size={14} color={colors.primary} />
 	              )}
             </Pressable>
-          ) : subtitle ? (
+          ) : null}
+          {subtitle ? (
             <Text style={styles.subtitle} numberOfLines={1}>
               {subtitle}
             </Text>

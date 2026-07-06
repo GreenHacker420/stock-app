@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { View, ScrollView, StyleSheet, Platform, Alert , KeyboardAvoidingView } from "react-native";
-import { Button, Text, Icon, TextInput, Portal, Dialog, Divider } from "react-native-paper";
+import { Button as PaperButton, Text, Icon, TextInput, Portal, Dialog, Divider } from "react-native-paper";
+import { Button } from "../../components/ui/Button";
 
 import { useShopsQuery } from "../../hooks/useShops";
 import { usePaymentsQuery, useVerifyPaymentMutation, useMarkPaymentMismatchMutation } from "../../hooks/usePayments";
@@ -92,7 +93,6 @@ export function PaymentVerification() {
             { value: "pending", label: "Pending Review", icon: "clock-outline", badge: pendingCount || undefined },
             { value: "completed", label: "Review History", icon: "history" },
           ]}
-          style={styles.statusChips}
         />
       </View>
 
@@ -123,7 +123,6 @@ export function PaymentVerification() {
               amount={`₹${Number(p.amount).toLocaleString("en-IN", { minimumFractionDigits: 2 })}`}
               status={p.status === "RECORDED" ? "PENDING REVIEW" : p.status}
               statusTone={p.status === "VERIFIED" ? "green" : p.status === "REJECTED" ? "red" : "amber"}
-              createdAt={formatDateTime(p.receivedAt)}
             >
                   <View style={styles.modeBadge}>
                     <Icon source={
@@ -159,57 +158,28 @@ export function PaymentVerification() {
                 </View>
               </View>
 
-              <View style={styles.linkedRecordContainer}>
-                <View style={styles.linkedHeader}>
-                  <Icon source="link-variant" size={14} color={colors.primary} />
-                  <Text style={styles.linkedTitle}>LINKED RECEIPT</Text>
-                </View>
-                <View style={styles.linkedBody}>
-                  <Text style={styles.linkedNumber}>
-                    {p.saleId 
-                      ? `Sale #${p.sale?.saleNumber || "..."}` 
-                      : p.orderId 
-                        ? `Order #${p.order?.orderNumber || "..."}` 
-                        : "Standalone Payment"}
-                  </Text>
-                  {p.customer && (
-                    <Text style={styles.customerName} numberOfLines={1}>
-                      {p.customer.name}
-                    </Text>
-                  )}
-                </View>
-              </View>
-
               {activeTab === 'pending' && (
                 <View style={styles.cardActions}>
                   <Button 
-                    mode="outlined" 
+                    variant="danger"
                     icon="close-circle-outline" 
-                    textColor={colors.danger}
-                    style={[styles.actionButton, styles.mismatchButton]}
-                    contentStyle={styles.buttonContent}
-                    labelStyle={styles.buttonLabel}
+                    style={styles.actionButton}
+                    label="Mismatch"
                     onPress={() => {
                       setActivePaymentId(p.id);
                       setActionType('mismatch');
                     }}
-                  >
-                    Mismatch
-                  </Button>
+                  />
                   <Button 
-                    mode="contained" 
+                    variant="success"
                     icon="check-decagram"
-                    buttonColor={colors.success}
                     style={styles.actionButton}
-                    contentStyle={styles.buttonContent}
-                    labelStyle={styles.buttonLabel}
+                    label="Verify"
                     onPress={() => {
                       setActivePaymentId(p.id);
                       setActionType('verify');
                     }}
-                  >
-                    Verify
-                  </Button>
+                  />
                 </View>
               )}
             </VerificationCard>
@@ -243,14 +213,14 @@ export function PaymentVerification() {
             />
           </Dialog.Content>
           <Dialog.Actions>
-            <Button onPress={() => setActionType(null)}>Cancel</Button>
-            <Button 
+            <PaperButton onPress={() => setActionType(null)}>Cancel</PaperButton>
+            <PaperButton 
               loading={isPending} 
               onPress={handleConfirm}
               textColor={actionType === 'verify' ? colors.success : colors.danger}
             >
               Confirm
-            </Button>
+            </PaperButton>
           </Dialog.Actions>
         </Dialog>
       </Portal>
@@ -262,9 +232,6 @@ const styles = StyleSheet.create({
   statusTabsContainer: {
     marginHorizontal: spacing.lg,
     marginVertical: spacing.md,
-  },
-  statusChips: {
-    flex: 1,
   },
   filterSection: {
     paddingHorizontal: spacing.lg,
@@ -327,37 +294,6 @@ const styles = StyleSheet.create({
     color: colors.info,
     fontWeight: fontWeight.bold,
   },
-  linkedRecordContainer: {
-    backgroundColor: colors.surfaceOffset,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  linkedHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginBottom: 4,
-  },
-  linkedTitle: {
-    fontSize: 9,
-    fontWeight: fontWeight.black,
-    color: colors.primary,
-    letterSpacing: 0.5,
-  },
-  linkedBody: {
-    gap: 2,
-  },
-  linkedNumber: {
-    fontSize: 14,
-    fontWeight: fontWeight.bold,
-    color: colors.textPrimary,
-  },
-  customerName: {
-    fontSize: 12,
-    color: colors.textSecondary,
-  },
   cardActions: {
     flexDirection: 'row',
     gap: spacing.md,
@@ -366,17 +302,6 @@ const styles = StyleSheet.create({
   actionButton: {
     flex: 1,
     borderRadius: radius.md,
-  },
-  mismatchButton: {
-    borderColor: colors.danger,
-    borderWidth: 1,
-  },
-  buttonContent: {
-    height: 44,
-  },
-  buttonLabel: {
-    fontSize: 13,
-    fontWeight: fontWeight.bold,
   },
   emptyContainer: {
     alignItems: 'center',
