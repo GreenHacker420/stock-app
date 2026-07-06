@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   View,
   StyleSheet,
@@ -5,8 +6,9 @@ import {
   ScrollView,
   Modal as RNModal,
   TouchableWithoutFeedback,
+  ActivityIndicator,
 } from "react-native";
-import { Text, Icon } from "react-native-paper";
+import { Text, Icon, TextInput } from "react-native-paper";
 
 import { ItemCategory } from "../../api/client";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
@@ -18,13 +20,31 @@ export function CategoryPickerSheet({
   selectedCategoryId,
   onSelect,
   onDismiss,
+  onCreateNew,
 }: {
   visible: boolean;
   categories: ItemCategory[];
   selectedCategoryId: string;
   onSelect: (categoryId: string) => void;
   onDismiss: () => void;
+  onCreateNew?: (name: string) => Promise<void>;
 }) {
+  const [newCatName, setNewCatName] = useState("");
+  const [isCreating, setIsCreating] = useState(false);
+
+  const handleCreate = async () => {
+    if (!newCatName.trim() || !onCreateNew) return;
+    setIsCreating(true);
+    try {
+      await onCreateNew(newCatName.trim());
+      setNewCatName("");
+    } catch (err) {
+      // Error handled by caller
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
   return (
     <RNModal visible={visible} transparent animationType="slide" onRequestClose={onDismiss}>
       <TouchableWithoutFeedback onPress={onDismiss}>
@@ -33,6 +53,37 @@ export function CategoryPickerSheet({
             <View style={styles.sheet}>
               <View style={styles.handle} />
               <Text style={styles.title}>Select Category</Text>
+
+              {onCreateNew && (
+                <View style={styles.quickAddContainer}>
+                  <TextInput
+                    mode="outlined"
+                    placeholder="Quick add category..."
+                    value={newCatName}
+                    onChangeText={setNewCatName}
+                    style={styles.quickAddInput}
+                    outlineStyle={{ borderRadius: radius.md }}
+                    disabled={isCreating}
+                    dense
+                  />
+                  <Pressable
+                    onPress={handleCreate}
+                    disabled={!newCatName.trim() || isCreating}
+                    style={({ pressed }) => [
+                      styles.quickAddBtn,
+                      (!newCatName.trim() || isCreating) && { opacity: 0.5 },
+                      pressed && { opacity: 0.7 }
+                    ]}
+                  >
+                    {isCreating ? (
+                      <ActivityIndicator size="small" color={colors.primary} />
+                    ) : (
+                      <Icon source="plus" size={20} color={colors.primary} />
+                    )}
+                  </Pressable>
+                </View>
+              )}
+
               <ScrollView showsVerticalScrollIndicator={false}>
                 <Pressable
                   onPress={() => onSelect("")}
@@ -63,6 +114,27 @@ export function CategoryPickerSheet({
 }
 
 const styles = StyleSheet.create({
+  quickAddContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  quickAddInput: {
+    flex: 1,
+    height: 40,
+    backgroundColor: colors.surface,
+  },
+  quickAddBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surfaceOffset,
+  },
   overlay: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.45)",

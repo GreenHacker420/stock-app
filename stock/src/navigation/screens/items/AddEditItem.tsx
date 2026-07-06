@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import {
   View,
   StyleSheet,
@@ -6,6 +6,7 @@ import {
   Alert,
   Modal,
   Pressable,
+  Switch,
 } from "react-native";
 import { Text, Icon, TextInput } from "react-native-paper";
 import { useRoute } from "@react-navigation/native";
@@ -16,7 +17,7 @@ import { Item, ItemCategory, ItemBrand, CreateItemPayload, UpdateItemPayload, Lo
 import { useAuthStore } from "../../../auth/auth-store";
 import { useShopStore } from "../../../auth/shop-store";
 import { requireActiveShopId } from "../../../hooks/useActiveShop";
-import { useCategoriesQuery, useBrandsQuery, useCreateItemMutation, useItemsQuery, useUpdateItemMutation } from "../../../hooks/useItems";
+import { useCategoriesQuery, useBrandsQuery, useCreateItemMutation, useItemsQuery, useUpdateItemMutation, useCreateCategoryMutation, useCreateBrandMutation } from "../../../hooks/useItems";
 import { Screen } from "../../../components/Screen";
 import { AppHeader } from "../../../components/ui/AppHeader";
 import { Button } from "../../../components/ui/Button";
@@ -62,9 +63,13 @@ export function AddEditItem() {
 
   const createMutation = useCreateItemMutation();
   const updateMutation = useUpdateItemMutation();
+  const createCategoryMutation = useCreateCategoryMutation();
+  const createBrandMutation = useCreateBrandMutation();
   const { activeShopId } = useShopStore();
   const token = useAuthStore((s) => s.token);
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+
+  const nameInputRef = useRef<any>(null);
 
   const [form, setForm] = useState<FormState>({
     name: existingItem?.name ?? "",
@@ -87,12 +92,41 @@ export function AddEditItem() {
   const [imageUrl, setImageUrl] = useState(existingItem?.imageUrl ?? "");
   const [uploadingImage, setUploadingImage] = useState(false);
   const [componentSearch, setComponentSearch] = useState("");
+  const [isBundle, setIsBundle] = useState((existingItem?.bundleComponents ?? []).length > 0);
   const [bundleComponents, setBundleComponents] = useState<BundleComponentForm[]>(
     (existingItem?.bundleComponents ?? []).map((component) => ({
       componentItemId: component.componentItemId,
       quantity: String(component.quantity ?? 1),
     })),
   );
+
+  useEffect(() => {
+    setTimeout(() => {
+      nameInputRef.current?.focus();
+    }, 150);
+  }, []);
+
+  const handleTextChange = (key: keyof FormState) => (value: string) => {
+    setForm((f) => {
+      const next = { ...f, [key]: value };
+      
+      // Auto-fill pricing rules
+      if (key === "mrp") {
+        if (!f.defaultSellingPrice || f.defaultSellingPrice === f.mrp) {
+          next.defaultSellingPrice = value;
+        }
+        if (!f.minimumAllowedPrice || f.minimumAllowedPrice === f.defaultSellingPrice || f.minimumAllowedPrice === f.mrp) {
+          next.minimumAllowedPrice = value;
+        }
+      } else if (key === "defaultSellingPrice") {
+        if (!f.minimumAllowedPrice || f.minimumAllowedPrice === f.defaultSellingPrice) {
+          next.minimumAllowedPrice = value;
+        }
+      }
+      
+      return next;
+    });
+  };
 
   const set = (key: keyof FormState) => (v: string) => setForm((f) => ({ ...f, [key]: v }));
 
@@ -219,7 +253,7 @@ export function AddEditItem() {
     }
   };
 
-  const handleSave = async () => {
+  const handleSave = async (addAnother = false) => {
     if (!form.name.trim() || !form.unit.trim()) return;
 
     const mrp = parseAmount(form.mrp, null);
@@ -313,7 +347,33 @@ export function AddEditItem() {
         initialStock: initialStock ?? 0,
       };
       createMutation.mutate(payload, {
-        onSuccess: () => goBack(),
+        onSuccess: () => {
+          if (addAnother) {
+            setForm({
+              name: "",
+              sku: "",
+              unit: "pcs",
+              defaultSellingPrice: "",
+              minimumAllowedPrice: "",
+              mrp: "",
+              purchasePrice: "",
+              minimumStock: "0",
+              categoryId: form.categoryId,
+              brandId: form.brandId,
+              initialStock: "",
+            });
+            setBundleComponents([]);
+            setIsBundle(false);
+            setSelectedImage(null);
+            setImageUrl("");
+            Alert.alert("Success", `${basePayload.name} created! Add the next item.`);
+            setTimeout(() => {
+              nameInputRef.current?.focus();
+            }, 200);
+          } else {
+            goBack();
+          }
+        },
         onError: (err: any) => Alert.alert("Failed to Create Product", err?.message || "Something went wrong."),
       });
     }
@@ -326,7 +386,7 @@ export function AddEditItem() {
     mode: "outlined" as const,
     label,
     value: form[key],
-    onChangeText: set(key),
+    onChangeText: handleTextChange(key),
     outlineStyle: styles.aeiOutline,
     style: styles.aeiInput,
     keyboardType: keyboardType ?? ("default" as const),
@@ -349,7 +409,7 @@ export function AddEditItem() {
           {/* Basic Info */}
           <View style={styles.aeiCard}>
             <Text style={styles.aeiSectionLabel}>PRODUCT DETAILS</Text>
-            <TextInput {...inputProps("name", "Product Name *")} />
+            <TextInput ref={nameInputRef} {...inputProps("name", "Product Name *")} />
             <View style={styles.aeiRow}>
               <TextInput {...inputProps("sku", "SKU / Code")} style={[styles.aeiInput, { flex: 1 }]} />
               <Pressable onPress={openSkuScanner} style={styles.scanButton} accessibilityRole="button" accessibilityLabel="Scan SKU barcode">
@@ -425,80 +485,114 @@ export function AddEditItem() {
           </View>
 
           <View style={styles.aeiCard}>
-            <Text style={styles.aeiSectionLabel}>BUNDLE / KIT</Text>
-            <Text style={styles.bundleHint}>
-              Add components only for virtual kits, for example 071 Cartridge x 1 and 071 Chip x 1.
-            </Text>
-
-            {bundleComponents.map((component) => {
-              const componentItem = getComponentItem(component.componentItemId);
-              return (
-                <View key={component.componentItemId} style={styles.bundleRow}>
-                  <View style={styles.bundleNameWrap}>
-                    <Text style={styles.bundleName} numberOfLines={1}>
-                      {componentItem?.name || "Component product"}
-                    </Text>
-                    {!!componentItem?.sku && (
-                      <Text style={styles.bundleSku} numberOfLines={1}>
-                        {componentItem.sku}
-                      </Text>
-                    )}
-                  </View>
-                  <TextInput
-                    mode="outlined"
-                    label="Qty"
-                    value={component.quantity}
-                    onChangeText={(value) => updateBundleComponentQty(component.componentItemId, value)}
-                    keyboardType="numeric"
-                    style={styles.bundleQtyInput}
-                    outlineStyle={styles.aeiOutline}
-                  />
-                  <Pressable
-                    onPress={() => removeBundleComponent(component.componentItemId)}
-                    style={styles.removeComponentButton}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Remove ${componentItem?.name || "component"}`}
-                    hitSlop={8}
-                  >
-                    <Icon source="close" size={18} color={colors.danger} />
-                  </Pressable>
-                </View>
-              );
-            })}
-
-            <TextInput
-              mode="outlined"
-              label="Search component product"
-              value={componentSearch}
-              onChangeText={setComponentSearch}
-              outlineStyle={styles.aeiOutline}
-              style={styles.aeiInput}
-            />
-            <View style={styles.componentOptions}>
-              {componentOptions.map((item) => (
-                <Pressable
-                  key={item.id}
-                  onPress={() => addBundleComponent(item.id)}
-                  style={styles.componentOption}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Add ${item.name} as bundle component`}
-                >
-                  <View style={styles.bundleNameWrap}>
-                    <Text style={styles.componentOptionTitle} numberOfLines={1}>{item.name}</Text>
-                    {!!item.sku && <Text style={styles.bundleSku} numberOfLines={1}>{item.sku}</Text>}
-                  </View>
-                  <Icon source="plus-circle-outline" size={20} color={colors.primary} />
-                </Pressable>
-              ))}
+            <View style={styles.toggleRow}>
+              <View style={styles.toggleTextWrap}>
+                <Text style={styles.toggleLabel}>Is Bundle / Kit Product?</Text>
+                <Text style={styles.toggleDesc}>For composite virtual kits made of other items</Text>
+              </View>
+              <Switch
+                value={isBundle}
+                onValueChange={(val) => {
+                  setIsBundle(val);
+                  if (!val) {
+                    setBundleComponents([]);
+                  }
+                }}
+                thumbColor={isBundle ? colors.primary : "#f4f3f4"}
+                trackColor={{ false: "#767577", true: colors.primaryLight }}
+              />
             </View>
+
+            {isBundle && (
+              <View style={{ marginTop: spacing.md, gap: spacing.md }}>
+                <Text style={styles.bundleHint}>
+                  Add components only for virtual kits, for example 071 Cartridge x 1 and 071 Chip x 1.
+                </Text>
+
+                {bundleComponents.map((component) => {
+                  const componentItem = getComponentItem(component.componentItemId);
+                  return (
+                    <View key={component.componentItemId} style={styles.bundleRow}>
+                      <View style={styles.bundleNameWrap}>
+                        <Text style={styles.bundleName} numberOfLines={1}>
+                          {componentItem?.name || "Component product"}
+                        </Text>
+                        {!!componentItem?.sku && (
+                          <Text style={styles.bundleSku} numberOfLines={1}>
+                            {componentItem.sku}
+                          </Text>
+                        )}
+                      </View>
+                      <TextInput
+                        mode="outlined"
+                        label="Qty"
+                        value={component.quantity}
+                        onChangeText={(value) => updateBundleComponentQty(component.componentItemId, value)}
+                        keyboardType="numeric"
+                        style={styles.bundleQtyInput}
+                        outlineStyle={styles.aeiOutline}
+                      />
+                      <Pressable
+                        onPress={() => removeBundleComponent(component.componentItemId)}
+                        style={styles.removeComponentButton}
+                        accessibilityRole="button"
+                        accessibilityLabel={`Remove ${componentItem?.name || "component"}`}
+                        hitSlop={8}
+                      >
+                        <Icon source="close" size={18} color={colors.danger} />
+                      </Pressable>
+                    </View>
+                  );
+                })}
+
+                <TextInput
+                  mode="outlined"
+                  label="Search component product"
+                  value={componentSearch}
+                  onChangeText={setComponentSearch}
+                  outlineStyle={styles.aeiOutline}
+                  style={styles.aeiInput}
+                />
+                <View style={styles.componentOptions}>
+                  {componentOptions.map((item) => (
+                    <Pressable
+                      key={item.id}
+                      onPress={() => addBundleComponent(item.id)}
+                      style={styles.componentOption}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Add ${item.name} as bundle component`}
+                    >
+                      <View style={styles.bundleNameWrap}>
+                        <Text style={styles.componentOptionTitle} numberOfLines={1}>{item.name}</Text>
+                        {!!item.sku && <Text style={styles.bundleSku} numberOfLines={1}>{item.sku}</Text>}
+                      </View>
+                      <Icon source="plus-circle-outline" size={20} color={colors.primary} />
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+            )}
           </View>
 
-          <Button
-            label={existingItem ? "Save Changes" : "Create Product"}
-            onPress={handleSave}
-            loading={isPending}
-            disabled={!isValid || isPending}
-          />
+          <View style={styles.saveButtonsRow}>
+            <Button
+              label={existingItem ? "Save Changes" : "Create Product"}
+              onPress={() => handleSave(false)}
+              loading={isPending}
+              disabled={!isValid || isPending}
+              style={{ flex: 1 }}
+            />
+            {!existingItem && (
+              <Button
+                label="Save & Add Another"
+                onPress={() => handleSave(true)}
+                loading={isPending}
+                disabled={!isValid || isPending}
+                variant="secondary"
+                style={{ flex: 1 }}
+              />
+            )}
+          </View>
         </ScrollView>
       </AppKeyboardAvoidingView>
 
@@ -511,6 +605,11 @@ export function AddEditItem() {
           setShowCatPicker(false);
         }}
         onDismiss={() => setShowCatPicker(false)}
+        onCreateNew={async (name) => {
+          const newCat = await createCategoryMutation.mutateAsync(name);
+          setForm((f) => ({ ...f, categoryId: newCat.id }));
+          setShowCatPicker(false);
+        }}
       />
 
       <BrandPickerSheet
@@ -522,6 +621,11 @@ export function AddEditItem() {
           setShowBrandPicker(false);
         }}
         onDismiss={() => setShowBrandPicker(false)}
+        onCreateNew={async (name) => {
+          const newBrand = await createBrandMutation.mutateAsync(name);
+          setForm((f) => ({ ...f, brandId: newBrand.id }));
+          setShowBrandPicker(false);
+        }}
       />
 
       <Modal visible={scannerVisible} animationType="slide" onRequestClose={() => setScannerVisible(false)}>
@@ -533,8 +637,11 @@ export function AddEditItem() {
               barcodeTypes: ["ean13", "ean8", "code128", "code39", "upc_a", "upc_e", "itf14"],
             }}
             onBarcodeScanned={({ data }) => {
-              set("sku")(String(data));
+              handleTextChange("sku")(String(data));
               setScannerVisible(false);
+              setTimeout(() => {
+                nameInputRef.current?.focus();
+              }, 150);
             }}
           />
           <View style={styles.scannerTopBar}>
@@ -551,6 +658,30 @@ export function AddEditItem() {
 }
 
 const styles = StyleSheet.create({
+  toggleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  toggleTextWrap: {
+    flex: 1,
+    paddingRight: spacing.sm,
+  },
+  toggleLabel: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  toggleDesc: {
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  saveButtonsRow: {
+    flexDirection: "row",
+    gap: spacing.md,
+    marginTop: spacing.md,
+  },
   aeiScroll: {
     padding: spacing.lg,
     paddingBottom: 100,

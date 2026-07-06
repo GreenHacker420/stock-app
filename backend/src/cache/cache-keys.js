@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 
 const PREFIX = "srv-cache:v1";
-const ALLOWED_DOMAINS = new Set(["customers", "items", "categories"]);
+const ALLOWED_DOMAINS = new Set(["customers", "items", "categories", "brands"]);
 
 function assertDomain(domain) {
   if (!ALLOWED_DOMAINS.has(domain)) {
