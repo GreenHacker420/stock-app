@@ -15,6 +15,7 @@ const DEFAULT_QUERY_KEYS = {
   approval: ["approvals", "notifications"],
   notification: ["notifications"],
   dashboard: ["dashboard"],
+  shop: ["shops"],
 };
 
 export function createDomainEvent({

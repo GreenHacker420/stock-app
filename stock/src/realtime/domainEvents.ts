@@ -15,6 +15,7 @@ export type DomainEvent = {
     | "approval"
     | "dashboard"
     | "notification"
+    | "shop"
     | "category";
   action: string;
   entityId: string;
@@ -29,6 +30,12 @@ export type DomainEvent = {
     body: string;
     severity?: "info" | "success" | "warning" | "critical";
     deepLink?: string;
+  };
+  visibility?: {
+    owners?: boolean;
+    staff?: boolean;
+    targetUserIds?: string[];
+    targetDeviceIds?: string[];
   };
 };
 
@@ -77,6 +84,11 @@ export function invalidateForDomainEvent(queryClient: QueryClient, event: Domain
   if (event.entity === "category") {
     invalidate(["categories", shopId]);
     invalidate(["items", shopId]);
+  }
+
+  if (event.entity === "shop") {
+    queryClient.invalidateQueries({ queryKey: ["shops"] });
+    queryClient.invalidateQueries({ queryKey: ["me"] });
   }
 
   if (event.entity === "customer") {

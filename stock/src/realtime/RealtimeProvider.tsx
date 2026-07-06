@@ -36,6 +36,7 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
   const token = useAuthStore((state) => state.token);
   const userId = useAuthStore((state) => state.user?.id);
   const activeShopId = useShopStore((state) => state.activeShopId);
+  const clearActiveShop = useShopStore((state) => state.clearActiveShop);
   const queryClient = useQueryClient();
   const socketRef = useRef<Socket | null>(null);
 
@@ -158,11 +159,21 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
       });
 
       socket.on("domain:event", (event: DomainEvent) => {
-	        const handled = handleDomainEvent(queryClient, event, deviceId);
-	        if (event?.shopId === activeShopId) {
-	          reconcile();
-	        }
-	        if (handled) {
+        const handled = handleDomainEvent(queryClient, event, deviceId);
+        const wasUnassignedFromActiveShop =
+          event?.entity === "shop" &&
+          event.action === "staff_unassigned" &&
+          event.shopId === activeShopId &&
+          userId &&
+          event.visibility?.targetUserIds?.includes(userId);
+
+        if (wasUnassignedFromActiveShop) {
+          clearActiveShop();
+        }
+        if (event?.shopId === activeShopId && !wasUnassignedFromActiveShop) {
+          reconcile();
+        }
+        if (handled) {
           if (event.notification) {
             setToast({
               visible: true,
@@ -207,7 +218,7 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
       socketRef.current = null;
       deactivateReadModelContext(userId, activeShopId);
     };
-  }, [activeShopId, invalidationMap, queryClient, token, userId]);
+  }, [activeShopId, clearActiveShop, invalidationMap, queryClient, token, userId]);
 
   return (
     <>

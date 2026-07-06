@@ -3,7 +3,7 @@ import { View, ScrollView, StyleSheet, KeyboardAvoidingView, Platform } from "re
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRoute } from "@react-navigation/native";
 import { Button, TextInput, HelperText, Portal, Modal, IconButton, Text } from "react-native-paper";
-import { fetchStaff, createStaff, assignStaffToShop, Shop } from "../../api/client";
+import { fetchStaff, fetchShops, createStaff, assignStaffToShop, type Shop } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
 import { queryKeys } from "../../hooks/query-keys";
 import { Screen } from "../../components/Screen";
@@ -34,12 +34,32 @@ export function AssignStaff() {
     enabled: !!token,
   });
 
+  const shopsQuery = useQuery({
+    queryKey: queryKeys.shops(),
+    queryFn: () => fetchShops(token ?? ""),
+    enabled: !!token,
+  });
+
+  const currentShop = shop ? (shopsQuery.data?.find((candidate) => candidate.id === shop.id) ?? shop) : undefined;
+
   const assignMutation = useMutation({
     mutationFn: (staffId: string) => assignStaffToShop(token ?? "", shop?.id ?? "", staffId),
-	    onSuccess: () => {
-	      queryClient.invalidateQueries({ queryKey: queryKeys.shops() });
-	      queryClient.invalidateQueries({ queryKey: queryKeys.staff() });
-	    },
+    onSuccess: (access, staffId) => {
+      queryClient.setQueryData<Shop[] | undefined>(queryKeys.shops(), (shops) => {
+        if (!shops || !shop?.id) return shops;
+        return shops.map((candidate) => {
+          if (candidate.id !== shop.id) return candidate;
+          const staffAccesses = (((candidate as any).staffAccesses || []) as any[]);
+          if (staffAccesses.some((entry) => entry.staffId === staffId)) return candidate;
+          return {
+            ...candidate,
+            staffAccesses: [...staffAccesses, { ...(access as any), staffId, shopId: shop.id }],
+          } as any;
+        });
+      });
+      queryClient.invalidateQueries({ queryKey: queryKeys.shops() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.staff() });
+    },
   });
 
   const createStaffMutation = useMutation({
@@ -60,7 +80,7 @@ export function AssignStaff() {
     },
   });
 
-  if (!shop) {
+  if (!shop || !currentShop) {
     return (
       <Screen>
         <Text>Invalid Shop Parameter</Text>
@@ -69,13 +89,13 @@ export function AssignStaff() {
   }
 
   const isAssigned = (staffId: string) => {
-    const accesses = (shop as any).staffAccesses || [];
+    const accesses = (currentShop as any).staffAccesses || [];
     return accesses.some((access: any) => access.staffId === staffId);
   };
 
   return (
     <Screen scroll={false}>
-      <AppHeader title="Assign Staff" subtitle={`Manage operators for ${shop.name}`} />
+      <AppHeader title="Assign Staff" subtitle={`Manage operators for ${currentShop.name}`} />
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
       <ScrollView style={{ flex: 1, marginTop: 8 }} keyboardShouldPersistTaps="handled">
@@ -98,7 +118,7 @@ export function AssignStaff() {
                   phone={member.mobile}
                   email={member.email ?? undefined}
                   status={assigned ? "Assigned" : "Available"}
-                  assignedShopName={assigned ? shop.name : undefined}
+                  assignedShopName={assigned ? currentShop.name : undefined}
                   actions={
                     <IconButton
                       icon={assigned ? "check-circle" : "plus-circle-outline"}

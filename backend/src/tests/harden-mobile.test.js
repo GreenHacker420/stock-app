@@ -489,3 +489,27 @@ test.describe("RELEASE-01 functional blocker closure contracts", () => {
     assert.ok(helper.includes("Sharing.shareAsync"));
   });
 });
+
+test.describe("Shop access realtime refresh contracts", () => {
+  test("shop access events invalidate shops and active unassign clears current shop", () => {
+    const domainEvents = readStock("realtime/domainEvents.ts");
+    const provider = readStock("realtime/RealtimeProvider.tsx");
+
+    assert.ok(domainEvents.includes('event.entity === "shop"'));
+    assert.ok(domainEvents.includes('queryClient.invalidateQueries({ queryKey: ["shops"] })'));
+    assert.ok(provider.includes('event.action === "staff_unassigned"'));
+    assert.ok(provider.includes("clearActiveShop();"));
+    assert.ok(provider.includes("event.visibility?.targetUserIds?.includes(userId)"));
+  });
+
+  test("staff assignment screens update cached shop access without app restart", () => {
+    const hooks = readStock("hooks/useShops.ts");
+    const assignStaff = readStock("navigation/screens/AssignStaff.tsx");
+
+    assert.ok(hooks.includes("addStaffAccessToShopsCache"));
+    assert.ok(hooks.includes("removeStaffAccessFromShopsCache"));
+    assert.ok(assignStaff.includes("fetchShops"));
+    assert.ok(assignStaff.includes("currentShop"));
+    assert.ok(assignStaff.includes("queryClient.setQueryData<Shop[] | undefined>"));
+  });
+});

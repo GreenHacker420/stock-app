@@ -1,8 +1,36 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "../auth/auth-store";
 import { queryKeys } from "./query-keys";
-import { fetchShops, createShop, updateShop, assignStaffToShop, unassignStaffFromShop, setOpeningStock, fetchStaff, createDmFromOrder, transferStock, copyCatalog } from "../api/client";
+import { fetchShops, createShop, updateShop, assignStaffToShop, unassignStaffFromShop, setOpeningStock, fetchStaff, createDmFromOrder, transferStock, copyCatalog, type Shop } from "../api/client";
 import { newIdempotencyKey } from "../utils/idempotency";
+
+function addStaffAccessToShopsCache(queryClient: QueryClient, shopId: string, staffId: string, access: any) {
+  queryClient.setQueryData<Shop[] | undefined>(queryKeys.shops(), (shops) => {
+    if (!shops) return shops;
+    return shops.map((shop) => {
+      if (shop.id !== shopId) return shop;
+      const existingAccesses = ((shop as any).staffAccesses || []) as any[];
+      if (existingAccesses.some((entry) => entry.staffId === staffId)) return shop;
+      return {
+        ...shop,
+        staffAccesses: [...existingAccesses, { ...access, staffId, shopId }],
+      } as any;
+    });
+  });
+}
+
+function removeStaffAccessFromShopsCache(queryClient: QueryClient, shopId: string, staffId: string) {
+  queryClient.setQueryData<Shop[] | undefined>(queryKeys.shops(), (shops) => {
+    if (!shops) return shops;
+    return shops.map((shop) => {
+      if (shop.id !== shopId) return shop;
+      return {
+        ...shop,
+        staffAccesses: (((shop as any).staffAccesses || []) as any[]).filter((entry) => entry.staffId !== staffId),
+      } as any;
+    });
+  });
+}
 
 export function useShopsQuery() {
   const token = useAuthStore((state) => state.token);
@@ -66,8 +94,10 @@ export function useAssignStaffToShopMutation() {
   return useMutation({
     mutationFn: ({ shopId, staffId }: { shopId: string; staffId: string }) =>
       assignStaffToShop(token ?? "", shopId, staffId),
-    onSuccess: () => {
+    onSuccess: (access, variables) => {
+      addStaffAccessToShopsCache(queryClient, variables.shopId, variables.staffId, access);
       queryClient.invalidateQueries({ queryKey: queryKeys.shops() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.staff() });
     },
   });
 }
@@ -78,8 +108,10 @@ export function useUnassignStaffFromShopMutation() {
   return useMutation({
     mutationFn: ({ shopId, staffId }: { shopId: string; staffId: string }) =>
       unassignStaffFromShop(token ?? "", shopId, staffId),
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
+      removeStaffAccessFromShopsCache(queryClient, variables.shopId, variables.staffId);
       queryClient.invalidateQueries({ queryKey: queryKeys.shops() });
+      queryClient.invalidateQueries({ queryKey: queryKeys.staff() });
     },
   });
 }
@@ -129,4 +161,3 @@ export function useCopyCatalogMutation() {
     },
   });
 }
-
