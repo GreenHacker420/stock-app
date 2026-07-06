@@ -4,6 +4,7 @@ import { Text, Icon } from "react-native-paper";
 import { useRoute } from "@react-navigation/native";
 import { useOwnerDashboardQuery } from "../../hooks/useDashboard";
 import * as Haptics from "expo-haptics";
+import { LinearGradient } from "expo-linear-gradient";
 
 import { ScreenScaffold } from "../../components/layout/ScreenScaffold";
 import { ScrollScreen } from "../../components/layout/ScrollScreen";
@@ -114,8 +115,40 @@ export function OwnerRecords() {
 }
 
 export function OwnerStock() {
+  const handleCatalogPress = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    navigate("ItemList");
+  };
+
   return (
     <ScrollScreen title="Inventory Ops" subtitle="Monitor and adjust stock levels.">
+      <ScreenSection title="Primary Catalog Browser">
+        <Pressable
+          onPress={handleCatalogPress}
+          style={({ pressed }) => [styles.heroActionCard, pressed && styles.pressed]}
+        >
+          <LinearGradient
+            colors={[colors.primary, "#16a34a"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.heroActionCardGradient}
+          >
+            <View style={styles.heroActionCardInner}>
+              <View style={styles.heroActionCardLeft}>
+                <View style={styles.heroActionIconBg}>
+                  <Icon source="barcode-scan" size={26} color={colors.primary} />
+                </View>
+                <View style={styles.heroActionCardContent}>
+                  <Text style={styles.heroActionCardTitle}>Products Catalog</Text>
+                  <Text style={styles.heroActionCardDesc}>Browse items, search stock levels & view stats</Text>
+                </View>
+              </View>
+              <Icon source="chevron-right" size={24} color="#ffffff" />
+            </View>
+          </LinearGradient>
+        </Pressable>
+      </ScreenSection>
+
       <ScreenSection title="Inventory Controls">
         <View style={styles.gridContainer}>
           <Pressable onPress={() => navigate("StockEntry")} style={({ pressed }) => [styles.statCard, pressed && styles.pressed]}>
@@ -133,10 +166,10 @@ export function OwnerStock() {
             <Text style={styles.statLabel}>CATEGORIES</Text>
             <Text style={styles.statValue}>Manage Cats</Text>
           </Pressable>
-          <Pressable onPress={() => navigate("ItemList")} style={({ pressed }) => [styles.statCard, pressed && styles.pressed]}>
-            <Icon source="barcode-scan" size={24} color={colors.primary} />
-            <Text style={styles.statLabel}>CATALOG</Text>
-            <Text style={styles.statValue}>Browse Items</Text>
+          <Pressable onPress={() => navigate("ManageBrands")} style={({ pressed }) => [styles.statCard, pressed && styles.pressed]}>
+            <Icon source="certificate-outline" size={24} color={colors.primary} />
+            <Text style={styles.statLabel}>BRANDS</Text>
+            <Text style={styles.statValue}>Manage Brands</Text>
           </Pressable>
           <Pressable onPress={() => navigate("StockMovementHistory")} style={({ pressed }) => [styles.statCard, pressed && styles.pressed]}>
             <Icon source="swap-horizontal" size={24} color={colors.primary} />
@@ -340,6 +373,46 @@ export function GenericPlannedScreen() {
 }
 
 const styles = StyleSheet.create({
+  heroActionCard: {
+    borderRadius: 20,
+    overflow: 'hidden',
+    ...shadow.md,
+  },
+  heroActionCardGradient: {
+    padding: spacing.lg,
+  },
+  heroActionCardInner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  heroActionCardLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    flex: 1,
+  },
+  heroActionIconBg: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#ffffff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroActionCardContent: {
+    flex: 1,
+    gap: 2,
+  },
+  heroActionCardTitle: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.black,
+    color: '#ffffff',
+  },
+  heroActionCardDesc: {
+    fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.85)',
+  },
   queueCard: {
     backgroundColor: colors.surface,
     borderRadius: radius.lg,
