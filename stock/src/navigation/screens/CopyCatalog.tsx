@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { View, StyleSheet, Alert } from "react-native";
+import { View, StyleSheet, Alert, Pressable, ScrollView } from "react-native";
 import { Text, Divider, Switch, Portal, Dialog, Icon } from "react-native-paper";
 import { ScrollScreen } from "../../components/layout/ScrollScreen";
 import { ScreenSection } from "../../components/layout/ScreenSection";
@@ -102,7 +102,10 @@ export function CopyCatalog() {
           <>
             <ScreenSection title="Source & Target Selection" contentStyle={styles.card}>
               {/* Source Shop Selector */}
-              <View style={styles.selectorRow}>
+              <Pressable
+                onPress={() => setSourceDialogVisible(true)}
+                style={({ pressed }) => [styles.selectorRow, pressed && styles.pressed]}
+              >
                 <View style={styles.selectorIconBg}>
                   <Icon source="export" size={20} color={colors.primary} />
                 </View>
@@ -112,20 +115,18 @@ export function CopyCatalog() {
                     {sourceShop ? `${sourceShop.name} (${sourceShop.code})` : "Select shop"}
                   </Text>
                 </View>
-                <Button
-                  variant="ghost"
-                  label="Select"
-                  onPress={() => setSourceDialogVisible(true)}
-                  style={styles.selectBtn}
-                />
-              </View>
+                <Icon source="chevron-right" size={20} color={colors.textMuted} />
+              </Pressable>
 
               <Divider style={styles.divider} />
 
               {/* Target Shop Selector */}
-              <View style={styles.selectorRow}>
+              <Pressable
+                onPress={() => setTargetDialogVisible(true)}
+                style={({ pressed }) => [styles.selectorRow, pressed && styles.pressed]}
+              >
                 <View style={styles.selectorIconBg}>
-                  <Icon source="import" size={20} color={colors.success || colors.primary} />
+                  <Icon source="import" size={20} color={colors.success} />
                 </View>
                 <View style={styles.selectorContent}>
                   <Text style={styles.selectorLabel}>Target Shop (Copy To)</Text>
@@ -133,13 +134,8 @@ export function CopyCatalog() {
                     {targetShop ? `${targetShop.name} (${targetShop.code})` : "Select shop"}
                   </Text>
                 </View>
-                <Button
-                  variant="ghost"
-                  label="Select"
-                  onPress={() => setTargetDialogVisible(true)}
-                  style={styles.selectBtn}
-                />
-              </View>
+                <Icon source="chevron-right" size={20} color={colors.textMuted} />
+              </Pressable>
             </ScreenSection>
 
             <ScreenSection title="Copy Options" contentStyle={styles.card}>
@@ -181,32 +177,36 @@ export function CopyCatalog() {
       <Portal>
         <Dialog visible={sourceDialogVisible} onDismiss={() => setSourceDialogVisible(false)} style={styles.dialog}>
           <Dialog.Title>Select Source Shop</Dialog.Title>
-          <Dialog.Content style={styles.dialogContent}>
-            {(shops || []).map((shop: Shop) => (
-              <ShopCard
-                key={shop.id}
-                name={shop.name}
-                subtitle={shop.code}
-                selected={shop.id === sourceShopId}
-                onPress={() => { setSourceShopId(shop.id); setSourceDialogVisible(false); }}
-              />
-            ))}
-          </Dialog.Content>
+          <Dialog.ScrollArea style={styles.dialogScrollArea}>
+            <ScrollView contentContainerStyle={styles.dialogContent}>
+              {(shops || []).map((shop: Shop) => (
+                <ShopCard
+                  key={shop.id}
+                  name={shop.name}
+                  subtitle={shop.code}
+                  selected={shop.id === sourceShopId}
+                  onPress={() => { setSourceShopId(shop.id); setSourceDialogVisible(false); }}
+                />
+              ))}
+            </ScrollView>
+          </Dialog.ScrollArea>
         </Dialog>
 
         <Dialog visible={targetDialogVisible} onDismiss={() => setTargetDialogVisible(false)} style={styles.dialog}>
           <Dialog.Title>Select Target Shop</Dialog.Title>
-          <Dialog.Content style={styles.dialogContent}>
-            {(shops || []).map((shop: Shop) => (
-              <ShopCard
-                key={shop.id}
-                name={shop.name}
-                subtitle={shop.code}
-                selected={shop.id === targetShopId}
-                onPress={() => { setTargetShopId(shop.id); setTargetDialogVisible(false); }}
-              />
-            ))}
-          </Dialog.Content>
+          <Dialog.ScrollArea style={styles.dialogScrollArea}>
+            <ScrollView contentContainerStyle={styles.dialogContent}>
+              {(shops || []).map((shop: Shop) => (
+                <ShopCard
+                  key={shop.id}
+                  name={shop.name}
+                  subtitle={shop.code}
+                  selected={shop.id === targetShopId}
+                  onPress={() => { setTargetShopId(shop.id); setTargetDialogVisible(false); }}
+                />
+              ))}
+            </ScrollView>
+          </Dialog.ScrollArea>
         </Dialog>
       </Portal>
     </>
@@ -285,5 +285,13 @@ const styles = StyleSheet.create({
   },
   dialogContent: {
     gap: spacing.sm,
+  },
+  dialogScrollArea: {
+    paddingHorizontal: 0,
+    maxHeight: 300,
+  },
+  pressed: {
+    opacity: 0.7,
+    backgroundColor: colors.surfaceOffset,
   },
 });

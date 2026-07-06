@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { View, StyleSheet, Pressable, Alert } from "react-native";
+import { View, StyleSheet, Pressable, Alert, Linking } from "react-native";
 import { Text, Icon, Divider, Portal, Modal, Button, Switch } from "react-native-paper";
 import { ScrollScreen } from "../../components/layout/ScrollScreen";
 import { ScreenSection } from "../../components/layout/ScreenSection";
@@ -88,6 +88,12 @@ export function Settings() {
 
       const sound = await getToken("settings_sound");
       if (sound !== null) setSoundEnabled(sound === "true");
+
+      const lowStock = await getToken("settings_low_stock_alerts");
+      if (lowStock !== null) setLowStockAlerts(lowStock === "true");
+
+      const daily = await getToken("settings_daily_report");
+      if (daily !== null) setDailyReport(daily === "true");
     }
     loadSettings();
   }, []);
@@ -100,6 +106,16 @@ export function Settings() {
   const toggleSound = async (val: boolean) => {
     setSoundEnabled(val);
     await setToken("settings_sound", val ? "true" : "false");
+  };
+
+  const toggleLowStockAlerts = async (val: boolean) => {
+    setLowStockAlerts(val);
+    await setToken("settings_low_stock_alerts", val ? "true" : "false");
+  };
+
+  const toggleDailyReport = async (val: boolean) => {
+    setDailyReport(val);
+    await setToken("settings_daily_report", val ? "true" : "false");
   };
 
   return (
@@ -127,14 +143,14 @@ export function Settings() {
               label="Low Stock Alerts"
               showSwitch
               isEnabled={lowStockAlerts}
-              onToggle={setLowStockAlerts}
+              onToggle={toggleLowStockAlerts}
             />
             <SettingRow
               icon="file-chart-outline"
               label="Daily Summary via Email"
               showSwitch
               isEnabled={dailyReport}
-              onToggle={setDailyReport}
+              onToggle={toggleDailyReport}
               isLast
             />
           </View>
@@ -181,12 +197,20 @@ export function Settings() {
             <SettingRow
               icon="help-circle-outline"
               label="Help Center"
-              onPress={() => {}}
+              onPress={() => {
+                Linking.openURL("https://github.com/greenhacker/stock-app/wiki").catch(() => {
+                  Alert.alert("Help Center", "Visit our help center at:\nhttps://shopcontrol.app/help");
+                });
+              }}
             />
             <SettingRow
               icon="shield-outline"
               label="Privacy Policy"
-              onPress={() => {}}
+              onPress={() => {
+                Linking.openURL("https://shopcontrol.app/privacy").catch(() => {
+                  Alert.alert("Privacy Policy", "For details, please visit:\nhttps://shopcontrol.app/privacy");
+                });
+              }}
             />
             <SettingRow
               icon="information-outline"
