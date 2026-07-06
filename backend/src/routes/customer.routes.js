@@ -68,5 +68,6 @@ router.get("/:id/delivery-memos", requirePermission(PERMISSIONS.CUSTOMER_VIEW), 
 router.get("/:id/returns", requirePermission(PERMISSIONS.CUSTOMER_VIEW), customerController.getReturns);
 router.get("/:id/price-history", requirePermission(PERMISSIONS.CUSTOMER_VIEW), validate(z.object({ query: z.object({ itemId: z.string().optional() }) })), customerController.getPriceHistory);
 router.patch("/:id", requirePermission(PERMISSIONS.CUSTOMER_UPDATE), validate(updateSchema), customerController.updateCustomer);
+router.delete("/:id", requirePermission(PERMISSIONS.CUSTOMER_UPDATE), validate(z.object({ params: z.object({ id: z.string().min(1) }), body: z.object({}).optional(), query: z.object({}).optional() })), customerController.deleteCustomer);
 
 export default router;

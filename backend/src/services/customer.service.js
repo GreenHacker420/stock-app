@@ -383,6 +383,51 @@ export async function updateCustomer(user, id, data) {
   return result.customer;
 }
 
+export async function deleteCustomer(user, id) {
+  const existing = await prisma.customer.findUnique({ where: { id } });
+  if (!existing) throw new ApiError(404, "Customer not found");
+  await assertShopAccess(user, existing.shopId);
+  if (existing.type === "WALK_IN") {
+    throw new ApiError(400, "Walk-in customer cannot be deleted");
+  }
+  if (existing.status === "INACTIVE") return existing;
+
+  const result = await prisma.$transaction(async (tx) => {
+    const customer = await tx.customer.update({
+      where: { id },
+      data: { status: "INACTIVE" },
+    });
+
+    await tx.auditLog.create({
+      data: {
+        userId: user.id,
+        shopId: existing.shopId,
+        action: AuditAction.DELETED,
+        entityType: EntityType.CUSTOMER,
+        entityId: id,
+        oldValueJson: existing,
+        newValueJson: customer,
+      },
+    });
+
+    const event = createDomainEvent({
+      shopId: existing.shopId,
+      entity: "customer",
+      action: "deleted",
+      entityId: id,
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: true },
+    });
+    await enqueueDomainEvent(tx, event);
+
+    return { customer, event };
+  });
+
+  await bestEffortInvalidateForDomainEvent(result.event);
+  return result.customer;
+}
+
 export async function getOutstanding(user, id) {
   const customer = await getCustomer(user, id);
   const sales = await prisma.sale.findMany({

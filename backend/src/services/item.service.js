@@ -758,6 +758,56 @@ export async function updateItem(user, id, data) {
   return result.item;
 }
 
+export async function deleteItem(user, id) {
+  const existing = await prisma.item.findUnique({ where: { id } });
+  if (!existing) throw new ApiError(404, "Item not found");
+  await assertShopAccess(user, existing.shopId);
+  assertCanManageItems(user);
+  if (existing.status === "INACTIVE") return existing;
+
+  const activeReservations = await prisma.stockReservation.count({
+    where: { itemId: id, shopId: existing.shopId, status: "ACTIVE" },
+  });
+  if (activeReservations > 0) {
+    throw new ApiError(400, "Cannot delete product while stock is reserved for active orders");
+  }
+
+  const result = await prisma.$transaction(async (tx) => {
+    const item = await tx.item.update({
+      where: { id },
+      data: { status: "INACTIVE" },
+    });
+
+    await tx.auditLog.create({
+      data: {
+        userId: user.id,
+        shopId: existing.shopId,
+        action: AuditAction.DELETED,
+        entityType: EntityType.ITEM,
+        entityId: id,
+        oldValueJson: existing,
+        newValueJson: item,
+      },
+    });
+
+    const event = createDomainEvent({
+      shopId: existing.shopId,
+      entity: "item",
+      action: "deleted",
+      entityId: id,
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: true },
+    });
+    await enqueueDomainEvent(tx, event);
+
+    return { item, event };
+  });
+
+  await bestEffortInvalidateForDomainEvent(result.event);
+  return result.item;
+}
+
 export async function uploadItemImage(user, data, file) {
   await assertShopAccess(user, data.shopId);
   assertCanManageItems(user);

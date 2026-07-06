@@ -138,5 +138,6 @@ router.get(
   itemController.getRateSuggestion,
 );
 router.patch("/:id", requirePermission(PERMISSIONS.ITEM_UPDATE), validate(updateItemSchema), itemController.updateItem);
+router.delete("/:id", requirePermission(PERMISSIONS.ITEM_UPDATE), validate(z.object({ params: idParams, body: z.object({}).optional(), query: z.object({}).optional() })), itemController.deleteItem);
 
 export default router;

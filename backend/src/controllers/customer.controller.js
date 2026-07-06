@@ -35,6 +35,11 @@ export const updateCustomer = asyncHandler(async (req, res) => {
   res.json({ success: true, data: customer });
 });
 
+export const deleteCustomer = asyncHandler(async (req, res) => {
+  const customer = await customerService.deleteCustomer(req.user, req.params.id);
+  res.json({ success: true, data: customer });
+});
+
 export const getOutstanding = asyncHandler(async (req, res) => {
   const outstanding = await customerService.getOutstanding(req.user, req.params.id);
   res.json({ success: true, data: outstanding });
