@@ -119,6 +119,106 @@ function pickItemUpdateFields(data) {
   return Object.fromEntries(Object.entries(allowed).filter(([, v]) => v !== undefined));
 }
 
+function formatBundleComponents(components = []) {
+  return components.map((component) => ({
+    id: component.id,
+    parentItemId: component.parentItemId,
+    componentItemId: component.componentItemId,
+    quantity: Number(component.quantity),
+    componentItem: component.componentItem
+      ? {
+          id: component.componentItem.id,
+          name: component.componentItem.name,
+          sku: component.componentItem.sku,
+          unit: component.componentItem.unit,
+        }
+      : undefined,
+  }));
+}
+
+async function attachBundleComponents(shopId, itemsList) {
+  if (!itemsList?.length) return itemsList;
+  const parentIds = itemsList.map((item) => item.id);
+  const components = await prisma.itemBundleComponent.findMany({
+    where: { parentItemId: { in: parentIds }, parentItem: { shopId } },
+    include: {
+      componentItem: { select: { id: true, name: true, sku: true, unit: true } },
+    },
+    orderBy: [{ parentItemId: "asc" }, { createdAt: "asc" }],
+  });
+  const byParent = new Map();
+  for (const component of components) {
+    const list = byParent.get(component.parentItemId) || [];
+    list.push(component);
+    byParent.set(component.parentItemId, list);
+  }
+  return itemsList.map((item) => ({
+    ...item,
+    bundleComponents: formatBundleComponents(byParent.get(item.id) || []),
+  }));
+}
+
+async function normalizeBundleComponents(tx, shopId, bundleComponents, parentItemId = null) {
+  if (bundleComponents === undefined) return undefined;
+  if (!Array.isArray(bundleComponents)) {
+    throw new ApiError(400, "bundleComponents must be an array");
+  }
+
+  const normalized = [];
+  const seen = new Set();
+  for (const component of bundleComponents) {
+    const componentItemId = component?.componentItemId;
+    const quantity = Number(component?.quantity);
+    if (!componentItemId) {
+      throw new ApiError(400, "Bundle component product is required");
+    }
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      throw new ApiError(400, "Bundle component quantity must be greater than zero");
+    }
+    if (parentItemId && componentItemId === parentItemId) {
+      throw new ApiError(400, "A product cannot be a component of itself");
+    }
+    if (seen.has(componentItemId)) {
+      throw new ApiError(400, "Bundle component products cannot be duplicated");
+    }
+    seen.add(componentItemId);
+    normalized.push({ componentItemId, quantity });
+  }
+
+  if (normalized.length === 0) return [];
+
+  const componentIds = normalized.map((component) => component.componentItemId);
+  const componentItems = await tx.item.findMany({
+    where: { id: { in: componentIds }, shopId, status: "ACTIVE" },
+    select: { id: true },
+  });
+  if (componentItems.length !== componentIds.length) {
+    throw new ApiError(400, "One or more bundle components do not belong to this shop");
+  }
+
+  const nestedCount = await tx.itemBundleComponent.count({
+    where: { parentItemId: { in: componentIds } },
+  });
+  if (nestedCount > 0) {
+    throw new ApiError(400, "Nested bundle products are not supported");
+  }
+
+  return normalized;
+}
+
+async function replaceBundleComponents(tx, parentItemId, components) {
+  if (components === undefined) return;
+  await tx.itemBundleComponent.deleteMany({ where: { parentItemId } });
+  if (components.length === 0) return;
+  await tx.itemBundleComponent.createMany({
+    data: components.map((component) => ({
+      parentItemId,
+      componentItemId: component.componentItemId,
+      quantity: component.quantity,
+    })),
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Price validation
 // ---------------------------------------------------------------------------
@@ -271,10 +371,11 @@ async function listItemsFromDb({ shopId, search, categoryId, page = 1, limit = 5
     });
 
     const itemsWithStock = await attachAvailableStock(shopId, formattedItems);
+    const itemsWithBundles = await attachBundleComponents(shopId, itemsWithStock);
 
     // Use result count for hasMore — avoids a separate COUNT(*) that ignores search filter
     return {
-      items: itemsWithStock,
+      items: itemsWithBundles,
       total: formattedItems.length,
       page,
       limit,
@@ -313,9 +414,10 @@ async function listItemsFromDb({ shopId, search, categoryId, page = 1, limit = 5
     }));
 
     const itemsWithStock = await attachAvailableStock(shopId, formattedList);
+    const itemsWithBundles = await attachBundleComponents(shopId, itemsWithStock);
 
     return {
-      items: itemsWithStock,
+      items: itemsWithBundles,
       total,
       page,
       limit,
@@ -517,6 +619,9 @@ export async function createItem(user, data) {
   if (!Number.isFinite(openingStock) || openingStock < 0) {
     throw new ApiError(400, "initialStock must be a non-negative number");
   }
+  if (Array.isArray(data.bundleComponents) && data.bundleComponents.length > 0 && openingStock > 0) {
+    throw new ApiError(400, "Virtual bundle products do not hold opening stock. Add stock to component products instead.");
+  }
 
   if (itemData.minimumStock !== undefined && Number(itemData.minimumStock) < 0) {
     throw new ApiError(400, "minimumStock must be a non-negative number");
@@ -540,6 +645,8 @@ export async function createItem(user, data) {
 
   const result = await prisma.$transaction(async (tx) => {
     const item = await tx.item.create({ data: itemData });
+    const bundleComponents = await normalizeBundleComponents(tx, item.shopId, data.bundleComponents, item.id);
+    await replaceBundleComponents(tx, item.id, bundleComponents);
 
     // Use $executeRaw tagged template — no $executeRawUnsafe
     if (embedding) {
@@ -600,12 +707,20 @@ export async function createItem(user, data) {
     });
     await enqueueDomainEvent(tx, event);
 
-    const createdItem = await tx.item.findUnique({ where: { id: item.id } });
+    const createdItem = await tx.item.findUnique({
+      where: { id: item.id },
+      include: {
+        bundleComponents: {
+          include: { componentItem: { select: { id: true, name: true, sku: true, unit: true } } },
+          orderBy: { createdAt: "asc" },
+        },
+      },
+    });
     return { item: createdItem, event };
   });
 
   await bestEffortInvalidateForDomainEvent(result.event);
-  return result.item;
+  return { ...result.item, bundleComponents: formatBundleComponents(result.item.bundleComponents) };
 }
 
 // ---------------------------------------------------------------------------
@@ -618,7 +733,7 @@ export async function updateItem(user, id, data) {
   await assertShopAccess(user, existing.shopId);
   assertCanManageItems(user);
 
-  const { adjustmentStock, ...rawItemData } = data;
+  const { adjustmentStock, bundleComponents: requestedBundleComponents, ...rawItemData } = data;
 
   // Whitelist — never spread raw request body into Prisma
   const itemData = pickItemUpdateFields(rawItemData);
@@ -638,6 +753,10 @@ export async function updateItem(user, id, data) {
       throw new ApiError(400, "Stock adjustment value is too large (max ±100,000)");
     }
     validatedAdjustment = adj;
+  }
+  const existingBundleCount = await prisma.itemBundleComponent.count({ where: { parentItemId: id } });
+  if (validatedAdjustment !== undefined && (existingBundleCount > 0 || (Array.isArray(requestedBundleComponents) && requestedBundleComponents.length > 0))) {
+    throw new ApiError(400, "Virtual bundle products do not hold direct stock. Adjust component stock instead.");
   }
 
   // Category must belong to this shop
@@ -659,7 +778,9 @@ export async function updateItem(user, id, data) {
   }
 
   const result = await prisma.$transaction(async (tx) => {
+    const bundleComponents = await normalizeBundleComponents(tx, existing.shopId, requestedBundleComponents, id);
     const item = await tx.item.update({ where: { id }, data: itemData });
+    await replaceBundleComponents(tx, id, bundleComponents);
 
     if (embedding) {
       const vectorString = `[${embedding.join(",")}]`;
@@ -750,12 +871,20 @@ export async function updateItem(user, id, data) {
     });
     await enqueueDomainEvent(tx, event);
 
-    const updatedItem = await tx.item.findUnique({ where: { id } });
+    const updatedItem = await tx.item.findUnique({
+      where: { id },
+      include: {
+        bundleComponents: {
+          include: { componentItem: { select: { id: true, name: true, sku: true, unit: true } } },
+          orderBy: { createdAt: "asc" },
+        },
+      },
+    });
     return { item: updatedItem, event };
   });
 
   await bestEffortInvalidateForDomainEvent(result.event);
-  return result.item;
+  return { ...result.item, bundleComponents: formatBundleComponents(result.item.bundleComponents) };
 }
 
 export async function deleteItem(user, id) {
@@ -770,6 +899,12 @@ export async function deleteItem(user, id) {
   });
   if (activeReservations > 0) {
     throw new ApiError(400, "Cannot delete product while stock is reserved for active orders");
+  }
+  const activeBundleUses = await prisma.itemBundleComponent.count({
+    where: { componentItemId: id, parentItem: { status: "ACTIVE" } },
+  });
+  if (activeBundleUses > 0) {
+    throw new ApiError(400, "Cannot delete product while it is used by an active bundle");
   }
 
   const result = await prisma.$transaction(async (tx) => {

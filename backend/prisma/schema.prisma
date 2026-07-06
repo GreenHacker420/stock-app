@@ -667,11 +667,28 @@ model Item {
   reservations         StockReservation[]
   inventoryReturnItems InventoryReturnItem[]
   priceHistory         ItemPriceHistory[]
+  bundleComponents     ItemBundleComponent[] @relation("BundleParent")
+  usedInBundles        ItemBundleComponent[] @relation("BundleComponent")
 
   @@unique([shopId, sku])
   @@index([shopId, name])
   @@index([shopId, status])
   @@index([shopId, sku])
+}
+
+model ItemBundleComponent {
+  id              String   @id @default(cuid())
+  parentItemId    String
+  componentItemId String
+  quantity        Decimal  @db.Decimal(12, 3)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  parentItem    Item @relation("BundleParent", fields: [parentItemId], references: [id], onDelete: Cascade)
+  componentItem Item @relation("BundleComponent", fields: [componentItemId], references: [id], onDelete: Restrict)
+
+  @@unique([parentItemId, componentItemId])
+  @@index([componentItemId])
 }
 
 model StockBalance {

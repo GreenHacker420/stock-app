@@ -15,6 +15,7 @@ import * as saleService from "../services/sale.service.js";
 import * as deliveryMemoService from "../services/deliveryMemo.service.js";
 import * as stockService from "../services/stock.service.js";
 import * as approvalService from "../services/approval.service.js";
+import * as itemService from "../services/item.service.js";
 import { runIdempotentCreate } from "../services/idempotency.service.js";
 import { closePushQueue } from "../services/notification.push.queue.js";
 
@@ -64,6 +65,7 @@ async function cleanup() {
     await prisma.stockLedger.deleteMany({ where: { shopId: { in: shopIds } } });
     await prisma.stockBalance.deleteMany({ where: { shopId: { in: shopIds } } });
     await prisma.itemPriceHistory.deleteMany({ where: { item: { shopId: { in: shopIds } } } });
+    await prisma.itemBundleComponent.deleteMany({ where: { parentItem: { shopId: { in: shopIds } } } });
     await prisma.item.deleteMany({ where: { shopId: { in: shopIds } } });
     await prisma.itemCategory.deleteMany({ where: { shopId: { in: shopIds } } });
     await prisma.customer.deleteMany({ where: { shopId: { in: shopIds } } });
@@ -202,6 +204,63 @@ test.describe("Phase 2 core business correctness", () => {
       assignedStaffId: staff.id,
       items: [{ itemId: item.id, quantityOrdered: 1, rate: 100 }],
     }), 403);
+  });
+
+  test("virtual bundle sale deducts component stock and keeps kit as sale line", async () => {
+    const cartridge = await itemService.createItem(owner, {
+      shopId: shop.id,
+      name: "071 Cartridge",
+      sku: "071-CART",
+      unit: "pcs",
+      defaultSellingPrice: 300,
+      minimumStock: 1,
+      initialStock: 5,
+    });
+    const chip = await itemService.createItem(owner, {
+      shopId: shop.id,
+      name: "071 Chip",
+      sku: "071-CHIP",
+      unit: "pcs",
+      defaultSellingPrice: 80,
+      minimumStock: 1,
+      initialStock: 5,
+    });
+    const kit = await itemService.createItem(owner, {
+      shopId: shop.id,
+      name: "071 Cartridge with Chip",
+      sku: "071-KIT",
+      unit: "set",
+      defaultSellingPrice: 380,
+      minimumStock: 0,
+      bundleComponents: [
+        { componentItemId: cartridge.id, quantity: 1 },
+        { componentItemId: chip.id, quantity: 1 },
+      ],
+    });
+
+    const sale = await saleService.createSale(owner, {
+      shopId: shop.id,
+      customerId: customer.id,
+      items: [{ itemId: kit.id, quantity: 1, rate: 380 }],
+    });
+
+    assert.strictEqual(sale.items.length, 1);
+    assert.strictEqual(sale.items[0].itemId, kit.id);
+
+    const ledgerRows = await prisma.stockLedger.findMany({
+      where: { shopId: shop.id, referenceType: "Sale", referenceId: sale.id },
+      select: { itemId: true, quantityOut: true },
+    });
+    const quantityOutByItem = new Map(ledgerRows.map((row) => [row.itemId, Number(row.quantityOut)]));
+    assert.strictEqual(quantityOutByItem.get(cartridge.id), 1);
+    assert.strictEqual(quantityOutByItem.get(chip.id), 1);
+    assert.strictEqual(quantityOutByItem.get(kit.id), undefined);
+
+    await assertRejectsApi(() => orderService.createOrder(owner, {
+      shopId: shop.id,
+      customerId: customer.id,
+      items: [{ itemId: kit.id, quantityOrdered: 1, rate: 380 }],
+    }), 400);
   });
 
   test("daily summary calculates credit, payment, and expense totals without cross-shop data", async () => {

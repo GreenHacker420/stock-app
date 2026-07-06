@@ -33,6 +33,13 @@ const ITEM_SELECT = {
   categoryId: true,
   updatedAt: true,
   category: { select: { name: true } },
+  bundleComponents: {
+    select: {
+      componentItemId: true,
+      quantity: true,
+    },
+    orderBy: { componentItemId: "asc" },
+  },
 };
 
 const CATEGORY_SELECT = {
@@ -43,7 +50,14 @@ const CATEGORY_SELECT = {
 
 function projectItem(item) {
   const { category, ...rest } = item;
-  return { ...rest, categoryName: category?.name ?? null };
+  return {
+    ...rest,
+    categoryName: category?.name ?? null,
+    bundleComponents: (item.bundleComponents || []).map((component) => ({
+      componentItemId: component.componentItemId,
+      quantity: Number(component.quantity),
+    })),
+  };
 }
 
 export async function getShopCustomerReadModel(user, shopId) {

@@ -36,6 +36,7 @@ async function cleanDatabase(shopId) {
   await prisma.stockLedger.deleteMany({ where: { shopId } });
   await prisma.stockBalance.deleteMany({ where: { shopId } });
   await prisma.itemPriceHistory.deleteMany({ where: { item: { shopId } } });
+  await prisma.itemBundleComponent.deleteMany({ where: { parentItem: { shopId } } });
   await prisma.item.deleteMany({ where: { shopId } });
   await prisma.itemCategory.deleteMany({ where: { shopId } });
   await prisma.expense.deleteMany({ where: { shopId } });

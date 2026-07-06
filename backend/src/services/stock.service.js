@@ -8,6 +8,60 @@ import { createApprovalRequest } from "./approval.service.js";
 import { EntityType, AuditAction } from "../generated/prisma/index.js";
 import { createDomainEvent, enqueueDomainEvent, enqueueManyDomainEvents } from "./domain-event.service.js";
 
+function addRequirement(requirements, itemId, quantity) {
+  const next = qty(quantity);
+  if (next.lte(ZERO)) return;
+  const current = requirements.get(itemId) || ZERO;
+  requirements.set(itemId, current.plus(next));
+}
+
+export async function expandStockRequirements(tx, shopId, items) {
+  const itemIds = [...new Set(items.map((item) => item.itemId).filter(Boolean))];
+  if (itemIds.length === 0) return [];
+
+  const components = await tx.itemBundleComponent.findMany({
+    where: { parentItemId: { in: itemIds } },
+    include: {
+      parentItem: { select: { id: true, shopId: true, name: true, status: true } },
+      componentItem: { select: { id: true, shopId: true, name: true, status: true } },
+    },
+    orderBy: { componentItemId: "asc" },
+  });
+
+  const byParent = new Map();
+  for (const component of components) {
+    if (component.parentItem.shopId !== shopId || component.componentItem.shopId !== shopId) {
+      throw new ApiError(400, "Bundle components must belong to the same shop");
+    }
+    if (component.parentItem.status !== "ACTIVE" || component.componentItem.status !== "ACTIVE") {
+      throw new ApiError(400, `Bundle "${component.parentItem.name}" contains an inactive product`);
+    }
+    const list = byParent.get(component.parentItemId) || [];
+    list.push(component);
+    byParent.set(component.parentItemId, list);
+  }
+
+  const requirements = new Map();
+  for (const item of items) {
+    const lineQty = qty(item.quantity ?? item.quantityOrdered);
+    const bundleComponents = byParent.get(item.itemId);
+    if (bundleComponents?.length) {
+      for (const component of bundleComponents) {
+        addRequirement(requirements, component.componentItemId, lineQty.times(qty(component.quantity)));
+      }
+    } else {
+      addRequirement(requirements, item.itemId, lineQty);
+    }
+  }
+
+  return Array.from(requirements.entries()).map(([itemId, quantity]) => ({ itemId, quantity }));
+}
+
+async function assertNoVirtualBundleItems(tx, itemIds, message) {
+  const count = await tx.itemBundleComponent.count({ where: { parentItemId: { in: itemIds } } });
+  if (count > 0) throw new ApiError(400, message);
+}
+
 export async function getCurrentStock(user, { shopId, itemId }) {
   await assertShopAccess(user, shopId);
 
@@ -143,6 +197,10 @@ export async function createMovement(user, data) {
   if (!item || item.shopId !== data.shopId) {
     throw new ApiError(400, "Item does not belong to this shop");
   }
+  const bundleCount = await prisma.itemBundleComponent.count({ where: { parentItemId: item.id } });
+  if (bundleCount > 0) {
+    throw new ApiError(400, "Virtual bundle products do not hold direct stock. Adjust component stock instead.");
+  }
 
   if (["DAMAGE_LOSS", "MANUAL_ADJUSTMENT", "STOCK_OUT"].includes(data.movementType) && !data.reason) {
     throw new ApiError(400, "Reason is required for this stock movement");
@@ -216,6 +274,11 @@ export async function bulkStockEntry(user, data) {
   if (items.length !== itemIds.length) {
     throw new ApiError(400, "One or more items do not belong to this shop");
   }
+  await assertNoVirtualBundleItems(
+    prisma,
+    itemIds,
+    "Virtual bundle products do not hold direct stock. Add stock to their component products instead."
+  );
 
   // If user is staff, direct update by the staff should go to the owner approval
   if (user.role === "STAFF") {
@@ -309,6 +372,11 @@ export async function bulkStockEntry(user, data) {
 export async function reserveStockForOrder(tx, shopId, orderId, orderItems) {
   const itemIds = orderItems.map((item) => item.itemId);
   if (itemIds.length === 0) return;
+  await assertNoVirtualBundleItems(
+    tx,
+    itemIds,
+    "Order reservations do not support bundle products yet. Use direct sale/DM for bundles or add component products separately."
+  );
 
   // 1. Pessimistic Row Lock on Item rows
   await tx.$queryRawUnsafe(
@@ -373,7 +441,8 @@ export async function reserveStockForOrder(tx, shopId, orderId, orderItems) {
 }
 
 export async function checkAndLockAvailableStock(tx, shopId, items, { excludeOrderId } = {}) {
-  const itemIds = items.map((item) => item.itemId);
+  const requirements = await expandStockRequirements(tx, shopId, items);
+  const itemIds = requirements.map((item) => item.itemId);
   if (itemIds.length === 0) return;
 
   // 1. Pessimistic Row Lock
@@ -383,7 +452,7 @@ export async function checkAndLockAvailableStock(tx, shopId, items, { excludeOrd
   );
 
   // 2. Verify availability
-  for (const itemEntry of items) {
+  for (const itemEntry of requirements) {
     const { itemId, quantity } = itemEntry;
 
     const ledgerSum = await tx.stockLedger.aggregate({
@@ -440,6 +509,10 @@ export async function transferStock(user, { sourceShopId, targetShopId, itemId, 
 
   if (sourceItem.status !== "ACTIVE") {
     throw new ApiError(400, "Source item is inactive");
+  }
+  const bundleCount = await prisma.itemBundleComponent.count({ where: { parentItemId: sourceItem.id } });
+  if (bundleCount > 0) {
+    throw new ApiError(400, "Virtual bundle products cannot be transferred directly. Transfer component products instead.");
   }
 
   if (!sourceItem.sku) {

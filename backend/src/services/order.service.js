@@ -81,6 +81,14 @@ export async function createOrder(user, data) {
     await assertStaffAssignableToShop(user, data.shopId, data.assignedStaffId);
   }
 
+  const orderItemIds = data.items.map((item) => item.itemId);
+  const bundleOrderItemCount = await prisma.itemBundleComponent.count({
+    where: { parentItemId: { in: orderItemIds } },
+  });
+  if (bundleOrderItemCount > 0) {
+    throw new ApiError(400, "Orders do not support bundle products yet. Use direct sale/DM for bundles or add component products separately.");
+  }
+
   const { items, subtotal, discountAmount, totalAmount } = calculateItemTotals(
     data.items.map((item) => ({ ...item, quantity: item.quantityOrdered })),
   );

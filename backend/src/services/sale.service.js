@@ -10,7 +10,7 @@ import {
   getBillPaymentStatus,
 } from "./transactionHelpers.js";
 import { money, sub } from "../utils/money.js";
-import { checkAndLockAvailableStock } from "./stock.service.js";
+import { checkAndLockAvailableStock, expandStockRequirements } from "./stock.service.js";
 import { captureCustomer, getOrCreateWalkIn } from "./customer.service.js";
 import { EntityType, AuditAction } from "../generated/prisma/index.js";
 import { createDomainEvent, enqueueDomainEvent, enqueueManyDomainEvents } from "./domain-event.service.js";
@@ -77,7 +77,8 @@ export async function createSale(user, data) {
       },
     });
 
-    for (const item of items) {
+    const stockRequirements = await expandStockRequirements(tx, data.shopId, items);
+    for (const item of stockRequirements) {
       await createStockOut(tx, {
         shopId: data.shopId,
         itemId: item.itemId,

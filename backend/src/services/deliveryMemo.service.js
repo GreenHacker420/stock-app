@@ -12,7 +12,7 @@ import {
 import { money, sub } from "../utils/money.js";
 import { getOrCreateWalkIn } from "./customer.service.js";
 import { createDomainEvent, enqueueManyDomainEvents } from "./domain-event.service.js";
-import { checkAndLockAvailableStock } from "./stock.service.js";
+import { checkAndLockAvailableStock, expandStockRequirements } from "./stock.service.js";
 
 export async function createDeliveryMemo(user, data) {
   await assertShopAccess(user, data.shopId);
@@ -64,7 +64,8 @@ export async function createDeliveryMemo(user, data) {
       },
     });
 
-    for (const item of items) {
+    const stockRequirements = await expandStockRequirements(tx, data.shopId, items);
+    for (const item of stockRequirements) {
       await createStockOut(tx, {
         shopId: data.shopId,
         itemId: item.itemId,

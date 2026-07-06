@@ -74,6 +74,7 @@ async function cleanup() {
     await prisma.auditLog.deleteMany({ where: { shopId: { in: shopIds } } });
     await prisma.stockLedger.deleteMany({ where: { shopId: { in: shopIds } } });
     await prisma.itemPriceHistory.deleteMany({ where: { item: { shopId: { in: shopIds } } } });
+    await prisma.itemBundleComponent.deleteMany({ where: { parentItem: { shopId: { in: shopIds } } } });
     await prisma.item.deleteMany({ where: { shopId: { in: shopIds } } });
     await prisma.itemCategory.deleteMany({ where: { shopId: { in: shopIds } } });
     await prisma.customer.deleteMany({ where: { shopId: { in: shopIds } } });

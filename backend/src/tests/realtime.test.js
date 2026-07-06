@@ -30,6 +30,7 @@ async function cleanTestData(shopIds, mobiles) {
       await prisma.stockLedger.deleteMany({ where: { shopId: { in: shopIds } } });
       await prisma.stockBalance.deleteMany({ where: { shopId: { in: shopIds } } });
       await prisma.itemPriceHistory.deleteMany({ where: { item: { shopId: { in: shopIds } } } });
+      await prisma.itemBundleComponent.deleteMany({ where: { parentItem: { shopId: { in: shopIds } } } });
       await prisma.item.deleteMany({ where: { shopId: { in: shopIds } } });
     }
     if (mobiles && mobiles.length > 0) {
