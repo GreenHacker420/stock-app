@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { View, StyleSheet, Pressable, Modal, ScrollView, TouchableWithoutFeedback } from "react-native";
 import { Text, Icon } from "react-native-paper";
 import { useNavigation } from "@react-navigation/native";
@@ -24,7 +24,7 @@ export function AppHeader({ title, subtitle, role, initials, showBack, onBack, h
   const user = useAuthStore((state) => state.user);
   const { activeShopId } = useShopStore();
   const switchActiveShop = useSwitchActiveShop();
-  
+
   let navigation: any = null;
   try {
     navigation = useNavigation<any>();
@@ -34,8 +34,8 @@ export function AppHeader({ title, subtitle, role, initials, showBack, onBack, h
   const shopsQuery = useShopsQuery();
   const [modalVisible, setModalVisible] = useState(false);
 
-  const selectedShop = useMemo(() => 
-    shopsQuery.data?.find(s => s.id === activeShopId), 
+  const selectedShop = useMemo(() =>
+    shopsQuery.data?.find(s => s.id === activeShopId),
     [shopsQuery.data, activeShopId]
   );
 
@@ -69,7 +69,7 @@ export function AppHeader({ title, subtitle, role, initials, showBack, onBack, h
     <View style={styles.headerContainer}>
       <View style={styles.leftSection}>
         {canGoBack && (
-          <Pressable 
+          <Pressable
             onPress={() => {
               if (onBack) {
                 onBack();
@@ -91,37 +91,37 @@ export function AppHeader({ title, subtitle, role, initials, showBack, onBack, h
         <View style={styles.titleContainer}>
           <Text style={styles.title} numberOfLines={1}>{title}</Text>
           {activeShopId && selectedShop ? (
-	            <Pressable
-	              onPress={() => {
-	                if (canSwitchShop) {
-	                  setModalVisible(true);
-	                }
-	              }}
-	              disabled={!canSwitchShop}
-	              style={({ pressed }) => [
-	                styles.shopSelectorPill,
-	                (canSwitchShop && pressed) ? styles.pressed : undefined
-	              ].filter(Boolean) as any}
-	            >
+            <Pressable
+              onPress={() => {
+                if (canSwitchShop) {
+                  setModalVisible(true);
+                }
+              }}
+              disabled={!canSwitchShop}
+              style={({ pressed }) => [
+                styles.shopSelectorPill,
+                (canSwitchShop && pressed) ? styles.pressed : undefined
+              ].filter(Boolean) as any}
+            >
               <Icon source="storefront-outline" size={14} color={colors.primary} />
               <Text style={styles.shopSelectorText} numberOfLines={1}>
                 {selectedShop.name}
               </Text>
-	              {canSwitchShop && (
-	                <Icon source="chevron-down" size={14} color={colors.primary} />
-	              )}
+              {canSwitchShop && (
+                <Icon source="chevron-down" size={14} color={colors.primary} />
+              )}
             </Pressable>
           ) : null}
-          {subtitle ? (
+          {/* {subtitle ? (
             <Text style={styles.subtitle} numberOfLines={1}>
               {subtitle}
             </Text>
-          ) : null}
+          ) : null} */}
         </View>
       </View>
 
       {!hideAvatar && (
-        <Pressable 
+        <Pressable
           onPress={handleProfilePress}
           style={({ pressed }) => [
             styles.rightSection,
@@ -162,8 +162,8 @@ export function AppHeader({ title, subtitle, role, initials, showBack, onBack, h
               <View style={styles.modalContainer}>
                 <View style={styles.modalHeader}>
                   <Text style={styles.modalTitle}>Switch Shop</Text>
-                  <Pressable 
-                    onPress={() => setModalVisible(false)} 
+                  <Pressable
+                    onPress={() => setModalVisible(false)}
                     style={({ pressed }) => [styles.closeButton, pressed && styles.pressed]}
                   >
                     <Icon source="close" size={22} color={colors.textSecondary} />
@@ -175,10 +175,10 @@ export function AppHeader({ title, subtitle, role, initials, showBack, onBack, h
                     return (
                       <Pressable
                         key={shop.id}
-	                        onPress={() => {
-	                          switchActiveShop(shop.id);
-	                          setModalVisible(false);
-	                        }}
+                        onPress={() => {
+                          switchActiveShop(shop.id);
+                          setModalVisible(false);
+                        }}
                         style={({ pressed }) => [
                           styles.shopRow,
                           isSelected && styles.shopRowSelected,
