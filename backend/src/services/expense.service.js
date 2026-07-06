@@ -43,6 +43,16 @@ export async function createExpense(user, data) {
       },
     });
 
+    await enqueueDomainEvent(tx, createDomainEvent({
+      shopId: data.shopId,
+      entity: "expense",
+      action: "created",
+      entityId: expense.id,
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: true },
+    }));
+
     return expense;
   });
 }
@@ -111,6 +121,16 @@ export async function verifyExpense(user, id, { status, note }) {
       actorUserId: user.id,
       actorRole: user.role,
       visibility: { owners: true, staff: true, targetUserIds: [existing.createdById] },
+    }));
+
+    await enqueueDomainEvent(tx, createDomainEvent({
+      shopId: existing.shopId,
+      entity: "cashSession",
+      action: "updated",
+      entityId: existing.cashSessionId,
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: true },
     }));
 
     return expense;

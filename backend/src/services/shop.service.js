@@ -326,6 +326,7 @@ export async function copyCatalog(user, { sourceShopId, targetShopId, overwrite 
   }
 
   return await prisma.$transaction(async (tx) => {
+    const events = [];
     // 1. Copy Categories
     const sourceCategories = await tx.itemCategory.findMany({
       where: { shopId: sourceShopId },
@@ -347,6 +348,15 @@ export async function copyCatalog(user, { sourceShopId, targetShopId, overwrite 
             status: cat.status,
           },
         });
+        events.push(createDomainEvent({
+          shopId: targetShopId,
+          entity: "category",
+          action: "created",
+          entityId: targetCat.id,
+          actorUserId: user.id,
+          actorRole: user.role,
+          visibility: { owners: true, staff: true },
+        }));
       }
 
       categoryMap.set(cat.id, targetCat.id);
@@ -390,12 +400,21 @@ export async function copyCatalog(user, { sourceShopId, targetShopId, overwrite 
               status: item.status,
             },
           });
+          events.push(createDomainEvent({
+            shopId: targetShopId,
+            entity: "item",
+            action: "updated",
+            entityId: exists.id,
+            actorUserId: user.id,
+            actorRole: user.role,
+            visibility: { owners: true, staff: true },
+          }));
           copiedCount++;
         } else {
           skippedCount++;
         }
       } else {
-        await tx.item.create({
+        const createdItem = await tx.item.create({
           data: {
             shopId: targetShopId,
             name: item.name,
@@ -411,6 +430,15 @@ export async function copyCatalog(user, { sourceShopId, targetShopId, overwrite 
             status: item.status,
           },
         });
+        events.push(createDomainEvent({
+          shopId: targetShopId,
+          entity: "item",
+          action: "created",
+          entityId: createdItem.id,
+          actorUserId: user.id,
+          actorRole: user.role,
+          visibility: { owners: true, staff: true },
+        }));
         copiedCount++;
       }
     }
@@ -427,7 +455,8 @@ export async function copyCatalog(user, { sourceShopId, targetShopId, overwrite 
       }
     });
 
+    if (events.length > 0) await enqueueManyDomainEvents(tx, events);
+
     return { success: true, copiedCount, skippedCount };
   });
 }
-

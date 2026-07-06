@@ -16,7 +16,11 @@ export type DomainEvent = {
     | "dashboard"
     | "notification"
     | "shop"
-    | "category";
+    | "category"
+    | "staff"
+    | "attendance"
+    | "expense"
+    | "dailySummary";
   action: string;
   entityId: string;
   actorUserId: string;
@@ -89,6 +93,32 @@ export function invalidateForDomainEvent(queryClient: QueryClient, event: Domain
   if (event.entity === "shop") {
     queryClient.invalidateQueries({ queryKey: ["shops"] });
     queryClient.invalidateQueries({ queryKey: ["me"] });
+  }
+
+  if (event.entity === "staff") {
+    queryClient.invalidateQueries({ queryKey: ["staff"] });
+    queryClient.invalidateQueries({ queryKey: ["shops"] });
+    queryClient.invalidateQueries({ queryKey: ["me"] });
+  }
+
+  if (event.entity === "attendance") {
+    queryClient.invalidateQueries({ queryKey: ["attendance"] });
+    queryClient.invalidateQueries({ queryKey: ["attendance-infinite"] });
+    invalidate(["staff-today-summary", shopId]);
+    invalidate(["owner-dashboard", { shopId }]);
+  }
+
+  if (event.entity === "expense") {
+    invalidate(["expenses", shopId]);
+    invalidate(["current-cash-session", shopId]);
+    invalidate(["cash-sessions", shopId]);
+    invalidate(["owner-dashboard", { shopId }]);
+  }
+
+  if (event.entity === "dailySummary") {
+    queryClient.invalidateQueries({ queryKey: ["daily-summary"] });
+    queryClient.invalidateQueries({ queryKey: ["daily-summaries"] });
+    invalidate(["owner-dashboard", { shopId }]);
   }
 
   if (event.entity === "customer") {

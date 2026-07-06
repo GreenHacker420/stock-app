@@ -2,7 +2,7 @@ import prisma from "../lib/db.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 import { writeAuditLog } from "../utils/auditLog.js";
-import { createDomainEvent, enqueueDomainEvent } from "./domain-event.service.js";
+import { createDomainEvent, enqueueDomainEvent, enqueueManyDomainEvents } from "./domain-event.service.js";
 import { EntityType, AuditAction } from "../generated/prisma/index.js";
 
 export async function createApprovalRequest(tx, { shopId, type, entityType, entityId, payloadJson, reason, requestedById }) {
@@ -116,6 +116,7 @@ export async function respondToRequest(user, id, { status, rejectedReason }) {
       if (request.type === "STOCK_ENTRY") {
         const payload = request.payloadJson;
         const entries = payload.entries || [];
+        const stockEvents = [];
         for (const entry of entries) {
           const movement = await tx.stockLedger.create({
             data: {
@@ -141,7 +142,17 @@ export async function respondToRequest(user, id, { status, rejectedReason }) {
               reason: payload.notes || "Approved Bulk stock entry",
             },
           });
+          stockEvents.push(createDomainEvent({
+            shopId: request.shopId,
+            entity: "stock",
+            action: "updated",
+            entityId: entry.itemId,
+            actorUserId: user.id,
+            actorRole: user.role,
+            visibility: { owners: true, staff: true },
+          }));
         }
+        if (stockEvents.length > 0) await enqueueManyDomainEvents(tx, stockEvents);
       }
     }
 

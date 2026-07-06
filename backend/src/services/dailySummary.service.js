@@ -2,6 +2,7 @@ import prisma from "../lib/db.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 import { IS_DATE_REGEX } from "../lib/validate.js";
+import { createDomainEvent, enqueueDomainEvent } from "./domain-event.service.js";
 
 export async function getSummary(user, { shopId, date }) {
   await assertShopAccess(user, shopId);
@@ -32,13 +33,27 @@ export async function lockSummary(user, { shopId, date }) {
   if (!summary) throw new ApiError(404, "Summary not found for this date");
   if (summary.status === "LOCKED") return summary;
 
-  return prisma.dailySummary.update({
-    where: { id: summary.id },
-    data: {
-      status: "LOCKED",
-      reviewedById: user.id,
-      reviewedAt: new Date(),
-    }
+  return prisma.$transaction(async (tx) => {
+    const locked = await tx.dailySummary.update({
+      where: { id: summary.id },
+      data: {
+        status: "LOCKED",
+        reviewedById: user.id,
+        reviewedAt: new Date(),
+      }
+    });
+
+    await enqueueDomainEvent(tx, createDomainEvent({
+      shopId,
+      entity: "dailySummary",
+      action: "locked",
+      entityId: locked.id,
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: true },
+    }));
+
+    return locked;
   });
 }
 
@@ -60,7 +75,21 @@ export async function generateSummary(user, { shopId, date }) {
   });
   if (existingLocked?.status === "LOCKED") return existingLocked;
 
-  return generateSummaryInternal(shopId, summaryDate);
+  const summary = await generateSummaryInternal(shopId, summaryDate);
+
+  await prisma.$transaction(async (tx) => {
+    await enqueueDomainEvent(tx, createDomainEvent({
+      shopId,
+      entity: "dailySummary",
+      action: "generated",
+      entityId: summary.id,
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: true },
+    }));
+  });
+
+  return summary;
 }
 
 export async function listSummaries(user, { shopId, dateFrom, dateTo, status }) {
@@ -145,13 +174,27 @@ export async function lockSummaryById(user, id) {
   const summary = await getSummaryById(user, id);
   if (summary.status === "LOCKED") return summary;
 
-  return prisma.dailySummary.update({
-    where: { id: summary.id },
-    data: {
-      status: "LOCKED",
-      reviewedById: user.id,
-      reviewedAt: new Date(),
-    },
+  return prisma.$transaction(async (tx) => {
+    const locked = await tx.dailySummary.update({
+      where: { id: summary.id },
+      data: {
+        status: "LOCKED",
+        reviewedById: user.id,
+        reviewedAt: new Date(),
+      },
+    });
+
+    await enqueueDomainEvent(tx, createDomainEvent({
+      shopId: summary.shopId,
+      entity: "dailySummary",
+      action: "locked",
+      entityId: locked.id,
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: true },
+    }));
+
+    return locked;
   });
 }
 
@@ -159,13 +202,25 @@ export async function exportSummary(user, id, format) {
   const summary = await getSummaryById(user, id);
   const normalizedFormat = format.toUpperCase();
 
-  await prisma.dailySummaryExport.create({
-    data: {
-      dailySummaryId: summary.id,
-      format: normalizedFormat,
-      status: "DONE",
-      exportedById: user.id,
-    },
+  await prisma.$transaction(async (tx) => {
+    await tx.dailySummaryExport.create({
+      data: {
+        dailySummaryId: summary.id,
+        format: normalizedFormat,
+        status: "DONE",
+        exportedById: user.id,
+      },
+    });
+
+    await enqueueDomainEvent(tx, createDomainEvent({
+      shopId: summary.shopId,
+      entity: "dailySummary",
+      action: "exported",
+      entityId: summary.id,
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: true },
+    }));
   });
 
   if (normalizedFormat === "CSV") {

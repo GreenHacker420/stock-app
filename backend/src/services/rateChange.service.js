@@ -3,6 +3,7 @@ import { ApiError } from "../utils/ApiError.js";
 import { EntityType } from "../generated/prisma/index.js";
 import { createApprovalRequest } from "./approval.service.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
+import { createDomainEvent, enqueueManyDomainEvents, enqueueDomainEvent } from "./domain-event.service.js";
 
 async function accessibleShopIds(user) {
   if (user.role === "OWNER") {
@@ -143,6 +144,27 @@ export async function approveRateChangeRequest(user, id) {
       },
     });
 
+    await enqueueManyDomainEvents(tx, [
+      createDomainEvent({
+        shopId: approval.shopId,
+        entity: "approval",
+        action: "approved",
+        entityId: approval.id,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true, targetUserIds: [approval.requestedById] },
+      }),
+      createDomainEvent({
+        shopId: approval.shopId,
+        entity: "order",
+        action: "updated",
+        entityId: orderItem.orderId,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true },
+      }),
+    ]);
+
     return {
       id: updated.id,
       orderItemId,
@@ -172,6 +194,16 @@ export async function rejectRateChangeRequest(user, id, reason) {
       rejectedReason: reason,
     },
   });
+
+  await enqueueDomainEvent(prisma, createDomainEvent({
+    shopId: approval.shopId,
+    entity: "approval",
+    action: "rejected",
+    entityId: approval.id,
+    actorUserId: user.id,
+    actorRole: user.role,
+    visibility: { owners: true, staff: true, targetUserIds: [approval.requestedById] },
+  }));
 
   return {
     id: updated.id,

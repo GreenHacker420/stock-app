@@ -38,6 +38,11 @@ export const updateStaff = asyncHandler(async (req, res) => {
   res.json({ success: true, data: staff });
 });
 
+export const deleteStaff = asyncHandler(async (req, res) => {
+  const staff = await authService.deleteStaff(req.user, req.validated.params.id);
+  res.json({ success: true, data: staff });
+});
+
 export const truecallerLogin = asyncHandler(async (req, res) => {
   const result = await authService.truecallerLogin(req.validated.body);
   res.json({ success: true, data: result });

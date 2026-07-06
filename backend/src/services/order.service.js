@@ -257,15 +257,26 @@ export async function confirmOrder(user, id) {
       },
     });
 
-    await enqueueDomainEvent(tx, createDomainEvent({
-      shopId: order.shopId,
-      entity: "order",
-      action: "confirmed",
-      entityId: order.id,
-      actorUserId: user.id,
-      actorRole: user.role,
-      visibility: { owners: true, staff: true }
-    }));
+    await enqueueManyDomainEvents(tx, [
+      createDomainEvent({
+        shopId: order.shopId,
+        entity: "order",
+        action: "confirmed",
+        entityId: order.id,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true }
+      }),
+      createDomainEvent({
+        shopId: order.shopId,
+        entity: "stock",
+        action: "reservation_updated",
+        entityId: order.id,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true }
+      }),
+    ]);
 
     return updated;
   });
@@ -460,15 +471,26 @@ export async function reportShortage(user, id, { orderItemId, availableQuantity,
       },
     });
 
-    await enqueueDomainEvent(tx, createDomainEvent({
-      shopId: order.shopId,
-      entity: "order",
-      action: "shortage_reported",
-      entityId: order.id,
-      actorUserId: user.id,
-      actorRole: user.role,
-      visibility: { owners: true, staff: true }
-    }));
+    await enqueueManyDomainEvents(tx, [
+      createDomainEvent({
+        shopId: order.shopId,
+        entity: "order",
+        action: "shortage_reported",
+        entityId: order.id,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true }
+      }),
+      createDomainEvent({
+        shopId: order.shopId,
+        entity: "stock",
+        action: "reservation_updated",
+        entityId: order.id,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true }
+      }),
+    ]);
   });
 
   return getOrder(user, id);
@@ -922,16 +944,26 @@ export async function cancelOrder(user, id, data = {}) {
       },
     });
 
-    // Domain event
-    await enqueueDomainEvent(tx, createDomainEvent({
-      shopId: order.shopId,
-      entity: "order",
-      action: "updated",
-      entityId: id,
-      actorUserId: user.id,
-      actorRole: user.role,
-      visibility: { owners: true, staff: true },
-    }));
+    await enqueueManyDomainEvents(tx, [
+      createDomainEvent({
+        shopId: order.shopId,
+        entity: "order",
+        action: "updated",
+        entityId: id,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true },
+      }),
+      createDomainEvent({
+        shopId: order.shopId,
+        entity: "stock",
+        action: "reservation_updated",
+        entityId: id,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true },
+      }),
+    ]);
 
     return updated;
   });

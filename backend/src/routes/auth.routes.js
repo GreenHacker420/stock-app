@@ -79,5 +79,6 @@ router.patch("/me", requireAuth, validate(updateMeSchema), authController.update
 router.get("/staff", requireAuth, requireOwner, authController.listStaff);
 router.post("/staff", requireAuth, requireOwner, validate(createStaffSchema), authController.createStaff);
 router.patch("/staff/:id", requireAuth, requireOwner, validate(updateStaffSchema), authController.updateStaff);
+router.delete("/staff/:id", requireAuth, requireOwner, validate(z.object({ params: z.object({ id: z.string().min(1) }), body: z.object({}).optional(), query: z.object({}).optional() })), authController.deleteStaff);
 
 export default router;

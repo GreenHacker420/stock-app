@@ -26,6 +26,11 @@ const ENTITY_TYPE_MAP = {
   approval: "APPROVAL_REQUEST",
   notification: "APPROVAL_REQUEST",
   dashboard: "SHOP",
+  shop: "SHOP",
+  staff: "USER",
+  attendance: "USER",
+  expense: "EXPENSE",
+  dailySummary: "SHOP",
 };
 
 function notificationTriggerFor(event) {

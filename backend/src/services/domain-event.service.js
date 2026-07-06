@@ -16,6 +16,10 @@ const DEFAULT_QUERY_KEYS = {
   notification: ["notifications"],
   dashboard: ["dashboard"],
   shop: ["shops"],
+  staff: ["staff", "shops"],
+  attendance: ["attendance", "dashboard"],
+  expense: ["expenses", "dashboard", "cashSession"],
+  dailySummary: ["dailySummary", "dashboard"],
 };
 
 export function createDomainEvent({

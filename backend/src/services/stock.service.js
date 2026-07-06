@@ -446,37 +446,37 @@ export async function transferStock(user, { sourceShopId, targetShopId, itemId, 
     throw new ApiError(400, "Cannot transfer item without an SKU code");
   }
 
-  // Find or create target item
-  let targetItem = await prisma.item.findFirst({
-    where: { shopId: targetShopId, sku: sourceItem.sku, status: "ACTIVE" }
-  });
-
-  if (!targetItem) {
-    // Clone item from source shop
-    targetItem = await prisma.item.create({
-      data: {
-        shopId: targetShopId,
-        name: sourceItem.name,
-        sku: sourceItem.sku,
-        categoryId: sourceItem.categoryId,
-        unit: sourceItem.unit,
-        defaultSellingPrice: sourceItem.defaultSellingPrice,
-        minimumAllowedPrice: sourceItem.minimumAllowedPrice,
-        purchasePrice: sourceItem.purchasePrice,
-        mrp: sourceItem.mrp,
-        minimumStock: sourceItem.minimumStock,
-        imageUrl: sourceItem.imageUrl,
-        status: "ACTIVE",
-      }
-    });
-  }
-
   const transferReason = reason || `Stock transfer from ${sourceShopId} to ${targetShopId}`;
 
   // Execute transfer inside transaction
   return prisma.$transaction(async (tx) => {
     // 0. Reject if quantity exceeds available (physical - reserved) stock
     await checkAndLockAvailableStock(tx, sourceShopId, [{ itemId: sourceItem.id, quantity }]);
+
+    let targetItem = await tx.item.findFirst({
+      where: { shopId: targetShopId, sku: sourceItem.sku, status: "ACTIVE" }
+    });
+    let targetItemCreated = false;
+
+    if (!targetItem) {
+      targetItem = await tx.item.create({
+        data: {
+          shopId: targetShopId,
+          name: sourceItem.name,
+          sku: sourceItem.sku,
+          categoryId: sourceItem.categoryId,
+          unit: sourceItem.unit,
+          defaultSellingPrice: sourceItem.defaultSellingPrice,
+          minimumAllowedPrice: sourceItem.minimumAllowedPrice,
+          purchasePrice: sourceItem.purchasePrice,
+          mrp: sourceItem.mrp,
+          minimumStock: sourceItem.minimumStock,
+          imageUrl: sourceItem.imageUrl,
+          status: "ACTIVE",
+        }
+      });
+      targetItemCreated = true;
+    }
 
     // 1. Stock Out from source shop
     const sourceMovement = await tx.stockLedger.create({
@@ -519,26 +519,38 @@ export async function transferStock(user, { sourceShopId, targetShopId, itemId, 
       }
     });
 
-    // 4. Enqueue domain events
-    await enqueueDomainEvent(tx, {
-      shopId: sourceShopId,
-      entity: "stock",
-      action: "updated",
-      entityId: sourceItem.id,
-      actorUserId: user.id,
-      actorRole: user.role,
-      visibility: { owners: true, staff: true },
-    });
-
-    await enqueueDomainEvent(tx, {
-      shopId: targetShopId,
-      entity: "stock",
-      action: "updated",
-      entityId: targetItem.id,
-      actorUserId: user.id,
-      actorRole: user.role,
-      visibility: { owners: true, staff: true },
-    });
+    const events = [
+      createDomainEvent({
+        shopId: sourceShopId,
+        entity: "stock",
+        action: "updated",
+        entityId: sourceItem.id,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true },
+      }),
+      createDomainEvent({
+        shopId: targetShopId,
+        entity: "stock",
+        action: "updated",
+        entityId: targetItem.id,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true },
+      }),
+    ];
+    if (targetItemCreated) {
+      events.push(createDomainEvent({
+        shopId: targetShopId,
+        entity: "item",
+        action: "created",
+        entityId: targetItem.id,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true },
+      }));
+    }
+    await enqueueManyDomainEvents(tx, events);
 
     return { sourceMovement, targetMovement };
   });

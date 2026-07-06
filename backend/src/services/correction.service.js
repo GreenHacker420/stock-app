@@ -4,6 +4,7 @@ import { EntityType, ApprovalType, AuditAction } from "../generated/prisma/index
 import { createApprovalRequest } from "./approval.service.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { decreaseCustomerDebt } from "./transactionHelpers.js";
+import { createDomainEvent, enqueueManyDomainEvents, enqueueDomainEvent } from "./domain-event.service.js";
 
 function mapEntityType(clientType) {
   switch (clientType) {
@@ -231,6 +232,96 @@ export async function approveCorrectionRequest(user, id) {
       },
     });
 
+    const events = [
+      createDomainEvent({
+        shopId: approval.shopId,
+        entity: "approval",
+        action: "approved",
+        entityId: approval.id,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true, targetUserIds: [approval.requestedById] },
+      }),
+      createDomainEvent({
+        shopId: approval.shopId,
+        entity: "dashboard",
+        action: "updated",
+        entityId: approval.shopId,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true },
+      }),
+    ];
+    if (approval.type === ApprovalType.SALE_CANCELLATION) {
+      const sale = await tx.sale.findUnique({ where: { id: approval.entityId }, select: { customerId: true } });
+      events.push(
+        createDomainEvent({
+          shopId: approval.shopId,
+          entity: "sale",
+          action: "updated",
+          entityId: approval.entityId,
+          actorUserId: user.id,
+          actorRole: user.role,
+          visibility: { owners: true, staff: true },
+        }),
+        createDomainEvent({
+          shopId: approval.shopId,
+          entity: "stock",
+          action: "updated",
+          entityId: approval.entityId,
+          actorUserId: user.id,
+          actorRole: user.role,
+          visibility: { owners: true, staff: true },
+        }),
+      );
+      if (sale?.customerId) {
+        events.push(createDomainEvent({
+          shopId: approval.shopId,
+          entity: "customer",
+          action: "updated",
+          entityId: sale.customerId,
+          actorUserId: user.id,
+          actorRole: user.role,
+          visibility: { owners: true, staff: true },
+        }));
+      }
+    }
+    if (approval.type === ApprovalType.DM_CANCELLATION) {
+      const dm = await tx.deliveryMemo.findUnique({ where: { id: approval.entityId }, select: { customerId: true } });
+      events.push(
+        createDomainEvent({
+          shopId: approval.shopId,
+          entity: "deliveryMemo",
+          action: "updated",
+          entityId: approval.entityId,
+          actorUserId: user.id,
+          actorRole: user.role,
+          visibility: { owners: true, staff: true },
+        }),
+        createDomainEvent({
+          shopId: approval.shopId,
+          entity: "stock",
+          action: "updated",
+          entityId: approval.entityId,
+          actorUserId: user.id,
+          actorRole: user.role,
+          visibility: { owners: true, staff: true },
+        }),
+      );
+      if (dm?.customerId) {
+        events.push(createDomainEvent({
+          shopId: approval.shopId,
+          entity: "customer",
+          action: "updated",
+          entityId: dm.customerId,
+          actorUserId: user.id,
+          actorRole: user.role,
+          visibility: { owners: true, staff: true },
+        }));
+      }
+    }
+    await enqueueManyDomainEvents(tx, events);
+
     return {
       id: updated.id,
       entityType: approval.entityType,
@@ -260,6 +351,16 @@ export async function rejectCorrectionRequest(user, id, reason) {
       rejectedReason: reason,
     },
   });
+
+  await enqueueDomainEvent(prisma, createDomainEvent({
+    shopId: approval.shopId,
+    entity: "approval",
+    action: "rejected",
+    entityId: approval.id,
+    actorUserId: user.id,
+    actorRole: user.role,
+    visibility: { owners: true, staff: true, targetUserIds: [approval.requestedById] },
+  }));
 
   return {
     id: updated.id,

@@ -1,6 +1,7 @@
 import prisma from "../lib/db.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
+import { createDomainEvent, enqueueDomainEvent } from "./domain-event.service.js";
 
 export async function checkIn(user, { shopId, note, staffId }) {
   await assertShopAccess(user, shopId);
@@ -24,15 +25,29 @@ export async function checkIn(user, { shopId, note, staffId }) {
     throw new ApiError(400, "Already checked in for today");
   }
 
-  return prisma.attendance.create({
-    data: {
+  return prisma.$transaction(async (tx) => {
+    const attendance = await tx.attendance.create({
+      data: {
+        shopId,
+        staffId: targetStaffId,
+        date: today,
+        checkIn: new Date(),
+        status: "PRESENT",
+        note
+      }
+    });
+
+    await enqueueDomainEvent(tx, createDomainEvent({
       shopId,
-      staffId: targetStaffId,
-      date: today,
-      checkIn: new Date(),
-      status: "PRESENT",
-      note
-    }
+      entity: "attendance",
+      action: "checked_in",
+      entityId: attendance.id,
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: true, targetUserIds: [targetStaffId] },
+    }));
+
+    return attendance;
   });
 }
 
@@ -62,12 +77,26 @@ export async function checkOut(user, { shopId, note, staffId }) {
     throw new ApiError(400, "Already checked out for today");
   }
 
-  return prisma.attendance.update({
-    where: { id: existing.id },
-    data: {
-      checkOut: new Date(),
-      note: note || existing.note
-    }
+  return prisma.$transaction(async (tx) => {
+    const attendance = await tx.attendance.update({
+      where: { id: existing.id },
+      data: {
+        checkOut: new Date(),
+        note: note || existing.note
+      }
+    });
+
+    await enqueueDomainEvent(tx, createDomainEvent({
+      shopId,
+      entity: "attendance",
+      action: "checked_out",
+      entityId: attendance.id,
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: true, targetUserIds: [targetStaffId] },
+    }));
+
+    return attendance;
   });
 }
 
