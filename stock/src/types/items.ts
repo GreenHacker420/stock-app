@@ -19,8 +19,9 @@ export type ItemStockResponse = {
 
 export type StockMovementEntry = {
   id: string;
-  type: "IN" | "OUT";
-  quantity: number;
+  quantityIn: string | number;
+  quantityOut: string | number;
+  movementType: string;
   createdAt: string;
 };
 

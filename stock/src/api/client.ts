@@ -34,6 +34,11 @@ export type ItemCategory = {
   name: string;
 };
 
+export type ItemBrand = {
+  id: string;
+  name: string;
+};
+
 export type Item = {
   id: string;
   name: string;
@@ -46,7 +51,10 @@ export type Item = {
   mrp?: string | null;
   minimumStock: string;
   status?: "ACTIVE" | "INACTIVE";
+  categoryId?: string | null;
+  brandId?: string | null;
   category?: ItemCategory | null;
+  brand?: ItemBrand | null;
   physicalStock?: number;
   reservedStock?: number;
   availableStock?: number;
@@ -268,6 +276,7 @@ export interface CreateItemPayload {
   purchasePrice?: number | null;
   mrp?: number | null;
   categoryId?: string | null;
+  brandId?: string | null;
   initialStock?: number;
   bundleComponents?: Array<{ componentItemId: string; quantity: number }>;
 }
@@ -426,10 +435,13 @@ export async function setOpeningStock(token: string, shopId: string, entries: an
 export interface ItemSummary {
   totalItems: number;
   totalCategories: number;
+  totalBrands: number;
   outOfStockCount: number;
   lowStockCount: number;
   countByCat: Record<string, number>;
+  countByBrand: Record<string, number>;
   uncategorisedCount: number;
+  unbrandedCount: number;
 }
 
 // ITEMS & STOCK
@@ -440,11 +452,12 @@ export async function fetchItemSummary(token: string, shopId: string) {
 export async function fetchItems(
   token: string,
   shopId: string,
-  opts: { search?: string; page?: number; limit?: number; categoryId?: string } = {}
+  opts: { search?: string; page?: number; limit?: number; categoryId?: string; brandId?: string } = {}
 ) {
   const q = new URLSearchParams({ shopId });
   if (opts.search && opts.search.trim()) q.set('search', opts.search.trim());
   if (opts.categoryId) q.set('categoryId', opts.categoryId);
+  if (opts.brandId) q.set('brandId', opts.brandId);
   if (opts.page)  q.set('page',  String(opts.page));
   if (opts.limit) q.set('limit', String(opts.limit));
   return apiRequest<{ items: Item[]; total: number; hasMore: boolean; page: number }>(
@@ -530,6 +543,33 @@ export async function updateCategory(token: string, id: string, name: string) {
 
 export async function deleteCategory(token: string, id: string) {
   return apiRequest<{ success: boolean }>(`/items/categories/${id}`, {
+    method: "DELETE",
+    token,
+  });
+}
+
+export async function fetchBrands(token: string, shopId: string) {
+  return apiRequest<ItemBrand[]>(`/items/brands?shopId=${encodeURIComponent(shopId)}`, { token });
+}
+
+export async function createBrand(token: string, shopId: string, name: string) {
+  return apiRequest<ItemBrand>("/items/brands", {
+    method: "POST",
+    token,
+    body: JSON.stringify({ shopId, name }),
+  });
+}
+
+export async function updateBrand(token: string, id: string, name: string) {
+  return apiRequest<ItemBrand>(`/items/brands/${id}`, {
+    method: "PATCH",
+    token,
+    body: JSON.stringify({ name }),
+  });
+}
+
+export async function deleteBrand(token: string, id: string) {
+  return apiRequest<{ success: boolean }>(`/items/brands/${id}`, {
     method: "DELETE",
     token,
   });

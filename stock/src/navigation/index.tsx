@@ -54,6 +54,7 @@ import { DeliveryMemoList } from "./screens/DeliveryMemoList";
 import { CreateDeliveryMemo } from "./screens/CreateDeliveryMemo";
 import { DeliveryMemoDetail } from "./screens/DeliveryMemoDetail";
 import { ManageCategories } from "./screens/ManageCategories";
+import { ManageBrands } from "./screens/ManageBrands";
 import { CopyCatalog } from "./screens/CopyCatalog";
 // import { colors } from "../theme";
 
@@ -530,6 +531,10 @@ const sharedStackScreens = {
     screen: ownerOnlyScreen(ManageCategories),
     options: { title: "Manage categories" },
   },
+  ManageBrands: {
+    screen: ownerOnlyScreen(ManageBrands),
+    options: { title: "Manage brands" },
+  },
   CopyCatalog: {
     screen: ownerOnlyScreen(CopyCatalog),
     options: { title: "Copy Catalog" },
@@ -654,6 +659,7 @@ export type RootStackParamList = {
   Settings: undefined;
   Home: undefined;
   ManageCategories: undefined;
+  ManageBrands: undefined;
   CopyCatalog: undefined;
 };
 

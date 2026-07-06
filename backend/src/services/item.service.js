@@ -92,6 +92,7 @@ function pickItemCreateFields(data) {
     name: data.name,
     sku: data.sku,
     categoryId: data.categoryId,
+    brandId: data.brandId,
     unit: data.unit,
     defaultSellingPrice: data.defaultSellingPrice,
     minimumAllowedPrice: data.minimumAllowedPrice,
@@ -108,6 +109,7 @@ function pickItemUpdateFields(data) {
     name: data.name,
     sku: data.sku,
     categoryId: data.categoryId,
+    brandId: data.brandId,
     unit: data.unit,
     defaultSellingPrice: data.defaultSellingPrice,
     minimumAllowedPrice: data.minimumAllowedPrice,
@@ -271,7 +273,7 @@ async function attachAvailableStock(shopId, itemsList) {
 // listItems
 // ---------------------------------------------------------------------------
 
-async function listItemsFromDb({ shopId, search, categoryId, page = 1, limit = 50 }) {
+async function listItemsFromDb({ shopId, search, categoryId, brandId, page = 1, limit = 50 }) {
   const skip = (page - 1) * limit;
   const normalizedSearch = search?.trim();
 
@@ -295,24 +297,29 @@ async function listItemsFromDb({ shopId, search, categoryId, page = 1, limit = 5
       const vectorString = `[${embedding.join(",")}]`;
       items = await prisma.$queryRaw`
         SELECT
-          i.id, i."shopId", i.name, i.sku, i."categoryId", i.unit,
+          i.id, i."shopId", i.name, i.sku, i."categoryId", i."brandId", i.unit,
           i."defaultSellingPrice", i."minimumAllowedPrice", i."purchasePrice", i.mrp,
           i."minimumStock", i."imageUrl", i.status, i."createdAt", i."updatedAt",
           c.id as "category_id", c.name as "category_name", c.status as "category_status",
           c."createdAt" as "category_createdAt", c."updatedAt" as "category_updatedAt",
+          b.id as "brand_id", b.name as "brand_name", b.status as "brand_status",
+          b."createdAt" as "brand_createdAt", b."updatedAt" as "brand_updatedAt",
           (CASE WHEN i.sku ILIKE ${likePattern} THEN 0.0 ELSE 1.0 END) * 0.1 +
           (CASE WHEN i.name ILIKE ${likePattern} THEN 0.0 ELSE 1.0 END) * 0.2 +
           COALESCE(i.embedding <=> ${vectorString}::vector, 1.0) as score
         FROM "Item" i
         LEFT JOIN "ItemCategory" c ON i."categoryId" = c.id
+        LEFT JOIN "ItemBrand" b ON i."brandId" = b.id
         WHERE i."shopId" = ${shopId} AND i.status = 'ACTIVE'
           AND (
             i.name ILIKE ${likePattern}
             OR i.sku ILIKE ${likePattern}
             OR c.name ILIKE ${likePattern}
+            OR b.name ILIKE ${likePattern}
             OR COALESCE(i.embedding <=> ${vectorString}::vector, 1.0) < 0.35
           )
           ${categoryId ? (categoryId === "__uncat__" ? Prisma.sql`AND i."categoryId" IS NULL` : Prisma.sql`AND i."categoryId" = ${categoryId}`) : Prisma.empty}
+          ${brandId ? (brandId === "__unbranded__" ? Prisma.sql`AND i."brandId" IS NULL` : Prisma.sql`AND i."brandId" = ${brandId}`) : Prisma.empty}
         ORDER BY score ASC
         LIMIT ${limit}
         OFFSET ${skip};
@@ -321,20 +328,25 @@ async function listItemsFromDb({ shopId, search, categoryId, page = 1, limit = 5
       // Lexical-only fallback for short queries or embedding failure
       items = await prisma.$queryRaw`
         SELECT
-          i.id, i."shopId", i.name, i.sku, i."categoryId", i.unit,
+          i.id, i."shopId", i.name, i.sku, i."categoryId", i."brandId", i.unit,
           i."defaultSellingPrice", i."minimumAllowedPrice", i."purchasePrice", i.mrp,
           i."minimumStock", i."imageUrl", i.status, i."createdAt", i."updatedAt",
           c.id as "category_id", c.name as "category_name", c.status as "category_status",
-          c."createdAt" as "category_createdAt", c."updatedAt" as "category_updatedAt"
+          c."createdAt" as "category_createdAt", c."updatedAt" as "category_updatedAt",
+          b.id as "brand_id", b.name as "brand_name", b.status as "brand_status",
+          b."createdAt" as "brand_createdAt", b."updatedAt" as "brand_updatedAt"
         FROM "Item" i
         LEFT JOIN "ItemCategory" c ON i."categoryId" = c.id
+        LEFT JOIN "ItemBrand" b ON i."brandId" = b.id
         WHERE i."shopId" = ${shopId} AND i.status = 'ACTIVE'
           AND (
             i.name ILIKE ${likePattern}
             OR i.sku ILIKE ${likePattern}
             OR c.name ILIKE ${likePattern}
+            OR b.name ILIKE ${likePattern}
           )
           ${categoryId ? (categoryId === "__uncat__" ? Prisma.sql`AND i."categoryId" IS NULL` : Prisma.sql`AND i."categoryId" = ${categoryId}`) : Prisma.empty}
+          ${brandId ? (brandId === "__unbranded__" ? Prisma.sql`AND i."brandId" IS NULL` : Prisma.sql`AND i."brandId" = ${brandId}`) : Prisma.empty}
         ORDER BY i.name ASC
         LIMIT ${limit}
         OFFSET ${skip};
@@ -348,6 +360,11 @@ async function listItemsFromDb({ shopId, search, categoryId, page = 1, limit = 5
         category_status,
         category_createdAt,
         category_updatedAt,
+        brand_id,
+        brand_name,
+        brand_status,
+        brand_createdAt,
+        brand_updatedAt,
         score,
         ...rest
       } = item;
@@ -365,6 +382,15 @@ async function listItemsFromDb({ shopId, search, categoryId, page = 1, limit = 5
               status: category_status,
               createdAt: category_createdAt,
               updatedAt: category_updatedAt,
+            }
+          : null,
+        brand: brand_id
+          ? {
+              id: brand_id,
+              name: brand_name,
+              status: brand_status,
+              createdAt: brand_createdAt,
+              updatedAt: brand_updatedAt,
             }
           : null,
       };
@@ -391,12 +417,17 @@ async function listItemsFromDb({ shopId, search, categoryId, page = 1, limit = 5
           ? { categoryId: null }
           : { categoryId }
         : {}),
+      ...(brandId
+        ? brandId === "__unbranded__"
+          ? { brandId: null }
+          : { brandId }
+        : {}),
     };
 
     const [items, total] = await Promise.all([
       prisma.item.findMany({
         where,
-        include: { category: true },
+        include: { category: true, brand: true },
         orderBy: { name: "asc" },
         skip,
         take: limit,
@@ -426,12 +457,13 @@ async function listItemsFromDb({ shopId, search, categoryId, page = 1, limit = 5
   }
 }
 
-export async function listItems(user, { shopId, search, categoryId, page = 1, limit = 50 }) {
+export async function listItems(user, { shopId, search, categoryId, brandId, page = 1, limit = 50 }) {
   await assertShopAccess(user, shopId);
   const normalizedSearch = search?.trim() || null;
   const query = {
     search: normalizedSearch,
     categoryId: categoryId || null,
+    brandId: brandId || null,
     page: Number(page) || 1,
     limit: Number(limit) || 50,
   };
@@ -451,9 +483,10 @@ export async function listItems(user, { shopId, search, categoryId, page = 1, li
 export async function getItemSummary(user, { shopId }) {
   await assertShopAccess(user, shopId);
 
-  const [totalItems, totalCategories] = await Promise.all([
+  const [totalItems, totalCategories, totalBrands] = await Promise.all([
     prisma.item.count({ where: { shopId, status: "ACTIVE" } }),
     prisma.itemCategory.count({ where: { shopId, status: "ACTIVE" } }),
+    prisma.itemBrand.count({ where: { shopId, status: "ACTIVE" } }),
   ]);
 
   const items = await prisma.item.findMany({
@@ -462,7 +495,17 @@ export async function getItemSummary(user, { shopId }) {
   });
 
   if (items.length === 0) {
-    return { totalItems: 0, totalCategories, outOfStockCount: 0, lowStockCount: 0, countByCat: {}, uncategorisedCount: 0 };
+    return {
+      totalItems: 0,
+      totalCategories,
+      totalBrands,
+      outOfStockCount: 0,
+      lowStockCount: 0,
+      countByCat: {},
+      countByBrand: {},
+      uncategorisedCount: 0,
+      unbrandedCount: 0,
+    };
   }
 
   const itemIds = items.map((i) => i.id);
@@ -484,11 +527,18 @@ export async function getItemSummary(user, { shopId }) {
     }
   });
 
-  const catCounts = await prisma.item.groupBy({
-    by: ["categoryId"],
-    where: { shopId, status: "ACTIVE" },
-    _count: { id: true },
-  });
+  const [catCounts, brandCounts] = await Promise.all([
+    prisma.item.groupBy({
+      by: ["categoryId"],
+      where: { shopId, status: "ACTIVE" },
+      _count: { id: true },
+    }),
+    prisma.item.groupBy({
+      by: ["brandId"],
+      where: { shopId, status: "ACTIVE" },
+      _count: { id: true },
+    }),
+  ]);
 
   const countByCat = {};
   let uncategorisedCount = 0;
@@ -500,7 +550,27 @@ export async function getItemSummary(user, { shopId }) {
     }
   });
 
-  return { totalItems, totalCategories, outOfStockCount, lowStockCount, countByCat, uncategorisedCount };
+  const countByBrand = {};
+  let unbrandedCount = 0;
+  brandCounts.forEach((b) => {
+    if (b.brandId) {
+      countByBrand[b.brandId] = b._count.id;
+    } else {
+      unbrandedCount = b._count.id;
+    }
+  });
+
+  return {
+    totalItems,
+    totalCategories,
+    totalBrands,
+    outOfStockCount,
+    lowStockCount,
+    countByCat,
+    countByBrand,
+    uncategorisedCount,
+    unbrandedCount,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -635,6 +705,14 @@ export async function createItem(user, data) {
     }
   }
 
+  // Brand must belong to this shop
+  if (itemData.brandId) {
+    const brand = await prisma.itemBrand.findUnique({ where: { id: itemData.brandId } });
+    if (!brand || brand.shopId !== itemData.shopId) {
+      throw new ApiError(400, "Brand does not belong to this shop");
+    }
+  }
+
   // Generate embedding (failures are non-fatal — item still gets created)
   let embedding = null;
   try {
@@ -764,6 +842,14 @@ export async function updateItem(user, id, data) {
     const category = await prisma.itemCategory.findUnique({ where: { id: itemData.categoryId } });
     if (!category || category.shopId !== existing.shopId) {
       throw new ApiError(400, "Category does not belong to this shop");
+    }
+  }
+
+  // Brand must belong to this shop
+  if (itemData.brandId) {
+    const brand = await prisma.itemBrand.findUnique({ where: { id: itemData.brandId } });
+    if (!brand || brand.shopId !== existing.shopId) {
+      throw new ApiError(400, "Brand does not belong to this shop");
     }
   }
 
@@ -1105,3 +1191,100 @@ export async function getRateSuggestion(user, id, { customerId }) {
 }
 
 export { getPurchaseHistory as getPriceHistory };
+
+// ---------------------------------------------------------------------------
+// Brand management — OWNER only
+// ---------------------------------------------------------------------------
+
+export async function createBrand(user, data) {
+  await assertShopAccess(user, data.shopId);
+  assertCanManageItems(user);
+
+  const result = await prisma.$transaction(async (tx) => {
+    const brand = await tx.itemBrand.create({
+      data: { shopId: data.shopId, name: data.name },
+    });
+    const event = createDomainEvent({
+      shopId: brand.shopId,
+      entity: "brand",
+      action: "created",
+      entityId: brand.id,
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: true },
+    });
+    await enqueueDomainEvent(tx, event);
+    return { brand, event };
+  });
+
+  await bestEffortInvalidateForDomainEvent(result.event);
+  return result.brand;
+}
+
+export async function listBrands(user, { shopId }) {
+  await assertShopAccess(user, shopId);
+  return readThroughDomainCache({
+    shopId,
+    domain: "brands",
+    query: {},
+    loader: () => prisma.itemBrand.findMany({
+      where: { shopId, status: "ACTIVE" },
+      orderBy: { name: "asc" },
+    }),
+  });
+}
+
+export async function updateBrand(user, id, { name }) {
+  const existing = await prisma.itemBrand.findUnique({ where: { id } });
+  if (!existing) throw new ApiError(404, "Brand not found");
+  await assertShopAccess(user, existing.shopId);
+  assertCanManageItems(user);
+
+  const result = await prisma.$transaction(async (tx) => {
+    const brand = await tx.itemBrand.update({ where: { id }, data: { name } });
+    const event = createDomainEvent({
+      shopId: existing.shopId,
+      entity: "brand",
+      action: "updated",
+      entityId: id,
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: true },
+    });
+    await enqueueDomainEvent(tx, event);
+    return { brand, event };
+  });
+
+  await bestEffortInvalidateForDomainEvent(result.event);
+  return result.brand;
+}
+
+export async function deleteBrand(user, id) {
+  const existing = await prisma.itemBrand.findUnique({ where: { id } });
+  if (!existing) throw new ApiError(404, "Brand not found");
+  await assertShopAccess(user, existing.shopId);
+  assertCanManageItems(user);
+
+  const itemCount = await prisma.item.count({ where: { brandId: id, status: "ACTIVE" } });
+  if (itemCount > 0) {
+    throw new ApiError(400, "Cannot delete brand that contains active items");
+  }
+
+  const result = await prisma.$transaction(async (tx) => {
+    const brand = await tx.itemBrand.update({ where: { id }, data: { status: "INACTIVE" } });
+    const event = createDomainEvent({
+      shopId: existing.shopId,
+      entity: "brand",
+      action: "deleted",
+      entityId: id,
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: true },
+    });
+    await enqueueDomainEvent(tx, event);
+    return { brand, event };
+  });
+
+  await bestEffortInvalidateForDomainEvent(result.event);
+  return result.brand;
+}

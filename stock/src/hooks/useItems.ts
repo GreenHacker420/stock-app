@@ -15,14 +15,19 @@ import {
   fetchItemPriceHistory,
   fetchItemPriceChangeHistory,
   fetchCategories,
+  fetchBrands,
   fetchItemSummary,
   createCategory,
   updateCategory,
   deleteCategory,
+  createBrand,
+  updateBrand,
+  deleteBrand,
   CreateItemPayload,
   UpdateItemPayload,
   StockEntryPayload,
   ItemCategory,
+  ItemBrand,
   ItemSummary,
 } from "../api/client";
 import { newIdempotencyKey } from "../utils/idempotency";
@@ -86,22 +91,22 @@ export function useInfiniteItemsQuery(opts: { search?: string; limit?: number } 
   });
 }
 
-export function useItemsQuery(opts: { search?: string; categoryId?: string; page?: number; limit?: number; enabled?: boolean } = {}) {
+export function useItemsQuery(opts: { search?: string; categoryId?: string; brandId?: string; page?: number; limit?: number; enabled?: boolean } = {}) {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
   return useQuery({
-    queryKey: [...queryKeys.items(activeShopId ?? "", opts.search), opts.categoryId],
+    queryKey: [...queryKeys.items(activeShopId ?? "", opts.search), opts.categoryId, opts.brandId],
     queryFn: () =>
       fetchItems(token ?? "", activeShopId ?? "", {
         search: opts.search,
         categoryId: opts.categoryId,
+        brandId: opts.brandId,
         page: opts.page,
         limit: opts.limit,
       }),
     enabled: (opts.enabled ?? true) && !!token && !!activeShopId,
     staleTime: 30 * 60 * 1000,
   });
-
 }
 
 
@@ -337,6 +342,56 @@ export function useDeleteCategoryMutation() {
       queryClient.invalidateQueries({ queryKey: queryKeys.categories(activeShopId ?? "") });
       queryClient.invalidateQueries({ queryKey: ["items"] });
       refreshCatalogReadModelAfterMutation({ userId, shopId: activeShopId, token, queryClient, domains: ["items", "categories"] });
+    },
+  });
+}
+
+export function useBrandsQuery() {
+  const token = useAuthStore((state) => state.token);
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  return useQuery({
+    queryKey: ["brands", activeShopId ?? ""],
+    queryFn: () => fetchBrands(token ?? "", activeShopId ?? ""),
+    enabled: !!token && !!activeShopId,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useCreateBrandMutation() {
+  const token = useAuthStore((state) => state.token);
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) => createBrand(token ?? "", requireActiveShopId(activeShopId), name),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["brands", activeShopId ?? ""] });
+      queryClient.invalidateQueries({ queryKey: ["items"] });
+    },
+  });
+}
+
+export function useUpdateBrandMutation() {
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  const token = useAuthStore((state) => state.token);
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string }) => updateBrand(token ?? "", id, name),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["brands", activeShopId ?? ""] });
+      queryClient.invalidateQueries({ queryKey: ["items"] });
+    },
+  });
+}
+
+export function useDeleteBrandMutation() {
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  const token = useAuthStore((state) => state.token);
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => deleteBrand(token ?? "", id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["brands", activeShopId ?? ""] });
+      queryClient.invalidateQueries({ queryKey: ["items"] });
     },
   });
 }

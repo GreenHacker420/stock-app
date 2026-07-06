@@ -4,10 +4,10 @@ import { Text, Icon } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
 
-import { Item, ItemCategory } from "../../../api/client";
+import { Item, ItemCategory, ItemBrand } from "../../../api/client";
 import { useAuthStore } from "../../../auth/auth-store";
 import { useShopStore } from "../../../auth/shop-store";
-import { useItemsQuery, useCategoriesQuery, useItemSummaryQuery } from "../../../hooks/useItems";
+import { useItemsQuery, useCategoriesQuery, useBrandsQuery, useItemSummaryQuery } from "../../../hooks/useItems";
 import { Screen } from "../../../components/Screen";
 import { AppHeader } from "../../../components/ui/AppHeader";
 import { SkeletonList } from "../../../components/ui/SkeletonCard";
@@ -18,6 +18,7 @@ import { AppSearchBar } from "../../../components/ui/AppSearchBar";
 import { ItemCard } from "../../../components/items/ItemCard";
 import { AllItemsCard, CategoryCard, UncatCard } from "../../../components/items/CategoryCard";
 import { FilterChips, StockFilter } from "../../../components/items/FilterChips";
+import { BrandPickerSheet } from "../../../components/items/BrandPickerSheet";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../../theme";
 import { navigate } from "../../navigation-ref";
 import { triggerLightHaptic } from "../../../utils/haptics";
@@ -34,6 +35,8 @@ export function ItemList() {
   const [filter, setFilter] = useState<StockFilter>("ALL");
   // null = grid mode; "ALL" = all items list; categoryId = specific category list
   const [selectedCat, setSelectedCat] = useState<string | "ALL" | null>(null);
+  const [selectedBrandId, setSelectedBrandId] = useState<string>("");
+  const [showBrandPicker, setShowBrandPicker] = useState(false);
 
   // Summary data (fast!)
   const summaryQuery = useItemSummaryQuery();
@@ -43,6 +46,10 @@ export function ItemList() {
   const categoriesQuery = useCategoriesQuery();
   const categories: ItemCategory[] = categoriesQuery.data ?? [];
 
+  // Brands from dedicated endpoint
+  const brandsQuery = useBrandsQuery();
+  const brands: ItemBrand[] = brandsQuery.data ?? [];
+
   // Items for the current view (only fetched when in list mode)
   const isSearchActive = debouncedSearch.trim().length > 0;
   const isGridMode = !isSearchActive && selectedCat === null;
@@ -50,6 +57,7 @@ export function ItemList() {
   const listQuery = useItemsQuery({
     search: isSearchActive ? debouncedSearch : undefined,
     categoryId: selectedCat && selectedCat !== "ALL" ? selectedCat : undefined,
+    brandId: selectedBrandId || undefined,
     limit: 1000,
     enabled: !isGridMode,
   });
@@ -92,6 +100,7 @@ export function ItemList() {
   const enterCat = useCallback((id: string | "ALL") => {
     triggerLightHaptic();
     setSelectedCat(id);
+    setSelectedBrandId("");
     setSearch("");
     setFilter("ALL");
   }, []);
@@ -99,6 +108,7 @@ export function ItemList() {
   const exitGrid = useCallback(() => {
     triggerLightHaptic();
     setSelectedCat(null);
+    setSelectedBrandId("");
     setSearch("");
     setFilter("ALL");
   }, []);
@@ -142,6 +152,7 @@ export function ItemList() {
               { label: "OUT", value: outCount, tone: outCount > 0 ? "red" : "default" },
               { label: "LOW", value: lowCount, tone: lowCount > 0 ? "amber" : "default" },
               { label: "CATS", value: categories.length },
+              { label: "BRANDS", value: summary?.totalBrands ?? 0 },
             ]}
           />
 
@@ -159,13 +170,22 @@ export function ItemList() {
           <View style={styles.gridLabelRow}>
             <Text style={styles.gridLabel}>BROWSE BY CATEGORY</Text>
             {isOwner && (
-              <Pressable
-                onPress={() => navigate("ManageCategories")}
-                style={({ pressed }) => [styles.manageBtn, pressed && { opacity: 0.7 }]}
-              >
-                <Icon source="cog-outline" size={13} color={colors.primary} />
-                <Text style={styles.manageBtnText}>Manage</Text>
-              </Pressable>
+              <View style={{ flexDirection: "row", gap: spacing.sm }}>
+                <Pressable
+                  onPress={() => navigate("ManageCategories")}
+                  style={({ pressed }) => [styles.manageBtn, pressed && { opacity: 0.7 }]}
+                >
+                  <Icon source="cog-outline" size={13} color={colors.primary} />
+                  <Text style={styles.manageBtnText}>Categories</Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => navigate("ManageBrands")}
+                  style={({ pressed }) => [styles.manageBtn, pressed && { opacity: 0.7 }]}
+                >
+                  <Icon source="cog-outline" size={13} color={colors.primary} />
+                  <Text style={styles.manageBtnText}>Brands</Text>
+                </Pressable>
+              </View>
             )}
           </View>
 
@@ -217,7 +237,25 @@ export function ItemList() {
           ListHeaderComponent={
             <View style={styles.listHeader}>
               <AppSearchBar value={search} onChangeText={setSearch} placeholder="Search products" />
-              <FilterChips value={filter} onChange={setFilter} />
+              <View style={styles.filterRowWrap}>
+                <FilterChips value={filter} onChange={setFilter} />
+                <Pressable
+                  onPress={() => {
+                    triggerLightHaptic();
+                    setShowBrandPicker(true);
+                  }}
+                  style={[
+                    styles.brandFilterBtn,
+                    !!selectedBrandId && { borderColor: colors.primary, backgroundColor: colors.primaryLight }
+                  ]}
+                >
+                  <Icon source="certificate-outline" size={13} color={selectedBrandId ? colors.primary : colors.textMuted} />
+                  <Text style={[styles.brandFilterBtnText, !!selectedBrandId && { color: colors.primary, fontWeight: fontWeight.bold }]}>
+                    {selectedBrandId ? (brands.find(b => b.id === selectedBrandId)?.name ?? "Brand") : "Brand"}
+                  </Text>
+                  <Icon source="chevron-down" size={13} color={selectedBrandId ? colors.primary : colors.textMuted} />
+                </Pressable>
+              </View>
             </View>
           }
           renderItem={({ item }) => (
@@ -264,6 +302,17 @@ export function ItemList() {
           </Pressable>
         )}
       </View>
+
+      <BrandPickerSheet
+        visible={showBrandPicker}
+        brands={brands}
+        selectedBrandId={selectedBrandId}
+        onSelect={(brandId) => {
+          setSelectedBrandId(brandId);
+          setShowBrandPicker(false);
+        }}
+        onDismiss={() => setShowBrandPicker(false)}
+      />
     </Screen>
   );
 }
@@ -307,6 +356,28 @@ const styles = StyleSheet.create({
   listHeader: {
     padding: spacing.lg,
     gap: spacing.md,
+  },
+  filterRowWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+  },
+  brandFilterBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+    borderRadius: radius.full,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  brandFilterBtnText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.medium,
+    color: colors.textMuted,
   },
   listContent: {
     paddingHorizontal: spacing.lg,

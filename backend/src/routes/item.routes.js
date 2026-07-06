@@ -22,6 +22,7 @@ const listSchema = z.object({
     shopId: z.string().min(1),
     search: z.string().optional(),
     categoryId: z.string().optional(),
+    brandId: z.string().optional(),
     page: z.coerce.number().int().positive().optional(),
     limit: z.coerce.number().int().positive().optional(),
   }),
@@ -54,12 +55,30 @@ const updateCategorySchema = z.object({
   query: z.object({}).optional(),
 });
 
+const brandSchema = z.object({
+  body: z.object({
+    shopId: z.string().min(1),
+    name: z.string().min(1),
+  }),
+  params: z.object({}).optional(),
+  query: z.object({}).optional(),
+});
+
+const updateBrandSchema = z.object({
+  params: idParams,
+  body: z.object({
+    name: z.string().min(1),
+  }),
+  query: z.object({}).optional(),
+});
+
 const createItemSchema = z.object({
   body: z.object({
     shopId: z.string().min(1),
     name: z.string().min(1),
     sku: z.string().nullable().optional(),
     categoryId: z.string().nullable().optional(),
+    brandId: z.string().nullable().optional(),
     unit: z.string().min(1),
     defaultSellingPrice: z.coerce.number().nonnegative().optional(),
     minimumAllowedPrice: z.coerce.number().nonnegative().nullable().optional(),
@@ -99,6 +118,12 @@ router.get("/categories", requirePermission(PERMISSIONS.ITEM_VIEW), validate(lis
 router.post("/categories", requirePermission(PERMISSIONS.ITEM_CREATE), validate(categorySchema), itemController.createCategory);
 router.patch("/categories/:id", requirePermission(PERMISSIONS.ITEM_UPDATE), validate(updateCategorySchema), itemController.updateCategory);
 router.delete("/categories/:id", requirePermission(PERMISSIONS.ITEM_UPDATE), validate(z.object({ params: idParams })), itemController.deleteCategory);
+
+// BRANDS (Must be before parameterized routes)
+router.get("/brands", requirePermission(PERMISSIONS.ITEM_VIEW), validate(listCategoriesSchema), itemController.listBrands);
+router.post("/brands", requirePermission(PERMISSIONS.ITEM_CREATE), validate(brandSchema), itemController.createBrand);
+router.patch("/brands/:id", requirePermission(PERMISSIONS.ITEM_UPDATE), validate(updateBrandSchema), itemController.updateBrand);
+router.delete("/brands/:id", requirePermission(PERMISSIONS.ITEM_UPDATE), validate(z.object({ params: idParams })), itemController.deleteBrand);
 
 // ITEMS
 router.get("/", requirePermission(PERMISSIONS.ITEM_VIEW), validate(listSchema), itemController.listItems);

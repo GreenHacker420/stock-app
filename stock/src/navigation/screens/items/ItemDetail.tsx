@@ -134,17 +134,24 @@ export function ItemDetail() {
             ) : !(movementsQuery.data as StockMovementEntry[] | undefined)?.length ? (
               <EmptyState icon="transfer" title="No stock movements" subtitle="Stock entries will appear here." />
             ) : (
-              (movementsQuery.data as StockMovementEntry[]).map((m, i, arr) => (
-                <Fragment key={m.id}>
-                  <StockMovementRow
-                    title={m.type === "IN" ? "Stock In" : "Stock Out"}
-                    date={new Date(m.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
-                    quantity={`${m.type === "IN" ? "+" : "-"}${m.quantity} ${itemData.unit}`}
-                    tone={m.type === "IN" ? "green" : "red"}
-                  />
-                  {i < arr.length - 1 && <Divider style={styles.rowDivider} />}
-                </Fragment>
-              ))
+              (movementsQuery.data as StockMovementEntry[]).map((m, i, arr) => {
+                const quantityIn = Number(m.quantityIn || 0);
+                const quantityOut = Number(m.quantityOut || 0);
+                const isEntryIn = quantityIn > 0;
+                const quantityVal = isEntryIn ? quantityIn : quantityOut;
+
+                return (
+                  <Fragment key={m.id}>
+                    <StockMovementRow
+                      title={isEntryIn ? "Stock In" : "Stock Out"}
+                      date={new Date(m.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                      quantity={`${isEntryIn ? "+" : "-"}${quantityVal} ${itemData.unit}`}
+                      tone={isEntryIn ? "green" : "red"}
+                    />
+                    {i < arr.length - 1 && <Divider style={styles.rowDivider} />}
+                  </Fragment>
+                );
+              })
             )}
           </View>
         )}

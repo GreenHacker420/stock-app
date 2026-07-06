@@ -457,6 +457,7 @@ model Shop {
   staffAccesses    StaffShopAccess[]
   customers        Customer[]
   itemCategories   ItemCategory[]
+  itemBrands       ItemBrand[]
   items            Item[]
   stockLedger      StockLedger[]
   stockBalances    StockBalance[]
@@ -638,12 +639,27 @@ model ItemCategory {
   @@unique([shopId, name])
 }
 
+model ItemBrand {
+  id        String       @id @default(cuid())
+  shopId    String
+  name      String
+  status    RecordStatus @default(ACTIVE)
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  shop  Shop   @relation(fields: [shopId], references: [id])
+  items Item[]
+
+  @@unique([shopId, name])
+}
+
 model Item {
   id                  String                      @id @default(cuid())
   shopId              String
   name                String
   sku                 String?
   categoryId          String?
+  brandId             String?
   unit                String
   defaultSellingPrice Decimal                     @default(0) @db.Decimal(12, 2)
   minimumAllowedPrice Decimal?                    @db.Decimal(12, 2)
@@ -658,6 +674,7 @@ model Item {
 
   shop                 Shop                  @relation(fields: [shopId], references: [id])
   category             ItemCategory?         @relation(fields: [categoryId], references: [id])
+  brand                ItemBrand?            @relation(fields: [brandId], references: [id])
   stockLedger          StockLedger[]
   stockBalance         StockBalance?
   orderItems           OrderItem[]

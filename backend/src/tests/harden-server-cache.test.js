@@ -242,6 +242,41 @@ test.describe("HARDEN-02 server read cache and domain event coherence", () => {
     assert.ok(redis.keys().some((key) => key.includes(":categories:generation")), "categories generation should be invalidated");
   });
 
+  test("item and brand mutations enqueue events and invalidate affected read domains", async () => {
+    const redis = new FakeRedis();
+    setReadCacheRedisForTests(redis);
+    const { owner, shop } = await seed();
+
+    const brand = await itemService.createBrand(owner, { shopId: shop.id, name: "Canon" });
+    await itemService.listBrands(owner, { shopId: shop.id });
+    const renamed = await itemService.updateBrand(owner, brand.id, { name: "Canon Updated" });
+    assert.strictEqual(renamed.name, "Canon Updated");
+
+    const item = await itemService.createItem(owner, {
+      shopId: shop.id,
+      name: "Printer",
+      sku: "CAN-PRIN",
+      brandId: renamed.id,
+      unit: "pcs",
+      defaultSellingPrice: 5000,
+      initialStock: 1,
+    });
+    const updatedItem = await itemService.updateItem(owner, item.id, { name: "Printer Updated" });
+    assert.strictEqual(updatedItem.name, "Printer Updated");
+
+    const actions = await prisma.domainEventOutbox.findMany({
+      where: { shopId: shop.id, entity: { in: ["item", "brand"] } },
+      orderBy: { createdAt: "asc" },
+      select: { entity: true, action: true },
+    });
+    assert.ok(actions.some((event) => event.entity === "brand" && event.action === "created"));
+    assert.ok(actions.some((event) => event.entity === "brand" && event.action === "updated"));
+    assert.ok(actions.some((event) => event.entity === "item" && event.action === "created"));
+    assert.ok(actions.some((event) => event.entity === "item" && event.action === "updated"));
+    assert.ok(redis.keys().some((key) => key.includes(":items:generation")), "items generation should be invalidated");
+    assert.ok(redis.keys().some((key) => key.includes(":brands:generation")), "brands generation should be invalidated");
+  });
+
   test("dispatcher invalidates cache before live publish and retry leaves event pending on invalidation failure", async () => {
     const order = [];
     const redis = new FakeRedis({ onOperation: (operation) => order.push(operation) });

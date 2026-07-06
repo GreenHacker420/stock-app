@@ -49,6 +49,9 @@ export const ItemCard = memo(({
           {item.category && (
             <Text style={styles.itemCategory}>{item.category.name}</Text>
           )}
+          {item.brand && (
+            <Text style={[styles.itemCategory, { backgroundColor: colors.infoLight, color: colors.info }]}>{item.brand.name}</Text>
+          )}
           {item.sku && (
             <Text style={styles.itemSku}>{item.sku}</Text>
           )}

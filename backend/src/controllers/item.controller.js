@@ -75,3 +75,23 @@ export const getRateSuggestion = asyncHandler(async (req, res) => {
   const suggestion = await itemService.getRateSuggestion(req.user, req.validated.params.id, req.validated.query);
   res.json({ success: true, data: suggestion });
 });
+
+export const createBrand = asyncHandler(async (req, res) => {
+  const brand = await itemService.createBrand(req.user, req.validated.body);
+  res.status(201).json({ success: true, data: brand });
+});
+
+export const listBrands = asyncHandler(async (req, res) => {
+  const brands = await itemService.listBrands(req.user, req.validated.query);
+  res.json({ success: true, data: brands });
+});
+
+export const updateBrand = asyncHandler(async (req, res) => {
+  const brand = await itemService.updateBrand(req.user, req.validated.params.id, req.validated.body);
+  res.json({ success: true, data: brand });
+});
+
+export const deleteBrand = asyncHandler(async (req, res) => {
+  const brand = await itemService.deleteBrand(req.user, req.validated.params.id);
+  res.json({ success: true, data: brand });
+});

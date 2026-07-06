@@ -12,11 +12,11 @@ import { useRoute } from "@react-navigation/native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
 
-import { Item, ItemCategory, CreateItemPayload, UpdateItemPayload, LocalItemImage, uploadItemImage } from "../../../api/client";
+import { Item, ItemCategory, ItemBrand, CreateItemPayload, UpdateItemPayload, LocalItemImage, uploadItemImage } from "../../../api/client";
 import { useAuthStore } from "../../../auth/auth-store";
 import { useShopStore } from "../../../auth/shop-store";
 import { requireActiveShopId } from "../../../hooks/useActiveShop";
-import { useCategoriesQuery, useCreateItemMutation, useItemsQuery, useUpdateItemMutation } from "../../../hooks/useItems";
+import { useCategoriesQuery, useBrandsQuery, useCreateItemMutation, useItemsQuery, useUpdateItemMutation } from "../../../hooks/useItems";
 import { Screen } from "../../../components/Screen";
 import { AppHeader } from "../../../components/ui/AppHeader";
 import { Button } from "../../../components/ui/Button";
@@ -24,6 +24,7 @@ import { EmptyState } from "../../../components/ui/EmptyState";
 import { AppKeyboardAvoidingView } from "../../../components/ui/AppKeyboardAvoidingView";
 import { ImagePickerField } from "../../../components/forms/ImagePickerField";
 import { CategoryPickerSheet } from "../../../components/items/CategoryPickerSheet";
+import { BrandPickerSheet } from "../../../components/items/BrandPickerSheet";
 import { colors, spacing, radius, fontSize, fontWeight } from "../../../theme";
 import { navigate, goBack } from "../../navigation-ref";
 import { AddEditItemRouteParams } from "../../../types/items";
@@ -39,6 +40,7 @@ type FormState = {
   purchasePrice: string;
   minimumStock: string;
   categoryId: string;
+  brandId: string;
   initialStock: string;
 };
 
@@ -53,6 +55,8 @@ export function AddEditItem() {
 
   const categoriesQuery = useCategoriesQuery();
   const categories: ItemCategory[] = categoriesQuery.data ?? [];
+  const brandsQuery = useBrandsQuery();
+  const brands: ItemBrand[] = brandsQuery.data ?? [];
   const itemsQuery = useItemsQuery({ limit: 500 });
   const availableItems: Item[] = itemsQuery.data?.items ?? [];
 
@@ -71,11 +75,13 @@ export function AddEditItem() {
     mrp: existingItem?.mrp?.toString() ?? "",
     purchasePrice: existingItem?.purchasePrice?.toString() ?? "",
     minimumStock: existingItem?.minimumStock?.toString() ?? "0",
-    categoryId: existingItem?.category?.id ?? "",
+    categoryId: existingItem?.categoryId ?? existingItem?.category?.id ?? "",
+    brandId: existingItem?.brandId ?? existingItem?.brand?.id ?? "",
     initialStock: "",
   });
 
   const [showCatPicker, setShowCatPicker] = useState(false);
+  const [showBrandPicker, setShowBrandPicker] = useState(false);
   const [scannerVisible, setScannerVisible] = useState(false);
   const [selectedImage, setSelectedImage] = useState<LocalItemImage | null>(null);
   const [imageUrl, setImageUrl] = useState(existingItem?.imageUrl ?? "");
@@ -91,6 +97,7 @@ export function AddEditItem() {
   const set = (key: keyof FormState) => (v: string) => setForm((f) => ({ ...f, [key]: v }));
 
   const selectedCat = categories.find((c) => c.id === form.categoryId);
+  const selectedBrand = brands.find((b) => b.id === form.brandId);
   const selectedComponentIds = new Set(bundleComponents.map((component) => component.componentItemId));
   const componentOptions = availableItems
     .filter((item) => item.id !== existingItem?.id)
@@ -282,6 +289,7 @@ export function AddEditItem() {
       sku: form.sku.trim() || null,
       imageUrl: uploadedImageUrl,
       categoryId: form.categoryId || null,
+      brandId: form.brandId || null,
       defaultSellingPrice: sellingPrice,
       minimumAllowedPrice,
       mrp,
@@ -360,6 +368,18 @@ export function AddEditItem() {
               <Icon source="tag-outline" size={18} color={selectedCat ? colors.primary : colors.textMuted} />
               <Text style={[styles.catSelectorText, !selectedCat && { color: colors.textMuted }]}>
                 {selectedCat ? selectedCat.name : "Select Category (optional)"}
+              </Text>
+              <Icon source="chevron-down" size={18} color={colors.textMuted} />
+            </Pressable>
+
+            {/* Brand selector */}
+            <Pressable
+              onPress={() => setShowBrandPicker(true)}
+              style={[styles.catSelector, { marginTop: spacing.sm }]}
+            >
+              <Icon source="certificate-outline" size={18} color={selectedBrand ? colors.primary : colors.textMuted} />
+              <Text style={[styles.catSelectorText, !selectedBrand && { color: colors.textMuted }]}>
+                {selectedBrand ? selectedBrand.name : "Select Brand (optional)"}
               </Text>
               <Icon source="chevron-down" size={18} color={colors.textMuted} />
             </Pressable>
@@ -491,6 +511,17 @@ export function AddEditItem() {
           setShowCatPicker(false);
         }}
         onDismiss={() => setShowCatPicker(false)}
+      />
+
+      <BrandPickerSheet
+        visible={showBrandPicker}
+        brands={brands}
+        selectedBrandId={form.brandId}
+        onSelect={(brandId) => {
+          setForm((f) => ({ ...f, brandId }));
+          setShowBrandPicker(false);
+        }}
+        onDismiss={() => setShowBrandPicker(false)}
       />
 
       <Modal visible={scannerVisible} animationType="slide" onRequestClose={() => setScannerVisible(false)}>

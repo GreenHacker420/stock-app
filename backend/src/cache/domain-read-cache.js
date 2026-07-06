@@ -14,6 +14,7 @@ const EVENT_DOMAIN_MAP = {
   customer: ["customers"],
   item: ["items"],
   category: ["categories", "items"],
+  brand: ["brands", "items"],
   stock: ["items"],
 };
 
