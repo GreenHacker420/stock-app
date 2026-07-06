@@ -29,9 +29,14 @@ import { selectCategories, selectCustomers, selectItemCatalog } from "../../../s
 
 const root = path.resolve(import.meta.dirname, "../../..");
 const stockSrc = path.join(root, "stock/src");
+const backendSrc = path.join(root, "backend/src");
 
 function readStock(relativePath) {
   return fs.readFileSync(path.join(stockSrc, relativePath), "utf8");
+}
+
+function readBackend(relativePath) {
+  return fs.readFileSync(path.join(backendSrc, relativePath), "utf8");
 }
 
 function createMockRuntime() {
@@ -511,5 +516,59 @@ test.describe("Shop access realtime refresh contracts", () => {
     assert.ok(assignStaff.includes("fetchShops"));
     assert.ok(assignStaff.includes("currentShop"));
     assert.ok(assignStaff.includes("queryClient.setQueryData<Shop[] | undefined>"));
+  });
+});
+
+test.describe("Domain event mutation coverage contracts", () => {
+  test("staff removal emits targeted events and mobile signs out the removed staff device", () => {
+    const authService = readBackend("services/auth.service.js");
+    const provider = readStock("realtime/RealtimeProvider.tsx");
+    const hooks = readStock("hooks/useAuth.ts");
+
+    assert.ok(authService.includes("export async function deleteStaff"));
+    assert.ok(authService.includes('entity: "staff"'));
+    assert.ok(authService.includes('action: "deleted"'));
+    assert.ok(authService.includes("targetUserIds: [staffId]"));
+    assert.ok(authService.includes("tx.userDevice.updateMany"));
+    assert.ok(provider.includes("wasCurrentStaffDeleted"));
+    assert.ok(provider.includes("void signOut();"));
+    assert.ok(hooks.includes("useDeleteStaffMutation"));
+  });
+
+  test("active mutation domains emit realtime events for cache coherence", () => {
+    const attendance = readBackend("services/attendance.service.js");
+    const expense = readBackend("services/expense.service.js");
+    const dailySummary = readBackend("services/dailySummary.service.js");
+    const order = readBackend("services/order.service.js");
+    const approval = readBackend("services/approval.service.js");
+    const rateChange = readBackend("services/rateChange.service.js");
+    const correction = readBackend("services/correction.service.js");
+    const domainEvents = readStock("realtime/domainEvents.ts");
+
+    assert.ok(attendance.includes('entity: "attendance"'));
+    assert.ok(expense.includes('entity: "expense"'));
+    assert.ok(dailySummary.includes('entity: "dailySummary"'));
+    assert.ok(order.includes('action: "reservation_updated"'));
+    assert.ok(approval.includes('entity: "stock"'));
+    assert.ok(rateChange.includes('entity: "order"'));
+    assert.ok(correction.includes('entity: "sale"'));
+    assert.ok(correction.includes('entity: "deliveryMemo"'));
+    assert.ok(domainEvents.includes('event.entity === "expense"'));
+    assert.ok(domainEvents.includes('event.entity === "attendance"'));
+    assert.ok(domainEvents.includes('event.entity === "dailySummary"'));
+  });
+
+  test("customer and product soft delete endpoints emit read-model events", () => {
+    const customerService = readBackend("services/customer.service.js");
+    const itemService = readBackend("services/item.service.js");
+    const client = readStock("api/client.ts");
+
+    assert.ok(customerService.includes("export async function deleteCustomer"));
+    assert.ok(customerService.includes('action: "deleted"'));
+    assert.ok(customerService.includes('entity: "customer"'));
+    assert.ok(itemService.includes("export async function deleteItem"));
+    assert.ok(itemService.includes('entity: "item"'));
+    assert.ok(client.includes("export async function deleteCustomer"));
+    assert.ok(client.includes("export async function deleteItem"));
   });
 });

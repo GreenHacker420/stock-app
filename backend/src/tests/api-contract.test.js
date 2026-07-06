@@ -35,6 +35,7 @@ test("auth routes contract", () => {
   assertRoute(src, "GET",  '"/staff"', "GET /auth/staff");
   assertRoute(src, "POST", '"/staff"', "POST /auth/staff");
   assertRoute(src, "PATCH", '"/staff/:id"', "PATCH /auth/staff/:id");
+  assertRoute(src, "DELETE", '"/staff/:id"', "DELETE /auth/staff/:id");
 });
 
 // ─── SHOPS ───────────────────────────────────────────────────────────────────
@@ -54,6 +55,7 @@ test("customer routes contract", () => {
   assertRoute(src, "POST", '"/"', "POST /customers");
   assertRoute(src, "GET",  '"/:id"', "GET /customers/:id");
   assertRoute(src, "PATCH", '"/:id"', "PATCH /customers/:id");
+  assertRoute(src, "DELETE", '"/:id"', "DELETE /customers/:id");
   assertRoute(src, "GET",  '"/:id/outstanding"', "GET /customers/:id/outstanding");
   assertRoute(src, "GET",  '"/:id/timeline"', "GET /customers/:id/timeline");
   assertRoute(src, "GET",  '"/:id/sales"', "GET /customers/:id/sales");
@@ -74,6 +76,7 @@ test("item routes contract", () => {
   assertRoute(src, "GET",  '"/"', "GET /items");
   assertRoute(src, "POST", '"/"', "POST /items");
   assertRoute(src, "PATCH", '"/:id"', "PATCH /items/:id");
+  assertRoute(src, "DELETE", '"/:id"', "DELETE /items/:id");
   assertRoute(src, "GET",  '"/:id/stock"', "GET /items/:id/stock");
 });
 

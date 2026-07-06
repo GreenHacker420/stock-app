@@ -6,6 +6,7 @@ import {
   fetchItems,
   createItem,
   updateItem,
+  deleteItem,
   fetchCurrentStock,
   createStockMovement,
   fetchStockMovements,
@@ -158,6 +159,26 @@ export function useUpdateItemMutation() {
       queryClient.invalidateQueries({ queryKey: ["items"] });
       queryClient.invalidateQueries({ queryKey: ["item-price-history", id] });
       queryClient.invalidateQueries({ queryKey: ["item-price-change-history", id] });
+      queryClient.invalidateQueries({ queryKey: ["item-stock", id] });
+      if (activeShopId) {
+        queryClient.invalidateQueries({ queryKey: ["item-summary", activeShopId] });
+        queryClient.invalidateQueries({ queryKey: ["current-stock", activeShopId] });
+        queryClient.invalidateQueries({ queryKey: ["stock-movements", activeShopId] });
+        refreshCatalogReadModelAfterMutation({ userId, shopId: activeShopId, token, queryClient, domains: ["items"] });
+      }
+    },
+  });
+}
+
+export function useDeleteItemMutation() {
+  const token = useAuthStore((state) => state.token);
+  const userId = useAuthStore((state) => state.user?.id);
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => deleteItem(token ?? "", id),
+    onSuccess: (_, id) => {
+      queryClient.invalidateQueries({ queryKey: ["items"] });
       queryClient.invalidateQueries({ queryKey: ["item-stock", id] });
       if (activeShopId) {
         queryClient.invalidateQueries({ queryKey: ["item-summary", activeShopId] });

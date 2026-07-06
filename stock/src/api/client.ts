@@ -453,6 +453,10 @@ export async function updateItem(token: string, id: string, data: UpdateItemPayl
   return apiRequest<Item>(`/items/${id}`, { method: "PATCH", token, body: JSON.stringify(data) });
 }
 
+export async function deleteItem(token: string, id: string) {
+  return apiRequest<Item>(`/items/${id}`, { method: "DELETE", token });
+}
+
 export type LocalItemImage = {
   uri: string;
   name: string;
@@ -697,6 +701,10 @@ export async function createCustomer(token: string, data: any, opts: { idempoten
 
 export async function updateCustomer(token: string, id: string, data: any) {
   return apiRequest<Customer>(`/customers/${id}`, { method: "PATCH", token, body: JSON.stringify(data) });
+}
+
+export async function deleteCustomer(token: string, id: string) {
+  return apiRequest<Customer>(`/customers/${id}`, { method: "DELETE", token });
 }
 
 export async function fetchCustomerOutstanding(token: string, customerId: string) {

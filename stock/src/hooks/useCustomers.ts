@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient, type QueryClient } from "@tansta
 import { useAuthStore } from "../auth/auth-store";
 import { useShopStore } from "../auth/shop-store";
 import { queryKeys } from "./query-keys";
-import { fetchCustomers, fetchCustomer, createCustomer, updateCustomer, fetchCustomerSales, fetchCustomerPayments, fetchCustomerDMs, fetchCustomerReturns, fetchCustomerTimeline } from "../api/client";
+import { fetchCustomers, fetchCustomer, createCustomer, updateCustomer, deleteCustomer, fetchCustomerSales, fetchCustomerPayments, fetchCustomerDMs, fetchCustomerReturns, fetchCustomerTimeline } from "../api/client";
 import { newIdempotencyKey } from "../utils/idempotency";
 import { requireActiveShopId } from "./useActiveShop";
 import { useCustomerReadModel, useReadModelRefresh } from "../local/read-model/read-model-selectors";
@@ -148,6 +148,23 @@ export function useUpdateCustomerMutation() {
         refreshCustomerReadModelAfterMutation({ userId, shopId: activeShopId, token, queryClient });
       }
       queryClient.invalidateQueries({ queryKey: ["customer", variables.id] });
+    },
+  });
+}
+
+export function useDeleteCustomerMutation() {
+  const token = useAuthStore((state) => state.token);
+  const userId = useAuthStore((state) => state.user?.id);
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => deleteCustomer(token ?? "", id),
+    onSuccess: (_, id) => {
+      if (activeShopId) {
+        queryClient.invalidateQueries({ queryKey: ["customers", activeShopId] });
+        refreshCustomerReadModelAfterMutation({ userId, shopId: activeShopId, token, queryClient });
+      }
+      queryClient.invalidateQueries({ queryKey: ["customer", id] });
     },
   });
 }
