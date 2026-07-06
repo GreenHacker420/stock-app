@@ -51,6 +51,13 @@ export type Item = {
   reservedStock?: number;
   availableStock?: number;
   currentStock?: number;
+  bundleComponents?: Array<{
+    id?: string;
+    parentItemId?: string;
+    componentItemId: string;
+    quantity: number | string;
+    componentItem?: Pick<Item, "id" | "name" | "sku" | "unit">;
+  }>;
 };
 
 export type StockLevel = {
@@ -262,6 +269,7 @@ export interface CreateItemPayload {
   mrp?: number | null;
   categoryId?: string | null;
   initialStock?: number;
+  bundleComponents?: Array<{ componentItemId: string; quantity: number }>;
 }
 
 export interface UpdateItemPayload extends Partial<CreateItemPayload> {

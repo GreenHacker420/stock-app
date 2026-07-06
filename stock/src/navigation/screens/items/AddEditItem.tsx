@@ -12,11 +12,11 @@ import { useRoute } from "@react-navigation/native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
 
-import { ItemCategory, CreateItemPayload, UpdateItemPayload, LocalItemImage, uploadItemImage } from "../../../api/client";
+import { Item, ItemCategory, CreateItemPayload, UpdateItemPayload, LocalItemImage, uploadItemImage } from "../../../api/client";
 import { useAuthStore } from "../../../auth/auth-store";
 import { useShopStore } from "../../../auth/shop-store";
 import { requireActiveShopId } from "../../../hooks/useActiveShop";
-import { useCategoriesQuery, useCreateItemMutation, useUpdateItemMutation } from "../../../hooks/useItems";
+import { useCategoriesQuery, useCreateItemMutation, useItemsQuery, useUpdateItemMutation } from "../../../hooks/useItems";
 import { Screen } from "../../../components/Screen";
 import { AppHeader } from "../../../components/ui/AppHeader";
 import { Button } from "../../../components/ui/Button";
@@ -42,12 +42,19 @@ type FormState = {
   initialStock: string;
 };
 
+type BundleComponentForm = {
+  componentItemId: string;
+  quantity: string;
+};
+
 export function AddEditItem() {
   const route = useRoute();
   const existingItem = (route.params as AddEditItemRouteParams | undefined)?.item;
 
   const categoriesQuery = useCategoriesQuery();
   const categories: ItemCategory[] = categoriesQuery.data ?? [];
+  const itemsQuery = useItemsQuery({ limit: 500 });
+  const availableItems: Item[] = itemsQuery.data?.items ?? [];
 
   const createMutation = useCreateItemMutation();
   const updateMutation = useUpdateItemMutation();
@@ -73,10 +80,48 @@ export function AddEditItem() {
   const [selectedImage, setSelectedImage] = useState<LocalItemImage | null>(null);
   const [imageUrl, setImageUrl] = useState(existingItem?.imageUrl ?? "");
   const [uploadingImage, setUploadingImage] = useState(false);
+  const [componentSearch, setComponentSearch] = useState("");
+  const [bundleComponents, setBundleComponents] = useState<BundleComponentForm[]>(
+    (existingItem?.bundleComponents ?? []).map((component) => ({
+      componentItemId: component.componentItemId,
+      quantity: String(component.quantity ?? 1),
+    })),
+  );
 
   const set = (key: keyof FormState) => (v: string) => setForm((f) => ({ ...f, [key]: v }));
 
   const selectedCat = categories.find((c) => c.id === form.categoryId);
+  const selectedComponentIds = new Set(bundleComponents.map((component) => component.componentItemId));
+  const componentOptions = availableItems
+    .filter((item) => item.id !== existingItem?.id)
+    .filter((item) => !(item.bundleComponents?.length))
+    .filter((item) => !selectedComponentIds.has(item.id))
+    .filter((item) => {
+      const q = componentSearch.trim().toLowerCase();
+      if (!q) return true;
+      return item.name.toLowerCase().includes(q) || String(item.sku || "").toLowerCase().includes(q);
+    })
+    .slice(0, 8);
+  const getComponentItem = (id: string) =>
+    availableItems.find((item) => item.id === id) ||
+    existingItem?.bundleComponents?.find((component) => component.componentItemId === id)?.componentItem;
+
+  const addBundleComponent = (itemId: string) => {
+    setBundleComponents((current) => [...current, { componentItemId: itemId, quantity: "1" }]);
+    setComponentSearch("");
+  };
+
+  const updateBundleComponentQty = (itemId: string, quantity: string) => {
+    setBundleComponents((current) =>
+      current.map((component) =>
+        component.componentItemId === itemId ? { ...component, quantity } : component,
+      ),
+    );
+  };
+
+  const removeBundleComponent = (itemId: string) => {
+    setBundleComponents((current) => current.filter((component) => component.componentItemId !== itemId));
+  };
 
   if (!activeShopId) {
     return (
@@ -200,6 +245,18 @@ export function AddEditItem() {
       Alert.alert("Invalid stock", "Initial stock must be a whole number.");
       return;
     }
+    const normalizedBundleComponents = bundleComponents.map((component) => ({
+      componentItemId: component.componentItemId,
+      quantity: parseQty(component.quantity, 0),
+    }));
+    if (normalizedBundleComponents.some((component) => component.quantity === null || component.quantity <= 0)) {
+      Alert.alert("Invalid bundle", "Bundle component quantities must be greater than zero.");
+      return;
+    }
+    if (normalizedBundleComponents.length > 0 && !existingItem && Number(initialStock || 0) > 0) {
+      Alert.alert("Invalid stock", "Bundle products do not hold opening stock. Add stock to component products instead.");
+      return;
+    }
 
     const sellingPrice = defaultSellingPrice ?? 0;
     if (mrp !== null && sellingPrice > mrp) {
@@ -230,6 +287,7 @@ export function AddEditItem() {
       mrp,
       purchasePrice,
       minimumStock: minimumStock ?? 0,
+      bundleComponents: normalizedBundleComponents as Array<{ componentItemId: string; quantity: number }>,
     };
 
     if (existingItem) {
@@ -344,6 +402,75 @@ export function AddEditItem() {
                 </View>
               </>
             )}
+          </View>
+
+          <View style={styles.aeiCard}>
+            <Text style={styles.aeiSectionLabel}>BUNDLE / KIT</Text>
+            <Text style={styles.bundleHint}>
+              Add components only for virtual kits, for example 071 Cartridge x 1 and 071 Chip x 1.
+            </Text>
+
+            {bundleComponents.map((component) => {
+              const componentItem = getComponentItem(component.componentItemId);
+              return (
+                <View key={component.componentItemId} style={styles.bundleRow}>
+                  <View style={styles.bundleNameWrap}>
+                    <Text style={styles.bundleName} numberOfLines={1}>
+                      {componentItem?.name || "Component product"}
+                    </Text>
+                    {!!componentItem?.sku && (
+                      <Text style={styles.bundleSku} numberOfLines={1}>
+                        {componentItem.sku}
+                      </Text>
+                    )}
+                  </View>
+                  <TextInput
+                    mode="outlined"
+                    label="Qty"
+                    value={component.quantity}
+                    onChangeText={(value) => updateBundleComponentQty(component.componentItemId, value)}
+                    keyboardType="numeric"
+                    style={styles.bundleQtyInput}
+                    outlineStyle={styles.aeiOutline}
+                  />
+                  <Pressable
+                    onPress={() => removeBundleComponent(component.componentItemId)}
+                    style={styles.removeComponentButton}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remove ${componentItem?.name || "component"}`}
+                    hitSlop={8}
+                  >
+                    <Icon source="close" size={18} color={colors.danger} />
+                  </Pressable>
+                </View>
+              );
+            })}
+
+            <TextInput
+              mode="outlined"
+              label="Search component product"
+              value={componentSearch}
+              onChangeText={setComponentSearch}
+              outlineStyle={styles.aeiOutline}
+              style={styles.aeiInput}
+            />
+            <View style={styles.componentOptions}>
+              {componentOptions.map((item) => (
+                <Pressable
+                  key={item.id}
+                  onPress={() => addBundleComponent(item.id)}
+                  style={styles.componentOption}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Add ${item.name} as bundle component`}
+                >
+                  <View style={styles.bundleNameWrap}>
+                    <Text style={styles.componentOptionTitle} numberOfLines={1}>{item.name}</Text>
+                    {!!item.sku && <Text style={styles.bundleSku} numberOfLines={1}>{item.sku}</Text>}
+                  </View>
+                  <Icon source="plus-circle-outline" size={20} color={colors.primary} />
+                </Pressable>
+              ))}
+            </View>
           </View>
 
           <Button
@@ -466,6 +593,62 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xs,
     color: colors.textSecondary,
     lineHeight: 17,
+  },
+  bundleHint: {
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+    lineHeight: 17,
+  },
+  bundleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  bundleNameWrap: {
+    flex: 1,
+    minWidth: 0,
+  },
+  bundleName: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  bundleSku: {
+    marginTop: 2,
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+  },
+  bundleQtyInput: {
+    width: 82,
+    backgroundColor: colors.surface,
+  },
+  removeComponentButton: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.full,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.dangerLight,
+  },
+  componentOptions: {
+    gap: spacing.sm,
+  },
+  componentOption: {
+    minHeight: 48,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    backgroundColor: colors.surface,
+  },
+  componentOptionTitle: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.semibold,
+    color: colors.textPrimary,
   },
   scannerScreen: {
     flex: 1,
