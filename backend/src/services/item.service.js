@@ -1290,3 +1290,193 @@ export async function deleteBrand(user, id) {
   await bestEffortInvalidateForDomainEvent(result.event);
   return result.brand;
 }
+
+export async function batchQuickUpdate(user, shopId, updates) {
+  // 1. Verify general shop access
+  await assertShopAccess(user, shopId);
+  assertCanManageItems(user);
+
+  // 2. Load all items first to validate and check ownership
+  const itemIds = updates.map((u) => u.itemId);
+  const items = await prisma.item.findMany({
+    where: { id: { in: itemIds }, status: "ACTIVE" },
+  });
+
+  const itemMap = new Map(items.map((i) => [i.id, i]));
+
+  // 3. Pre-flight validations
+  const validatedUpdates = [];
+
+  for (const update of updates) {
+    const existing = itemMap.get(update.itemId);
+    if (!existing) {
+      throw new ApiError(404, `Item ${update.itemId} not found or inactive`);
+    }
+    if (existing.shopId !== shopId) {
+      throw new ApiError(403, `Item ${existing.name} does not belong to shop ${shopId}`);
+    }
+
+    const { pricePatch, stockAdjustment } = update;
+    let validatedPriceData = undefined;
+    let validatedStockAdjustment = undefined;
+
+    if (pricePatch) {
+      // Whitelist update fields
+      const patch = {};
+      if (pricePatch.mrp !== undefined) patch.mrp = pricePatch.mrp;
+      if (pricePatch.defaultSellingPrice !== undefined) patch.defaultSellingPrice = pricePatch.defaultSellingPrice;
+
+      // If defaultSellingPrice is supplied, validate it. To run validatePrices, merge with existing prices
+      const mergedPrices = {
+        mrp: pricePatch.mrp !== undefined ? pricePatch.mrp : existing.mrp,
+        defaultSellingPrice: pricePatch.defaultSellingPrice !== undefined ? pricePatch.defaultSellingPrice : existing.defaultSellingPrice,
+        minimumAllowedPrice: existing.minimumAllowedPrice,
+        purchasePrice: existing.purchasePrice,
+      };
+      validatePrices(mergedPrices);
+      validatedPriceData = patch;
+    }
+
+    if (stockAdjustment !== undefined) {
+      assertCanDirectlyAdjustStock(user);
+      const adj = Number(stockAdjustment);
+      if (!Number.isFinite(adj) || adj === 0) {
+        throw new ApiError(400, `Stock adjustment for ${existing.name} must be a non-zero finite number`);
+      }
+      if (Math.abs(adj) > 100_000) {
+        throw new ApiError(400, `Stock adjustment for ${existing.name} is too large (max ±100,000)`);
+      }
+
+      // Virtual bundle check
+      const bundleCount = await prisma.itemBundleComponent.count({
+        where: { parentItemId: existing.id },
+      });
+      if (bundleCount > 0) {
+        throw new ApiError(400, `Virtual bundle product ${existing.name} does not hold direct stock. Adjust component stock instead.`);
+      }
+      validatedStockAdjustment = adj;
+    }
+
+    validatedUpdates.push({
+      existing,
+      priceData: validatedPriceData,
+      stockAdjustment: validatedStockAdjustment,
+    });
+  }
+
+  // 4. Run database updates inside a transaction
+  const result = await prisma.$transaction(async (tx) => {
+    const results = [];
+    const events = [];
+
+    for (const update of validatedUpdates) {
+      const { existing, priceData, stockAdjustment } = update;
+      const itemId = existing.id;
+
+      let currentItem = existing;
+
+      // Apply price updates
+      if (priceData) {
+        currentItem = await tx.item.update({
+          where: { id: itemId },
+          data: priceData,
+        });
+
+        // Price change logging
+        const priceTypes = [
+          { key: "defaultSellingPrice", label: "SELLING" },
+          { key: "mrp", label: "MRP" },
+        ];
+        for (const { key, label } of priceTypes) {
+          if (
+            priceData[key] !== undefined &&
+            priceData[key] !== null &&
+            Number(priceData[key]) !== Number(existing[key])
+          ) {
+            await tx.itemPriceHistory.create({
+              data: {
+                itemId,
+                oldPrice: existing[key] || 0,
+                newPrice: priceData[key],
+                priceType: label,
+                changedById: user.id,
+              },
+            });
+          }
+        }
+      }
+
+      // Apply stock updates
+      if (stockAdjustment !== undefined) {
+        if (stockAdjustment < 0) {
+          const ledgerSum = await tx.stockLedger.aggregate({
+            where: { shopId, itemId },
+            _sum: { quantityIn: true, quantityOut: true },
+          });
+          const physicalNow =
+            Number(ledgerSum._sum.quantityIn || 0) - Number(ledgerSum._sum.quantityOut || 0);
+          if (physicalNow + stockAdjustment < 0) {
+            throw new ApiError(
+              400,
+              `Adjustment for ${existing.name} would make physical stock negative (current: ${physicalNow})`
+            );
+          }
+        }
+
+        const isPositive = stockAdjustment > 0;
+        await tx.stockLedger.create({
+          data: {
+            shopId,
+            itemId,
+            movementType: isPositive ? "STOCK_IN" : "MANUAL_ADJUSTMENT",
+            quantityIn: isPositive ? stockAdjustment : 0,
+            quantityOut: isPositive ? 0 : Math.abs(stockAdjustment),
+            referenceType: "ADJUSTMENT",
+            reason: "Quick manual batch adjustment",
+            createdById: user.id,
+            approvedById: user.id,
+          },
+        });
+      }
+
+      // Write Audit Log
+      if (priceData || stockAdjustment !== undefined) {
+        await tx.auditLog.create({
+          data: {
+            userId: user.id,
+            shopId,
+            action: AuditAction.UPDATED,
+            entityType: EntityType.ITEM,
+            entityId: itemId,
+            oldValueJson: existing,
+            newValueJson: currentItem,
+          },
+        });
+      }
+
+      // Emit domain event for real-time synchronization/invalidation
+      const event = createDomainEvent({
+        shopId,
+        entity: "item",
+        action: "updated",
+        entityId: itemId,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true },
+      });
+      await enqueueDomainEvent(tx, event);
+      events.push(event);
+
+      results.push(currentItem);
+    }
+
+    return { results, events };
+  });
+
+  // 5. Invalidate caches asynchronously
+  for (const event of result.events) {
+    await bestEffortInvalidateForDomainEvent(event);
+  }
+
+  return result.results;
+}

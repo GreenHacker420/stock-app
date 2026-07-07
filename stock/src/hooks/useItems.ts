@@ -29,6 +29,8 @@ import {
   ItemCategory,
   ItemBrand,
   ItemSummary,
+  batchQuickUpdate,
+  Item,
 } from "../api/client";
 import { newIdempotencyKey } from "../utils/idempotency";
 import { requireActiveShopId } from "./useActiveShop";
@@ -122,13 +124,13 @@ export function useCurrentStockQuery(itemId?: string, options?: { enabled?: bool
   });
 }
 
-export function useStockMovementsQuery(itemId?: string, movementType?: string) {
+export function useStockMovementsQuery(itemId?: string, movementType?: string, options?: { enabled?: boolean }) {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
   return useQuery({
     queryKey: queryKeys.stockMovements(activeShopId ?? "", itemId, movementType),
     queryFn: () => fetchStockMovements(token ?? "", activeShopId ?? "", itemId, movementType),
-    enabled: !!token && !!activeShopId,
+    enabled: (options?.enabled ?? true) && !!token && !!activeShopId,
     staleTime: 2 * 60 * 1000, // 2 mins
   });
 }
@@ -270,12 +272,12 @@ export function useItemPriceHistoryQuery(itemId?: string) {
   });
 }
 
-export function useItemPriceChangeHistoryQuery(itemId?: string) {
+export function useItemPriceChangeHistoryQuery(itemId?: string, options?: { enabled?: boolean }) {
   const token = useAuthStore((state) => state.token);
   return useQuery({
     queryKey: ["item-price-change-history", itemId],
     queryFn: () => fetchItemPriceChangeHistory(token ?? "", itemId ?? ""),
-    enabled: !!token && !!itemId,
+    enabled: (options?.enabled ?? true) && !!token && !!itemId,
     staleTime: 5 * 60 * 1000, // 5 mins
   });
 }
@@ -393,6 +395,44 @@ export function useDeleteBrandMutation() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["brands", activeShopId ?? ""] });
       queryClient.invalidateQueries({ queryKey: ["items"] });
+    },
+  });
+}
+
+export function useItemQuery(itemId?: string, options?: { enabled?: boolean }) {
+  const token = useAuthStore((state) => state.token);
+  return useQuery({
+    queryKey: ["item", itemId],
+    queryFn: async () => {
+      const data = (await fetchItemStock(token ?? "", itemId ?? "")) as any;
+      return data.item as Item;
+    },
+    enabled: (options?.enabled ?? true) && !!token && !!itemId,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+export function useBatchQuickUpdateMutation() {
+  const token = useAuthStore((state) => state.token);
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (updates: Array<{
+      itemId: string;
+      pricePatch?: { mrp?: number | null; defaultSellingPrice?: number };
+      stockAdjustment?: number;
+    }>) =>
+      batchQuickUpdate(token ?? "", {
+        shopId: requireActiveShopId(activeShopId),
+        updates,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["items"] });
+      if (activeShopId) {
+        queryClient.invalidateQueries({ queryKey: ["item-summary", activeShopId] });
+        queryClient.invalidateQueries({ queryKey: ["current-stock", activeShopId] });
+        queryClient.invalidateQueries({ queryKey: ["stock-movements", activeShopId] });
+      }
     },
   });
 }

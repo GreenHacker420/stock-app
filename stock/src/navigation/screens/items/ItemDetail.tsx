@@ -4,6 +4,7 @@ import { Text, Divider } from "react-native-paper";
 import { useRoute } from "@react-navigation/native";
 
 import { useAuthStore } from "../../../auth/auth-store";
+import { useShopStore } from "../../../auth/shop-store";
 import {
   useItemStockQuery,
   useItemPriceChangeHistoryQuery,
@@ -15,6 +16,7 @@ import { AppHeader } from "../../../components/ui/AppHeader";
 import { SkeletonList } from "../../../components/ui/SkeletonCard";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { InfoRow } from "../../../components/ui/InfoRow";
+import { Button } from "../../../components/ui/Button";
 import { StockMovementRow } from "../../../components/domain/stock/StockMovementRow";
 import { StockTransferDialog } from "../../../components/items/StockTransferDialog";
 import { ItemSummaryCard } from "../../../components/items/ItemSummaryCard";
@@ -32,12 +34,17 @@ export function ItemDetail() {
   const [activeTab, setActiveTab] = useState<ItemDetailTabId>("overview");
 
   const user = useAuthStore((s) => s.user);
+  const { activeShopId } = useShopStore();
   const isOwner = user?.role === "OWNER";
   const canManageStock = hasPermission(user, STOCK_MOVEMENT_PERMISSION);
 
   const stockQuery = useItemStockQuery(itemId);
-  const priceChangeHistoryQuery = useItemPriceChangeHistoryQuery(itemId);
-  const movementsQuery = useStockMovementsQuery(itemId);
+  const priceChangeHistoryQuery = useItemPriceChangeHistoryQuery(itemId, {
+    enabled: activeTab === "history",
+  });
+  const movementsQuery = useStockMovementsQuery(itemId, undefined, {
+    enabled: activeTab === "stock",
+  });
 
   const shopsQuery = useShopsQuery();
   const transferMutation = useTransferStockMutation();
@@ -57,7 +64,6 @@ export function ItemDetail() {
 
   const handleConfirmTransfer = ({ targetShopId, quantity, reason }: { targetShopId: string; quantity: number; reason: string }) => {
     if (!itemData) return;
-    setTransferModalVisible(false);
     transferMutation.mutate(
       {
         sourceShopId: itemData.shopId,
@@ -68,8 +74,11 @@ export function ItemDetail() {
       },
       {
         onSuccess: () => {
+          setTransferModalVisible(false);
           stockQuery.refetch();
-          movementsQuery.refetch();
+          if (activeTab === "stock") {
+            movementsQuery.refetch();
+          }
         },
         onError: (err: any) => {
           Alert.alert("Error", err?.message || "Failed to transfer stock.");
@@ -85,13 +94,52 @@ export function ItemDetail() {
     { id: "history", label: "History", icon: "history" },
   ] as const;
 
-  if (!itemData)
+  if (stockQuery.isLoading) {
     return (
       <Screen edges={["top", "left", "right"]}>
         <AppHeader title="Product Details" fallbackRoute="ItemList" />
         <SkeletonList count={6} itemHeight={60} />
       </Screen>
     );
+  }
+
+  if (stockQuery.isError || !itemData) {
+    return (
+      <Screen edges={["top", "left", "right"]}>
+        <AppHeader title="Product Details" fallbackRoute="ItemList" />
+        <EmptyState
+          icon="package-variant-closed"
+          title="Product not found"
+          subtitle={stockQuery.error?.message || "Could not retrieve details for this product."}
+          action={
+            <Button
+              label="Back to Catalog"
+              onPress={() => navigate("ItemList")}
+            />
+          }
+        />
+      </Screen>
+    );
+  }
+
+  if (activeShopId && itemData.shopId !== activeShopId) {
+    return (
+      <Screen edges={["top", "left", "right"]}>
+        <AppHeader title="Access Denied" fallbackRoute="ItemList" />
+        <EmptyState
+          icon="store-alert-outline"
+          title="Shop Mismatch"
+          subtitle="This product belongs to another shop. Switch shops first to view details."
+          action={
+            <Button
+              label="Go Back"
+              onPress={() => navigate("ItemList")}
+            />
+          }
+        />
+      </Screen>
+    );
+  }
 
   const showEdit = isOwner;
   const showTransfer = canManageStock;
@@ -203,7 +251,7 @@ export function ItemDetail() {
           showEdit={showEdit}
           showTransfer={showTransfer}
           showStockEntry={showStockEntry}
-          onEdit={() => navigate("AddEditItem", { item: itemData })}
+          onEdit={() => navigate("AddEditItem", { itemId: itemData.id })}
           onTransfer={() => setTransferModalVisible(true)}
           onStockEntry={() => navigate("StockEntry", { itemId })}
         />

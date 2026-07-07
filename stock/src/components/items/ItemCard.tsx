@@ -1,10 +1,10 @@
-import { memo, useState } from "react";
-import { View, StyleSheet, Pressable } from "react-native";
+import { memo, useState, useEffect } from "react";
+import { View, StyleSheet, Pressable, Alert } from "react-native";
 import { Text, Icon, TextInput } from "react-native-paper";
 
 import { Item } from "../../api/client";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
-import { getAvatarColor, initialsOf, money } from "../../utils/items/display";
+import { money } from "../../utils/items/display";
 import { StockBadge } from "./StockBadge";
 import { CachedThumbnail } from "../ui/CachedThumbnail";
 
@@ -19,7 +19,8 @@ export const ItemCard = memo(({
   onManageStock,
   isEditing = null,
   draft,
-  onSaveInline,
+  onSavePrices,
+  onSaveStock,
   onCancelInline,
 }: {
   item: Item;
@@ -32,16 +33,33 @@ export const ItemCard = memo(({
   onManageStock: () => void;
   isEditing?: "PRICES" | "STOCK" | null;
   draft?: { mrp?: string; defaultSellingPrice?: string; stockAdjustment?: string };
-  onSaveInline?: (mrp: string, sellingPrice: string, stock: string) => void;
+  onSavePrices?: (draft: { mrp: string; defaultSellingPrice: string }) => void;
+  onSaveStock?: (draft: { adjustment: string }) => void;
   onCancelInline?: () => void;
 }) => {
-  const avatarColor = getAvatarColor(item.name);
   const minStock = Number(item.minimumStock ?? 0);
-  const initials = initialsOf(item.name);
 
-  const [draftMrp, setDraftMrp] = useState(draft?.mrp ?? item.mrp?.toString() ?? "");
-  const [draftSelling, setDraftSelling] = useState(draft?.defaultSellingPrice ?? item.defaultSellingPrice?.toString() ?? "");
-  const [draftStock, setDraftStock] = useState(draft?.stockAdjustment ?? "0");
+  const [draftMrp, setDraftMrp] = useState("");
+  const [draftSelling, setDraftSelling] = useState("");
+  const [draftStock, setDraftStock] = useState("");
+  const [stockDirection, setStockDirection] = useState<"IN" | "OUT">("IN");
+
+  // Synchronize draft fields when editing mode changes
+  useEffect(() => {
+    if (isEditing === "PRICES") {
+      setDraftMrp(draft?.mrp ?? item.mrp?.toString() ?? "");
+      setDraftSelling(draft?.defaultSellingPrice ?? item.defaultSellingPrice?.toString() ?? "");
+    } else if (isEditing === "STOCK") {
+      const adj = draft?.stockAdjustment ?? "";
+      if (adj.startsWith("-")) {
+        setStockDirection("OUT");
+        setDraftStock(adj.slice(1));
+      } else {
+        setStockDirection("IN");
+        setDraftStock(adj);
+      }
+    }
+  }, [isEditing, draft, item]);
 
   const hasDraft = !!draft;
   const currentMrp = hasDraft && draft.mrp !== undefined ? draft.mrp : item.mrp;
@@ -49,6 +67,28 @@ export const ItemCard = memo(({
   const currentStock = hasDraft && draft.stockAdjustment !== undefined 
     ? stock + Number(draft.stockAdjustment) 
     : stock;
+
+  const handleSavePrices = () => {
+    onSavePrices?.({
+      mrp: draftMrp,
+      defaultSellingPrice: draftSelling,
+    });
+  };
+
+  const handleSaveStock = () => {
+    const qty = draftStock.trim();
+    if (!qty || qty === "0") {
+      onSaveStock?.({ adjustment: "" });
+      return;
+    }
+    const val = Number(qty);
+    if (isNaN(val) || val <= 0) {
+      Alert.alert("Invalid Quantity", "Please enter a positive number");
+      return;
+    }
+    const signedValue = stockDirection === "OUT" ? `-${qty}` : qty;
+    onSaveStock?.({ adjustment: signedValue });
+  };
 
   if (isEditing === "PRICES") {
     return (
@@ -88,7 +128,7 @@ export const ItemCard = memo(({
             <Text style={styles.btnCancelText}>Cancel</Text>
           </Pressable>
           <Pressable
-            onPress={() => onSaveInline?.(draftMrp, draftSelling, draftStock)}
+            onPress={handleSavePrices}
             style={({ pressed }) => [styles.btnSave, pressed && { opacity: 0.7 }]}
           >
             <Text style={styles.btnSaveText}>Keep Update</Text>
@@ -101,17 +141,32 @@ export const ItemCard = memo(({
   if (isEditing === "STOCK") {
     return (
       <View style={styles.itemCardEditing}>
-        <Text style={styles.editTitle} numberOfLines={1}>Add Stock: {item.name}</Text>
+        <Text style={styles.editTitle} numberOfLines={1}>Adjust Stock: {item.name}</Text>
         
+        <View style={styles.directionRow}>
+          <Pressable
+            onPress={() => setStockDirection("IN")}
+            style={[styles.directionBtn, stockDirection === "IN" && styles.directionBtnActive]}
+          >
+            <Text style={[styles.directionText, stockDirection === "IN" && styles.directionTextActive]}>Stock In (+)</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setStockDirection("OUT")}
+            style={[styles.directionBtn, stockDirection === "OUT" && styles.directionBtnActive, stockDirection === "OUT" && styles.directionBtnActiveOut]}
+          >
+            <Text style={[styles.directionText, stockDirection === "OUT" && styles.directionTextActive]}>Stock Out (-)</Text>
+          </Pressable>
+        </View>
+
         <View style={styles.editRow}>
           <View style={{ flex: 1 }}>
             <TextInput
               mode="outlined"
-              label="Add Stock Qty"
-              value={draftStock === "0" ? "" : draftStock}
+              label="Quantity"
+              value={draftStock}
               onChangeText={setDraftStock}
               keyboardType="numeric"
-              placeholder="e.g. +10 or -5"
+              placeholder="e.g. 10"
               autoFocus
               style={styles.editInput}
               outlineStyle={styles.outline}
@@ -127,7 +182,7 @@ export const ItemCard = memo(({
             <Text style={styles.btnCancelText}>Cancel</Text>
           </Pressable>
           <Pressable
-            onPress={() => onSaveInline?.(draftMrp, draftSelling, draftStock)}
+            onPress={handleSaveStock}
             style={({ pressed }) => [styles.btnSave, pressed && { opacity: 0.7 }]}
           >
             <Text style={styles.btnSaveText}>Keep Update</Text>
@@ -205,18 +260,30 @@ export const ItemCard = memo(({
           <View style={styles.itemActions}>
             {canEdit && (
               <Pressable
-                onPress={onEdit}
+                onPress={(e) => {
+                  e.stopPropagation();
+                  onEdit();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Edit product prices"
+                hitSlop={6}
                 style={({ pressed }) => [styles.itemActionBtn, pressed && { opacity: 0.6 }]}
               >
-                <Icon source="pencil-outline" size={14} color={colors.textSecondary} />
+                <Icon source="pencil-outline" size={16} color={colors.textSecondary} />
               </Pressable>
             )}
             {canManageStock && (
               <Pressable
-                onPress={onManageStock}
+                onPress={(e) => {
+                  e.stopPropagation();
+                  onManageStock();
+                }}
+                accessibilityRole="button"
+                accessibilityLabel="Adjust product stock"
+                hitSlop={6}
                 style={({ pressed }) => [styles.itemActionBtn, styles.itemActionBtnPrimary, pressed && { opacity: 0.6 }]}
               >
-                <Icon source="plus" size={14} color={colors.primary} />
+                <Icon source="plus" size={16} color={colors.primary} />
               </Pressable>
             )}
           </View>
@@ -337,8 +404,8 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   itemActionBtn: {
-    width: 28,
-    height: 28,
+    width: 40,
+    height: 40,
     borderRadius: radius.md,
     borderWidth: 1,
     borderColor: colors.border,
@@ -349,6 +416,37 @@ const styles = StyleSheet.create({
   itemActionBtnPrimary: {
     backgroundColor: colors.primaryLight,
     borderColor: colors.primary + "40",
+  },
+  directionRow: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginBottom: spacing.xs,
+  },
+  directionBtn: {
+    flex: 1,
+    height: 40,
+    justifyContent: "center",
+    alignItems: "center",
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  directionBtnActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  directionBtnActiveOut: {
+    backgroundColor: colors.danger,
+    borderColor: colors.danger,
+  },
+  directionText: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.textSecondary,
+  },
+  directionTextActive: {
+    color: colors.surface,
   },
   itemCardEditing: {
     backgroundColor: colors.surface,

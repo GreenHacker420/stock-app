@@ -111,6 +111,24 @@ const uploadItemImageSchema = z.object({
   query: z.object({}).optional(),
 });
 
+const batchQuickUpdateSchema = z.object({
+  body: z.object({
+    shopId: z.string().min(1),
+    updates: z.array(
+      z.object({
+        itemId: z.string().min(1),
+        pricePatch: z.object({
+          mrp: z.coerce.number().nonnegative().nullable().optional(),
+          defaultSellingPrice: z.coerce.number().nonnegative().optional(),
+        }).optional(),
+        stockAdjustment: z.coerce.number().int().optional(),
+      })
+    ).min(1),
+  }),
+  params: z.object({}).optional(),
+  query: z.object({}).optional(),
+});
+
 router.use(requireAuth);
 
 // SUMMARY & CATEGORIES (Must be before parameterized routes)
@@ -135,6 +153,13 @@ router.post(
   imageUpload.single("file"),
   validate(uploadItemImageSchema),
   itemController.uploadItemImage,
+);
+
+router.post(
+  "/batch-quick-update",
+  requirePermission(PERMISSIONS.ITEM_UPDATE),
+  validate(batchQuickUpdateSchema),
+  itemController.batchQuickUpdate,
 );
 
 // INDIVIDUAL ITEM ROUTES

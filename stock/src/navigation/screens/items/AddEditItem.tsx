@@ -18,11 +18,12 @@ import { Item, ItemCategory, ItemBrand, CreateItemPayload, UpdateItemPayload, Lo
 import { useAuthStore } from "../../../auth/auth-store";
 import { useShopStore } from "../../../auth/shop-store";
 import { requireActiveShopId } from "../../../hooks/useActiveShop";
-import { useCategoriesQuery, useBrandsQuery, useCreateItemMutation, useItemsQuery, useUpdateItemMutation, useCreateCategoryMutation, useCreateBrandMutation } from "../../../hooks/useItems";
+import { useCategoriesQuery, useBrandsQuery, useCreateItemMutation, useItemsQuery, useUpdateItemMutation, useCreateCategoryMutation, useCreateBrandMutation, useItemQuery } from "../../../hooks/useItems";
 import { Screen } from "../../../components/Screen";
 import { AppHeader } from "../../../components/ui/AppHeader";
 import { Button } from "../../../components/ui/Button";
 import { EmptyState } from "../../../components/ui/EmptyState";
+import { SkeletonList } from "../../../components/ui/SkeletonCard";
 import { AppKeyboardAvoidingView } from "../../../components/ui/AppKeyboardAvoidingView";
 import { ImagePickerField } from "../../../components/forms/ImagePickerField";
 import { CategoryPickerSheet } from "../../../components/items/CategoryPickerSheet";
@@ -63,11 +64,8 @@ export function AddEditItem() {
   const itemsQuery = useItemsQuery({ limit: 500 });
   const availableItems: Item[] = itemsQuery.data?.items ?? [];
 
-  const existingItem = useMemo(() => {
-    return itemId 
-      ? availableItems.find(i => i.id === itemId) 
-      : params?.item;
-  }, [itemId, availableItems, params?.item]);
+  const itemQuery = useItemQuery(itemId, { enabled: !!itemId });
+  const existingItem = itemQuery.data;
 
   const createMutation = useCreateItemMutation();
   const updateMutation = useUpdateItemMutation();
@@ -78,18 +76,20 @@ export function AddEditItem() {
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
 
   const nameInputRef = useRef<any>(null);
+  const hasHydrated = useRef(false);
+  const hasScanned = useRef(false);
 
   const [form, setForm] = useState<FormState>({
-    name: existingItem?.name ?? "",
-    sku: existingItem?.sku ?? "",
-    unit: existingItem?.unit ?? "pcs",
-    defaultSellingPrice: existingItem?.defaultSellingPrice?.toString() ?? "",
-    minimumAllowedPrice: existingItem?.minimumAllowedPrice?.toString() ?? "",
-    mrp: existingItem?.mrp?.toString() ?? "",
-    purchasePrice: existingItem?.purchasePrice?.toString() ?? "",
-    minimumStock: existingItem?.minimumStock?.toString() ?? "0",
-    categoryId: existingItem?.categoryId ?? existingItem?.category?.id ?? "",
-    brandId: existingItem?.brandId ?? existingItem?.brand?.id ?? "",
+    name: "",
+    sku: "",
+    unit: "pcs",
+    defaultSellingPrice: "",
+    minimumAllowedPrice: "",
+    mrp: "",
+    purchasePrice: "",
+    minimumStock: "0",
+    categoryId: "",
+    brandId: "",
     initialStock: "",
   });
 
@@ -173,7 +173,7 @@ export function AddEditItem() {
   );
 
   useEffect(() => {
-    if (existingItem) {
+    if (existingItem && !hasHydrated.current) {
       setForm({
         name: existingItem.name ?? "",
         sku: existingItem.sku ?? "",
@@ -196,6 +196,7 @@ export function AddEditItem() {
           quantity: String(component.quantity ?? 1),
         }))
       );
+      hasHydrated.current = true;
     }
   }, [existingItem]);
 
@@ -327,6 +328,7 @@ export function AddEditItem() {
         return;
       }
     }
+    hasScanned.current = false;
     setScannerVisible(true);
   };
 
@@ -396,6 +398,7 @@ export function AddEditItem() {
   };
 
   const handleSave = async (addAnother = false, bypassDuplicates = false) => {
+    if (isPending) return;
     if (!form.name.trim() || !form.unit.trim()) return;
 
     if (!bypassDuplicates && duplicates.length > 0) {
@@ -465,10 +468,18 @@ export function AddEditItem() {
       Alert.alert("Invalid stock", "Initial stock must be a whole number.");
       return;
     }
+    if (requiresSerialNumber && (initialStock ?? 0) > 0 && !existingItem) {
+      Alert.alert("Invalid Stock", "Serialized products cannot receive opening stock. Add stock via stock entry / purchase receipt specifying serial numbers instead.");
+      return;
+    }
     const normalizedBundleComponents = bundleComponents.map((component: any) => ({
       componentItemId: component.componentItemId,
       quantity: parseQty(component.quantity, 0),
     }));
+    if (isBundle && normalizedBundleComponents.length === 0) {
+      Alert.alert("Invalid Bundle", "Virtual bundle products require at least one component product.");
+      return;
+    }
     if (normalizedBundleComponents.some((component: any) => component.quantity === null || component.quantity <= 0)) {
       Alert.alert("Invalid bundle", "Bundle component quantities must be greater than zero.");
       return;
@@ -574,6 +585,53 @@ export function AddEditItem() {
     placeholder,
   });
 
+  if (itemId && itemQuery.isLoading) {
+    return (
+      <Screen edges={["top", "left", "right"]}>
+        <AppHeader title="Edit Product" fallbackRoute="ItemList" />
+        <SkeletonList count={6} itemHeight={60} />
+      </Screen>
+    );
+  }
+
+  if (itemId && itemQuery.isError) {
+    return (
+      <Screen edges={["top", "left", "right"]}>
+        <AppHeader title="Edit Product" fallbackRoute="ItemList" />
+        <EmptyState
+          icon="package-variant-closed"
+          title="Product not found"
+          subtitle={itemQuery.error?.message || "Could not retrieve details for this product."}
+          action={
+            <Button
+              label="Back to Catalog"
+              onPress={() => navigate("ItemList")}
+            />
+          }
+        />
+      </Screen>
+    );
+  }
+
+  if (itemId && existingItem && activeShopId && existingItem.shopId !== activeShopId) {
+    return (
+      <Screen edges={["top", "left", "right"]}>
+        <AppHeader title="Access Denied" fallbackRoute="ItemList" />
+        <EmptyState
+          icon="store-alert-outline"
+          title="Shop Mismatch"
+          subtitle="This product belongs to another shop. Switch shops first to edit it."
+          action={
+            <Button
+              label="Go Back"
+              onPress={() => navigate("ItemList")}
+            />
+          }
+        />
+      </Screen>
+    );
+  }
+
   return (
     <Screen edges={["top", "left", "right"]}>
       <AppHeader
@@ -668,7 +726,7 @@ export function AddEditItem() {
               uploading={uploadingImage}
             />
             <Text style={styles.photoHint}>
-              Stored under shop/category/item folders in S3 after saving.
+              Photo will be uploaded after saving.
             </Text>
           </View>
 
@@ -820,9 +878,13 @@ export function AddEditItem() {
         }}
         onDismiss={() => setShowCatPicker(false)}
         onCreateNew={async (name) => {
-          const newCat = await createCategoryMutation.mutateAsync(name);
-          setForm((f) => ({ ...f, categoryId: newCat.id }));
-          setShowCatPicker(false);
+          try {
+            const newCat = await createCategoryMutation.mutateAsync(name);
+            setForm((f) => ({ ...f, categoryId: newCat.id }));
+            setShowCatPicker(false);
+          } catch (err: any) {
+            Alert.alert("Failed to Create Category", err?.message || "Something went wrong.");
+          }
         }}
       />
 
@@ -836,9 +898,13 @@ export function AddEditItem() {
         }}
         onDismiss={() => setShowBrandPicker(false)}
         onCreateNew={async (name) => {
-          const newBrand = await createBrandMutation.mutateAsync(name);
-          setForm((f) => ({ ...f, brandId: newBrand.id }));
-          setShowBrandPicker(false);
+          try {
+            const newBrand = await createBrandMutation.mutateAsync(name);
+            setForm((f) => ({ ...f, brandId: newBrand.id }));
+            setShowBrandPicker(false);
+          } catch (err: any) {
+            Alert.alert("Failed to Create Brand", err?.message || "Something went wrong.");
+          }
         }}
       />
 
@@ -851,6 +917,8 @@ export function AddEditItem() {
               barcodeTypes: ["ean13", "ean8", "code128", "code39", "upc_a", "upc_e", "itf14"],
             }}
             onBarcodeScanned={({ data }) => {
+              if (hasScanned.current) return;
+              hasScanned.current = true;
               handleTextChange("sku")(String(data));
               setScannerVisible(false);
               setTimeout(() => {

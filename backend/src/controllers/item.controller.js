@@ -95,3 +95,12 @@ export const deleteBrand = asyncHandler(async (req, res) => {
   const brand = await itemService.deleteBrand(req.user, req.validated.params.id);
   res.json({ success: true, data: brand });
 });
+
+export const batchQuickUpdate = asyncHandler(async (req, res) => {
+  const updatedItems = await itemService.batchQuickUpdate(
+    req.user,
+    req.validated.body.shopId,
+    req.validated.body.updates
+  );
+  res.json({ success: true, data: updatedItems });
+});

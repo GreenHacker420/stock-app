@@ -41,6 +41,7 @@ export type ItemBrand = {
 
 export type Item = {
   id: string;
+  shopId?: string;
   name: string;
   sku?: string | null;
   imageUrl?: string | null;
@@ -478,6 +479,24 @@ export async function updateItem(token: string, id: string, data: UpdateItemPayl
 
 export async function deleteItem(token: string, id: string) {
   return apiRequest<Item>(`/items/${id}`, { method: "DELETE", token });
+}
+
+export async function batchQuickUpdate(
+  token: string,
+  data: {
+    shopId: string;
+    updates: Array<{
+      itemId: string;
+      pricePatch?: { mrp?: number | null; defaultSellingPrice?: number };
+      stockAdjustment?: number;
+    }>;
+  }
+) {
+  return apiRequest<Item[]>("/items/batch-quick-update", {
+    method: "POST",
+    token,
+    body: JSON.stringify(data),
+  });
 }
 
 export type LocalItemImage = {

@@ -5,10 +5,10 @@ import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Item, ItemCategory, ItemBrand, updateItem } from "../../../api/client";
+import { Item, ItemCategory, ItemBrand } from "../../../api/client";
 import { useAuthStore } from "../../../auth/auth-store";
 import { useShopStore } from "../../../auth/shop-store";
-import { useItemsQuery, useCategoriesQuery, useBrandsQuery, useItemSummaryQuery, useAddStockMutation } from "../../../hooks/useItems";
+import { useItemsQuery, useCategoriesQuery, useBrandsQuery, useItemSummaryQuery, useBatchQuickUpdateMutation } from "../../../hooks/useItems";
 import { Screen } from "../../../components/Screen";
 import { AppHeader } from "../../../components/ui/AppHeader";
 import { SkeletonList } from "../../../components/ui/SkeletonCard";
@@ -135,37 +135,59 @@ export function ItemList() {
   }, [allItems]);
 
   const token = useAuthStore((s) => s.token);
-  const stockMutation = useAddStockMutation();
+  const batchQuickUpdateMutation = useBatchQuickUpdateMutation();
   const [isSavingBatch, setIsSavingBatch] = useState(false);
 
-  const handleSaveInline = (
-    itemId: string,
-    mrp: string,
-    sellingPrice: string,
-    stockAdjustment: string,
-    originalStock: number
-  ) => {
+  // Reset pending drafts when switching shops
+  useEffect(() => {
+    setDraftUpdates({});
+    setEditingItemId(null);
+    setEditingMode(null);
+  }, [activeShopId]);
+
+  const handleSavePrices = (itemId: string, mrp: string, sellingPrice: string) => {
     triggerLightHaptic();
     setDraftUpdates((prev) => {
       const next = { ...prev };
-      
+      const matchedItem = allItems.find(i => i.id === itemId);
       const parsedMrp = mrp.trim() ? Number(mrp) : undefined;
       const parsedSelling = sellingPrice.trim() ? Number(sellingPrice) : undefined;
-      const parsedStock = stockAdjustment.trim() ? Number(stockAdjustment) : undefined;
-
-      const matchedItem = allItems.find(i => i.id === itemId);
       const hasChanges = 
         (parsedMrp !== undefined && parsedMrp !== Number(matchedItem?.mrp ?? "")) ||
-        (parsedSelling !== undefined && parsedSelling !== Number(matchedItem?.defaultSellingPrice ?? "")) ||
-        (parsedStock !== undefined && parsedStock !== 0);
+        (parsedSelling !== undefined && parsedSelling !== Number(matchedItem?.defaultSellingPrice ?? ""));
 
-      if (!hasChanges) {
+      const existingUpdate = next[itemId] || {};
+
+      if (!hasChanges && !existingUpdate.stockAdjustment) {
         delete next[itemId];
       } else {
         next[itemId] = {
+          ...existingUpdate,
           mrp: mrp.trim() || undefined,
           defaultSellingPrice: sellingPrice.trim() || undefined,
-          stockAdjustment: stockAdjustment.trim() && Number(stockAdjustment) !== 0 ? stockAdjustment.trim() : undefined,
+        };
+      }
+      return next;
+    });
+    setEditingItemId(null);
+    setEditingMode(null);
+  };
+
+  const handleSaveStock = (itemId: string, adjustment: string, originalStock: number) => {
+    triggerLightHaptic();
+    setDraftUpdates((prev) => {
+      const next = { ...prev };
+      const parsedStock = adjustment.trim() ? Number(adjustment) : 0;
+      const hasChanges = parsedStock !== 0;
+
+      const existingUpdate = next[itemId] || {};
+
+      if (!hasChanges && !existingUpdate.mrp && !existingUpdate.defaultSellingPrice) {
+        delete next[itemId];
+      } else {
+        next[itemId] = {
+          ...existingUpdate,
+          stockAdjustment: hasChanges ? adjustment.trim() : undefined,
           originalStock,
         };
       }
@@ -181,37 +203,20 @@ export function ItemList() {
     setIsSavingBatch(true);
 
     try {
-      // 1. Process price updates
-      const priceUpdates = Object.entries(draftUpdates)
-        .filter(([_, draft]) => draft.mrp !== undefined || draft.defaultSellingPrice !== undefined);
+      const updates = Object.entries(draftUpdates).map(([id, draft]) => {
+        const payload: any = { itemId: id };
+        if (draft.mrp !== undefined || draft.defaultSellingPrice !== undefined) {
+          payload.pricePatch = {};
+          if (draft.mrp !== undefined) payload.pricePatch.mrp = draft.mrp.trim() ? Number(draft.mrp) : null;
+          if (draft.defaultSellingPrice !== undefined) payload.pricePatch.defaultSellingPrice = Number(draft.defaultSellingPrice);
+        }
+        if (draft.stockAdjustment !== undefined) {
+          payload.stockAdjustment = Number(draft.stockAdjustment);
+        }
+        return payload;
+      });
 
-      for (const [id, draft] of priceUpdates) {
-        const payload: any = {};
-        if (draft.mrp !== undefined) payload.mrp = Number(draft.mrp);
-        if (draft.defaultSellingPrice !== undefined) payload.defaultSellingPrice = Number(draft.defaultSellingPrice);
-        
-        await updateItem(token ?? "", id, payload);
-      }
-
-      // 2. Process stock adjustments
-      const stockEntries = Object.entries(draftUpdates)
-        .filter(([_, draft]) => draft.stockAdjustment !== undefined && Number(draft.stockAdjustment) !== 0)
-        .map(([id, draft]) => ({
-          itemId: id,
-          quantity: Number(draft.stockAdjustment),
-        }));
-
-      if (stockEntries.length > 0) {
-        await new Promise<void>((resolve, reject) => {
-          stockMutation.mutate(
-            { entries: stockEntries, notes: "Inline batch adjustments from Catalog list" },
-            {
-              onSuccess: () => resolve(),
-              onError: (err) => reject(err),
-            }
-          );
-        });
-      }
+      await batchQuickUpdateMutation.mutateAsync(updates);
 
       // Success
       Alert.alert("Success", "All quick product updates have been saved successfully!");
@@ -225,6 +230,19 @@ export function ItemList() {
     } finally {
       setIsSavingBatch(false);
     }
+  };
+
+  const handleDiscardDrafts = () => {
+    triggerLightHaptic();
+    const count = Object.keys(draftUpdates).length;
+    Alert.alert(
+      "Discard Changes",
+      `Are you sure you want to discard all ${count} pending item updates?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Discard", style: "destructive", onPress: () => setDraftUpdates({}) }
+      ]
+    );
   };
 
   // Stats from summary
@@ -381,7 +399,7 @@ export function ItemList() {
       ) : (
         <View style={{ flex: 1 }}>
           <FlashListAny
-            data={displayItems}
+            data={isDebouncePending ? [] : displayItems}
             keyExtractor={(item: any) => item.id}
             onRefresh={() => {
               Promise.all([
@@ -438,7 +456,8 @@ export function ItemList() {
                 onManageStock={() => { triggerLightHaptic(); setEditingItemId(item.id); setEditingMode("STOCK"); }}
                 isEditing={editingItemId === item.id ? editingMode : null}
                 draft={draftUpdates[item.id]}
-                onSaveInline={(mrp, selling, stockAdj) => handleSaveInline(item.id, mrp, selling, stockAdj, stockByItem.get(item.id) ?? 0)}
+                onSavePrices={(prices) => handleSavePrices(item.id, prices.mrp, prices.defaultSellingPrice)}
+                onSaveStock={(stockState) => handleSaveStock(item.id, stockState.adjustment, stockByItem.get(item.id) ?? 0)}
                 onCancelInline={() => { setEditingItemId(null); setEditingMode(null); }}
               />
             )}
@@ -496,7 +515,7 @@ export function ItemList() {
               <Button
                 variant="ghost"
                 label="Discard"
-                onPress={() => { triggerLightHaptic(); setDraftUpdates({}); }}
+                onPress={handleDiscardDrafts}
                 disabled={isSavingBatch}
                 style={styles.batchBtn}
               />
