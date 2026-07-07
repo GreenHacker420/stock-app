@@ -1,8 +1,8 @@
-import { S3Client, PutObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, PutObjectCommand, GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
-const bucketName = process.env.AWS_S3_BUCKET_NAME || "shopcontrol-whatsapp-media";
-const region = process.env.AWS_REGION || "us-east-1";
+const bucketName = process.env.AWS_S3_BUCKET_NAME || process.env.AWS_S3_BUCKET || "shopcontrol-whatsapp-media";
+const region = process.env.AWS_REGION || "ap-south-1";
 const endpoint = process.env.AWS_S3_ENDPOINT || "";
 const publicBaseUrl = process.env.AWS_S3_PUBLIC_BASE_URL || "";
 
@@ -73,4 +73,15 @@ export async function getSignedS3ObjectUrl(key, expiresIn = 3600) {
   });
 
   return getSignedUrl(s3Client, command, { expiresIn });
+}
+
+export async function deleteS3Object(key) {
+  if (!key) return;
+
+  const command = new DeleteObjectCommand({
+    Bucket: bucketName,
+    Key: key,
+  });
+
+  await s3Client.send(command);
 }
