@@ -3,11 +3,12 @@ import { View, StyleSheet, Pressable, ScrollView, Alert } from "react-native";
 import { Text, Icon } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Item, ItemCategory, ItemBrand } from "../../../api/client";
+import { Item, ItemCategory, ItemBrand, updateItem } from "../../../api/client";
 import { useAuthStore } from "../../../auth/auth-store";
 import { useShopStore } from "../../../auth/shop-store";
-import { useItemsQuery, useCategoriesQuery, useBrandsQuery, useItemSummaryQuery } from "../../../hooks/useItems";
+import { useItemsQuery, useCategoriesQuery, useBrandsQuery, useItemSummaryQuery, useAddStockMutation } from "../../../hooks/useItems";
 import { Screen } from "../../../components/Screen";
 import { AppHeader } from "../../../components/ui/AppHeader";
 import { SkeletonList } from "../../../components/ui/SkeletonCard";
@@ -31,6 +32,7 @@ export function ItemList() {
   const isOwner = user?.role === "OWNER";
   const canManageStock = hasPermission(user, STOCK_MOVEMENT_PERMISSION);
   const { activeShopId } = useShopStore();
+  const insets = useSafeAreaInsets();
 
   const [search, setSearch] = useState("");
   const [debouncedSearch] = useDebounce(search, 300);
@@ -39,6 +41,9 @@ export function ItemList() {
   const [selectedCat, setSelectedCat] = useState<string | "ALL" | null>(null);
   const [selectedBrandId, setSelectedBrandId] = useState<string>("");
   const [showBrandPicker, setShowBrandPicker] = useState(false);
+
+  const [draftUpdates, setDraftUpdates] = useState<Record<string, { mrp?: string; defaultSellingPrice?: string; stockAdjustment?: string; originalStock: number }>>({});
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
 
   // Summary data (fast!)
   const summaryQuery = useItemSummaryQuery();
@@ -74,6 +79,94 @@ export function ItemList() {
     return m;
   }, [allItems]);
 
+  const token = useAuthStore((s) => s.token);
+  const stockMutation = useAddStockMutation();
+  const [isSavingBatch, setIsSavingBatch] = useState(false);
+
+  const handleSaveInline = (
+    itemId: string,
+    mrp: string,
+    sellingPrice: string,
+    stockAdjustment: string,
+    originalStock: number
+  ) => {
+    triggerLightHaptic();
+    setDraftUpdates((prev) => {
+      const next = { ...prev };
+      
+      const parsedMrp = mrp.trim() ? Number(mrp) : undefined;
+      const parsedSelling = sellingPrice.trim() ? Number(sellingPrice) : undefined;
+      const parsedStock = stockAdjustment.trim() ? Number(stockAdjustment) : undefined;
+
+      const matchedItem = allItems.find(i => i.id === itemId);
+      const hasChanges = 
+        (parsedMrp !== undefined && parsedMrp !== Number(matchedItem?.mrp ?? "")) ||
+        (parsedSelling !== undefined && parsedSelling !== Number(matchedItem?.defaultSellingPrice ?? "")) ||
+        (parsedStock !== undefined && parsedStock !== 0);
+
+      if (!hasChanges) {
+        delete next[itemId];
+      } else {
+        next[itemId] = {
+          mrp: mrp.trim() || undefined,
+          defaultSellingPrice: sellingPrice.trim() || undefined,
+          stockAdjustment: stockAdjustment.trim() && Number(stockAdjustment) !== 0 ? stockAdjustment.trim() : undefined,
+          originalStock,
+        };
+      }
+      return next;
+    });
+    setEditingItemId(null);
+  };
+
+  const handleSaveBatch = async () => {
+    if (Object.keys(draftUpdates).length === 0) return;
+    triggerLightHaptic();
+    setIsSavingBatch(true);
+
+    try {
+      // 1. Process price updates
+      const priceUpdates = Object.entries(draftUpdates)
+        .filter(([_, draft]) => draft.mrp !== undefined || draft.defaultSellingPrice !== undefined);
+
+      for (const [id, draft] of priceUpdates) {
+        const payload: any = {};
+        if (draft.mrp !== undefined) payload.mrp = Number(draft.mrp);
+        if (draft.defaultSellingPrice !== undefined) payload.defaultSellingPrice = Number(draft.defaultSellingPrice);
+        
+        await updateItem(token ?? "", id, payload);
+      }
+
+      // 2. Process stock adjustments
+      const stockEntries = Object.entries(draftUpdates)
+        .filter(([_, draft]) => draft.stockAdjustment !== undefined && Number(draft.stockAdjustment) !== 0)
+        .map(([id, draft]) => ({
+          itemId: id,
+          quantity: Number(draft.stockAdjustment),
+        }));
+
+      if (stockEntries.length > 0) {
+        await new Promise<void>((resolve, reject) => {
+          stockMutation.mutate(
+            { entries: stockEntries, notes: "Inline batch adjustments from Catalog list" },
+            {
+              onSuccess: () => resolve(),
+              onError: (err) => reject(err),
+            }
+          );
+        });
+      }
+
+      // Success
+      Alert.alert("Success", "All quick product updates have been saved successfully!");
+      setDraftUpdates({});
+    } catch (error: any) {
+      Alert.alert("Save Failed", error?.message || "Could not save quick updates. Please try again.");
+    } finally {
+      setIsSavingBatch(false);
+    }
+  };
+
   // Stats from summary
   const totalCount = summary?.totalItems ?? 0;
   const outCount = summary?.outOfStockCount ?? 0;
@@ -90,14 +183,23 @@ export function ItemList() {
 
   // Filtered items for list mode
   const displayItems: Item[] = useMemo(() => {
-    return allItems.filter((i) => {
+    const filtered = allItems.filter((i) => {
       const s = stockByItem.get(i.id) ?? 0;
       if (filter === "OUT") return s <= 0;
       if (filter === "LOW") return s > 0 && s <= Number(i.minimumStock ?? 0);
       if (filter === "IN") return s > 0;
       return true;
     });
-  }, [allItems, filter, stockByItem]);
+
+    // Sort: items in draftUpdates float to the top!
+    return [...filtered].sort((a, b) => {
+      const aUpdated = draftUpdates[a.id] !== undefined;
+      const bUpdated = draftUpdates[b.id] !== undefined;
+      if (aUpdated && !bUpdated) return -1;
+      if (!aUpdated && bUpdated) return 1;
+      return 0;
+    });
+  }, [allItems, filter, stockByItem, draftUpdates]);
 
   const enterCat = useCallback((id: string | "ALL") => {
     triggerLightHaptic();
@@ -279,8 +381,12 @@ export function ItemList() {
                   ].filter(Boolean) as any
                 );
               }}
-              onEdit={() => navigate("AddEditItem", { item })}
-              onManageStock={() => navigate("StockEntry", { itemId: item.id })}
+              onEdit={() => { triggerLightHaptic(); setEditingItemId(item.id); }}
+              onManageStock={() => { triggerLightHaptic(); setEditingItemId(item.id); }}
+              isEditing={editingItemId === item.id}
+              draft={draftUpdates[item.id]}
+              onSaveInline={(mrp, selling, stockAdj) => handleSaveInline(item.id, mrp, selling, stockAdj, stockByItem.get(item.id) ?? 0)}
+              onCancelInline={() => setEditingItemId(null)}
             />
           )}
           ListEmptyComponent={
@@ -307,13 +413,44 @@ export function ItemList() {
         />
 
         {/* FAB */}
-        {isOwner && (
+        {isOwner && !Object.keys(draftUpdates).length && (
           <Pressable
             onPress={() => navigate("AddEditItem")}
             style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}
           >
             <Icon source="plus" size={26} color="#fff" />
           </Pressable>
+        )}
+
+        {Object.keys(draftUpdates).length > 0 && (
+          <View style={[styles.batchFooter, { paddingBottom: insets.bottom > 0 ? insets.bottom : spacing.md }]}>
+            <View style={styles.batchFooterTextWrap}>
+              <Text style={styles.batchFooterTitle}>
+                {Object.keys(draftUpdates).length} Pending Updates
+              </Text>
+              <Text style={styles.batchFooterSubtitle} numberOfLines={1}>
+                Prioritized to the top of catalog.
+              </Text>
+            </View>
+            <View style={styles.batchFooterActions}>
+              <Button
+                variant="ghost"
+                label="Discard"
+                onPress={() => { triggerLightHaptic(); setDraftUpdates({}); }}
+                disabled={isSavingBatch}
+                style={{ flex: 1 }}
+              />
+              <Button
+                variant="success"
+                label="Save All"
+                onPress={handleSaveBatch}
+                loading={isSavingBatch}
+                disabled={isSavingBatch}
+                style={{ flex: 1 }}
+                icon={<Icon source="check-all" size={16} color="white" />}
+              />
+            </View>
+          </View>
         )}
       </View>
 
@@ -412,5 +549,38 @@ const styles = StyleSheet.create({
   fabPressed: {
     transform: [{ scale: 0.92 }],
     opacity: 0.9,
+  },
+  batchFooter: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    padding: spacing.md,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.md,
+    ...shadow.lg,
+  },
+  batchFooterTextWrap: {
+    flex: 1,
+  },
+  batchFooterTitle: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.primary,
+  },
+  batchFooterSubtitle: {
+    fontSize: 10,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  batchFooterActions: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    width: 170,
   },
 });
