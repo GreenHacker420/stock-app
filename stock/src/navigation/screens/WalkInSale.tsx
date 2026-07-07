@@ -1175,7 +1175,9 @@ const styles = StyleSheet.create({
   },
   itemCardActive: {
     borderColor: colors.primary,
-    backgroundColor: '#f0fdf4',
+    borderWidth: 1.5,
+    borderLeftWidth: 5,
+    backgroundColor: colors.surface,
   },
   itemAvatarContainer: {
     width: 42,

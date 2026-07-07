@@ -117,7 +117,11 @@ export const ItemCard = memo(({
     <Pressable
       onPress={onPress}
       onLongPress={onLongPress}
-      style={({ pressed }) => [styles.itemCard, pressed && styles.itemCardPressed]}
+      style={({ pressed }) => [
+        styles.itemCard,
+        hasDraft && styles.itemCardActiveDraft,
+        pressed && styles.itemCardPressed
+      ]}
     >
       {/* Avatar */}
       <CachedThumbnail
@@ -209,6 +213,12 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
     gap: spacing.md,
     ...shadow.sm,
+  },
+  itemCardActiveDraft: {
+    borderColor: "#3b82f6",
+    borderWidth: 1.5,
+    borderLeftWidth: 5,
+    backgroundColor: colors.surface,
   },
   itemCardPressed: {
     opacity: 0.85,
