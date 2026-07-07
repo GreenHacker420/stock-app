@@ -52,7 +52,8 @@ type BundleComponentForm = {
 
 export function AddEditItem() {
   const route = useRoute();
-  const existingItem = (route.params as AddEditItemRouteParams | undefined)?.item;
+  const params = route.params as any;
+  const itemId = params?.itemId;
 
   const categoriesQuery = useCategoriesQuery();
   const categories: ItemCategory[] = categoriesQuery.data ?? [];
@@ -60,6 +61,12 @@ export function AddEditItem() {
   const brands: ItemBrand[] = brandsQuery.data ?? [];
   const itemsQuery = useItemsQuery({ limit: 500 });
   const availableItems: Item[] = itemsQuery.data?.items ?? [];
+
+  const existingItem = useMemo(() => {
+    return itemId 
+      ? availableItems.find(i => i.id === itemId) 
+      : params?.item;
+  }, [itemId, availableItems, params?.item]);
 
   const createMutation = useCreateItemMutation();
   const updateMutation = useUpdateItemMutation();
@@ -95,11 +102,38 @@ export function AddEditItem() {
   const [isBundle, setIsBundle] = useState((existingItem?.bundleComponents ?? []).length > 0);
   const [requiresSerialNumber, setRequiresSerialNumber] = useState(existingItem?.requiresSerialNumber ?? false);
   const [bundleComponents, setBundleComponents] = useState<BundleComponentForm[]>(
-    (existingItem?.bundleComponents ?? []).map((component) => ({
+    (existingItem?.bundleComponents ?? []).map((component: any) => ({
       componentItemId: component.componentItemId,
       quantity: String(component.quantity ?? 1),
     })),
   );
+
+  useEffect(() => {
+    if (existingItem) {
+      setForm({
+        name: existingItem.name ?? "",
+        sku: existingItem.sku ?? "",
+        unit: existingItem.unit ?? "pcs",
+        defaultSellingPrice: existingItem.defaultSellingPrice?.toString() ?? "",
+        minimumAllowedPrice: existingItem.minimumAllowedPrice?.toString() ?? "",
+        mrp: existingItem.mrp?.toString() ?? "",
+        purchasePrice: existingItem.purchasePrice?.toString() ?? "",
+        minimumStock: existingItem.minimumStock?.toString() ?? "0",
+        categoryId: existingItem.categoryId ?? existingItem.category?.id ?? "",
+        brandId: existingItem.brandId ?? existingItem.brand?.id ?? "",
+        initialStock: "",
+      });
+      setImageUrl(existingItem.imageUrl ?? "");
+      setIsBundle((existingItem.bundleComponents ?? []).length > 0);
+      setRequiresSerialNumber(existingItem.requiresSerialNumber ?? false);
+      setBundleComponents(
+        (existingItem.bundleComponents ?? []).map((component: any) => ({
+          componentItemId: component.componentItemId,
+          quantity: String(component.quantity ?? 1),
+        }))
+      );
+    }
+  }, [existingItem]);
 
   useEffect(() => {
     setTimeout(() => {
@@ -133,7 +167,7 @@ export function AddEditItem() {
 
   const selectedCat = categories.find((c) => c.id === form.categoryId);
   const selectedBrand = brands.find((b) => b.id === form.brandId);
-  const selectedComponentIds = new Set(bundleComponents.map((component) => component.componentItemId));
+  const selectedComponentIds = new Set(bundleComponents.map((component: any) => component.componentItemId));
   const componentOptions = availableItems
     .filter((item) => item.id !== existingItem?.id)
     .filter((item) => !(item.bundleComponents?.length))
@@ -146,7 +180,7 @@ export function AddEditItem() {
     .slice(0, 8);
   const getComponentItem = (id: string) =>
     availableItems.find((item) => item.id === id) ||
-    existingItem?.bundleComponents?.find((component) => component.componentItemId === id)?.componentItem;
+    existingItem?.bundleComponents?.find((component: any) => component.componentItemId === id)?.componentItem;
 
   const addBundleComponent = (itemId: string) => {
     setBundleComponents((current) => [...current, { componentItemId: itemId, quantity: "1" }]);
@@ -155,14 +189,14 @@ export function AddEditItem() {
 
   const updateBundleComponentQty = (itemId: string, quantity: string) => {
     setBundleComponents((current) =>
-      current.map((component) =>
+      current.map((component: any) =>
         component.componentItemId === itemId ? { ...component, quantity } : component,
       ),
     );
   };
 
   const removeBundleComponent = (itemId: string) => {
-    setBundleComponents((current) => current.filter((component) => component.componentItemId !== itemId));
+    setBundleComponents((current) => current.filter((component: any) => component.componentItemId !== itemId));
   };
 
   const duplicates = useMemo(() => {
@@ -367,11 +401,11 @@ export function AddEditItem() {
       Alert.alert("Invalid stock", "Initial stock must be a whole number.");
       return;
     }
-    const normalizedBundleComponents = bundleComponents.map((component) => ({
+    const normalizedBundleComponents = bundleComponents.map((component: any) => ({
       componentItemId: component.componentItemId,
       quantity: parseQty(component.quantity, 0),
     }));
-    if (normalizedBundleComponents.some((component) => component.quantity === null || component.quantity <= 0)) {
+    if (normalizedBundleComponents.some((component: any) => component.quantity === null || component.quantity <= 0)) {
       Alert.alert("Invalid bundle", "Bundle component quantities must be greater than zero.");
       return;
     }
@@ -625,7 +659,7 @@ export function AddEditItem() {
                   Add components only for virtual kits, for example 071 Cartridge x 1 and 071 Chip x 1.
                 </Text>
 
-                {bundleComponents.map((component) => {
+                {bundleComponents.map((component: any) => {
                   const componentItem = getComponentItem(component.componentItemId);
                   return (
                     <View key={component.componentItemId} style={styles.bundleRow}>

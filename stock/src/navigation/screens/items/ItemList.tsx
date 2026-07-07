@@ -27,6 +27,7 @@ import { triggerLightHaptic } from "../../../utils/haptics";
 import { STOCK_MOVEMENT_PERMISSION, hasPermission } from "../../../utils/items/permissions";
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
+const FlashListAny = FlashList as any;
 
 export function ItemList() {
   const user = useAuthStore((s) => s.user);
@@ -176,6 +177,10 @@ export function ItemList() {
       // Success
       Alert.alert("Success", "All quick product updates have been saved successfully!");
       setDraftUpdates({});
+      Promise.all([
+        listQuery.refetch(),
+        summaryQuery.refetch(),
+      ]);
     } catch (error: any) {
       Alert.alert("Save Failed", error?.message || "Could not save quick updates. Please try again.");
     } finally {
@@ -253,13 +258,28 @@ export function ItemList() {
     );
   }
 
-  // ───────────────────────────────────────────────────────────────────────────
-  // GRID MODE
-  // ───────────────────────────────────────────────────────────────────────────
-  if (isGridMode) {
-    return (
-      <Screen edges={["top", "left", "right"]} scroll={false}>
-        <AppHeader title="Products" subtitle="Tap a category to browse" />
+  return (
+    <Screen edges={["top", "left", "right"]} scroll={false}>
+      <AppHeader
+        title="Products"
+        subtitle={isGridMode ? "Tap a category to browse" : activeCatName}
+        onBack={isGridMode ? undefined : exitGrid}
+      />
+
+      <View style={styles.fixedSearchContainer}>
+        <AppSearchBar
+          placeholder="Search products"
+          value={search}
+          onChangeText={(v) => {
+            setSearch(v);
+            if (v.trim() && selectedCat === null) {
+              setSelectedCat("ALL");
+            }
+          }}
+        />
+      </View>
+
+      {isGridMode ? (
         <ScrollView
           contentContainerStyle={styles.gridScroll}
           showsVerticalScrollIndicator={false}
@@ -274,16 +294,6 @@ export function ItemList() {
               { label: "CATS", value: categories.length },
               { label: "BRANDS", value: summary?.totalBrands ?? 0 },
             ]}
-          />
-
-          {/* Search — typing auto-exits to list */}
-          <AppSearchBar
-            placeholder="Search products"
-            value={search}
-            onChangeText={(v) => {
-              setSearch(v);
-              if (v.trim()) setSelectedCat("ALL");
-            }}
           />
 
           {/* Category grid */}
@@ -328,149 +338,141 @@ export function ItemList() {
             </View>
           )}
         </ScrollView>
-
-        {/* FAB */}
-        {isOwner && (
-          <Pressable
-            onPress={() => navigate("AddEditItem")}
-            style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}
-          >
-            <Icon source="plus" size={26} color="#fff" />
-          </Pressable>
-        )}
-      </Screen>
-    );
-  }
-
-  // ───────────────────────────────────────────────────────────────────────────
-  // LIST MODE
-  // ───────────────────────────────────────────────────────────────────────────
-  return (
-    <Screen edges={["top", "left", "right"]} scroll={false}>
-      <AppHeader title="Products" subtitle={activeCatName} onBack={exitGrid} />
-      <View style={{ flex: 1 }}>
-        <FlashList<Item>
-          data={displayItems}
-          keyExtractor={(item) => item.id}
-          onRefresh={() => { listQuery.refetch(); summaryQuery.refetch(); categoriesQuery.refetch(); }}
-          refreshing={listQuery.isFetching || summaryQuery.isFetching || categoriesQuery.isFetching}
-          ListHeaderComponent={
-            <View style={styles.listHeader}>
-              <AppSearchBar value={search} onChangeText={setSearch} placeholder="Search products" />
-              <View style={styles.filterRowWrap}>
-                <FilterChips value={filter} onChange={setFilter} />
-                <Pressable
-                  onPress={() => {
-                    triggerLightHaptic();
-                    setShowBrandPicker(true);
-                  }}
-                  style={[
-                    styles.brandFilterBtn,
-                    !!selectedBrandId && { borderColor: colors.primary, backgroundColor: colors.primaryLight }
-                  ]}
-                >
-                  <Icon source="certificate-outline" size={13} color={selectedBrandId ? colors.primary : colors.textMuted} />
-                  <Text style={[styles.brandFilterBtnText, !!selectedBrandId && { color: colors.primary, fontWeight: fontWeight.bold }]}>
-                    {selectedBrandId ? (brands.find(b => b.id === selectedBrandId)?.name ?? "Brand") : "Brand"}
-                  </Text>
-                  <Icon source="chevron-down" size={13} color={selectedBrandId ? colors.primary : colors.textMuted} />
-                </Pressable>
+      ) : (
+        <View style={{ flex: 1 }}>
+          <FlashListAny
+            data={displayItems}
+            keyExtractor={(item: any) => item.id}
+            onRefresh={() => {
+              Promise.all([
+                listQuery.refetch(),
+                summaryQuery.refetch(),
+                categoriesQuery.refetch(),
+                brandsQuery.refetch(),
+              ]);
+            }}
+            refreshing={listQuery.isFetching || summaryQuery.isFetching || categoriesQuery.isFetching || brandsQuery.isFetching}
+            ListHeaderComponent={
+              <View style={styles.listHeader}>
+                <View style={styles.filterRowWrap}>
+                  <FilterChips value={filter} onChange={setFilter} />
+                  <Pressable
+                    onPress={() => {
+                      triggerLightHaptic();
+                      setShowBrandPicker(true);
+                    }}
+                    style={[
+                      styles.brandFilterBtn,
+                      !!selectedBrandId && { borderColor: colors.primary, backgroundColor: colors.primaryLight }
+                    ]}
+                  >
+                    <Icon source="certificate-outline" size={13} color={selectedBrandId ? colors.primary : colors.textMuted} />
+                    <Text style={[styles.brandFilterBtnText, !!selectedBrandId && { color: colors.primary, fontWeight: fontWeight.bold }]}>
+                      {selectedBrandId ? (brands.find(b => b.id === selectedBrandId)?.name ?? "Brand") : "Brand"}
+                    </Text>
+                    <Icon source="chevron-down" size={13} color={selectedBrandId ? colors.primary : colors.textMuted} />
+                  </Pressable>
+                </View>
               </View>
-            </View>
-          }
-          renderItem={({ item }) => (
-            <ItemCard
-              item={item}
-              stock={stockByItem.get(item.id) ?? 0}
-              canEdit={isOwner}
-              canManageStock={canManageStock}
-              onPress={() => navigate("ItemDetail", { itemId: item.id })}
-              onLongPress={() => {
-                triggerLightHaptic();
-                Alert.alert(
-                  item.name,
-                  `SKU: ${item.sku || "N/A"}\nMRP: ${money(item.mrp)}\nSelling Price: ${money(item.defaultSellingPrice)}\nMin Allowed Price: ${money(item.minimumAllowedPrice)}\nUnit: ${item.unit}\nTrack Serials: ${item.requiresSerialNumber ? "Yes" : "No"}\nCategory: ${item.category?.name || "None"}\nBrand: ${item.brand?.name || "None"}\nCurrent Stock: ${stockByItem.get(item.id) ?? 0} ${item.unit}`,
-                  [
-                    { text: "Close", style: "cancel" },
-                    isOwner ? { text: "Edit Product", onPress: () => navigate("AddEditItem", { item }) } : null,
-                    canManageStock ? { text: "Add Stock", onPress: () => navigate("StockEntry", { itemId: item.id }) } : null
-                  ].filter(Boolean) as any
-                );
-              }}
-              onEdit={() => { triggerLightHaptic(); setEditingItemId(item.id); setEditingMode("PRICES"); }}
-              onManageStock={() => { triggerLightHaptic(); setEditingItemId(item.id); setEditingMode("STOCK"); }}
-              isEditing={editingItemId === item.id ? editingMode : null}
-              draft={draftUpdates[item.id]}
-              onSaveInline={(mrp, selling, stockAdj) => handleSaveInline(item.id, mrp, selling, stockAdj, stockByItem.get(item.id) ?? 0)}
-              onCancelInline={() => { setEditingItemId(null); setEditingMode(null); }}
-            />
-          )}
-          ListEmptyComponent={
-            listQuery.isLoading || listQuery.isFetching || isDebouncePending ? (
-              <SkeletonList count={6} itemHeight={110} />
-            ) : (
-              <EmptyState
-                icon="package-variant-closed"
-                title="No items found"
-                subtitle="Adjust filters or add a new product."
-                action={
-                  isOwner ? (
-                    <Button
-                      label="Add Product"
-                      icon="plus"
-                      onPress={() => navigate("AddEditItem")}
-                    />
-                  ) : undefined
-                }
+            }
+            renderItem={({ item }: { item: Item }) => (
+              <ItemCard
+                item={item}
+                stock={stockByItem.get(item.id) ?? 0}
+                canEdit={isOwner}
+                canManageStock={canManageStock}
+                onPress={() => navigate("ItemDetail", { itemId: item.id })}
+                onLongPress={() => {
+                  triggerLightHaptic();
+                  Alert.alert(
+                    item.name,
+                    `SKU: ${item.sku || "N/A"}\nMRP: ${money(item.mrp)}\nSelling Price: ${money(item.defaultSellingPrice)}\nMin Allowed Price: ${money(item.minimumAllowedPrice)}\nUnit: ${item.unit}\nTrack Serials: ${item.requiresSerialNumber ? "Yes" : "No"}\nCategory: ${item.category?.name || "None"}\nBrand: ${item.brand?.name || "None"}\nCurrent Stock: ${stockByItem.get(item.id) ?? 0} ${item.unit}`,
+                    [
+                      { text: "Close", style: "cancel" },
+                      isOwner ? { text: "Edit Product", onPress: () => navigate("AddEditItem", { itemId: item.id }) } : null,
+                      canManageStock ? { text: "Add Stock", onPress: () => navigate("StockEntry", { itemId: item.id }) } : null
+                    ].filter(Boolean) as any
+                  );
+                }}
+                onEdit={() => { triggerLightHaptic(); setEditingItemId(item.id); setEditingMode("PRICES"); }}
+                onManageStock={() => { triggerLightHaptic(); setEditingItemId(item.id); setEditingMode("STOCK"); }}
+                isEditing={editingItemId === item.id ? editingMode : null}
+                draft={draftUpdates[item.id]}
+                onSaveInline={(mrp, selling, stockAdj) => handleSaveInline(item.id, mrp, selling, stockAdj, stockByItem.get(item.id) ?? 0)}
+                onCancelInline={() => { setEditingItemId(null); setEditingMode(null); }}
               />
-            )
-          }
-          contentContainerStyle={styles.listContent}
-        />
-
-        {/* FAB */}
-        {isOwner && !Object.keys(draftUpdates).length && (
-          <Pressable
-            onPress={() => navigate("AddEditItem")}
-            style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}
-          >
-            <Icon source="plus" size={26} color="#fff" />
-          </Pressable>
-        )}
-
-        {Object.keys(draftUpdates).length > 0 && (
-          <View style={[styles.batchFooter, { paddingBottom: insets.bottom > 0 ? insets.bottom : spacing.md }]}>
-            <View style={styles.batchFooterContent}>
-              <View style={styles.batchFooterTextRow}>
-                <Text style={styles.batchFooterTitle}>
-                  {Object.keys(draftUpdates).length} Pending Updates
-                </Text>
-                <Text style={styles.batchFooterSubtitle}>
-                  Prioritized to the top of catalog.
-                </Text>
-              </View>
-              <View style={styles.batchFooterActions}>
-                <Button
-                  variant="ghost"
-                  label="Discard"
-                  onPress={() => { triggerLightHaptic(); setDraftUpdates({}); }}
-                  disabled={isSavingBatch}
-                  style={styles.batchBtn}
+            )}
+            ListEmptyComponent={
+              listQuery.isLoading || listQuery.isFetching || isDebouncePending ? (
+                <SkeletonList count={6} itemHeight={110} />
+              ) : (
+                <EmptyState
+                  icon="package-variant-closed"
+                  title="No items found"
+                  subtitle="Adjust filters or add a new product."
+                  action={
+                    isOwner ? (
+                      <Button
+                        label="Add Product"
+                        icon="plus"
+                        onPress={() => navigate("AddEditItem")}
+                      />
+                    ) : undefined
+                  }
                 />
-                <Button
-                  variant="success"
-                  label="Save All"
-                  onPress={handleSaveBatch}
-                  loading={isSavingBatch}
-                  disabled={isSavingBatch}
-                  style={styles.batchBtn}
-                  icon={<Icon source="check-all" size={16} color="white" />}
-                />
-              </View>
+              )
+            }
+            contentContainerStyle={styles.listContent}
+          />
+        </View>
+      )}
+
+      {/* FAB */}
+      {isOwner && !Object.keys(draftUpdates).length && (
+        <Pressable
+          onPress={() => navigate("AddEditItem")}
+          style={({ pressed }) => [
+            styles.fab,
+            { bottom: insets.bottom + spacing.xl },
+            pressed && styles.fabPressed,
+          ]}
+        >
+          <Icon source="plus" size={26} color="#fff" />
+        </Pressable>
+      )}
+
+      {Object.keys(draftUpdates).length > 0 && (
+        <View style={[styles.batchFooter, { paddingBottom: insets.bottom > 0 ? insets.bottom : spacing.md }]}>
+          <View style={styles.batchFooterContent}>
+            <View style={styles.batchFooterTextRow}>
+              <Text style={styles.batchFooterTitle}>
+                {Object.keys(draftUpdates).length} Pending Updates
+              </Text>
+              <Text style={styles.batchFooterSubtitle}>
+                Prioritized to the top of catalog.
+              </Text>
+            </View>
+            <View style={styles.batchFooterActions}>
+              <Button
+                variant="ghost"
+                label="Discard"
+                onPress={() => { triggerLightHaptic(); setDraftUpdates({}); }}
+                disabled={isSavingBatch}
+                style={styles.batchBtn}
+              />
+              <Button
+                variant="success"
+                label="Save All"
+                onPress={handleSaveBatch}
+                loading={isSavingBatch}
+                disabled={isSavingBatch}
+                style={styles.batchBtn}
+                icon={<Icon source="check-all" size={16} color="white" />}
+              />
             </View>
           </View>
-        )}
-      </View>
+        </View>
+      )}
 
       <BrandPickerSheet
         visible={showBrandPicker}
@@ -487,8 +489,14 @@ export function ItemList() {
 }
 
 const styles = StyleSheet.create({
+  fixedSearchContainer: {
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.sm,
+    backgroundColor: colors.surface,
+  },
   gridScroll: {
     padding: spacing.lg,
+    paddingTop: spacing.sm,
     paddingBottom: 120,
     gap: spacing.lg,
   },
@@ -523,7 +531,9 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   listHeader: {
-    padding: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.xs,
+    paddingBottom: spacing.md,
     gap: spacing.md,
   },
   filterRowWrap: {
@@ -538,27 +548,24 @@ const styles = StyleSheet.create({
     gap: 5,
     paddingHorizontal: spacing.md,
     paddingVertical: 6,
-    borderRadius: radius.full,
     borderWidth: 1,
     borderColor: colors.border,
-    backgroundColor: colors.surface,
+    borderRadius: radius.full,
   },
   brandFilterBtnText: {
     fontSize: fontSize.xs,
-    fontWeight: fontWeight.medium,
-    color: colors.textMuted,
+    fontWeight: fontWeight.semibold,
+    color: colors.textSecondary,
   },
   listContent: {
-    paddingHorizontal: spacing.lg,
-    paddingBottom: 120,
+    paddingBottom: 160,
   },
   fab: {
     position: "absolute",
-    bottom: spacing.xxl,
     right: spacing.lg,
     width: 56,
     height: 56,
-    borderRadius: radius.full,
+    borderRadius: 28,
     backgroundColor: colors.primary,
     alignItems: "center",
     justifyContent: "center",

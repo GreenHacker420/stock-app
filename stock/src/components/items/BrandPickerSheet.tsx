@@ -7,6 +7,8 @@ import {
   Modal as RNModal,
   TouchableWithoutFeedback,
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import { Text, Icon, TextInput } from "react-native-paper";
 
@@ -56,71 +58,76 @@ export function BrandPickerSheet({
     <RNModal visible={visible} transparent animationType="slide" onRequestClose={onDismiss}>
       <TouchableWithoutFeedback onPress={onDismiss}>
         <View style={styles.overlay}>
-          <TouchableWithoutFeedback>
-            <View style={styles.sheet}>
-              <View style={styles.handle} />
-              <Text style={styles.title}>Select Brand</Text>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            style={{ width: "100%" }}
+          >
+            <TouchableWithoutFeedback>
+              <View style={styles.sheet}>
+                <View style={styles.handle} />
+                <Text style={styles.title}>Select Brand</Text>
 
-              <View style={styles.searchContainer}>
-                <TextInput
-                  mode="outlined"
-                  placeholder="Search or type new brand..."
-                  value={searchText}
-                  onChangeText={setSearchText}
-                  style={styles.searchInput}
-                  outlineStyle={{ borderRadius: radius.md }}
-                  left={<TextInput.Icon icon="magnify" />}
-                  right={
-                    searchText.trim().length > 0 ? (
-                      <TextInput.Icon icon="close" onPress={() => setSearchText("")} />
-                    ) : null
-                  }
-                  dense
-                  disabled={isCreating}
-                />
-              </View>
-
-              <ScrollView showsVerticalScrollIndicator={false}>
-                {searchText.trim().length > 0 && !exactMatch && onCreateNew && (
-                  <Pressable
-                    onPress={handleCreate}
+                <View style={styles.searchContainer}>
+                  <TextInput
+                    mode="outlined"
+                    placeholder="Search or type new brand..."
+                    value={searchText}
+                    onChangeText={setSearchText}
+                    style={styles.searchInput}
+                    outlineStyle={{ borderRadius: radius.md }}
+                    left={<TextInput.Icon icon="magnify" />}
+                    right={
+                      searchText.trim().length > 0 ? (
+                        <TextInput.Icon icon="close" onPress={() => setSearchText("")} />
+                      ) : null
+                    }
+                    dense
                     disabled={isCreating}
-                    style={[styles.row, styles.createRow]}
-                  >
-                    {isCreating ? (
-                      <ActivityIndicator size="small" color={colors.primary} style={{ marginRight: spacing.sm }} />
-                    ) : (
-                      <Icon source="plus-circle" size={20} color={colors.primary} />
-                    )}
-                    <Text style={[styles.rowText, { color: colors.primary, fontWeight: fontWeight.bold }]}>
-                      {isCreating ? "Creating..." : `Create Brand "${searchText.trim()}"`}
-                    </Text>
-                  </Pressable>
-                )}
+                  />
+                </View>
 
-                <Pressable
-                  onPress={() => onSelect("")}
-                  style={[styles.row, !selectedBrandId && styles.rowActive]}
-                >
-                  <Icon source="tag-off-outline" size={18} color={colors.textMuted} />
-                  <Text style={[styles.rowText, !selectedBrandId && { color: colors.primary }]}>None</Text>
-                  {!selectedBrandId && <Icon source="check" size={16} color={colors.primary} />}
-                </Pressable>
+                <ScrollView showsVerticalScrollIndicator={false}>
+                  {searchText.trim().length > 0 && !exactMatch && onCreateNew && (
+                    <Pressable
+                      onPress={handleCreate}
+                      disabled={isCreating}
+                      style={[styles.row, styles.createRow]}
+                    >
+                      {isCreating ? (
+                        <ActivityIndicator size="small" color={colors.primary} style={{ marginRight: spacing.sm }} />
+                      ) : (
+                        <Icon source="plus-circle" size={20} color={colors.primary} />
+                      )}
+                      <Text style={[styles.rowText, { color: colors.primary, fontWeight: fontWeight.bold }]}>
+                        {isCreating ? "Creating..." : `Create Brand "${searchText.trim()}"`}
+                      </Text>
+                    </Pressable>
+                  )}
 
-                {filteredBrands.map((brand) => (
                   <Pressable
-                    key={brand.id}
-                    onPress={() => onSelect(brand.id)}
-                    style={[styles.row, selectedBrandId === brand.id && styles.rowActive]}
+                    onPress={() => onSelect("")}
+                    style={[styles.row, !selectedBrandId && styles.rowActive]}
                   >
-                    <Icon source="certificate-outline" size={18} color={colors.primary} />
-                    <Text style={[styles.rowText, selectedBrandId === brand.id && { color: colors.primary }]}>{brand.name}</Text>
-                    {selectedBrandId === brand.id && <Icon source="check" size={16} color={colors.primary} />}
+                    <Icon source="tag-off-outline" size={18} color={colors.textMuted} />
+                    <Text style={[styles.rowText, !selectedBrandId && { color: colors.primary }]}>None</Text>
+                    {!selectedBrandId && <Icon source="check" size={16} color={colors.primary} />}
                   </Pressable>
-                ))}
-              </ScrollView>
-            </View>
-          </TouchableWithoutFeedback>
+
+                  {filteredBrands.map((brand) => (
+                    <Pressable
+                      key={brand.id}
+                      onPress={() => onSelect(brand.id)}
+                      style={[styles.row, selectedBrandId === brand.id && styles.rowActive]}
+                    >
+                      <Icon source="certificate-outline" size={18} color={colors.primary} />
+                      <Text style={[styles.rowText, selectedBrandId === brand.id && { color: colors.primary }]}>{brand.name}</Text>
+                      {selectedBrandId === brand.id && <Icon source="check" size={16} color={colors.primary} />}
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
+            </TouchableWithoutFeedback>
+          </KeyboardAvoidingView>
         </View>
       </TouchableWithoutFeedback>
     </RNModal>

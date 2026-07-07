@@ -7,6 +7,8 @@ import {
   Modal as RNModal,
   TouchableWithoutFeedback,
   ActivityIndicator,
+  KeyboardAvoidingView,
+  Platform,
 } from "react-native";
 import { Text, Icon, TextInput } from "react-native-paper";
 
@@ -57,71 +59,76 @@ export function CategoryPickerSheet({
     <RNModal visible={visible} transparent animationType="slide" onRequestClose={onDismiss}>
       <TouchableWithoutFeedback onPress={onDismiss}>
         <View style={styles.overlay}>
-          <TouchableWithoutFeedback>
-            <View style={styles.sheet}>
-              <View style={styles.handle} />
-              <Text style={styles.title}>Select Category</Text>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            style={{ width: "100%" }}
+          >
+            <TouchableWithoutFeedback>
+              <View style={styles.sheet}>
+                <View style={styles.handle} />
+                <Text style={styles.title}>Select Category</Text>
 
-              <View style={styles.searchContainer}>
-                <TextInput
-                  mode="outlined"
-                  placeholder="Search or type new category..."
-                  value={searchText}
-                  onChangeText={setSearchText}
-                  style={styles.searchInput}
-                  outlineStyle={{ borderRadius: radius.md }}
-                  left={<TextInput.Icon icon="magnify" />}
-                  right={
-                    searchText.trim().length > 0 ? (
-                      <TextInput.Icon icon="close" onPress={() => setSearchText("")} />
-                    ) : null
-                  }
-                  dense
-                  disabled={isCreating}
-                />
-              </View>
-
-              <ScrollView showsVerticalScrollIndicator={false}>
-                {searchText.trim().length > 0 && !exactMatch && onCreateNew && (
-                  <Pressable
-                    onPress={handleCreate}
+                <View style={styles.searchContainer}>
+                  <TextInput
+                    mode="outlined"
+                    placeholder="Search or type new category..."
+                    value={searchText}
+                    onChangeText={setSearchText}
+                    style={styles.searchInput}
+                    outlineStyle={{ borderRadius: radius.md }}
+                    left={<TextInput.Icon icon="magnify" />}
+                    right={
+                      searchText.trim().length > 0 ? (
+                        <TextInput.Icon icon="close" onPress={() => setSearchText("")} />
+                      ) : null
+                    }
+                    dense
                     disabled={isCreating}
-                    style={[styles.row, styles.createRow]}
-                  >
-                    {isCreating ? (
-                      <ActivityIndicator size="small" color={colors.primary} style={{ marginRight: spacing.sm }} />
-                    ) : (
-                      <Icon source="plus-circle" size={20} color={colors.primary} />
-                    )}
-                    <Text style={[styles.rowText, { color: colors.primary, fontWeight: fontWeight.bold }]}>
-                      {isCreating ? "Creating..." : `Create Category "${searchText.trim()}"`}
-                    </Text>
-                  </Pressable>
-                )}
+                  />
+                </View>
 
-                <Pressable
-                  onPress={() => onSelect("")}
-                  style={[styles.row, !selectedCategoryId && styles.rowActive]}
-                >
-                  <Icon source="tag-off-outline" size={18} color={colors.textMuted} />
-                  <Text style={[styles.rowText, !selectedCategoryId && { color: colors.primary }]}>None</Text>
-                  {!selectedCategoryId && <Icon source="check" size={16} color={colors.primary} />}
-                </Pressable>
+                <ScrollView showsVerticalScrollIndicator={false}>
+                  {searchText.trim().length > 0 && !exactMatch && onCreateNew && (
+                    <Pressable
+                      onPress={handleCreate}
+                      disabled={isCreating}
+                      style={[styles.row, styles.createRow]}
+                    >
+                      {isCreating ? (
+                        <ActivityIndicator size="small" color={colors.primary} style={{ marginRight: spacing.sm }} />
+                      ) : (
+                        <Icon source="plus-circle" size={20} color={colors.primary} />
+                      )}
+                      <Text style={[styles.rowText, { color: colors.primary, fontWeight: fontWeight.bold }]}>
+                        {isCreating ? "Creating..." : `Create Category "${searchText.trim()}"`}
+                      </Text>
+                    </Pressable>
+                  )}
 
-                {filteredCategories.map((cat) => (
                   <Pressable
-                    key={cat.id}
-                    onPress={() => onSelect(cat.id)}
-                    style={[styles.row, selectedCategoryId === cat.id && styles.rowActive]}
+                    onPress={() => onSelect("")}
+                    style={[styles.row, !selectedCategoryId && styles.rowActive]}
                   >
-                    <Icon source={getCatIcon(cat.name)} size={18} color={getCatPalette(cat.name).icon} />
-                    <Text style={[styles.rowText, selectedCategoryId === cat.id && { color: colors.primary }]}>{cat.name}</Text>
-                    {selectedCategoryId === cat.id && <Icon source="check" size={16} color={colors.primary} />}
+                    <Icon source="tag-off-outline" size={18} color={colors.textMuted} />
+                    <Text style={[styles.rowText, !selectedCategoryId && { color: colors.primary }]}>None</Text>
+                    {!selectedCategoryId && <Icon source="check" size={16} color={colors.primary} />}
                   </Pressable>
-                ))}
-              </ScrollView>
-            </View>
-          </TouchableWithoutFeedback>
+
+                  {filteredCategories.map((cat) => (
+                    <Pressable
+                      key={cat.id}
+                      onPress={() => onSelect(cat.id)}
+                      style={[styles.row, selectedCategoryId === cat.id && styles.rowActive]}
+                    >
+                      <Icon source={getCatIcon(cat.name)} size={18} color={getCatPalette(cat.name).icon} />
+                      <Text style={[styles.rowText, selectedCategoryId === cat.id && { color: colors.primary }]}>{cat.name}</Text>
+                      {selectedCategoryId === cat.id && <Icon source="check" size={16} color={colors.primary} />}
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </View>
+            </TouchableWithoutFeedback>
+          </KeyboardAvoidingView>
         </View>
       </TouchableWithoutFeedback>
     </RNModal>
