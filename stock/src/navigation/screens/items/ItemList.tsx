@@ -72,15 +72,16 @@ export function ItemList() {
   const brands: ItemBrand[] = brandsQuery.data ?? [];
 
   // Items for the current view (only fetched when in list mode)
-  const isSearchActive = debouncedSearch.trim().length > 0;
+  const isSearchActive = search.trim().length > 0;
   const isGridMode = !isSearchActive && selectedCat === null;
+  const isDebouncePending = search.trim().length > 0 && debouncedSearch !== search;
 
   const listQuery = useItemsQuery({
-    search: isSearchActive ? debouncedSearch : undefined,
+    search: search.trim().length > 0 ? debouncedSearch : undefined,
     categoryId: selectedCat && selectedCat !== "ALL" ? selectedCat : undefined,
     brandId: selectedBrandId || undefined,
     limit: 1000,
-    enabled: !isGridMode,
+    enabled: !isGridMode && !isDebouncePending,
   });
 
   const allItems: Item[] = useMemo(() => {
@@ -405,7 +406,7 @@ export function ItemList() {
             />
           )}
           ListEmptyComponent={
-            listQuery.isLoading ? (
+            listQuery.isLoading || listQuery.isFetching || isDebouncePending ? (
               <SkeletonList count={6} itemHeight={110} />
             ) : (
               <EmptyState
