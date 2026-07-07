@@ -440,31 +440,33 @@ export function ItemList() {
 
         {Object.keys(draftUpdates).length > 0 && (
           <View style={[styles.batchFooter, { paddingBottom: insets.bottom > 0 ? insets.bottom : spacing.md }]}>
-            <View style={styles.batchFooterTextWrap}>
-              <Text style={styles.batchFooterTitle}>
-                {Object.keys(draftUpdates).length} Pending Updates
-              </Text>
-              <Text style={styles.batchFooterSubtitle} numberOfLines={1}>
-                Prioritized to the top of catalog.
-              </Text>
-            </View>
-            <View style={styles.batchFooterActions}>
-              <Button
-                variant="ghost"
-                label="Discard"
-                onPress={() => { triggerLightHaptic(); setDraftUpdates({}); }}
-                disabled={isSavingBatch}
-                style={{ flex: 1 }}
-              />
-              <Button
-                variant="success"
-                label="Save All"
-                onPress={handleSaveBatch}
-                loading={isSavingBatch}
-                disabled={isSavingBatch}
-                style={{ flex: 1 }}
-                icon={<Icon source="check-all" size={16} color="white" />}
-              />
+            <View style={styles.batchFooterContent}>
+              <View style={styles.batchFooterTextRow}>
+                <Text style={styles.batchFooterTitle}>
+                  {Object.keys(draftUpdates).length} Pending Updates
+                </Text>
+                <Text style={styles.batchFooterSubtitle}>
+                  Prioritized to the top of catalog.
+                </Text>
+              </View>
+              <View style={styles.batchFooterActions}>
+                <Button
+                  variant="ghost"
+                  label="Discard"
+                  onPress={() => { triggerLightHaptic(); setDraftUpdates({}); }}
+                  disabled={isSavingBatch}
+                  style={styles.batchBtn}
+                />
+                <Button
+                  variant="success"
+                  label="Save All"
+                  onPress={handleSaveBatch}
+                  loading={isSavingBatch}
+                  disabled={isSavingBatch}
+                  style={styles.batchBtn}
+                  icon={<Icon source="check-all" size={16} color="white" />}
+                />
+              </View>
             </View>
           </View>
         )}
@@ -574,15 +576,18 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     borderTopWidth: 1,
     borderTopColor: colors.border,
-    padding: spacing.md,
+    paddingTop: spacing.md,
+    paddingHorizontal: spacing.lg,
+    ...shadow.lg,
+  },
+  batchFooterContent: {
+    gap: spacing.md,
+    width: "100%",
+  },
+  batchFooterTextRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: spacing.md,
-    ...shadow.lg,
-  },
-  batchFooterTextWrap: {
-    flex: 1,
   },
   batchFooterTitle: {
     fontSize: fontSize.sm,
@@ -592,11 +597,13 @@ const styles = StyleSheet.create({
   batchFooterSubtitle: {
     fontSize: 10,
     color: colors.textSecondary,
-    marginTop: 2,
   },
   batchFooterActions: {
     flexDirection: "row",
-    gap: spacing.sm,
-    width: 170,
+    gap: spacing.md,
+    width: "100%",
+  },
+  batchBtn: {
+    flex: 1,
   },
 });
