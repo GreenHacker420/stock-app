@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import {
   View,
   StyleSheet,
@@ -165,6 +165,49 @@ export function AddEditItem() {
     setBundleComponents((current) => current.filter((component) => component.componentItemId !== itemId));
   };
 
+  const duplicates = useMemo(() => {
+    const trimmedName = form.name.trim().toLowerCase();
+    const trimmedSku = form.sku.trim().toLowerCase();
+    if (!trimmedName && !trimmedSku) return [];
+
+    const found: Array<{ item: Item; reason: "sku" | "name" | "similar_name" }> = [];
+
+    for (const item of availableItems) {
+      if (existingItem && item.id === existingItem.id) continue;
+
+      const itemName = item.name.trim().toLowerCase();
+      const itemSku = (item.sku || "").trim().toLowerCase();
+
+      // 1. Check exact SKU match
+      if (trimmedSku && itemSku === trimmedSku) {
+        found.push({ item, reason: "sku" });
+        continue;
+      }
+
+      // 2. Check exact Name match
+      if (trimmedName && itemName === trimmedName) {
+        found.push({ item, reason: "name" });
+        continue;
+      }
+
+      // 3. Check highly similar Name
+      if (trimmedName && trimmedName.length > 3 && itemName.length > 3) {
+        const aWords = trimmedName.split(/\s+/).filter(w => w.length > 2);
+        const bWords = itemName.split(/\s+/).filter(w => w.length > 2);
+        const sharedWords = aWords.filter(w => bWords.includes(w));
+        
+        const isSubstring = itemName.includes(trimmedName) || trimmedName.includes(itemName);
+        const highWordOverlap = aWords.length > 0 && sharedWords.length >= Math.ceil(aWords.length * 0.6);
+
+        if (isSubstring || highWordOverlap) {
+          found.push({ item, reason: "similar_name" });
+        }
+      }
+    }
+
+    return found;
+  }, [form.name, form.sku, availableItems, existingItem]);
+
   if (!activeShopId) {
     return (
       <Screen edges={["top", "left", "right"]}>
@@ -254,8 +297,45 @@ export function AddEditItem() {
     }
   };
 
-  const handleSave = async (addAnother = false) => {
+  const handleSave = async (addAnother = false, bypassDuplicates = false) => {
     if (!form.name.trim() || !form.unit.trim()) return;
+
+    if (!bypassDuplicates && duplicates.length > 0) {
+      const skuDuplicate = duplicates.find((d) => d.reason === "sku");
+      if (skuDuplicate) {
+        Alert.alert(
+          "SKU Already Exists",
+          `Another product ("${skuDuplicate.item.name}") is already registered with SKU "${form.sku.trim()}". Barcodes/SKUs must be unique.`
+        );
+        return;
+      }
+
+      const nameDuplicate = duplicates.find((d) => d.reason === "name");
+      if (nameDuplicate) {
+        Alert.alert(
+          "Duplicate Name",
+          `A product named "${form.name.trim()}" already exists. Would you still like to create this product?`,
+          [
+            { text: "Cancel", style: "cancel" },
+            { text: "Create Anyway", onPress: () => handleSave(addAnother, true) }
+          ]
+        );
+        return;
+      }
+
+      const similarDuplicate = duplicates.find((d) => d.reason === "similar_name");
+      if (similarDuplicate) {
+        Alert.alert(
+          "Similar Product Exists",
+          `A highly similar product "${similarDuplicate.item.name}" already exists (SKU: ${similarDuplicate.item.sku || "No SKU"}). Would you still like to create this product?`,
+          [
+            { text: "Cancel", style: "cancel" },
+            { text: "Create Anyway", onPress: () => handleSave(addAnother, true) }
+          ]
+        );
+        return;
+      }
+    }
 
     const mrp = parseAmount(form.mrp, null);
     if (form.mrp.trim() && mrp === null) {
@@ -460,6 +540,25 @@ export function AddEditItem() {
                 trackColor={{ false: "#767577", true: colors.primaryLight }}
               />
             </View>
+
+            {duplicates.length > 0 && (
+              <View style={styles.warningContainer}>
+                <View style={styles.warningHeader}>
+                  <Icon source="alert-circle-outline" size={18} color="#b45309" />
+                  <Text style={styles.warningTitle}>Potential Duplicate Found</Text>
+                </View>
+                <View style={styles.warningBody}>
+                  {duplicates.map(({ item, reason }) => (
+                    <Text key={item.id} style={styles.warningText}>
+                      • <Text style={styles.boldText}>{item.name}</Text>
+                      {reason === "sku" ? ` already has the SKU "${item.sku}"` : 
+                       reason === "name" ? " matches this product name exactly" : 
+                       ` has a very similar name (SKU: ${item.sku || "No SKU"})`}
+                    </Text>
+                  ))}
+                </View>
+              </View>
+            )}
           </View>
 
           <View style={styles.aeiCard}>
@@ -693,6 +792,37 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xs,
     color: colors.textSecondary,
     marginTop: 2,
+  },
+  warningContainer: {
+    marginTop: spacing.md,
+    backgroundColor: "#fffbeb",
+    borderWidth: 1,
+    borderColor: "#fde68a",
+    borderRadius: radius.md,
+    padding: spacing.md,
+    gap: spacing.xs,
+  },
+  warningHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+  },
+  warningTitle: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: "#92400e",
+  },
+  warningBody: {
+    gap: 4,
+    marginTop: 2,
+  },
+  warningText: {
+    fontSize: 12,
+    color: "#b45309",
+    lineHeight: 16,
+  },
+  boldText: {
+    fontWeight: fontWeight.bold,
   },
   saveButtonsRow: {
     flexDirection: "row",

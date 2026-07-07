@@ -1,4 +1,4 @@
-import React, { useMemo, useState, memo, useCallback } from "react";
+import React, { useMemo, useState, memo, useCallback, useRef, useEffect } from "react";
 import { 
   View, 
   StyleSheet, 
@@ -61,6 +61,57 @@ const SaleItemCard = memo(({
   const isOutOfStock = stockQty <= 0;
   const isMaxStockReached = quantity >= stockQty;
   const hasQty = quantity > 0;
+
+  const intervalRef = useRef<any>(null);
+  const timeoutRef = useRef<any>(null);
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      if (intervalRef.current) clearInterval(intervalRef.current);
+    };
+  }, []);
+
+  const startIncrement = () => {
+    if (isMaxStockReached) return;
+    onAdd();
+    timeoutRef.current = setTimeout(() => {
+      intervalRef.current = setInterval(() => {
+        onAdd();
+      }, 120);
+    }, 350);
+  };
+
+  const stopIncrement = () => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+  };
+
+  const startDecrement = () => {
+    onRemove();
+    timeoutRef.current = setTimeout(() => {
+      intervalRef.current = setInterval(() => {
+        onRemove();
+      }, 120);
+    }, 350);
+  };
+
+  const stopDecrement = () => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+  };
 
   return (
     <View style={[
@@ -139,7 +190,8 @@ const SaleItemCard = memo(({
         ) : (
           <View style={styles.counterRow}>
             <Pressable 
-              onPress={onRemove}
+              onPressIn={startDecrement}
+              onPressOut={stopDecrement}
               style={({ pressed }) => [
                 styles.qtyButton,
                 pressed && styles.buttonPressed
@@ -153,7 +205,8 @@ const SaleItemCard = memo(({
             </View>
             
             <Pressable 
-              onPress={onAdd}
+              onPressIn={startIncrement}
+              onPressOut={stopIncrement}
               disabled={isMaxStockReached}
               style={({ pressed }) => [
                 styles.qtyButton,

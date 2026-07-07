@@ -14,6 +14,7 @@ export const ItemCard = memo(({
   canEdit,
   canManageStock,
   onPress,
+  onLongPress,
   onEdit,
   onManageStock,
 }: {
@@ -22,6 +23,7 @@ export const ItemCard = memo(({
   canEdit: boolean;
   canManageStock: boolean;
   onPress: () => void;
+  onLongPress?: () => void;
   onEdit: () => void;
   onManageStock: () => void;
 }) => {
@@ -32,6 +34,7 @@ export const ItemCard = memo(({
   return (
     <Pressable
       onPress={onPress}
+      onLongPress={onLongPress}
       style={({ pressed }) => [styles.itemCard, pressed && styles.itemCardPressed]}
     >
       {/* Avatar */}

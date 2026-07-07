@@ -1,5 +1,5 @@
 import { useMemo, useState, useCallback } from "react";
-import { View, StyleSheet, Pressable, ScrollView } from "react-native";
+import { View, StyleSheet, Pressable, ScrollView, Alert } from "react-native";
 import { Text, Icon } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
@@ -23,6 +23,8 @@ import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../../
 import { navigate } from "../../navigation-ref";
 import { triggerLightHaptic } from "../../../utils/haptics";
 import { STOCK_MOVEMENT_PERMISSION, hasPermission } from "../../../utils/items/permissions";
+
+const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 
 export function ItemList() {
   const user = useAuthStore((s) => s.user);
@@ -265,6 +267,18 @@ export function ItemList() {
               canEdit={isOwner}
               canManageStock={canManageStock}
               onPress={() => navigate("ItemDetail", { itemId: item.id })}
+              onLongPress={() => {
+                triggerLightHaptic();
+                Alert.alert(
+                  item.name,
+                  `SKU: ${item.sku || "N/A"}\nMRP: ${money(item.mrp)}\nSelling Price: ${money(item.defaultSellingPrice)}\nMin Allowed Price: ${money(item.minimumAllowedPrice)}\nUnit: ${item.unit}\nTrack Serials: ${item.requiresSerialNumber ? "Yes" : "No"}\nCategory: ${item.category?.name || "None"}\nBrand: ${item.brand?.name || "None"}\nCurrent Stock: ${stockByItem.get(item.id) ?? 0} ${item.unit}`,
+                  [
+                    { text: "Close", style: "cancel" },
+                    isOwner ? { text: "Edit Product", onPress: () => navigate("AddEditItem", { item }) } : null,
+                    canManageStock ? { text: "Add Stock", onPress: () => navigate("StockEntry", { itemId: item.id }) } : null
+                  ].filter(Boolean) as any
+                );
+              }}
               onEdit={() => navigate("AddEditItem", { item })}
               onManageStock={() => navigate("StockEntry", { itemId: item.id })}
             />
