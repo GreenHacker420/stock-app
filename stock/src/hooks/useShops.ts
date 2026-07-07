@@ -153,7 +153,7 @@ export function useCopyCatalogMutation() {
   const token = useAuthStore((state) => state.token);
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (data: { sourceShopId: string; targetShopId: string; overwrite?: boolean; splitColors?: boolean }) =>
+    mutationFn: (data: { sourceShopId: string; targetShopId: string; overwrite?: boolean; splitColors?: boolean; categoryIds?: string[]; itemIds?: string[] }) =>
       copyCatalog(token ?? "", data),
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.items(variables.targetShopId) });

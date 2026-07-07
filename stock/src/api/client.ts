@@ -1326,7 +1326,7 @@ export async function transferStock(token: string, data: { sourceShopId: string;
   });
 }
 
-export async function copyCatalog(token: string, data: { sourceShopId: string; targetShopId: string; overwrite?: boolean; splitColors?: boolean }) {
+export async function copyCatalog(token: string, data: { sourceShopId: string; targetShopId: string; overwrite?: boolean; splitColors?: boolean; categoryIds?: string[]; itemIds?: string[] }) {
   return apiRequest<{ success: boolean; copiedCount: number; skippedCount: number }>("/shops/copy-catalog", {
     method: "POST",
     token,

@@ -312,7 +312,7 @@ export async function unassignStaff(user, shopId, staffId) {
   return { success: true };
 }
 
-export async function copyCatalog(user, { sourceShopId, targetShopId, overwrite = false }) {
+export async function copyCatalog(user, { sourceShopId, targetShopId, overwrite = false, categoryIds, itemIds }) {
   // Validate that user owns both shops
   const sourceShop = await prisma.shop.findFirst({
     where: { id: sourceShopId, ownerId: user.id },
@@ -327,9 +327,24 @@ export async function copyCatalog(user, { sourceShopId, targetShopId, overwrite 
 
   return await prisma.$transaction(async (tx) => {
     const events = [];
+    
     // 1. Copy Categories
+    let catFilter = {};
+    if (categoryIds && categoryIds.length > 0) {
+      catFilter = { id: { in: categoryIds }, shopId: sourceShopId };
+    } else if (itemIds && itemIds.length > 0) {
+      const selectedItems = await tx.item.findMany({
+        where: { id: { in: itemIds }, shopId: sourceShopId },
+        select: { categoryId: true },
+      });
+      const uniqueCatIds = [...new Set(selectedItems.map(i => i.categoryId).filter(Boolean))];
+      catFilter = { id: { in: uniqueCatIds }, shopId: sourceShopId };
+    } else {
+      catFilter = { shopId: sourceShopId };
+    }
+
     const sourceCategories = await tx.itemCategory.findMany({
-      where: { shopId: sourceShopId },
+      where: catFilter,
     });
 
     const categoryMap = new Map(); // oldId -> newId
@@ -362,9 +377,65 @@ export async function copyCatalog(user, { sourceShopId, targetShopId, overwrite 
       categoryMap.set(cat.id, targetCat.id);
     }
 
-    // 2. Copy Items
+    // 2. Copy Brands
+    let brandFilter = {};
+    if (itemIds && itemIds.length > 0) {
+      const selectedItems = await tx.item.findMany({
+        where: { id: { in: itemIds }, shopId: sourceShopId },
+        select: { brandId: true },
+      });
+      const uniqueBrandIds = [...new Set(selectedItems.map(i => i.brandId).filter(Boolean))];
+      brandFilter = { id: { in: uniqueBrandIds }, shopId: sourceShopId };
+    } else if (categoryIds && categoryIds.length > 0) {
+      const selectedItems = await tx.item.findMany({
+        where: { categoryId: { in: categoryIds }, shopId: sourceShopId },
+        select: { brandId: true },
+      });
+      const uniqueBrandIds = [...new Set(selectedItems.map(i => i.brandId).filter(Boolean))];
+      brandFilter = { id: { in: uniqueBrandIds }, shopId: sourceShopId };
+    } else {
+      brandFilter = { shopId: sourceShopId };
+    }
+
+    const sourceBrands = await tx.itemBrand.findMany({
+      where: brandFilter,
+    });
+
+    const brandMap = new Map(); // oldId -> newId
+
+    for (const brand of sourceBrands) {
+      let targetBrand = await tx.itemBrand.findFirst({
+        where: { shopId: targetShopId, name: brand.name },
+      });
+
+      if (!targetBrand) {
+        targetBrand = await tx.itemBrand.create({
+          data: {
+            shopId: targetShopId,
+            name: brand.name,
+          },
+        });
+        events.push(createDomainEvent({
+          shopId: targetShopId,
+          entity: "brand",
+          action: "created",
+          entityId: targetBrand.id,
+          actorUserId: user.id,
+          actorRole: user.role,
+          visibility: { owners: true, staff: true },
+        }));
+      }
+
+      brandMap.set(brand.id, targetBrand.id);
+    }
+
+    // 3. Copy Items
     const sourceItems = await tx.item.findMany({
-      where: { shopId: sourceShopId },
+      where: { 
+        shopId: sourceShopId,
+        ...(itemIds && itemIds.length > 0 ? { id: { in: itemIds } } : 
+            (categoryIds && categoryIds.length > 0 ? { categoryId: { in: categoryIds } } : {}))
+      },
     });
 
     let copiedCount = 0;
@@ -372,6 +443,7 @@ export async function copyCatalog(user, { sourceShopId, targetShopId, overwrite 
 
     for (const item of sourceItems) {
       const targetCategoryId = item.categoryId ? categoryMap.get(item.categoryId) || null : null;
+      const targetBrandId = item.brandId ? brandMap.get(item.brandId) || null : null;
 
       // Direct copy
       const exists = await tx.item.findFirst({
@@ -390,6 +462,7 @@ export async function copyCatalog(user, { sourceShopId, targetShopId, overwrite 
             where: { id: exists.id },
             data: {
               categoryId: targetCategoryId,
+              brandId: targetBrandId,
               unit: item.unit,
               defaultSellingPrice: item.defaultSellingPrice,
               minimumAllowedPrice: item.minimumAllowedPrice,
@@ -398,6 +471,7 @@ export async function copyCatalog(user, { sourceShopId, targetShopId, overwrite 
               minimumStock: item.minimumStock,
               imageUrl: item.imageUrl,
               status: item.status,
+              requiresSerialNumber: item.requiresSerialNumber,
             },
           });
           events.push(createDomainEvent({
@@ -420,6 +494,7 @@ export async function copyCatalog(user, { sourceShopId, targetShopId, overwrite 
             name: item.name,
             sku: item.sku,
             categoryId: targetCategoryId,
+            brandId: targetBrandId,
             unit: item.unit,
             defaultSellingPrice: item.defaultSellingPrice,
             minimumAllowedPrice: item.minimumAllowedPrice,
@@ -428,6 +503,7 @@ export async function copyCatalog(user, { sourceShopId, targetShopId, overwrite 
             minimumStock: item.minimumStock,
             imageUrl: item.imageUrl,
             status: item.status,
+            requiresSerialNumber: item.requiresSerialNumber,
           },
         });
         events.push(createDomainEvent({

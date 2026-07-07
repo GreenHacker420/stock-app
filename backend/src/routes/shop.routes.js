@@ -73,6 +73,8 @@ const copyCatalogSchema = z.object({
     targetShopId: z.string().min(1),
     overwrite: z.boolean().optional().default(false),
     splitColors: z.boolean().optional().default(true),
+    categoryIds: z.array(z.string()).optional(),
+    itemIds: z.array(z.string()).optional(),
   }),
   params: z.object({}).optional(),
   query: z.object({}).optional(),
