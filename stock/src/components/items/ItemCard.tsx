@@ -47,10 +47,14 @@ export const ItemCard = memo(({
         <Text style={styles.itemName}>{item.name}</Text>
         <View style={styles.itemMeta}>
           {item.category && (
-            <Text style={styles.itemCategory}>{item.category.name}</Text>
+            <View style={styles.categoryBadge}>
+              <Text style={styles.categoryText}>{item.category.name}</Text>
+            </View>
           )}
           {item.brand && (
-            <Text style={[styles.itemCategory, { backgroundColor: colors.infoLight, color: colors.info }]}>{item.brand.name}</Text>
+            <View style={[styles.categoryBadge, styles.brandBadge]}>
+              <Text style={styles.brandText}>{item.brand.name}</Text>
+            </View>
           )}
           {item.sku && (
             <Text style={styles.itemSku}>{item.sku}</Text>
@@ -139,15 +143,28 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: spacing.sm,
     flexWrap: "wrap",
+    alignItems: "center",
   },
-  itemCategory: {
+  categoryBadge: {
+    backgroundColor: colors.primaryLight,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: radius.full,
+  },
+  categoryText: {
     fontSize: 10,
     color: colors.primary,
     fontWeight: fontWeight.semibold,
-    backgroundColor: colors.primaryLight,
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: radius.full,
+    lineHeight: 12,
+  },
+  brandBadge: {
+    backgroundColor: colors.infoLight,
+  },
+  brandText: {
+    fontSize: 10,
+    color: colors.info,
+    fontWeight: fontWeight.semibold,
+    lineHeight: 12,
   },
   itemSku: {
     fontSize: 10,
