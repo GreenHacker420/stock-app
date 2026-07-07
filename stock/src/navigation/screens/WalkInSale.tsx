@@ -29,6 +29,7 @@ import { SkeletonList } from "../../components/ui/SkeletonCard";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { SerialNumberScannerModal } from "../../components/items/SerialNumberScannerModal";
 import { ProductSkuScannerModal } from "../../components/items/ProductSkuScannerModal";
+import { DynamicUpiQr } from "../../components/ui/DynamicUpiQr";
 import { Button } from "../../components/ui/Button";
 import { Section } from "../../components/ui/Section";
 import { InfoRow } from "../../components/ui/InfoRow";
@@ -727,12 +728,24 @@ export function WalkInSale() {
                     ) : null}
                   </View>
                 ) : (
-                  <View style={styles.upiDisclaimerContainer}>
-                    <Icon source="information" size={16} color={colors.info} />
-                    <Text style={styles.upiDisclaimerText}>
-                      Customer pays {money(cartTotal)} via UPI. Ensure transaction status is verified before completing checkout.
-                    </Text>
-                  </View>
+                  <>
+                    {selectedShop?.upiId ? (
+                      <DynamicUpiQr 
+                        upiId={selectedShop.upiId}
+                        upiName={selectedShop.upiName || selectedShop.name}
+                        amount={cartTotal}
+                        transactionNote="Walk-In Sale"
+                        size={180}
+                      />
+                    ) : (
+                      <View style={[styles.calcInfoBox, styles.calcInfoBoxError, { width: "100%", marginTop: spacing.md }]}>
+                        <Icon source="alert-circle-outline" size={20} color={colors.danger} />
+                        <Text style={styles.calcErrorText}>
+                          UPI is not configured for this shop. Go to Settings &gt; UPI Configuration to enable dynamic QR codes.
+                        </Text>
+                      </View>
+                    )}
+                  </>
                 )}
 
                 {/* Notes Input */}
@@ -1752,5 +1765,34 @@ const styles = StyleSheet.create({
   },
   progressNodeTextActive: {
     color: '#ffffff',
+  },
+  upiQrSection: {
+    alignItems: "center",
+    justifyContent: "center",
+    padding: spacing.md,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: spacing.sm,
+    marginTop: spacing.md,
+  },
+  qrWrapper: {
+    padding: spacing.md,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    ...shadow.sm,
+  },
+  upiQrText: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+    marginTop: spacing.xs,
+  },
+  upiQrSubtext: {
+    fontSize: 11,
+    color: colors.textSecondary,
   },
 });

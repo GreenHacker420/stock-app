@@ -22,7 +22,7 @@ import {
   Dialog
 } from "react-native-paper";
 import { useRoute } from "@react-navigation/native";
-import QRCode from "react-native-qrcode-svg";
+import { DynamicUpiQr } from "../../components/ui/DynamicUpiQr";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useDebounce } from "use-debounce";
 
@@ -442,11 +442,14 @@ export function TakePayment() {
                  <Icon source="qrcode-scan" size={24} color={getPaymentModeColor("UPI")} />
                  <Text style={styles.qrTitle}>DYNAMIC PAY QR</Text>
                </View>
-               <View style={styles.qrFrame}>
-                 <QRCode value={upiPayload} size={160} />
-               </View>
+               <DynamicUpiQr 
+                 upiId={activeShop.upiId}
+                 upiName={activeShop.upiName || activeShop.name}
+                 amount={Number(amount)}
+                 transactionNote="Payment"
+                 size={160}
+               />
                <View style={styles.qrInfo}>
-                  <Text style={styles.qrAmount}>₹{amount}</Text>
                   <Text style={styles.qrInstructions}>Verify payment on your phone before saving.</Text>
                </View>
                <View style={styles.qrActions}>
