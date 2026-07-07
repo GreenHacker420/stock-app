@@ -15,7 +15,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
 
-import { Item, Customer } from "../../api/client";
+import { Item, Customer, fetchItems } from "../../api/client";
 import { useItemsQuery } from "../../hooks/useItems";
 import { useCreateSaleMutation } from "../../hooks/useSales";
 import { useCustomersQuery } from "../../hooks/useCustomers";
@@ -28,11 +28,13 @@ import { AppHeader } from "../../components/ui/AppHeader";
 import { SkeletonList } from "../../components/ui/SkeletonCard";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { SerialNumberScannerModal } from "../../components/items/SerialNumberScannerModal";
+import { ProductSkuScannerModal } from "../../components/items/ProductSkuScannerModal";
 import { Button } from "../../components/ui/Button";
 import { Section } from "../../components/ui/Section";
 import { InfoRow } from "../../components/ui/InfoRow";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { shareSaleInvoicePdf, printSaleInvoiceDirect } from "../../utils/pdf";
+import { triggerLightHaptic } from "../../utils/haptics";
 
 function money(value?: string | number | null) {
   return `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
@@ -175,6 +177,7 @@ export function WalkInSale() {
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const user = useAuthStore((state) => state.user);
+  const token = useAuthStore((state) => state.token);
   const { activeShopId } = useShopStore();
   const network = useNetworkStatus();
   const shopsQuery = useShopsQuery();
@@ -208,6 +211,7 @@ export function WalkInSale() {
   // Step 2 Settlement inputs
   const [amountReceived, setAmountReceived] = useState("");
   const [notes, setNotes] = useState("");
+  const [skuScannerVisible, setSkuScannerVisible] = useState(false);
 
   const itemsQuery = useItemsQuery({ search: debouncedSearch, limit: 50, enabled: !network.isOffline });
   const customersQuery = useCustomersQuery({ enabled: !network.isOffline });
@@ -277,6 +281,28 @@ export function WalkInSale() {
       return nextCart;
     });
   }, []);
+
+  const handleProductScanned = useCallback(async (sku: string) => {
+    try {
+      // 1. Search locally in displayItems
+      let found = displayItems.find(i => i.sku === sku);
+
+      // 2. If not found locally, fetch from backend
+      if (!found) {
+        const res = await fetchItems(token ?? "", activeShopId ?? "", { search: sku, limit: 1 });
+        found = res.items?.find(i => i.sku === sku || i.name === sku);
+      }
+
+      if (found) {
+        updateQuantity(found, 1);
+        return { success: true, name: found.name };
+      } else {
+        return { success: false, name: "", msg: "Product not found" };
+      }
+    } catch (err: any) {
+      return { success: false, name: "", msg: err.message || "Failed to lookup product" };
+    }
+  }, [displayItems, token, activeShopId, updateQuantity]);
 
   const saleMutation = useCreateSaleMutation();
 
@@ -529,14 +555,25 @@ export function WalkInSale() {
               </Section>
 
               <Section title="Select Items">
-                <Searchbar
-                  placeholder="Search name or SKU..."
-                  onChangeText={setSearch}
-                  value={search}
-                  style={styles.searchBar}
-                  inputStyle={styles.searchInput}
-                  elevation={0}
-                />
+                <View style={styles.searchRow}>
+                  <Searchbar
+                    placeholder="Search name or SKU..."
+                    onChangeText={setSearch}
+                    value={search}
+                    style={[styles.searchBar, { flex: 1, marginBottom: 0 }]}
+                    inputStyle={styles.searchInput}
+                    elevation={0}
+                  />
+                  <Pressable 
+                    onPress={() => {
+                      triggerLightHaptic();
+                      setSkuScannerVisible(true);
+                    }}
+                    style={({ pressed }) => [styles.searchAddBtn, pressed && styles.pressed]}
+                  >
+                    <Icon source="barcode-scan" size={24} color={colors.primary} />
+                  </Pressable>
+                </View>
                 
                 <View style={styles.listContainer}>
                   <FlashListAny
@@ -973,6 +1010,11 @@ export function WalkInSale() {
           }}
         />
       )}
+      <ProductSkuScannerModal
+        visible={skuScannerVisible}
+        onProductScanned={handleProductScanned}
+        onDismiss={() => setSkuScannerVisible(false)}
+      />
     </Screen>
   );
 }

@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
 
-import { Item } from "../../api/client";
+import { Item, fetchItems } from "../../api/client";
 import { useItemsQuery } from "../../hooks/useItems";
 import { useCustomersQuery } from "../../hooks/useCustomers";
 import { useAuthStore } from "../../auth/auth-store";
@@ -22,6 +22,8 @@ import { InfoRow } from "../../components/ui/InfoRow";
 import { SkeletonList } from "../../components/ui/SkeletonCard";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { SerialNumberScannerModal } from "../../components/items/SerialNumberScannerModal";
+import { ProductSkuScannerModal } from "../../components/items/ProductSkuScannerModal";
+import { triggerLightHaptic } from "../../utils/haptics";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { goBack, navigate } from "../navigation-ref";
 import { useShopsQuery } from "../../hooks/useShops";
@@ -425,6 +427,7 @@ export function RegularSale() {
   const [isGstSale, setIsGstSale] = useState(false);
   const [customerSignature, setCustomerSignature] = useState<string | undefined>();
   const [isSignatureModalVisible, setIsSignatureModalVisible] = useState(false);
+  const [skuScannerVisible, setSkuScannerVisible] = useState(false);
   const [signatureKey, setSignatureKey] = useState(0);
   const [scrollEnabled, setScrollEnabled] = useState(true);
 
@@ -487,6 +490,28 @@ export function RegularSale() {
       return nextCart;
     });
   }, []);
+
+  const handleProductScanned = useCallback(async (sku: string) => {
+    try {
+      // 1. Search locally in displayItems
+      let found = displayItems.find(i => i.sku === sku);
+
+      // 2. If not found locally, fetch from backend
+      if (!found) {
+        const res = await fetchItems(token ?? "", activeShopId ?? "", { search: sku, limit: 1 });
+        found = res.items?.find(i => i.sku === sku || i.name === sku);
+      }
+
+      if (found) {
+        updateQuantity(found, 1);
+        return { success: true, name: found.name };
+      } else {
+        return { success: false, name: "", msg: "Product not found" };
+      }
+    } catch (err: any) {
+      return { success: false, name: "", msg: err.message || "Failed to lookup product" };
+    }
+  }, [displayItems, token, activeShopId, updateQuantity]);
 
   const saleMutation = useCreateSaleMutation();
 
@@ -706,14 +731,25 @@ export function RegularSale() {
               </Section>
 
               <Section title="Select Items">
-                <Searchbar
-                  placeholder="Search name or SKU..."
-                  onChangeText={setItemSearch}
-                  value={itemSearch}
-                  style={styles.searchBar}
-                  inputStyle={styles.searchInput}
-                  elevation={0}
-                />
+                <View style={styles.searchRow}>
+                  <Searchbar
+                    placeholder="Search name or SKU..."
+                    onChangeText={setItemSearch}
+                    value={itemSearch}
+                    style={[styles.searchBar, { flex: 1, marginBottom: 0 }]}
+                    inputStyle={styles.searchInput}
+                    elevation={0}
+                  />
+                  <Pressable 
+                    onPress={() => {
+                      triggerLightHaptic();
+                      setSkuScannerVisible(true);
+                    }}
+                    style={({ pressed }) => [styles.searchAddBtn, pressed && styles.pressed]}
+                  >
+                    <Icon source="barcode-scan" size={24} color={colors.primary} />
+                  </Pressable>
+                </View>
                 
                 <View style={styles.listContainer}>
                   <FlashListAny
@@ -1234,6 +1270,11 @@ export function RegularSale() {
           }}
         />
       )}
+      <ProductSkuScannerModal
+        visible={skuScannerVisible}
+        onProductScanned={handleProductScanned}
+        onDismiss={() => setSkuScannerVisible(false)}
+      />
     </Screen>
   );
 }
