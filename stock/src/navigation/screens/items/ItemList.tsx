@@ -1,5 +1,5 @@
-import { useMemo, useState, useCallback, useEffect } from "react";
-import { View, StyleSheet, Pressable, ScrollView, Alert } from "react-native";
+import { useMemo, useState, useCallback, useEffect, useRef } from "react";
+import { View, StyleSheet, Pressable, ScrollView, Alert, Keyboard } from "react-native";
 import { Text, Icon } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
@@ -46,6 +46,45 @@ export function ItemList() {
   const [selectedCat, setSelectedCat] = useState<string | "ALL" | null>(null);
   const [selectedBrandId, setSelectedBrandId] = useState<string>("");
   const [showBrandPicker, setShowBrandPicker] = useState(false);
+
+  const isKeyboardOpen = useRef(false);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener("keyboardDidShow", () => {
+      isKeyboardOpen.current = true;
+    });
+    const hideSub = Keyboard.addListener("keyboardDidHide", () => {
+      isKeyboardOpen.current = false;
+    });
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  const openBrandPicker = () => {
+    if (isKeyboardOpen.current) {
+      Keyboard.dismiss();
+      let triggered = false;
+      const sub = Keyboard.addListener("keyboardDidHide", () => {
+        sub.remove();
+        if (!triggered) {
+          triggered = true;
+          setShowBrandPicker(true);
+        }
+      });
+      // Fallback
+      setTimeout(() => {
+        sub.remove();
+        if (!triggered) {
+          triggered = true;
+          setShowBrandPicker(true);
+        }
+      }, 350);
+    } else {
+      setShowBrandPicker(true);
+    }
+  };
 
   const [draftUpdates, setDraftUpdates] = useState<Record<string, { mrp?: string; defaultSellingPrice?: string; stockAdjustment?: string; originalStock: number }>>({});
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
@@ -360,7 +399,7 @@ export function ItemList() {
                   <Pressable
                     onPress={() => {
                       triggerLightHaptic();
-                      setShowBrandPicker(true);
+                      openBrandPicker();
                     }}
                     style={[
                       styles.brandFilterBtn,

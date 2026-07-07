@@ -10,11 +10,14 @@ import {
   KeyboardAvoidingView,
   Platform,
   Keyboard,
+  View as RNView,
 } from "react-native";
 import { Text, Icon, TextInput } from "react-native-paper";
 
 import { ItemBrand } from "../../api/client";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
+
+const KeyboardContainer = Platform.OS === "ios" ? KeyboardAvoidingView : RNView;
 
 export function BrandPickerSheet({
   visible,
@@ -70,11 +73,12 @@ export function BrandPickerSheet({
       animationType="slide"
       onRequestClose={onDismiss}
       statusBarTranslucent={true}
+      navigationBarTranslucent={true}
     >
       <TouchableWithoutFeedback onPress={onDismiss}>
         <View style={styles.overlay}>
-          <KeyboardAvoidingView
-            behavior={Platform.OS === "ios" ? "padding" : undefined}
+          <KeyboardContainer
+            {...(Platform.OS === "ios" ? { behavior: "padding" } : {})}
             style={{ width: "100%" }}
           >
             <TouchableWithoutFeedback>
@@ -142,7 +146,7 @@ export function BrandPickerSheet({
                 </ScrollView>
               </View>
             </TouchableWithoutFeedback>
-          </KeyboardAvoidingView>
+          </KeyboardContainer>
         </View>
       </TouchableWithoutFeedback>
     </RNModal>

@@ -7,6 +7,7 @@ import {
   Modal,
   Pressable,
   Switch,
+  Keyboard,
 } from "react-native";
 import { Text, Icon, TextInput } from "react-native-paper";
 import { useRoute } from "@react-navigation/native";
@@ -95,6 +96,69 @@ export function AddEditItem() {
   const [showCatPicker, setShowCatPicker] = useState(false);
   const [showBrandPicker, setShowBrandPicker] = useState(false);
   const [scannerVisible, setScannerVisible] = useState(false);
+
+  const isKeyboardOpen = useRef(false);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener("keyboardDidShow", () => {
+      isKeyboardOpen.current = true;
+    });
+    const hideSub = Keyboard.addListener("keyboardDidHide", () => {
+      isKeyboardOpen.current = false;
+    });
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  const openCategoryPicker = () => {
+    if (isKeyboardOpen.current) {
+      Keyboard.dismiss();
+      let triggered = false;
+      const sub = Keyboard.addListener("keyboardDidHide", () => {
+        sub.remove();
+        if (!triggered) {
+          triggered = true;
+          setShowCatPicker(true);
+        }
+      });
+      // Fallback
+      setTimeout(() => {
+        sub.remove();
+        if (!triggered) {
+          triggered = true;
+          setShowCatPicker(true);
+        }
+      }, 350);
+    } else {
+      setShowCatPicker(true);
+    }
+  };
+
+  const openBrandPicker = () => {
+    if (isKeyboardOpen.current) {
+      Keyboard.dismiss();
+      let triggered = false;
+      const sub = Keyboard.addListener("keyboardDidHide", () => {
+        sub.remove();
+        if (!triggered) {
+          triggered = true;
+          setShowBrandPicker(true);
+        }
+      });
+      // Fallback
+      setTimeout(() => {
+        sub.remove();
+        if (!triggered) {
+          triggered = true;
+          setShowBrandPicker(true);
+        }
+      }, 350);
+    } else {
+      setShowBrandPicker(true);
+    }
+  };
   const [selectedImage, setSelectedImage] = useState<LocalItemImage | null>(null);
   const [imageUrl, setImageUrl] = useState(existingItem?.imageUrl ?? "");
   const [uploadingImage, setUploadingImage] = useState(false);
@@ -539,7 +603,7 @@ export function AddEditItem() {
 
             {/* Category selector */}
             <Pressable
-              onPress={() => setShowCatPicker(true)}
+              onPress={openCategoryPicker}
               style={styles.catSelector}
             >
               <Icon source="tag-outline" size={18} color={selectedCat ? colors.primary : colors.textMuted} />
@@ -551,7 +615,7 @@ export function AddEditItem() {
 
             {/* Brand selector */}
             <Pressable
-              onPress={() => setShowBrandPicker(true)}
+              onPress={openBrandPicker}
               style={[styles.catSelector, { marginTop: spacing.sm }]}
             >
               <Icon source="certificate-outline" size={18} color={selectedBrand ? colors.primary : colors.textMuted} />
