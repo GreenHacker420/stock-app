@@ -1,7 +1,10 @@
 export const queryKeys = {
   me: () => ["me"] as const,
   shops: () => ["shops"] as const,
-  items: (shopId: string, search?: string) => ["items", shopId, { search }] as const,
+  items: (
+    shopId: string,
+    options: { search?: string; categoryId?: string; brandId?: string; page?: number; limit?: number } = {},
+  ) => ["items", shopId, options] as const,
   itemsInfinite: (shopId: string, search?: string) => ["items", "infinite", shopId, { search }] as const,
   currentStock: (shopId: string, itemId?: string) => ["current-stock", shopId, { itemId }] as const,
   stockMovements: (shopId: string, itemId?: string, movementType?: string) => ["stock-movements", shopId, { itemId, movementType }] as const,

@@ -490,11 +490,13 @@ export async function batchQuickUpdate(
       pricePatch?: { mrp?: number | null; defaultSellingPrice?: number };
       stockAdjustment?: number;
     }>;
-  }
+  },
+  opts: { idempotencyKey?: string } = {},
 ) {
   return apiRequest<Item[]>("/items/batch-quick-update", {
     method: "POST",
     token,
+    headers: opts.idempotencyKey ? { "Idempotency-Key": opts.idempotencyKey } : undefined,
     body: JSON.stringify(data),
   });
 }

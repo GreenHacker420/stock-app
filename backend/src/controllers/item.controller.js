@@ -1,5 +1,6 @@
 import { asyncHandler } from "../utils/asyncHandler.js";
 import * as itemService from "../services/item.service.js";
+import { runIdempotentCreate } from "../services/idempotency.service.js";
 
 export const listItems = asyncHandler(async (req, res) => {
   const items = await itemService.listItems(req.user, req.validated.query);
@@ -97,10 +98,19 @@ export const deleteBrand = asyncHandler(async (req, res) => {
 });
 
 export const batchQuickUpdate = asyncHandler(async (req, res) => {
-  const updatedItems = await itemService.batchQuickUpdate(
-    req.user,
-    req.validated.body.shopId,
-    req.validated.body.updates
+  const result = await runIdempotentCreate(
+    req,
+    {
+      endpoint: "POST /items/batch-quick-update",
+      resourceType: "ITEM_BATCH_QUICK_UPDATE",
+      shopId: req.validated.body.shopId,
+      statusCode: 200,
+    },
+    () => itemService.batchQuickUpdate(
+      req.user,
+      req.validated.body.shopId,
+      req.validated.body.updates
+    )
   );
-  res.json({ success: true, data: updatedItems });
+  res.status(result.statusCode).json({ success: true, data: result.data });
 });

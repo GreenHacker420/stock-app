@@ -96,15 +96,22 @@ export function useInfiniteItemsQuery(opts: { search?: string; limit?: number } 
 export function useItemsQuery(opts: { search?: string; categoryId?: string; brandId?: string; page?: number; limit?: number; enabled?: boolean } = {}) {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
+  const normalizedOptions = {
+    search: opts.search?.trim() || undefined,
+    categoryId: opts.categoryId || undefined,
+    brandId: opts.brandId || undefined,
+    page: opts.page,
+    limit: opts.limit,
+  };
   return useQuery({
-    queryKey: [...queryKeys.items(activeShopId ?? "", opts.search), opts.categoryId, opts.brandId],
+    queryKey: queryKeys.items(activeShopId ?? "", normalizedOptions),
     queryFn: () =>
       fetchItems(token ?? "", activeShopId ?? "", {
-        search: opts.search,
-        categoryId: opts.categoryId,
-        brandId: opts.brandId,
-        page: opts.page,
-        limit: opts.limit,
+        search: normalizedOptions.search,
+        categoryId: normalizedOptions.categoryId,
+        brandId: normalizedOptions.brandId,
+        page: normalizedOptions.page,
+        limit: normalizedOptions.limit,
       }),
     enabled: (opts.enabled ?? true) && !!token && !!activeShopId,
     staleTime: 30 * 60 * 1000,
@@ -425,7 +432,7 @@ export function useBatchQuickUpdateMutation() {
       batchQuickUpdate(token ?? "", {
         shopId: requireActiveShopId(activeShopId),
         updates,
-      }),
+      }, { idempotencyKey: newIdempotencyKey("ITEM_QUICK_UPDATE") }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["items"] });
       if (activeShopId) {

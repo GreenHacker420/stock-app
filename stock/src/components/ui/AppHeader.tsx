@@ -18,9 +18,10 @@ type AppHeaderProps = {
   onBack?: () => void;
   hideAvatar?: boolean;
   fallbackRoute?: string;
+  onRequestShopSwitch?: (shopId: string, proceed: () => void) => void;
 };
 
-export function AppHeader({ title, subtitle, role, initials, showBack, onBack, hideAvatar, fallbackRoute }: AppHeaderProps) {
+export function AppHeader({ title, subtitle, role, initials, showBack, onBack, hideAvatar, fallbackRoute, onRequestShopSwitch }: AppHeaderProps) {
   const user = useAuthStore((state) => state.user);
   const { activeShopId } = useShopStore();
   const switchActiveShop = useSwitchActiveShop();
@@ -176,8 +177,15 @@ export function AppHeader({ title, subtitle, role, initials, showBack, onBack, h
                       <Pressable
                         key={shop.id}
                         onPress={() => {
-                          switchActiveShop(shop.id);
-                          setModalVisible(false);
+                          const proceed = () => {
+                            switchActiveShop(shop.id);
+                            setModalVisible(false);
+                          };
+                          if (onRequestShopSwitch) {
+                            onRequestShopSwitch(shop.id, proceed);
+                          } else {
+                            proceed();
+                          }
                         }}
                         style={({ pressed }) => [
                           styles.shopRow,

@@ -1,4 +1,4 @@
-import { memo, useState, useEffect } from "react";
+import { memo, useState, useEffect, useRef } from "react";
 import { View, StyleSheet, Pressable, Alert } from "react-native";
 import { Text, Icon, TextInput } from "react-native-paper";
 
@@ -43,9 +43,22 @@ export const ItemCard = memo(({
   const [draftSelling, setDraftSelling] = useState("");
   const [draftStock, setDraftStock] = useState("");
   const [stockDirection, setStockDirection] = useState<"IN" | "OUT">("IN");
+  const hydratedEditorKey = useRef<string | null>(null);
 
-  // Synchronize draft fields when editing mode changes
+  // Hydrate draft fields once when an editor opens; do not overwrite active typing on refetch.
   useEffect(() => {
+    if (!isEditing) {
+      hydratedEditorKey.current = null;
+      setDraftMrp("");
+      setDraftSelling("");
+      setDraftStock("");
+      setStockDirection("IN");
+      return;
+    }
+    const editorKey = `${item.id}:${isEditing}`;
+    if (hydratedEditorKey.current === editorKey) return;
+    hydratedEditorKey.current = editorKey;
+
     if (isEditing === "PRICES") {
       setDraftMrp(draft?.mrp ?? item.mrp?.toString() ?? "");
       setDraftSelling(draft?.defaultSellingPrice ?? item.defaultSellingPrice?.toString() ?? "");
@@ -59,7 +72,7 @@ export const ItemCard = memo(({
         setDraftStock(adj);
       }
     }
-  }, [isEditing, draft, item]);
+  }, [isEditing, draft, item.id, item.mrp, item.defaultSellingPrice]);
 
   const hasDraft = !!draft;
   const currentMrp = hasDraft && draft.mrp !== undefined ? draft.mrp : item.mrp;

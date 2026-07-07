@@ -1,7 +1,6 @@
-import { Item } from "../api/client";
+import type { Item } from "../api/client";
 
 export type AddEditItemRouteParams = {
-  item?: Item;
   itemId?: string;
 };
 

@@ -88,6 +88,10 @@ const createItemSchema = z.object({
     imageUrl: z.url().nullable().optional(),
     initialStock: z.coerce.number().optional(),
     requiresSerialNumber: z.boolean().optional(),
+    bundleComponents: z.array(z.object({
+      componentItemId: z.string().min(1),
+      quantity: z.coerce.number().positive(),
+    })).optional(),
   }),
   params: z.object({}).optional(),
   query: z.object({}).optional(),

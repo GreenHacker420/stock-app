@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useMemo } from "react";
+import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import {
   View,
   StyleSheet,
@@ -10,7 +10,7 @@ import {
   Keyboard,
 } from "react-native";
 import { Text, Icon, TextInput } from "react-native-paper";
-import { useRoute } from "@react-navigation/native";
+import { useNavigation, useRoute } from "@react-navigation/native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
 
@@ -54,7 +54,8 @@ type BundleComponentForm = {
 
 export function AddEditItem() {
   const route = useRoute();
-  const params = route.params as any;
+  const navigation = useNavigation<any>();
+  const params = route.params as AddEditItemRouteParams | undefined;
   const itemId = params?.itemId;
 
   const categoriesQuery = useCategoriesQuery();
@@ -76,8 +77,12 @@ export function AddEditItem() {
   const [cameraPermission, requestCameraPermission] = useCameraPermissions();
 
   const nameInputRef = useRef<any>(null);
-  const hasHydrated = useRef(false);
+  const focusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hydratedItemIdRef = useRef<string | null>(null);
   const hasScanned = useRef(false);
+  const submittingRef = useRef(false);
+  const savedRef = useRef(false);
+  const workflowShopIdRef = useRef<string | null>(activeShopId ?? null);
 
   const [form, setForm] = useState<FormState>({
     name: "",
@@ -171,10 +176,39 @@ export function AddEditItem() {
       quantity: String(component.quantity ?? 1),
     })),
   );
+  const [initialSnapshot, setInitialSnapshot] = useState<string | null>(null);
+
+  const buildSnapshot = useCallback(
+    (values: {
+      form: FormState;
+      imageUrl: string;
+      selectedImageUri?: string | null;
+      isBundle: boolean;
+      requiresSerialNumber: boolean;
+      bundleComponents: BundleComponentForm[];
+    }) =>
+      JSON.stringify({
+        form: values.form,
+        imageUrl: values.imageUrl,
+        selectedImageUri: values.selectedImageUri ?? null,
+        isBundle: values.isBundle,
+        requiresSerialNumber: values.requiresSerialNumber,
+        bundleComponents: values.bundleComponents,
+      }),
+    [],
+  );
 
   useEffect(() => {
-    if (existingItem && !hasHydrated.current) {
-      setForm({
+    if (!itemId) {
+      if (hydratedItemIdRef.current !== null) {
+        hydratedItemIdRef.current = null;
+      }
+      return;
+    }
+
+    if (existingItem && hydratedItemIdRef.current !== itemId) {
+      workflowShopIdRef.current = existingItem.shopId ?? null;
+      const nextForm = {
         name: existingItem.name ?? "",
         sku: existingItem.sku ?? "",
         unit: existingItem.unit ?? "pcs",
@@ -186,24 +220,45 @@ export function AddEditItem() {
         categoryId: existingItem.categoryId ?? existingItem.category?.id ?? "",
         brandId: existingItem.brandId ?? existingItem.brand?.id ?? "",
         initialStock: "",
-      });
-      setImageUrl(existingItem.imageUrl ?? "");
-      setIsBundle((existingItem.bundleComponents ?? []).length > 0);
-      setRequiresSerialNumber(existingItem.requiresSerialNumber ?? false);
-      setBundleComponents(
-        (existingItem.bundleComponents ?? []).map((component: any) => ({
+      };
+      const nextImageUrl = existingItem.imageUrl ?? "";
+      const nextIsBundle = (existingItem.bundleComponents ?? []).length > 0;
+      const nextRequiresSerialNumber = existingItem.requiresSerialNumber ?? false;
+      const nextBundleComponents = (existingItem.bundleComponents ?? []).map((component: any) => ({
           componentItemId: component.componentItemId,
           quantity: String(component.quantity ?? 1),
-        }))
+        }));
+
+      setForm(nextForm);
+      setImageUrl(nextImageUrl);
+      setSelectedImage(null);
+      setIsBundle(nextIsBundle);
+      setRequiresSerialNumber(nextRequiresSerialNumber);
+      setBundleComponents(nextBundleComponents);
+      setInitialSnapshot(
+        buildSnapshot({
+          form: nextForm,
+          imageUrl: nextImageUrl,
+          selectedImageUri: null,
+          isBundle: nextIsBundle,
+          requiresSerialNumber: nextRequiresSerialNumber,
+          bundleComponents: nextBundleComponents,
+        }),
       );
-      hasHydrated.current = true;
+      hydratedItemIdRef.current = itemId;
     }
-  }, [existingItem]);
+  }, [buildSnapshot, existingItem, itemId]);
 
   useEffect(() => {
-    setTimeout(() => {
+    focusTimerRef.current = setTimeout(() => {
       nameInputRef.current?.focus();
     }, 150);
+    return () => {
+      if (focusTimerRef.current) {
+        clearTimeout(focusTimerRef.current);
+        focusTimerRef.current = null;
+      }
+    };
   }, []);
 
   const handleTextChange = (key: keyof FormState) => (value: string) => {
@@ -229,6 +284,28 @@ export function AddEditItem() {
   };
 
   const set = (key: keyof FormState) => (v: string) => setForm((f) => ({ ...f, [key]: v }));
+
+  const currentSnapshot = useMemo(
+    () =>
+      buildSnapshot({
+        form,
+        imageUrl,
+        selectedImageUri: selectedImage?.uri ?? null,
+        isBundle,
+        requiresSerialNumber,
+        bundleComponents,
+      }),
+    [buildSnapshot, bundleComponents, form, imageUrl, isBundle, requiresSerialNumber, selectedImage?.uri],
+  );
+
+  useEffect(() => {
+    if (!itemId && initialSnapshot === null) {
+      workflowShopIdRef.current = activeShopId ?? null;
+      setInitialSnapshot(currentSnapshot);
+    }
+  }, [activeShopId, currentSnapshot, initialSnapshot, itemId]);
+
+  const isDirty = !!initialSnapshot && currentSnapshot !== initialSnapshot && !savedRef.current;
 
   const selectedCat = categories.find((c) => c.id === form.categoryId);
   const selectedBrand = brands.find((b) => b.id === form.brandId);
@@ -397,9 +474,24 @@ export function AddEditItem() {
     }
   };
 
-  const handleSave = async (addAnother = false, bypassDuplicates = false) => {
-    if (isPending) return;
-    if (!form.name.trim() || !form.unit.trim()) return;
+  const isPending = createMutation.isPending || updateMutation.isPending || uploadingImage;
+
+  const handleSave = async (
+    addAnother = false,
+    bypassDuplicates = false,
+    afterSuccess?: () => void,
+  ): Promise<boolean> => {
+    if (isPending || submittingRef.current) return false;
+    if (!form.name.trim() || !form.unit.trim()) return false;
+
+    const workflowShopId = workflowShopIdRef.current ?? activeShopId;
+    if (!workflowShopId || (activeShopId && workflowShopId !== activeShopId)) {
+      Alert.alert(
+        "Shop changed",
+        "This product form belongs to another shop. Save or discard it before switching shops.",
+      );
+      return false;
+    }
 
     if (!bypassDuplicates && duplicates.length > 0) {
       const skuDuplicate = duplicates.find((d) => d.reason === "sku");
@@ -408,7 +500,7 @@ export function AddEditItem() {
           "SKU Already Exists",
           `Another product ("${skuDuplicate.item.name}") is already registered with SKU "${form.sku.trim()}". Barcodes/SKUs must be unique.`
         );
-        return;
+        return false;
       }
 
       const nameDuplicate = duplicates.find((d) => d.reason === "name");
@@ -418,10 +510,10 @@ export function AddEditItem() {
           `A product named "${form.name.trim()}" already exists. Would you still like to create this product?`,
           [
             { text: "Cancel", style: "cancel" },
-            { text: "Create Anyway", onPress: () => handleSave(addAnother, true) }
+            { text: "Create Anyway", onPress: () => void handleSave(addAnother, true, afterSuccess) }
           ]
         );
-        return;
+        return false;
       }
 
       const similarDuplicate = duplicates.find((d) => d.reason === "similar_name");
@@ -431,46 +523,46 @@ export function AddEditItem() {
           `A highly similar product "${similarDuplicate.item.name}" already exists (SKU: ${similarDuplicate.item.sku || "No SKU"}). Would you still like to create this product?`,
           [
             { text: "Cancel", style: "cancel" },
-            { text: "Create Anyway", onPress: () => handleSave(addAnother, true) }
+            { text: "Create Anyway", onPress: () => void handleSave(addAnother, true, afterSuccess) }
           ]
         );
-        return;
+        return false;
       }
     }
 
     const mrp = parseAmount(form.mrp, null);
     if (form.mrp.trim() && mrp === null) {
       Alert.alert("Invalid price", "MRP must be a valid non-negative number.");
-      return;
+      return false;
     }
     const minimumAllowedPrice = parseAmount(form.minimumAllowedPrice, null);
     if (form.minimumAllowedPrice.trim() && minimumAllowedPrice === null) {
       Alert.alert("Invalid price", "Min allowed price must be a valid non-negative number.");
-      return;
+      return false;
     }
     const purchasePrice = parseAmount(form.purchasePrice, null);
     if (form.purchasePrice.trim() && purchasePrice === null) {
       Alert.alert("Invalid price", "Purchase price must be a valid non-negative number.");
-      return;
+      return false;
     }
     const defaultSellingPrice = parseAmount(form.defaultSellingPrice, 0);
     if (form.defaultSellingPrice.trim() && defaultSellingPrice === null) {
       Alert.alert("Invalid price", "Selling price must be a valid non-negative number.");
-      return;
+      return false;
     }
     const minimumStock = parseQty(form.minimumStock, 0);
     if (form.minimumStock.trim() && minimumStock === null) {
       Alert.alert("Invalid stock", "Low stock alert must be a whole number.");
-      return;
+      return false;
     }
     const initialStock = parseQty(form.initialStock, 0);
     if (form.initialStock.trim() && initialStock === null) {
       Alert.alert("Invalid stock", "Initial stock must be a whole number.");
-      return;
+      return false;
     }
     if (requiresSerialNumber && (initialStock ?? 0) > 0 && !existingItem) {
       Alert.alert("Invalid Stock", "Serialized products cannot receive opening stock. Add stock via stock entry / purchase receipt specifying serial numbers instead.");
-      return;
+      return false;
     }
     const normalizedBundleComponents = bundleComponents.map((component: any) => ({
       componentItemId: component.componentItemId,
@@ -478,33 +570,35 @@ export function AddEditItem() {
     }));
     if (isBundle && normalizedBundleComponents.length === 0) {
       Alert.alert("Invalid Bundle", "Virtual bundle products require at least one component product.");
-      return;
+      return false;
     }
     if (normalizedBundleComponents.some((component: any) => component.quantity === null || component.quantity <= 0)) {
       Alert.alert("Invalid bundle", "Bundle component quantities must be greater than zero.");
-      return;
+      return false;
     }
     if (normalizedBundleComponents.length > 0 && !existingItem && Number(initialStock || 0) > 0) {
       Alert.alert("Invalid stock", "Bundle products do not hold opening stock. Add stock to component products instead.");
-      return;
+      return false;
     }
 
     const sellingPrice = defaultSellingPrice ?? 0;
     if (mrp !== null && sellingPrice > mrp) {
       Alert.alert("Invalid price", "Selling price cannot be greater than MRP.");
-      return;
+      return false;
     }
     if (minimumAllowedPrice !== null && minimumAllowedPrice > sellingPrice) {
       Alert.alert("Invalid price", "Minimum allowed price cannot be greater than selling price.");
-      return;
+      return false;
     }
 
     let uploadedImageUrl: string | null = imageUrl || null;
+    submittingRef.current = true;
     try {
       uploadedImageUrl = await uploadSelectedImage();
     } catch (err: any) {
       Alert.alert("Photo Upload Failed", err?.message || "Could not upload product photo.");
-      return;
+      submittingRef.current = false;
+      return false;
     }
 
     const basePayload = {
@@ -523,24 +617,29 @@ export function AddEditItem() {
       bundleComponents: normalizedBundleComponents as Array<{ componentItemId: string; quantity: number }>,
     };
 
-    if (existingItem) {
-      updateMutation.mutate(
-        { id: existingItem.id, data: basePayload as UpdateItemPayload },
-        {
-          onSuccess: () => goBack(),
-          onError: (err: any) => Alert.alert("Failed to Update Product", err?.message || "Something went wrong."),
+    try {
+      if (existingItem) {
+        await updateMutation.mutateAsync({ id: existingItem.id, data: basePayload as UpdateItemPayload });
+        savedRef.current = true;
+        setInitialSnapshot(currentSnapshot);
+        if (afterSuccess) {
+          afterSuccess();
+        } else {
+          goBack();
         }
-      );
-    } else {
-      const payload: CreateItemPayload = {
-        shopId: requireActiveShopId(activeShopId),
-        ...basePayload,
-        initialStock: initialStock ?? 0,
-      };
-      createMutation.mutate(payload, {
-        onSuccess: () => {
+      } else {
+        const payload: CreateItemPayload = {
+          shopId: requireActiveShopId(workflowShopId),
+          ...basePayload,
+          initialStock: initialStock ?? 0,
+        };
+        await createMutation.mutateAsync(payload);
+        savedRef.current = true;
+        if (afterSuccess) {
+          afterSuccess();
+        } else {
           if (addAnother) {
-            setForm({
+            const nextForm = {
               name: "",
               sku: "",
               unit: "pcs",
@@ -552,27 +651,99 @@ export function AddEditItem() {
               categoryId: form.categoryId,
               brandId: form.brandId,
               initialStock: "",
+            };
+            setForm({
+              ...nextForm,
             });
             setBundleComponents([]);
             setIsBundle(false);
             setRequiresSerialNumber(false);
             setSelectedImage(null);
             setImageUrl("");
+            savedRef.current = false;
+            setInitialSnapshot(
+              buildSnapshot({
+                form: nextForm,
+                imageUrl: "",
+                selectedImageUri: null,
+                isBundle: false,
+                requiresSerialNumber: false,
+                bundleComponents: [],
+              }),
+            );
             Alert.alert("Success", `${basePayload.name} created! Add the next item.`);
-            setTimeout(() => {
+            focusTimerRef.current = setTimeout(() => {
               nameInputRef.current?.focus();
             }, 200);
           } else {
             goBack();
           }
-        },
-        onError: (err: any) => Alert.alert("Failed to Create Product", err?.message || "Something went wrong."),
-      });
+        }
+      }
+      return true;
+    } catch (err: any) {
+      Alert.alert(
+        existingItem ? "Failed to Update Product" : "Failed to Create Product",
+        err?.message || "Something went wrong.",
+      );
+      return false;
+    } finally {
+      submittingRef.current = false;
     }
   };
 
-  const isPending = createMutation.isPending || updateMutation.isPending || uploadingImage;
   const isValid = !!form.name.trim() && !!form.unit.trim();
+
+  const confirmUnsavedAction = useCallback(
+    (onDiscard: () => void, onSave?: () => void) => {
+      Alert.alert(
+        "Unsaved product changes",
+        "Save this product before leaving, or discard the changes.",
+        [
+          { text: "Keep Editing", style: "cancel" },
+          { text: "Discard", style: "destructive", onPress: onDiscard },
+          ...(onSave ? [{ text: "Save", onPress: onSave }] : []),
+        ],
+      );
+    },
+    [],
+  );
+
+  const requestLeave = useCallback(
+    (proceed: () => void) => {
+      if (!isDirty || submittingRef.current) {
+        proceed();
+        return;
+      }
+      confirmUnsavedAction(
+        () => {
+          savedRef.current = true;
+          proceed();
+        },
+        () => {
+          void handleSave(false, false, proceed);
+        },
+      );
+    },
+    [confirmUnsavedAction, handleSave, isDirty],
+  );
+
+  const requestShopSwitch = useCallback(
+    (_shopId: string, proceed: () => void) => {
+      requestLeave(proceed);
+    },
+    [requestLeave],
+  );
+
+  useEffect(
+    () =>
+      navigation.addListener("beforeRemove", (event: any) => {
+        if (!isDirty || submittingRef.current) return;
+        event.preventDefault();
+        requestLeave(() => navigation.dispatch(event.data.action));
+      }),
+    [isDirty, navigation, requestLeave],
+  );
 
   const inputProps = (key: keyof FormState, label: string, keyboardType?: "default" | "numeric", placeholder?: string) => ({
     mode: "outlined" as const,
@@ -638,6 +809,8 @@ export function AddEditItem() {
         title={existingItem ? "Edit Product" : "New Product"}
         subtitle={existingItem ? "Update product details" : "Add to your catalogue"}
         fallbackRoute="ItemList"
+        onBack={() => requestLeave(goBack)}
+        onRequestShopSwitch={requestShopSwitch}
       />
       <AppKeyboardAvoidingView>
         <ScrollView

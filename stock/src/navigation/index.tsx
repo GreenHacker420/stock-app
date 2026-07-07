@@ -6,7 +6,6 @@ import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { View, Pressable, useWindowDimensions, StyleSheet, Platform, Text } from "react-native";
 import { Icon } from "react-native-paper";
 import { useAuthStore } from "../auth/auth-store";
-import type { Item } from "../api/client";
 import { AssignStaff } from "./screens/AssignStaff";
 import { CashClosingReview } from "./screens/CashClosingReview";
 import { CloseDay } from "./screens/CloseDay";
@@ -646,7 +645,7 @@ export type RootStackParamList = {
   CustomerDetail: { customerId: string };
   CustomerOutstandingList: undefined;
   ItemList: undefined;
-  AddEditItem: { item?: Item; itemId?: string };
+  AddEditItem: { itemId?: string };
   ItemDetail: { itemId: string };
   StockDashboard: undefined;
   CashSessionDetail: undefined;

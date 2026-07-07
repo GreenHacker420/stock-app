@@ -25,6 +25,7 @@ import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../../
 import { navigate } from "../../navigation-ref";
 import { triggerLightHaptic } from "../../../utils/haptics";
 import { STOCK_MOVEMENT_PERMISSION, hasPermission } from "../../../utils/items/permissions";
+import { parseAmount } from "../../../utils/items/validation";
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 const FlashListAny = FlashList as any;
@@ -147,24 +148,42 @@ export function ItemList() {
 
   const handleSavePrices = (itemId: string, mrp: string, sellingPrice: string) => {
     triggerLightHaptic();
+    const matchedItem = allItems.find((i) => i.id === itemId);
+    if (!matchedItem) return;
+    const parsedMrp = parseAmount(mrp, null);
+    const parsedSelling = parseAmount(sellingPrice, null);
+    if (mrp.trim() && parsedMrp === null) {
+      Alert.alert("Invalid price", "MRP must be a valid non-negative number.");
+      return;
+    }
+    if (parsedSelling === null) {
+      Alert.alert("Invalid price", "Selling price is required and must be non-negative.");
+      return;
+    }
+    if (parsedMrp !== null && parsedSelling > parsedMrp) {
+      Alert.alert("Invalid price", "Selling price cannot be greater than MRP.");
+      return;
+    }
     setDraftUpdates((prev) => {
       const next = { ...prev };
-      const matchedItem = allItems.find(i => i.id === itemId);
-      const parsedMrp = mrp.trim() ? Number(mrp) : undefined;
-      const parsedSelling = sellingPrice.trim() ? Number(sellingPrice) : undefined;
-      const hasChanges = 
-        (parsedMrp !== undefined && parsedMrp !== Number(matchedItem?.mrp ?? "")) ||
-        (parsedSelling !== undefined && parsedSelling !== Number(matchedItem?.defaultSellingPrice ?? ""));
+      const currentMrp = matchedItem.mrp == null || matchedItem.mrp === "" ? null : Number(matchedItem.mrp);
+      const currentSelling = Number(matchedItem.defaultSellingPrice ?? 0);
+      const mrpChanged = parsedMrp !== currentMrp;
+      const sellingChanged = parsedSelling !== currentSelling;
 
       const existingUpdate = next[itemId] || {};
 
-      if (!hasChanges && !existingUpdate.stockAdjustment) {
+      if (!mrpChanged && !sellingChanged && !existingUpdate.stockAdjustment) {
         delete next[itemId];
       } else {
+        const pricePatch = {
+          ...(mrpChanged ? { mrp: mrp.trim() } : {}),
+          ...(sellingChanged ? { defaultSellingPrice: sellingPrice.trim() } : {}),
+        };
         next[itemId] = {
           ...existingUpdate,
-          mrp: mrp.trim() || undefined,
-          defaultSellingPrice: sellingPrice.trim() || undefined,
+          mrp: pricePatch.mrp,
+          defaultSellingPrice: pricePatch.defaultSellingPrice,
         };
       }
       return next;
@@ -197,8 +216,10 @@ export function ItemList() {
     setEditingMode(null);
   };
 
+  const hasPendingDrafts = Object.keys(draftUpdates).length > 0;
+
   const handleSaveBatch = async () => {
-    if (Object.keys(draftUpdates).length === 0) return;
+    if (!hasPendingDrafts) return true;
     triggerLightHaptic();
     setIsSavingBatch(true);
 
@@ -221,12 +242,14 @@ export function ItemList() {
       // Success
       Alert.alert("Success", "All quick product updates have been saved successfully!");
       setDraftUpdates({});
-      Promise.all([
+      await Promise.all([
         listQuery.refetch(),
         summaryQuery.refetch(),
       ]);
+      return true;
     } catch (error: any) {
       Alert.alert("Save Failed", error?.message || "Could not save quick updates. Please try again.");
+      return false;
     } finally {
       setIsSavingBatch(false);
     }
@@ -244,6 +267,68 @@ export function ItemList() {
       ]
     );
   };
+
+  const confirmPendingDraftAction = useCallback((onDiscard: () => void, onSave?: () => void | Promise<void>) => {
+    const count = Object.keys(draftUpdates).length;
+    if (count === 0) {
+      onDiscard();
+      return;
+    }
+    Alert.alert(
+      "Pending Product Updates",
+      `${count} pending product update${count === 1 ? "" : "s"} have not been saved.`,
+      [
+        { text: "Keep Editing", style: "cancel" },
+        {
+          text: "Discard",
+          style: "destructive",
+          onPress: () => {
+            setDraftUpdates({});
+            setEditingItemId(null);
+            setEditingMode(null);
+            onDiscard();
+          },
+        },
+        ...(onSave
+          ? [{
+              text: "Save All",
+              onPress: () => {
+                void onSave();
+              },
+            }]
+          : []),
+      ],
+    );
+  }, [draftUpdates]);
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener("beforeRemove", (event: any) => {
+      if (!hasPendingDrafts || isSavingBatch) return;
+      event.preventDefault();
+      confirmPendingDraftAction(
+        () => navigation.dispatch(event.data.action),
+        async () => {
+          const saved = await handleSaveBatch();
+          if (saved) navigation.dispatch(event.data.action);
+        },
+      );
+    });
+    return unsubscribe;
+  }, [confirmPendingDraftAction, handleSaveBatch, hasPendingDrafts, isSavingBatch, navigation]);
+
+  const requestShopSwitch = useCallback((_shopId: string, proceed: () => void) => {
+    if (!hasPendingDrafts) {
+      proceed();
+      return;
+    }
+    confirmPendingDraftAction(
+      proceed,
+      async () => {
+        const saved = await handleSaveBatch();
+        if (saved) proceed();
+      },
+    );
+  }, [confirmPendingDraftAction, handleSaveBatch, hasPendingDrafts]);
 
   // Stats from summary
   const totalCount = summary?.totalItems ?? 0;
@@ -295,6 +380,20 @@ export function ItemList() {
     setFilter("ALL");
   }, []);
 
+  const requestExitGrid = useCallback(() => {
+    if (!hasPendingDrafts) {
+      exitGrid();
+      return;
+    }
+    confirmPendingDraftAction(
+      exitGrid,
+      async () => {
+        const saved = await handleSaveBatch();
+        if (saved) exitGrid();
+      },
+    );
+  }, [confirmPendingDraftAction, exitGrid, handleSaveBatch, hasPendingDrafts]);
+
   const activeCatName =
     selectedCat === "ALL"
       ? "All Items"
@@ -320,7 +419,8 @@ export function ItemList() {
       <AppHeader
         title="Products"
         subtitle={isGridMode ? "Tap a category to browse" : activeCatName}
-        onBack={isGridMode ? undefined : exitGrid}
+        onBack={isGridMode ? undefined : requestExitGrid}
+        onRequestShopSwitch={requestShopSwitch}
       />
 
       <View style={styles.fixedSearchContainer}>
@@ -487,7 +587,7 @@ export function ItemList() {
       )}
 
       {/* FAB */}
-      {isOwner && !Object.keys(draftUpdates).length && (
+      {isOwner && !hasPendingDrafts && (
         <Pressable
           onPress={() => navigate("AddEditItem")}
           style={({ pressed }) => [
@@ -500,7 +600,7 @@ export function ItemList() {
         </Pressable>
       )}
 
-      {Object.keys(draftUpdates).length > 0 && (
+      {hasPendingDrafts && (
         <View style={[styles.batchFooter, { paddingBottom: insets.bottom > 0 ? insets.bottom : spacing.md }]}>
           <View style={styles.batchFooterContent}>
             <View style={styles.batchFooterTextRow}>
