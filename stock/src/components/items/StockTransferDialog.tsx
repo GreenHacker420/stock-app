@@ -57,7 +57,7 @@ export function StockTransferDialog({
 
   return (
     <Portal>
-      <Dialog visible={visible} onDismiss={onDismiss} style={styles.dialog}>
+      <Dialog visible={visible} onDismiss={isPending ? undefined : onDismiss} style={styles.dialog}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
           <Dialog.Title style={styles.title}>Inter-Shop Stock Transfer</Dialog.Title>
           <Dialog.Content style={styles.content}>
@@ -71,8 +71,11 @@ export function StockTransferDialog({
                     return (
                       <Pressable
                         key={shop.id}
-                        onPress={() => setTargetShopId(shop.id)}
+                        onPress={() => {
+                          if (!isPending) setTargetShopId(shop.id);
+                        }}
                         style={[styles.shopRow, selected && styles.shopRowSelected]}
+                        disabled={isPending}
                       >
                         <Text style={[styles.shopRowText, selected && styles.shopRowTextSelected]}>
                           {shop.name} ({shop.city})
@@ -91,6 +94,7 @@ export function StockTransferDialog({
                 keyboardType="numeric"
                 value={quantity}
                 onChangeText={setQuantity}
+                editable={!isPending}
                 outlineStyle={styles.inputOutline}
                 activeOutlineColor={colors.primary}
                 style={styles.input}
@@ -102,6 +106,7 @@ export function StockTransferDialog({
                 placeholder="e.g. Stock replenishment"
                 value={reason}
                 onChangeText={setReason}
+                editable={!isPending}
                 outlineStyle={styles.inputOutline}
                 activeOutlineColor={colors.primary}
                 style={styles.input}
@@ -109,8 +114,8 @@ export function StockTransferDialog({
             </ScrollView>
           </Dialog.Content>
           <Dialog.Actions style={styles.actions}>
-            <Button label="Cancel" variant="secondary" onPress={onDismiss} />
-            <Button label="Transfer" onPress={handleConfirm} loading={isPending} />
+            <Button label="Cancel" variant="secondary" onPress={onDismiss} disabled={isPending} />
+            <Button label="Transfer" onPress={handleConfirm} loading={isPending} disabled={isPending} />
           </Dialog.Actions>
         </KeyboardAvoidingView>
       </Dialog>

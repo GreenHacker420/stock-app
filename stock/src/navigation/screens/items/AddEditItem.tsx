@@ -572,6 +572,25 @@ export function AddEditItem() {
       Alert.alert("Invalid Bundle", "Virtual bundle products require at least one component product.");
       return false;
     }
+    const bundleComponentIds = normalizedBundleComponents.map((component) => component.componentItemId);
+    if (existingItem && bundleComponentIds.includes(existingItem.id)) {
+      Alert.alert("Invalid Bundle", "A bundle cannot include itself as a component.");
+      return false;
+    }
+    if (new Set(bundleComponentIds).size !== bundleComponentIds.length) {
+      Alert.alert("Invalid Bundle", "Each component product can be added only once.");
+      return false;
+    }
+    const nestedBundleComponent = availableItems.find(
+      (item) => bundleComponentIds.includes(item.id) && (item.bundleComponents?.length ?? 0) > 0,
+    );
+    if (nestedBundleComponent) {
+      Alert.alert(
+        "Invalid Bundle",
+        `${nestedBundleComponent.name} is already a bundle. Add its component products directly instead.`,
+      );
+      return false;
+    }
     if (normalizedBundleComponents.some((component: any) => component.quantity === null || component.quantity <= 0)) {
       Alert.alert("Invalid bundle", "Bundle component quantities must be greater than zero.");
       return false;
