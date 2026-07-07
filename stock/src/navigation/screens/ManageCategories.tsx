@@ -11,6 +11,7 @@ import {
   Platform,
 } from "react-native";
 import { Text, TextInput, Divider, Icon } from "react-native-paper";
+import { useNavigation } from "@react-navigation/native";
 
 import { ItemCategory } from "../../api/client";
 import {
@@ -103,19 +104,26 @@ function CategoryRow({
   category,
   onEdit,
   onDelete,
+  onPress,
 }: {
   category: ItemCategory;
   onEdit: (cat: ItemCategory) => void;
   onDelete: (cat: ItemCategory) => void;
+  onPress: (cat: ItemCategory) => void;
 }) {
   return (
     <View style={styles.row}>
-      <View style={styles.rowIconWrap}>
-        <Icon source="tag-outline" size={18} color={colors.primary} />
-      </View>
-      <Text style={styles.rowName} numberOfLines={1}>
-        {category.name}
-      </Text>
+      <Pressable
+        onPress={() => onPress(category)}
+        style={styles.rowPressable}
+      >
+        <View style={styles.rowIconWrap}>
+          <Icon source="tag-outline" size={18} color={colors.primary} />
+        </View>
+        <Text style={styles.rowName} numberOfLines={1}>
+          {category.name}
+        </Text>
+      </Pressable>
       <View style={styles.rowActions}>
         <Pressable
           onPress={() => {
@@ -150,6 +158,7 @@ function CategoryRow({
 // Main Screen
 // ─────────────────────────────────────────────────────────────────────────────
 export function ManageCategories() {
+  const navigation = useNavigation<any>();
   const categoriesQuery = useCategoriesQuery();
   const createMutation = useCreateCategoryMutation();
   const updateMutation = useUpdateCategoryMutation();
@@ -280,6 +289,10 @@ export function ManageCategories() {
                   category={cat}
                   onEdit={setEditingCategory}
                   onDelete={handleDelete}
+                  onPress={(category) => {
+                    triggerLightHaptic();
+                    navigation.navigate("ItemList", { categoryId: category.id });
+                  }}
                 />
                 {idx < categories.length - 1 && <Divider style={styles.rowDivider} />}
               </React.Fragment>
@@ -395,6 +408,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
+  },
+  rowPressable: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
     gap: spacing.md,
   },
   rowIconWrap: {

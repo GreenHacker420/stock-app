@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useEffect } from "react";
 import { View, StyleSheet, Pressable, ScrollView, Alert } from "react-native";
 import { Text, Icon } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
@@ -20,6 +20,7 @@ import { ItemCard } from "../../../components/items/ItemCard";
 import { AllItemsCard, CategoryCard, UncatCard } from "../../../components/items/CategoryCard";
 import { FilterChips, StockFilter } from "../../../components/items/FilterChips";
 import { BrandPickerSheet } from "../../../components/items/BrandPickerSheet";
+import { useRoute, useNavigation } from "@react-navigation/native";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../../theme";
 import { navigate } from "../../navigation-ref";
 import { triggerLightHaptic } from "../../../utils/haptics";
@@ -34,6 +35,9 @@ export function ItemList() {
   const { activeShopId } = useShopStore();
   const insets = useSafeAreaInsets();
 
+  const route = useRoute();
+  const navigation = useNavigation<any>();
+
   const [search, setSearch] = useState("");
   const [debouncedSearch] = useDebounce(search, 300);
   const [filter, setFilter] = useState<StockFilter>("ALL");
@@ -44,6 +48,15 @@ export function ItemList() {
 
   const [draftUpdates, setDraftUpdates] = useState<Record<string, { mrp?: string; defaultSellingPrice?: string; stockAdjustment?: string; originalStock: number }>>({});
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const params = route.params as { categoryId?: string } | undefined;
+    if (params?.categoryId !== undefined) {
+      setSelectedCat(params.categoryId);
+      // Clear route params so it doesn't trigger on returning from other flows
+      navigation.setParams({ categoryId: undefined });
+    }
+  }, [route.params]);
 
   // Summary data (fast!)
   const summaryQuery = useItemSummaryQuery();
