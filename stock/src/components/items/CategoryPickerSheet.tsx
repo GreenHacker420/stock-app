@@ -1,24 +1,18 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import {
   View,
   StyleSheet,
   Pressable,
   ScrollView,
-  Modal as RNModal,
-  TouchableWithoutFeedback,
   ActivityIndicator,
-  KeyboardAvoidingView,
   Platform,
   Keyboard,
-  View as RNView,
 } from "react-native";
 import { Text, Icon, TextInput } from "react-native-paper";
-
+import { PickerSheet } from "./PickerSheet";
 import { ItemCategory } from "../../api/client";
-import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
+import { colors, spacing, radius, fontSize, fontWeight } from "../../theme";
 import { getCatPalette, getCatIcon } from "../../utils/items/display";
-
-const KeyboardContainer = Platform.OS === "ios" ? KeyboardAvoidingView : RNView;
 
 export function CategoryPickerSheet({
   visible,
@@ -34,13 +28,7 @@ export function CategoryPickerSheet({
   onSelect: (categoryId: string) => void;
   onDismiss: () => void;
   onCreateNew?: (name: string) => Promise<void>;
-  }) {
-  useEffect(() => {
-    if (visible) {
-      Keyboard.dismiss();
-    }
-  }, [visible]);
-
+}) {
   const [searchText, setSearchText] = useState("");
   const [isCreating, setIsCreating] = useState(false);
 
@@ -67,90 +55,88 @@ export function CategoryPickerSheet({
     }
   };
 
+  const handleDismiss = () => {
+    Keyboard.dismiss();
+    setSearchText("");
+    onDismiss();
+  };
+
+  const handleSelect = (categoryId: string) => {
+    Keyboard.dismiss();
+    setSearchText("");
+    onSelect(categoryId);
+  };
+
   return (
-    <RNModal
-      visible={visible}
-      transparent
-      animationType="slide"
-      onRequestClose={onDismiss}
-      statusBarTranslucent={true}
-      navigationBarTranslucent={true}
-    >
-      <TouchableWithoutFeedback onPress={onDismiss}>
-        <View style={styles.overlay}>
-          <KeyboardContainer
-            {...(Platform.OS === "ios" ? { behavior: "padding" } : {})}
-            style={{ width: "100%" }}
+    <PickerSheet visible={visible} onDismiss={handleDismiss} title="Select Category">
+      <View style={styles.searchContainer}>
+        <TextInput
+          mode="outlined"
+          placeholder="Search or type new category..."
+          value={searchText}
+          onChangeText={setSearchText}
+          style={styles.searchInput}
+          outlineStyle={{ borderRadius: radius.md }}
+          left={<TextInput.Icon icon="magnify" />}
+          right={
+            searchText.trim().length > 0 ? (
+              <TextInput.Icon icon="close" onPress={() => setSearchText("")} />
+            ) : null
+          }
+          dense
+          disabled={isCreating}
+        />
+      </View>
+
+      <ScrollView
+        style={styles.list}
+        contentContainerStyle={styles.listContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+      >
+        {searchText.trim().length > 0 && !exactMatch && onCreateNew && (
+          <Pressable
+            onPress={handleCreate}
+            disabled={isCreating}
+            style={[styles.row, styles.createRow]}
           >
-            <TouchableWithoutFeedback>
-              <View style={styles.sheet}>
-                <View style={styles.handle} />
-                <Text style={styles.title}>Select Category</Text>
+            {isCreating ? (
+              <ActivityIndicator size="small" color={colors.primary} style={styles.createSpinner} />
+            ) : (
+              <Icon source="plus-circle" size={20} color={colors.primary} />
+            )}
+            <Text style={styles.createRowText}>
+              {isCreating ? "Creating..." : `Create Category "${searchText.trim()}"`}
+            </Text>
+          </Pressable>
+        )}
 
-                <View style={styles.searchContainer}>
-                  <TextInput
-                    mode="outlined"
-                    placeholder="Search or type new category..."
-                    value={searchText}
-                    onChangeText={setSearchText}
-                    style={styles.searchInput}
-                    outlineStyle={{ borderRadius: radius.md }}
-                    left={<TextInput.Icon icon="magnify" />}
-                    right={
-                      searchText.trim().length > 0 ? (
-                        <TextInput.Icon icon="close" onPress={() => setSearchText("")} />
-                      ) : null
-                    }
-                    dense
-                    disabled={isCreating}
-                  />
-                </View>
+        <Pressable
+          onPress={() => handleSelect("")}
+          style={[styles.row, !selectedCategoryId && styles.rowActive]}
+        >
+          <Icon source="tag-off-outline" size={18} color={colors.textMuted} />
+          <Text style={[styles.rowText, !selectedCategoryId && styles.rowTextActive]}>None</Text>
+          {!selectedCategoryId && <Icon source="check" size={16} color={colors.primary} />}
+        </Pressable>
 
-                <ScrollView showsVerticalScrollIndicator={false}>
-                  {searchText.trim().length > 0 && !exactMatch && onCreateNew && (
-                    <Pressable
-                      onPress={handleCreate}
-                      disabled={isCreating}
-                      style={[styles.row, styles.createRow]}
-                    >
-                      {isCreating ? (
-                        <ActivityIndicator size="small" color={colors.primary} style={{ marginRight: spacing.sm }} />
-                      ) : (
-                        <Icon source="plus-circle" size={20} color={colors.primary} />
-                      )}
-                      <Text style={[styles.rowText, { color: colors.primary, fontWeight: fontWeight.bold }]}>
-                        {isCreating ? "Creating..." : `Create Category "${searchText.trim()}"`}
-                      </Text>
-                    </Pressable>
-                  )}
-
-                  <Pressable
-                    onPress={() => onSelect("")}
-                    style={[styles.row, !selectedCategoryId && styles.rowActive]}
-                  >
-                    <Icon source="tag-off-outline" size={18} color={colors.textMuted} />
-                    <Text style={[styles.rowText, !selectedCategoryId && { color: colors.primary }]}>None</Text>
-                    {!selectedCategoryId && <Icon source="check" size={16} color={colors.primary} />}
-                  </Pressable>
-
-                  {filteredCategories.map((cat) => (
-                    <Pressable
-                      key={cat.id}
-                      onPress={() => onSelect(cat.id)}
-                      style={[styles.row, selectedCategoryId === cat.id && styles.rowActive]}
-                    >
-                      <Icon source={getCatIcon(cat.name)} size={18} color={getCatPalette(cat.name).icon} />
-                      <Text style={[styles.rowText, selectedCategoryId === cat.id && { color: colors.primary }]}>{cat.name}</Text>
-                      {selectedCategoryId === cat.id && <Icon source="check" size={16} color={colors.primary} />}
-                    </Pressable>
-                  ))}
-                </ScrollView>
-              </View>
-            </TouchableWithoutFeedback>
-          </KeyboardContainer>
-        </View>
-      </TouchableWithoutFeedback>
-    </RNModal>
+        {filteredCategories.map((cat) => {
+          const isSelected = selectedCategoryId === cat.id;
+          return (
+            <Pressable
+              key={cat.id}
+              onPress={() => handleSelect(cat.id)}
+              style={[styles.row, isSelected && styles.rowActive]}
+            >
+              <Icon source={getCatIcon(cat.name)} size={18} color={getCatPalette(cat.name).icon} />
+              <Text style={[styles.rowText, isSelected && styles.rowTextActive]}>{cat.name}</Text>
+              {isSelected && <Icon source="check" size={16} color={colors.primary} />}
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+    </PickerSheet>
   );
 }
 
@@ -170,38 +156,20 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
     paddingHorizontal: spacing.sm,
   },
-  overlay: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    left: 0,
-    right: 0,
-    backgroundColor: "rgba(0,0,0,0.45)",
-    justifyContent: "flex-end",
+  list: {
+    flexShrink: 1,
   },
-  sheet: {
-    backgroundColor: colors.surface,
-    borderTopLeftRadius: radius.xxl,
-    borderTopRightRadius: radius.xxl,
-    paddingTop: spacing.md,
-    paddingHorizontal: spacing.lg,
-    paddingBottom: 40,
-    maxHeight: "70%",
-    ...shadow.lg,
+  listContent: {
+    paddingBottom: spacing.md,
   },
-  handle: {
-    width: 36,
-    height: 4,
-    borderRadius: radius.full,
-    backgroundColor: colors.border,
-    alignSelf: "center",
-    marginBottom: spacing.md,
+  createSpinner: {
+    marginRight: spacing.sm,
   },
-  title: {
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.black,
-    color: colors.textPrimary,
-    marginBottom: spacing.md,
+  createRowText: {
+    flex: 1,
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.primary,
   },
   row: {
     flexDirection: "row",
@@ -212,15 +180,15 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.border,
   },
   rowActive: {
-    backgroundColor: colors.primaryLight,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.sm,
-    marginHorizontal: -spacing.sm,
+    backgroundColor: colors.surfaceOffset,
   },
   rowText: {
     flex: 1,
     fontSize: fontSize.sm,
-    fontWeight: fontWeight.medium,
+    fontWeight: fontWeight.semibold,
     color: colors.textPrimary,
+  },
+  rowTextActive: {
+    color: colors.primary,
   },
 });
