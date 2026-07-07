@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient, useInfiniteQuery, type QueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, useInfiniteQuery, keepPreviousData, type QueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "../auth/auth-store";
 import { useShopStore } from "../auth/shop-store";
 import { queryKeys } from "./query-keys";
@@ -106,6 +106,7 @@ export function useItemsQuery(opts: { search?: string; categoryId?: string; bran
       }),
     enabled: (opts.enabled ?? true) && !!token && !!activeShopId,
     staleTime: 30 * 60 * 1000,
+    placeholderData: keepPreviousData,
   });
 }
 

@@ -150,8 +150,9 @@ export const ItemCard = memo(({
       {/* Avatar */}
       <CachedThumbnail
         uri={item.imageUrl}
-        fallbackText={initials}
-        color={avatarColor}
+        fallbackText=""
+        fallbackIcon="package-variant-closed"
+        color={colors.textSecondary}
         style={styles.itemAvatar}
       />
 

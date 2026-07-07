@@ -23,8 +23,9 @@ export function ItemSummaryCard({ item, availableStock, minStock }: ItemSummaryC
       <View style={styles.left}>
         <CachedThumbnail
           uri={item.imageUrl}
-          fallbackText={initialsOf(item.name)}
-          color={avatarColor}
+          fallbackText=""
+          fallbackIcon="package-variant-closed"
+          color={colors.textSecondary}
           style={styles.avatar}
         />
         <View style={styles.info}>

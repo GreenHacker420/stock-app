@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   View,
   StyleSheet,
@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
+  Keyboard,
 } from "react-native";
 import { Text, Icon, TextInput } from "react-native-paper";
 
@@ -29,16 +30,24 @@ export function BrandPickerSheet({
   onSelect: (brandId: string) => void;
   onDismiss: () => void;
   onCreateNew?: (name: string) => Promise<void>;
-}) {
+  }) {
+  useEffect(() => {
+    if (visible) {
+      Keyboard.dismiss();
+    }
+  }, [visible]);
+
   const [searchText, setSearchText] = useState("");
   const [isCreating, setIsCreating] = useState(false);
 
+  const cleanSearch = searchText.trim().toLowerCase();
+
   const filteredBrands = brands.filter((brand) =>
-    brand.name.toLowerCase().includes(searchText.toLowerCase())
+    brand.name.toLowerCase().includes(cleanSearch)
   );
 
   const exactMatch = brands.find(
-    (brand) => brand.name.trim().toLowerCase() === searchText.trim().toLowerCase()
+    (brand) => brand.name.trim().toLowerCase() === cleanSearch
   );
 
   const handleCreate = async () => {
@@ -55,7 +64,13 @@ export function BrandPickerSheet({
   };
 
   return (
-    <RNModal visible={visible} transparent animationType="slide" onRequestClose={onDismiss}>
+    <RNModal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onDismiss}
+      statusBarTranslucent={true}
+    >
       <TouchableWithoutFeedback onPress={onDismiss}>
         <View style={styles.overlay}>
           <KeyboardAvoidingView

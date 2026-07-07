@@ -12,6 +12,7 @@ interface Props {
   placeholderTextColor?: string;
   autoFocus?: boolean;
   testID?: string;
+  loading?: boolean;
 }
 
 export function AppSearchBar({
@@ -24,6 +25,7 @@ export function AppSearchBar({
   placeholderTextColor,
   autoFocus,
   testID,
+  loading,
 }: Props) {
   return (
     <Searchbar
@@ -36,6 +38,7 @@ export function AppSearchBar({
       placeholderTextColor={placeholderTextColor ?? colors.textMuted}
       autoFocus={autoFocus}
       testID={testID}
+      loading={loading}
       elevation={0}
     />
   );

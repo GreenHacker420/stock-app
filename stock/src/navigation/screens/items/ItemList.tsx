@@ -276,6 +276,7 @@ export function ItemList() {
               setSelectedCat("ALL");
             }
           }}
+          loading={listQuery.isFetching || isDebouncePending}
         />
       </View>
 
@@ -492,7 +493,7 @@ const styles = StyleSheet.create({
   fixedSearchContainer: {
     paddingHorizontal: spacing.lg,
     paddingBottom: spacing.sm,
-    backgroundColor: colors.surface,
+    backgroundColor: colors.bg,
   },
   gridScroll: {
     padding: spacing.lg,
