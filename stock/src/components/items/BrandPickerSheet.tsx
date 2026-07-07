@@ -28,15 +28,23 @@ export function BrandPickerSheet({
   onDismiss: () => void;
   onCreateNew?: (name: string) => Promise<void>;
 }) {
-  const [newBrandName, setNewBrandName] = useState("");
+  const [searchText, setSearchText] = useState("");
   const [isCreating, setIsCreating] = useState(false);
 
+  const filteredBrands = brands.filter((brand) =>
+    brand.name.toLowerCase().includes(searchText.toLowerCase())
+  );
+
+  const exactMatch = brands.find(
+    (brand) => brand.name.trim().toLowerCase() === searchText.trim().toLowerCase()
+  );
+
   const handleCreate = async () => {
-    if (!newBrandName.trim() || !onCreateNew) return;
+    if (!searchText.trim() || !onCreateNew) return;
     setIsCreating(true);
     try {
-      await onCreateNew(newBrandName.trim());
-      setNewBrandName("");
+      await onCreateNew(searchText.trim());
+      setSearchText("");
     } catch (err) {
       // Error handled by caller
     } finally {
@@ -53,37 +61,43 @@ export function BrandPickerSheet({
               <View style={styles.handle} />
               <Text style={styles.title}>Select Brand</Text>
 
-              {onCreateNew && (
-                <View style={styles.quickAddContainer}>
-                  <TextInput
-                    mode="outlined"
-                    placeholder="Quick add brand..."
-                    value={newBrandName}
-                    onChangeText={setNewBrandName}
-                    style={styles.quickAddInput}
-                    outlineStyle={{ borderRadius: radius.md }}
-                    disabled={isCreating}
-                    dense
-                  />
-                  <Pressable
-                    onPress={handleCreate}
-                    disabled={!newBrandName.trim() || isCreating}
-                    style={({ pressed }) => [
-                      styles.quickAddBtn,
-                      (!newBrandName.trim() || isCreating) && { opacity: 0.5 },
-                      pressed && { opacity: 0.7 }
-                    ]}
-                  >
-                    {isCreating ? (
-                      <ActivityIndicator size="small" color={colors.primary} />
-                    ) : (
-                      <Icon source="plus" size={20} color={colors.primary} />
-                    )}
-                  </Pressable>
-                </View>
-              )}
+              <View style={styles.searchContainer}>
+                <TextInput
+                  mode="outlined"
+                  placeholder="Search or type new brand..."
+                  value={searchText}
+                  onChangeText={setSearchText}
+                  style={styles.searchInput}
+                  outlineStyle={{ borderRadius: radius.md }}
+                  left={<TextInput.Icon icon="magnify" />}
+                  right={
+                    searchText.trim().length > 0 ? (
+                      <TextInput.Icon icon="close" onPress={() => setSearchText("")} />
+                    ) : null
+                  }
+                  dense
+                  disabled={isCreating}
+                />
+              </View>
 
               <ScrollView showsVerticalScrollIndicator={false}>
+                {searchText.trim().length > 0 && !exactMatch && onCreateNew && (
+                  <Pressable
+                    onPress={handleCreate}
+                    disabled={isCreating}
+                    style={[styles.row, styles.createRow]}
+                  >
+                    {isCreating ? (
+                      <ActivityIndicator size="small" color={colors.primary} style={{ marginRight: spacing.sm }} />
+                    ) : (
+                      <Icon source="plus-circle" size={20} color={colors.primary} />
+                    )}
+                    <Text style={[styles.rowText, { color: colors.primary, fontWeight: fontWeight.bold }]}>
+                      {isCreating ? "Creating..." : `Create Brand "${searchText.trim()}"`}
+                    </Text>
+                  </Pressable>
+                )}
+
                 <Pressable
                   onPress={() => onSelect("")}
                   style={[styles.row, !selectedBrandId && styles.rowActive]}
@@ -92,7 +106,8 @@ export function BrandPickerSheet({
                   <Text style={[styles.rowText, !selectedBrandId && { color: colors.primary }]}>None</Text>
                   {!selectedBrandId && <Icon source="check" size={16} color={colors.primary} />}
                 </Pressable>
-                {brands.map((brand) => (
+
+                {filteredBrands.map((brand) => (
                   <Pressable
                     key={brand.id}
                     onPress={() => onSelect(brand.id)}
@@ -113,26 +128,20 @@ export function BrandPickerSheet({
 }
 
 const styles = StyleSheet.create({
-  quickAddContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
+  searchContainer: {
     marginBottom: spacing.md,
   },
-  quickAddInput: {
-    flex: 1,
+  searchInput: {
     height: 40,
     backgroundColor: colors.surface,
   },
-  quickAddBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: radius.md,
+  createRow: {
+    backgroundColor: colors.primaryLight,
+    borderColor: colors.primary + "30",
     borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.surfaceOffset,
+    borderRadius: radius.md,
+    marginBottom: spacing.sm,
+    paddingHorizontal: spacing.sm,
   },
   overlay: {
     flex: 1,

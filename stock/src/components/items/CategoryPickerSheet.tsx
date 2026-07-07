@@ -29,15 +29,23 @@ export function CategoryPickerSheet({
   onDismiss: () => void;
   onCreateNew?: (name: string) => Promise<void>;
 }) {
-  const [newCatName, setNewCatName] = useState("");
+  const [searchText, setSearchText] = useState("");
   const [isCreating, setIsCreating] = useState(false);
 
+  const filteredCategories = categories.filter((cat) =>
+    cat.name.toLowerCase().includes(searchText.toLowerCase())
+  );
+
+  const exactMatch = categories.find(
+    (cat) => cat.name.trim().toLowerCase() === searchText.trim().toLowerCase()
+  );
+
   const handleCreate = async () => {
-    if (!newCatName.trim() || !onCreateNew) return;
+    if (!searchText.trim() || !onCreateNew) return;
     setIsCreating(true);
     try {
-      await onCreateNew(newCatName.trim());
-      setNewCatName("");
+      await onCreateNew(searchText.trim());
+      setSearchText("");
     } catch (err) {
       // Error handled by caller
     } finally {
@@ -54,37 +62,43 @@ export function CategoryPickerSheet({
               <View style={styles.handle} />
               <Text style={styles.title}>Select Category</Text>
 
-              {onCreateNew && (
-                <View style={styles.quickAddContainer}>
-                  <TextInput
-                    mode="outlined"
-                    placeholder="Quick add category..."
-                    value={newCatName}
-                    onChangeText={setNewCatName}
-                    style={styles.quickAddInput}
-                    outlineStyle={{ borderRadius: radius.md }}
-                    disabled={isCreating}
-                    dense
-                  />
-                  <Pressable
-                    onPress={handleCreate}
-                    disabled={!newCatName.trim() || isCreating}
-                    style={({ pressed }) => [
-                      styles.quickAddBtn,
-                      (!newCatName.trim() || isCreating) && { opacity: 0.5 },
-                      pressed && { opacity: 0.7 }
-                    ]}
-                  >
-                    {isCreating ? (
-                      <ActivityIndicator size="small" color={colors.primary} />
-                    ) : (
-                      <Icon source="plus" size={20} color={colors.primary} />
-                    )}
-                  </Pressable>
-                </View>
-              )}
+              <View style={styles.searchContainer}>
+                <TextInput
+                  mode="outlined"
+                  placeholder="Search or type new category..."
+                  value={searchText}
+                  onChangeText={setSearchText}
+                  style={styles.searchInput}
+                  outlineStyle={{ borderRadius: radius.md }}
+                  left={<TextInput.Icon icon="magnify" />}
+                  right={
+                    searchText.trim().length > 0 ? (
+                      <TextInput.Icon icon="close" onPress={() => setSearchText("")} />
+                    ) : null
+                  }
+                  dense
+                  disabled={isCreating}
+                />
+              </View>
 
               <ScrollView showsVerticalScrollIndicator={false}>
+                {searchText.trim().length > 0 && !exactMatch && onCreateNew && (
+                  <Pressable
+                    onPress={handleCreate}
+                    disabled={isCreating}
+                    style={[styles.row, styles.createRow]}
+                  >
+                    {isCreating ? (
+                      <ActivityIndicator size="small" color={colors.primary} style={{ marginRight: spacing.sm }} />
+                    ) : (
+                      <Icon source="plus-circle" size={20} color={colors.primary} />
+                    )}
+                    <Text style={[styles.rowText, { color: colors.primary, fontWeight: fontWeight.bold }]}>
+                      {isCreating ? "Creating..." : `Create Category "${searchText.trim()}"`}
+                    </Text>
+                  </Pressable>
+                )}
+
                 <Pressable
                   onPress={() => onSelect("")}
                   style={[styles.row, !selectedCategoryId && styles.rowActive]}
@@ -93,7 +107,8 @@ export function CategoryPickerSheet({
                   <Text style={[styles.rowText, !selectedCategoryId && { color: colors.primary }]}>None</Text>
                   {!selectedCategoryId && <Icon source="check" size={16} color={colors.primary} />}
                 </Pressable>
-                {categories.map((cat) => (
+
+                {filteredCategories.map((cat) => (
                   <Pressable
                     key={cat.id}
                     onPress={() => onSelect(cat.id)}
@@ -114,26 +129,20 @@ export function CategoryPickerSheet({
 }
 
 const styles = StyleSheet.create({
-  quickAddContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.sm,
+  searchContainer: {
     marginBottom: spacing.md,
   },
-  quickAddInput: {
-    flex: 1,
+  searchInput: {
     height: 40,
     backgroundColor: colors.surface,
   },
-  quickAddBtn: {
-    width: 40,
-    height: 40,
-    borderRadius: radius.md,
+  createRow: {
+    backgroundColor: colors.primaryLight,
+    borderColor: colors.primary + "30",
     borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.surfaceOffset,
+    borderRadius: radius.md,
+    marginBottom: spacing.sm,
+    paddingHorizontal: spacing.sm,
   },
   overlay: {
     flex: 1,
