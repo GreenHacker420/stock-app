@@ -1,12 +1,12 @@
 {
   "expo": {
-    "name": "stock",
+    "name": "ShopControl",
     "slug": "stock",
     "version": "1.0.0",
     "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
-    "scheme": "stock",
+    "scheme": "ShopControl",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.shopcontrol"
