@@ -17,7 +17,7 @@ export const ItemCard = memo(({
   onLongPress,
   onEdit,
   onManageStock,
-  isEditing = false,
+  isEditing = null,
   draft,
   onSaveInline,
   onCancelInline,
@@ -30,7 +30,7 @@ export const ItemCard = memo(({
   onLongPress?: () => void;
   onEdit: () => void;
   onManageStock: () => void;
-  isEditing?: boolean;
+  isEditing?: "PRICES" | "STOCK" | null;
   draft?: { mrp?: string; defaultSellingPrice?: string; stockAdjustment?: string };
   onSaveInline?: (mrp: string, sellingPrice: string, stock: string) => void;
   onCancelInline?: () => void;
@@ -50,10 +50,10 @@ export const ItemCard = memo(({
     ? stock + Number(draft.stockAdjustment) 
     : stock;
 
-  if (isEditing) {
+  if (isEditing === "PRICES") {
     return (
       <View style={styles.itemCardEditing}>
-        <Text style={styles.editTitle} numberOfLines={1}>Quick Update: {item.name}</Text>
+        <Text style={styles.editTitle} numberOfLines={1}>Edit Prices: {item.name}</Text>
         
         <View style={styles.editRow}>
           <View style={{ flex: 1 }}>
@@ -70,7 +70,7 @@ export const ItemCard = memo(({
           <View style={{ flex: 1 }}>
             <TextInput
               mode="outlined"
-              label="Selling (₹)"
+              label="Selling Price (₹)"
               value={draftSelling}
               onChangeText={setDraftSelling}
               keyboardType="numeric"
@@ -80,15 +80,39 @@ export const ItemCard = memo(({
           </View>
         </View>
 
+        <View style={styles.editActions}>
+          <Pressable
+            onPress={onCancelInline}
+            style={({ pressed }) => [styles.btnCancel, pressed && { opacity: 0.7 }]}
+          >
+            <Text style={styles.btnCancelText}>Cancel</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => onSaveInline?.(draftMrp, draftSelling, draftStock)}
+            style={({ pressed }) => [styles.btnSave, pressed && { opacity: 0.7 }]}
+          >
+            <Text style={styles.btnSaveText}>Keep Update</Text>
+          </Pressable>
+        </View>
+      </View>
+    );
+  }
+
+  if (isEditing === "STOCK") {
+    return (
+      <View style={styles.itemCardEditing}>
+        <Text style={styles.editTitle} numberOfLines={1}>Add Stock: {item.name}</Text>
+        
         <View style={styles.editRow}>
           <View style={{ flex: 1 }}>
             <TextInput
               mode="outlined"
-              label="Add/Sub Stock Qty"
-              value={draftStock}
+              label="Add Stock Qty"
+              value={draftStock === "0" ? "" : draftStock}
               onChangeText={setDraftStock}
               keyboardType="numeric"
               placeholder="e.g. +10 or -5"
+              autoFocus
               style={styles.editInput}
               outlineStyle={styles.outline}
             />

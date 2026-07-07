@@ -48,6 +48,7 @@ export function ItemList() {
 
   const [draftUpdates, setDraftUpdates] = useState<Record<string, { mrp?: string; defaultSellingPrice?: string; stockAdjustment?: string; originalStock: number }>>({});
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [editingMode, setEditingMode] = useState<"PRICES" | "STOCK" | null>(null);
 
   useEffect(() => {
     const params = route.params as { categoryId?: string } | undefined;
@@ -130,6 +131,7 @@ export function ItemList() {
       return next;
     });
     setEditingItemId(null);
+    setEditingMode(null);
   };
 
   const handleSaveBatch = async () => {
@@ -394,12 +396,12 @@ export function ItemList() {
                   ].filter(Boolean) as any
                 );
               }}
-              onEdit={() => { triggerLightHaptic(); setEditingItemId(item.id); }}
-              onManageStock={() => { triggerLightHaptic(); setEditingItemId(item.id); }}
-              isEditing={editingItemId === item.id}
+              onEdit={() => { triggerLightHaptic(); setEditingItemId(item.id); setEditingMode("PRICES"); }}
+              onManageStock={() => { triggerLightHaptic(); setEditingItemId(item.id); setEditingMode("STOCK"); }}
+              isEditing={editingItemId === item.id ? editingMode : null}
               draft={draftUpdates[item.id]}
               onSaveInline={(mrp, selling, stockAdj) => handleSaveInline(item.id, mrp, selling, stockAdj, stockByItem.get(item.id) ?? 0)}
-              onCancelInline={() => setEditingItemId(null)}
+              onCancelInline={() => { setEditingItemId(null); setEditingMode(null); }}
             />
           )}
           ListEmptyComponent={
