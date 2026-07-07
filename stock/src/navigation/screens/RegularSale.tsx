@@ -442,9 +442,15 @@ export function RegularSale() {
   }, [customersQuery.data]);
 
   const displayItems = useMemo(() => {
-    if (!network.isOffline) return itemsQuery.data?.items ?? [];
-    return [];
-  }, [itemsQuery.data, network.isOffline]);
+    const items = !network.isOffline ? itemsQuery.data?.items ?? [] : [];
+    return [...items].sort((a, b) => {
+      const aSelected = (cart[a.id]?.quantity ?? 0) > 0;
+      const bSelected = (cart[b.id]?.quantity ?? 0) > 0;
+      if (aSelected && !bSelected) return -1;
+      if (!aSelected && bSelected) return 1;
+      return 0;
+    });
+  }, [itemsQuery.data, network.isOffline, cart]);
 
   const selectedCustomer = useMemo(() => 
     mergedCustomers.find((c: any) => c.id === customerId),
