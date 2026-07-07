@@ -572,3 +572,23 @@ test.describe("Domain event mutation coverage contracts", () => {
     assert.ok(client.includes("export async function deleteItem"));
   });
 });
+
+test.describe("Product image upload contracts", () => {
+  test("item images use the generic S3 upload service and tracked internal assets", () => {
+    const itemService = readBackend("services/item.service.js");
+    const uploadService = readBackend("services/upload.service.js");
+    const s3Storage = readBackend("lib/s3-storage.js");
+    const client = readStock("api/client.ts");
+
+    assert.ok(itemService.includes("uploadProductImageAsset"));
+    assert.ok(!itemService.includes("../lib/wa-media.js"));
+    assert.ok(uploadService.includes('source: "INTERNAL"'));
+    assert.ok(uploadService.includes('kind: "IMAGE"'));
+    assert.ok(uploadService.includes('status: "READY"'));
+    assert.ok(uploadService.includes('"shops"'));
+    assert.ok(uploadService.includes('"categories"'));
+    assert.ok(uploadService.includes('"items"'));
+    assert.ok(s3Storage.includes("export async function uploadBufferToS3"));
+    assert.ok(client.includes('request.open("POST", `${API_BASE_URL}/items/image`)'));
+  });
+});

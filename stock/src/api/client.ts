@@ -512,7 +512,7 @@ export function uploadItemImage(
   data: { shopId: string; categoryId?: string | null; itemId?: string | null },
   image: LocalItemImage,
 ) {
-  return new Promise<{ bucket: string; key: string; url: string }>((resolve, reject) => {
+  return new Promise<{ assetId?: string; bucket: string; key: string; url: string }>((resolve, reject) => {
     const request = new XMLHttpRequest();
     request.open("POST", `${API_BASE_URL}/items/image`);
     request.setRequestHeader("Authorization", `Bearer ${token}`);

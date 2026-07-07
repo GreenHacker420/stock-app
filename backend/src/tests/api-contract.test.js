@@ -75,6 +75,7 @@ test("item routes contract", () => {
   assertRoute(src, "DELETE", '"/categories/:id"', "DELETE /items/categories/:id");
   assertRoute(src, "GET",  '"/"', "GET /items");
   assertRoute(src, "POST", '"/"', "POST /items");
+  assertRoute(src, "POST", '"/image"', "POST /items/image");
   assertRoute(src, "PATCH", '"/:id"', "PATCH /items/:id");
   assertRoute(src, "DELETE", '"/:id"', "DELETE /items/:id");
   assertRoute(src, "GET",  '"/:id/stock"', "GET /items/:id/stock");

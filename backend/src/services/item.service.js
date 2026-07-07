@@ -3,7 +3,7 @@ import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 import { EntityType, AuditAction, Prisma } from "../generated/prisma/index.js";
 import { generateEmbedding } from "../utils/embeddings.js";
-import { uploadToS3 } from "../lib/wa-media.js";
+import { uploadProductImageAsset } from "./upload.service.js";
 import { createDomainEvent, enqueueDomainEvent } from "./domain-event.service.js";
 import {
   bestEffortInvalidateForDomainEvent,
@@ -1035,11 +1035,6 @@ export async function uploadItemImage(user, data, file) {
   await assertShopAccess(user, data.shopId);
   assertCanManageItems(user);
 
-  if (!file) throw new ApiError(400, "Image file is required");
-  if (!["image/jpeg", "image/png", "image/webp"].includes(file.mimetype)) {
-    throw new ApiError(400, "Only JPG, PNG, and WebP product photos are supported");
-  }
-
   let categoryPath = "uncategorised";
   if (data.categoryId) {
     const category = await prisma.itemCategory.findUnique({ where: { id: data.categoryId } });
@@ -1058,18 +1053,13 @@ export async function uploadItemImage(user, data, file) {
     itemPath = `${slugPart(item.name, "item")}-${item.id}`;
   }
 
-  const extension = file.mimetype === "image/png" ? "png" : file.mimetype === "image/webp" ? "webp" : "jpg";
-  const key = [
-    "shops",
-    data.shopId,
-    "categories",
+  return uploadProductImageAsset({
+    shopId: data.shopId,
+    createdById: user.id,
     categoryPath,
-    "items",
     itemPath,
-    `${Date.now()}-${slugPart(file.originalname, "photo")}.${extension}`,
-  ].join("/");
-
-  return uploadToS3(file.buffer, key, file.mimetype);
+    file,
+  });
 }
 
 // ---------------------------------------------------------------------------
