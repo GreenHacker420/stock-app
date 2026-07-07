@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect, useCallback } from "react";
 import { 
   ScrollView, 
   View, 
@@ -15,13 +15,12 @@ import {
   Icon,
   List,
   Divider,
-  Switch,
   SegmentedButtons,
   TextInput,
   Portal,
   Dialog
 } from "react-native-paper";
-import { useRoute } from "@react-navigation/native";
+import { useRoute, useNavigation, RouteProp } from "@react-navigation/native";
 import { DynamicUpiQr } from "../../components/ui/DynamicUpiQr";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useDebounce } from "use-debounce";
@@ -29,7 +28,6 @@ import { useDebounce } from "use-debounce";
 import { useShopsQuery } from "../../hooks/useShops";
 import { useCustomersQuery, useCreateCustomerMutation } from "../../hooks/useCustomers";
 import { useAddPaymentMutation } from "../../hooks/usePayments";
-import { useAuthStore } from "../../auth/auth-store";
 import { useNetworkStatus } from "../../hooks/useNetworkStatus";
 import { SuccessModal } from "../../components/ui/SuccessModal";
 import { useShopStore } from "../../auth/shop-store";
@@ -39,6 +37,16 @@ import { Button } from "../../components/ui/Button";
 import { FormTextField } from "../../components/forms/FormTextField";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { goBack } from "../navigation-ref";
+
+type TakePaymentRouteProp = RouteProp<{
+  TakePayment: {
+    customerId?: string;
+    saleId?: string;
+    orderId?: string;
+    dmId?: string;
+    amount?: number;
+  };
+}, "TakePayment">;
 
 const paymentModes = [
   { label: "Cash", value: "CASH", icon: "cash" },
@@ -68,34 +76,48 @@ const getPaymentModeColor = (mode: string) => {
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 const internetRequiredMessage = "Internet connection required. Please connect to the internet to complete this action.";
 
-const haptic = (s: "light" | "medium" = "light") => {
+const haptic = (s: "selection" | "success" | "error" | "light" | "medium" = "selection") => {
   if (Platform.OS !== "web") {
-    void Haptics.impactAsync(
-      s === "medium" ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light
-    ).catch(() => {});
+    if (s === "selection") {
+      void Haptics.selectionAsync().catch(() => {});
+    } else if (s === "success") {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    } else if (s === "error") {
+      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+    } else {
+      void Haptics.impactAsync(
+        s === "medium" ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light
+      ).catch(() => {});
+    }
   }
 };
 
 export function TakePayment() {
   const { activeShopId } = useShopStore();
-  const route = useRoute<any>();
+  const route = useRoute<TakePaymentRouteProp>();
+  const navigation = useNavigation();
   const network = useNetworkStatus();
   const insets = useSafeAreaInsets();
 
+  const canGoBack = navigation.canGoBack();
+  const isTabBarVisible = !canGoBack;
+  const bottomPadding = canGoBack 
+    ? (insets.bottom > 0 ? insets.bottom : spacing.md) 
+    : spacing.md;
+
+  const isLinked = Boolean(route.params?.saleId || route.params?.orderId || route.params?.dmId);
+
   const [isWalkin, setIsWalkin] = useState(!route.params?.customerId);
-  const isTabBarVisible = route.name === "StaffPayments";
-  const bottomPadding = isTabBarVisible 
-    ? (insets.bottom > 0 ? insets.bottom + 80 : 100) 
-    : (insets.bottom > 0 ? insets.bottom : spacing.lg);
+  const [selectedCustomer, setSelectedCustomer] = useState<any | null>(null);
   const [customerId, setCustomerId] = useState<string | undefined>(route.params?.customerId);
-  const [saleId] = useState<string | undefined>(route.params?.saleId);
+  const [saleId, setSaleId] = useState<string | undefined>(route.params?.saleId);
   const [orderId, setOrderId] = useState<string | undefined>(route.params?.orderId);
   const [dmId, setDmId] = useState<string | undefined>(route.params?.dmId);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearchQuery] = useDebounce(searchQuery, 300);
   const [amount, setAmount] = useState(route.params?.amount?.toString() || "");
   const [paymentMode, setPaymentMode] = useState<typeof paymentModes[number]["value"]>("CASH");
-  const [upiOption, setUpiOption] = useState<"GENERATE" | "REGISTER">("REGISTER");
+  const [upiMode, setUpiMode] = useState<"STATIC_QR" | "DYNAMIC_QR">("STATIC_QR");
   const [reference, setReference] = useState("");
   const [notes, setNote] = useState("");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -113,7 +135,8 @@ export function TakePayment() {
   const handleOpenQuickCreate = () => {
     haptic();
     const query = searchQuery.trim();
-    const isPhoneNumber = /^\d{5,15}$/.test(query); // 5 to 15 digits
+    // Match phone numbers strictly or with common delimiters but normalize when saving
+    const isPhoneNumber = /^\+?[\d\s-]{5,15}$/.test(query);
     if (isPhoneNumber) {
       setNewCustPhone(query);
       setNewCustName("");
@@ -137,6 +160,7 @@ export function TakePayment() {
     }, {
       onSuccess: (newCust: any) => {
         haptic("medium");
+        setSelectedCustomer(newCust);
         setCustomerId(newCust.id);
         setSearchQuery("");
         setQuickCreateVisible(false);
@@ -158,37 +182,93 @@ export function TakePayment() {
     return customersQuery.data ?? [];
   }, [customersQuery.data]);
 
-  const filteredCustomers = useMemo(() => {
-    if (!searchQuery) return [];
-    return mergedCustomers.slice(0, 5);
-  }, [mergedCustomers, searchQuery]);
+  const normalizedSearch = searchQuery.trim();
+  const normalizedDebounced = debouncedSearchQuery.trim();
+  const searchIsSettled = normalizedSearch === normalizedDebounced;
 
-  const selectedCustomer = useMemo(() => 
-    mergedCustomers.find((c: any) => c.id === customerId), 
-    [mergedCustomers, customerId]
-  );
+  const filteredCustomers = useMemo(() => {
+    return normalizedSearch && searchIsSettled
+      ? mergedCustomers.slice(0, 5)
+      : [];
+  }, [mergedCustomers, normalizedSearch, searchIsSettled]);
+
+  const showSearchLoader = searchQuery.trim() !== "" && (customersQuery.isFetching || !searchIsSettled);
+
+  // Resolve customer snapshot when customer list is loaded
+  useEffect(() => {
+    if (customerId && mergedCustomers.length > 0) {
+      const found = mergedCustomers.find((c: any) => c.id === customerId);
+      if (found) {
+        setSelectedCustomer(found);
+      }
+    }
+  }, [customerId, mergedCustomers]);
+
+  // Synchronize state when route parameters change
+  useEffect(() => {
+    const params = route.params || {};
+    setIsWalkin(!params.customerId);
+    setCustomerId(params.customerId);
+    setOrderId(params.orderId);
+    setDmId(params.dmId);
+    setAmount(params.amount?.toString() || "");
+    setPaymentMode("CASH");
+    setUpiMode("STATIC_QR");
+    setReference("");
+    setNote("");
+    setErrorMsg(null);
+    setSelectedCustomer(null);
+    setSearchQuery("");
+    setShowMetadata(false);
+  }, [route.params]);
 
   const paymentMutation = useAddPaymentMutation();
 
+  const numericAmount = Number(amount);
+  const isValidAmount = 
+    /^\d+(\.\d{0,2})?$/.test(amount) && 
+    Number.isFinite(numericAmount) && 
+    numericAmount > 0;
+
+  const hasValidCustomer = isWalkin || Boolean(customerId);
+
+  const canSubmit = 
+    isValidAmount && 
+    hasValidCustomer && 
+    !network.isOffline && 
+    !paymentMutation.isPending;
+
   const handleConfirmPayment = () => {
-    if (network.isOffline) {
-      Alert.alert("Internet required", internetRequiredMessage);
+    if (paymentMutation.isPending) return;
+
+    if (!isValidAmount) {
+      haptic("error");
+      setErrorMsg("Enter a valid payment amount.");
       return;
     }
+
+    if (!isWalkin && !customerId) {
+      haptic("error");
+      setErrorMsg("Select a customer before recording this payment.");
+      return;
+    }
+
     paymentMutation.mutate({
       customerId: isWalkin ? undefined : customerId,
       saleId,
       orderId,
       dmId,
       paymentMode,
-      amount: Number(amount),
+      amount: numericAmount,
       referenceNumber: reference || undefined,
-      notes: notes || (upiOption === 'GENERATE' ? 'Paid via generated QR' : undefined),
+      notes: notes || (upiMode === 'DYNAMIC_QR' ? 'Paid via generated QR' : undefined),
     }, {
       onSuccess: () => {
+        haptic("success");
         setSuccessVisible(true);
       },
       onError: (err: any) => {
+        haptic("error");
         if (String(err?.message || "").toLowerCase().includes("network")) {
           Alert.alert("Internet required", internetRequiredMessage);
         } else {
@@ -198,24 +278,24 @@ export function TakePayment() {
     });
   };
 
-  const upiPayload = useMemo(() => {
-    if (!activeShop?.upiId || !amount) return "";
-    const name = encodeURIComponent(activeShop.upiName || activeShop.name);
-    return `upi://pay?pa=${activeShop.upiId}&pn=${name}&am=${amount}&cu=INR`;
-  }, [activeShop, amount]);
-
-  const showQrSection = paymentMode === 'UPI' && upiOption === 'GENERATE' && amount && !!activeShop?.upiId;
+  const showQrSection = paymentMode === 'UPI' && upiMode === 'DYNAMIC_QR' && isValidAmount && !!activeShop?.upiId;
 
   // Keypad controls
   const handleKeyPress = (key: string) => {
     setErrorMsg(null);
     if (key === "⌫") {
+      haptic("light");
       setAmount((prev: string) => prev.slice(0, -1));
     } else if (key === ".") {
       if (amount.includes(".")) return;
+      haptic("light");
       setAmount((prev: string) => (prev === "" ? "0." : prev + "."));
     } else {
+      // Prevent entering more than 10 digits
+      if (amount.replace(".", "").length >= 10) return;
+
       if (amount === "0" && key === "0") return;
+      haptic("light");
       if (amount === "0") {
         setAmount(key);
       } else {
@@ -227,12 +307,32 @@ export function TakePayment() {
   };
 
   const handlePresetPress = (val: number) => {
+    haptic("selection");
     setErrorMsg(null);
     const current = Number(amount) || 0;
     setAmount((current + val).toString());
   };
 
+  const getConfirmButtonLabel = () => {
+    const formattedAmount = money(amount);
+    switch (paymentMode) {
+      case "CASH":
+        return `RECEIVE ${formattedAmount} CASH`;
+      case "UPI":
+        return `RECEIVE ${formattedAmount} VIA UPI`;
+      case "CARD":
+        return `RECORD ${formattedAmount} CARD PAYMENT`;
+      case "BANK_TRANSFER":
+        return `RECORD ${formattedAmount} BANK TRANSFER`;
+      case "CHEQUE":
+        return `RECORD ${formattedAmount} CHEQUE`;
+      default:
+        return `RECORD ${formattedAmount} PAYMENT`;
+    }
+  };
+
   const handleClear = () => {
+    haptic("medium");
     setErrorMsg(null);
     setAmount("");
   };
@@ -249,6 +349,8 @@ export function TakePayment() {
           style={styles.scrollView}
           showsVerticalScrollIndicator={false} 
           contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
         >
           {/* Curved Brand Customer Header Card */}
           <View style={styles.customerCard}>
@@ -256,22 +358,24 @@ export function TakePayment() {
               <Text style={styles.customerLabel}>Customer Info</Text>
               
               {/* Custom Toggle Pills */}
-              <View style={styles.toggleRow}>
-                <Pressable
-                  onPress={() => { haptic(); setIsWalkin(true); setCustomerId(undefined); }}
-                  style={[styles.togglePill, isWalkin && styles.togglePillActive]}
-                >
-                  <Icon source="walk" size={12} color={isWalkin ? colors.primary : colors.textMuted} />
-                  <Text style={[styles.togglePillText, isWalkin && styles.togglePillTextActive]}>Walk-in</Text>
-                </Pressable>
-                <Pressable
-                  onPress={() => { haptic(); setIsWalkin(false); }}
-                  style={[styles.togglePill, !isWalkin && styles.togglePillActive]}
-                >
-                  <Icon source="account-search-outline" size={12} color={!isWalkin ? colors.primary : colors.textMuted} />
-                  <Text style={[styles.togglePillText, !isWalkin && styles.togglePillTextActive]}>Search</Text>
-                </Pressable>
-              </View>
+              {!isLinked && (
+                <View style={styles.toggleRow}>
+                  <Pressable
+                    onPress={() => { haptic(); setIsWalkin(true); setCustomerId(undefined); setSelectedCustomer(null); }}
+                    style={[styles.togglePill, isWalkin && styles.togglePillActive]}
+                  >
+                    <Icon source="walk" size={12} color={isWalkin ? colors.primary : colors.textMuted} />
+                    <Text style={[styles.togglePillText, isWalkin && styles.togglePillTextActive]}>Walk-in</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => { haptic(); setIsWalkin(false); }}
+                    style={[styles.togglePill, !isWalkin && styles.togglePillActive]}
+                  >
+                    <Icon source="account-search-outline" size={12} color={!isWalkin ? colors.primary : colors.textMuted} />
+                    <Text style={[styles.togglePillText, !isWalkin && styles.togglePillTextActive]}>Search</Text>
+                  </Pressable>
+                </View>
+              )}
             </View>
 
             {!isWalkin ? (
@@ -301,16 +405,20 @@ export function TakePayment() {
                            </Text>
                         </View>
                      </View>
-                     <Pressable 
-                       onPress={() => { setCustomerId(undefined); setOrderId(undefined); setDmId(undefined); }}
-                       style={({ pressed }) => [styles.changeCustButton, pressed ? styles.pressed : undefined].filter(Boolean) as any}
-                     >
-                       <Text style={styles.changeCustText}>Change</Text>
-                     </Pressable>
+                     {!isLinked && (
+                       <Pressable 
+                         onPress={() => { haptic("medium"); setCustomerId(undefined); setSelectedCustomer(null); setOrderId(undefined); setDmId(undefined); }}
+                         style={({ pressed }) => [styles.changeCustButton, pressed ? styles.pressed : undefined].filter(Boolean) as any}
+                       >
+                         <Text style={styles.changeCustText}>Change</Text>
+                       </Pressable>
+                     )}
                   </View>
                 )}
                 
-                {searchQuery ? (
+                {showSearchLoader ? (
+                  <ActivityIndicator size="small" color={colors.primary} style={{ marginVertical: spacing.md }} />
+                ) : searchQuery && searchIsSettled ? (
                   <View style={styles.searchResults}>
                     {filteredCustomers.map(customer => (
                       <List.Item
@@ -318,6 +426,8 @@ export function TakePayment() {
                         title={customer.name}
                         description={customer.phone || "No phone"}
                         onPress={() => {
+                          haptic("selection");
+                          setSelectedCustomer(customer);
                           setCustomerId(customer.id);
                           setSearchQuery("");
                         }}
@@ -353,8 +463,15 @@ export function TakePayment() {
             <Text style={styles.amountCurrency}>AMOUNT RECEIVED</Text>
             <View style={styles.amountDisplayRow}>
               <Text style={styles.amountSymbol}>₹</Text>
-              <Text style={styles.amountValue}>{amount || "0"}</Text>
-              <Text style={styles.blinkingCursor}>|</Text>
+              <Text 
+                style={styles.amountValue}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.55}
+              >
+                {amount || "0"}
+              </Text>
+              {!amount && <Text style={styles.blinkingCursor}>|</Text>}
             </View>
           </View>
 
@@ -414,17 +531,17 @@ export function TakePayment() {
           {paymentMode === 'UPI' && (
             <View style={styles.upiOptionsContainer}>
                <SegmentedButtons
-                  value={upiOption}
-                  onValueChange={v => setUpiOption(v as any)}
+                  value={upiMode}
+                  onValueChange={v => { haptic("selection"); setUpiMode(v as any); }}
                   buttons={[
-                    { value: "REGISTER", label: "Shop QR", icon: "qrcode" },
-                    { value: "GENERATE", label: "Dynamic QR", icon: "plus-box-outline" },
+                    { value: "STATIC_QR", label: "Shop QR", icon: "qrcode" },
+                    { value: "DYNAMIC_QR", label: "Dynamic QR", icon: "plus-box-outline" },
                   ]}
                   theme={{ colors: { primary: colors.primary } }}
                   style={styles.segmentedButtons}
                />
                
-               {upiOption === 'GENERATE' && !activeShop?.upiId && (
+               {upiMode === 'DYNAMIC_QR' && !activeShop?.upiId && (
                   <View style={styles.alertCard}>
                      <Icon source="alert-circle-outline" size={20} color={colors.warning} />
                      <Text style={styles.alertText}>
@@ -456,7 +573,7 @@ export function TakePayment() {
                   <Button 
                      variant="ghost" 
                      label="Cancel QR" 
-                     onPress={() => setUpiOption("REGISTER")}
+                     onPress={() => { haptic("medium"); setUpiMode("STATIC_QR"); }}
                      style={styles.flex1}
                   />
                   <Button 
@@ -472,35 +589,35 @@ export function TakePayment() {
           ) : (
             /* Custom POS Numeric Keypad (Tactile Registered Theme) */
             <View style={styles.keypadContainer}>
-              {[
-                ["1", "2", "3"],
-                ["4", "5", "6"],
-                ["7", "8", "9"],
-                [".", "0", "⌫"]
-              ].map((row, rIdx) => (
-                <View key={rIdx} style={styles.keypadRow}>
-                  {row.map((key) => {
-                    const isBackspace = key === "⌫";
-                    return (
-                      <Pressable
-                        key={key}
-                        style={({ pressed }) => [
-                          styles.keypadButton,
-                          isBackspace ? styles.keypadBackspace : undefined,
-                          pressed ? (isBackspace ? styles.keypadBackspacePressed : styles.keypadButtonPressed) : undefined
-                        ].filter(Boolean) as any}
-                        onPress={() => handleKeyPress(key)}
-                      >
-                        {isBackspace ? (
-                          <Icon source="backspace-outline" size={22} color="#ffffff" />
-                        ) : (
-                          <Text style={styles.keypadButtonText}>{key}</Text>
-                        )}
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              ))}
+               {[
+                 ["1", "2", "3"],
+                 ["4", "5", "6"],
+                 ["7", "8", "9"],
+                 [".", "0", "⌫"]
+               ].map((row, rIdx) => (
+                 <View key={rIdx} style={styles.keypadRow}>
+                   {row.map((key) => {
+                     const isBackspace = key === "⌫";
+                     return (
+                       <Pressable
+                         key={key}
+                         style={({ pressed }) => [
+                           styles.keypadButton,
+                           isBackspace ? styles.keypadBackspace : undefined,
+                           pressed ? (isBackspace ? styles.keypadBackspacePressed : styles.keypadButtonPressed) : undefined
+                         ].filter(Boolean) as any}
+                         onPress={() => handleKeyPress(key)}
+                       >
+                         {isBackspace ? (
+                           <Icon source="backspace-outline" size={22} color="#ffffff" />
+                         ) : (
+                           <Text style={styles.keypadButtonText}>{key}</Text>
+                         )}
+                       </Pressable>
+                     );
+                   })}
+                 </View>
+               ))}
             </View>
           )}
 
@@ -531,7 +648,7 @@ export function TakePayment() {
 
             {showMetadata && (
               <View style={styles.metadataFields}>
-                {paymentMode !== 'CASH' && (upiOption === 'REGISTER' || paymentMode !== 'UPI') && (
+                {paymentMode !== 'CASH' && (upiMode === 'STATIC_QR' || paymentMode !== 'UPI') && (
                   <FormTextField
                      label={paymentMode === 'CHEQUE' ? "Cheque Number" : "Reference / UTR Number"}
                      value={reference}
@@ -567,9 +684,9 @@ export function TakePayment() {
             { paddingBottom: bottomPadding }
           ]}>
             <Button
-              label="CONFIRM PAYMENT"
+              label={getConfirmButtonLabel()}
               variant="success"
-              disabled={!amount || Number(amount) <= 0}
+              disabled={!canSubmit}
               loading={paymentMutation.isPending}
               onPress={handleConfirmPayment}
               fullWidth
@@ -640,14 +757,14 @@ export function TakePayment() {
 
       <SuccessModal
         visible={successVisible}
-        title={network.isOffline ? "Payment Saved Offline" : "Payment Recorded"}
-        message={network.isOffline ? `Received ${money(amount)} via ${paymentMode}. It will sync when internet is back.` : `Received ${money(amount)} via ${paymentMode}.`}
+        title="Payment Recorded"
+        message={`Received ${money(amount)} via ${paymentMode}.`}
         onClose={() => {
           setSuccessVisible(false);
           setAmount("");
           setReference("");
           setNote("");
-          setUpiOption("REGISTER");
+          setUpiMode("STATIC_QR");
           goBack();
         }}
       />
@@ -663,24 +780,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 150, // ensures the Confirm button scrolls completely clear of floating tabs
-  },
-  tabHeaderSpacer: {
-    paddingHorizontal: spacing.lg,
-    marginTop: spacing.md,
-    marginBottom: spacing.md,
-  },
-  tabTitle: {
-    fontSize: 26,
-    fontWeight: fontWeight.black,
-    color: colors.textPrimary,
-    letterSpacing: -0.5,
-  },
-  tabSubtitle: {
-    fontSize: 13,
-    color: colors.textSecondary,
-    fontWeight: fontWeight.medium,
-    marginTop: 2,
+    paddingBottom: spacing.lg,
   },
   customerCard: {
     marginHorizontal: spacing.lg,
@@ -976,22 +1076,9 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     letterSpacing: 1.5,
   },
-  qrFrame: {
-    padding: spacing.md,
-    backgroundColor: '#ffffff',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: colors.borderStrong,
-    ...shadow.sm,
-  },
   qrInfo: {
     alignItems: 'center',
     gap: 4,
-  },
-  qrAmount: {
-    fontSize: fontSize.xxl,
-    fontWeight: fontWeight.black,
-    color: colors.textPrimary,
   },
   qrInstructions: {
     fontSize: 11,
