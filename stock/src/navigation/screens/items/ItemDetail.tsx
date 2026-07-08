@@ -1,7 +1,9 @@
 import { Fragment, useMemo, useState } from "react";
-import { View, StyleSheet, ScrollView, Alert } from "react-native";
-import { Text, Divider } from "react-native-paper";
+import { View, StyleSheet, ScrollView, Alert, Dimensions, Pressable, Modal } from "react-native";
+import { Image } from "expo-image";
+import { Text, Divider, Icon } from "react-native-paper";
 import { useRoute } from "@react-navigation/native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuthStore } from "../../../auth/auth-store";
 import { useShopStore } from "../../../auth/shop-store";
@@ -32,6 +34,9 @@ export function ItemDetail() {
   const route = useRoute();
   const { itemId } = route.params as ItemDetailRouteParams;
   const [activeTab, setActiveTab] = useState<ItemDetailTabId>("overview");
+  const [activeImageIndex, setActiveImageIndex] = useState(0);
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  const insets = useSafeAreaInsets();
 
   const user = useAuthStore((s) => s.user);
   const { activeShopId } = useShopStore();
@@ -53,6 +58,10 @@ export function ItemDetail() {
 
   const stockData = stockQuery.data as ItemStockResponse | undefined;
   const itemData = stockData?.item;
+  const imageUrls = useMemo(() => {
+    if (!itemData?.imageUrl) return [];
+    return itemData.imageUrl.split(",").filter(Boolean);
+  }, [itemData?.imageUrl]);
   const physicalStock = stockData?.currentStock ?? 0;
   const reservedStock = stockData?.reservedStock ?? 0;
   const availableStock = stockData?.availableStock ?? 0;
@@ -148,6 +157,55 @@ export function ItemDetail() {
   return (
     <Screen edges={["top", "left", "right"]} scroll={false}>
       <AppHeader title={itemData.name} subtitle={itemData.category?.name ?? "No Category"} fallbackRoute="ItemList" />
+
+      {imageUrls.length > 0 && (
+        <View style={styles.carouselContainer}>
+          <ScrollView
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            onScroll={(e) => {
+              const contentOffset = e.nativeEvent.contentOffset.x;
+              const viewSize = e.nativeEvent.layoutMeasurement.width;
+              const pageNum = Math.floor(contentOffset / viewSize);
+              setActiveImageIndex(pageNum);
+            }}
+            scrollEventThrottle={16}
+            style={styles.carouselScrollView}
+          >
+            {imageUrls.map((url, idx) => (
+              <Pressable
+                key={idx}
+                onPress={() => setPreviewImageUrl(url)}
+                style={({ pressed }) => [
+                  styles.carouselImageContainer,
+                  pressed && { opacity: 0.9 }
+                ]}
+              >
+                <Image
+                  source={{ uri: url }}
+                  style={styles.carouselImage}
+                  contentFit="cover"
+                />
+              </Pressable>
+            ))}
+          </ScrollView>
+
+          {imageUrls.length > 1 && (
+            <View style={styles.dotsRow}>
+              {imageUrls.map((_, idx) => (
+                <View
+                  key={idx}
+                  style={[
+                    styles.dot,
+                    activeImageIndex === idx && styles.activeDot
+                  ]}
+                />
+              ))}
+            </View>
+          )}
+        </View>
+      )}
 
       <ItemSummaryCard item={itemData} availableStock={availableStock} minStock={minStock} />
       <ItemTabBar tabs={tabs} activeTab={activeTab} onChange={setActiveTab} />
@@ -266,6 +324,34 @@ export function ItemDetail() {
         onDismiss={() => setTransferModalVisible(false)}
         onConfirm={handleConfirmTransfer}
       />
+
+      <Modal
+        visible={!!previewImageUrl}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPreviewImageUrl(null)}
+      >
+        <Pressable 
+          style={styles.lightboxOverlay} 
+          onPress={() => setPreviewImageUrl(null)}
+        >
+          <View style={styles.lightboxContent}>
+            {previewImageUrl && (
+              <Image
+                source={{ uri: previewImageUrl }}
+                style={styles.lightboxImage}
+                contentFit="contain"
+              />
+            )}
+            <Pressable 
+              onPress={() => setPreviewImageUrl(null)} 
+              style={[styles.closeLightboxBtn, { top: insets.top > 0 ? insets.top + spacing.md : spacing.xl }]}
+            >
+              <Icon source="close" size={24} color="#ffffff" />
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
     </Screen>
   );
 }
@@ -350,5 +436,70 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     flexShrink: 1,
     textAlign: "right",
+  },
+  carouselContainer: {
+    height: 220,
+    width: "100%",
+    backgroundColor: "#f3f4f6",
+    position: "relative",
+  },
+  carouselScrollView: {
+    width: "100%",
+    height: "100%",
+  },
+  carouselImageContainer: {
+    width: Dimensions.get("window").width,
+    height: 220,
+  },
+  carouselImage: {
+    width: "100%",
+    height: "100%",
+  },
+  dotsRow: {
+    position: "absolute",
+    bottom: spacing.md,
+    left: 0,
+    right: 0,
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 6,
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "rgba(255, 255, 255, 0.4)",
+  },
+  activeDot: {
+    width: 14,
+    backgroundColor: "#ffffff",
+  },
+  lightboxOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.9)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  lightboxContent: {
+    width: "100%",
+    height: "100%",
+    justifyContent: "center",
+    alignItems: "center",
+    position: "relative",
+  },
+  lightboxImage: {
+    width: "90%",
+    height: "80%",
+  },
+  closeLightboxBtn: {
+    position: "absolute",
+    right: spacing.xl,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
+    justifyContent: "center",
+    alignItems: "center",
   },
 });

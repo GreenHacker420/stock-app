@@ -1,4 +1,4 @@
-import { memo, useState, useEffect, useRef } from "react";
+import { memo, useState, useEffect, useRef, useMemo } from "react";
 import { View, StyleSheet, Pressable, Alert } from "react-native";
 import { Text, Icon, TextInput } from "react-native-paper";
 
@@ -22,6 +22,7 @@ export const ItemCard = memo(({
   onSavePrices,
   onSaveStock,
   onCancelInline,
+  onPressImage,
 }: {
   item: Item;
   stock: number;
@@ -36,6 +37,7 @@ export const ItemCard = memo(({
   onSavePrices?: (draft: { mrp: string; defaultSellingPrice: string }) => void;
   onSaveStock?: (draft: { adjustment: string }) => void;
   onCancelInline?: () => void;
+  onPressImage?: (uri: string) => void;
 }) => {
   const minStock = Number(item.minimumStock ?? 0);
 
@@ -43,6 +45,11 @@ export const ItemCard = memo(({
   const [draftSelling, setDraftSelling] = useState("");
   const [draftStock, setDraftStock] = useState("");
   const [stockDirection, setStockDirection] = useState<"IN" | "OUT">("IN");
+
+  const firstImageUrl = useMemo(() => {
+    if (!item.imageUrl) return null;
+    return item.imageUrl.split(",")[0];
+  }, [item.imageUrl]);
   const hydratedEditorKey = useRef<string | null>(null);
 
   // Hydrate draft fields once when an editor opens; do not overwrite active typing on refetch.
@@ -216,13 +223,31 @@ export const ItemCard = memo(({
       ]}
     >
       {/* Avatar */}
-      <CachedThumbnail
-        uri={item.imageUrl}
-        fallbackText=""
-        fallbackIcon="package-variant-closed"
-        color={colors.textSecondary}
-        style={styles.itemAvatar}
-      />
+      {firstImageUrl ? (
+        <Pressable
+          onPress={(e) => {
+            e.stopPropagation();
+            onPressImage && onPressImage(firstImageUrl);
+          }}
+          style={({ pressed }) => [pressed && { opacity: 0.8 }]}
+        >
+          <CachedThumbnail
+            uri={firstImageUrl}
+            fallbackText=""
+            fallbackIcon="package-variant-closed"
+            color={colors.textSecondary}
+            style={styles.itemAvatar}
+          />
+        </Pressable>
+      ) : (
+        <CachedThumbnail
+          uri={null}
+          fallbackText=""
+          fallbackIcon="package-variant-closed"
+          color={colors.textSecondary}
+          style={styles.itemAvatar}
+        />
+      )}
 
       {/* Info */}
       <View style={styles.itemInfo}>

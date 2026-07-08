@@ -1,5 +1,6 @@
 import { useMemo, useState, useCallback, useEffect, useRef } from "react";
-import { View, StyleSheet, Pressable, ScrollView, Alert, Keyboard } from "react-native";
+import { View, StyleSheet, Pressable, ScrollView, Alert, Keyboard, Modal } from "react-native";
+import { Image } from "expo-image";
 import { Text, Icon } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
@@ -47,6 +48,7 @@ export function ItemList() {
   const [selectedCat, setSelectedCat] = useState<string | "ALL" | null>(null);
   const [selectedBrandId, setSelectedBrandId] = useState<string>("");
   const [showBrandPicker, setShowBrandPicker] = useState(false);
+  const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
 
   const isKeyboardOpen = useRef(false);
 
@@ -497,9 +499,9 @@ export function ItemList() {
           )}
         </ScrollView>
       ) : (
-        <View style={{ flex: 1 }}>
+        <View style={{ flex: 1, opacity: isDebouncePending || listQuery.isFetching ? 0.65 : 1 }}>
           <FlashListAny
-            data={isDebouncePending ? [] : displayItems}
+            data={displayItems}
             keyExtractor={(item: any) => item.id}
             onRefresh={() => {
               Promise.all([
@@ -559,10 +561,11 @@ export function ItemList() {
                 onSavePrices={(prices) => handleSavePrices(item.id, prices.mrp, prices.defaultSellingPrice)}
                 onSaveStock={(stockState) => handleSaveStock(item.id, stockState.adjustment, stockByItem.get(item.id) ?? 0)}
                 onCancelInline={() => { setEditingItemId(null); setEditingMode(null); }}
+                onPressImage={setPreviewImageUrl}
               />
             )}
             ListEmptyComponent={
-              listQuery.isLoading || listQuery.isFetching || isDebouncePending ? (
+              (listQuery.isLoading || listQuery.isFetching || isDebouncePending) && displayItems.length === 0 ? (
                 <SkeletonList count={6} itemHeight={110} />
               ) : (
                 <EmptyState
@@ -643,6 +646,34 @@ export function ItemList() {
         }}
         onDismiss={() => setShowBrandPicker(false)}
       />
+
+      <Modal
+        visible={!!previewImageUrl}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPreviewImageUrl(null)}
+      >
+        <Pressable 
+          style={styles.lightboxOverlay} 
+          onPress={() => setPreviewImageUrl(null)}
+        >
+          <View style={styles.lightboxContent}>
+            {previewImageUrl && (
+              <Image
+                source={{ uri: previewImageUrl }}
+                style={styles.lightboxImage}
+                contentFit="contain"
+              />
+            )}
+            <Pressable 
+              onPress={() => setPreviewImageUrl(null)} 
+              style={[styles.closeLightboxBtn, { top: insets.top > 0 ? insets.top + spacing.md : spacing.xl }]}
+            >
+              <Icon source="close" size={24} color="#ffffff" />
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
     </Screen>
   );
 }
@@ -771,5 +802,32 @@ const styles = StyleSheet.create({
   },
   batchBtn: {
     flex: 1,
+  },
+  lightboxOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.9)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  lightboxContent: {
+    width: "100%",
+    height: "100%",
+    justifyContent: "center",
+    alignItems: "center",
+    position: "relative",
+  },
+  lightboxImage: {
+    width: "90%",
+    height: "80%",
+  },
+  closeLightboxBtn: {
+    position: "absolute",
+    right: spacing.xl,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
+    justifyContent: "center",
+    alignItems: "center",
   },
 });

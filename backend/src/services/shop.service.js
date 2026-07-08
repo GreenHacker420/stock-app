@@ -536,3 +536,52 @@ export async function copyCatalog(user, { sourceShopId, targetShopId, overwrite 
     return { success: true, copiedCount, skippedCount };
   });
 }
+
+export async function getStorageStats(user, shopId) {
+  const shop = await prisma.shop.findUnique({ where: { id: shopId } });
+  if (!shop) {
+    throw new ApiError(404, "Shop not found");
+  }
+
+  const result = await prisma.asset.aggregate({
+    where: {
+      shopId,
+      deletedAt: null,
+    },
+    _sum: {
+      sizeBytes: true,
+    },
+    _count: {
+      id: true,
+    },
+  });
+
+  const totalBytes = Number(result._sum.sizeBytes || 0);
+  const totalCount = result._count.id || 0;
+
+  const assetsGrouped = await prisma.asset.groupBy({
+    by: ['kind'],
+    where: {
+      shopId,
+      deletedAt: null,
+    },
+    _sum: {
+      sizeBytes: true,
+    },
+    _count: {
+      id: true,
+    },
+  });
+
+  const breakdown = assetsGrouped.map((group) => ({
+    kind: group.kind,
+    sizeBytes: Number(group._sum.sizeBytes || 0),
+    count: group._count.id,
+  }));
+
+  return {
+    totalBytes,
+    totalCount,
+    breakdown,
+  };
+}

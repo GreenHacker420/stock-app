@@ -10,6 +10,7 @@ import {
   Keyboard,
 } from "react-native";
 import { Text, Icon, TextInput } from "react-native-paper";
+import { Image } from "expo-image";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import * as ImagePicker from "expo-image-picker";
@@ -32,6 +33,7 @@ import { colors, spacing, radius, fontSize, fontWeight } from "../../../theme";
 import { navigate, goBack } from "../../navigation-ref";
 import { AddEditItemRouteParams } from "../../../types/items";
 import { parseAmount, parseQty } from "../../../utils/items/validation";
+import { triggerLightHaptic } from "../../../utils/haptics";
 
 type FormState = {
   name: string;
@@ -164,8 +166,8 @@ export function AddEditItem() {
       setShowBrandPicker(true);
     }
   };
-  const [selectedImage, setSelectedImage] = useState<LocalItemImage | null>(null);
-  const [imageUrl, setImageUrl] = useState(existingItem?.imageUrl ?? "");
+  const [selectedImages, setSelectedImages] = useState<LocalItemImage[]>([]);
+  const [imageUrls, setImageUrls] = useState<string[]>(existingItem?.imageUrl ? existingItem.imageUrl.split(",").filter(Boolean) : []);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [componentSearch, setComponentSearch] = useState("");
   const [isBundle, setIsBundle] = useState((existingItem?.bundleComponents ?? []).length > 0);
@@ -181,16 +183,16 @@ export function AddEditItem() {
   const buildSnapshot = useCallback(
     (values: {
       form: FormState;
-      imageUrl: string;
-      selectedImageUri?: string | null;
+      imageUrls: string[];
+      selectedImages: LocalItemImage[];
       isBundle: boolean;
       requiresSerialNumber: boolean;
       bundleComponents: BundleComponentForm[];
     }) =>
       JSON.stringify({
         form: values.form,
-        imageUrl: values.imageUrl,
-        selectedImageUri: values.selectedImageUri ?? null,
+        imageUrls: values.imageUrls,
+        selectedImages: values.selectedImages.map(img => img.uri),
         isBundle: values.isBundle,
         requiresSerialNumber: values.requiresSerialNumber,
         bundleComponents: values.bundleComponents,
@@ -221,7 +223,7 @@ export function AddEditItem() {
         brandId: existingItem.brandId ?? existingItem.brand?.id ?? "",
         initialStock: "",
       };
-      const nextImageUrl = existingItem.imageUrl ?? "";
+      const nextImageUrls = existingItem.imageUrl ? existingItem.imageUrl.split(",").filter(Boolean) : [];
       const nextIsBundle = (existingItem.bundleComponents ?? []).length > 0;
       const nextRequiresSerialNumber = existingItem.requiresSerialNumber ?? false;
       const nextBundleComponents = (existingItem.bundleComponents ?? []).map((component: any) => ({
@@ -230,16 +232,16 @@ export function AddEditItem() {
         }));
 
       setForm(nextForm);
-      setImageUrl(nextImageUrl);
-      setSelectedImage(null);
+      setImageUrls(nextImageUrls);
+      setSelectedImages([]);
       setIsBundle(nextIsBundle);
       setRequiresSerialNumber(nextRequiresSerialNumber);
       setBundleComponents(nextBundleComponents);
       setInitialSnapshot(
         buildSnapshot({
           form: nextForm,
-          imageUrl: nextImageUrl,
-          selectedImageUri: null,
+          imageUrls: nextImageUrls,
+          selectedImages: [],
           isBundle: nextIsBundle,
           requiresSerialNumber: nextRequiresSerialNumber,
           bundleComponents: nextBundleComponents,
@@ -289,13 +291,13 @@ export function AddEditItem() {
     () =>
       buildSnapshot({
         form,
-        imageUrl,
-        selectedImageUri: selectedImage?.uri ?? null,
+        imageUrls,
+        selectedImages,
         isBundle,
         requiresSerialNumber,
         bundleComponents,
       }),
-    [buildSnapshot, bundleComponents, form, imageUrl, isBundle, requiresSerialNumber, selectedImage?.uri],
+    [buildSnapshot, bundleComponents, form, imageUrls, isBundle, requiresSerialNumber, selectedImages],
   );
 
   useEffect(() => {
@@ -418,16 +420,17 @@ export function AddEditItem() {
       }
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: ["images"],
-        quality: 0.8,
+        quality: 0.5,
         allowsEditing: true,
       });
       if (result.canceled) return;
       const asset = result.assets[0];
-      setSelectedImage({
+      const newImg = {
         uri: asset.uri,
         name: asset.fileName || `product-${Date.now()}.jpg`,
         mimeType: asset.mimeType || "image/jpeg",
-      });
+      };
+      setSelectedImages((prev) => [...prev, newImg]);
       return;
     }
 
@@ -438,35 +441,41 @@ export function AddEditItem() {
     }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
-      quality: 0.8,
+      quality: 0.5,
       allowsEditing: true,
     });
     if (result.canceled) return;
     const asset = result.assets[0];
-    setSelectedImage({
+    const newImg = {
       uri: asset.uri,
       name: asset.fileName || `product-${Date.now()}.jpg`,
       mimeType: asset.mimeType || "image/jpeg",
-    });
+    };
+    setSelectedImages((prev) => [...prev, newImg]);
   };
 
-  const uploadSelectedImage = async () => {
-    if (!selectedImage) return imageUrl || null;
-    if (!token || !activeShopId) throw new Error("You must be logged in to upload a product photo.");
-
+  const uploadSelectedImages = async () => {
+    if (selectedImages.length === 0) return imageUrls;
+    if (!token || !activeShopId) throw new Error("You must be logged in to upload product photos.");
     setUploadingImage(true);
     try {
-      const uploaded = await uploadItemImage(
-        token,
-        {
-          shopId: requireActiveShopId(activeShopId),
-          categoryId: form.categoryId || null,
-          itemId: existingItem?.id ?? null,
-        },
-        selectedImage,
-      );
-      setImageUrl(uploaded.url);
-      return uploaded.url;
+      const uploadedUrls: string[] = [];
+      for (const img of selectedImages) {
+        const uploaded = await uploadItemImage(
+          token,
+          {
+            shopId: activeShopId,
+            categoryId: form.categoryId || null,
+            itemId: itemId || null,
+          },
+          img,
+        );
+        uploadedUrls.push(uploaded.url);
+      }
+      const allUrls = [...imageUrls, ...uploadedUrls];
+      setImageUrls(allUrls);
+      setSelectedImages([]);
+      return allUrls;
     } finally {
       setUploadingImage(false);
     }
@@ -608,10 +617,11 @@ export function AddEditItem() {
       return false;
     }
 
-    let uploadedImageUrl: string | null = imageUrl || null;
+    let finalImageUrl: string | null = null;
     submittingRef.current = true;
     try {
-      uploadedImageUrl = await uploadSelectedImage();
+      const allUrls = await uploadSelectedImages();
+      finalImageUrl = allUrls.length > 0 ? allUrls.join(",") : null;
     } catch (err: any) {
       Alert.alert("Photo Upload Failed", err?.message || "Could not upload product photo.");
       submittingRef.current = false;
@@ -622,7 +632,7 @@ export function AddEditItem() {
       name: form.name.trim(),
       unit: form.unit.trim(),
       sku: form.sku.trim() || null,
-      imageUrl: uploadedImageUrl,
+      imageUrl: finalImageUrl,
       categoryId: form.categoryId || null,
       brandId: form.brandId || null,
       defaultSellingPrice: sellingPrice,
@@ -675,14 +685,14 @@ export function AddEditItem() {
             setBundleComponents([]);
             setIsBundle(false);
             setRequiresSerialNumber(false);
-            setSelectedImage(null);
-            setImageUrl("");
+            setSelectedImages([]);
+            setImageUrls([]);
             savedRef.current = false;
             setInitialSnapshot(
               buildSnapshot({
                 form: nextForm,
-                imageUrl: "",
-                selectedImageUri: null,
+                imageUrls: [],
+                selectedImages: [],
                 isBundle: false,
                 requiresSerialNumber: false,
                 bundleComponents: [],
@@ -908,16 +918,81 @@ export function AddEditItem() {
           </View>
 
           <View style={styles.aeiCard}>
-            <Text style={styles.aeiSectionLabel}>PRODUCT PHOTO</Text>
-            <ImagePickerField
-              uri={selectedImage?.uri || imageUrl}
-              onCamera={() => pickImage("camera")}
-              onLibrary={() => pickImage("library")}
-              uploading={uploadingImage}
-            />
-            <Text style={styles.photoHint}>
-              Photo will be uploaded after saving.
-            </Text>
+            <Text style={styles.aeiSectionLabel}>PRODUCT PHOTOS</Text>
+            <View style={{ gap: spacing.md }}>
+              <ScrollView 
+                horizontal 
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ gap: spacing.md, alignItems: 'center' }}
+              >
+                {/* 1. Render currently uploaded images */}
+                {imageUrls.map((url, idx) => (
+                  <View key={`uploaded-${idx}`} style={styles.thumbnailWrapper}>
+                    <Image source={{ uri: url }} style={styles.thumbnailImage} />
+                    <Pressable
+                      style={styles.thumbnailDeleteBtn}
+                      onPress={() => {
+                        triggerLightHaptic();
+                        setImageUrls(prev => prev.filter((_, i) => i !== idx));
+                      }}
+                    >
+                      <Icon source="close-circle" size={20} color={colors.danger} />
+                    </Pressable>
+                    {idx === 0 && (
+                      <View style={styles.primaryCoverBadge}>
+                        <Text style={styles.primaryCoverText}>COVER</Text>
+                      </View>
+                    )}
+                  </View>
+                ))}
+
+                {/* 2. Render newly picked local images */}
+                {selectedImages.map((img, idx) => (
+                  <View key={`local-${idx}`} style={styles.thumbnailWrapper}>
+                    <Image source={{ uri: img.uri }} style={styles.thumbnailImage} />
+                    <Pressable
+                      style={styles.thumbnailDeleteBtn}
+                      onPress={() => {
+                        triggerLightHaptic();
+                        setSelectedImages(prev => prev.filter((_, i) => i !== idx));
+                      }}
+                    >
+                      <Icon source="close-circle" size={20} color={colors.danger} />
+                    </Pressable>
+                    {imageUrls.length === 0 && idx === 0 && (
+                      <View style={styles.primaryCoverBadge}>
+                        <Text style={styles.primaryCoverText}>COVER</Text>
+                      </View>
+                    )}
+                  </View>
+                ))}
+
+                {/* 3. Render picker triggers if total count is under limit (5 images) */}
+                {imageUrls.length + selectedImages.length < 5 && (
+                  <View style={styles.pickerTriggerButtonsContainer}>
+                    <Pressable 
+                      style={styles.inlinePickerBtn}
+                      onPress={() => pickImage("camera")}
+                      disabled={uploadingImage}
+                    >
+                      <Icon source="camera-outline" size={24} color={colors.primary} />
+                      <Text style={styles.inlinePickerBtnText}>Camera</Text>
+                    </Pressable>
+                    <Pressable 
+                      style={styles.inlinePickerBtn}
+                      onPress={() => pickImage("library")}
+                      disabled={uploadingImage}
+                    >
+                      <Icon source="image-outline" size={24} color={colors.primary} />
+                      <Text style={styles.inlinePickerBtnText}>Upload</Text>
+                    </Pressable>
+                  </View>
+                )}
+              </ScrollView>
+              <Text style={styles.photoHint}>
+                First photo acts as the primary cover. Upload up to 5 photos.
+              </Text>
+            </View>
           </View>
 
           {/* Pricing */}
@@ -1351,5 +1426,63 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: colors.primary,
     backgroundColor: "transparent",
+  },
+  thumbnailWrapper: {
+    width: 84,
+    height: 84,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    position: "relative",
+    overflow: "hidden",
+    backgroundColor: colors.surface,
+  },
+  thumbnailImage: {
+    width: "100%",
+    height: "100%",
+  },
+  thumbnailDeleteBtn: {
+    position: "absolute",
+    top: 2,
+    right: 2,
+    zIndex: 10,
+    backgroundColor: "rgba(255, 255, 255, 0.8)",
+    borderRadius: 10,
+  },
+  primaryCoverBadge: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "rgba(10, 132, 255, 0.85)",
+    paddingVertical: 2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  primaryCoverText: {
+    fontSize: 8,
+    fontWeight: fontWeight.bold,
+    color: "#fff",
+  },
+  pickerTriggerButtonsContainer: {
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
+  inlinePickerBtn: {
+    width: 84,
+    height: 84,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: colors.primary,
+    backgroundColor: colors.primary + "10",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  inlinePickerBtnText: {
+    fontSize: 10,
+    fontWeight: fontWeight.bold,
+    color: colors.primary,
   },
 });

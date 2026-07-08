@@ -435,6 +435,20 @@ export async function setOpeningStock(token: string, shopId: string, entries: an
   return apiRequest(`/shops/${shopId}/set-opening-stock`, { method: "POST", token, body: JSON.stringify({ entries }) });
 }
 
+export interface ShopStorageStats {
+  totalBytes: number;
+  totalCount: number;
+  breakdown: Array<{
+    kind: string;
+    sizeBytes: number;
+    count: number;
+  }>;
+}
+
+export async function fetchShopStorageStats(token: string, shopId: string) {
+  return apiRequest<ShopStorageStats>(`/shops/${shopId}/storage-stats`, { token });
+}
+
 export interface ItemSummary {
   totalItems: number;
   totalCategories: number;

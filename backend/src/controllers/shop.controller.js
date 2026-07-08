@@ -48,3 +48,8 @@ export const copyCatalog = asyncHandler(async (req, res) => {
   res.status(200).json({ success: true, data: result });
 });
 
+export const getStorageStats = asyncHandler(async (req, res) => {
+  const stats = await shopService.getStorageStats(req.user, req.validated.params.id);
+  res.json({ success: true, data: stats });
+});
+

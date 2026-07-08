@@ -86,11 +86,7 @@ router.post("/copy-catalog", requireOwner, validate(copyCatalogSchema), shopCont
 router.patch("/:id", requireOwner, validate(updateShopSchema), shopController.updateShop);
 router.post("/:id/assign-staff", requireOwner, validate(assignStaffSchema), shopController.assignStaff);
 router.post("/:id/unassign-staff", requireOwner, validate(assignStaffSchema), shopController.unassignStaff);
-router.post(
-  "/:id/set-opening-stock",
-  requireOwner,
-  validate(openingStockSchema),
-  shopController.setOpeningStock,
-);
+router.post( "/:id/set-opening-stock", requireOwner, validate(openingStockSchema), shopController.setOpeningStock,);
+router.get( "/:id/storage-stats", requireOwner, validate(z.object({ params: idParams })), shopController.getStorageStats,);
 
 export default router;

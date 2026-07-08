@@ -1,11 +1,11 @@
 import { useEffect, useState, useMemo } from "react";
 import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Pressable } from "react-native";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { Button, Text, TextInput, Divider, Icon, Switch } from "react-native-paper";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Crypto from "expo-crypto";
 import * as LocalAuthentication from "expo-local-authentication";
-import { updateMe } from "../../api/client";
+import { updateMe, fetchShopStorageStats } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
 import { Screen } from "../../components/Screen";
@@ -66,6 +66,25 @@ export function Profile() {
   const [pin, setPin] = useState("");
   const [pinConfirm, setPinConfirm] = useState("");
   const [error, setError] = useState<string | null>(null);
+
+  const activeShopId = useShopStore((state) => state.activeShopId);
+
+  const { data: storageStats, isLoading: storageLoading } = useQuery({
+    queryKey: ["shopStorageStats", activeShopId],
+    queryFn: () => {
+      if (!token || !activeShopId) throw new Error("No active shop or token");
+      return fetchShopStorageStats(token, activeShopId);
+    },
+    enabled: !!token && !!activeShopId && user?.role === "OWNER",
+  });
+
+  const formatBytes = (bytes: number) => {
+    if (bytes === 0) return "0 Bytes";
+    const k = 1024;
+    const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
+  };
 
   // Success Modal state
   const [successVisible, setSuccessVisible] = useState(false);
@@ -241,6 +260,44 @@ export function Profile() {
                 </View>
               </View>
             </ScreenSection>
+
+            {user?.role === "OWNER" && (
+              <ScreenSection title="Shop Storage">
+                <View style={styles.detailsCard}>
+                  {storageLoading ? (
+                    <Text style={styles.loadingText}>Loading storage metrics...</Text>
+                  ) : storageStats ? (
+                    <View style={styles.storageContainer}>
+                      <View style={styles.storageInfoRow}>
+                        <Icon source="database" size={24} color={colors.primary} />
+                        <View style={{ flex: 1, marginLeft: spacing.sm }}>
+                          <Text style={styles.storageLabel}>S3 Storage Used</Text>
+                          <Text style={styles.storageValue}>
+                            {formatBytes(storageStats.totalBytes)} ({storageStats.totalCount} files)
+                          </Text>
+                        </View>
+                      </View>
+                      {storageStats.breakdown && storageStats.breakdown.length > 0 && (
+                        <View style={styles.breakdownList}>
+                          {storageStats.breakdown.map((b) => (
+                            <View key={b.kind} style={styles.breakdownRow}>
+                              <Text style={styles.breakdownKind}>
+                                {b.kind === "IMAGE" ? "Product Images" : b.kind}
+                              </Text>
+                              <Text style={styles.breakdownValue}>
+                                {formatBytes(b.sizeBytes)} ({b.count})
+                              </Text>
+                            </View>
+                          ))}
+                        </View>
+                      )}
+                    </View>
+                  ) : (
+                    <Text style={styles.errorText}>Could not load storage metrics.</Text>
+                  )}
+                </View>
+              </ScreenSection>
+            )}
 
             {/* App Settings */}
             <ScreenSection title="App settings">
@@ -700,5 +757,48 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.72,
+  },
+  loadingText: {
+    fontSize: fontSize.sm,
+    color: colors.textSecondary,
+    padding: spacing.md,
+    textAlign: "center",
+  },
+  storageContainer: {
+    padding: spacing.md,
+  },
+  storageInfoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: spacing.md,
+  },
+  storageLabel: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  storageValue: {
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  breakdownList: {
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingTop: spacing.sm,
+  },
+  breakdownRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingVertical: 4,
+  },
+  breakdownKind: {
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+  },
+  breakdownValue: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
   },
 });
