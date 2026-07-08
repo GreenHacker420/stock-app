@@ -20,3 +20,8 @@ export const deleteStorageObject = asyncHandler(async (req, res) => {
   const result = await dashboardService.deleteStorageObject(req.user, req.params.id);
   res.json({ success: true, ...result });
 });
+
+export const bulkDeleteOrphans = asyncHandler(async (req, res) => {
+  const result = await dashboardService.bulkDeleteOrphanedAssets(req.user, req.body);
+  res.json({ success: true, ...result });
+});

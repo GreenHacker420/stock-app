@@ -32,6 +32,7 @@ const staffQuerySchema = z.object({
 const storageQuerySchema = z.object({
   query: z.object({
     shopId: z.string().min(1),
+    filter: z.enum(["ALL", "ORPHANED"]).optional(),
   }),
   params: z.object({}).optional(),
   body: z.object({}).optional(),
@@ -45,11 +46,20 @@ const deleteStorageSchema = z.object({
   body: z.object({}).optional(),
 });
 
+const bulkDeleteOrphansSchema = z.object({
+  body: z.object({
+    shopId: z.string().min(1),
+  }),
+  query: z.object({}).optional(),
+  params: z.object({}).optional(),
+});
+
 router.use(requireAuth);
 
 router.get("/owner", requireOwner, validate(querySchema), dashboardController.ownerDashboard);
 router.get("/staff/today", requirePermission(PERMISSIONS.SALE_VIEW_OWN), validate(staffQuerySchema), dashboardController.staffTodaySummary);
 router.get("/storage/objects", requireOwner, validate(storageQuerySchema), dashboardController.listStorageObjects);
 router.delete("/storage/objects/:id", requireOwner, validate(deleteStorageSchema), dashboardController.deleteStorageObject);
+router.post("/storage/objects/bulk-delete-orphans", requireOwner, validate(bulkDeleteOrphansSchema), dashboardController.bulkDeleteOrphans);
 
 export default router;

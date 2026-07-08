@@ -245,7 +245,7 @@ export async function getStaffTodaySummary(user, { shopId, date, staffId, dateFr
   };
 }
 
-export async function listStorageObjects(user, { shopId }) {
+export async function listStorageObjects(user, { shopId, filter }) {
   await assertShopAccess(user, shopId);
   if (user.role !== "OWNER") {
     throw new ApiError(403, "Access restricted to owners");
@@ -256,10 +256,15 @@ export async function listStorageObjects(user, { shopId }) {
       shopId,
       deletedAt: null,
     },
+    include: {
+      _count: {
+        select: { waMessages: true },
+      },
+    },
     orderBy: { createdAt: "desc" },
   });
 
-  return assets.map((a) => ({
+  let mapped = assets.map((a) => ({
     id: a.id,
     fileName: a.fileName || (a.storageKey ? a.storageKey.split("/").pop() : "Unnamed File"),
     storageKey: a.storageKey || "",
@@ -267,7 +272,37 @@ export async function listStorageObjects(user, { shopId }) {
     mimeType: a.mimeType || "application/octet-stream",
     createdAt: a.createdAt,
     url: a.storageKey && a.storageBucket ? `https://${a.storageBucket}.s3.amazonaws.com/${a.storageKey}` : (a.remoteUrl || ""),
+    waMessagesCount: a._count.waMessages,
   }));
+
+  if (filter === "ORPHANED") {
+    const activeItems = await prisma.item.findMany({
+      where: { shopId, status: "ACTIVE", imageUrl: { not: null } },
+      select: { imageUrl: true },
+    });
+
+    const referencedKeys = new Set();
+    activeItems.forEach((it) => {
+      if (it.imageUrl) {
+        it.imageUrl.split(",").forEach((url) => {
+          const trimmed = url.trim();
+          if (trimmed.includes(".amazonaws.com/")) {
+            const key = trimmed.split(".amazonaws.com/")[1];
+            if (key) referencedKeys.add(key);
+          } else {
+            referencedKeys.add(trimmed);
+          }
+        });
+      }
+    });
+
+    mapped = mapped.filter((a) => {
+      if (!a.storageKey) return true;
+      return !referencedKeys.has(a.storageKey) && a.waMessagesCount === 0;
+    });
+  }
+
+  return mapped;
 }
 
 export async function deleteStorageObject(user, id) {
@@ -294,4 +329,68 @@ export async function deleteStorageObject(user, id) {
   });
 
   return { success: true };
+}
+
+export async function bulkDeleteOrphanedAssets(user, { shopId }) {
+  await assertShopAccess(user, shopId);
+  if (user.role !== "OWNER") {
+    throw new ApiError(403, "Access restricted to owners");
+  }
+
+  const assets = await prisma.asset.findMany({
+    where: {
+      shopId,
+      deletedAt: null,
+    },
+    include: {
+      _count: {
+        select: { waMessages: true },
+      },
+    },
+  });
+
+  const activeItems = await prisma.item.findMany({
+    where: { shopId, status: "ACTIVE", imageUrl: { not: null } },
+    select: { imageUrl: true },
+  });
+
+  const referencedKeys = new Set();
+  activeItems.forEach((it) => {
+    if (it.imageUrl) {
+      it.imageUrl.split(",").forEach((url) => {
+        const trimmed = url.trim();
+        if (trimmed.includes(".amazonaws.com/")) {
+          const key = trimmed.split(".amazonaws.com/")[1];
+          if (key) referencedKeys.add(key);
+        } else {
+          referencedKeys.add(trimmed);
+        }
+      });
+    }
+  });
+
+  const orphans = assets.filter((a) => {
+    if (!a.storageKey) return false;
+    return !referencedKeys.has(a.storageKey) && a._count.waMessages === 0;
+  });
+
+  let deletedCount = 0;
+  let sizeBytesFreed = 0;
+
+  for (const asset of orphans) {
+    try {
+      if (asset.storageKey) {
+        await deleteS3Object(asset.storageKey);
+      }
+      await prisma.asset.delete({
+        where: { id: asset.id },
+      });
+      deletedCount++;
+      sizeBytesFreed += Number(asset.sizeBytes || 0);
+    } catch (err) {
+      console.error(`Failed to delete orphaned asset ${asset.id}:`, err);
+    }
+  }
+
+  return { success: true, count: deletedCount, sizeBytesFreed };
 }
