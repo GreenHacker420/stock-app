@@ -21,6 +21,7 @@ type ListScreenProps<T> = Omit<FlashListProps<T>, "refreshControl"> & {
   showBack?: boolean;
   fallbackRoute?: string;
   contentStyle?: StyleProp<ViewStyle>;
+  loadingView?: ReactNode;
 };
 
 export function ListScreen<T>({
@@ -38,6 +39,7 @@ export function ListScreen<T>({
   fallbackRoute,
   contentStyle,
   contentContainerStyle,
+  loadingView,
   ...listProps
 }: ListScreenProps<T>) {
   return (
@@ -46,7 +48,7 @@ export function ListScreen<T>({
         {header}
         <View style={styles.list}>
           {isLoading ? (
-            <SkeletonList count={skeletonCount} itemHeight={skeletonItemHeight} />
+            loadingView ?? <SkeletonList count={skeletonCount} itemHeight={skeletonItemHeight} />
           ) : (
             <FlashList
               {...listProps}

@@ -1398,10 +1398,19 @@ export type StorageObjectsResponse = {
   assets: StorageObject[];
   categories: { id: string; name: string }[];
   brands: { id: string; name: string }[];
+  nextCursor?: string | null;
+  hasMore?: boolean;
 };
 
-export async function fetchStorageObjects(token: string, shopId: string, filter?: "ALL" | "ORPHANED") {
-  const query = `shopId=${encodeURIComponent(shopId)}` + (filter ? `&filter=${encodeURIComponent(filter)}` : "");
+export async function fetchStorageObjects(
+  token: string,
+  shopId: string,
+  params?: { filter?: "ALL" | "ORPHANED"; cursor?: string; limit?: number }
+) {
+  let query = `shopId=${encodeURIComponent(shopId)}`;
+  if (params?.filter) query += `&filter=${encodeURIComponent(params.filter)}`;
+  if (params?.cursor) query += `&cursor=${encodeURIComponent(params.cursor)}`;
+  if (params?.limit) query += `&limit=${encodeURIComponent(String(params.limit))}`;
   return apiRequest<StorageObjectsResponse>(`/dashboard/storage/objects?${query}`, { token });
 }
 

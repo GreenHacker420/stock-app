@@ -2,7 +2,6 @@ import { useState, useMemo, useCallback, useDeferredValue } from "react";
 import {
   View,
   StyleSheet,
-  Pressable,
   Alert,
   Modal,
   ScrollView,
@@ -11,6 +10,7 @@ import {
   Platform,
   KeyboardAvoidingView,
 } from "react-native";
+import { Pressable } from "react-native-gesture-handler";
 import {
   Text,
   ActivityIndicator,
@@ -18,7 +18,6 @@ import {
   Divider,
   Searchbar,
 } from "react-native-paper";
-import { FlashList } from "@shopify/flash-list";
 import * as Sharing from "expo-sharing";
 import { File, Directory, Paths } from "expo-file-system";
 import * as Haptics from "expo-haptics";
@@ -26,8 +25,9 @@ import * as Haptics from "expo-haptics";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { ListScreen } from "../../components/layout/ListScreen";
 import { CachedThumbnail } from "../../components/ui/CachedThumbnail";
+import { SkeletonCard, SkeletonList } from "../../components/ui/SkeletonCard";
 import {
-  useStorageObjectsQuery,
+  useStorageObjectsInfiniteQuery,
   useDeleteStorageObjectMutation,
   useBulkDeleteOrphansMutation,
 } from "../../hooks/useDashboard";
@@ -35,6 +35,7 @@ import { useUpdateItemMutation } from "../../hooks/useItems";
 import { invalidateAssetCache } from "../../hooks/useAssetCache";
 import { useShopStore } from "../../auth/shop-store";
 import { useAuthStore } from "../../auth/auth-store";
+import { mmkvStorage } from "../../auth/mmkv-storage";
 import type { StorageObject } from "../../api/client";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -215,6 +216,8 @@ type HeaderProps = {
   onCleanUp: () => void;
   isCleaningUp: boolean;
   isOwner: boolean;
+  viewMode: "grid" | "list";
+  onToggleViewMode: () => void;
 };
 
 function StorageManagementHeader({
@@ -240,6 +243,8 @@ function StorageManagementHeader({
   onCleanUp,
   isCleaningUp,
   isOwner,
+  viewMode,
+  onToggleViewMode,
 }: HeaderProps) {
   return (
     <View style={styles.headerRoot}>
@@ -294,6 +299,12 @@ function StorageManagementHeader({
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.pillRow}
       >
+        <FilterPill
+          label={viewMode === "grid" ? "Grid" : "List"}
+          icon={viewMode === "grid" ? "view-grid-outline" : "view-list-outline"}
+          active={true}
+          onPress={onToggleViewMode}
+        />
         <FilterPill
           label={
             filterCategory === "ALL"
@@ -449,6 +460,40 @@ function FilterPill({
   );
 }
 
+// ── Skeletons ─────────────────────────────────────────────────────────────────
+
+function StorageSkeleton({ viewMode, numColumns }: { viewMode: "grid" | "list"; numColumns: number }) {
+  if (viewMode === "list") {
+    return (
+      <View style={{ paddingHorizontal: spacing.lg }}>
+        <SkeletonList count={6} itemHeight={72} />
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.skeletonGridContainer}>
+      {Array.from({ length: 6 }).map((_, i) => (
+        <View
+          key={i}
+          style={[
+            styles.skeletonGridCard,
+            { width: `${100 / numColumns}%` },
+          ]}
+        >
+          <View style={styles.skeletonGridCardInner}>
+            <SkeletonCard height={140} style={{ marginHorizontal: 0, borderRadius: radius.md }} />
+            <View style={{ gap: 4, marginTop: spacing.sm }}>
+              <SkeletonCard height={14} width="85%" style={{ marginHorizontal: 0 }} />
+              <SkeletonCard height={10} width="45%" style={{ marginHorizontal: 0 }} />
+            </View>
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 // ── Empty State ───────────────────────────────────────────────────────────────
 
 function StorageEmptyState() {
@@ -565,19 +610,49 @@ export function StorageManagement() {
   const [editMin, setEditMin] = useState("");
   const [editError, setEditError] = useState<string | null>(null);
 
+  const [viewMode, setViewMode] = useState<"grid" | "list">(() => {
+    return (mmkvStorage.getItem("storage-layout") as "grid" | "list") ?? "grid";
+  });
+
+  const toggleViewMode = useCallback(() => {
+    setViewMode((prev) => {
+      const next = prev === "grid" ? "list" : "grid";
+      mmkvStorage.setItem("storage-layout", next);
+      return next;
+    });
+  }, []);
+
   // ── Responsive grid ───────────────────────────────────────────────────────
   const { width: screenWidth } = useWindowDimensions();
-  const numColumns = screenWidth >= 700 ? 4 : screenWidth >= 480 ? 3 : 2;
+  const calculatedColumns = screenWidth >= 700 ? 4 : screenWidth >= 480 ? 3 : 2;
+  const numColumns = viewMode === "grid" ? calculatedColumns : 1;
 
   // ── Queries ───────────────────────────────────────────────────────────────
-  const { data, isLoading, isRefetching, refetch } = useStorageObjectsQuery();
+  const {
+    data,
+    isLoading,
+    isRefetching,
+    refetch,
+    hasNextPage,
+    fetchNextPage,
+    isFetchingNextPage,
+  } = useStorageObjectsInfiniteQuery();
+
   const deleteMutation = useDeleteStorageObjectMutation();
   const bulkDeleteMutation = useBulkDeleteOrphansMutation();
   const updateItemMutation = useUpdateItemMutation();
 
-  const allAssets = data?.assets ?? [];
-  const categories = data?.categories ?? [];
-  const brands = data?.brands ?? [];
+  const allAssets = useMemo(() => {
+    return data?.pages.flatMap((page) => page.assets) ?? [];
+  }, [data]);
+
+  const categories = useMemo(() => {
+    return data?.pages[0]?.categories ?? [];
+  }, [data]);
+
+  const brands = useMemo(() => {
+    return data?.pages[0]?.brands ?? [];
+  }, [data]);
 
   const isBusy =
     sharingId !== null ||
@@ -601,16 +676,16 @@ export function StorageManagement() {
   const filtered = useMemo(() => {
     let list = allAssets;
     if (activeTab === "UNUSED") {
-      list = list.filter((a) => getUsageStatus(a) === "UNUSED");
+      list = list.filter((a: StorageObject) => getUsageStatus(a) === "UNUSED");
     }
     if (filterCategory !== "ALL") {
-      list = list.filter((a) => a.categoryId === filterCategory);
+      list = list.filter((a: StorageObject) => a.categoryId === filterCategory);
     }
     if (filterBrand !== "ALL") {
-      list = list.filter((a) => a.brandId === filterBrand);
+      list = list.filter((a: StorageObject) => a.brandId === filterBrand);
     }
     if (filterType !== "ALL") {
-      list = list.filter((a) => {
+      list = list.filter((a: StorageObject) => {
         switch (filterType) {
           case "IMAGE": return a.mimeType.startsWith("image/");
           case "VIDEO": return a.mimeType.startsWith("video/");
@@ -628,7 +703,7 @@ export function StorageManagement() {
     if (deferredSearch.trim()) {
       const q = deferredSearch.toLowerCase();
       list = list.filter(
-        (a) =>
+        (a: StorageObject) =>
           a.productName?.toLowerCase().includes(q) ||
           a.fileName.toLowerCase().includes(q) ||
           a.categoryName?.toLowerCase().includes(q) ||
@@ -932,6 +1007,98 @@ export function StorageManagement() {
       const isSelected = selectedIds.has(item.id);
       const canDelete = isOwner && status === "UNUSED";
 
+      if (viewMode === "list") {
+        return (
+          <Pressable
+            style={({ pressed }) => [
+              styles.listRow,
+              isSelected && styles.listRowSelected,
+              pressed && styles.listRowPressed,
+            ]}
+            onPress={() => {
+              if (isSelecting) {
+                handleToggleSelect(item.id);
+              } else {
+                setInfoFile(item);
+              }
+            }}
+            onLongPress={() => handleLongPress(item)}
+            delayLongPress={350}
+            accessibilityRole="button"
+            accessibilityLabel={`${item.productName || item.fileName}${isSelected ? ", selected" : ""}`}
+            accessibilityState={{ selected: isSelected }}
+          >
+            <CachedThumbnail
+              uri={item.url}
+              fallbackIcon={mimeIcon(item.mimeType)}
+              fallbackText={item.fileName.slice(0, 2).toUpperCase()}
+              color={colors.primary}
+              style={styles.listThumbnail}
+            />
+
+            <View style={styles.listRowBody}>
+              <Text style={styles.listRowName} numberOfLines={1}>
+                {item.productName || item.fileName}
+              </Text>
+              <Text style={styles.listRowMeta} numberOfLines={1}>
+                {item.categoryName ? `${item.categoryName} • ` : ""}{formatBytes(item.sizeBytes)} • {formatDate(item.createdAt).split(",")[0]}
+              </Text>
+            </View>
+
+            {/* Selection Checkbox in List Mode */}
+            {isSelecting ? (
+              <View style={styles.listCheckContainer}>
+                <Icon
+                  source={isSelected ? "check-circle" : "circle-outline"}
+                  size={22}
+                  color={isSelected ? colors.primary : colors.textMuted}
+                />
+              </View>
+            ) : (
+              <View style={styles.listActions}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.listActionBtn,
+                    pressed && styles.listActionBtnPressed,
+                  ]}
+                  onPress={() => handleShare(item)}
+                  disabled={isBusy}
+                  hitSlop={8}
+                  accessibilityRole="button"
+                  accessibilityLabel="Share file"
+                >
+                  <Icon source="share-variant-outline" size={18} color={colors.primary} />
+                </Pressable>
+
+                {canDelete ? (
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.listActionBtn,
+                      pressed && styles.listActionBtnPressed,
+                    ]}
+                    onPress={() => handleDelete(item)}
+                    disabled={isBusy}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel="Delete file"
+                  >
+                    <Icon source="delete-outline" size={18} color={colors.danger} />
+                  </Pressable>
+                ) : (
+                  <View style={styles.listActionBtn}>
+                    <Icon
+                      source={status === "PRODUCT" ? "link-variant" : "whatsapp"}
+                      size={15}
+                      color={colors.textMuted}
+                    />
+                  </View>
+                )}
+              </View>
+            )}
+          </Pressable>
+        );
+      }
+
       return (
         <Pressable
           style={({ pressed }) => [
@@ -1086,6 +1253,7 @@ export function StorageManagement() {
       handleDelete,
       handleLongPress,
       handleToggleSelect,
+      viewMode,
     ]
   );
 
@@ -1121,6 +1289,8 @@ export function StorageManagement() {
         onCleanUp={handleBulkCleanup}
         isCleaningUp={bulkDeleteMutation.isPending}
         isOwner={isOwner}
+        viewMode={viewMode}
+        onToggleViewMode={toggleViewMode}
       />
     ),
     [
@@ -1138,6 +1308,8 @@ export function StorageManagement() {
       handleBulkCleanup,
       bulkDeleteMutation.isPending,
       isOwner,
+      viewMode,
+      toggleViewMode,
     ]
   );
 
@@ -1152,7 +1324,7 @@ export function StorageManagement() {
       canDelete={
         isOwner &&
         Array.from(selectedIds).some((id) => {
-          const f = allAssets.find((a) => a.id === id);
+          const f = allAssets.find((a: StorageObject) => a.id === id);
           return f ? getUsageStatus(f) === "UNUSED" : false;
         })
       }
@@ -1183,6 +1355,14 @@ export function StorageManagement() {
         isLoading={isLoading}
         isRefreshing={isRefetching}
         onRefresh={refetch}
+        onEndReached={hasNextPage ? () => fetchNextPage() : undefined}
+        onEndReachedThreshold={0.4}
+        ListFooterComponent={
+          isFetchingNextPage ? (
+            <ActivityIndicator style={{ marginVertical: spacing.md }} color={colors.primary} />
+          ) : null
+        }
+        loadingView={<StorageSkeleton viewMode={viewMode} numColumns={calculatedColumns} />}
         empty={<StorageEmptyState />}
         footer={selectionBar}
         contentContainerStyle={{ paddingBottom: 100 }}
@@ -2090,5 +2270,87 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
     color: "#fff",
     fontWeight: fontWeight.bold,
+  },
+  // List Mode styles
+  listRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.sm,
+    marginHorizontal: CARD_GAP / 2,
+    marginVertical: CARD_GAP / 2,
+    gap: spacing.sm,
+    ...shadow.sm,
+  },
+  listRowSelected: {
+    borderColor: colors.primary,
+    borderWidth: 1.5,
+  },
+  listRowPressed: {
+    opacity: 0.88,
+    backgroundColor: colors.surfaceOffset,
+  },
+  listThumbnail: {
+    width: 48,
+    height: 48,
+    borderRadius: radius.sm,
+    overflow: "hidden",
+  },
+  listRowBody: {
+    flex: 1,
+    gap: 2,
+  },
+  listRowName: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  listRowMeta: {
+    fontSize: 11,
+    color: colors.textMuted,
+  },
+  listCheckContainer: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  listActions: {
+    flexDirection: "row",
+    gap: 4,
+    alignItems: "center",
+  },
+  listActionBtn: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  listActionBtnPressed: {
+    opacity: 0.7,
+    backgroundColor: colors.surfaceOffset,
+    borderRadius: radius.full,
+  },
+  // Skeleton Grid styles
+  skeletonGridContainer: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    paddingHorizontal: spacing.lg - CARD_GAP / 2,
+    paddingTop: spacing.md,
+  },
+  skeletonGridCard: {
+    padding: CARD_GAP / 2,
+  },
+  skeletonGridCardInner: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.sm,
+    ...shadow.sm,
+    overflow: "hidden",
   },
 });

@@ -245,41 +245,28 @@ export async function getStaffTodaySummary(user, { shopId, date, staffId, dateFr
   };
 }
 
-export async function listStorageObjects(user, { shopId, filter }) {
+export async function listStorageObjects(user, { shopId, filter, cursor, limit }) {
   await assertShopAccess(user, shopId);
   if (user.role !== "OWNER") {
     throw new ApiError(403, "Access restricted to owners");
   }
 
-  const [assets, activeItems] = await Promise.all([
-    prisma.asset.findMany({
-      where: {
-        shopId,
-        deletedAt: null,
-      },
-      include: {
-        _count: {
-          select: { waMessages: true },
-        },
-      },
-      orderBy: { createdAt: "desc" },
-    }),
-    prisma.item.findMany({
-      where: { shopId, status: "ACTIVE", imageUrl: { not: null } },
-      select: {
-        id: true,
-        name: true,
-        imageUrl: true,
-        defaultSellingPrice: true,
-        minimumAllowedPrice: true,
-        mrp: true,
-        categoryId: true,
-        brandId: true,
-        category: { select: { id: true, name: true } },
-        brand: { select: { id: true, name: true } },
-      },
-    }),
-  ]);
+  // We query all active items to build the reference map (this is fast/indexed)
+  const activeItems = await prisma.item.findMany({
+    where: { shopId, status: "ACTIVE", imageUrl: { not: null } },
+    select: {
+      id: true,
+      name: true,
+      imageUrl: true,
+      defaultSellingPrice: true,
+      minimumAllowedPrice: true,
+      mrp: true,
+      categoryId: true,
+      brandId: true,
+      category: { select: { id: true, name: true } },
+      brand: { select: { id: true, name: true } },
+    },
+  });
 
   // Build a map: storageKey → item details
   const referencedKeys = new Set();
@@ -314,54 +301,105 @@ export async function listStorageObjects(user, { shopId, filter }) {
     }
   });
 
-  // Collect unique categories and brands for filter UI
-  const categoriesMap = new Map();
-  const brandsMap = new Map();
-  activeItems.forEach((it) => {
-    if (it.categoryId && it.category) categoriesMap.set(it.categoryId, it.category.name);
-    if (it.brandId && it.brand) brandsMap.set(it.brandId, it.brand.name);
-  });
-  const categories = [...categoriesMap.entries()].map(([id, name]) => ({ id, name }));
-  const brands = [...brandsMap.entries()].map(([id, name]) => ({ id, name }));
-
-  let mapped = assets.map((a) => {
-    const meta = a.storageKey ? itemReferenceMap.get(a.storageKey) : null;
-    return {
-      id: a.id,
-      fileName: a.fileName || (a.storageKey ? a.storageKey.split("/").pop() : "Unnamed File"),
-      storageKey: a.storageKey || "",
-      sizeBytes: a.sizeBytes ? Number(a.sizeBytes) : 0,
-      mimeType: a.mimeType || "application/octet-stream",
-      createdAt: a.createdAt,
-      url: a.storageKey && a.storageBucket
-        ? `https://${a.storageBucket}.s3.amazonaws.com/${a.storageKey}`
-        : (a.remoteUrl || ""),
-      // Image dimensions (stored at upload time in Asset model)
-      width: a.width ?? null,
-      height: a.height ?? null,
-      waMessagesCount: a._count.waMessages,
-      // Product metadata
-      itemId: meta?.itemId || null,
-      productName: meta?.productName || null,
-      categoryId: meta?.categoryId || null,
-      categoryName: meta?.categoryName || null,
-      brandId: meta?.brandId || null,
-      brandName: meta?.brandName || null,
-      // Prices (for quick edit)
-      sellingPrice: meta?.sellingPrice || null,
-      minPrice: meta?.minPrice || null,
-      mrp: meta?.mrp || null,
-    };
-  });
-
-  if (filter === "ORPHANED") {
-    mapped = mapped.filter((a) => {
-      if (!a.storageKey) return true;
-      return !referencedKeys.has(a.storageKey) && a.waMessagesCount === 0;
+  // Collect unique categories and brands for filter UI (only on first page load/no cursor)
+  let categories = [];
+  let brands = [];
+  if (!cursor) {
+    const categoriesMap = new Map();
+    const brandsMap = new Map();
+    activeItems.forEach((it) => {
+      if (it.categoryId && it.category) categoriesMap.set(it.categoryId, it.category.name);
+      if (it.brandId && it.brand) brandsMap.set(it.brandId, it.brand.name);
     });
+    categories = [...categoriesMap.entries()].map(([id, name]) => ({ id, name }));
+    brands = [...brandsMap.entries()].map(([id, name]) => ({ id, name }));
   }
 
-  return { assets: mapped, categories, brands };
+  const targetLimit = Math.min(Number(limit) || 30, 100);
+  let pageAssets = [];
+  let currentCursor = cursor;
+  let hasMore = false;
+  let nextCursor = null;
+
+  while (true) {
+    const rawAssets = await prisma.asset.findMany({
+      where: {
+        shopId,
+        deletedAt: null,
+      },
+      include: {
+        _count: {
+          select: { waMessages: true },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+      take: targetLimit + 1,
+      ...(currentCursor ? { cursor: { id: currentCursor }, skip: 1 } : {}),
+    });
+
+    if (rawAssets.length === 0) {
+      break;
+    }
+
+    const hasMoreInBatch = rawAssets.length > targetLimit;
+    const batch = hasMoreInBatch ? rawAssets.slice(0, targetLimit) : rawAssets;
+    const lastAssetInBatch = batch[batch.length - 1];
+
+    let mappedBatch = batch.map((a) => {
+      const meta = a.storageKey ? itemReferenceMap.get(a.storageKey) : null;
+      return {
+        id: a.id,
+        fileName: a.fileName || (a.storageKey ? a.storageKey.split("/").pop() : "Unnamed File"),
+        storageKey: a.storageKey || "",
+        sizeBytes: a.sizeBytes ? Number(a.sizeBytes) : 0,
+        mimeType: a.mimeType || "application/octet-stream",
+        createdAt: a.createdAt,
+        url: a.storageKey && a.storageBucket
+          ? `https://${a.storageBucket}.s3.amazonaws.com/${a.storageKey}`
+          : (a.remoteUrl || ""),
+        width: a.width ?? null,
+        height: a.height ?? null,
+        waMessagesCount: a._count.waMessages,
+        itemId: meta?.itemId || null,
+        productName: meta?.productName || null,
+        categoryId: meta?.categoryId || null,
+        categoryName: meta?.categoryName || null,
+        brandId: meta?.brandId || null,
+        brandName: meta?.brandName || null,
+        sellingPrice: meta?.sellingPrice || null,
+        minPrice: meta?.minPrice || null,
+        mrp: meta?.mrp || null,
+      };
+    });
+
+    if (filter === "ORPHANED" || filter === "UNUSED") {
+      mappedBatch = mappedBatch.filter((a) => {
+        if (!a.storageKey) return true;
+        return !referencedKeys.has(a.storageKey) && a.waMessagesCount === 0;
+      });
+    }
+
+    pageAssets.push(...mappedBatch);
+    currentCursor = lastAssetInBatch.id;
+
+    if (!hasMoreInBatch) {
+      break;
+    }
+
+    if (pageAssets.length >= targetLimit) {
+      hasMore = true;
+      nextCursor = lastAssetInBatch.id;
+      break;
+    }
+  }
+
+  const finalAssets = pageAssets.slice(0, targetLimit);
+  if (pageAssets.length > finalAssets.length) {
+    hasMore = true;
+    nextCursor = finalAssets[finalAssets.length - 1].id;
+  }
+
+  return { assets: finalAssets, nextCursor, hasMore, categories, brands };
 }
 
 

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
 import { useAuthStore } from "../auth/auth-store";
 import { useShopStore } from "../auth/shop-store";
 import { queryKeys } from "./query-keys";
@@ -61,6 +61,42 @@ export function useStaffTodaySummaryQuery(
   });
 }
 
+export function useStorageObjectsInfiniteQuery(filter?: "ALL" | "ORPHANED") {
+  const token = useAuthStore((state) => state.token);
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  const effectiveFilter = filter ?? "ALL";
+
+  const [initialData] = useState(() => {
+    if (!activeShopId) return undefined;
+    const cached = readAssetCache(activeShopId, effectiveFilter);
+    if (!cached) return undefined;
+    return {
+      pages: [cached],
+      pageParams: [undefined],
+    };
+  });
+
+  return useInfiniteQuery({
+    queryKey: queryKeys.storageObjectsInfinite(activeShopId ?? "", filter),
+    queryFn: async ({ pageParam }) => {
+      const result = await fetchStorageObjects(
+        token ?? "",
+        activeShopId ?? "",
+        { filter, cursor: pageParam as string | undefined, limit: 30 }
+      );
+      if (!pageParam && activeShopId) {
+        writeAssetCache(activeShopId, effectiveFilter, result);
+      }
+      return result;
+    },
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+    initialData: initialData as any,
+    enabled: !!token && !!activeShopId,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 export function useStorageObjectsQuery(filter?: "ALL" | "ORPHANED") {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
@@ -79,7 +115,7 @@ export function useStorageObjectsQuery(filter?: "ALL" | "ORPHANED") {
       const result = await fetchStorageObjects(
         token ?? "",
         activeShopId ?? "",
-        filter
+        { filter }
       );
       if (activeShopId) writeAssetCache(activeShopId, effectiveFilter, result);
       return result;

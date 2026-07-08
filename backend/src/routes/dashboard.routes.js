@@ -33,6 +33,8 @@ const storageQuerySchema = z.object({
   query: z.object({
     shopId: z.string().min(1),
     filter: z.enum(["ALL", "ORPHANED"]).optional(),
+    cursor: z.string().optional(),
+    limit: z.string().optional(),
   }),
   params: z.object({}).optional(),
   body: z.object({}).optional(),
