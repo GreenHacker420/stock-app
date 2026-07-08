@@ -43,6 +43,7 @@ import { TakePayment } from "./screens/TakePayment";
 import { Updates } from "./screens/Updates";
 import { UpiConfig } from "./screens/UpiConfig";
 import { WalkInSale } from "./screens/WalkInSale";
+import { InvoiceViewer } from "./screens/InvoiceViewer";
 import { CreateOrder } from "./screens/CreateOrder";
 import { OrderList } from "./screens/OrderList";
 import { OrderDetail } from "./screens/OrderDetail";
@@ -325,6 +326,10 @@ const sharedStackScreens = {
   RegularSale: {
     screen: RegularSale,
     options: { title: "Regular sale" },
+  },
+  InvoiceViewer: {
+    screen: InvoiceViewer,
+    options: { title: "Invoice Preview" },
   },
   SplitPayment: {
     screen: GenericPlannedScreen,

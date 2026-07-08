@@ -1237,7 +1237,37 @@ export function WalkInSale() {
                 
                 <View style={styles.receiptActionRow}>
                   <Button
-                    label="Print Receipt"
+                    label="View"
+                    variant="ghost"
+                    icon="eye-outline"
+                    onPress={() => {
+                      const finalSale = completedSale || {
+                        saleNumber: completedSaleNumber || "N/A",
+                        totalAmount: String(cartTotal),
+                        paidAmount: String(cartTotal),
+                        balanceAmount: "0",
+                        isWalkin: !customerId,
+                        createdAt: new Date().toISOString(),
+                        items: cartArray.map(i => ({
+                          id: i.item.id,
+                          quantity: String(i.quantity),
+                          rate: String(i.customRate !== undefined ? i.customRate : i.item.defaultSellingPrice),
+                          totalAmount: String(i.quantity * (i.customRate !== undefined ? i.customRate : Number(i.item.defaultSellingPrice))),
+                          item: i.item,
+                        })),
+                        notes: notes || null,
+                        payments: [{
+                          paymentMode: paymentMode,
+                          amount: String(cartTotal),
+                          receivedAt: new Date().toISOString()
+                        }]
+                      };
+                      navigation.navigate("InvoiceViewer", { sale: finalSale, shop: selectedShop });
+                    }}
+                    style={styles.receiptActionBtn}
+                  />
+                  <Button
+                    label="Print"
                     variant="ghost"
                     icon="printer"
                     loading={isPrinting}

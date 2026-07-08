@@ -420,7 +420,6 @@ export function AddEditItem() {
         mediaTypes: ["images"],
         quality: 0.8,
         allowsEditing: true,
-        aspect: [1, 1],
       });
       if (result.canceled) return;
       const asset = result.assets[0];
@@ -441,7 +440,6 @@ export function AddEditItem() {
       mediaTypes: ["images"],
       quality: 0.8,
       allowsEditing: true,
-      aspect: [1, 1],
     });
     if (result.canceled) return;
     const asset = result.assets[0];

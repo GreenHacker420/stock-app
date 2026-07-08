@@ -3,7 +3,7 @@ import { View, StyleSheet, Pressable, ScrollView, Alert } from "react-native";
 import { Divider, Text, Icon } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
-import { useRoute } from "@react-navigation/native";
+import { useRoute, useNavigation } from "@react-navigation/native";
 import Svg, { Path } from "react-native-svg";
 
 import { useSalesQuery, useSaleQuery } from "../../hooks/useSales";
@@ -139,6 +139,7 @@ export function SalesList() {
 
 export function SaleDetail() {
   const route = useRoute<any>();
+  const navigation = useNavigation<any>();
   const saleId = route.params?.id;
 
   const { activeShopId } = useShopStore();
@@ -402,15 +403,22 @@ export function SaleDetail() {
           </Section>
         )}
 
-        <View style={styles.shareBtnContainer}>
+        <View style={[styles.shareBtnContainer, { flexDirection: "row", gap: spacing.md }]}>
           <Button
-            label="PDF INVOICE"
+            label="VIEW"
+            variant="ghost"
+            icon="eye-outline"
+            onPress={() => navigation.navigate("InvoiceViewer", { sale, shop: activeShop })}
+            style={{ flex: 1 }}
+          />
+          <Button
+            label="SHARE PDF"
             variant="primary"
-            icon={<Icon source="file-pdf-box" size={18} color={colors.textInverse} />}
+            icon="share-variant-outline"
             loading={sharing}
             disabled={sharing}
             onPress={handleSharePdf}
-            style={styles.halfBtn}
+            style={{ flex: 1.5 }}
           />
         </View>
       </ScrollView>

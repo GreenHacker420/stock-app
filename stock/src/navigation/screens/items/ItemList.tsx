@@ -552,7 +552,7 @@ export function ItemList() {
                     ].filter(Boolean) as any
                   );
                 }}
-                onEdit={() => { triggerLightHaptic(); setEditingItemId(item.id); setEditingMode("PRICES"); }}
+                onEdit={() => { triggerLightHaptic(); navigate("AddEditItem", { itemId: item.id }); }}
                 onManageStock={() => { triggerLightHaptic(); setEditingItemId(item.id); setEditingMode("STOCK"); }}
                 isEditing={editingItemId === item.id ? editingMode : null}
                 draft={draftUpdates[item.id]}

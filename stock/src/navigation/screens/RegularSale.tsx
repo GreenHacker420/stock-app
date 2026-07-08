@@ -1145,9 +1145,41 @@ export function RegularSale() {
               
               <View style={styles.successActionsRow}>
                 <Button
-                  label="SHARE RECEIPT (PDF)"
+                  label="VIEW"
                   variant="ghost"
-                  icon={<Icon source="share-variant" size={18} color={colors.primary} />}
+                  icon="eye-outline"
+                  onPress={() => {
+                    const finalSale = completedSale || {
+                      saleNumber: (saleMutation.data as any)?.saleNumber || "N/A",
+                      totalAmount: String(cartTotal),
+                      paidAmount: String(amountPaid || (paymentType === "CREDIT" ? 0 : cartTotal)),
+                      balanceAmount: String(isCredit ? balance : 0),
+                      isWalkin: false,
+                      createdAt: new Date().toISOString(),
+                      customer: selectedCustomer,
+                      customerSignature: customerSignature,
+                      items: cartArray.map(i => ({
+                        id: i.item.id,
+                        quantity: String(i.quantity),
+                        rate: String(i.customRate !== undefined ? i.customRate : Number(i.item.defaultSellingPrice)),
+                        totalAmount: String(i.quantity * (i.customRate !== undefined ? i.customRate : Number(i.item.defaultSellingPrice))),
+                        item: i.item,
+                      })),
+                      notes: notes || null,
+                      payments: paymentType !== "CREDIT" || (amountPaid && Number(amountPaid) > 0) ? [{
+                        paymentMode: paymentType === "CREDIT" ? partialPaymentMode : paymentType,
+                        amount: String(amountPaid === "" ? cartTotal : amountPaid),
+                        receivedAt: new Date().toISOString()
+                      }] : []
+                    };
+                    navigation.navigate("InvoiceViewer", { sale: finalSale, shop: activeShop });
+                  }}
+                  style={styles.halfBtn}
+                />
+                <Button
+                  label="SHARE (PDF)"
+                  variant="primary"
+                  icon="share-variant-outline"
                   onPress={async () => {
                     await shareSaleInvoicePdf({
                       sale: completedSale || {
