@@ -1380,8 +1380,7 @@ export type StorageObject = {
 };
 
 export async function fetchStorageObjects(token: string, shopId: string) {
-  const res = await apiRequest<{ success: boolean; data: StorageObject[] }>(`/dashboard/storage/objects?shopId=${encodeURIComponent(shopId)}`, { token });
-  return res.data || [];
+  return apiRequest<StorageObject[]>(`/dashboard/storage/objects?shopId=${encodeURIComponent(shopId)}`, { token });
 }
 
 export async function deleteStorageObject(token: string, id: string) {
