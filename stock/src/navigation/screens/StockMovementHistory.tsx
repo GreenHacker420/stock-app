@@ -3,6 +3,7 @@ import { View, StyleSheet, ActivityIndicator, Pressable, Modal } from "react-nat
 import { Text, Icon } from "react-native-paper";
 import { navigate } from "../navigation-ref";
 import { FlashList } from "@shopify/flash-list";
+import { useAuthStore } from "../../auth/auth-store";
 
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
@@ -100,6 +101,8 @@ const getMovementStyle = (type: string) => {
 export function StockMovementHistory() {
   const [filterType, setFilterType] = useState<string | undefined>(undefined);
   const [selectedMovement, setSelectedMovement] = useState<any | null>(null);
+  const user = useAuthStore((s) => s.user);
+  const isOwner = user?.role === "OWNER";
   const { data: movements, isLoading, isFetching, refetch } = useStockMovementsQuery(undefined, filterType);
 
   const filterTabs = [
@@ -225,11 +228,22 @@ export function StockMovementHistory() {
                           {hasIn ? "+" : "-"}{qty(quantity)}
                         </Text>
                       </View>
+                      {isOwner && (
+                        <Pressable
+                          style={styles.cardEditBtn}
+                          onPress={(e) => {
+                            e.stopPropagation();
+                            navigate("AddEditItem", { itemId: move.itemId });
+                          }}
+                        >
+                          <Icon source="pencil-outline" size={16} color={colors.textSecondary} />
+                        </Pressable>
+                      )}
                     </View>
                   </View>
                 </View>
               </Pressable>
-              );
+            );
             }}
             ListEmptyComponent={
               <EmptyState 
@@ -274,9 +288,22 @@ export function StockMovementHistory() {
                 <View style={styles.modalBody}>
                   <View style={styles.modalDetailRow}>
                     <Text style={styles.detailLabel}>Product</Text>
-                    <Text style={[styles.detailValue, { flexShrink: 1, marginLeft: spacing.md, textAlign: "right" }]}>
-                      {selectedMovement.item?.name ? formatItemName(selectedMovement.item.name) : "Unknown Item"}
-                    </Text>
+                    <View style={styles.modalProductValueContainer}>
+                      <Text style={[styles.detailValue, { flexShrink: 1, textAlign: "right" }]}>
+                        {selectedMovement.item?.name ? formatItemName(selectedMovement.item.name) : "Unknown Item"}
+                      </Text>
+                      {isOwner && (
+                        <Pressable
+                          onPress={() => {
+                            setSelectedMovement(null);
+                            navigate("AddEditItem", { itemId: selectedMovement.itemId });
+                          }}
+                          style={styles.modalEditBtn}
+                        >
+                          <Icon source="pencil-outline" size={14} color={colors.primary} />
+                        </Pressable>
+                      )}
+                    </View>
                   </View>
 
                   <View style={styles.modalDetailRow}>
@@ -501,6 +528,14 @@ const styles = StyleSheet.create({
     alignItems: "flex-end",
     justifyContent: "center",
     minWidth: 80,
+    gap: spacing.xs,
+  },
+  cardEditBtn: {
+    padding: spacing.xs,
+    borderRadius: radius.full,
+    backgroundColor: colors.surfaceOffset,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   qtyBadge: {
     paddingHorizontal: 12,
@@ -564,6 +599,17 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     paddingVertical: spacing.xs,
+  },
+  modalProductValueContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    flexShrink: 1,
+  },
+  modalEditBtn: {
+    padding: 4,
+    borderRadius: radius.sm,
+    backgroundColor: colors.primaryLight,
   },
   detailLabel: {
     fontSize: fontSize.sm,
