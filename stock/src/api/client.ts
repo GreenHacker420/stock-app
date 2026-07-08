@@ -1377,6 +1377,7 @@ export type StorageObject = {
   mimeType: string;
   createdAt: string;
   url: string;
+  productName?: string | null;
 };
 
 export async function fetchStorageObjects(token: string, shopId: string, filter?: "ALL" | "ORPHANED") {

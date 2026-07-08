@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { View, StyleSheet, Pressable, Alert, ActivityIndicator } from "react-native";
+import { View, StyleSheet, Pressable, Alert, ActivityIndicator, useWindowDimensions } from "react-native";
 import { Text, TextInput, Icon, Button } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 import { Image } from "expo-image";
@@ -23,9 +23,15 @@ export function StorageManagement() {
   const [searchQuery, setSearchQuery] = useState("");
   const [activeTab, setActiveTab] = useState<"ALL" | "ORPHANED">("ALL");
 
+  const { width: windowWidth } = useWindowDimensions();
   const { data: files, isLoading, isFetching, refetch } = useStorageObjectsQuery(activeTab);
   const deleteMutation = useDeleteStorageObjectMutation();
   const bulkDeleteOrphansMutation = useBulkDeleteOrphansMutation();
+
+  // Dynamic grid card width calculation: leaves 16px margins on outer edges and 12px gap in between
+  const cardWidth = useMemo(() => {
+    return (windowWidth - spacing.lg * 2 - spacing.md) / 2;
+  }, [windowWidth]);
 
   const filteredFiles = useMemo(() => {
     const list = files || [];
@@ -34,6 +40,7 @@ export function StorageManagement() {
     return list.filter(
       (f) =>
         f.fileName.toLowerCase().includes(q) ||
+        (f.productName && f.productName.toLowerCase().includes(q)) ||
         f.storageKey.toLowerCase().includes(q)
     );
   }, [files, searchQuery]);
@@ -47,7 +54,7 @@ export function StorageManagement() {
   const handleDelete = (file: any) => {
     Alert.alert(
       "Confirm Deletion",
-      `Are you sure you want to permanently delete "${file.fileName}" from S3 storage? This action cannot be undone.`,
+      `Are you sure you want to permanently delete "${file.productName || file.fileName}" from S3 storage? This action cannot be undone.`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -173,7 +180,7 @@ export function StorageManagement() {
           <List
             data={filteredFiles}
             keyExtractor={(item: any) => item.id}
-            estimatedItemSize={210}
+            estimatedItemSize={200}
             numColumns={2}
             key={activeTab} // Changing tab forces Layout re-evaluation safely
             columnWrapperStyle={styles.gridRow}
@@ -183,13 +190,13 @@ export function StorageManagement() {
               const dateStr = new Date(file.createdAt).toLocaleDateString("en-IN", {
                 day: "numeric",
                 month: "short",
-                year: "numeric",
               });
 
               const isImage = file.mimeType.startsWith("image/");
+              const isOrphan = !file.productName;
 
               return (
-                <View style={styles.gridCard}>
+                <View style={[styles.gridCard, { width: cardWidth }]}>
                   {/* Image/File Thumbnail Container */}
                   <View style={styles.thumbnailContainer}>
                     {isImage && file.url ? (
@@ -206,27 +213,35 @@ export function StorageManagement() {
                         </Text>
                       </View>
                     )}
-                    {/* Absolute Delete Button floating on top-right */}
-                    <Pressable
-                      style={({ pressed }) => [
-                        styles.deleteBtnFloating,
-                        pressed && styles.deleteBtnFloatingPressed,
-                      ]}
-                      onPress={() => handleDelete(file)}
-                      disabled={deleteMutation.isPending || bulkDeleteOrphansMutation.isPending}
-                    >
-                      <Icon source="trash-can-outline" size={16} color={colors.danger} />
-                    </Pressable>
+
+                    {/* Left side Unused badge (rendered in ALL files tab only) */}
+                    {activeTab === "ALL" && isOrphan && (
+                      <View style={styles.orphanBadge}>
+                        <Text style={styles.orphanBadgeText}>Unused</Text>
+                      </View>
+                    )}
                   </View>
 
                   {/* Card Details Footer */}
                   <View style={styles.cardDetails}>
-                    <Text style={styles.fileName} numberOfLines={1}>
-                      {file.fileName}
-                    </Text>
-                    <Text style={styles.metaText} numberOfLines={1}>
-                      {formatBytes(file.sizeBytes)} • {dateStr}
-                    </Text>
+                    <View style={styles.detailsTextContainer}>
+                      <Text style={styles.fileName} numberOfLines={1}>
+                        {file.productName || file.fileName}
+                      </Text>
+                      <Text style={styles.metaText} numberOfLines={1}>
+                        {formatBytes(file.sizeBytes)} • {dateStr}
+                      </Text>
+                    </View>
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.deleteCardBtn,
+                        pressed && styles.deleteCardBtnPressed,
+                      ]}
+                      onPress={() => handleDelete(file)}
+                      disabled={deleteMutation.isPending || bulkDeleteOrphansMutation.isPending}
+                    >
+                      <Icon source="trash-can-outline" size={18} color={colors.danger} />
+                    </Pressable>
                   </View>
                 </View>
               );
@@ -327,7 +342,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surfaceOffset,
   },
   listContent: {
-    padding: spacing.md,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
     paddingBottom: 120,
   },
   centerContainer: {
@@ -337,10 +353,9 @@ const styles = StyleSheet.create({
   },
   gridRow: {
     justifyContent: "space-between",
-    paddingHorizontal: spacing.xs,
+    marginBottom: spacing.xs,
   },
   gridCard: {
-    width: "48%",
     backgroundColor: colors.surface,
     borderRadius: radius.md,
     borderWidth: 1,
@@ -350,14 +365,12 @@ const styles = StyleSheet.create({
     ...shadow.sm,
   },
   thumbnailContainer: {
-    height: 110,
+    height: 120,
     width: "100%",
     backgroundColor: colors.surfaceOffset,
     position: "relative",
     justifyContent: "center",
     alignItems: "center",
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
   },
   imageThumbnail: {
     width: "100%",
@@ -374,20 +387,33 @@ const styles = StyleSheet.create({
     textTransform: "uppercase",
     fontWeight: fontWeight.semibold,
   },
-  deleteBtnFloating: {
+  orphanBadge: {
     position: "absolute",
     top: spacing.xs,
-    right: spacing.xs,
-    padding: 6,
-    borderRadius: radius.full,
-    backgroundColor: "rgba(255, 255, 255, 0.9)",
-    ...shadow.sm,
+    left: spacing.xs,
+    backgroundColor: "rgba(220, 38, 38, 0.85)",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: radius.sm,
   },
-  deleteBtnFloatingPressed: {
-    backgroundColor: "rgba(244, 244, 245, 0.95)",
+  orphanBadgeText: {
+    fontSize: 9,
+    fontWeight: fontWeight.bold,
+    color: colors.textInverse,
+    textTransform: "uppercase",
   },
   cardDetails: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     padding: spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  detailsTextContainer: {
+    flex: 1,
+    marginRight: spacing.xs,
   },
   fileName: {
     fontSize: fontSize.xs + 1,
@@ -395,10 +421,18 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
   },
   metaText: {
-    fontSize: fontSize.xs,
+    fontSize: fontSize.xs - 1,
     color: colors.textSecondary,
     fontWeight: fontWeight.semibold,
-    marginTop: 2,
+    marginTop: 1,
+  },
+  deleteCardBtn: {
+    padding: 6,
+    borderRadius: radius.sm,
+    backgroundColor: "rgba(220, 38, 38, 0.05)",
+  },
+  deleteCardBtnPressed: {
+    backgroundColor: "rgba(220, 38, 38, 0.15)",
   },
   footerBar: {
     position: "absolute",
