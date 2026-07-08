@@ -266,33 +266,66 @@ export async function listStorageObjects(user, { shopId, filter }) {
     }),
     prisma.item.findMany({
       where: { shopId, status: "ACTIVE", imageUrl: { not: null } },
-      select: { id: true, name: true, imageUrl: true },
-    })
+      select: {
+        id: true,
+        name: true,
+        imageUrl: true,
+        defaultSellingPrice: true,
+        minimumAllowedPrice: true,
+        mrp: true,
+        categoryId: true,
+        brandId: true,
+        category: { select: { id: true, name: true } },
+        brand: { select: { id: true, name: true } },
+      },
+    }),
   ]);
 
+  // Build a map: storageKey → item details
   const referencedKeys = new Set();
-  const itemReferenceMap = new Map();
+  const itemReferenceMap = new Map(); // key → { itemId, productName, categoryId, categoryName, brandId, brandName, sellingPrice, minPrice, mrp }
+
   activeItems.forEach((it) => {
     if (it.imageUrl) {
       it.imageUrl.split(",").forEach((url) => {
         const trimmed = url.trim();
-        itemReferenceMap.set(trimmed, it.name);
+        const meta = {
+          itemId: it.id,
+          productName: it.name,
+          categoryId: it.categoryId || null,
+          categoryName: it.category?.name || null,
+          brandId: it.brandId || null,
+          brandName: it.brand?.name || null,
+          sellingPrice: it.defaultSellingPrice != null ? String(it.defaultSellingPrice) : null,
+          minPrice: it.minimumAllowedPrice != null ? String(it.minimumAllowedPrice) : null,
+          mrp: it.mrp != null ? String(it.mrp) : null,
+        };
+        itemReferenceMap.set(trimmed, meta);
         if (trimmed.includes(".amazonaws.com/")) {
           const key = trimmed.split(".amazonaws.com/")[1];
           if (key) {
             referencedKeys.add(key);
-            itemReferenceMap.set(key, it.name);
+            itemReferenceMap.set(key, meta);
           }
         } else {
           referencedKeys.add(trimmed);
-          itemReferenceMap.set(trimmed, it.name);
         }
       });
     }
   });
 
+  // Collect unique categories and brands for filter UI
+  const categoriesMap = new Map();
+  const brandsMap = new Map();
+  activeItems.forEach((it) => {
+    if (it.categoryId && it.category) categoriesMap.set(it.categoryId, it.category.name);
+    if (it.brandId && it.brand) brandsMap.set(it.brandId, it.brand.name);
+  });
+  const categories = [...categoriesMap.entries()].map(([id, name]) => ({ id, name }));
+  const brands = [...brandsMap.entries()].map(([id, name]) => ({ id, name }));
+
   let mapped = assets.map((a) => {
-    const pName = a.storageKey ? itemReferenceMap.get(a.storageKey) : null;
+    const meta = a.storageKey ? itemReferenceMap.get(a.storageKey) : null;
     return {
       id: a.id,
       fileName: a.fileName || (a.storageKey ? a.storageKey.split("/").pop() : "Unnamed File"),
@@ -300,9 +333,24 @@ export async function listStorageObjects(user, { shopId, filter }) {
       sizeBytes: a.sizeBytes ? Number(a.sizeBytes) : 0,
       mimeType: a.mimeType || "application/octet-stream",
       createdAt: a.createdAt,
-      url: a.storageKey && a.storageBucket ? `https://${a.storageBucket}.s3.amazonaws.com/${a.storageKey}` : (a.remoteUrl || ""),
+      url: a.storageKey && a.storageBucket
+        ? `https://${a.storageBucket}.s3.amazonaws.com/${a.storageKey}`
+        : (a.remoteUrl || ""),
+      // Image dimensions (stored at upload time in Asset model)
+      width: a.width ?? null,
+      height: a.height ?? null,
       waMessagesCount: a._count.waMessages,
-      productName: pName,
+      // Product metadata
+      itemId: meta?.itemId || null,
+      productName: meta?.productName || null,
+      categoryId: meta?.categoryId || null,
+      categoryName: meta?.categoryName || null,
+      brandId: meta?.brandId || null,
+      brandName: meta?.brandName || null,
+      // Prices (for quick edit)
+      sellingPrice: meta?.sellingPrice || null,
+      minPrice: meta?.minPrice || null,
+      mrp: meta?.mrp || null,
     };
   });
 
@@ -313,8 +361,10 @@ export async function listStorageObjects(user, { shopId, filter }) {
     });
   }
 
-  return mapped;
+  return { assets: mapped, categories, brands };
 }
+
+
 
 export async function deleteStorageObject(user, id) {
   const asset = await prisma.asset.findUnique({

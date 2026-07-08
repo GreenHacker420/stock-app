@@ -1377,12 +1377,32 @@ export type StorageObject = {
   mimeType: string;
   createdAt: string;
   url: string;
+  // Image dimensions (stored in Asset DB at upload time)
+  width?: number | null;
+  height?: number | null;
+  waMessagesCount: number;
+  // Linked product metadata
+  itemId?: string | null;
   productName?: string | null;
+  categoryId?: string | null;
+  categoryName?: string | null;
+  brandId?: string | null;
+  brandName?: string | null;
+  // Prices (for quick edit from asset manager)
+  sellingPrice?: string | null;
+  minPrice?: string | null;
+  mrp?: string | null;
+};
+
+export type StorageObjectsResponse = {
+  assets: StorageObject[];
+  categories: { id: string; name: string }[];
+  brands: { id: string; name: string }[];
 };
 
 export async function fetchStorageObjects(token: string, shopId: string, filter?: "ALL" | "ORPHANED") {
   const query = `shopId=${encodeURIComponent(shopId)}` + (filter ? `&filter=${encodeURIComponent(filter)}` : "");
-  return apiRequest<StorageObject[]>(`/dashboard/storage/objects?${query}`, { token });
+  return apiRequest<StorageObjectsResponse>(`/dashboard/storage/objects?${query}`, { token });
 }
 
 export async function deleteStorageObject(token: string, id: string) {
@@ -1399,3 +1419,5 @@ export async function bulkDeleteOrphans(token: string, shopId: string) {
     body: JSON.stringify({ shopId }),
   });
 }
+
+

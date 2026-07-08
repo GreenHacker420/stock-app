@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { View, StyleSheet, Alert, Pressable, ScrollView } from "react-native";
+import { Image } from "expo-image";
 import { Text, Divider, Switch, Portal, Dialog, Icon, SegmentedButtons, ActivityIndicator, Searchbar } from "react-native-paper";
 import { ScrollScreen } from "../../components/layout/ScrollScreen";
 import { ScreenSection } from "../../components/layout/ScreenSection";
@@ -277,6 +278,9 @@ export function CopyCatalog() {
                     <ScrollView nestedScrollEnabled style={{ maxHeight: 300 }}>
                       {filteredSourceItems.map((item) => {
                         const isSelected = selectedItemIds.includes(item.id);
+                        const firstImageUrl = item.imageUrl
+                          ? item.imageUrl.split(",")[0].trim()
+                          : null;
                         return (
                           <Pressable
                             key={item.id}
@@ -287,6 +291,19 @@ export function CopyCatalog() {
                             }}
                             style={styles.selectionRow}
                           >
+                            {/* Product thumbnail */}
+                            {firstImageUrl ? (
+                              <Image
+                                source={{ uri: firstImageUrl }}
+                                style={styles.itemThumb}
+                                contentFit="cover"
+                                cachePolicy="disk"
+                              />
+                            ) : (
+                              <View style={styles.itemThumbPlaceholder}>
+                                <Icon source="image-off-outline" size={18} color={colors.textMuted} />
+                              </View>
+                            )}
                             <View style={{ flex: 1, marginRight: spacing.md }}>
                               <Text style={styles.selectionLabel} numberOfLines={1}>{item.name}</Text>
                               <Text style={styles.selectionSubtitle} numberOfLines={1}>
@@ -387,6 +404,22 @@ export function CopyCatalog() {
 }
 
 const styles = StyleSheet.create({
+  itemThumb: {
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    marginRight: spacing.sm,
+    backgroundColor: colors.surfaceOffset,
+  },
+  itemThumbPlaceholder: {
+    width: 44,
+    height: 44,
+    borderRadius: 8,
+    marginRight: spacing.sm,
+    backgroundColor: colors.surfaceOffset,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   selectionRow: {
     flexDirection: "row",
     alignItems: "center",
