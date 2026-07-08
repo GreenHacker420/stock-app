@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useDeferredValue } from "react";
 import {
   View,
   StyleSheet,
@@ -7,32 +7,53 @@ import {
   Modal,
   ScrollView,
   TextInput as RNTextInput,
-  Dimensions,
+  useWindowDimensions,
+  Platform,
+  KeyboardAvoidingView,
 } from "react-native";
-import { Text, ActivityIndicator, Icon, Divider, Searchbar } from "react-native-paper";
-import { Image } from "expo-image";
+import {
+  Text,
+  ActivityIndicator,
+  Icon,
+  Divider,
+  Searchbar,
+} from "react-native-paper";
+import { FlashList } from "@shopify/flash-list";
 import * as Sharing from "expo-sharing";
 import { File, Directory, Paths } from "expo-file-system";
+import * as Haptics from "expo-haptics";
+
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
-import { ScrollScreen } from "../../components/layout/ScrollScreen";
-import { LoadingState } from "../../components/feedback/LoadingState";
-import { useStorageObjectsQuery, useDeleteStorageObjectMutation, useBulkDeleteOrphansMutation } from "../../hooks/useDashboard";
+import { ListScreen } from "../../components/layout/ListScreen";
+import { CachedThumbnail } from "../../components/ui/CachedThumbnail";
+import {
+  useStorageObjectsQuery,
+  useDeleteStorageObjectMutation,
+  useBulkDeleteOrphansMutation,
+} from "../../hooks/useDashboard";
 import { useUpdateItemMutation } from "../../hooks/useItems";
 import { invalidateAssetCache } from "../../hooks/useAssetCache";
 import { useShopStore } from "../../auth/shop-store";
+import { useAuthStore } from "../../auth/auth-store";
 import type { StorageObject } from "../../api/client";
-import { FlashList } from "@shopify/flash-list";
-const FlashListAny = FlashList as any;
 
-const SCREEN_WIDTH = Dimensions.get("window").width;
-const NUM_COLS = 2;
-const CARD_GAP = spacing.sm;
-const CARD_WIDTH = (SCREEN_WIDTH - spacing.md * 2 - CARD_GAP) / NUM_COLS;
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 type SortKey = "date_desc" | "date_asc" | "size_desc" | "size_asc" | "name_asc";
 type FileTypeFilter = "ALL" | "IMAGE" | "DOC" | "VIDEO" | "AUDIO";
+type AssetUsageStatus = "PRODUCT" | "WHATSAPP" | "UNUSED";
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Constants ─────────────────────────────────────────────────────────────────
+
+const CARD_GAP = spacing.sm;
+
+// ── Pure helpers ──────────────────────────────────────────────────────────────
+
+function getUsageStatus(a: StorageObject): AssetUsageStatus {
+  if (a.productName) return "PRODUCT";
+  if (a.waMessagesCount > 0) return "WHATSAPP";
+  return "UNUSED";
+}
 
 function formatBytes(bytes: number): string {
   if (!bytes) return "0 B";
@@ -43,29 +64,480 @@ function formatBytes(bytes: number): string {
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleString("en-IN", {
-    day: "2-digit", month: "short", year: "numeric",
-    hour: "2-digit", minute: "2-digit",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
   });
 }
 
-function mimeLabel(mime: string): string {
-  if (mime.startsWith("image/")) return mime.replace("image/", "").toUpperCase() + " Image";
-  if (mime.startsWith("video/")) return mime.replace("video/", "").toUpperCase() + " Video";
-  if (mime.startsWith("audio/")) return mime.replace("audio/", "").toUpperCase() + " Audio";
-  if (mime === "application/pdf") return "PDF Document";
-  return mime;
+function mimeIcon(mime: string): string {
+  if (mime.startsWith("image/")) return "image-outline";
+  if (mime.startsWith("video/")) return "video-outline";
+  if (mime.startsWith("audio/")) return "music-note-outline";
+  if (mime === "application/pdf") return "file-pdf-box";
+  return "file-document-outline";
 }
 
-function isImage(mime: string) { return mime.startsWith("image/"); }
+function validatePrices(
+  mrp: string,
+  selling: string,
+  min: string
+): string | null {
+  const parse = (s: string) =>
+    s.trim() === "" ? null : Number(s.trim());
+  const M = parse(mrp);
+  const S = parse(selling);
+  const m = parse(min);
+  if (M !== null && (!Number.isFinite(M) || M < 0))
+    return "MRP must be a valid positive number.";
+  if (S !== null && (!Number.isFinite(S) || S < 0))
+    return "Selling price must be a valid positive number.";
+  if (m !== null && (!Number.isFinite(m) || m < 0))
+    return "Min price must be a valid positive number.";
+  if (M !== null && S !== null && S > M)
+    return "Selling price cannot exceed MRP.";
+  if (S !== null && m !== null && m > S)
+    return "Min price cannot exceed selling price.";
+  return null;
+}
+
+// ── Sub-components ────────────────────────────────────────────────────────────
+
+function InfoRow({
+  label,
+  value,
+  valueColor,
+}: {
+  label: string;
+  value: string;
+  valueColor?: string;
+}) {
+  return (
+    <View style={styles.infoRow}>
+      <Text style={styles.infoLabel}>{label}</Text>
+      <Text
+        style={[styles.infoValue, valueColor ? { color: valueColor } : undefined]}
+        numberOfLines={3}
+      >
+        {value}
+      </Text>
+    </View>
+  );
+}
+
+function PickerSheet({
+  visible,
+  title,
+  items,
+  selected,
+  onSelect,
+  onClose,
+}: {
+  visible: boolean;
+  title: string;
+  items: { id: string; name: string }[];
+  selected: string;
+  onSelect: (id: string) => void;
+  onClose: () => void;
+}) {
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      <Pressable style={styles.modalOverlay} onPress={onClose} />
+      <View style={styles.pickerSheet}>
+        <Text style={styles.sheetTitle}>{title}</Text>
+        <Divider style={{ marginVertical: spacing.sm }} />
+        <ScrollView>
+          {items.map((item) => (
+            <Pressable
+              key={item.id}
+              style={({ pressed }) => [
+                styles.pickerRow,
+                selected === item.id && styles.pickerRowActive,
+                pressed && styles.pickerRowPressed,
+              ]}
+              onPress={() => {
+                void Haptics.selectionAsync().catch(() => {});
+                onSelect(item.id);
+              }}
+              accessibilityRole="radio"
+              accessibilityState={{ selected: selected === item.id }}
+              accessibilityLabel={item.name}
+            >
+              <Text
+                style={[
+                  styles.pickerRowText,
+                  selected === item.id && styles.pickerRowTextActive,
+                ]}
+              >
+                {item.name}
+              </Text>
+              {selected === item.id && (
+                <Icon source="check-circle" size={18} color={colors.primary} />
+              )}
+            </Pressable>
+          ))}
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+}
+
+// ── StorageManagementHeader ───────────────────────────────────────────────────
+// Rendered as the ListScreen `header` prop — scrolls with the list.
+
+type HeaderProps = {
+  allCount: number;
+  unusedCount: number;
+  unusedBytes: number;
+  activeTab: "ALL" | "UNUSED";
+  onTabChange: (t: "ALL" | "UNUSED") => void;
+  searchQuery: string;
+  onSearchChange: (s: string) => void;
+  filterCategory: string;
+  filterBrand: string;
+  filterType: FileTypeFilter;
+  sortBy: SortKey;
+  categories: { id: string; name: string }[];
+  brands: { id: string; name: string }[];
+  activeFilterCount: number;
+  onCategoryPress: () => void;
+  onBrandPress: () => void;
+  onTypePress: () => void;
+  onSortPress: () => void;
+  onClearFilters: () => void;
+  onCleanUp: () => void;
+  isCleaningUp: boolean;
+  isOwner: boolean;
+};
+
+function StorageManagementHeader({
+  allCount,
+  unusedCount,
+  unusedBytes,
+  activeTab,
+  onTabChange,
+  searchQuery,
+  onSearchChange,
+  filterCategory,
+  filterBrand,
+  filterType,
+  sortBy,
+  categories,
+  brands,
+  activeFilterCount,
+  onCategoryPress,
+  onBrandPress,
+  onTypePress,
+  onSortPress,
+  onClearFilters,
+  onCleanUp,
+  isCleaningUp,
+  isOwner,
+}: HeaderProps) {
+  return (
+    <View style={styles.headerRoot}>
+      {/* Search */}
+      <Searchbar
+        placeholder="Search products, files, categories…"
+        value={searchQuery}
+        onChangeText={onSearchChange}
+        style={styles.searchBar}
+        inputStyle={{ fontSize: fontSize.sm }}
+        elevation={0}
+        accessibilityLabel="Search assets"
+      />
+
+      {/* Tabs */}
+      <View style={styles.tabRow}>
+        {(["ALL", "UNUSED"] as const).map((tab) => (
+          <Pressable
+            key={tab}
+            style={({ pressed }) => [
+              styles.tab,
+              activeTab === tab && styles.tabActive,
+              pressed && styles.tabPressed,
+            ]}
+            onPress={() => {
+              void Haptics.selectionAsync().catch(() => {});
+              onTabChange(tab);
+            }}
+            accessibilityRole="tab"
+            accessibilityState={{ selected: activeTab === tab }}
+            accessibilityLabel={
+              tab === "ALL"
+                ? `All files, ${allCount} total`
+                : `Unused files, ${unusedCount} total`
+            }
+          >
+            <Text
+              style={[
+                styles.tabText,
+                activeTab === tab && styles.tabTextActive,
+              ]}
+            >
+              {tab === "ALL" ? `All  ${allCount}` : `Unused  ${unusedCount}`}
+            </Text>
+          </Pressable>
+        ))}
+      </View>
+
+      {/* Filter pills */}
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.pillRow}
+      >
+        <FilterPill
+          label={
+            filterCategory === "ALL"
+              ? "Category"
+              : categories.find((c) => c.id === filterCategory)?.name ||
+                "Category"
+          }
+          icon="tag-outline"
+          active={filterCategory !== "ALL"}
+          onPress={onCategoryPress}
+        />
+        <FilterPill
+          label={
+            filterBrand === "ALL"
+              ? "Brand"
+              : brands.find((b) => b.id === filterBrand)?.name || "Brand"
+          }
+          icon="label-outline"
+          active={filterBrand !== "ALL"}
+          onPress={onBrandPress}
+        />
+        <FilterPill
+          label={
+            filterType === "ALL"
+              ? "Type"
+              : filterType === "IMAGE"
+              ? "Images"
+              : filterType === "VIDEO"
+              ? "Videos"
+              : filterType === "AUDIO"
+              ? "Audio"
+              : "Documents"
+          }
+          icon={
+            filterType === "IMAGE"
+              ? "image-outline"
+              : filterType === "VIDEO"
+              ? "video-outline"
+              : filterType === "AUDIO"
+              ? "music-note-outline"
+              : filterType === "DOC"
+              ? "file-document-outline"
+              : "filter-outline"
+          }
+          active={filterType !== "ALL"}
+          onPress={onTypePress}
+        />
+        <FilterPill
+          label={
+            sortBy === "date_desc"
+              ? "Newest"
+              : sortBy === "date_asc"
+              ? "Oldest"
+              : sortBy === "size_desc"
+              ? "Largest"
+              : sortBy === "size_asc"
+              ? "Smallest"
+              : "A – Z"
+          }
+          icon="sort-variant"
+          active={sortBy !== "date_desc"}
+          onPress={onSortPress}
+        />
+        {activeFilterCount > 0 && (
+          <FilterPill
+            label={`Clear ${activeFilterCount}`}
+            icon="close-circle-outline"
+            active={false}
+            danger
+            onPress={onClearFilters}
+          />
+        )}
+      </ScrollView>
+
+      {/* Unused files banner — owner only */}
+      {isOwner && unusedCount > 0 && (
+        <Pressable
+          style={({ pressed }) => [
+            styles.cleanupBanner,
+            pressed && { opacity: 0.85 },
+          ]}
+          onPress={onCleanUp}
+          disabled={isCleaningUp}
+          accessibilityRole="button"
+          accessibilityLabel={`Clean up ${unusedCount} unused files, ${formatBytes(unusedBytes)}`}
+        >
+          <View style={styles.cleanupLeft}>
+            <Icon source="delete-sweep-outline" size={20} color={colors.danger} />
+            <View style={{ marginLeft: spacing.sm }}>
+              <Text style={styles.cleanupTitle}>
+                {unusedCount} unused{" "}
+                {unusedCount === 1 ? "file" : "files"} · {formatBytes(unusedBytes)}
+              </Text>
+              <Text style={styles.cleanupSub}>
+                Tap to review and clean up
+              </Text>
+            </View>
+          </View>
+          {isCleaningUp ? (
+            <ActivityIndicator size="small" color={colors.danger} />
+          ) : (
+            <Icon source="chevron-right" size={20} color={colors.danger} />
+          )}
+        </Pressable>
+      )}
+    </View>
+  );
+}
+
+function FilterPill({
+  label,
+  icon,
+  active,
+  danger,
+  onPress,
+}: {
+  label: string;
+  icon: string;
+  active: boolean;
+  danger?: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      style={({ pressed }) => [
+        styles.pill,
+        active && styles.pillActive,
+        danger && styles.pillDanger,
+        pressed && styles.pillPressed,
+      ]}
+      onPress={onPress}
+      accessibilityRole="button"
+      accessibilityState={{ selected: active }}
+      accessibilityLabel={label}
+    >
+      <Icon
+        source={icon}
+        size={13}
+        color={
+          danger ? colors.danger : active ? colors.primary : colors.textMuted
+        }
+      />
+      <Text
+        style={[
+          styles.pillText,
+          active && styles.pillTextActive,
+          danger && { color: colors.danger },
+        ]}
+      >
+        {label}
+      </Text>
+    </Pressable>
+  );
+}
+
+// ── Empty State ───────────────────────────────────────────────────────────────
+
+function StorageEmptyState() {
+  return (
+    <View style={styles.emptyState}>
+      <Icon source="cloud-off-outline" size={52} color={colors.textMuted} />
+      <Text style={styles.emptyTitle}>No assets found</Text>
+      <Text style={styles.emptySubtitle}>
+        Try changing your filters or search query.
+      </Text>
+    </View>
+  );
+}
+
+// ── Selection Action Bar ──────────────────────────────────────────────────────
+
+function SelectionActionBar({
+  count,
+  onShare,
+  onDelete,
+  onCancel,
+  canDelete,
+  isBusy,
+}: {
+  count: number;
+  onShare: () => void;
+  onDelete: () => void;
+  onCancel: () => void;
+  canDelete: boolean;
+  isBusy: boolean;
+}) {
+  return (
+    <View style={styles.selectionBar}>
+      <Pressable
+        style={styles.selectionCancel}
+        onPress={onCancel}
+        accessibilityRole="button"
+        accessibilityLabel="Cancel selection"
+      >
+        <Icon source="close" size={20} color={colors.textSecondary} />
+      </Pressable>
+      <Text style={styles.selectionCount}>
+        {count} selected
+      </Text>
+      <View style={styles.selectionActions}>
+        <Pressable
+          style={[styles.selectionBtn, styles.selectionBtnShare]}
+          onPress={onShare}
+          disabled={isBusy}
+          accessibilityRole="button"
+          accessibilityLabel={`Share ${count} selected files`}
+          accessibilityState={{ disabled: isBusy }}
+        >
+          <Icon source="share-variant-outline" size={16} color={colors.primary} />
+          <Text style={[styles.selectionBtnText, { color: colors.primary }]}>
+            Share
+          </Text>
+        </Pressable>
+        {canDelete && (
+          <Pressable
+            style={[styles.selectionBtn, styles.selectionBtnDelete]}
+            onPress={onDelete}
+            disabled={isBusy}
+            accessibilityRole="button"
+            accessibilityLabel={`Delete ${count} selected files`}
+            accessibilityState={{ disabled: isBusy }}
+          >
+            <Icon source="delete-outline" size={16} color={colors.danger} />
+            <Text style={[styles.selectionBtnText, { color: colors.danger }]}>
+              Delete
+            </Text>
+          </Pressable>
+        )}
+      </View>
+    </View>
+  );
+}
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export function StorageManagement() {
   const activeShopId = useShopStore((s) => s.activeShopId);
+  const user = useAuthStore((s) => s.user);
+  const isOwner = user?.role === "OWNER";
 
-  // ── Filter / Sort state ───────────────────────────────────────────────────
-  const [activeTab, setActiveTab] = useState<"ALL" | "ORPHANED">("ALL");
+  // ── Filter / Sort ─────────────────────────────────────────────────────────
+  const [activeTab, setActiveTab] = useState<"ALL" | "UNUSED">("ALL");
   const [searchQuery, setSearchQuery] = useState("");
+  const deferredSearch = useDeferredValue(searchQuery);
   const [filterCategory, setFilterCategory] = useState<string>("ALL");
   const [filterBrand, setFilterBrand] = useState<string>("ALL");
   const [filterType, setFilterType] = useState<FileTypeFilter>("ALL");
@@ -77,19 +549,28 @@ export function StorageManagement() {
   const [showTypeSheet, setShowTypeSheet] = useState(false);
   const [showSortSheet, setShowSortSheet] = useState(false);
 
-  // ── Action state ─────────────────────────────────────────────────────────
+  // ── Selection mode ────────────────────────────────────────────────────────
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const isSelecting = selectedIds.size > 0;
+
+  // ── Async action state ────────────────────────────────────────────────────
   const [sharingId, setSharingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  // ── Info sheet / price edit state ─────────────────────────────────────────
+  // ── Sheet state ───────────────────────────────────────────────────────────
   const [infoFile, setInfoFile] = useState<StorageObject | null>(null);
   const [editFile, setEditFile] = useState<StorageObject | null>(null);
   const [editMrp, setEditMrp] = useState("");
   const [editSelling, setEditSelling] = useState("");
   const [editMin, setEditMin] = useState("");
+  const [editError, setEditError] = useState<string | null>(null);
+
+  // ── Responsive grid ───────────────────────────────────────────────────────
+  const { width: screenWidth } = useWindowDimensions();
+  const numColumns = screenWidth >= 700 ? 4 : screenWidth >= 480 ? 3 : 2;
 
   // ── Queries ───────────────────────────────────────────────────────────────
-  const { data, isLoading, refetch } = useStorageObjectsQuery();
+  const { data, isLoading, isRefetching, refetch } = useStorageObjectsQuery();
   const deleteMutation = useDeleteStorageObjectMutation();
   const bulkDeleteMutation = useBulkDeleteOrphansMutation();
   const updateItemMutation = useUpdateItemMutation();
@@ -98,12 +579,29 @@ export function StorageManagement() {
   const categories = data?.categories ?? [];
   const brands = data?.brands ?? [];
 
-  // ── Filter + Sort pipeline (all client-side) ──────────────────────────────
+  const isBusy =
+    sharingId !== null ||
+    deletingId !== null ||
+    bulkDeleteMutation.isPending;
+
+  // ── Stats (single pass) ───────────────────────────────────────────────────
+  const assetStats = useMemo(() => {
+    let unusedCount = 0;
+    let unusedBytes = 0;
+    for (const a of allAssets) {
+      if (getUsageStatus(a) === "UNUSED") {
+        unusedCount++;
+        unusedBytes += a.sizeBytes;
+      }
+    }
+    return { unusedCount, unusedBytes };
+  }, [allAssets]);
+
+  // ── Filter + Sort pipeline ────────────────────────────────────────────────
   const filtered = useMemo(() => {
     let list = allAssets;
-
-    if (activeTab === "ORPHANED") {
-      list = list.filter((a) => !a.productName && a.waMessagesCount === 0);
+    if (activeTab === "UNUSED") {
+      list = list.filter((a) => getUsageStatus(a) === "UNUSED");
     }
     if (filterCategory !== "ALL") {
       list = list.filter((a) => a.categoryId === filterCategory);
@@ -117,534 +615,1480 @@ export function StorageManagement() {
           case "IMAGE": return a.mimeType.startsWith("image/");
           case "VIDEO": return a.mimeType.startsWith("video/");
           case "AUDIO": return a.mimeType.startsWith("audio/");
-          case "DOC":   return !a.mimeType.startsWith("image/") && !a.mimeType.startsWith("video/") && !a.mimeType.startsWith("audio/");
+          case "DOC":
+            return (
+              !a.mimeType.startsWith("image/") &&
+              !a.mimeType.startsWith("video/") &&
+              !a.mimeType.startsWith("audio/")
+            );
           default: return true;
         }
       });
     }
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      list = list.filter((a) =>
-        a.productName?.toLowerCase().includes(q) ||
-        a.fileName.toLowerCase().includes(q) ||
-        a.categoryName?.toLowerCase().includes(q) ||
-        a.brandName?.toLowerCase().includes(q)
+    if (deferredSearch.trim()) {
+      const q = deferredSearch.toLowerCase();
+      list = list.filter(
+        (a) =>
+          a.productName?.toLowerCase().includes(q) ||
+          a.fileName.toLowerCase().includes(q) ||
+          a.categoryName?.toLowerCase().includes(q) ||
+          a.brandName?.toLowerCase().includes(q)
       );
     }
     return [...list].sort((a, b) => {
       switch (sortBy) {
-        case "date_asc":  return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+        case "date_asc":
+          return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
         case "size_desc": return b.sizeBytes - a.sizeBytes;
         case "size_asc":  return a.sizeBytes - b.sizeBytes;
-        case "name_asc":  return (a.productName || a.fileName).localeCompare(b.productName || b.fileName);
-        default:          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+        case "name_asc":
+          return (a.productName || a.fileName).localeCompare(
+            b.productName || b.fileName
+          );
+        default:
+          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
       }
     });
-  }, [allAssets, activeTab, filterCategory, filterBrand, filterType, searchQuery, sortBy]);
+  }, [
+    allAssets,
+    activeTab,
+    filterCategory,
+    filterBrand,
+    filterType,
+    deferredSearch,
+    sortBy,
+  ]);
 
-  const totalSize = filtered.reduce((s, a) => s + a.sizeBytes, 0);
-  const orphanCount = allAssets.filter((a) => !a.productName && a.waMessagesCount === 0).length;
+  const totalSize = useMemo(
+    () => filtered.reduce((s, a) => s + a.sizeBytes, 0),
+    [filtered]
+  );
 
-  // ── Share — downloads file locally, shares actual bytes (not S3 URL) ──────
-  const handleShare = useCallback(async (file: StorageObject) => {
-    if (!file.url) { Alert.alert("Share Failed", "File URL unavailable."); return; }
-    const ext = file.mimeType.split("/")[1]?.replace(/[^a-z0-9]/gi, "") || "bin";
-    setSharingId(file.id);
-    try {
-      const cacheDir = new Directory(Paths.cache, "asset-share");
-      cacheDir.create();          // idempotent — no-op if already exists
-      const localFile = new File(cacheDir, `${file.id}.${ext}`);
-      if (!localFile.exists) {
-        // Download from S3 to local cache — recipient never sees the S3 URL
-        await File.downloadFileAsync(file.url, cacheDir);
+  const activeFilterCount = useMemo(
+    () =>
+      [
+        filterCategory !== "ALL",
+        filterBrand !== "ALL",
+        filterType !== "ALL",
+        sortBy !== "date_desc",
+      ].filter(Boolean).length,
+    [filterCategory, filterBrand, filterType, sortBy]
+  );
+
+  // ── Handlers ──────────────────────────────────────────────────────────────
+
+  const handleShare = useCallback(
+    async (file: StorageObject) => {
+      if (!file.url || sharingId !== null) return;
+      setSharingId(file.id);
+      try {
+        const canShare = await Sharing.isAvailableAsync();
+        if (!canShare) {
+          Alert.alert("Sharing unavailable", "Sharing is not available on this device.");
+          return;
+        }
+        const ext =
+          file.fileName.split(".").pop()?.replace(/[^a-z0-9]/gi, "") ||
+          file.mimeType.split("/")[1]?.replace(/[^a-z0-9]/gi, "") ||
+          "bin";
+        const cacheDir = new Directory(Paths.cache, "asset-share");
+        cacheDir.create({ idempotent: true, intermediates: true });
+        const localFile = new File(cacheDir, `${file.id}.${ext}`);
+        const shareFile = localFile.exists
+          ? localFile
+          : await File.downloadFileAsync(file.url, localFile, {
+              idempotent: true,
+            });
+        await Sharing.shareAsync(shareFile.uri, {
+          mimeType: file.mimeType,
+          dialogTitle: file.productName || file.fileName,
+        });
+      } catch (err: unknown) {
+        void Haptics.notificationAsync(
+          Haptics.NotificationFeedbackType.Error
+        ).catch(() => {});
+        const msg = err instanceof Error ? err.message : "Could not share file.";
+        Alert.alert("Share failed", msg);
+      } finally {
+        setSharingId(null);
       }
-      const canShare = await Sharing.isAvailableAsync();
-      if (!canShare) { Alert.alert("Share", "Sharing is not available on this device."); return; }
-      await Sharing.shareAsync(localFile.uri, {
-        mimeType: file.mimeType,
-        dialogTitle: file.productName || file.fileName,
-      });
-    } catch (err: any) {
-      Alert.alert("Share Failed", err?.message || "Could not share file.");
-    } finally {
-      setSharingId(null);
-    }
-  }, []);
+    },
+    [sharingId]
+  );
 
-  // ── Delete ────────────────────────────────────────────────────────────────
-  const handleDelete = useCallback((file: StorageObject) => {
+  const handleDelete = useCallback(
+    (file: StorageObject) => {
+      if (deletingId !== null) return;
+      if (getUsageStatus(file) !== "UNUSED") {
+        Alert.alert(
+          "Cannot delete",
+          file.productName
+            ? `This file is linked to "${file.productName}". Remove the product image first.`
+            : `This file is used in ${file.waMessagesCount} WhatsApp message(s).`
+        );
+        return;
+      }
+      void Haptics.notificationAsync(
+        Haptics.NotificationFeedbackType.Warning
+      ).catch(() => {});
+      Alert.alert(
+        "Delete file",
+        `Permanently delete "${file.productName || file.fileName}"? This cannot be undone.`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Delete",
+            style: "destructive",
+            onPress: () => {
+              setDeletingId(file.id);
+              deleteMutation.mutate(file.id, {
+                onSuccess: () => {
+                  setDeletingId(null);
+                  setInfoFile(null);
+                  void Haptics.notificationAsync(
+                    Haptics.NotificationFeedbackType.Success
+                  ).catch(() => {});
+                },
+                onError: (e: unknown) => {
+                  setDeletingId(null);
+                  const msg =
+                    e instanceof Error ? e.message : "Delete failed.";
+                  Alert.alert("Error", msg);
+                },
+              });
+            },
+          },
+        ]
+      );
+    },
+    [deletingId, deleteMutation]
+  );
+
+  const handleBulkCleanup = useCallback(() => {
+    const { unusedCount, unusedBytes } = assetStats;
+    if (unusedCount === 0) {
+      Alert.alert("Nothing to clean up", "There are no unused files.");
+      return;
+    }
+    void Haptics.notificationAsync(
+      Haptics.NotificationFeedbackType.Warning
+    ).catch(() => {});
     Alert.alert(
-      "Delete File",
-      `Permanently delete "${file.productName || file.fileName}"?\n\nThis removes the file from S3 and the database.`,
+      "Clean up unused files",
+      `Delete ${unusedCount} unused file${unusedCount !== 1 ? "s" : ""} (${formatBytes(unusedBytes)})? This cannot be undone.`,
       [
         { text: "Cancel", style: "cancel" },
         {
-          text: "Delete", style: "destructive",
+          text: "Delete all",
+          style: "destructive",
           onPress: () => {
-            setDeletingId(file.id);
-            deleteMutation.mutate(file.id, {
-              onSuccess: () => { setDeletingId(null); setInfoFile(null); },
-              onError: (e: any) => { setDeletingId(null); Alert.alert("Error", e?.message || "Delete failed."); },
+            bulkDeleteMutation.mutate(undefined, {
+              onSuccess: () => {
+                void Haptics.notificationAsync(
+                  Haptics.NotificationFeedbackType.Success
+                ).catch(() => {});
+              },
             });
           },
         },
       ]
     );
-  }, [deleteMutation]);
+  }, [assetStats, bulkDeleteMutation]);
 
-  // ── Bulk delete ───────────────────────────────────────────────────────────
-  const handleBulkDelete = () => {
-    if (orphanCount === 0) { Alert.alert("No Orphans", "There are no unreferenced files to clean up."); return; }
+  const handleLongPress = useCallback(
+    (item: StorageObject) => {
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(
+        () => {}
+      );
+      setSelectedIds(new Set([item.id]));
+    },
+    []
+  );
+
+  const handleToggleSelect = useCallback((id: string) => {
+    void Haptics.selectionAsync().catch(() => {});
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const handleCancelSelection = useCallback(() => {
+    setSelectedIds(new Set());
+  }, []);
+
+  const handleBulkShare = useCallback(async () => {
+    const files = filtered.filter((f) => selectedIds.has(f.id));
+    for (const file of files) {
+      await handleShare(file);
+    }
+    setSelectedIds(new Set());
+  }, [filtered, selectedIds, handleShare]);
+
+  const handleBulkDelete = useCallback(() => {
+    const deletable = filtered.filter(
+      (f) => selectedIds.has(f.id) && getUsageStatus(f) === "UNUSED"
+    );
+    if (deletable.length === 0) {
+      Alert.alert(
+        "Cannot delete",
+        "None of the selected files are unused. Only unused files can be deleted."
+      );
+      return;
+    }
+    void Haptics.notificationAsync(
+      Haptics.NotificationFeedbackType.Warning
+    ).catch(() => {});
     Alert.alert(
-      "Clean Up Orphaned Files",
-      `Delete all ${orphanCount} unreferenced file(s)? This cannot be undone.`,
+      "Delete selected",
+      `Delete ${deletable.length} unused file${deletable.length !== 1 ? "s" : ""}?`,
       [
         { text: "Cancel", style: "cancel" },
-        { text: "Delete All", style: "destructive", onPress: () => bulkDeleteMutation.mutate() },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            for (const file of deletable) {
+              await new Promise<void>((res) => {
+                deleteMutation.mutate(file.id, {
+                  onSuccess: () => res(),
+                  onError: () => res(),
+                });
+              });
+            }
+            setSelectedIds(new Set());
+            void Haptics.notificationAsync(
+              Haptics.NotificationFeedbackType.Success
+            ).catch(() => {});
+          },
+        },
       ]
     );
-  };
+  }, [filtered, selectedIds, deleteMutation]);
 
   // ── Price edit ────────────────────────────────────────────────────────────
-  const openPriceEdit = (file: StorageObject) => {
+
+  const openPriceEdit = useCallback((file: StorageObject) => {
     setEditFile(file);
     setEditMrp(file.mrp || "");
     setEditSelling(file.sellingPrice || "");
     setEditMin(file.minPrice || "");
+    setEditError(null);
     setInfoFile(null);
-  };
+  }, []);
 
-  const handleSavePrices = () => {
+  const handleSavePrices = useCallback(() => {
     if (!editFile?.itemId) return;
+    const err = validatePrices(editMrp, editSelling, editMin);
+    if (err) {
+      setEditError(err);
+      return;
+    }
+    const toNum = (s: string) =>
+      s.trim() === "" ? undefined : Number(s.trim());
     updateItemMutation.mutate(
       {
         id: editFile.itemId,
         data: {
-          ...(editMrp ? { mrp: Number(editMrp) } : {}),
-          ...(editSelling ? { defaultSellingPrice: Number(editSelling) } : {}),
-          ...(editMin ? { minimumAllowedPrice: Number(editMin) } : {}),
+          ...(toNum(editMrp) !== undefined ? { mrp: toNum(editMrp) } : {}),
+          ...(toNum(editSelling) !== undefined
+            ? { defaultSellingPrice: toNum(editSelling) }
+            : {}),
+          ...(toNum(editMin) !== undefined
+            ? { minimumAllowedPrice: toNum(editMin) }
+            : {}),
         },
       },
       {
         onSuccess: () => {
           setEditFile(null);
+          setEditError(null);
           if (activeShopId) invalidateAssetCache(activeShopId);
           refetch();
+          void Haptics.notificationAsync(
+            Haptics.NotificationFeedbackType.Success
+          ).catch(() => {});
           Alert.alert("Saved", "Prices updated successfully.");
         },
-        onError: (e: any) => Alert.alert("Error", e?.message || "Could not save prices."),
+        onError: (e: unknown) => {
+          const msg = e instanceof Error ? e.message : "Could not save prices.";
+          Alert.alert("Error", msg);
+        },
       }
     );
-  };
+  }, [editFile, editMrp, editSelling, editMin, updateItemMutation, activeShopId, refetch]);
 
-  // ── Card ──────────────────────────────────────────────────────────────────
-  const renderItem = useCallback(({ item }: { item: StorageObject }) => {
-    const isImg = isImage(item.mimeType);
-    const isSharing = sharingId === item.id;
-    const isDeleting = deletingId === item.id;
-    const isOrphan = !item.productName && item.waMessagesCount === 0;
+  // ── renderItem ────────────────────────────────────────────────────────────
 
+  const keyExtractor = useCallback((item: StorageObject) => item.id, []);
+
+  const renderItem = useCallback(
+    ({ item }: { item: StorageObject }) => {
+      const status = getUsageStatus(item);
+      const isSharing = sharingId === item.id;
+      const isDeleting = deletingId === item.id;
+      const isSelected = selectedIds.has(item.id);
+      const canDelete = isOwner && status === "UNUSED";
+
+      return (
+        <Pressable
+          style={({ pressed }) => [
+            styles.card,
+            isSelected && styles.cardSelected,
+            pressed && styles.cardPressed,
+          ]}
+          onPress={() => {
+            if (isSelecting) {
+              handleToggleSelect(item.id);
+            } else {
+              setInfoFile(item);
+            }
+          }}
+          onLongPress={() => handleLongPress(item)}
+          delayLongPress={350}
+          accessibilityRole="button"
+          accessibilityLabel={`${item.productName || item.fileName}${isSelected ? ", selected" : ""}`}
+          accessibilityState={{ selected: isSelected }}
+        >
+          {/* Thumbnail */}
+          <View style={styles.thumbnailContainer}>
+            <CachedThumbnail
+              uri={item.url}
+              fallbackIcon={mimeIcon(item.mimeType)}
+              fallbackText={item.fileName.slice(0, 2).toUpperCase()}
+              color={colors.primary}
+              style={StyleSheet.absoluteFill}
+            />
+
+            {/* Usage badge */}
+            {status === "UNUSED" && (
+              <View style={styles.unusedBadge}>
+                <Icon source="link-off" size={10} color="#fff" />
+                <Text style={styles.unusedBadgeText}>Unused</Text>
+              </View>
+            )}
+            {status === "WHATSAPP" && (
+              <View style={[styles.unusedBadge, { backgroundColor: colors.primary }]}>
+                <Icon source="whatsapp" size={10} color="#fff" />
+                <Text style={styles.unusedBadgeText}>
+                  {item.waMessagesCount}x
+                </Text>
+              </View>
+            )}
+
+            {/* Loading overlay */}
+            {(isSharing || isDeleting) && (
+              <View style={styles.loadingOverlay}>
+                <ActivityIndicator size="small" color="#fff" />
+                <Text style={styles.loadingText}>
+                  {isSharing ? "Sharing…" : "Deleting…"}
+                </Text>
+              </View>
+            )}
+
+            {/* Selection checkbox */}
+            {isSelecting && (
+              <View
+                style={[
+                  styles.checkOverlay,
+                  isSelected && styles.checkOverlaySelected,
+                ]}
+              >
+                <Icon
+                  source={isSelected ? "check-circle" : "circle-outline"}
+                  size={22}
+                  color={isSelected ? colors.primary : "rgba(255,255,255,0.8)"}
+                />
+              </View>
+            )}
+          </View>
+
+          {/* Card body */}
+          <View style={styles.cardBody}>
+            <Text style={styles.cardName} numberOfLines={2}>
+              {item.productName || item.fileName}
+            </Text>
+            {item.categoryName && (
+              <Text style={styles.cardMeta} numberOfLines={1}>
+                {item.categoryName}
+              </Text>
+            )}
+            <Text style={styles.cardSize}>{formatBytes(item.sizeBytes)}</Text>
+          </View>
+
+          {/* Card actions — hidden during selection mode */}
+          {!isSelecting && (
+            <View style={styles.cardActions}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.actionBtn,
+                  pressed && styles.actionBtnPressed,
+                ]}
+                onPress={() => handleShare(item)}
+                disabled={isBusy}
+                hitSlop={4}
+                accessibilityRole="button"
+                accessibilityLabel={`Share ${item.productName || item.fileName}`}
+                accessibilityHint="Downloads and opens the system share sheet"
+                accessibilityState={{ disabled: isBusy }}
+              >
+                <Icon
+                  source="share-variant-outline"
+                  size={15}
+                  color={colors.primary}
+                />
+              </Pressable>
+
+              {canDelete ? (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.actionBtn,
+                    styles.actionBtnRight,
+                    pressed && styles.actionBtnPressed,
+                  ]}
+                  onPress={() => handleDelete(item)}
+                  disabled={isBusy}
+                  hitSlop={4}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Delete ${item.productName || item.fileName}`}
+                  accessibilityState={{ disabled: isBusy }}
+                >
+                  <Icon source="delete-outline" size={15} color={colors.danger} />
+                </Pressable>
+              ) : (
+                <View style={[styles.actionBtn, styles.actionBtnRight]}>
+                  <Icon
+                    source={
+                      status === "PRODUCT"
+                        ? "link-variant"
+                        : "message-outline"
+                    }
+                    size={13}
+                    color={colors.textMuted}
+                  />
+                </View>
+              )}
+            </View>
+          )}
+        </Pressable>
+      );
+    },
+    [
+      sharingId,
+      deletingId,
+      selectedIds,
+      isSelecting,
+      isOwner,
+      isBusy,
+      handleShare,
+      handleDelete,
+      handleLongPress,
+      handleToggleSelect,
+    ]
+  );
+
+  // ── Header memo ───────────────────────────────────────────────────────────
+
+  const listHeader = useMemo(
+    () => (
+      <StorageManagementHeader
+        allCount={allAssets.length}
+        unusedCount={assetStats.unusedCount}
+        unusedBytes={assetStats.unusedBytes}
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        filterCategory={filterCategory}
+        filterBrand={filterBrand}
+        filterType={filterType}
+        sortBy={sortBy}
+        categories={categories}
+        brands={brands}
+        activeFilterCount={activeFilterCount}
+        onCategoryPress={() => setShowCatSheet(true)}
+        onBrandPress={() => setShowBrandSheet(true)}
+        onTypePress={() => setShowTypeSheet(true)}
+        onSortPress={() => setShowSortSheet(true)}
+        onClearFilters={() => {
+          setFilterCategory("ALL");
+          setFilterBrand("ALL");
+          setFilterType("ALL");
+          setSortBy("date_desc");
+        }}
+        onCleanUp={handleBulkCleanup}
+        isCleaningUp={bulkDeleteMutation.isPending}
+        isOwner={isOwner}
+      />
+    ),
+    [
+      allAssets.length,
+      assetStats,
+      activeTab,
+      searchQuery,
+      filterCategory,
+      filterBrand,
+      filterType,
+      sortBy,
+      categories,
+      brands,
+      activeFilterCount,
+      handleBulkCleanup,
+      bulkDeleteMutation.isPending,
+      isOwner,
+    ]
+  );
+
+  // ── Selection footer ──────────────────────────────────────────────────────
+
+  const selectionBar = isSelecting ? (
+    <SelectionActionBar
+      count={selectedIds.size}
+      onShare={handleBulkShare}
+      onDelete={handleBulkDelete}
+      onCancel={handleCancelSelection}
+      canDelete={
+        isOwner &&
+        Array.from(selectedIds).some((id) => {
+          const f = allAssets.find((a) => a.id === id);
+          return f ? getUsageStatus(f) === "UNUSED" : false;
+        })
+      }
+      isBusy={isBusy}
+    />
+  ) : undefined;
+
+  if (!activeShopId) {
     return (
-      <View style={[styles.card, { width: CARD_WIDTH }]}>
-        <View style={styles.thumbnailContainer}>
-          {isImg && item.url ? (
-            <Image source={{ uri: item.url }} style={styles.thumbnail} contentFit="cover" cachePolicy="disk" transition={200} />
-          ) : (
-            <View style={styles.thumbnailFallback}>
-              <Icon
-                source={
-                  item.mimeType.startsWith("video/") ? "video-outline" :
-                  item.mimeType.startsWith("audio/") ? "music-note" :
-                  item.mimeType === "application/pdf" ? "file-pdf-box" : "file-outline"
-                }
-                size={36}
-                color={colors.primary}
-              />
-            </View>
-          )}
-
-          {/* Info badge — tap to open info sheet */}
-          <Pressable style={styles.infoBadge} onPress={() => setInfoFile(item)} hitSlop={8}>
-            <Icon source="information-outline" size={16} color="#fff" />
-          </Pressable>
-
-          {isOrphan && (
-            <View style={styles.orphanBadge}>
-              <Text style={styles.orphanBadgeText}>Unused</Text>
-            </View>
-          )}
-
-          {(isSharing || isDeleting) && (
-            <View style={styles.loadingOverlay}>
-              <ActivityIndicator size="small" color="#fff" />
-            </View>
-          )}
-        </View>
-
-        <View style={styles.cardBody}>
-          <Text style={styles.cardName} numberOfLines={2}>{item.productName || item.fileName}</Text>
-          {item.categoryName && <Text style={styles.cardMeta} numberOfLines={1}>{item.categoryName}</Text>}
-          <Text style={styles.cardSize}>{formatBytes(item.sizeBytes)}</Text>
-        </View>
-
-        <View style={styles.cardActions}>
-          <Pressable style={[styles.actionBtn, styles.shareBtn]} onPress={() => handleShare(item)} disabled={isSharing || isDeleting}>
-            <Icon source="share-variant" size={14} color={colors.primary} />
-          </Pressable>
-          <Pressable style={styles.actionBtn} onPress={() => handleDelete(item)} disabled={isSharing || isDeleting}>
-            <Icon source="delete-outline" size={14} color={colors.danger} />
-          </Pressable>
-        </View>
+      <View style={styles.noShop}>
+        <Icon source="store-off-outline" size={48} color={colors.textMuted} />
+        <Text style={styles.noShopText}>No shop selected.</Text>
       </View>
     );
-  }, [sharingId, deletingId, handleShare, handleDelete]);
+  }
 
-  const activeFilterCount = [
-    filterCategory !== "ALL", filterBrand !== "ALL", filterType !== "ALL", sortBy !== "date_desc",
-  ].filter(Boolean).length;
-
-  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <>
-      <ScrollScreen title="Cloud Assets" subtitle={`${filtered.length} files · ${formatBytes(totalSize)}`} showBack>
+      <ListScreen
+        title="Cloud Assets"
+        subtitle={`${filtered.length} files · ${formatBytes(totalSize)}`}
+        showBack
+        data={filtered}
+        keyExtractor={keyExtractor}
+        renderItem={renderItem}
+        numColumns={numColumns}
+        header={listHeader}
+        isLoading={isLoading}
+        isRefreshing={isRefetching}
+        onRefresh={refetch}
+        empty={<StorageEmptyState />}
+        footer={selectionBar}
+        contentContainerStyle={{ paddingBottom: 100 }}
+      />
 
-        {/* Tabs */}
-        <View style={styles.tabRow}>
-          {(["ALL", "ORPHANED"] as const).map((tab) => (
-            <Pressable key={tab} style={[styles.tab, activeTab === tab && styles.tabActive]} onPress={() => setActiveTab(tab)}>
-              <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
-                {tab === "ALL" ? `All Files (${allAssets.length})` : `Unreferenced (${orphanCount})`}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
-
-        {/* Search */}
-        <View style={{ paddingHorizontal: spacing.md, paddingBottom: spacing.xs }}>
-          <Searchbar
-            placeholder="Search by product, file, category…"
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            style={styles.searchBar}
-            inputStyle={{ fontSize: fontSize.sm }}
-            elevation={0}
-          />
-        </View>
-
-        {/* Filter pills */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.pillScroll} contentContainerStyle={styles.pillRow}>
-          <Pressable style={[styles.pill, filterCategory !== "ALL" && styles.pillActive]} onPress={() => setShowCatSheet(true)}>
-            <Text style={[styles.pillText, filterCategory !== "ALL" && styles.pillTextActive]}>
-              {filterCategory === "ALL" ? "Category ▾" : categories.find((c) => c.id === filterCategory)?.name || "Category"}
-            </Text>
-          </Pressable>
-          <Pressable style={[styles.pill, filterBrand !== "ALL" && styles.pillActive]} onPress={() => setShowBrandSheet(true)}>
-            <Text style={[styles.pillText, filterBrand !== "ALL" && styles.pillTextActive]}>
-              {filterBrand === "ALL" ? "Brand ▾" : brands.find((b) => b.id === filterBrand)?.name || "Brand"}
-            </Text>
-          </Pressable>
-          <Pressable style={[styles.pill, filterType !== "ALL" && styles.pillActive]} onPress={() => setShowTypeSheet(true)}>
-            <Text style={[styles.pillText, filterType !== "ALL" && styles.pillTextActive]}>
-              {filterType === "ALL" ? "Type ▾" : filterType}
-            </Text>
-          </Pressable>
-          <Pressable style={[styles.pill, sortBy !== "date_desc" && styles.pillActive]} onPress={() => setShowSortSheet(true)}>
-            <Text style={[styles.pillText, sortBy !== "date_desc" && styles.pillTextActive]}>
-              {sortBy === "date_desc" ? "Sort ▾" : sortBy === "date_asc" ? "↑ Date" : sortBy === "size_desc" ? "↓ Size" : sortBy === "size_asc" ? "↑ Size" : "A–Z"}
-            </Text>
-          </Pressable>
-          {activeFilterCount > 0 && (
-            <Pressable
-              style={[styles.pill, { backgroundColor: colors.dangerLight, borderColor: colors.danger }]}
-              onPress={() => { setFilterCategory("ALL"); setFilterBrand("ALL"); setFilterType("ALL"); setSortBy("date_desc"); }}
-            >
-              <Text style={[styles.pillText, { color: colors.danger }]}>✕ Clear ({activeFilterCount})</Text>
-            </Pressable>
-          )}
-        </ScrollView>
-
-        {/* Orphan cleanup banner */}
-        {orphanCount > 0 && (
-          <View style={styles.bulkRow}>
-            <Text style={styles.bulkText}>{orphanCount} unreferenced file(s)</Text>
-            <Pressable style={styles.bulkBtn} onPress={handleBulkDelete} disabled={bulkDeleteMutation.isPending}>
-              {bulkDeleteMutation.isPending
-                ? <ActivityIndicator size="small" color={colors.danger} />
-                : <Text style={styles.bulkBtnText}>🗑 Clean Up</Text>
-              }
-            </Pressable>
-          </View>
-        )}
-
-        {/* Grid */}
-        {isLoading && allAssets.length === 0 ? (
-          <LoadingState label="Loading cloud assets…" />
-        ) : filtered.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Icon source="cloud-off-outline" size={48} color={colors.textMuted} />
-            <Text style={styles.emptyTitle}>No assets found</Text>
-            <Text style={styles.emptySubtitle}>Try adjusting your filters.</Text>
-          </View>
-        ) : (
-          <View style={{ paddingHorizontal: spacing.md, paddingBottom: spacing.xxl }}>
-            <FlashListAny
-              data={filtered}
-              keyExtractor={(item: StorageObject) => item.id}
-              renderItem={renderItem}
-              numColumns={NUM_COLS}
-              estimatedItemSize={220}
-              ItemSeparatorComponent={() => <View style={{ height: CARD_GAP }} />}
-              scrollEnabled={false}
-            />
-          </View>
-        )}
-      </ScrollScreen>
-
-      {/* ── Picker Sheets ────────────────────────────────────────────────── */}
-      <PickerSheet visible={showCatSheet} title="Filter by Category"
+      {/* ── Picker sheets ─────────────────────────────────────────────── */}
+      <PickerSheet
+        visible={showCatSheet}
+        title="Filter by Category"
         items={[{ id: "ALL", name: "All Categories" }, ...categories]}
-        selected={filterCategory} onSelect={(id) => { setFilterCategory(id); setShowCatSheet(false); }} onClose={() => setShowCatSheet(false)} />
-      <PickerSheet visible={showBrandSheet} title="Filter by Brand"
+        selected={filterCategory}
+        onSelect={(id) => {
+          setFilterCategory(id);
+          setShowCatSheet(false);
+        }}
+        onClose={() => setShowCatSheet(false)}
+      />
+      <PickerSheet
+        visible={showBrandSheet}
+        title="Filter by Brand"
         items={[{ id: "ALL", name: "All Brands" }, ...brands]}
-        selected={filterBrand} onSelect={(id) => { setFilterBrand(id); setShowBrandSheet(false); }} onClose={() => setShowBrandSheet(false)} />
-      <PickerSheet visible={showTypeSheet} title="Filter by File Type"
+        selected={filterBrand}
+        onSelect={(id) => {
+          setFilterBrand(id);
+          setShowBrandSheet(false);
+        }}
+        onClose={() => setShowBrandSheet(false)}
+      />
+      <PickerSheet
+        visible={showTypeSheet}
+        title="Filter by File Type"
         items={[
-          { id: "ALL", name: "All Types" }, { id: "IMAGE", name: "🖼  Images" },
-          { id: "DOC", name: "📄  Documents" }, { id: "VIDEO", name: "🎬  Videos" }, { id: "AUDIO", name: "🎵  Audio" },
+          { id: "ALL", name: "All Types" },
+          { id: "IMAGE", name: "Images" },
+          { id: "DOC", name: "Documents" },
+          { id: "VIDEO", name: "Videos" },
+          { id: "AUDIO", name: "Audio" },
         ]}
-        selected={filterType} onSelect={(id) => { setFilterType(id as FileTypeFilter); setShowTypeSheet(false); }} onClose={() => setShowTypeSheet(false)} />
-      <PickerSheet visible={showSortSheet} title="Sort By"
+        selected={filterType}
+        onSelect={(id) => {
+          setFilterType(id as FileTypeFilter);
+          setShowTypeSheet(false);
+        }}
+        onClose={() => setShowTypeSheet(false)}
+      />
+      <PickerSheet
+        visible={showSortSheet}
+        title="Sort By"
         items={[
-          { id: "date_desc", name: "Newest First" }, { id: "date_asc", name: "Oldest First" },
-          { id: "size_desc", name: "Largest Files" }, { id: "size_asc", name: "Smallest Files" },
+          { id: "date_desc", name: "Newest First" },
+          { id: "date_asc", name: "Oldest First" },
+          { id: "size_desc", name: "Largest Files" },
+          { id: "size_asc", name: "Smallest Files" },
           { id: "name_asc", name: "Name A – Z" },
         ]}
-        selected={sortBy} onSelect={(id) => { setSortBy(id as SortKey); setShowSortSheet(false); }} onClose={() => setShowSortSheet(false)} />
+        selected={sortBy}
+        onSelect={(id) => {
+          setSortBy(id as SortKey);
+          setShowSortSheet(false);
+        }}
+        onClose={() => setShowSortSheet(false)}
+      />
 
-      {/* ── Info Sheet ───────────────────────────────────────────────────── */}
+      {/* ── Info sheet ─────────────────────────────────────────────────── */}
       {infoFile && (
-        <Modal visible transparent animationType="slide" onRequestClose={() => setInfoFile(null)}>
-          <Pressable style={styles.modalOverlay} onPress={() => setInfoFile(null)} />
-          <View style={styles.infoSheet}>
-            <View style={styles.sheetHandle} />
-            <Text style={styles.sheetTitle}>File Info</Text>
-            <Divider style={{ marginVertical: spacing.sm }} />
-            {isImage(infoFile.mimeType) && infoFile.url && (
-              <Image source={{ uri: infoFile.url }} style={styles.infoPreview} contentFit="cover" cachePolicy="disk" />
-            )}
-            <InfoRow label="Product" value={infoFile.productName || "Not linked to any product"} />
-            {infoFile.categoryName && <InfoRow label="Category" value={infoFile.categoryName} />}
-            {infoFile.brandName && <InfoRow label="Brand" value={infoFile.brandName} />}
-            <InfoRow label="Type" value={mimeLabel(infoFile.mimeType)} />
-            {!!(infoFile.width && infoFile.height) && (
-              <InfoRow label="Dimensions" value={`${infoFile.width} × ${infoFile.height} px`} />
-            )}
-            <InfoRow label="Size" value={formatBytes(infoFile.sizeBytes)} />
-            <InfoRow label="WA Usage" value={`${infoFile.waMessagesCount} message(s)`} />
-            <InfoRow label="Uploaded" value={formatDate(infoFile.createdAt)} />
-            <InfoRow label="Status"
-              value={infoFile.productName ? "✅ Linked to product" : "⚠ Unreferenced"}
-              valueColor={infoFile.productName ? colors.success : colors.warning}
-            />
-            {infoFile.productName && (
-              <>
-                <Divider style={{ marginVertical: spacing.sm }} />
-                {infoFile.mrp && <InfoRow label="MRP" value={`₹ ${infoFile.mrp}`} />}
-                {infoFile.sellingPrice && <InfoRow label="Selling Price" value={`₹ ${infoFile.sellingPrice}`} />}
-                {infoFile.minPrice && <InfoRow label="Min Price" value={`₹ ${infoFile.minPrice}`} />}
-              </>
-            )}
-            <Divider style={{ marginVertical: spacing.sm }} />
-            <View style={styles.infoActions}>
-              {infoFile.itemId && (
-                <Pressable style={[styles.infoActionBtn, { backgroundColor: colors.primaryLight }]} onPress={() => openPriceEdit(infoFile)}>
-                  <Icon source="tag-edit-outline" size={16} color={colors.primary} />
-                  <Text style={[styles.infoActionText, { color: colors.primary }]}>Edit Prices</Text>
-                </Pressable>
-              )}
-              <Pressable style={[styles.infoActionBtn, { backgroundColor: colors.successLight }]} onPress={() => { setInfoFile(null); handleShare(infoFile); }}>
-                <Icon source="share-variant" size={16} color={colors.success} />
-                <Text style={[styles.infoActionText, { color: colors.success }]}>Share File</Text>
-              </Pressable>
-              <Pressable style={[styles.infoActionBtn, { backgroundColor: colors.dangerLight }]} onPress={() => { setInfoFile(null); handleDelete(infoFile); }}>
-                <Icon source="delete-outline" size={16} color={colors.danger} />
-                <Text style={[styles.infoActionText, { color: colors.danger }]}>Delete</Text>
-              </Pressable>
-            </View>
-          </View>
-        </Modal>
+        <InfoSheet
+          file={infoFile}
+          isOwner={isOwner}
+          isBusy={isBusy}
+          onClose={() => setInfoFile(null)}
+          onShare={() => {
+            setInfoFile(null);
+            void handleShare(infoFile);
+          }}
+          onDelete={() => {
+            setInfoFile(null);
+            handleDelete(infoFile);
+          }}
+          onEditPrices={() => openPriceEdit(infoFile)}
+        />
       )}
 
-      {/* ── Price Edit Modal ─────────────────────────────────────────────── */}
+      {/* ── Price edit modal ───────────────────────────────────────────── */}
       {editFile && (
-        <Modal visible transparent animationType="fade" onRequestClose={() => setEditFile(null)}>
-          <View style={styles.priceOverlay}>
-            <View style={styles.priceModal}>
-              <Text style={styles.sheetTitle}>Edit Prices</Text>
-              <Text style={styles.priceSubtitle} numberOfLines={1}>{editFile.productName}</Text>
-              <Divider style={{ marginVertical: spacing.md }} />
-              <PriceField label="MRP (Max Retail Price)" value={editMrp} onChange={setEditMrp} />
-              <PriceField label="Selling Price" value={editSelling} onChange={setEditSelling} />
-              <PriceField label="Min Allowed Price" value={editMin} onChange={setEditMin} />
-              <Divider style={{ marginVertical: spacing.md }} />
-              <View style={styles.priceActions}>
-                <Pressable style={styles.cancelBtn} onPress={() => setEditFile(null)}>
-                  <Text style={styles.cancelBtnText}>Cancel</Text>
-                </Pressable>
-                <Pressable style={styles.saveBtn} onPress={handleSavePrices} disabled={updateItemMutation.isPending}>
-                  {updateItemMutation.isPending
-                    ? <ActivityIndicator size="small" color="#fff" />
-                    : <Text style={styles.saveBtnText}>Save Prices</Text>
-                  }
-                </Pressable>
-              </View>
-            </View>
-          </View>
-        </Modal>
+        <PriceEditModal
+          file={editFile}
+          mrp={editMrp}
+          selling={editSelling}
+          min={editMin}
+          error={editError}
+          isSaving={updateItemMutation.isPending}
+          onMrpChange={(v) => {
+            setEditMrp(v);
+            setEditError(null);
+          }}
+          onSellingChange={(v) => {
+            setEditSelling(v);
+            setEditError(null);
+          }}
+          onMinChange={(v) => {
+            setEditMin(v);
+            setEditError(null);
+          }}
+          onSave={handleSavePrices}
+          onCancel={() => {
+            setEditFile(null);
+            setEditError(null);
+          }}
+        />
       )}
     </>
   );
 }
 
-// ── Sub-components ────────────────────────────────────────────────────────────
+// ── InfoSheet ─────────────────────────────────────────────────────────────────
 
-function InfoRow({ label, value, valueColor }: { label: string; value: string; valueColor?: string }) {
-  return (
-    <View style={styles.infoRow}>
-      <Text style={styles.infoLabel}>{label}</Text>
-      <Text style={[styles.infoValue, valueColor ? { color: valueColor } : undefined]} numberOfLines={2}>{value}</Text>
-    </View>
-  );
-}
-
-function PriceField({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
-  return (
-    <View style={styles.priceField}>
-      <Text style={styles.priceLabel}>{label}</Text>
-      <View style={styles.priceInputRow}>
-        <Text style={styles.priceRupee}>₹</Text>
-        <RNTextInput style={styles.priceInput} value={value} onChangeText={onChange}
-          keyboardType="decimal-pad" placeholder="0.00" placeholderTextColor={colors.textMuted} />
-      </View>
-    </View>
-  );
-}
-
-function PickerSheet({
-  visible, title, items, selected, onSelect, onClose,
+function InfoSheet({
+  file,
+  isOwner,
+  isBusy,
+  onClose,
+  onShare,
+  onDelete,
+  onEditPrices,
 }: {
-  visible: boolean; title: string;
-  items: { id: string; name: string }[];
-  selected: string; onSelect: (id: string) => void; onClose: () => void;
+  file: StorageObject;
+  isOwner: boolean;
+  isBusy: boolean;
+  onClose: () => void;
+  onShare: () => void;
+  onDelete: () => void;
+  onEditPrices: () => void;
 }) {
+  const status = getUsageStatus(file);
+  const canDelete = isOwner && status === "UNUSED";
+
+  const statusLabel =
+    status === "PRODUCT"
+      ? "Linked to product"
+      : status === "WHATSAPP"
+      ? `Used in ${file.waMessagesCount} WhatsApp message(s)`
+      : "Not linked to anything";
+
+  const statusColor =
+    status === "PRODUCT"
+      ? colors.success
+      : status === "WHATSAPP"
+      ? colors.primary
+      : colors.warning;
+
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <Modal
+      visible
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+    >
       <Pressable style={styles.modalOverlay} onPress={onClose} />
-      <View style={styles.pickerSheet}>
-        <View style={styles.sheetHandle} />
-        <Text style={styles.sheetTitle}>{title}</Text>
+      <View style={styles.infoSheet}>
+        <View style={styles.sheetDragBar} />
+        <Text style={styles.sheetTitle}>File Info</Text>
         <Divider style={{ marginVertical: spacing.sm }} />
-        <ScrollView>
-          {items.map((item) => (
-            <Pressable key={item.id} style={[styles.pickerRow, selected === item.id && styles.pickerRowActive]} onPress={() => onSelect(item.id)}>
-              <Text style={[styles.pickerRowText, selected === item.id && styles.pickerRowTextActive]}>{item.name}</Text>
-              {selected === item.id && <Icon source="check" size={18} color={colors.primary} />}
+
+        <ScrollView showsVerticalScrollIndicator={false}>
+          {/* Preview */}
+          {file.mimeType.startsWith("image/") && file.url && (
+            <View style={styles.infoPreviewContainer}>
+              <CachedThumbnail
+                uri={file.url}
+                fallbackIcon="image-outline"
+                fallbackText=""
+                color={colors.primary}
+                style={styles.infoPreview}
+              />
+            </View>
+          )}
+
+          <InfoRow label="Product" value={file.productName || "Not linked"} />
+          {file.categoryName && (
+            <InfoRow label="Category" value={file.categoryName} />
+          )}
+          {file.brandName && (
+            <InfoRow label="Brand" value={file.brandName} />
+          )}
+          <InfoRow label="Type" value={file.mimeType} />
+          {!!(file.width && file.height) && (
+            <InfoRow
+              label="Dimensions"
+              value={`${file.width} × ${file.height} px`}
+            />
+          )}
+          <InfoRow label="Size" value={formatBytes(file.sizeBytes)} />
+          <InfoRow
+            label="Uploaded"
+            value={formatDate(file.createdAt)}
+          />
+          <InfoRow
+            label="Status"
+            value={statusLabel}
+            valueColor={statusColor}
+          />
+
+          {/* Prices */}
+          {file.productName && (
+            <>
+              <Divider style={{ marginVertical: spacing.sm }} />
+              {file.mrp && <InfoRow label="MRP" value={`₹ ${file.mrp}`} />}
+              {file.sellingPrice && (
+                <InfoRow label="Selling" value={`₹ ${file.sellingPrice}`} />
+              )}
+              {file.minPrice && (
+                <InfoRow label="Min Price" value={`₹ ${file.minPrice}`} />
+              )}
+            </>
+          )}
+
+          <Divider style={{ marginVertical: spacing.md }} />
+
+          {/* Actions */}
+          <View style={styles.infoActions}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.infoActionBtn,
+                { backgroundColor: colors.primaryLight },
+                pressed && { opacity: 0.8 },
+              ]}
+              onPress={onShare}
+              disabled={isBusy}
+              accessibilityRole="button"
+              accessibilityLabel="Share file"
+            >
+              <Icon source="share-variant-outline" size={18} color={colors.primary} />
+              <Text style={[styles.infoActionText, { color: colors.primary }]}>
+                Share
+              </Text>
             </Pressable>
-          ))}
+
+            {isOwner && file.itemId && (
+              <Pressable
+                style={({ pressed }) => [
+                  styles.infoActionBtn,
+                  { backgroundColor: colors.successLight },
+                  pressed && { opacity: 0.8 },
+                ]}
+                onPress={onEditPrices}
+                accessibilityRole="button"
+                accessibilityLabel="Edit prices"
+              >
+                <Icon source="tag-edit-outline" size={18} color={colors.success} />
+                <Text
+                  style={[styles.infoActionText, { color: colors.success }]}
+                >
+                  Edit Prices
+                </Text>
+              </Pressable>
+            )}
+
+            {canDelete && (
+              <Pressable
+                style={({ pressed }) => [
+                  styles.infoActionBtn,
+                  { backgroundColor: colors.dangerLight },
+                  pressed && { opacity: 0.8 },
+                ]}
+                onPress={onDelete}
+                disabled={isBusy}
+                accessibilityRole="button"
+                accessibilityLabel="Delete file"
+              >
+                <Icon source="delete-outline" size={18} color={colors.danger} />
+                <Text style={[styles.infoActionText, { color: colors.danger }]}>
+                  Delete
+                </Text>
+              </Pressable>
+            )}
+          </View>
         </ScrollView>
       </View>
     </Modal>
   );
 }
 
+// ── PriceEditModal ────────────────────────────────────────────────────────────
+
+function PriceEditModal({
+  file,
+  mrp,
+  selling,
+  min,
+  error,
+  isSaving,
+  onMrpChange,
+  onSellingChange,
+  onMinChange,
+  onSave,
+  onCancel,
+}: {
+  file: StorageObject;
+  mrp: string;
+  selling: string;
+  min: string;
+  error: string | null;
+  isSaving: boolean;
+  onMrpChange: (v: string) => void;
+  onSellingChange: (v: string) => void;
+  onMinChange: (v: string) => void;
+  onSave: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <Modal
+      visible
+      transparent
+      animationType="slide"
+      onRequestClose={onCancel}
+    >
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        style={{ flex: 1 }}
+      >
+        <Pressable style={styles.modalOverlay} onPress={onCancel} />
+        <View style={styles.priceSheet}>
+          <View style={styles.sheetDragBar} />
+          <Text style={styles.sheetTitle}>Edit Prices</Text>
+          <Text style={styles.priceSubtitle} numberOfLines={1}>
+            {file.productName}
+          </Text>
+          <Divider style={{ marginVertical: spacing.md }} />
+
+          {error && (
+            <View style={styles.errorBanner}>
+              <Icon source="alert-circle-outline" size={16} color={colors.danger} />
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+          )}
+
+          <PriceField
+            label="MRP (Max Retail Price)"
+            value={mrp}
+            onChange={onMrpChange}
+            returnKeyType="next"
+          />
+          <PriceField
+            label="Selling Price"
+            value={selling}
+            onChange={onSellingChange}
+            returnKeyType="next"
+          />
+          <PriceField
+            label="Min Allowed Price"
+            value={min}
+            onChange={onMinChange}
+            returnKeyType="done"
+            onSubmit={onSave}
+          />
+
+          <Text style={styles.priceHint}>
+            Leave a field blank to keep its current value.
+          </Text>
+
+          <Divider style={{ marginVertical: spacing.md }} />
+          <View style={styles.priceActions}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.cancelBtn,
+                pressed && { opacity: 0.7 },
+              ]}
+              onPress={onCancel}
+              accessibilityRole="button"
+              accessibilityLabel="Cancel"
+            >
+              <Text style={styles.cancelBtnText}>Cancel</Text>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [
+                styles.saveBtn,
+                isSaving && { opacity: 0.7 },
+                pressed && { opacity: 0.85 },
+              ]}
+              onPress={onSave}
+              disabled={isSaving}
+              accessibilityRole="button"
+              accessibilityLabel="Save prices"
+              accessibilityState={{ disabled: isSaving }}
+            >
+              {isSaving ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.saveBtnText}>Save Prices</Text>
+              )}
+            </Pressable>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+function PriceField({
+  label,
+  value,
+  onChange,
+  returnKeyType,
+  onSubmit,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  returnKeyType?: "next" | "done";
+  onSubmit?: () => void;
+}) {
+  return (
+    <View style={styles.priceField}>
+      <Text style={styles.priceLabel}>{label}</Text>
+      <View style={styles.priceInputRow}>
+        <Text style={styles.priceRupee}>₹</Text>
+        <RNTextInput
+          style={styles.priceInput}
+          value={value}
+          onChangeText={onChange}
+          keyboardType="decimal-pad"
+          returnKeyType={returnKeyType}
+          onSubmitEditing={onSubmit}
+          placeholder="0.00"
+          placeholderTextColor={colors.textMuted}
+          accessibilityLabel={label}
+        />
+      </View>
+    </View>
+  );
+}
+
 // ── Styles ────────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
+  // No-shop fallback
+  noShop: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+  },
+  noShopText: {
+    fontSize: fontSize.md,
+    color: colors.textMuted,
+    fontWeight: fontWeight.medium,
+  },
+  // Header
+  headerRoot: {
+    gap: spacing.sm,
+    paddingBottom: spacing.sm,
+  },
+  searchBar: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
   tabRow: {
     flexDirection: "row",
-    marginHorizontal: spacing.md,
-    marginBottom: spacing.sm,
     backgroundColor: colors.surface,
     borderRadius: radius.full,
     borderWidth: 1,
     borderColor: colors.border,
     overflow: "hidden",
   },
-  tab: { flex: 1, paddingVertical: spacing.sm, alignItems: "center" },
-  tabActive: { backgroundColor: colors.primary },
-  tabText: { fontSize: fontSize.xs, fontWeight: fontWeight.medium, color: colors.textMuted },
-  tabTextActive: { color: "#fff", fontWeight: fontWeight.bold },
-  searchBar: { backgroundColor: colors.surface, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border },
-  pillScroll: { flexGrow: 0 },
-  pillRow: { flexDirection: "row", paddingHorizontal: spacing.md, paddingVertical: spacing.xs, gap: spacing.xs },
-  pill: { paddingHorizontal: spacing.sm + 2, paddingVertical: spacing.xs, borderRadius: radius.full, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
-  pillActive: { borderColor: colors.primary, backgroundColor: colors.primaryLight },
-  pillText: { fontSize: fontSize.xs, color: colors.textMuted, fontWeight: fontWeight.medium },
-  pillTextActive: { color: colors.primary, fontWeight: fontWeight.bold },
-  bulkRow: {
-    flexDirection: "row", alignItems: "center", justifyContent: "space-between",
-    marginHorizontal: spacing.md, marginBottom: spacing.sm,
-    padding: spacing.sm, borderRadius: radius.md,
-    backgroundColor: colors.dangerLight, borderWidth: 1, borderColor: colors.danger + "55",
+  tab: {
+    flex: 1,
+    paddingVertical: spacing.sm,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  bulkText: { fontSize: fontSize.xs, color: colors.danger, fontWeight: fontWeight.medium },
-  bulkBtn: { paddingHorizontal: spacing.sm, paddingVertical: 4, borderRadius: radius.sm, backgroundColor: colors.danger + "20" },
-  bulkBtnText: { fontSize: fontSize.xs, color: colors.danger, fontWeight: fontWeight.bold },
+  tabActive: { backgroundColor: colors.primary },
+  tabPressed: { opacity: 0.8 },
+  tabText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.semibold,
+    color: colors.textMuted,
+  },
+  tabTextActive: {
+    color: "#fff",
+    fontWeight: fontWeight.bold,
+  },
+  // Filter pills
+  pillRow: {
+    flexDirection: "row",
+    gap: spacing.xs,
+    paddingBottom: spacing.xs,
+  },
+  pill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+    borderRadius: radius.full,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  pillActive: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primaryLight,
+  },
+  pillDanger: {
+    borderColor: colors.danger,
+    backgroundColor: colors.dangerLight,
+  },
+  pillPressed: { opacity: 0.75 },
+  pillText: {
+    fontSize: 11,
+    color: colors.textMuted,
+    fontWeight: fontWeight.medium,
+  },
+  pillTextActive: { color: colors.primary, fontWeight: fontWeight.bold },
+  // Cleanup banner
+  cleanupBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: spacing.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.dangerLight,
+    borderWidth: 1,
+    borderColor: colors.danger + "44",
+  },
+  cleanupLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+  cleanupTitle: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.danger,
+  },
+  cleanupSub: {
+    fontSize: fontSize.xs,
+    color: colors.danger,
+    opacity: 0.8,
+    marginTop: 1,
+  },
   // Cards
   card: {
-    backgroundColor: colors.surface, borderRadius: radius.lg,
-    borderWidth: 1, borderColor: colors.border, overflow: "hidden",
-    marginHorizontal: CARD_GAP / 2, ...shadow.sm,
+    flex: 1,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: "hidden",
+    margin: CARD_GAP / 2,
+    ...shadow.sm,
   },
-  thumbnailContainer: { width: "100%", aspectRatio: 1, backgroundColor: colors.surfaceOffset, position: "relative" },
-  thumbnail: { width: "100%", height: "100%" },
-  thumbnailFallback: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: colors.primaryLight },
-  infoBadge: {
-    position: "absolute", top: 6, right: 6, width: 24, height: 24,
-    borderRadius: 12, backgroundColor: "rgba(0,0,0,0.55)",
-    alignItems: "center", justifyContent: "center",
+  cardSelected: {
+    borderColor: colors.primary,
+    borderWidth: 2,
+    ...shadow.md,
   },
-  orphanBadge: { position: "absolute", top: 6, left: 6, paddingHorizontal: 6, paddingVertical: 2, borderRadius: radius.full, backgroundColor: colors.warning },
-  orphanBadgeText: { fontSize: 9, fontWeight: fontWeight.bold, color: "#fff" },
-  loadingOverlay: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(0,0,0,0.45)", alignItems: "center", justifyContent: "center" },
-  cardBody: { padding: spacing.sm },
-  cardName: { fontSize: fontSize.xs, fontWeight: fontWeight.bold, color: colors.textPrimary, marginBottom: 2 },
-  cardMeta: { fontSize: 10, color: colors.textMuted },
-  cardSize: { fontSize: 10, color: colors.textMuted, marginTop: 2 },
-  cardActions: { flexDirection: "row", borderTopWidth: 1, borderTopColor: colors.border },
-  actionBtn: { flex: 1, paddingVertical: 8, alignItems: "center", justifyContent: "center" },
-  shareBtn: { borderRightWidth: 1, borderRightColor: colors.border },
-  emptyState: { alignItems: "center", justifyContent: "center", paddingVertical: spacing.xxl, gap: spacing.sm },
-  emptyTitle: { fontSize: fontSize.lg, fontWeight: fontWeight.bold, color: colors.textSecondary },
-  emptySubtitle: { fontSize: fontSize.sm, color: colors.textMuted },
+  cardPressed: {
+    opacity: 0.88,
+    transform: [{ scale: 0.976 }],
+  },
+  thumbnailContainer: {
+    width: "100%",
+    aspectRatio: 1,
+    backgroundColor: colors.surfaceOffset,
+    position: "relative",
+  },
+  unusedBadge: {
+    position: "absolute",
+    top: 6,
+    left: 6,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: radius.full,
+    backgroundColor: colors.warning,
+  },
+  unusedBadgeText: {
+    fontSize: 9,
+    fontWeight: fontWeight.bold,
+    color: "#fff",
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+  },
+  loadingText: {
+    fontSize: 10,
+    color: "#fff",
+    fontWeight: fontWeight.medium,
+  },
+  checkOverlay: {
+    position: "absolute",
+    top: 6,
+    right: 6,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "rgba(0,0,0,0.35)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  checkOverlaySelected: {
+    backgroundColor: "#fff",
+  },
+  cardBody: {
+    padding: spacing.sm,
+  },
+  cardName: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+    marginBottom: 2,
+    lineHeight: 16,
+  },
+  cardMeta: {
+    fontSize: 10,
+    color: colors.textMuted,
+    marginBottom: 1,
+  },
+  cardSize: {
+    fontSize: 10,
+    color: colors.textMuted,
+  },
+  cardActions: {
+    flexDirection: "row",
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+  },
+  actionBtn: {
+    flex: 1,
+    minHeight: 36,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  actionBtnRight: {
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    borderLeftColor: colors.border,
+  },
+  actionBtnPressed: { backgroundColor: colors.surfaceOffset },
+  // Empty state
+  emptyState: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: spacing.xxl,
+    gap: spacing.sm,
+  },
+  emptyTitle: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.bold,
+    color: colors.textSecondary,
+  },
+  emptySubtitle: {
+    fontSize: fontSize.sm,
+    color: colors.textMuted,
+    textAlign: "center",
+  },
+  // Selection bar
+  selectionBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    paddingBottom: Platform.OS === "ios" ? spacing.xl : spacing.md,
+    backgroundColor: colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    ...shadow.md,
+  },
+  selectionCancel: {
+    minWidth: 44,
+    minHeight: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  selectionCount: {
+    flex: 1,
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+    marginLeft: spacing.xs,
+  },
+  selectionActions: {
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
+  selectionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: spacing.md,
+    minHeight: 36,
+    borderRadius: radius.full,
+    borderWidth: 1,
+  },
+  selectionBtnShare: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primaryLight,
+  },
+  selectionBtnDelete: {
+    borderColor: colors.danger,
+    backgroundColor: colors.dangerLight,
+  },
+  selectionBtnText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
+  },
   // Modals
-  modalOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)" },
-  infoSheet: { backgroundColor: colors.surface, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, padding: spacing.lg, maxHeight: "85%" },
-  pickerSheet: { backgroundColor: colors.surface, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, padding: spacing.lg, maxHeight: "60%" },
-  sheetHandle: { width: 40, height: 4, backgroundColor: colors.border, borderRadius: 2, alignSelf: "center", marginBottom: spacing.md },
-  sheetTitle: { fontSize: fontSize.lg, fontWeight: fontWeight.bold, color: colors.textPrimary },
-  infoPreview: { width: "100%", height: 160, borderRadius: radius.md, marginBottom: spacing.sm },
-  infoRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", paddingVertical: 5 },
-  infoLabel: { fontSize: fontSize.xs, color: colors.textMuted, fontWeight: fontWeight.medium, flex: 1 },
-  infoValue: { fontSize: fontSize.xs, color: colors.textPrimary, fontWeight: fontWeight.bold, flex: 2, textAlign: "right" },
-  infoActions: { flexDirection: "row", gap: spacing.sm, flexWrap: "wrap" },
-  infoActionBtn: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.md, flex: 1, justifyContent: "center" },
-  infoActionText: { fontSize: fontSize.xs, fontWeight: fontWeight.bold },
-  pickerRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: spacing.sm + 2, paddingHorizontal: spacing.sm, borderRadius: radius.md },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.48)",
+  },
+  // Info sheet
+  infoSheet: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
+    padding: spacing.lg,
+    maxHeight: "88%",
+  },
+  sheetDragBar: {
+    width: 36,
+    height: 4,
+    backgroundColor: colors.border,
+    borderRadius: 2,
+    alignSelf: "center",
+    marginBottom: spacing.md,
+  },
+  sheetTitle: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  infoPreviewContainer: {
+    width: "100%",
+    height: 180,
+    borderRadius: radius.md,
+    overflow: "hidden",
+    marginBottom: spacing.md,
+    backgroundColor: colors.surfaceOffset,
+  },
+  infoPreview: {
+    ...StyleSheet.absoluteFill,
+  },
+  infoRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    paddingVertical: 5,
+  },
+  infoLabel: {
+    fontSize: fontSize.xs,
+    color: colors.textMuted,
+    fontWeight: fontWeight.medium,
+    flex: 1,
+  },
+  infoValue: {
+    fontSize: fontSize.xs,
+    color: colors.textPrimary,
+    fontWeight: fontWeight.semibold,
+    flex: 2,
+    textAlign: "right",
+  },
+  infoActions: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    flexWrap: "wrap",
+    paddingBottom: spacing.md,
+  },
+  infoActionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.md,
+    flex: 1,
+    justifyContent: "center",
+    minHeight: 44,
+  },
+  infoActionText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
+  },
+  // Picker sheet
+  pickerSheet: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
+    padding: spacing.lg,
+    maxHeight: "65%",
+  },
+  pickerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: spacing.sm + 2,
+    paddingHorizontal: spacing.sm,
+    borderRadius: radius.md,
+    minHeight: 48,
+  },
   pickerRowActive: { backgroundColor: colors.primaryLight },
+  pickerRowPressed: { backgroundColor: colors.surfaceOffset },
   pickerRowText: { fontSize: fontSize.sm, color: colors.textPrimary },
-  pickerRowTextActive: { color: colors.primary, fontWeight: fontWeight.bold },
-  // Price modal
-  priceOverlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.5)", alignItems: "center", justifyContent: "center", padding: spacing.lg },
-  priceModal: { backgroundColor: colors.surface, borderRadius: radius.xl, padding: spacing.lg, width: "100%", ...shadow.lg },
-  priceSubtitle: { fontSize: fontSize.sm, color: colors.textMuted, marginTop: 2 },
+  pickerRowTextActive: {
+    color: colors.primary,
+    fontWeight: fontWeight.bold,
+  },
+  // Price sheet
+  priceSheet: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
+    padding: spacing.lg,
+  },
+  priceSubtitle: {
+    fontSize: fontSize.sm,
+    color: colors.textMuted,
+    marginTop: 2,
+  },
+  errorBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    padding: spacing.sm,
+    borderRadius: radius.md,
+    backgroundColor: colors.dangerLight,
+    marginBottom: spacing.md,
+  },
+  errorText: {
+    fontSize: fontSize.xs,
+    color: colors.danger,
+    fontWeight: fontWeight.medium,
+    flex: 1,
+  },
+  priceHint: {
+    fontSize: 11,
+    color: colors.textMuted,
+    marginTop: spacing.xs,
+  },
   priceField: { marginBottom: spacing.md },
-  priceLabel: { fontSize: fontSize.xs, color: colors.textMuted, fontWeight: fontWeight.medium, marginBottom: 4 },
-  priceInputRow: { flexDirection: "row", alignItems: "center", borderWidth: 1, borderColor: colors.border, borderRadius: radius.md, paddingHorizontal: spacing.md, backgroundColor: colors.surfaceOffset },
-  priceRupee: { fontSize: fontSize.md, color: colors.textSecondary, marginRight: 4 },
-  priceInput: { flex: 1, fontSize: fontSize.md, color: colors.textPrimary, paddingVertical: spacing.sm },
-  priceActions: { flexDirection: "row", gap: spacing.md },
-  cancelBtn: { flex: 1, paddingVertical: spacing.md, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, alignItems: "center" },
-  cancelBtnText: { fontSize: fontSize.sm, color: colors.textMuted, fontWeight: fontWeight.medium },
-  saveBtn: { flex: 2, paddingVertical: spacing.md, borderRadius: radius.md, backgroundColor: colors.primary, alignItems: "center" },
-  saveBtnText: { fontSize: fontSize.sm, color: "#fff", fontWeight: fontWeight.bold },
+  priceLabel: {
+    fontSize: fontSize.xs,
+    color: colors.textMuted,
+    fontWeight: fontWeight.medium,
+    marginBottom: 4,
+  },
+  priceInputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.surfaceOffset,
+    minHeight: 44,
+  },
+  priceRupee: {
+    fontSize: fontSize.md,
+    color: colors.textSecondary,
+    marginRight: 4,
+  },
+  priceInput: {
+    flex: 1,
+    fontSize: fontSize.md,
+    color: colors.textPrimary,
+    paddingVertical: spacing.sm,
+  },
+  priceActions: {
+    flexDirection: "row",
+    gap: spacing.md,
+    paddingBottom: Platform.OS === "ios" ? spacing.xl : spacing.sm,
+  },
+  cancelBtn: {
+    flex: 1,
+    paddingVertical: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: "center",
+    minHeight: 48,
+    justifyContent: "center",
+  },
+  cancelBtnText: {
+    fontSize: fontSize.sm,
+    color: colors.textMuted,
+    fontWeight: fontWeight.medium,
+  },
+  saveBtn: {
+    flex: 2,
+    paddingVertical: spacing.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.primary,
+    alignItems: "center",
+    minHeight: 48,
+    justifyContent: "center",
+  },
+  saveBtnText: {
+    fontSize: fontSize.sm,
+    color: "#fff",
+    fontWeight: fontWeight.bold,
+  },
 });
