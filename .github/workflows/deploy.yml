@@ -129,7 +129,12 @@ jobs:
               printf 'IMAGE_TAG=%s\n' "$IMAGE_TAG" >> .env
             fi
 
-            echo "🧹 Cleanup old images..."
+            echo "🧹 Cleanup old backend images..."
+            CURRENT_IMAGE_ID="$(docker image inspect "$EXPECTED_IMAGE" --format '{{.Id}}')"
+            docker images "$IMAGE_NAME" --format '{{.Repository}}:{{.Tag}} {{.ID}}' \
+              | awk -v current="$CURRENT_IMAGE_ID" '$2 != current && $1 !~ /:latest$/ { print $1 }' \
+              | xargs -r docker rmi || true
             docker image prune -f
+            docker builder prune -af --filter "until=24h" || true
 
             echo "✅ Deployment complete"
