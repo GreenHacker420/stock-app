@@ -347,7 +347,7 @@ export function ItemDetail() {
               onPress={() => setPreviewImageUrl(null)} 
               style={[styles.closeLightboxBtn, { top: insets.top > 0 ? insets.top + spacing.md : spacing.xl }]}
             >
-              <Icon source="close" size={24} color="#ffffff" />
+              <Icon source="close" size={24} color={colors.textPrimary} />
             </Pressable>
           </View>
         </Pressable>
@@ -477,7 +477,7 @@ const styles = StyleSheet.create({
   },
   lightboxOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.9)",
+    backgroundColor: "rgba(255, 255, 255, 0.96)",
     justifyContent: "center",
     alignItems: "center",
   },
@@ -498,7 +498,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: "rgba(255, 255, 255, 0.2)",
+    backgroundColor: "rgba(0, 0, 0, 0.06)",
     justifyContent: "center",
     alignItems: "center",
   },

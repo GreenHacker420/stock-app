@@ -11,3 +11,19 @@ export function parseQty(value: string, fallback = 0): number | null {
   if (!/^\d+$/.test(value.trim())) return null;
   return Number(value);
 }
+
+export function cleanPhoneNumber(phone: string): string {
+  let cleaned = phone.replace(/[\s\-\(\)]/g, "");
+  if (cleaned.startsWith("+91")) {
+    cleaned = cleaned.slice(3);
+  } else if (cleaned.startsWith("91") && cleaned.length === 12) {
+    cleaned = cleaned.slice(2);
+  } else if (cleaned.startsWith("0")) {
+    cleaned = cleaned.slice(1);
+  }
+  return cleaned;
+}
+
+export function isValidMobile(phone: string): boolean {
+  return /^[6-9]\d{9}$/.test(phone);
+}

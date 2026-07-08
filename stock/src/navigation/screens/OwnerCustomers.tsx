@@ -1,8 +1,10 @@
 import { useMemo, useState } from "react";
-import { Alert, Pressable, View, StyleSheet, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform,} from "react-native";
+import { Alert, Pressable, View, StyleSheet, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform, Modal, Dimensions } from "react-native";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRoute } from "@react-navigation/native";
 import { Divider, Icon, Text, TextInput } from "react-native-paper";
+import * as Contacts from "expo-contacts";
+import { cleanPhoneNumber, isValidMobile } from "../../utils/items/validation";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
 
@@ -136,6 +138,56 @@ export function AddEditCustomer() {
     notes: customer?.notes ?? "",
   });
 
+  const [contactsModalVisible, setContactsModalVisible] = useState(false);
+  const [deviceContacts, setDeviceContacts] = useState<any[]>([]);
+  const [contactsSearch, setContactsSearch] = useState("");
+  const [loadingContacts, setLoadingContacts] = useState(false);
+
+  const handleImportContacts = async () => {
+    setLoadingContacts(true);
+    try {
+      const { status } = await Contacts.requestPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert("Permission Denied", "Contact access is required to import contacts.");
+        return;
+      }
+      const { data } = await Contacts.getContactsAsync({
+        fields: [Contacts.Fields.PhoneNumbers, Contacts.Fields.Emails, Contacts.Fields.Company],
+      });
+      const sorted = (data || []).sort((a: any, b: any) => (a.name || "").localeCompare(b.name || ""));
+      setDeviceContacts(sorted);
+      setContactsModalVisible(true);
+    } catch (err: any) {
+      Alert.alert("Error", err.message || "Failed to load device contacts.");
+    } finally {
+      setLoadingContacts(false);
+    }
+  };
+
+  const filteredContacts = useMemo(() => {
+    if (!contactsSearch) return deviceContacts;
+    const q = contactsSearch.toLowerCase();
+    return deviceContacts.filter(
+      (c) =>
+        (c.name || "").toLowerCase().includes(q) ||
+        (c.phoneNumbers || []).some((p: any) => (p.number || "").includes(q))
+    );
+  }, [deviceContacts, contactsSearch]);
+
+  const selectContact = (contact: any) => {
+    const primaryPhoneObj = contact.phoneNumbers?.[0];
+    const cleanedPhone = cleanPhoneNumber(primaryPhoneObj?.number || "");
+
+    setForm((prev) => ({
+      ...prev,
+      name: contact.company || contact.name || "",
+      contactPerson: contact.name || "",
+      phone: cleanedPhone,
+    }));
+    setContactsModalVisible(false);
+    setContactsSearch("");
+  };
+
   const set = (key: keyof typeof form, value: string) => setForm((prev) => ({ ...prev, [key]: value }));
 
   const mutation = useMutation({
@@ -146,6 +198,7 @@ export function AddEditCustomer() {
       const payload = { 
         shopId: requireActiveShopId(activeShopId), 
         ...form, 
+        phone: cleanPhoneNumber(form.phone),
         creditLimit: form.creditLimit ? Number(form.creditLimit) : undefined 
       };
       return (customer && customer.id) ? updateCustomer(token ?? "", customer.id, payload) : createCustomer(token ?? "", payload);
@@ -160,6 +213,23 @@ export function AddEditCustomer() {
     },
   });
 
+  const handleSave = () => {
+    if (!form.name.trim()) {
+      Alert.alert("Validation Error", "Firm Name is required.");
+      return;
+    }
+    if (!form.contactPerson.trim()) {
+      Alert.alert("Validation Error", "Contact Person Name is required.");
+      return;
+    }
+    const cleaned = cleanPhoneNumber(form.phone);
+    if (!isValidMobile(cleaned)) {
+      Alert.alert("Validation Error", "Please enter a valid 10-digit mobile number starting with 6-9.");
+      return;
+    }
+    mutation.mutate();
+  };
+
   return (
     <Screen edges={['top', 'left', 'right']}>
       <AppHeader 
@@ -171,6 +241,14 @@ export function AddEditCustomer() {
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 32 }} keyboardShouldPersistTaps="handled">
       <View style={styles.formContainer}>
         <Section title="Customer details">
+          <Button
+            label="Import from Device Contacts"
+            onPress={handleImportContacts}
+            loading={loadingContacts}
+            style={{ marginBottom: spacing.md }}
+            icon="account-box-multiple"
+            variant="secondary"
+          />
           <View style={styles.formCard}>
             <TextInput 
               mode="outlined" 
@@ -255,7 +333,7 @@ export function AddEditCustomer() {
         <View style={styles.formFooter}>
           <Button 
             label="Save Customer"
-            onPress={() => mutation.mutate()} 
+            onPress={handleSave} 
             loading={mutation.isPending} 
             disabled={!form.name.trim() || !form.phone.trim() || !form.contactPerson.trim()}
             fullWidth
@@ -265,6 +343,80 @@ export function AddEditCustomer() {
       </View>
       </ScrollView>
       </KeyboardAvoidingView>
+
+      <Modal
+        visible={contactsModalVisible}
+        animationType="slide"
+        onRequestClose={() => setContactsModalVisible(false)}
+      >
+        <Screen edges={["top", "bottom", "left", "right"]}>
+          <View style={styles.modalHeader}>
+            <View style={styles.modalHeaderTitleRow}>
+              <Icon source="account-box-multiple" size={24} color={colors.primary} />
+              <Text style={styles.modalTitle}>Device Contacts</Text>
+            </View>
+            <Pressable 
+              onPress={() => setContactsModalVisible(false)}
+              style={styles.modalCloseBtn}
+            >
+              <Icon source="close" size={20} color={colors.textPrimary} />
+            </Pressable>
+          </View>
+
+          <View style={styles.modalSearchContainer}>
+            <AppSearchBar
+              value={contactsSearch}
+              onChangeText={setContactsSearch}
+              placeholder="Search contact name or number"
+            />
+          </View>
+
+          <View style={{ flex: 1 }}>
+            {(() => {
+              const List = FlashList as any;
+              return (
+                <List
+                  data={filteredContacts}
+                  keyExtractor={(item: any) => item.id}
+                  estimatedItemSize={72}
+                  renderItem={({ item }: any) => {
+                    const phone = item.phoneNumbers?.[0]?.number || "No phone";
+                    const initials = (item.name || "C")[0].toUpperCase();
+                    return (
+                      <Pressable
+                        onPress={() => selectContact(item)}
+                        style={({ pressed }) => [
+                          styles.contactItem,
+                          pressed && styles.contactItemPressed
+                        ]}
+                      >
+                        <View style={styles.contactAvatar}>
+                          <Text style={styles.contactAvatarText}>{initials}</Text>
+                        </View>
+                        <View style={styles.contactInfo}>
+                          <Text style={styles.contactName}>{item.name}</Text>
+                          <Text style={styles.contactPhone}>{phone}</Text>
+                          {item.company ? (
+                            <Text style={styles.contactCompany}>{item.company}</Text>
+                          ) : null}
+                        </View>
+                        <Icon source="chevron-right" size={20} color={colors.textMuted} />
+                      </Pressable>
+                    );
+                  }}
+                  ListEmptyComponent={
+                    <View style={styles.emptyContactsContainer}>
+                      <Icon source="account-search-outline" size={48} color={colors.textMuted} />
+                      <Text style={styles.emptyContactsText}>No matching contacts found</Text>
+                    </View>
+                  }
+                  contentContainerStyle={styles.contactsListContent}
+                />
+              );
+            })()}
+          </View>
+        </Screen>
+      </Modal>
     </Screen>
   );
 }
@@ -464,5 +616,92 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     color: colors.textMuted,
     fontSize: fontSize.sm,
-  }
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  modalHeaderTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+  },
+  modalTitle: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  modalCloseBtn: {
+    padding: 6,
+    borderRadius: radius.full,
+    backgroundColor: "rgba(0, 0, 0, 0.05)",
+  },
+  modalSearchContainer: {
+    padding: spacing.md,
+    backgroundColor: colors.surfaceOffset,
+  },
+  contactItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.lg,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  contactItemPressed: {
+    backgroundColor: colors.surfaceOffset,
+  },
+  contactAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.primaryLight,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: spacing.md,
+  },
+  contactAvatarText: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.primary,
+  },
+  contactInfo: {
+    flex: 1,
+  },
+  contactName: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  contactPhone: {
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  contactCompany: {
+    fontSize: 10,
+    color: colors.primary,
+    marginTop: 2,
+    fontWeight: fontWeight.semibold,
+  },
+  contactsListContent: {
+    paddingBottom: spacing.xl,
+  },
+  emptyContactsContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 64,
+    gap: spacing.sm,
+  },
+  emptyContactsText: {
+    fontSize: fontSize.sm,
+    color: colors.textMuted,
+  },
 });
