@@ -251,51 +251,62 @@ export async function listStorageObjects(user, { shopId, filter }) {
     throw new ApiError(403, "Access restricted to owners");
   }
 
-  const assets = await prisma.asset.findMany({
-    where: {
-      shopId,
-      deletedAt: null,
-    },
-    include: {
-      _count: {
-        select: { waMessages: true },
+  const [assets, activeItems] = await Promise.all([
+    prisma.asset.findMany({
+      where: {
+        shopId,
+        deletedAt: null,
       },
-    },
-    orderBy: { createdAt: "desc" },
+      include: {
+        _count: {
+          select: { waMessages: true },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    }),
+    prisma.item.findMany({
+      where: { shopId, status: "ACTIVE", imageUrl: { not: null } },
+      select: { id: true, name: true, imageUrl: true },
+    })
+  ]);
+
+  const referencedKeys = new Set();
+  const itemReferenceMap = new Map();
+  activeItems.forEach((it) => {
+    if (it.imageUrl) {
+      it.imageUrl.split(",").forEach((url) => {
+        const trimmed = url.trim();
+        itemReferenceMap.set(trimmed, it.name);
+        if (trimmed.includes(".amazonaws.com/")) {
+          const key = trimmed.split(".amazonaws.com/")[1];
+          if (key) {
+            referencedKeys.add(key);
+            itemReferenceMap.set(key, it.name);
+          }
+        } else {
+          referencedKeys.add(trimmed);
+          itemReferenceMap.set(trimmed, it.name);
+        }
+      });
+    }
   });
 
-  let mapped = assets.map((a) => ({
-    id: a.id,
-    fileName: a.fileName || (a.storageKey ? a.storageKey.split("/").pop() : "Unnamed File"),
-    storageKey: a.storageKey || "",
-    sizeBytes: a.sizeBytes ? Number(a.sizeBytes) : 0,
-    mimeType: a.mimeType || "application/octet-stream",
-    createdAt: a.createdAt,
-    url: a.storageKey && a.storageBucket ? `https://${a.storageBucket}.s3.amazonaws.com/${a.storageKey}` : (a.remoteUrl || ""),
-    waMessagesCount: a._count.waMessages,
-  }));
+  let mapped = assets.map((a) => {
+    const pName = a.storageKey ? itemReferenceMap.get(a.storageKey) : null;
+    return {
+      id: a.id,
+      fileName: a.fileName || (a.storageKey ? a.storageKey.split("/").pop() : "Unnamed File"),
+      storageKey: a.storageKey || "",
+      sizeBytes: a.sizeBytes ? Number(a.sizeBytes) : 0,
+      mimeType: a.mimeType || "application/octet-stream",
+      createdAt: a.createdAt,
+      url: a.storageKey && a.storageBucket ? `https://${a.storageBucket}.s3.amazonaws.com/${a.storageKey}` : (a.remoteUrl || ""),
+      waMessagesCount: a._count.waMessages,
+      productName: pName,
+    };
+  });
 
   if (filter === "ORPHANED") {
-    const activeItems = await prisma.item.findMany({
-      where: { shopId, status: "ACTIVE", imageUrl: { not: null } },
-      select: { imageUrl: true },
-    });
-
-    const referencedKeys = new Set();
-    activeItems.forEach((it) => {
-      if (it.imageUrl) {
-        it.imageUrl.split(",").forEach((url) => {
-          const trimmed = url.trim();
-          if (trimmed.includes(".amazonaws.com/")) {
-            const key = trimmed.split(".amazonaws.com/")[1];
-            if (key) referencedKeys.add(key);
-          } else {
-            referencedKeys.add(trimmed);
-          }
-        });
-      }
-    });
-
     mapped = mapped.filter((a) => {
       if (!a.storageKey) return true;
       return !referencedKeys.has(a.storageKey) && a.waMessagesCount === 0;
