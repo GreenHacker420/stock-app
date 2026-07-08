@@ -7,7 +7,10 @@ import {
   Pressable, 
   TextInput as RNTextInput,
   ScrollView,
-  Alert
+  Alert,
+  PanResponder,
+  Animated,
+  Modal
 } from "react-native";
 import { Searchbar, Text, Icon, TextInput, SegmentedButtons, List, Divider } from "react-native-paper";
 import { useNavigation } from "@react-navigation/native";
@@ -227,6 +230,258 @@ const SaleItemCard = memo(({
   p.serialNumbers?.join(",") === n.serialNumbers?.join(",")
 );
 
+const CartItem = memo(({ 
+  item, 
+  quantity, 
+  customRate, 
+  serialNumbers,
+  onScanPress,
+  onUpdateRate,
+  onUpdateQuantity,
+  userRole
+}: { 
+  item: Item;
+  quantity: number;
+  customRate?: number;
+  serialNumbers?: string[];
+  onScanPress?: () => void;
+  onUpdateRate: (rate: number | undefined) => void;
+  onUpdateQuantity: (qty: number) => void;
+  userRole?: string;
+}) => {
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [rateInput, setRateInput] = useState(String(customRate ?? item.defaultSellingPrice));
+  const [rateError, setRateError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setRateInput(String(customRate ?? item.defaultSellingPrice));
+  }, [customRate, item.defaultSellingPrice]);
+
+  const defaultPrice = Number(item.defaultSellingPrice || 0);
+  const minPrice = item.minimumAllowedPrice !== null && item.minimumAllowedPrice !== undefined
+    ? Number(item.minimumAllowedPrice)
+    : defaultPrice;
+
+  const currentRate = customRate !== undefined ? customRate : defaultPrice;
+
+  const translateX = useRef(new Animated.Value(0)).current;
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        return Math.abs(gestureState.dx) > 10 && gestureState.dx > 0;
+      },
+      onPanResponderGrant: () => {
+        translateX.setValue(0);
+      },
+      onPanResponderMove: (_, gestureState) => {
+        const newX = Math.max(0, Math.min(100, gestureState.dx));
+        translateX.setValue(newX);
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dx > 60) {
+          setShowEditModal(true);
+        }
+        Animated.spring(translateX, {
+          toValue: 0,
+          useNativeDriver: true,
+          bounciness: 8,
+        }).start();
+      },
+      onPanResponderTerminate: () => {
+        Animated.spring(translateX, {
+          toValue: 0,
+          useNativeDriver: true,
+        }).start();
+      }
+    })
+  ).current;
+
+  return (
+    <View style={styles.swipeContainer}>
+      <View style={styles.swipeUnderlay}>
+        <View style={styles.swipeUnderlayContent}>
+          <Icon source="pencil" size={20} color="#ffffff" />
+          <Text style={styles.swipeUnderlayText}>Edit Price</Text>
+        </View>
+      </View>
+
+      <Animated.View
+        style={[
+          styles.cartReviewRow,
+          { transform: [{ translateX }] }
+        ]}
+        {...panResponder.panHandlers}
+      >
+        <View style={styles.cartItemLeft}>
+          <Text style={styles.cartItemName} numberOfLines={1}>{item.name}</Text>
+          <Text style={styles.cartItemPrice}>
+            {customRate !== undefined ? (
+              <>
+                <Text style={{ textDecorationLine: "line-through" }}>{money(item.defaultSellingPrice)}</Text>
+                {"  "}
+                <Text style={{ color: colors.success, fontWeight: "bold" }}>{money(customRate)}</Text>
+              </>
+            ) : (
+              money(item.defaultSellingPrice)
+            )}
+            {" • Stock: "}{item.availableStock ?? 0}
+          </Text>
+          {!!item.requiresSerialNumber && (
+            <Pressable onPress={onScanPress} style={styles.serialStatusRow}>
+              {serialNumbers && serialNumbers.length === quantity ? (
+                <>
+                  <Icon source="check-circle" size={14} color={colors.success} />
+                  <Text style={styles.serialStatusSuccessText} numberOfLines={1}>
+                    S/N: {serialNumbers.join(", ")}
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <Icon source="alert-circle" size={14} color={colors.danger} />
+                  <Text style={styles.serialStatusWarningText} numberOfLines={1}>
+                    Tap to scan {quantity - (serialNumbers?.length ?? 0)} serial(s)
+                  </Text>
+                </>
+              )}
+            </Pressable>
+          )}
+        </View>
+
+        <View style={styles.counterRow}>
+          <Pressable 
+            onPress={() => onUpdateQuantity(quantity - 1)}
+            style={({ pressed }) => [
+              styles.qtyButton,
+              pressed && styles.buttonPressed
+            ]}
+          >
+            <Icon source="minus" size={18} color={colors.primary} />
+          </Pressable>
+          <View style={styles.qtyDisplay}>
+            <Text style={styles.qtyText}>{quantity}</Text>
+          </View>
+          <Pressable 
+            onPress={() => onUpdateQuantity(quantity + 1)}
+            disabled={quantity >= (item.availableStock ?? 0)}
+            style={({ pressed }) => [
+              styles.qtyButton,
+              quantity >= (item.availableStock ?? 0) && styles.disabledQtyButton,
+              pressed && quantity < (item.availableStock ?? 0) && styles.buttonPressed
+            ]}
+          >
+            <Icon source="plus" size={18} color={quantity >= (item.availableStock ?? 0) ? colors.textMuted : colors.primary} />
+          </Pressable>
+        </View>
+
+        <View style={styles.cartItemRight}>
+          <Text style={styles.cartItemSubtotal}>{money(quantity * currentRate)}</Text>
+        </View>
+      </Animated.View>
+
+      <Modal
+        visible={showEditModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowEditModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Edit Item Price</Text>
+            <Text style={styles.modalItemName}>{item.name}</Text>
+            
+            <View style={styles.pricingDetailsGrid}>
+              <View style={styles.pricingGridCell}>
+                <Text style={styles.pricingGridLabel}>MRP</Text>
+                <Text style={styles.pricingGridValue}>{item.mrp ? money(item.mrp) : "N/A"}</Text>
+              </View>
+              <View style={styles.pricingGridCell}>
+                <Text style={styles.pricingGridLabel}>Selling Price</Text>
+                <Text style={styles.pricingGridValue}>{money(item.defaultSellingPrice)}</Text>
+              </View>
+              <View style={styles.pricingGridCell}>
+                <Text style={styles.pricingGridLabel}>Min Price</Text>
+                <Text style={styles.pricingGridValue}>{item.minimumAllowedPrice ? money(item.minimumAllowedPrice) : money(item.defaultSellingPrice)}</Text>
+              </View>
+            </View>
+
+            <TextInput
+              mode="outlined"
+              label="Selling Price (Rate)"
+              value={rateInput}
+              onChangeText={(val) => {
+                setRateInput(val);
+                const num = Number(val);
+                if (isNaN(num) || num <= 0) {
+                  setRateError("Please enter a valid price.");
+                } else if (userRole === "STAFF" && num < minPrice) {
+                  setRateError(`Staff cannot sell below minimum price of ${money(minPrice)}.`);
+                } else {
+                  setRateError(null);
+                }
+              }}
+              keyboardType="numeric"
+              style={styles.modalInput}
+              outlineStyle={styles.inputOutline}
+              left={<TextInput.Affix text="₹ " />}
+              error={!!rateError}
+            />
+            {rateError ? (
+              <Text style={styles.rateErrorText}>{rateError}</Text>
+            ) : null}
+
+            <View style={styles.modalActions}>
+              <Button
+                label="Reset"
+                variant="ghost"
+                onPress={() => {
+                  setRateInput(String(item.defaultSellingPrice));
+                  setRateError(null);
+                }}
+                style={{ flex: 1 }}
+              />
+              <Button
+                label="Cancel"
+                variant="ghost"
+                onPress={() => {
+                  setShowEditModal(false);
+                  setRateInput(String(customRate ?? item.defaultSellingPrice));
+                  setRateError(null);
+                }}
+                style={{ flex: 1 }}
+              />
+              <Button
+                label="Save"
+                variant="success"
+                disabled={!!rateError || !rateInput}
+                onPress={() => {
+                  const num = Number(rateInput);
+                  if (!isNaN(num) && num > 0) {
+                    if (num === defaultPrice) {
+                      onUpdateRate(undefined); // Reset to default
+                    } else {
+                      onUpdateRate(num);
+                    }
+                    setShowEditModal(false);
+                  }
+                }}
+                style={{ flex: 1.5 }}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
+    </View>
+  );
+}, (p, n) => 
+  p.item.id === n.item.id && 
+  p.quantity === n.quantity && 
+  p.customRate === n.customRate && 
+  p.userRole === n.userRole &&
+  p.serialNumbers?.join(",") === n.serialNumbers?.join(",")
+);
+
 export function WalkInSale() {
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
@@ -244,7 +499,7 @@ export function WalkInSale() {
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
   const [search, setSearch] = useState("");
   const [debouncedSearch] = useDebounce(search, 300);
-  const [cart, setCart] = useState<Record<string, { item: Item, quantity: number, serialNumbers?: string[] }>>({});
+  const [cart, setCart] = useState<Record<string, { item: Item, quantity: number, customRate?: number, serialNumbers?: string[] }>>({});
   const [activeSerialScanItemId, setActiveSerialScanItemId] = useState<string | null>(null);
   
   const [completedSaleNumber, setCompletedSaleNumber] = useState<string | null>(null);
@@ -308,7 +563,17 @@ export function WalkInSale() {
 
   const cartArray = useMemo(() => Object.values(cart), [cart]);
   const cartItemCount = useMemo(() => cartArray.reduce((sum, i) => sum + i.quantity, 0), [cartArray]);
-  const cartTotal = useMemo(() => cartArray.reduce((sum, i) => sum + (i.quantity * Number(i.item.defaultSellingPrice)), 0), [cartArray]);
+  const cartTotal = useMemo(() => 
+    cartArray.reduce((sum, i) => sum + (i.quantity * (i.customRate !== undefined ? i.customRate : Number(i.item.defaultSellingPrice))), 0), 
+    [cartArray]
+  );
+
+  const hasMissingPrice = useMemo(() => {
+    return cartArray.some(i => {
+      const rate = i.customRate !== undefined ? i.customRate : Number(i.item.defaultSellingPrice || 0);
+      return rate <= 0 || isNaN(rate);
+    });
+  }, [cartArray]);
 
   // Settlement Calculations
   const calculatedChange = useMemo(() => {
@@ -396,7 +661,7 @@ export function WalkInSale() {
       items: cartArray.map(i => ({ 
         itemId: i.item.id, 
         quantity: i.quantity, 
-        rate: Number(i.item.defaultSellingPrice),
+        rate: i.customRate !== undefined ? i.customRate : Number(i.item.defaultSellingPrice),
         serialNumbers: i.serialNumbers || [],
       })),
       isWalkin: !customerId,
@@ -419,6 +684,8 @@ export function WalkInSale() {
       onError: (error: any) => {
         if (String(error?.message || "").toLowerCase().includes("network")) {
           Alert.alert("Internet required", internetRequiredMessage);
+        } else {
+          Alert.alert("Failed to Complete Sale", error?.message || "Something went wrong.");
         }
       }
     });
@@ -613,6 +880,47 @@ export function WalkInSale() {
                   </View>
                 )}
               </Section>
+
+              {cartItemCount > 0 && (
+                <Section title="Cart Items (Swipe right to edit price)">
+                  <View style={[styles.listContainer, { marginBottom: spacing.md }]}>
+                    {cartArray.map(({ item, quantity, customRate, serialNumbers }) => (
+                      <CartItem
+                        key={item.id}
+                        item={item}
+                        quantity={quantity}
+                        customRate={customRate}
+                        serialNumbers={serialNumbers}
+                        onScanPress={() => setActiveSerialScanItemId(item.id)}
+                        onUpdateRate={(rate) => {
+                          setCart(prev => {
+                            if (!prev[item.id]) return prev;
+                            return {
+                              ...prev,
+                              [item.id]: {
+                                ...prev[item.id],
+                                customRate: rate
+                              }
+                            };
+                          });
+                        }}
+                        onUpdateQuantity={(qty) => {
+                          if (qty <= 0) {
+                            setCart(prev => {
+                              const next = { ...prev };
+                              delete next[item.id];
+                              return next;
+                            });
+                          } else {
+                            updateQuantity(item, qty - (cart[item.id]?.quantity ?? 0));
+                          }
+                        }}
+                        userRole={user?.role}
+                      />
+                    ))}
+                  </View>
+                </Section>
+              )}
 
               <Section title="Select Items">
                 <View style={styles.searchRow}>
@@ -948,8 +1256,8 @@ export function WalkInSale() {
                             items: cartArray.map(i => ({
                               id: i.item.id,
                               quantity: String(i.quantity),
-                              rate: String(i.item.defaultSellingPrice),
-                              totalAmount: String(i.quantity * Number(i.item.defaultSellingPrice)),
+                              rate: String(i.customRate !== undefined ? i.customRate : i.item.defaultSellingPrice),
+                              totalAmount: String(i.quantity * (i.customRate !== undefined ? i.customRate : Number(i.item.defaultSellingPrice))),
                               item: i.item,
                             })),
                             notes: notes || null,
@@ -987,8 +1295,8 @@ export function WalkInSale() {
                             items: cartArray.map(i => ({
                               id: i.item.id,
                               quantity: String(i.quantity),
-                              rate: String(i.item.defaultSellingPrice),
-                              totalAmount: String(i.quantity * Number(i.item.defaultSellingPrice)),
+                              rate: String(i.customRate !== undefined ? i.customRate : i.item.defaultSellingPrice),
+                              totalAmount: String(i.quantity * (i.customRate !== undefined ? i.customRate : Number(i.item.defaultSellingPrice))),
                               item: i.item,
                             })),
                             notes: notes || null,
@@ -1024,6 +1332,10 @@ export function WalkInSale() {
                 label="Proceed to Payment →" 
                 variant="success"
                 onPress={() => {
+                  if (hasMissingPrice) {
+                    Alert.alert("Invalid Price", "One or more items in the cart do not have a price set. Please swipe right on the item in the Cart list to edit the price.");
+                    return;
+                  }
                   setCurrentStep(2);
                   if (paymentMode === "UPI") {
                     setAmountReceived(String(cartTotal));
@@ -1036,6 +1348,11 @@ export function WalkInSale() {
             {!isSerialsComplete && (
               <Text style={{ color: colors.danger, fontSize: 11, alignSelf: "flex-end", fontWeight: "bold" }}>
                 * Some items require serial scans
+              </Text>
+            )}
+            {hasMissingPrice && !isSerialsComplete && (
+              <Text style={{ color: colors.danger, fontSize: 11, alignSelf: "flex-end", fontWeight: "bold" }}>
+                * Some items have missing prices (swipe to set)
               </Text>
             )}
           </View>
@@ -1849,5 +2166,130 @@ const styles = StyleSheet.create({
   upiQrSubtext: {
     fontSize: 11,
     color: colors.textSecondary,
+  },
+  swipeContainer: {
+    position: 'relative',
+    overflow: 'hidden',
+    backgroundColor: '#10b981', // Green background underlay
+    borderRadius: radius.lg,
+    marginBottom: spacing.sm,
+  },
+  swipeUnderlay: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    width: 100,
+    justifyContent: 'center',
+    paddingLeft: spacing.md,
+  },
+  swipeUnderlayContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  swipeUnderlayText: {
+    color: '#ffffff',
+    fontSize: 12,
+    fontWeight: fontWeight.bold,
+  },
+  cartReviewRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    backgroundColor: colors.surface,
+  },
+  cartItemLeft: {
+    flex: 1.5,
+    marginRight: spacing.sm,
+  },
+  cartItemName: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  cartItemPrice: {
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  cartItemRight: {
+    flex: 1,
+    alignItems: 'flex-end',
+  },
+  cartItemSubtotal: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.extrabold,
+    color: colors.textPrimary,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: colors.overlay,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: spacing.xl,
+  },
+  modalContent: {
+    width: '100%',
+    maxWidth: 400,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    padding: spacing.xl,
+    gap: spacing.md,
+    ...shadow.lg,
+  },
+  modalTitle: {
+    fontSize: fontSize.xl,
+    fontWeight: fontWeight.black,
+    color: colors.textPrimary,
+  },
+  modalItemName: {
+    fontSize: fontSize.md,
+    color: colors.textSecondary,
+    fontWeight: fontWeight.medium,
+  },
+  pricingDetailsGrid: {
+    flexDirection: 'row',
+    backgroundColor: colors.surfaceOffset,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  pricingGridCell: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  pricingGridLabel: {
+    fontSize: 10,
+    color: colors.textSecondary,
+    fontWeight: fontWeight.bold,
+    marginBottom: 2,
+  },
+  pricingGridValue: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.extrabold,
+    color: colors.textPrimary,
+  },
+  modalInput: {
+    backgroundColor: colors.surface,
+  },
+  rateErrorText: {
+    color: colors.danger,
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
+  },
+  modalActions: {
+    flexDirection: 'row',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  helperWarning: {
+    fontSize: 10,
+    fontWeight: fontWeight.bold,
+    color: colors.danger,
+    textAlign: 'center',
   },
 });

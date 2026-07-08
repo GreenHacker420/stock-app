@@ -322,10 +322,17 @@ function OwnerHome({ navigate }: { navigate: (s: any, params?: any) => void }) {
         return (
           <View style={styles.gridContainer}>
             <QuickActionCard 
-              title="Walk-In Sale" 
-              desc="Fast counter billing" 
-              icon="basket-plus" 
-              onPress={() => navigate("WalkInSale")} 
+              title="New Sale" 
+              desc="Start counter or credit bill" 
+              icon="cart-plus" 
+              onPress={() => navigate("NewSaleType")} 
+              width={actionCardWidth}
+            />
+            <QuickActionCard 
+              title="Create DM" 
+              desc="Issue delivery memo" 
+              icon="file-document-outline" 
+              onPress={() => navigate("DeliveryMemoList")} 
               width={actionCardWidth}
             />
             <QuickActionCard 
@@ -333,6 +340,13 @@ function OwnerHome({ navigate }: { navigate: (s: any, params?: any) => void }) {
               desc="Book customer order" 
               icon="package-variant" 
               onPress={() => navigate("CreateOrder")} 
+              width={actionCardWidth}
+            />
+            <QuickActionCard 
+              title="Expenses" 
+              desc="Record operational costs" 
+              icon="cash-minus" 
+              onPress={() => navigate("Expenses")} 
               width={actionCardWidth}
             />
             <QuickActionCard 

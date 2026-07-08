@@ -522,6 +522,13 @@ export function RegularSale() {
     [cartArray]
   );
 
+  const hasMissingPrice = useMemo(() => {
+    return cartArray.some(i => {
+      const rate = i.customRate !== undefined ? i.customRate : Number(i.item.defaultSellingPrice || 0);
+      return rate <= 0 || isNaN(rate);
+    });
+  }, [cartArray]);
+
   useEffect(() => {
     if (cartItemCount === 0 && currentStep > 1 && currentStep < 4) {
       setCurrentStep(1);
@@ -634,6 +641,8 @@ export function RegularSale() {
       onError: (error: any) => {
         if (String(error?.message || "").toLowerCase().includes("network")) {
           Alert.alert("Internet required", internetRequiredMessage);
+        } else {
+          Alert.alert("Failed to Complete Sale", error?.message || "Something went wrong.");
         }
       },
     });
@@ -1204,7 +1213,13 @@ export function RegularSale() {
               <Button 
                 label="Proceed to Checkout →" 
                 variant="success"
-                onPress={() => setCurrentStep(2)} 
+                onPress={() => {
+                  if (hasMissingPrice) {
+                    Alert.alert("Invalid Price", "One or more items in the cart do not have a price set. Please swipe right on the item in the Cart list to edit the price.");
+                    return;
+                  }
+                  setCurrentStep(2);
+                }} 
                 disabled={!customerId || cartItemCount === 0 || !isSerialsComplete}
               />
               {!customerId && cartItemCount > 0 && (
@@ -1212,6 +1227,9 @@ export function RegularSale() {
               )}
               {!isSerialsComplete && cartItemCount > 0 && customerId && (
                 <Text style={styles.helperWarning}>* Some items require serial scans</Text>
+              )}
+              {hasMissingPrice && cartItemCount > 0 && customerId && isSerialsComplete && (
+                <Text style={styles.helperWarning}>* Some items have missing prices (swipe to set)</Text>
               )}
             </View>
           </View>
