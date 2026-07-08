@@ -23,6 +23,7 @@ import { VerificationQueue } from "./screens/VerificationQueue";
 import { AddEditItem } from "./screens/items/AddEditItem";
 import { ItemDetail } from "./screens/items/ItemDetail";
 import { ItemList } from "./screens/items/ItemList";
+import { StorageManagement } from "./screens/StorageManagement";
 import { SaleDetail, SalesList } from "./screens/OwnerSales";
 import { AddEditStaff, StaffManagement, StaffDetail } from "./screens/OwnerStaff";
 import {
@@ -495,6 +496,10 @@ const sharedStackScreens = {
     screen: ItemDetail,
     options: { title: "Item detail" },
   },
+  StorageManagement: {
+    screen: ownerOnlyScreen(StorageManagement),
+    options: { title: "S3 Storage Management" },
+  },
   StockDashboard: {
     screen: StockDashboard,
     options: { title: "Stock dashboard" },
@@ -652,6 +657,7 @@ export type RootStackParamList = {
   ItemList: undefined;
   AddEditItem: { itemId?: string };
   ItemDetail: { itemId: string };
+  StorageManagement: undefined;
   StockDashboard: undefined;
   CashSessionDetail: undefined;
   CorrectionRequests: undefined;

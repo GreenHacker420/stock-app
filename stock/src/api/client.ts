@@ -1368,3 +1368,25 @@ export async function copyCatalog(token: string, data: { sourceShopId: string; t
     body: JSON.stringify(data),
   });
 }
+
+export type StorageObject = {
+  id: string;
+  fileName: string;
+  storageKey: string;
+  sizeBytes: number;
+  mimeType: string;
+  createdAt: string;
+  url: string;
+};
+
+export async function fetchStorageObjects(token: string, shopId: string) {
+  const res = await apiRequest<{ success: boolean; data: StorageObject[] }>(`/dashboard/storage/objects?shopId=${encodeURIComponent(shopId)}`, { token });
+  return res.data || [];
+}
+
+export async function deleteStorageObject(token: string, id: string) {
+  return apiRequest<{ success: boolean }>(`/dashboard/storage/objects/${id}`, {
+    method: "DELETE",
+    token,
+  });
+}

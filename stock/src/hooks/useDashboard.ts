@@ -1,8 +1,8 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "../auth/auth-store";
 import { useShopStore } from "../auth/shop-store";
 import { queryKeys } from "./query-keys";
-import { fetchOwnerDashboard, fetchStaffTodaySummary } from "../api/client";
+import { fetchOwnerDashboard, fetchStaffTodaySummary, fetchStorageObjects, deleteStorageObject } from "../api/client";
 
 export function useOwnerDashboardQuery(options: { date?: string } = {}) {
   const token = useAuthStore((state) => state.token);
@@ -25,5 +25,28 @@ export function useStaffTodaySummaryQuery(options: { date?: string; staffId?: st
     enabled: !!token && !!activeShopId,
     staleTime: 60 * 1000,
     refetchOnReconnect: false,
+  });
+}
+
+export function useStorageObjectsQuery() {
+  const token = useAuthStore((state) => state.token);
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  return useQuery({
+    queryKey: queryKeys.storageObjects(activeShopId ?? ""),
+    queryFn: () => fetchStorageObjects(token ?? "", activeShopId ?? ""),
+    enabled: !!token && !!activeShopId,
+  });
+}
+
+export function useDeleteStorageObjectMutation() {
+  const token = useAuthStore((state) => state.token);
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (assetId: string) => deleteStorageObject(token ?? "", assetId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.storageObjects(activeShopId ?? "") });
+      queryClient.invalidateQueries({ queryKey: ["owner-dashboard"] });
+    },
   });
 }

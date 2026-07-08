@@ -1,6 +1,7 @@
 import prisma from "../lib/db.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
+import { deleteS3Object } from "../lib/s3-storage.js";
 import { EntityType, AuditAction, Prisma } from "../generated/prisma/index.js";
 import { generateEmbedding } from "../utils/embeddings.js";
 import { uploadProductImageAsset } from "./upload.service.js";
@@ -807,6 +808,26 @@ export async function createItem(user, data) {
 // updateItem — OWNER only
 // ---------------------------------------------------------------------------
 
+async function deleteAssetByUrl(shopId, url) {
+  if (!url) return;
+  const parts = url.split(".amazonaws.com/");
+  if (parts.length < 2) return;
+  const key = parts[1];
+
+  const asset = await prisma.asset.findFirst({
+    where: { shopId, storageKey: key },
+  });
+
+  if (asset) {
+    if (asset.storageKey) {
+      await deleteS3Object(asset.storageKey);
+    }
+    await prisma.asset.delete({ where: { id: asset.id } });
+  } else {
+    await deleteS3Object(key);
+  }
+}
+
 export async function updateItem(user, id, data) {
   const existing = await prisma.item.findUnique({ where: { id } });
   if (!existing) throw new ApiError(404, "Item not found");
@@ -820,6 +841,20 @@ export async function updateItem(user, id, data) {
 
   // Validate prices if provided
   validatePrices(itemData);
+
+  // Parse deleted URLs and delete them from S3/Asset table!
+  if (itemData.imageUrl !== undefined) {
+    const oldUrls = existing.imageUrl ? existing.imageUrl.split(",").filter(Boolean) : [];
+    const newUrls = itemData.imageUrl ? itemData.imageUrl.split(",").filter(Boolean) : [];
+    const deletedUrls = oldUrls.filter(url => !newUrls.includes(url));
+    for (const url of deletedUrls) {
+      try {
+        await deleteAssetByUrl(existing.shopId, url);
+      } catch (err) {
+        console.error(`Failed to delete S3 asset for URL ${url}:`, err);
+      }
+    }
+  }
 
   // Validate and gate the stock adjustment
   let validatedAdjustment = undefined;

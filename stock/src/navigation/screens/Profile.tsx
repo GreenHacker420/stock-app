@@ -263,39 +263,42 @@ export function Profile() {
 
             {user?.role === "OWNER" && (
               <ScreenSection title="Shop Storage">
-                <View style={styles.detailsCard}>
-                  {storageLoading ? (
-                    <Text style={styles.loadingText}>Loading storage metrics...</Text>
-                  ) : storageStats ? (
-                    <View style={styles.storageContainer}>
-                      <View style={styles.storageInfoRow}>
-                        <Icon source="database" size={24} color={colors.primary} />
-                        <View style={{ flex: 1, marginLeft: spacing.sm }}>
-                          <Text style={styles.storageLabel}>S3 Storage Used</Text>
-                          <Text style={styles.storageValue}>
-                            {formatBytes(storageStats.totalBytes)} ({storageStats.totalCount} files)
-                          </Text>
+                <Pressable onPress={() => navigate("StorageManagement")}>
+                  <View style={styles.detailsCard}>
+                    {storageLoading ? (
+                      <Text style={styles.loadingText}>Loading storage metrics...</Text>
+                    ) : storageStats ? (
+                      <View style={styles.storageContainer}>
+                        <View style={styles.storageInfoRow}>
+                          <Icon source="database" size={24} color={colors.primary} />
+                          <View style={{ flex: 1, marginLeft: spacing.sm }}>
+                            <Text style={styles.storageLabel}>S3 Storage Used</Text>
+                            <Text style={styles.storageValue}>
+                              {formatBytes(storageStats.totalBytes)} ({storageStats.totalCount} files)
+                            </Text>
+                          </View>
+                          <Icon source="chevron-right" size={20} color={colors.textSecondary} />
                         </View>
+                        {storageStats.breakdown && storageStats.breakdown.length > 0 && (
+                          <View style={styles.breakdownList}>
+                            {storageStats.breakdown.map((b) => (
+                              <View key={b.kind} style={styles.breakdownRow}>
+                                <Text style={styles.breakdownKind}>
+                                  {b.kind === "IMAGE" ? "Product Images" : b.kind}
+                                </Text>
+                                <Text style={styles.breakdownValue}>
+                                  {formatBytes(b.sizeBytes)} ({b.count})
+                                </Text>
+                              </View>
+                            ))}
+                          </View>
+                        )}
                       </View>
-                      {storageStats.breakdown && storageStats.breakdown.length > 0 && (
-                        <View style={styles.breakdownList}>
-                          {storageStats.breakdown.map((b) => (
-                            <View key={b.kind} style={styles.breakdownRow}>
-                              <Text style={styles.breakdownKind}>
-                                {b.kind === "IMAGE" ? "Product Images" : b.kind}
-                              </Text>
-                              <Text style={styles.breakdownValue}>
-                                {formatBytes(b.sizeBytes)} ({b.count})
-                              </Text>
-                            </View>
-                          ))}
-                        </View>
-                      )}
-                    </View>
-                  ) : (
-                    <Text style={styles.errorText}>Could not load storage metrics.</Text>
-                  )}
-                </View>
+                    ) : (
+                      <Text style={styles.errorText}>Could not load storage metrics.</Text>
+                    )}
+                  </View>
+                </Pressable>
               </ScreenSection>
             )}
 

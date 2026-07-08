@@ -1,6 +1,7 @@
 import prisma from "../lib/db.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
+import { deleteS3Object } from "../lib/s3-storage.js";
 
 function dayRange(date = new Date()) {
   const start = new Date(date);
@@ -242,4 +243,56 @@ export async function getStaffTodaySummary(user, { shopId, date, staffId, dateFr
     stockEntries: stockMovements.length,
     dayCloseStatus: cashSession?.status ?? "NOT_OPENED",
   };
+}
+
+export async function listStorageObjects(user, { shopId }) {
+  await assertShopAccess(user, shopId);
+  if (user.role !== "OWNER") {
+    throw new ApiError(403, "Access restricted to owners");
+  }
+
+  const assets = await prisma.asset.findMany({
+    where: {
+      shopId,
+      status: "READY",
+      storageProvider: "S3",
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  return assets.map((a) => ({
+    id: a.id,
+    fileName: a.fileName || a.storageKey.split("/").pop(),
+    storageKey: a.storageKey,
+    sizeBytes: a.sizeBytes ? Number(a.sizeBytes) : 0,
+    mimeType: a.mimeType,
+    createdAt: a.createdAt,
+    url: `https://${a.storageBucket}.s3.amazonaws.com/${a.storageKey}`,
+  }));
+}
+
+export async function deleteStorageObject(user, id) {
+  const asset = await prisma.asset.findUnique({
+    where: { id },
+  });
+  if (!asset) {
+    throw new ApiError(404, "Asset not found");
+  }
+
+  await assertShopAccess(user, asset.shopId);
+  if (user.role !== "OWNER") {
+    throw new ApiError(403, "Access restricted to owners");
+  }
+
+  // Delete from S3
+  if (asset.storageKey) {
+    await deleteS3Object(asset.storageKey);
+  }
+
+  // Delete from Database
+  await prisma.asset.delete({
+    where: { id },
+  });
+
+  return { success: true };
 }
