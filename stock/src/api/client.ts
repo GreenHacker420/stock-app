@@ -1379,13 +1379,22 @@ export type StorageObject = {
   url: string;
 };
 
-export async function fetchStorageObjects(token: string, shopId: string) {
-  return apiRequest<StorageObject[]>(`/dashboard/storage/objects?shopId=${encodeURIComponent(shopId)}`, { token });
+export async function fetchStorageObjects(token: string, shopId: string, filter?: "ALL" | "ORPHANED") {
+  const query = `shopId=${encodeURIComponent(shopId)}` + (filter ? `&filter=${encodeURIComponent(filter)}` : "");
+  return apiRequest<StorageObject[]>(`/dashboard/storage/objects?${query}`, { token });
 }
 
 export async function deleteStorageObject(token: string, id: string) {
   return apiRequest<{ success: boolean }>(`/dashboard/storage/objects/${id}`, {
     method: "DELETE",
     token,
+  });
+}
+
+export async function bulkDeleteOrphans(token: string, shopId: string) {
+  return apiRequest<{ success: boolean; count: number; sizeBytesFreed: number }>("/dashboard/storage/objects/bulk-delete-orphans", {
+    method: "POST",
+    token,
+    body: JSON.stringify({ shopId }),
   });
 }

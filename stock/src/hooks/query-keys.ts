@@ -32,5 +32,5 @@ export const queryKeys = {
   staff: () => ["staff"] as const,
   categories: (shopId: string) => ["categories", shopId] as const,
   attendance: (filters: { shopId?: string; staffId?: string; dateFrom?: string; dateTo?: string }) => ["attendance", filters] as const,
-  storageObjects: (shopId: string) => ["storage-objects", shopId] as const,
+  storageObjects: (shopId: string, filter?: string) => ["storage-objects", shopId, { filter }] as const,
 };
