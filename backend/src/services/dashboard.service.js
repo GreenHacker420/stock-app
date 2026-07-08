@@ -254,20 +254,19 @@ export async function listStorageObjects(user, { shopId }) {
   const assets = await prisma.asset.findMany({
     where: {
       shopId,
-      status: "READY",
-      storageProvider: "S3",
+      deletedAt: null,
     },
     orderBy: { createdAt: "desc" },
   });
 
   return assets.map((a) => ({
     id: a.id,
-    fileName: a.fileName || a.storageKey.split("/").pop(),
-    storageKey: a.storageKey,
+    fileName: a.fileName || (a.storageKey ? a.storageKey.split("/").pop() : "Unnamed File"),
+    storageKey: a.storageKey || "",
     sizeBytes: a.sizeBytes ? Number(a.sizeBytes) : 0,
-    mimeType: a.mimeType,
+    mimeType: a.mimeType || "application/octet-stream",
     createdAt: a.createdAt,
-    url: `https://${a.storageBucket}.s3.amazonaws.com/${a.storageKey}`,
+    url: a.storageKey && a.storageBucket ? `https://${a.storageBucket}.s3.amazonaws.com/${a.storageKey}` : (a.remoteUrl || ""),
   }));
 }
 
