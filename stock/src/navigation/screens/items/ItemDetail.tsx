@@ -55,6 +55,22 @@ export function ItemDetail() {
   const transferMutation = useTransferStockMutation();
 
   const [transferModalVisible, setTransferModalVisible] = useState(false);
+  const [selectedMovement, setSelectedMovement] = useState<StockMovementEntry | null>(null);
+
+  const getMovementTypeLabel = (type: string) => {
+    switch (type) {
+      case "OPENING_STOCK": return "Opening Stock";
+      case "STOCK_IN": return "Stock In";
+      case "STOCK_OUT": return "Stock Out";
+      case "SALE": return "Sales Deduction";
+      case "DM": return "Delivery Memo";
+      case "ORDER_DISPATCH": return "Order Dispatch";
+      case "RETURN": return "Return / Exchange";
+      case "DAMAGE_LOSS": return "Damage & Loss";
+      case "MANUAL_ADJUSTMENT": return "Manual Adjustment";
+      default: return type.replace(/_/g, " ");
+    }
+  };
 
   const stockData = stockQuery.data as ItemStockResponse | undefined;
   const itemData = stockData?.item;
@@ -248,12 +264,17 @@ export function ItemDetail() {
 
                 return (
                   <Fragment key={m.id}>
-                    <StockMovementRow
-                      title={isEntryIn ? "Stock In" : "Stock Out"}
-                      date={new Date(m.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
-                      quantity={`${isEntryIn ? "+" : "-"}${quantityVal} ${itemData.unit}`}
-                      tone={isEntryIn ? "green" : "red"}
-                    />
+                    <Pressable 
+                      onPress={() => setSelectedMovement(m)}
+                      style={({ pressed }) => pressed && { opacity: 0.7 }}
+                    >
+                      <StockMovementRow
+                        title={getMovementTypeLabel(m.movementType)}
+                        date={new Date(m.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                        quantity={`${isEntryIn ? "+" : "-"}${quantityVal} ${itemData.unit}`}
+                        tone={isEntryIn ? "green" : "red"}
+                      />
+                    </Pressable>
                     {i < arr.length - 1 && <Divider style={styles.rowDivider} />}
                   </Fragment>
                 );
@@ -349,6 +370,148 @@ export function ItemDetail() {
             >
               <Icon source="close" size={24} color={colors.textPrimary} />
             </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
+
+      <Modal
+        visible={!!selectedMovement}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSelectedMovement(null)}
+      >
+        <Pressable 
+          style={styles.modalOverlay} 
+          onPress={() => setSelectedMovement(null)}
+        >
+          <View style={styles.modalContentCard}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Ledger Entry Details</Text>
+              <Pressable 
+                onPress={() => setSelectedMovement(null)}
+                style={styles.modalCloseBtn}
+              >
+                <Icon source="close" size={20} color={colors.textPrimary} />
+              </Pressable>
+            </View>
+
+            {selectedMovement && (() => {
+              const qtyIn = Number(selectedMovement.quantityIn || 0);
+              const qtyOut = Number(selectedMovement.quantityOut || 0);
+              const isEntryIn = qtyIn > 0;
+              const qtyVal = isEntryIn ? qtyIn : qtyOut;
+
+              return (
+                <View style={styles.modalBody}>
+                  <View style={styles.modalDetailRow}>
+                    <Text style={styles.detailLabel}>Movement Type</Text>
+                    <Text style={styles.detailValue}>
+                      {getMovementTypeLabel(selectedMovement.movementType)}
+                    </Text>
+                  </View>
+
+                  <View style={styles.modalDetailRow}>
+                    <Text style={styles.detailLabel}>Quantity Changed</Text>
+                    <Text style={[styles.detailValue, { color: isEntryIn ? colors.success : colors.danger, fontWeight: fontWeight.black }]}>
+                      {isEntryIn ? "+" : "-"}{qtyVal} {itemData?.unit || ""}
+                    </Text>
+                  </View>
+
+                  <View style={styles.modalDetailRow}>
+                    <Text style={styles.detailLabel}>Timestamp</Text>
+                    <Text style={styles.detailValue}>
+                      {new Date(selectedMovement.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+                    </Text>
+                  </View>
+
+                  <View style={styles.modalDetailRow}>
+                    <Text style={styles.detailLabel}>Recorded By</Text>
+                    <Text style={styles.detailValue}>
+                      {selectedMovement.createdBy?.name || "System"} ({selectedMovement.createdBy?.role || "SYSTEM"})
+                    </Text>
+                  </View>
+
+                  {selectedMovement.approvedBy && (
+                    <View style={styles.modalDetailRow}>
+                      <Text style={styles.detailLabel}>Approved By</Text>
+                      <Text style={styles.detailValue}>
+                        {selectedMovement.approvedBy.name}
+                      </Text>
+                    </View>
+                  )}
+
+                  {selectedMovement.reason ? (
+                    <View style={styles.reasonCard}>
+                      <Text style={styles.reasonTitle}>Note / Reason</Text>
+                      <Text style={styles.reasonText}>{selectedMovement.reason}</Text>
+                    </View>
+                  ) : null}
+
+                  {selectedMovement.referenceType === "SALE" && (selectedMovement as any).sale && (
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.linkRow,
+                        pressed && styles.linkRowPressed
+                      ]}
+                      onPress={() => {
+                        setSelectedMovement(null);
+                        navigate("SaleDetail", { id: selectedMovement.referenceId! });
+                      }}
+                    >
+                      <View style={styles.linkLeft}>
+                        <Icon source="receipt" size={20} color={colors.primary} />
+                        <Text style={styles.linkLabel}>
+                          View Sale: #{(selectedMovement as any).sale.saleNumber}
+                        </Text>
+                      </View>
+                      <Icon source="chevron-right" size={20} color={colors.primary} />
+                    </Pressable>
+                  )}
+
+                  {selectedMovement.referenceType === "DM" && (selectedMovement as any).deliveryMemo && (
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.linkRow,
+                        pressed && styles.linkRowPressed
+                      ]}
+                      onPress={() => {
+                        setSelectedMovement(null);
+                        navigate("DeliveryMemoDetail", { id: selectedMovement.referenceId! });
+                      }}
+                    >
+                      <View style={styles.linkLeft}>
+                        <Icon source="file-document-outline" size={20} color={colors.primary} />
+                        <Text style={styles.linkLabel}>
+                          View Delivery Memo: #{(selectedMovement as any).deliveryMemo.dmNumber}
+                        </Text>
+                      </View>
+                      <Icon source="chevron-right" size={20} color={colors.primary} />
+                    </Pressable>
+                  )}
+
+                  {selectedMovement.referenceType === "ORDER" && (selectedMovement as any).order && (
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.linkRow,
+                        pressed && styles.linkRowPressed
+                      ]}
+                      onPress={() => {
+                        setSelectedMovement(null);
+                        navigate("OrderDetail", { orderId: selectedMovement.referenceId! });
+                      }}
+                    >
+                      <View style={styles.linkLeft}>
+                        <Icon source="package-variant-closed" size={20} color={colors.primary} />
+                        <Text style={styles.linkLabel}>
+                          View Order: #{(selectedMovement as any).order.orderNumber}
+                        </Text>
+                      </View>
+                      <Icon source="chevron-right" size={20} color={colors.primary} />
+                    </Pressable>
+                  )}
+                </View>
+              );
+            })()}
           </View>
         </Pressable>
       </Modal>
@@ -501,5 +664,101 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0, 0, 0, 0.06)",
     justifyContent: "center",
     alignItems: "center",
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(255, 255, 255, 0.96)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: spacing.xl,
+  },
+  modalContentCard: {
+    width: "100%",
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: "hidden",
+    ...shadow.lg,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  modalTitle: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  modalCloseBtn: {
+    padding: 6,
+    borderRadius: radius.full,
+    backgroundColor: "rgba(0, 0, 0, 0.05)",
+  },
+  modalBody: {
+    padding: spacing.lg,
+    gap: spacing.md,
+  },
+  modalDetailRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: spacing.xs,
+  },
+  detailLabel: {
+    fontSize: fontSize.sm,
+    color: colors.textSecondary,
+  },
+  detailValue: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  reasonCard: {
+    backgroundColor: colors.surfaceOffset,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    marginTop: spacing.xs,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  reasonTitle: {
+    fontSize: 10,
+    fontWeight: fontWeight.bold,
+    color: colors.textMuted,
+    textTransform: "uppercase",
+    marginBottom: 4,
+  },
+  reasonText: {
+    fontSize: fontSize.sm,
+    color: colors.textPrimary,
+    fontStyle: "italic",
+  },
+  linkRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: colors.primaryLight,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    marginTop: spacing.sm,
+  },
+  linkRowPressed: {
+    opacity: 0.8,
+  },
+  linkLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  linkLabel: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.primary,
   },
 });

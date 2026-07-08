@@ -499,7 +499,7 @@ export function ItemList() {
           )}
         </ScrollView>
       ) : (
-        <View style={{ flex: 1, opacity: isDebouncePending || listQuery.isFetching ? 0.65 : 1 }}>
+        <View style={{ flex: 1 }}>
           <FlashListAny
             data={displayItems}
             keyExtractor={(item: any) => item.id}

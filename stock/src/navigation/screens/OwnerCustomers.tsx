@@ -3,7 +3,7 @@ import { Alert, Pressable, View, StyleSheet, ActivityIndicator, ScrollView, Keyb
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRoute } from "@react-navigation/native";
 import { Divider, Icon, Text, TextInput } from "react-native-paper";
-import * as Contacts from "expo-contacts";
+import { requestPermissionsAsync, Contact, ContactField } from "expo-contacts";
 import { cleanPhoneNumber, isValidMobile } from "../../utils/items/validation";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
@@ -146,15 +146,25 @@ export function AddEditCustomer() {
   const handleImportContacts = async () => {
     setLoadingContacts(true);
     try {
-      const { status } = await Contacts.requestPermissionsAsync();
+      const { status } = await requestPermissionsAsync();
       if (status !== "granted") {
         Alert.alert("Permission Denied", "Contact access is required to import contacts.");
         return;
       }
-      const { data } = await Contacts.getContactsAsync({
-        fields: [Contacts.Fields.PhoneNumbers, Contacts.Fields.Emails, Contacts.Fields.Company],
-      });
-      const sorted = (data || []).sort((a: any, b: any) => (a.name || "").localeCompare(b.name || ""));
+      const contactsList = await Contact.getAllDetails([
+        ContactField.FULL_NAME,
+        ContactField.PHONES,
+        ContactField.COMPANY
+      ]);
+      
+      const resolved = contactsList.map((c) => ({
+        id: c.id,
+        name: c.fullName || "",
+        company: c.company || "",
+        phoneNumbers: c.phones || [],
+      }));
+
+      const sorted = resolved.sort((a: any, b: any) => (a.name || "").localeCompare(b.name || ""));
       setDeviceContacts(sorted);
       setContactsModalVisible(true);
     } catch (err: any) {
@@ -175,9 +185,30 @@ export function AddEditCustomer() {
   }, [deviceContacts, contactsSearch]);
 
   const selectContact = (contact: any) => {
-    const primaryPhoneObj = contact.phoneNumbers?.[0];
-    const cleanedPhone = cleanPhoneNumber(primaryPhoneObj?.number || "");
+    const phoneNumbers = contact.phoneNumbers || [];
+    if (phoneNumbers.length === 0) {
+      Alert.alert("Invalid Contact", "Selected contact does not have any phone numbers configured.");
+      return;
+    }
+    if (phoneNumbers.length > 1) {
+      Alert.alert(
+        "Select Phone Number",
+        `Choose a number to import for ${contact.name || "this contact"}:`,
+        phoneNumbers.map((p: any) => ({
+          text: `${p.label || "Phone"}: ${p.number}`,
+          onPress: () => {
+            importContactWithPhone(contact, p.number);
+          }
+        })).concat([{ text: "Cancel", style: "cancel" }])
+      );
+    } else {
+      const primaryNumber = phoneNumbers[0]?.number || "";
+      importContactWithPhone(contact, primaryNumber);
+    }
+  };
 
+  const importContactWithPhone = (contact: any, rawPhone: string) => {
+    const cleanedPhone = cleanPhoneNumber(rawPhone);
     setForm((prev) => ({
       ...prev,
       name: contact.company || contact.name || "",

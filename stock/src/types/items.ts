@@ -23,6 +23,11 @@ export type StockMovementEntry = {
   quantityOut: string | number;
   movementType: string;
   createdAt: string;
+  referenceType?: string | null;
+  referenceId?: string | null;
+  reason?: string | null;
+  createdBy?: { id: string; name: string; role: string } | null;
+  approvedBy?: { id: string; name: string } | null;
 };
 
 export type PriceChangeHistoryEntry = {
