@@ -77,19 +77,6 @@ export function StaffManagement() {
           />
         );
       }}
-      ListFooterComponent={
-        <ScreenSection title="Staff activity tracking" style={styles.activitySection}>
-          <View style={styles.infoCard}>
-            <Icon source="chart-timeline-variant" size={22} color={colors.primary} />
-            <View style={styles.infoText}>
-              <Text style={styles.infoTitle}>Activity tracking active</Text>
-              <Text style={styles.secondaryText}>
-                Select any staff member from the list above to view their real-time performance summary, check-in history, and audit trail logs.
-              </Text>
-            </View>
-          </View>
-        </ScreenSection>
-      }
     />
   );
 }
