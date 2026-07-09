@@ -56,6 +56,12 @@ test.describe("Sale Amendments and Invoices", () => {
         { shopId: shop.id, itemId: itemB.id, physicalStock: 100, availableStock: 100 },
       ]
     });
+    await prisma.stockLedger.createMany({
+      data: [
+        { shopId: shop.id, itemId: itemA.id, movementType: "OPENING_STOCK", quantityIn: 100, quantityOut: 0, createdById: owner.id },
+        { shopId: shop.id, itemId: itemB.id, movementType: "OPENING_STOCK", quantityIn: 100, quantityOut: 0, createdById: owner.id },
+      ]
+    });
   });
 
   test.after(async () => {
@@ -93,12 +99,10 @@ test.describe("Sale Amendments and Invoices", () => {
     const updatedDraft = await saleService.updateSale(owner, draftSale.id, {
       items: [
         { itemId: itemA.id, quantity: 2, rate: 100 }
-      ],
-      notes: "Updated draft notes"
+      ]
     });
 
     assert.strictEqual(Number(updatedDraft.totalAmount), 200);
-    assert.strictEqual(updatedDraft.notes, "Updated draft notes");
 
     // Convert draft sale to confirmed
     const confirmedSale = await prisma.sale.create({

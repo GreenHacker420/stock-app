@@ -341,7 +341,6 @@ export async function updateSale(user, id, data) {
         totalAmount: totalVal,
         balanceAmount: totalVal,
         gstRequired: data.gstRequired !== undefined ? data.gstRequired : sale.gstRequired,
-        notes: data.notes !== undefined ? data.notes : sale.notes,
         items: {
           create: newItems.map((item) => {
             const snList = item.serialNumbers || [];
@@ -528,7 +527,6 @@ export async function amendSale(user, id, data) {
         balanceAmount: balanceVal,
         paymentStatus: newPaymentStatus,
         saleStatus: newPaymentStatus === "PAID" ? "PAID" : "CONFIRMED",
-        notes: data.notes !== undefined ? data.notes : sale.notes,
         items: {
           create: newItems.map((item) => {
             const snList = item.serialNumbers || [];
@@ -592,7 +590,7 @@ export async function amendSale(user, id, data) {
         action: AuditAction.UPDATED,
         entityType: EntityType.SALE,
         entityId: sale.id,
-        details: `Sale amended (Version ${updatedSale.version}): total changed from ${prevTotal} to ${newTotalAmount} (Reason: ${data.reason})`,
+        reason: `Sale amended (Version ${updatedSale.version}): total changed from ${prevTotal} to ${newTotalAmount} (Reason: ${data.reason})`,
       },
     });
 
@@ -680,7 +678,7 @@ export async function issueInvoice(user, id, data) {
         action: AuditAction.APPROVED,
         entityType: EntityType.SALE,
         entityId: sale.id,
-        details: `Invoice issued for sale #${sale.saleNumber}: ${data.invoiceNumber}`,
+        reason: `Invoice issued for sale #${sale.saleNumber}: ${data.invoiceNumber}`,
       },
     });
 
@@ -723,7 +721,7 @@ export async function cancelInvoice(user, id, data) {
         action: AuditAction.VOIDED,
         entityType: EntityType.SALE,
         entityId: sale.id,
-        details: `Invoice ${activeInvoice.invoiceNumber} cancelled for sale #${sale.saleNumber}`,
+        reason: `Invoice ${activeInvoice.invoiceNumber} cancelled for sale #${sale.saleNumber}`,
       },
     });
 
