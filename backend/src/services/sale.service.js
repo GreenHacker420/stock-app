@@ -469,7 +469,7 @@ export async function amendSale(user, id, data) {
           shopId: sale.shopId,
           itemId: change.itemId,
           quantity: change.deltaQty,
-          movementType: "SALE_AMENDMENT",
+          movementType: "SALE",
           referenceType: "Sale",
           referenceId: sale.id,
           reason: `Sale Amendment: quantity increased by ${change.deltaQty} (Reason: ${data.reason})`,
@@ -480,7 +480,7 @@ export async function amendSale(user, id, data) {
           data: {
             shopId: sale.shopId,
             itemId: change.itemId,
-            movementType: "SALE_AMENDMENT_REVERSAL",
+            movementType: "SALE",
             quantityIn: Math.abs(change.deltaQty),
             quantityOut: 0,
             referenceType: "Sale",
@@ -598,7 +598,9 @@ export async function amendSale(user, id, data) {
       shopId: sale.shopId,
       entity: "sale",
       action: "amended",
-      referenceId: sale.id,
+      entityId: sale.id,
+      actorUserId: user.id,
+      actorRole: user.role,
       payload: { totalAmount: newTotalAmount, version: updatedSale.version },
     });
 

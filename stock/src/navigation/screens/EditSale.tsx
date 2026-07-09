@@ -3,7 +3,7 @@ import { View, StyleSheet, Pressable, ScrollView, Alert, ActivityIndicator } fro
 import { Divider, Text, Icon, TextInput as PaperTextInput } from "react-native-paper";
 import { useRoute, useNavigation } from "@react-navigation/native";
 
-import { useSaleQuery, useAmendSaleMutation } from "../../hooks/useSales";
+import { useSaleQuery, useAmendSaleMutation, useUpdateSaleMutation } from "../../hooks/useSales";
 import { useItemsQuery } from "../../hooks/useItems";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
@@ -23,6 +23,8 @@ export function EditSale() {
 
   const itemsQuery = useItemsQuery({ limit: 1000 });
   const amendSaleMutation = useAmendSaleMutation();
+  const updateSaleMutation = useUpdateSaleMutation();
+  const isDraft = sale?.saleStatus === "DRAFT";
 
   const [editItems, setEditItems] = useState<any[]>([]);
   const [editDiscountAmount, setEditDiscountAmount] = useState("0");
@@ -156,8 +158,29 @@ export function EditSale() {
       }
     }
 
-    if (!reason.trim()) {
+    if (!isDraft && !reason.trim()) {
       Alert.alert("Error", "Please provide a reason for the amendment.");
+      return;
+    }
+
+    if (isDraft) {
+      updateSaleMutation.mutate({
+        saleId: sale.id,
+        data: {
+          items: formattedItems,
+          discountAmount: Number(editDiscountAmount || 0),
+        }
+      }, {
+        onSuccess: () => {
+          triggerSuccessHaptic();
+          Alert.alert("Success", "Draft updated successfully!", [
+            { text: "OK", onPress: () => navigation.goBack() }
+          ]);
+        },
+        onError: (err: any) => {
+          Alert.alert("Error", err.message || "Failed to update draft");
+        }
+      });
       return;
     }
 
@@ -261,12 +284,16 @@ export function EditSale() {
             </View>
           </View>
 
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>REASON FOR CHANGE</Text>
-          </View>
-          <View style={styles.card}>
-            <Text style={styles.reasonText}>"{reason}"</Text>
-          </View>
+          {!isDraft && (
+            <>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>REASON FOR CHANGE</Text>
+              </View>
+              <View style={styles.card}>
+                <Text style={styles.reasonText}>"{reason}"</Text>
+              </View>
+            </>
+          )}
 
           {sale.gstInvoiceNumber && (
             <View style={[styles.card, { borderColor: colors.warning, borderWidth: 1, backgroundColor: colors.warningLight }]}>
@@ -285,9 +312,9 @@ export function EditSale() {
           <View style={styles.btnRow}>
             <Button label="BACK TO EDIT" variant="ghost" onPress={() => setIsReviewing(false)} style={{ flex: 1 }} />
             <Button
-              label="CONFIRM AMENDMENT"
+              label={isDraft ? "SAVE DRAFT" : "CONFIRM AMENDMENT"}
               variant="primary"
-              loading={amendSaleMutation.isPending}
+              loading={isDraft ? updateSaleMutation.isPending : amendSaleMutation.isPending}
               onPress={handleSaveAmendment}
               style={{ flex: 1.5 }}
             />
@@ -439,30 +466,34 @@ export function EditSale() {
           </View>
         </View>
 
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>AMENDMENT REASON</Text>
-        </View>
-        
-        <View style={styles.card}>
-          <PaperTextInput
-            mode="outlined"
-            label="Reason for change"
-            value={reason}
-            onChangeText={setReason}
-            placeholder="e.g. Customer added units / rate correction"
-            style={styles.overallDiscountInput}
-            outlineColor={colors.border}
-            activeOutlineColor={colors.primary}
-            textColor={colors.textPrimary}
-            multiline
-            numberOfLines={2}
-          />
-        </View>
+        {!isDraft && (
+          <>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>AMENDMENT REASON</Text>
+            </View>
+            
+            <View style={styles.card}>
+              <PaperTextInput
+                mode="outlined"
+                label="Reason for change"
+                value={reason}
+                onChangeText={setReason}
+                placeholder="e.g. Customer added units / rate correction"
+                style={styles.overallDiscountInput}
+                outlineColor={colors.border}
+                activeOutlineColor={colors.primary}
+                textColor={colors.textPrimary}
+                multiline
+                numberOfLines={2}
+              />
+            </View>
+          </>
+        )}
 
         <Button
-          label="REVIEW CHANGES"
+          label={isDraft ? "REVIEW DRAFT" : "REVIEW CHANGES"}
           variant="primary"
-          disabled={editItems.length === 0 || !reason.trim()}
+          disabled={editItems.length === 0 || (!isDraft && !reason.trim())}
           onPress={() => setIsReviewing(true)}
           style={{ marginVertical: spacing.lg }}
         />

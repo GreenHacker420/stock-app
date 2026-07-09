@@ -196,16 +196,16 @@ test.describe("Sale Amendments and Invoices", () => {
     assert.strictEqual(Number(updatedCustomer.outstandingAmount), initDebt + expectedDebtChange);
 
     // Check stock ledger append-only deltas
-    // Product A delta: 3 - 1 = +2 (SALE_AMENDMENT)
+    // Product A delta: 3 - 1 = +2 (SALE)
     const ledgerA = await prisma.stockLedger.findFirst({
-      where: { itemId: itemA.id, referenceId: sale.id, movementType: "SALE_AMENDMENT" }
+      where: { itemId: itemA.id, referenceId: sale.id, movementType: "SALE", quantityOut: 2 }
     });
     assert.ok(ledgerA);
     assert.strictEqual(Number(ledgerA.quantityOut), 2);
 
-    // Product B delta: 0 - 1 = -1 (SALE_AMENDMENT_REVERSAL)
+    // Product B delta: 0 - 1 = -1 (SALE)
     const ledgerB = await prisma.stockLedger.findFirst({
-      where: { itemId: itemB.id, referenceId: sale.id, movementType: "SALE_AMENDMENT_REVERSAL" }
+      where: { itemId: itemB.id, referenceId: sale.id, movementType: "SALE", quantityIn: 1 }
     });
     assert.ok(ledgerB);
     assert.strictEqual(Number(ledgerB.quantityIn), 1);

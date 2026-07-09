@@ -9,10 +9,11 @@ let hasFailures = false;
 const testFileArg = process.argv[2];
 const files = testFileArg
   ? [path.resolve(testFileArg)]
-    : [
+  : [
       path.resolve("src/tests/api-contract.test.js"),
       path.resolve("src/tests/phase1-security.test.js"),
       path.resolve("src/tests/phase2-core.test.js"),
+      path.resolve("src/tests/sale-amendments.test.js"),
       path.resolve("src/tests/realtime.test.js"),
       path.resolve("src/tests/frontend-events.test.js"),
       path.resolve("src/tests/harden-mobile.test.js"),
