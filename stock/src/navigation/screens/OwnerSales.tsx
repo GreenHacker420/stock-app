@@ -6,7 +6,8 @@ import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import Svg, { Path } from "react-native-svg";
-import { useSalesQuery, useSaleQuery, useUpdateGstMutation } from "../../hooks/useSales";
+import { useSalesQuery, useSaleQuery, useUpdateGstMutation, useUpdateSaleMutation } from "../../hooks/useSales";
+import { useItemsQuery } from "../../hooks/useItems";
 import { usePaymentsQuery, useAttachPaymentMutation } from "../../hooks/usePayments";
 import { type Sale } from "../../api/client";
 import { Screen } from "../../components/Screen";
@@ -168,6 +169,109 @@ export function SaleDetail() {
 
   const updateGstMutation = useUpdateGstMutation();
 
+  // Edit Items Modal States
+  const itemsQuery = useItemsQuery({ limit: 1000 });
+  const updateSaleMutation = useUpdateSaleMutation();
+
+  const [isItemsEditVisible, setIsItemsEditVisible] = useState(false);
+  const [editItems, setEditItems] = useState<any[]>([]);
+  const [editDiscountAmount, setEditDiscountAmount] = useState("0");
+  const [productSearch, setProductSearch] = useState("");
+
+  const handleOpenItemsEdit = () => {
+    if (!sale) return;
+    setEditItems(
+      (sale.items || []).map((item: any) => ({
+        itemId: item.itemId,
+        name: item.item.name,
+        quantity: String(item.quantity),
+        rate: String(item.rate),
+        unit: item.item.unit,
+        defaultSellingPrice: item.item.defaultSellingPrice,
+        minimumPrice: item.item.minimumPrice,
+      }))
+    );
+    setEditDiscountAmount(String(sale.discountAmount || 0));
+    setProductSearch("");
+    setIsItemsEditVisible(true);
+  };
+
+  const allProducts = itemsQuery.data?.items ?? [];
+  const filteredProducts = useMemo(() => {
+    if (!productSearch) return [];
+    return allProducts.filter((p: any) => 
+      p.name.toLowerCase().includes(productSearch.toLowerCase()) || 
+      (p.sku && p.sku.toLowerCase().includes(productSearch.toLowerCase()))
+    ).slice(0, 5);
+  }, [productSearch, allProducts]);
+
+  const handleAddProduct = (prod: any) => {
+    setEditItems(prev => {
+      const existing = prev.find(item => item.itemId === prod.id);
+      if (existing) {
+        return prev.map(item => 
+          item.itemId === prod.id 
+            ? { ...item, quantity: String(Number(item.quantity) + 1) } 
+            : item
+        );
+      } else {
+        return [
+          ...prev,
+          {
+            itemId: prod.id,
+            name: prod.name,
+            quantity: "1",
+            rate: String(prod.defaultSellingPrice),
+            unit: prod.unit,
+            defaultSellingPrice: prod.defaultSellingPrice,
+            minimumPrice: prod.minimumPrice,
+          }
+        ];
+      }
+    });
+    setProductSearch("");
+  };
+
+  const handleSaveItems = () => {
+    const formattedItems = editItems.map(item => ({
+      itemId: item.itemId,
+      quantity: Number(item.quantity),
+      rate: Number(item.rate),
+    }));
+
+    if (formattedItems.length === 0) {
+      Alert.alert("Error", "Sale must contain at least one item.");
+      return;
+    }
+
+    for (const item of formattedItems) {
+      if (isNaN(item.quantity) || item.quantity <= 0) {
+        Alert.alert("Error", "All item quantities must be greater than 0.");
+        return;
+      }
+      if (isNaN(item.rate) || item.rate < 0) {
+        Alert.alert("Error", "All item rates must be greater than or equal to 0.");
+        return;
+      }
+    }
+
+    updateSaleMutation.mutate({
+      saleId: sale?.id || "",
+      data: {
+        items: formattedItems,
+        discountAmount: Number(editDiscountAmount || 0),
+      }
+    }, {
+      onSuccess: () => {
+        setIsItemsEditVisible(false);
+        Alert.alert("Success", "Sale items updated successfully!");
+      },
+      onError: (err: any) => {
+        Alert.alert("Error", err.message || "Failed to update sale items");
+      }
+    });
+  };
+
   const handleOpenGstEdit = () => {
     if (!sale) return;
     setEditGstRequired(!!sale.isGstRequired);
@@ -249,8 +353,18 @@ export function SaleDetail() {
           </View>
         </View>
 
-        <Section title="Items Summary">
-          <View style={styles.itemsCard}>
+        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: spacing.md, marginBottom: spacing.xs }}>
+          <Text style={{ fontSize: 16, fontWeight: fontWeight.extrabold, color: colors.textPrimary }}>Items Summary</Text>
+          {user?.role === "OWNER" && (
+            <Button
+              label="EDIT ITEMS"
+              variant="ghost"
+              onPress={handleOpenItemsEdit}
+              style={styles.itemsEditBtn}
+            />
+          )}
+        </View>
+        <View style={styles.itemsCard}>
             {sale.items?.map((item: any, idx: number) => {
               const isPriceModified = Number(item.rate) !== Number(item.item?.defaultSellingPrice);
               return (
@@ -274,7 +388,6 @@ export function SaleDetail() {
               );
             })}
           </View>
-        </Section>
 
         <Section title="Payment Streams & Verifications">
           <View style={styles.itemsCard}>
@@ -517,7 +630,153 @@ export function SaleDetail() {
             />
           </View>
         </Modal>
-      </Portal>
+              <Modal
+            visible={isItemsEditVisible}
+            onDismiss={() => setIsItemsEditVisible(false)}
+            contentContainerStyle={styles.editItemsModal}
+          >
+            <View style={styles.modalIcon}>
+              <Icon source="format-list-bulleted" size={48} color={colors.primary} />
+            </View>
+            <Text style={styles.modalTitle}>Edit Sale Items</Text>
+            <Divider style={styles.modalDivider} />
+
+            {/* Product Search & Add Row */}
+            <View style={{ width: "100%", gap: spacing.xs, zIndex: 1000 }}>
+              <PaperTextInput
+                mode="outlined"
+                label="Search products to add..."
+                value={productSearch}
+                onChangeText={setProductSearch}
+                placeholder="Type product name or SKU"
+                style={styles.modalInput}
+                outlineColor={colors.border}
+                activeOutlineColor={colors.primary}
+                textColor={colors.textPrimary}
+                right={<PaperTextInput.Icon icon="magnify" color={colors.textSecondary} />}
+              />
+              {filteredProducts.length > 0 && (
+                <View style={styles.suggestionsContainer}>
+                  {filteredProducts.map((prod: any) => (
+                    <Pressable
+                      key={prod.id}
+                      onPress={() => handleAddProduct(prod)}
+                      style={({ pressed }) => [
+                        styles.suggestionRow,
+                        pressed && styles.suggestionRowPressed
+                      ]}
+                    >
+                      <Text style={styles.suggestionName}>{prod.name}</Text>
+                      <Text style={styles.suggestionPrice}>{money(prod.defaultSellingPrice)}</Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+            </View>
+
+            <ScrollView style={styles.editItemsScroll} contentContainerStyle={{ gap: spacing.md }}>
+              {editItems.map((item, index) => {
+                const handleQtyChange = (val: string) => {
+                  setEditItems(prev => prev.map((it, idx) => idx === index ? { ...it, quantity: val } : it));
+                };
+                const handleRateChange = (val: string) => {
+                  setEditItems(prev => prev.map((it, idx) => idx === index ? { ...it, rate: val } : it));
+                };
+                const handleRemove = () => {
+                  setEditItems(prev => prev.filter((_, idx) => idx !== index));
+                };
+                const handleIncrement = () => {
+                  const cur = Number(item.quantity) || 0;
+                  handleQtyChange(String(cur + 1));
+                };
+                const handleDecrement = () => {
+                  const cur = Number(item.quantity) || 0;
+                  handleQtyChange(String(Math.max(1, cur - 1)));
+                };
+
+                return (
+                  <View key={item.itemId + index} style={styles.editItemRow}>
+                    <View style={{ flex: 1, gap: spacing.xs }}>
+                      <Text style={styles.editItemName} numberOfLines={1}>{item.name}</Text>
+                      <View style={{ flexDirection: "row", gap: spacing.sm, alignItems: "center" }}>
+                        <View style={styles.qtyContainer}>
+                          <Pressable onPress={handleDecrement} style={styles.qtyBtn}>
+                            <Text style={styles.qtyBtnText}>-</Text>
+                          </Pressable>
+                          <PaperTextInput
+                            mode="flat"
+                            value={item.quantity}
+                            onChangeText={handleQtyChange}
+                            keyboardType="numeric"
+                            style={styles.qtyInput}
+                            underlineColor="transparent"
+                            activeUnderlineColor="transparent"
+                            dense
+                          />
+                          <Pressable onPress={handleIncrement} style={styles.qtyBtn}>
+                            <Text style={styles.qtyBtnText}>+</Text>
+                          </Pressable>
+                        </View>
+
+                        <PaperTextInput
+                          mode="outlined"
+                          label="Rate (₹)"
+                          value={item.rate}
+                          onChangeText={handleRateChange}
+                          keyboardType="numeric"
+                          style={styles.rateInput}
+                          outlineColor={colors.border}
+                          activeOutlineColor={colors.primary}
+                          dense
+                        />
+                      </View>
+                    </View>
+
+                    <Pressable onPress={handleRemove} style={styles.removeBtn}>
+                      <Icon source="trash-can-outline" size={22} color={colors.danger} />
+                    </Pressable>
+                  </View>
+                );
+              })}
+
+              {editItems.length === 0 && (
+                <Text style={styles.emptyText}>No items. Add products using search above.</Text>
+              )}
+
+              <Divider style={styles.modalDivider} />
+
+              <PaperTextInput
+                mode="outlined"
+                label="Overall Discount (₹)"
+                value={editDiscountAmount}
+                onChangeText={setEditDiscountAmount}
+                keyboardType="numeric"
+                style={styles.modalInput}
+                outlineColor={colors.border}
+                activeOutlineColor={colors.primary}
+                textColor={colors.textPrimary}
+                placeholder="0"
+              />
+            </ScrollView>
+
+            <View style={styles.modalActionsRow}>
+              <Button
+                label="CANCEL"
+                variant="ghost"
+                onPress={() => setIsItemsEditVisible(false)}
+                style={{ flex: 1 }}
+              />
+              <Button
+                label="SAVE CHANGES"
+                variant="primary"
+                loading={updateSaleMutation.isPending}
+                disabled={updateSaleMutation.isPending || editItems.length === 0}
+                onPress={handleSaveItems}
+                style={{ flex: 1.5 }}
+              />
+            </View>
+          </Modal>
+        </Portal>
     </Screen>
   );
 }
@@ -597,6 +856,10 @@ const styles = StyleSheet.create({
     height: 32,
     alignSelf: "center",
   },
+  itemsEditBtn: {
+    paddingHorizontal: spacing.sm,
+    height: 32,
+  },
   editModal: {
     backgroundColor: colors.surface,
     padding: spacing.xl,
@@ -604,6 +867,105 @@ const styles = StyleSheet.create({
     borderRadius: 28,
     alignItems: 'center',
     gap: spacing.md,
+  },
+  editItemsModal: {
+    backgroundColor: colors.surface,
+    padding: spacing.xl,
+    margin: spacing.xl,
+    borderRadius: 28,
+    alignItems: 'center',
+    gap: spacing.md,
+    maxHeight: '90%',
+  },
+  editItemsScroll: {
+    width: '100%',
+    maxHeight: 280,
+    marginTop: spacing.sm,
+  },
+  editItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.surfaceOffset,
+  },
+  editItemName: {
+    fontSize: 14,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  qtyContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceOffset,
+    height: 40,
+    width: 100,
+    overflow: 'hidden',
+  },
+  qtyBtn: {
+    width: 28,
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.border,
+  },
+  qtyBtnText: {
+    fontSize: 16,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  qtyInput: {
+    flex: 1,
+    height: '100%',
+    backgroundColor: 'transparent',
+    textAlign: 'center',
+    fontSize: 13,
+    paddingHorizontal: 0,
+  },
+  rateInput: {
+    width: 110,
+    height: 40,
+    backgroundColor: colors.surface,
+  },
+  removeBtn: {
+    padding: spacing.sm,
+  },
+  suggestionsContainer: {
+    width: '100%',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    marginTop: 2,
+    position: 'absolute',
+    top: 50,
+    zIndex: 1000,
+    ...shadow.sm,
+  },
+  suggestionRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    padding: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.surfaceOffset,
+  },
+  suggestionRowPressed: {
+    backgroundColor: colors.surfaceOffset,
+  },
+  suggestionName: {
+    fontSize: 13,
+    color: colors.textPrimary,
+    fontWeight: fontWeight.bold,
+    flex: 1,
+  },
+  suggestionPrice: {
+    fontSize: 13,
+    color: colors.primary,
+    fontWeight: fontWeight.bold,
   },
   modalForm: {
     width: '100%',

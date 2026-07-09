@@ -30,3 +30,8 @@ export const updateGstInvoice = asyncHandler(async (req, res) => {
   const sale = await saleService.updateGstInvoice(req.user, req.validated.params.id, req.validated.body);
   res.json({ success: true, data: sale });
 });
+
+export const updateSale = asyncHandler(async (req, res) => {
+  const sale = await saleService.updateSale(req.user, req.validated.params.id, req.validated.body);
+  res.json({ success: true, data: sale });
+});

@@ -7,6 +7,7 @@ import {
   generateRecordNumber,
   prisma,
   increaseCustomerDebt,
+  decreaseCustomerDebt,
   getBillPaymentStatus,
 } from "./transactionHelpers.js";
 import { money, sub } from "../utils/money.js";
@@ -325,5 +326,175 @@ export async function updateGstInvoice(user, id, { gstInvoiceNumber }) {
     });
 
     return updated;
+  });
+}
+
+
+export async function updateSale(user, id, data) {
+  if (user.role !== "OWNER") {
+    throw new ApiError(403, "Only owners can update sale details");
+  }
+
+  const sale = await prisma.sale.findUnique({
+    where: { id },
+    include: { items: true, payments: true }
+  });
+  if (!sale) throw new ApiError(404, "Sale not found");
+
+  await assertShopAccess(user, sale.shopId);
+
+  return prisma.$transaction(async (tx) => {
+    // 1. Revert previous stock movements for this sale
+    await tx.stockLedger.deleteMany({
+      where: {
+        shopId: sale.shopId,
+        referenceType: "Sale",
+        referenceId: sale.id,
+      }
+    });
+
+    // 2. Revert previous customer debt increase
+    await decreaseCustomerDebt(tx, sale.customerId, sale.totalAmount);
+
+    // 3. Process items updates if provided, otherwise keep existing items
+    let updatedItems = sale.items;
+    if (data.items) {
+      updatedItems = data.items;
+    }
+
+    // 4. Calculate new subtotal, discount, and totals
+    const { items: newItems, subtotal, discountAmount: itemsDiscount, totalAmount } = calculateItemTotals(
+      updatedItems.map(item => ({
+        itemId: item.itemId,
+        quantity: item.quantity,
+        rate: item.rate,
+        discountAmount: item.discountAmount || 0,
+        serialNumbers: item.serialNumbers,
+        description: item.description,
+      }))
+    );
+
+    const newDiscountAmount = data.discountAmount !== undefined ? data.discountAmount : Number(sale.discountAmount);
+    const newSubtotal = subtotal;
+    const newTotalAmount = Math.max(0, Number(newSubtotal) - Number(newDiscountAmount));
+
+    // 5. Check and Lock available stock for new items
+    await checkAndLockAvailableStock(tx, sale.shopId, newItems);
+
+    // Validate serial numbers if required by the items
+    for (const item of newItems) {
+      const dbItem = await tx.item.findUnique({ where: { id: item.itemId } });
+      if (!dbItem) {
+        throw new ApiError(400, `Item not found: ${item.itemId}`);
+      }
+      if (dbItem.requiresSerialNumber) {
+        if (!item.serialNumbers || !Array.isArray(item.serialNumbers) || item.serialNumbers.length !== Number(item.quantity)) {
+          throw new ApiError(
+            400,
+            `Product "${dbItem.name}" requires exactly ${item.quantity} serial number(s).`
+          );
+        }
+      }
+    }
+
+    // 6. Delete old SaleItem entries and create new ones
+    await tx.saleItem.deleteMany({
+      where: { saleId: sale.id }
+    });
+
+    // 7. Write new StockOut entries
+    const stockRequirements = await expandStockRequirements(tx, sale.shopId, newItems);
+    for (const item of stockRequirements) {
+      await createStockOut(tx, {
+        shopId: sale.shopId,
+        itemId: item.itemId,
+        quantity: item.quantity,
+        movementType: "SALE",
+        referenceType: "Sale",
+        referenceId: sale.id,
+        reason: "Sale edited by Owner",
+        userId: user.id,
+      });
+    }
+
+    // 8. Calculate new payment status and balance
+    const totalVal = money(newTotalAmount);
+    const subtotalVal = money(newSubtotal);
+    const discountVal = money(newDiscountAmount);
+
+    const paidAmount = sale.payments
+      .filter(p => p.status === "VERIFIED" || p.status === "APPROVED" || p.status === "RECEIVED")
+      .reduce((sum, p) => sum + Number(p.amount), 0);
+    const paidVal = money(paidAmount);
+    const balanceVal = money(Math.max(0, newTotalAmount - paidAmount));
+    const newPaymentStatus = getBillPaymentStatus(totalVal, paidVal);
+
+    // 9. Increase new customer debt
+    await increaseCustomerDebt(tx, sale.customerId, totalVal);
+
+    // 10. Update the Sale row
+    const newGstRequired = data.gstRequired !== undefined ? data.gstRequired : sale.gstRequired;
+    const newGstInvoiceNumber = data.gstInvoiceNumber !== undefined ? data.gstInvoiceNumber : sale.gstInvoiceNumber;
+    let newGstStatus = "NOT_REQUIRED";
+    if (newGstRequired) {
+      newGstStatus = newGstInvoiceNumber ? "GENERATED" : "PENDING";
+    }
+
+    const updatedSale = await tx.sale.update({
+      where: { id: sale.id },
+      data: {
+        gstRequired: newGstRequired,
+        gstInvoiceStatus: newGstStatus,
+        gstInvoiceNumber: newGstInvoiceNumber || null,
+        gstInvoiceGeneratedAt: newGstInvoiceNumber ? new Date() : null,
+        subtotal: subtotalVal,
+        discountAmount: discountVal,
+        totalAmount: totalVal,
+        paidAmount: paidVal,
+        balanceAmount: balanceVal,
+        paymentStatus: newPaymentStatus,
+        saleStatus: newPaymentStatus === "PAID" ? "PAID" : "CONFIRMED",
+        notes: data.notes !== undefined ? data.notes : sale.notes,
+        items: {
+          create: newItems.map((item) => {
+            const snList = item.serialNumbers || [];
+            const desc = item.description || (snList.length > 0 ? `S/N: ${snList.join(", ")}` : null);
+            return {
+              itemId: item.itemId,
+              quantity: item.quantity,
+              rate: money(item.rate),
+              discountAmount: money(item.discountAmount),
+              totalAmount: money(item.lineTotal),
+              serialNumbers: snList.length > 0 ? snList : null,
+              description: desc,
+            };
+          }),
+        },
+      },
+      include: { customer: true, items: { include: { item: true } }, payments: true },
+    });
+
+    // 11. Create Audit Log
+    await tx.auditLog.create({
+      data: {
+        userId: user.id,
+        shopId: sale.shopId,
+        action: AuditAction.UPDATED,
+        entityType: EntityType.SALE,
+        entityId: sale.id,
+        details: `Sale edited by Owner: total changed from ${sale.totalAmount} to ${newTotalAmount}`,
+      },
+    });
+
+    // 12. Emit domain events
+    await enqueueDomainEvent(tx, {
+      shopId: sale.shopId,
+      entity: "sale",
+      action: "updated",
+      referenceId: sale.id,
+      payload: { totalAmount: newTotalAmount },
+    });
+
+    return updatedSale;
   });
 }

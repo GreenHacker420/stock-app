@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from "@tansta
 import { useAuthStore } from "../auth/auth-store";
 import { useShopStore } from "../auth/shop-store";
 import { queryKeys } from "./query-keys";
-import { fetchSales, fetchSale, createSale, createWalkInSale, CreateSalePayload, updateSaleGst } from "../api/client";
+import { fetchSales, fetchSale, createSale, createWalkInSale, CreateSalePayload, updateSaleGst, updateSale } from "../api/client";
 import { newIdempotencyKey } from "../utils/idempotency";
 import { requireActiveShopId } from "./useActiveShop";
 
@@ -116,11 +116,31 @@ export function useUpdateGstMutation() {
   return useMutation({
     mutationFn: ({ saleId, gstRequired, gstInvoiceNumber }: { saleId: string; gstRequired?: boolean; gstInvoiceNumber?: string | null }) =>
       updateSaleGst(token ?? "", saleId, { gstRequired, gstInvoiceNumber }),
+    onSuccess: (updatedSale: any) => {
+      if (activeShopId) {
+        queryClient.invalidateQueries({ queryKey: ["sales", activeShopId] });
+        queryClient.invalidateQueries({ queryKey: ["sale", updatedSale.id] });
+        queryClient.invalidateQueries({ queryKey: ["owner-dashboard"] });
+      }
+    },
+  });
+}
+
+
+export function useUpdateSaleMutation() {
+  const token = useAuthStore((state) => state.token);
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ saleId, data }: { saleId: string; data: any }) =>
+      updateSale(token ?? "", saleId, data),
     onSuccess: (updatedSale) => {
       if (activeShopId) {
         queryClient.invalidateQueries({ queryKey: ["sales", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["sale", updatedSale.id] });
         queryClient.invalidateQueries({ queryKey: ["owner-dashboard"] });
+        queryClient.invalidateQueries({ queryKey: ["current-stock", activeShopId] });
+        queryClient.invalidateQueries({ queryKey: ["item-stock"] });
       }
     },
   });

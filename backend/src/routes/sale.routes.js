@@ -59,10 +59,22 @@ const listSchema = z.object({
   }),
 });
 
+const updateSaleSchema = z.object({
+  params: idParams,
+  body: z.object({
+    gstRequired: z.boolean().optional(),
+    gstInvoiceNumber: z.string().nullable().optional(),
+    notes: z.string().optional(),
+    items: z.array(saleItemSchema).optional(),
+    discountAmount: z.coerce.number().nonnegative().optional(),
+  }),
+});
+
 router.use(requireAuth);
 router.get("/", requirePermission(PERMISSIONS.SALE_VIEW_OWN), validate(listSchema), saleController.listSales);
 router.get("/:id", requirePermission(PERMISSIONS.SALE_VIEW_OWN), validate(z.object({ params: idParams })), saleController.getSale);
 router.post("/", requirePermission(PERMISSIONS.SALE_CREATE), validate(createSchema), saleController.createSale);
+router.patch("/:id", requirePermission(PERMISSIONS.SALE_CREATE), validate(updateSaleSchema), saleController.updateSale);
 router.patch("/:id/gst", requirePermission(PERMISSIONS.SALE_VIEW_ALL), validate(z.object({ params: idParams, body: z.object({ gstRequired: z.boolean().optional(), gstInvoiceNumber: z.string().nullable().optional() }) })), saleController.updateGstInvoice);
 
 export default router;

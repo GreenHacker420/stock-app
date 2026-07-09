@@ -515,6 +515,27 @@ export async function batchQuickUpdate(
   });
 }
 
+export async function updateSale(token: string, saleId: string, data: {
+  gstRequired?: boolean;
+  gstInvoiceNumber?: string | null;
+  notes?: string;
+  items?: Array<{
+    itemId: string;
+    quantity: number;
+    rate: number;
+    discountAmount?: number;
+    serialNumbers?: string[];
+    description?: string;
+  }>;
+  discountAmount?: number;
+}) {
+  return apiRequest<Sale>(`/sales/${saleId}`, {
+    method: "PATCH",
+    token,
+    body: JSON.stringify(data),
+  });
+}
+
 export type LocalItemImage = {
   uri: string;
   name: string;
