@@ -357,6 +357,78 @@ export function Settings() {
             CLOSE
           </Button>
         </Modal>
+
+        <Modal
+          visible={diagnosticsVisible}
+          onDismiss={() => !runningDiagnostics && setDiagnosticsVisible(false)}
+          contentContainerStyle={styles.diagnosticsModal}
+        >
+          <View style={styles.modalIcon}>
+            <Icon source="shield-check" size={48} color={colors.primary} />
+          </View>
+          <Text style={styles.modalTitle}>Security & Integrity Report</Text>
+          <Divider style={styles.modalDivider} />
+
+          {runningDiagnostics ? (
+            <View style={styles.loaderContainer}>
+              <ActivityIndicator size="large" color={colors.primary} />
+              <Text style={styles.loaderText}>{diagnosticsStatus}</Text>
+            </View>
+          ) : (
+            <ScrollView style={styles.reportScroll} contentContainerStyle={styles.reportScrollContent}>
+              <View style={styles.reportRow}>
+                <Text style={styles.reportLabel}>Operating System</Text>
+                <Text style={styles.reportValue}>{diagnosticsResult?.platform}</Text>
+              </View>
+              <View style={styles.reportRow}>
+                <Text style={styles.reportLabel}>Environment</Text>
+                <Text style={styles.reportValue}>
+                  {diagnosticsResult?.isDevice ? "Physical Device" : "Simulator / Emulator"}
+                </Text>
+              </View>
+              {diagnosticsResult?.platform === "Android" && (
+                <View style={styles.reportRow}>
+                  <Text style={styles.reportLabel}>Hardware Attestation</Text>
+                  <Text style={styles.reportValue}>
+                    {diagnosticsResult.hardwareAttestation ? "Supported (Hardware-backed)" : "Not supported"}
+                  </Text>
+                </View>
+              )}
+              {diagnosticsResult?.platform === "iOS" && (
+                <View style={styles.reportRow}>
+                  <Text style={styles.reportLabel}>Apple App Attest</Text>
+                  <Text style={styles.reportValue}>
+                    {diagnosticsResult.appAttestSupported ? "Supported" : "Not supported"}
+                  </Text>
+                </View>
+              )}
+              <View style={styles.reportRow}>
+                <Text style={styles.reportLabel}>Integrity Verdict</Text>
+                <Text style={[styles.reportValue, { color: colors.success, fontWeight: 'bold' }]}>
+                  {diagnosticsResult?.verdict}
+                </Text>
+              </View>
+
+              <View style={styles.tokenContainer}>
+                <Text style={styles.tokenLabel}>Play Integrity Token</Text>
+                <Text style={styles.tokenText}>
+                  {diagnosticsResult?.integrityToken
+                    ? `${diagnosticsResult.integrityToken.substring(0, 100)}...`
+                    : "No production token fetched (Development build)"}
+                </Text>
+              </View>
+            </ScrollView>
+          )}
+
+          <Button
+            mode="contained"
+            onPress={() => setDiagnosticsVisible(false)}
+            style={styles.closeBtn}
+            disabled={runningDiagnostics}
+          >
+            CLOSE REPORT
+          </Button>
+        </Modal>
       </Portal>
     </>
   );
@@ -474,6 +546,72 @@ const styles = StyleSheet.create({
     marginTop: spacing.md,
     width: '100%',
     borderRadius: radius.lg,
+  },
+  diagnosticsModal: {
+    backgroundColor: colors.surface,
+    padding: spacing.xl,
+    margin: spacing.xl,
+    borderRadius: 28,
+    alignItems: 'center',
+    gap: spacing.md,
+    maxHeight: '80%',
+  },
+  loaderContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: spacing.xl,
+    gap: spacing.md,
+  },
+  loaderText: {
+    fontSize: fontSize.sm,
+    color: colors.textSecondary,
+    textAlign: 'center',
+  },
+  reportScroll: {
+    width: '100%',
+    maxHeight: 300,
+    marginTop: spacing.md,
+  },
+  reportScrollContent: {
+    gap: spacing.sm,
+  },
+  reportRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.surfaceOffset,
+  },
+  reportLabel: {
+    fontSize: fontSize.sm,
+    color: colors.textSecondary,
+    fontWeight: fontWeight.medium,
+  },
+  reportValue: {
+    fontSize: fontSize.sm,
+    color: colors.textPrimary,
+    fontWeight: fontWeight.bold,
+  },
+  tokenContainer: {
+    marginTop: spacing.md,
+    padding: spacing.md,
+    backgroundColor: colors.surfaceOffset,
+    borderRadius: radius.md,
+    width: '100%',
+  },
+  tokenLabel: {
+    fontSize: 10,
+    fontWeight: fontWeight.black,
+    color: colors.textMuted,
+    letterSpacing: 0.5,
+    marginBottom: spacing.xs,
+  },
+  tokenText: {
+    fontSize: fontSize.xs,
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    color: colors.textSecondary,
+    lineHeight: 14,
   },
   pressed: {
     opacity: 0.7,
