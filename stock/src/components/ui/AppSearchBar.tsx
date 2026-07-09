@@ -39,6 +39,8 @@ export function AppSearchBar({
       autoFocus={autoFocus}
       testID={testID}
       loading={loading}
+      accessibilityRole="search"
+      returnKeyType="search"
       elevation={0}
     />
   );

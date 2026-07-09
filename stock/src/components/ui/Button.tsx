@@ -58,6 +58,8 @@ export function Button({
       ])}
       accessibilityRole="button"
       accessibilityLabel={label}
+      accessibilityState={{ disabled: isDisabled, busy: loading }}
+      hitSlop={size === "sm" ? 8 : undefined}
     >
       {loading ? (
         <ActivityIndicator

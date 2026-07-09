@@ -5,6 +5,7 @@ import type { NavigatorScreenParams } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { View, Pressable, useWindowDimensions, StyleSheet, Platform, Text } from "react-native";
 import { Icon } from "react-native-paper";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuthStore } from "../auth/auth-store";
 import { AssignStaff } from "./screens/AssignStaff";
 import { CashClosingReview } from "./screens/CashClosingReview";
@@ -60,13 +61,18 @@ import { CopyCatalog } from "./screens/CopyCatalog";
 // import { colors } from "../theme";
 
 import { shadow } from "../theme";
+import { triggerLightHaptic } from "../utils/haptics";
 
 export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const { width } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
 
   return (
-    <View style={styles.tabBarContainer}>
-      <View style={[styles.tabBarPill, { width: width * 0.88 }]}>
+    <View
+      pointerEvents="box-none"
+      style={[styles.tabBarContainer, { bottom: Math.max(insets.bottom, 16) }]}
+    >
+      <View style={[styles.tabBarPill, { width: Math.min(width - 32, 360) }]}>
         {state.routes.map((route, index) => {
           const { options } = descriptors[route.key];
           const isFocused = state.index === index;
@@ -79,6 +85,7 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
             });
 
             if (!isFocused && !event.defaultPrevented) {
+              triggerLightHaptic();
               navigation.navigate(route.name, route.params);
             }
           };
@@ -110,12 +117,13 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
           return (
             <Pressable
               key={route.key}
-              accessibilityRole="button"
+              accessibilityRole="tab"
               accessibilityState={isFocused ? { selected: true } : {}}
-              accessibilityLabel={options.tabBarAccessibilityLabel}
+              accessibilityLabel={options.tabBarAccessibilityLabel ?? options.title ?? route.name}
               testID={options.tabBarButtonTestID}
               onPress={onPress}
               onLongPress={onLongPress}
+              hitSlop={8}
               style={styles.tabButton}
             >
               <View style={[
@@ -139,7 +147,6 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
 const styles = StyleSheet.create({
   tabBarContainer: {
     position: 'absolute',
-    bottom: 24,
     left: 0,
     right: 0,
     alignItems: 'center',

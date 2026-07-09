@@ -1,5 +1,6 @@
 import { ReactNode } from "react";
 import { ScrollView, StyleProp, StyleSheet, ViewStyle } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ScreenScaffold } from "./ScreenScaffold";
 import { AppKeyboardAvoidingView } from "../ui/AppKeyboardAvoidingView";
@@ -25,13 +26,20 @@ export function FormScreen({
   fallbackRoute,
   contentContainerStyle,
 }: FormScreenProps) {
+  const insets = useSafeAreaInsets();
+
   return (
     <ScreenScaffold title={title} subtitle={subtitle} showBack={showBack} fallbackRoute={fallbackRoute}>
       <AppKeyboardAvoidingView>
         <ScrollView
+          contentInsetAdjustmentBehavior="automatic"
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={[styles.content, footer ? styles.withFooter : undefined, contentContainerStyle]}
+          contentContainerStyle={[
+            styles.content,
+            { paddingBottom: Math.max(insets.bottom, 0) + (footer ? STICKY_FOOTER_MIN_HEIGHT + spacing.xxl : spacing.xxl) },
+            contentContainerStyle,
+          ]}
         >
           {children}
         </ScrollView>
@@ -44,10 +52,6 @@ export function FormScreen({
 const styles = StyleSheet.create({
   content: {
     padding: spacing.lg,
-    paddingBottom: spacing.xxl,
     gap: spacing.lg,
-  },
-  withFooter: {
-    paddingBottom: STICKY_FOOTER_MIN_HEIGHT + spacing.xxl,
   },
 });

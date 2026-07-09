@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from "react";
 import { Animated, StyleSheet, View, Pressable, Platform } from "react-native";
 import { Portal, Text, Icon } from "react-native-paper";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
+import { triggerErrorHaptic, triggerSuccessHaptic, triggerWarningHaptic } from "../../utils/haptics";
 
 export interface NotificationToastProps {
   visible: boolean;
@@ -25,6 +26,10 @@ export function NotificationToast({
 
   useEffect(() => {
     if (visible) {
+      if (type === "success" || type === "payment" || type === "sale") triggerSuccessHaptic();
+      if (type === "warning" || type === "low_stock" || type === "rate_approval") triggerWarningHaptic();
+      if (type === "danger" || type === "error" || type === "shortage") triggerErrorHaptic();
+
       Animated.parallel([
         Animated.timing(slideAnim, {
           toValue: Platform.OS === 'ios' ? 60 : 30,
@@ -57,7 +62,7 @@ export function NotificationToast({
         }),
       ]).start();
     }
-  }, [visible]);
+  }, [visible, type]);
 
   const handleDismiss = () => {
     Animated.parallel([
@@ -106,7 +111,12 @@ export function NotificationToast({
         ]}
         pointerEvents="box-none"
       >
-        <Pressable onPress={handleDismiss} style={styles.toastCard}>
+        <Pressable
+          onPress={handleDismiss}
+          style={styles.toastCard}
+          accessibilityRole="button"
+          accessibilityLabel={`${title}. ${message}`}
+        >
           <View style={[styles.iconWrapper, { backgroundColor: toneLight }]}>
             <Icon source={iconName} size={20} color={toneColor} />
           </View>
@@ -114,7 +124,13 @@ export function NotificationToast({
             <Text style={styles.titleText} numberOfLines={1}>{title}</Text>
             <Text style={styles.messageText} numberOfLines={2}>{message}</Text>
           </View>
-          <Pressable onPress={handleDismiss} style={styles.closeButton}>
+          <Pressable
+            onPress={handleDismiss}
+            style={styles.closeButton}
+            accessibilityRole="button"
+            accessibilityLabel="Dismiss notification"
+            hitSlop={8}
+          >
             <Icon source="close" size={16} color={colors.textMuted} />
           </Pressable>
         </Pressable>

@@ -1,5 +1,6 @@
 import { ReactNode } from "react";
 import { ScrollView, StyleProp, StyleSheet, ViewStyle } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ScreenScaffold } from "./ScreenScaffold";
 import { spacing } from "../../theme";
@@ -25,12 +26,19 @@ export function ScrollScreen({
   contentContainerStyle,
   bottomInset = 0,
 }: ScrollScreenProps) {
+  const insets = useSafeAreaInsets();
+
   return (
     <ScreenScaffold title={title} subtitle={subtitle} showBack={showBack} fallbackRoute={fallbackRoute} footer={footer}>
       <ScrollView
+        contentInsetAdjustmentBehavior="automatic"
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={[styles.content, { paddingBottom: spacing.xl + bottomInset }, contentContainerStyle]}
+        contentContainerStyle={[
+          styles.content,
+          { paddingBottom: spacing.xl + bottomInset + Math.max(insets.bottom, 0) },
+          contentContainerStyle,
+        ]}
       >
         {children}
       </ScrollView>

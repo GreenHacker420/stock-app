@@ -9,6 +9,7 @@ import {
   Pressable,
 } from "react-native";
 import { Text } from "react-native-paper";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 
 interface PickerSheetProps {
@@ -19,6 +20,7 @@ interface PickerSheetProps {
 }
 
 export function PickerSheet({ visible, onDismiss, title, children }: PickerSheetProps) {
+  const insets = useSafeAreaInsets();
   const handleDismiss = () => {
     Keyboard.dismiss();
     onDismiss();
@@ -31,16 +33,22 @@ export function PickerSheet({ visible, onDismiss, title, children }: PickerSheet
       animationType="slide"
       onRequestClose={handleDismiss}
       statusBarTranslucent
+      accessibilityViewIsModal
     >
       <KeyboardAvoidingView
         style={styles.modalRoot}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
       >
         {/* Backdrop */}
-        <Pressable style={styles.backdrop} onPress={handleDismiss} />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Dismiss picker"
+          style={styles.backdrop}
+          onPress={handleDismiss}
+        />
 
         {/* Sheet */}
-        <View style={styles.sheet}>
+        <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, spacing.xl) }]}>
           <View style={styles.handle} />
           <Text style={styles.title}>{title}</Text>
           {children}
@@ -69,7 +77,6 @@ const styles = StyleSheet.create({
     borderTopRightRadius: radius.xxl,
     paddingTop: spacing.md,
     paddingHorizontal: spacing.lg,
-    paddingBottom: Platform.OS === "ios" ? 34 : spacing.xl,
     maxHeight: "80%",
     flexShrink: 1,
     ...shadow.lg,

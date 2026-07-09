@@ -30,9 +30,21 @@ export function ConfirmActionSheet({
 }: ConfirmActionSheetProps) {
   const insets = useSafeAreaInsets();
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onCancel}>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onCancel}
+      statusBarTranslucent
+      accessibilityViewIsModal
+    >
       <View style={styles.overlay}>
-        <Pressable style={styles.dismiss} onPress={onCancel} />
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Cancel action"
+          style={styles.dismiss}
+          onPress={onCancel}
+        />
         <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, spacing.lg) }]}>
           <Text style={styles.title}>{title}</Text>
           {message ? <Text style={styles.message}>{message}</Text> : null}

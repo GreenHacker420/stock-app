@@ -1,6 +1,7 @@
 import { ReactElement, ReactNode } from "react";
 import { RefreshControl, StyleProp, StyleSheet, View, ViewStyle } from "react-native";
 import { FlashList, FlashListProps } from "@shopify/flash-list";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ScreenScaffold } from "./ScreenScaffold";
 import { EmptyState } from "../ui/EmptyState";
@@ -42,6 +43,8 @@ export function ListScreen<T>({
   loadingView,
   ...listProps
 }: ListScreenProps<T>) {
+  const insets = useSafeAreaInsets();
+
   return (
     <ScreenScaffold title={title} subtitle={subtitle} showBack={showBack} fallbackRoute={fallbackRoute} footer={footer}>
       <View style={[styles.content, contentStyle]}>
@@ -58,7 +61,11 @@ export function ListScreen<T>({
                 ) : undefined
               }
               ListEmptyComponent={empty ?? <EmptyState title="No records found" />}
-              contentContainerStyle={[styles.listContent, contentContainerStyle]}
+              contentContainerStyle={[
+                styles.listContent,
+                { paddingBottom: Math.max(insets.bottom, 0) + (footer ? 24 : 104) },
+                contentContainerStyle,
+              ]}
             />
           )}
         </View>

@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { View, StyleSheet, Pressable, Modal, ScrollView, TouchableWithoutFeedback } from "react-native";
 import { Text, Icon } from "react-native-paper";
 import { useNavigation } from "@react-navigation/native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
@@ -25,6 +26,7 @@ export function AppHeader({ title, subtitle, role, initials, showBack, onBack, h
   const user = useAuthStore((state) => state.user);
   const { activeShopId } = useShopStore();
   const switchActiveShop = useSwitchActiveShop();
+  const insets = useSafeAreaInsets();
 
   let navigation: any = null;
   try {
@@ -84,6 +86,8 @@ export function AppHeader({ title, subtitle, role, initials, showBack, onBack, h
               styles.backButton,
               pressed && styles.pressed
             ]}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
             hitSlop={15}
           >
             <Icon source="arrow-left" size={24} color={colors.textPrimary} />
@@ -99,6 +103,9 @@ export function AppHeader({ title, subtitle, role, initials, showBack, onBack, h
                 }
               }}
               disabled={!canSwitchShop}
+              accessibilityRole="button"
+              accessibilityState={{ disabled: !canSwitchShop, expanded: modalVisible }}
+              accessibilityLabel={`Active shop ${selectedShop.name}${canSwitchShop ? ", switch shop" : ""}`}
               style={({ pressed }) => [
                 styles.shopSelectorPill,
                 (canSwitchShop && pressed) ? styles.pressed : undefined
@@ -156,16 +163,21 @@ export function AppHeader({ title, subtitle, role, initials, showBack, onBack, h
         transparent={true}
         animationType="fade"
         onRequestClose={() => setModalVisible(false)}
+        statusBarTranslucent
+        accessibilityViewIsModal
       >
         <TouchableWithoutFeedback onPress={() => setModalVisible(false)}>
           <View style={styles.overlay}>
             <TouchableWithoutFeedback>
-              <View style={styles.modalContainer}>
+              <View style={[styles.modalContainer, { marginTop: insets.top, marginBottom: insets.bottom }]}>
                 <View style={styles.modalHeader}>
                   <Text style={styles.modalTitle}>Switch Shop</Text>
                   <Pressable
                     onPress={() => setModalVisible(false)}
                     style={({ pressed }) => [styles.closeButton, pressed && styles.pressed]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Close shop switcher"
+                    hitSlop={8}
                   >
                     <Icon source="close" size={22} color={colors.textSecondary} />
                   </Pressable>
@@ -187,6 +199,9 @@ export function AppHeader({ title, subtitle, role, initials, showBack, onBack, h
                             proceed();
                           }
                         }}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: isSelected }}
+                        accessibilityLabel={`Switch to ${shop.name}, ${shop.city}, code ${shop.code}`}
                         style={({ pressed }) => [
                           styles.shopRow,
                           isSelected && styles.shopRowSelected,

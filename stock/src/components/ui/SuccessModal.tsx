@@ -1,6 +1,8 @@
+import { useEffect } from "react";
 import { View } from "react-native";
 import { Button, Dialog, Icon, Portal, Text } from "react-native-paper";
 import { colors } from "../../theme";
+import { triggerSuccessHaptic } from "../../utils/haptics";
 
 type SuccessModalProps = {
   visible: boolean;
@@ -10,6 +12,10 @@ type SuccessModalProps = {
 };
 
 export function SuccessModal({ visible, title, message, onClose }: SuccessModalProps) {
+  useEffect(() => {
+    if (visible) triggerSuccessHaptic();
+  }, [visible]);
+
   return (
     <Portal>
       <Dialog
