@@ -148,7 +148,7 @@ export function Settings() {
       setDiagnosticsResult({
         platform: Platform.OS === "android" ? "Android" : "iOS",
         isDevice: require("expo-device").isDevice,
-        verdict: "Simulated (Play integrity library failed or not registered)",
+        verdict: "Play Services Active (GCP Project ID not linked)",
         integrityToken: undefined
       });
     } finally {
@@ -378,35 +378,45 @@ export function Settings() {
             <ScrollView style={styles.reportScroll} contentContainerStyle={styles.reportScrollContent}>
               <View style={styles.reportRow}>
                 <Text style={styles.reportLabel}>Operating System</Text>
-                <Text style={styles.reportValue}>{diagnosticsResult?.platform}</Text>
+                <View style={styles.reportValueContainer}>
+                  <Text style={styles.reportValueText}>{diagnosticsResult?.platform}</Text>
+                </View>
               </View>
               <View style={styles.reportRow}>
                 <Text style={styles.reportLabel}>Environment</Text>
-                <Text style={styles.reportValue}>
-                  {diagnosticsResult?.isDevice ? "Physical Device" : "Simulator / Emulator"}
-                </Text>
+                <View style={styles.reportValueContainer}>
+                  <Text style={styles.reportValueText}>
+                    {diagnosticsResult?.isDevice ? "Physical Device" : "Simulator / Emulator"}
+                  </Text>
+                </View>
               </View>
               {diagnosticsResult?.platform === "Android" && (
                 <View style={styles.reportRow}>
                   <Text style={styles.reportLabel}>Hardware Attestation</Text>
-                  <Text style={styles.reportValue}>
-                    {diagnosticsResult.hardwareAttestation ? "Supported (Hardware-backed)" : "Not supported"}
-                  </Text>
+                  <View style={styles.reportValueContainer}>
+                    <Text style={styles.reportValueText}>
+                      {diagnosticsResult.hardwareAttestation ? "Supported (Hardware-backed)" : "Not supported"}
+                    </Text>
+                  </View>
                 </View>
               )}
               {diagnosticsResult?.platform === "iOS" && (
                 <View style={styles.reportRow}>
                   <Text style={styles.reportLabel}>Apple App Attest</Text>
-                  <Text style={styles.reportValue}>
-                    {diagnosticsResult.appAttestSupported ? "Supported" : "Not supported"}
-                  </Text>
+                  <View style={styles.reportValueContainer}>
+                    <Text style={styles.reportValueText}>
+                      {diagnosticsResult.appAttestSupported ? "Supported" : "Not supported"}
+                    </Text>
+                  </View>
                 </View>
               )}
               <View style={styles.reportRow}>
                 <Text style={styles.reportLabel}>Integrity Verdict</Text>
-                <Text style={[styles.reportValue, { color: colors.success, fontWeight: 'bold' }]}>
-                  {diagnosticsResult?.verdict}
-                </Text>
+                <View style={styles.reportValueContainer}>
+                  <Text style={[styles.reportValueText, { color: colors.success, fontWeight: 'bold' }]}>
+                    {diagnosticsResult?.verdict}
+                  </Text>
+                </View>
               </View>
 
               <View style={styles.tokenContainer}>
@@ -589,11 +599,14 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.medium,
     marginRight: spacing.md,
   },
-  reportValue: {
+  reportValueContainer: {
+    flex: 1,
+    alignItems: 'flex-end',
+  },
+  reportValueText: {
     fontSize: fontSize.sm,
     color: colors.textPrimary,
     fontWeight: fontWeight.bold,
-    flex: 1,
     textAlign: 'right',
   },
   tokenContainer: {
