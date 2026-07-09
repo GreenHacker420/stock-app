@@ -66,6 +66,7 @@ test.describe("Sale Amendments and Invoices", () => {
     // Create draft sale
     const draftSale = await prisma.sale.create({
       data: {
+        saleNumber: "SALE-001",
         shopId: shop.id,
         customerId: customer.id,
         saleStatus: "DRAFT",
@@ -102,6 +103,7 @@ test.describe("Sale Amendments and Invoices", () => {
     // Convert draft sale to confirmed
     const confirmedSale = await prisma.sale.create({
       data: {
+        saleNumber: "SALE-002",
         shopId: shop.id,
         customerId: customer.id,
         saleStatus: "CONFIRMED",
@@ -142,6 +144,7 @@ test.describe("Sale Amendments and Invoices", () => {
     // Create confirmed sale
     const sale = await prisma.sale.create({
       data: {
+        saleNumber: "SALE-003",
         shopId: shop.id,
         customerId: customer.id,
         saleStatus: "CONFIRMED",
@@ -214,6 +217,7 @@ test.describe("Sale Amendments and Invoices", () => {
   test("3. Optimistic concurrency check prevents simultaneous writes", async () => {
     const sale = await prisma.sale.create({
       data: {
+        saleNumber: "SALE-004",
         shopId: shop.id,
         customerId: customer.id,
         saleStatus: "CONFIRMED",
@@ -248,6 +252,7 @@ test.describe("Sale Amendments and Invoices", () => {
   test("4. Invoices can be issued and cancelled with immutable snapshots", async () => {
     const sale = await prisma.sale.create({
       data: {
+        saleNumber: "SALE-005",
         shopId: shop.id,
         customerId: customer.id,
         saleStatus: "CONFIRMED",
