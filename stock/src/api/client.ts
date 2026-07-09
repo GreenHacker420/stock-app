@@ -1173,11 +1173,11 @@ export async function verifyExpense(token: string, id: string, status: "APPROVED
   return apiRequest<Expense>(`/expenses/${id}/verify`, { method: "POST", token, body: JSON.stringify({ status, note }) });
 }
 
-export async function updateSaleGst(token: string, saleId: string, gstInvoiceNumber: string) {
+export async function updateSaleGst(token: string, saleId: string, data: { gstRequired?: boolean; gstInvoiceNumber?: string | null }) {
   return apiRequest<Sale>(`/sales/${saleId}/gst`, {
     method: "PATCH",
     token,
-    body: JSON.stringify({ gstInvoiceNumber }),
+    body: JSON.stringify(data),
   });
 }
 

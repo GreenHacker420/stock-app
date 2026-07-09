@@ -1,12 +1,12 @@
 import { useMemo, useState } from "react";
 import { View, StyleSheet, Pressable, ScrollView, Alert } from "react-native";
-import { Divider, Text, Icon } from "react-native-paper";
+import { Divider, Text, Icon, Portal, Modal, Switch, TextInput as PaperTextInput } from "react-native-paper";
+import { useAuthStore } from "../../auth/auth-store";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import Svg, { Path } from "react-native-svg";
-
-import { useSalesQuery, useSaleQuery } from "../../hooks/useSales";
+import { useSalesQuery, useSaleQuery, useUpdateGstMutation } from "../../hooks/useSales";
 import { usePaymentsQuery, useAttachPaymentMutation } from "../../hooks/usePayments";
 import { type Sale } from "../../api/client";
 import { Screen } from "../../components/Screen";
@@ -141,6 +141,7 @@ export function SaleDetail() {
   const navigation = useNavigation<any>();
   const saleId = route.params?.id;
 
+  const user = useAuthStore((state) => state.user);
   const { activeShopId } = useShopStore();
   const shopsQuery = useShopsQuery();
   const activeShop = useMemo(() =>
@@ -159,6 +160,37 @@ export function SaleDetail() {
   const attachPaymentMutation = useAttachPaymentMutation();
 
   const [sharing, setSharing] = useState(false);
+
+  // GST Editing Modal States
+  const [isGstEditVisible, setIsGstEditVisible] = useState(false);
+  const [editGstRequired, setEditGstRequired] = useState(false);
+  const [editGstInvoiceNumber, setEditGstInvoiceNumber] = useState("");
+
+  const updateGstMutation = useUpdateGstMutation();
+
+  const handleOpenGstEdit = () => {
+    if (!sale) return;
+    setEditGstRequired(!!sale.isGstRequired);
+    setEditGstInvoiceNumber(sale.gstInvoiceNumber || "");
+    setIsGstEditVisible(true);
+  };
+
+  const handleSaveGst = () => {
+    if (!sale) return;
+    updateGstMutation.mutate({
+      saleId: sale.id,
+      gstRequired: editGstRequired,
+      gstInvoiceNumber: editGstRequired ? editGstInvoiceNumber.trim() : null
+    }, {
+      onSuccess: () => {
+        setIsGstEditVisible(false);
+        Alert.alert("Success", "GST details updated successfully!");
+      },
+      onError: (err: any) => {
+        Alert.alert("Error", err.message || "Failed to update GST details");
+      }
+    });
+  };
 
   if (saleQuery.isLoading) return <SkeletonList count={5} />;
   if (!sale) return <EmptyState title="Sale not found" />;
@@ -196,17 +228,25 @@ export function SaleDetail() {
             <Text style={styles.amountValue}>{money(sale.totalAmount)}</Text>
           </View>
 
-          {sale.isGstRequired && (
-            <View style={styles.gstBox}>
-              <Icon source="file-percent-outline" size={20} color={colors.warning} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.gstTitle}>GST Invoice Required</Text>
-                <Text style={styles.gstDesc}>
-                  {sale.gstInvoiceNumber ? `Invoice: ${sale.gstInvoiceNumber}` : "Pending entry in Tally"}
-                </Text>
-              </View>
+          <View style={styles.gstBox}>
+            <Icon source="file-percent-outline" size={20} color={sale.isGstRequired ? colors.warning : colors.textSecondary} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.gstTitle}>{sale.isGstRequired ? "GST Invoice Required" : "GST Not Required"}</Text>
+              <Text style={styles.gstDesc}>
+                {sale.isGstRequired 
+                  ? (sale.gstInvoiceNumber ? `Invoice: ${sale.gstInvoiceNumber}` : "Pending entry in Tally")
+                  : "No GST invoice required for this transaction"}
+              </Text>
             </View>
-          )}
+            {user?.role === "OWNER" && (
+              <Button
+                label="EDIT"
+                variant="ghost"
+                onPress={handleOpenGstEdit}
+                style={styles.gstEditBtn}
+              />
+            )}
+          </View>
         </View>
 
         <Section title="Items Summary">
@@ -421,6 +461,63 @@ export function SaleDetail() {
           />
         </View>
       </ScrollView>
+
+      <Portal>
+        <Modal
+          visible={isGstEditVisible}
+          onDismiss={() => setIsGstEditVisible(false)}
+          contentContainerStyle={styles.editModal}
+        >
+          <View style={styles.modalIcon}>
+            <Icon source="file-percent-outline" size={48} color={colors.primary} />
+          </View>
+          <Text style={styles.modalTitle}>Edit GST Details</Text>
+          <Divider style={styles.modalDivider} />
+
+          <View style={styles.modalForm}>
+            <View style={styles.modalSwitchRow}>
+              <Text style={styles.modalLabel}>GST Required</Text>
+              <Switch
+                value={editGstRequired}
+                onValueChange={setEditGstRequired}
+                color={colors.primary}
+              />
+            </View>
+
+            {editGstRequired && (
+              <PaperTextInput
+                mode="outlined"
+                label="GST Invoice Number"
+                value={editGstInvoiceNumber}
+                onChangeText={setEditGstInvoiceNumber}
+                style={styles.modalInput}
+                outlineColor={colors.border}
+                activeOutlineColor={colors.primary}
+                textColor={colors.textPrimary}
+                placeholder="e.g. VS-2026-145"
+                autoCapitalize="characters"
+              />
+            )}
+          </View>
+
+          <View style={styles.modalActionsRow}>
+            <Button
+              label="CANCEL"
+              variant="ghost"
+              onPress={() => setIsGstEditVisible(false)}
+              style={{ flex: 1 }}
+            />
+            <Button
+              label="SAVE"
+              variant="primary"
+              loading={updateGstMutation.isPending}
+              disabled={updateGstMutation.isPending}
+              onPress={handleSaveGst}
+              style={{ flex: 1.5 }}
+            />
+          </View>
+        </Modal>
+      </Portal>
     </Screen>
   );
 }
@@ -494,5 +591,63 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontStyle: 'italic',
     marginTop: 4,
+  },
+  gstEditBtn: {
+    paddingHorizontal: spacing.sm,
+    height: 32,
+    alignSelf: "center",
+  },
+  editModal: {
+    backgroundColor: colors.surface,
+    padding: spacing.xl,
+    margin: spacing.xl,
+    borderRadius: 28,
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  modalForm: {
+    width: '100%',
+    gap: spacing.md,
+    marginVertical: spacing.md,
+  },
+  modalSwitchRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spacing.xs,
+  },
+  modalLabel: {
+    fontSize: fontSize.sm,
+    color: colors.textPrimary,
+    fontWeight: fontWeight.bold,
+  },
+  modalInput: {
+    backgroundColor: colors.surface,
+    fontSize: 14,
+  },
+  modalActionsRow: {
+    flexDirection: 'row',
+    gap: spacing.md,
+    width: '100%',
+    marginTop: spacing.md,
+  },
+  modalIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 24,
+    backgroundColor: colors.primaryLight,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.sm,
+  },
+  modalTitle: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.black,
+    color: colors.textPrimary,
+  },
+  modalDivider: {
+    width: '100%',
+    marginVertical: spacing.sm,
+    backgroundColor: colors.border,
   }
 });

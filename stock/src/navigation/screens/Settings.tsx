@@ -587,11 +587,14 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
     color: colors.textSecondary,
     fontWeight: fontWeight.medium,
+    marginRight: spacing.md,
   },
   reportValue: {
     fontSize: fontSize.sm,
     color: colors.textPrimary,
     fontWeight: fontWeight.bold,
+    flex: 1,
+    textAlign: 'right',
   },
   tokenContainer: {
     marginTop: spacing.md,

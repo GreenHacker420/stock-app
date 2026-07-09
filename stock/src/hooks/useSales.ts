@@ -114,8 +114,8 @@ export function useUpdateGstMutation() {
   const activeShopId = useShopStore((state) => state.activeShopId);
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ saleId, gstInvoiceNumber }: { saleId: string; gstInvoiceNumber: string }) =>
-      updateSaleGst(token ?? "", saleId, gstInvoiceNumber),
+    mutationFn: ({ saleId, gstRequired, gstInvoiceNumber }: { saleId: string; gstRequired?: boolean; gstInvoiceNumber?: string | null }) =>
+      updateSaleGst(token ?? "", saleId, { gstRequired, gstInvoiceNumber }),
     onSuccess: (updatedSale) => {
       if (activeShopId) {
         queryClient.invalidateQueries({ queryKey: ["sales", activeShopId] });

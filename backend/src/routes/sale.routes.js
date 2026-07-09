@@ -63,6 +63,6 @@ router.use(requireAuth);
 router.get("/", requirePermission(PERMISSIONS.SALE_VIEW_OWN), validate(listSchema), saleController.listSales);
 router.get("/:id", requirePermission(PERMISSIONS.SALE_VIEW_OWN), validate(z.object({ params: idParams })), saleController.getSale);
 router.post("/", requirePermission(PERMISSIONS.SALE_CREATE), validate(createSchema), saleController.createSale);
-router.patch("/:id/gst", requirePermission(PERMISSIONS.SALE_VIEW_ALL), validate(z.object({ params: idParams, body: z.object({ gstInvoiceNumber: z.string().min(1) }) })), saleController.updateGstInvoice);
+router.patch("/:id/gst", requirePermission(PERMISSIONS.SALE_VIEW_ALL), validate(z.object({ params: idParams, body: z.object({ gstRequired: z.boolean().optional(), gstInvoiceNumber: z.string().nullable().optional() }) })), saleController.updateGstInvoice);
 
 export default router;
