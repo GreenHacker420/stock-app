@@ -96,7 +96,7 @@ test("sale routes contract", () => {
   assertRoute(src, "GET",  '"/"', "GET /sales");
   assertRoute(src, "GET",  '"/:id"', "GET /sales/:id");
   assertRoute(src, "POST", '"/"', "POST /sales");
-  assertRoute(src, "PATCH", '"/:id/gst"', "PATCH /sales/:id/gst");
+  assertRoute(src, "PATCH", '"/:id"', "PATCH /sales/:id");
 });
 
 // ─── ORDERS ──────────────────────────────────────────────────────────────────

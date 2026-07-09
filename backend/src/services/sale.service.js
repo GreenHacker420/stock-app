@@ -731,39 +731,4 @@ export async function cancelInvoice(user, id, data) {
   });
 }
 
-export async function updateGstInvoice(user, id, { gstInvoiceNumber }) {
-  if (user.role !== "OWNER") {
-    throw new ApiError(403, "Only owners can update GST invoice status");
-  }
-
-  const sale = await prisma.sale.findUnique({ where: { id } });
-  if (!sale) throw new ApiError(404, "Sale not found");
-
-  await assertShopAccess(user, sale.shopId);
-
-  return prisma.$transaction(async (tx) => {
-    const updated = await tx.sale.update({
-      where: { id },
-      data: {
-        gstInvoiceStatus: "GENERATED",
-        gstInvoiceNumber,
-        gstInvoiceGeneratedAt: new Date(),
-      },
-      include: { customer: true, items: { include: { item: true } }, payments: true },
-    });
-
-    await enqueueDomainEvent(tx, {
-      shopId: sale.shopId,
-      entity: "sale",
-      action: "updated",
-      entityId: id,
-      actorUserId: user.id,
-      actorRole: user.role,
-      visibility: { owners: true, staff: true },
-    });
-
-    return updated;
-  });
-}
-
 
