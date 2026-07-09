@@ -67,7 +67,6 @@ export function OrdersToPack() {
             <List
               data={filteredOrders}
               keyExtractor={(item: Order) => item.id}
-              estimatedItemSize={110}
               renderItem={({ item }: { item: Order }) => (
                 <OrderCard
                   orderNumber={item.orderNumber}

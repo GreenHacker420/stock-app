@@ -5,7 +5,6 @@ import { Text, TextInput, Icon } from "react-native-paper";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import type { RouteProp } from "@react-navigation/native";
 import { CameraView, useCameraPermissions } from "expo-camera";
-import * as Haptics from "expo-haptics";
 
 import { updateShop } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
@@ -20,6 +19,7 @@ import { FormTextField } from "../../components/forms/FormTextField";
 import { SuccessModal } from "../../components/ui/SuccessModal";
 import { Button } from "../../components/ui/Button";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
+import { triggerSuccessHaptic } from "../../utils/haptics";
 
 type UpiConfigRouteParams = {
   shop: {
@@ -160,10 +160,7 @@ export function UpiConfig() {
       }
       setIsScanning(false);
       
-      // Success haptic feedback
-      if (Platform.OS !== "web") {
-        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-      }
+      triggerSuccessHaptic();
       return;
     }
 

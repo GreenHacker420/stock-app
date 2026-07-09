@@ -3,7 +3,6 @@ import { Alert, ScrollView, View, Pressable, StyleSheet, Platform, TextInput as 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button, Text, Searchbar, List, Divider, Card, Icon, SegmentedButtons, TextInput } from "react-native-paper";
 import { useDebounce } from "use-debounce";
-import * as Haptics from "expo-haptics";
 
 import { createOrder, fetchItems, fetchStaff, Item, Customer } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
@@ -17,6 +16,7 @@ import { AppHeader } from "../../components/ui/AppHeader";
 import { SuccessModal } from "../../components/ui/SuccessModal";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from '../../theme';
 import { goBack } from "../navigation-ref";
+import { triggerLightHaptic, triggerMediumHaptic, triggerSuccessHaptic } from "../../utils/haptics";
 
 const internetRequiredMessage = "Internet connection required. Please connect to the internet to complete this action.";
 
@@ -202,9 +202,7 @@ export function CreateOrder() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["orders", activeShopId] });
-      if (Platform.OS !== "web") {
-        void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-      }
+      triggerSuccessHaptic();
       // Preserve party name before resetting state
       setLastPlacedPartyName(selectedParty?.name || "Party");
       setCart([]);
@@ -226,9 +224,7 @@ export function CreateOrder() {
 
   // POS Add Item Action
   const handleAddItemToCart = (item: Item) => {
-    if (Platform.OS !== "web") {
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    }
+    triggerLightHaptic();
 
     setCart(prevCart => {
       const existing = prevCart.find(c => c.id === item.id);
@@ -249,9 +245,7 @@ export function CreateOrder() {
 
   // Stepper handlers
   const handleUpdateQty = (itemId: string, delta: number) => {
-    if (Platform.OS !== "web") {
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    }
+    triggerLightHaptic();
     setCart(prev => prev.map(c => {
       if (c.id === itemId) {
         const nextQty = Math.max(1, c.quantity + delta);
@@ -269,30 +263,22 @@ export function CreateOrder() {
   };
 
   const handleRemoveCartItem = (itemId: string) => {
-    if (Platform.OS !== "web") {
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-    }
+    triggerMediumHaptic();
     setCart(prev => prev.filter(c => c.id !== itemId));
   };
 
   const handleStaffSelect = (staffId: string | null) => {
-    if (Platform.OS !== "web") {
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    }
+    triggerLightHaptic();
     setAssignedStaffId(staffId);
   };
 
   const handlePriorityChange = (value: string) => {
-    if (Platform.OS !== "web") {
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    }
+    triggerLightHaptic();
     setPriority(value as OrderPriority);
   };
 
   const handleOffsetSelect = (days: number) => {
-    if (Platform.OS !== "web") {
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    }
+    triggerLightHaptic();
     setExpectedOffsetDays(days);
   };
 
@@ -315,7 +301,7 @@ export function CreateOrder() {
     <View style={styles.sectionContainer}>
       <Pressable 
         onPress={() => {
-          if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+          triggerLightHaptic();
           setShowAdvanced(prev => !prev);
         }}
         style={styles.advancedHeaderCard}
@@ -445,7 +431,7 @@ export function CreateOrder() {
                               description={`${c.phone || "No phone"} • Outstanding: ₹${Math.abs(Number(c.outstandingAmount || 0)).toLocaleString()}`}
                               descriptionStyle={styles.dropdownDesc}
                               onPress={() => {
-                                if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+                                triggerMediumHaptic();
                                 setSelectedParty(c);
                                 setCustomerSearch("");
                               }}
@@ -467,7 +453,7 @@ export function CreateOrder() {
                               <Pressable 
                                 key={c.id}
                                 onPress={() => {
-                                  if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+                                  triggerMediumHaptic();
                                   setSelectedParty(c);
                                 }}
                                 style={styles.recentPartyRow}
@@ -508,7 +494,7 @@ export function CreateOrder() {
                           textColor={colors.danger}
                           style={styles.changeCustomerBtn}
                           onPress={() => {
-                            if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                            triggerLightHaptic();
                             setSelectedParty(null);
                           }}
                         >
@@ -706,7 +692,7 @@ export function CreateOrder() {
                             description={`${c.phone || "No phone"} • Outstanding: ₹${Math.abs(Number(c.outstandingAmount || 0)).toLocaleString()}`}
                             descriptionStyle={styles.dropdownDesc}
                             onPress={() => {
-                              if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+                              triggerMediumHaptic();
                               setSelectedParty(c);
                               setCustomerSearch("");
                             }}
@@ -728,7 +714,7 @@ export function CreateOrder() {
                             <Pressable 
                               key={c.id}
                               onPress={() => {
-                                if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+                                triggerMediumHaptic();
                                 setSelectedParty(c);
                               }}
                               style={styles.recentPartyRow}
@@ -769,7 +755,7 @@ export function CreateOrder() {
                         textColor={colors.danger}
                         style={styles.changeCustomerBtn}
                         onPress={() => {
-                          if (Platform.OS !== "web") void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+                          triggerLightHaptic();
                           setSelectedParty(null);
                         }}
                       >

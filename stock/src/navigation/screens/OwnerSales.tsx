@@ -114,7 +114,6 @@ export function SalesList() {
             <List
               data={filteredSales}
               keyExtractor={(item: Sale) => item.id}
-              estimatedItemSize={120}
               renderItem={({ item }: { item: Sale & { staff?: { name: string } | null } }) => (
                 <SaleCard
                   saleNumber={item.saleNumber}

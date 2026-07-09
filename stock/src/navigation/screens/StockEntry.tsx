@@ -385,7 +385,6 @@ export function StockEntry() {
                   ref={listRef}
                   data={displayItems}
                   keyExtractor={(it: Item) => it.id}
-                  estimatedItemSize={84}
                   renderItem={({ item, index }: { item: Item; index: number }) => (
                     <ItemRow
                       item={item}

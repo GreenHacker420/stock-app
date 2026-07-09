@@ -118,6 +118,7 @@ function SalesTab({ query }: { query: any }) {
   return (
     <List
       data={query.data ?? []}
+      keyExtractor={(item: any) => item.id}
       renderItem={({ item }: { item: any }) => (
         <SaleCard
           saleNumber={item.saleNumber}
@@ -128,7 +129,6 @@ function SalesTab({ query }: { query: any }) {
           statusTone={item.paymentStatus === 'PAID' ? 'green' : 'amber'}
         />
       )}
-      estimatedItemSize={80}
       ListEmptyComponent={<EmptyState title="No sales found" />}
     />
   );
@@ -140,6 +140,7 @@ function PaymentsTab({ query }: { query: any }) {
   return (
     <List
       data={query.data ?? []}
+      keyExtractor={(item: any) => item.id}
       renderItem={({ item }: { item: any }) => (
         <PaymentCard
           title={`${item.paymentMode} Payment`}
@@ -149,7 +150,6 @@ function PaymentsTab({ query }: { query: any }) {
           statusTone={item.status === 'VERIFIED' ? 'green' : item.status === 'REJECTED' ? 'red' : 'amber'}
         />
       )}
-      estimatedItemSize={80}
       ListEmptyComponent={<EmptyState title="No payments found" />}
     />
   );
@@ -190,6 +190,7 @@ function DMsTab({ query }: { query: any }) {
   return (
     <List
       data={query.data ?? []}
+      keyExtractor={(item: any) => item.id}
       renderItem={({ item }: { item: any }) => (
         <DeliveryMemoCard
           number={item.dmNumber}
@@ -204,7 +205,6 @@ function DMsTab({ query }: { query: any }) {
           itemCount={item.items?.length || 0}
         />
       )}
-      estimatedItemSize={80}
       ListEmptyComponent={<EmptyState title="No Delivery Memos" />}
     />
   );
@@ -216,6 +216,7 @@ function ReturnsTab({ query }: { query: any }) {
   return (
     <List
       data={query.data ?? []}
+      keyExtractor={(item: any) => item.id}
       renderItem={({ item }: { item: any }) => (
         <View style={styles.returnRow}>
           <View style={styles.returnMain}>
@@ -228,7 +229,6 @@ function ReturnsTab({ query }: { query: any }) {
           </View>
         </View>
       )}
-      estimatedItemSize={80}
       ListEmptyComponent={<EmptyState title="No returns found" />}
     />
   );
@@ -247,6 +247,7 @@ function TimelineTab({ query }: { query: any }) {
   return (
     <List
       data={query.data ?? []}
+      keyExtractor={(item: any) => item.id ?? `${item.event ?? item.type}-${item.createdAt}`}
       renderItem={({ item }: { item: any }) => (
         <View style={styles.timelineItem}>
            <View style={styles.timelinePoint}>
@@ -261,7 +262,6 @@ function TimelineTab({ query }: { query: any }) {
            </View>
         </View>
       )}
-      estimatedItemSize={120}
       contentContainerStyle={{ paddingVertical: spacing.lg }}
     />
   );

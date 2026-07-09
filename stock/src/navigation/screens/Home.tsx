@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import { ScrollView, View, Pressable, StyleSheet, ActivityIndicator, Dimensions, useWindowDimensions, Alert } from "react-native";
 import { Text, Icon, Button, Portal, Dialog, TextInput } from "react-native-paper";
-import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
 
 import { useAuthStore } from "../../auth/auth-store";
@@ -18,6 +17,7 @@ import { StatusPill } from "../../components/ui/StatusPill";
 import { LoadingState } from "../../components/feedback/LoadingState";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { navigate } from "../navigation-ref";
+import { triggerLightHaptic, triggerSoftHaptic } from "../../utils/haptics";
 
 type CategoryCardProps = {
   title: string;
@@ -145,7 +145,7 @@ function AlertCard({ title, desc, count, icon, color, bgColor, borderColor, onPr
   const isPending = count > 0;
 
   const handlePress = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft);
+    triggerSoftHaptic();
     onPress();
   };
 
@@ -202,7 +202,7 @@ type QuickActionCardProps = {
 
 function QuickActionCard({ title, desc, icon, onPress, width }: QuickActionCardProps) {
   const handlePress = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    triggerLightHaptic();
     onPress();
   };
 
@@ -511,7 +511,7 @@ function OwnerHome({ navigate }: { navigate: (s: any, params?: any) => void }) {
         <View style={styles.segmentedControl}>
           <Pressable 
             onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              triggerLightHaptic();
               setActiveCategory('sales');
             }}
             style={[styles.segmentButton, activeCategory === 'sales' && styles.segmentButtonActive]}
@@ -521,7 +521,7 @@ function OwnerHome({ navigate }: { navigate: (s: any, params?: any) => void }) {
           </Pressable>
           <Pressable 
             onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              triggerLightHaptic();
               setActiveCategory('inventory');
             }}
             style={[styles.segmentButton, activeCategory === 'inventory' && styles.segmentButtonActive]}
@@ -531,7 +531,7 @@ function OwnerHome({ navigate }: { navigate: (s: any, params?: any) => void }) {
           </Pressable>
           <Pressable 
             onPress={() => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              triggerLightHaptic();
               setActiveCategory('reports');
             }}
             style={[styles.segmentButton, activeCategory === 'reports' && styles.segmentButtonActive]}

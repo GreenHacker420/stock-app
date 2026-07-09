@@ -5,11 +5,9 @@ import {
   Pressable,
   ScrollView,
   TextInput,
-  Platform,
 } from "react-native";
 import { Text, Divider, Icon } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
-import * as Haptics from "expo-haptics";
 
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
@@ -20,17 +18,15 @@ import { SkeletonList } from "../../components/ui/SkeletonCard";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { navigate } from "../navigation-ref";
 import { type Sale } from "../../api/client";
+import { triggerLightHaptic, triggerMediumHaptic } from "../../utils/haptics";
 
 function money(value?: string | number | null) {
   return `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 }
 
 const haptic = (s: "light" | "medium" = "light") => {
-  if (Platform.OS !== "web") {
-    void Haptics.impactAsync(
-      s === "medium" ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light
-    ).catch(() => {});
-  }
+  if (s === "medium") triggerMediumHaptic();
+  else triggerLightHaptic();
 };
 
 type StatusType = "ALL" | "PAID" | "PENDING" | "PARTIAL";
@@ -308,7 +304,7 @@ export function NewSaleType() {
         ) : filteredSales.length === 0 ? (
           <TypedFlashList
             data={[]}
-            estimatedItemSize={100}
+            keyExtractor={(item: Sale) => item.id}
             ListHeaderComponent={ListHeader}
             ListEmptyComponent={
               <EmptyState
@@ -327,7 +323,6 @@ export function NewSaleType() {
           <TypedFlashList
             data={filteredSales}
             keyExtractor={(item: Sale) => item.id}
-            estimatedItemSize={74}
             refreshing={isRefetching}
             onRefresh={onRefresh}
             renderItem={renderSaleRow}

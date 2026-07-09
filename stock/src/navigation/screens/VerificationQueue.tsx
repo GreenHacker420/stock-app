@@ -33,6 +33,7 @@ export function VerificationQueue() {
         ) : (
           <List
             data={verifications ?? []}
+            keyExtractor={(item: any) => item.id}
 	            renderItem={({ item }: any) => {
                 const canApproveHere = GENERIC_APPROVAL_SUPPORTED_TYPES.has(item.type);
                 return (
@@ -69,7 +70,6 @@ export function VerificationQueue() {
               </VerificationCard>
 	            );
               }}
-            estimatedItemSize={180}
             ListEmptyComponent={<EmptyState icon="check-circle-outline" title="All caught up!" subtitle="No pending verifications" />}
             contentContainerStyle={{ padding: spacing.lg }}
           />

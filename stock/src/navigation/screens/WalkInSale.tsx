@@ -957,7 +957,6 @@ export function WalkInSale() {
                         onRemove={() => updateQuantity(item, -1)}
                       />
                     )}
-                    estimatedItemSize={90}
                     ListEmptyComponent={
                       itemsQuery.isLoading && !network.isOffline ? (
                         <SkeletonList count={4} itemHeight={90} />

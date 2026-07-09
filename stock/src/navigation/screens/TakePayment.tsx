@@ -9,7 +9,6 @@ import {
   ActivityIndicator,
   Alert
 } from "react-native";
-import * as Haptics from "expo-haptics";
 import {
   Text,
   Icon,
@@ -37,6 +36,13 @@ import { Button } from "../../components/ui/Button";
 import { FormTextField } from "../../components/forms/FormTextField";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { goBack } from "../navigation-ref";
+import {
+  triggerLightHaptic,
+  triggerMediumHaptic,
+  triggerSelectionHaptic,
+  triggerSuccessHaptic,
+  triggerWarningHaptic,
+} from "../../utils/haptics";
 
 type TakePaymentRouteProp = RouteProp<{
   TakePayment: {
@@ -77,19 +83,11 @@ const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLoc
 const internetRequiredMessage = "Internet connection required. Please connect to the internet to complete this action.";
 
 const haptic = (s: "selection" | "success" | "error" | "light" | "medium" = "selection") => {
-  if (Platform.OS !== "web") {
-    if (s === "selection") {
-      void Haptics.selectionAsync().catch(() => {});
-    } else if (s === "success") {
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
-    } else if (s === "error") {
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
-    } else {
-      void Haptics.impactAsync(
-        s === "medium" ? Haptics.ImpactFeedbackStyle.Medium : Haptics.ImpactFeedbackStyle.Light
-      ).catch(() => {});
-    }
-  }
+  if (s === "selection") triggerSelectionHaptic();
+  else if (s === "success") triggerSuccessHaptic();
+  else if (s === "error") triggerWarningHaptic();
+  else if (s === "medium") triggerMediumHaptic();
+  else triggerLightHaptic();
 };
 
 export function TakePayment() {

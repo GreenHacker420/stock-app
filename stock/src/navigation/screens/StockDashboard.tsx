@@ -3,13 +3,11 @@ import {
   View,
   StyleSheet,
   Pressable,
-  ScrollView,
   Platform,
   TextInput,
 } from "react-native";
 import { Text, Icon } from "react-native-paper";
 import { FlashList, type FlashListRef } from "@shopify/flash-list";
-import * as Haptics from "expo-haptics";
 
 import { useCurrentStockQuery } from "../../hooks/useItems";
 import { type StockLevel } from "../../api/client";
@@ -23,6 +21,7 @@ import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../the
 import { navigate } from "../navigation-ref";
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
+import { triggerLightHaptic, triggerMediumHaptic } from "../../utils/haptics";
 
 // ── Stock Health Helpers ─────────────────────────────────────────────────────
 const getSafeMin = (r: StockLevel) => {
@@ -40,13 +39,8 @@ const getHealth = (r: StockLevel) => {
 };
 
 const haptic = (style: "light" | "medium" = "light") => {
-  if (Platform.OS !== "web") {
-    void Haptics.impactAsync(
-      style === "medium"
-        ? Haptics.ImpactFeedbackStyle.Medium
-        : Haptics.ImpactFeedbackStyle.Light
-    ).catch(() => {});
-  }
+  if (style === "medium") triggerMediumHaptic();
+  else triggerLightHaptic();
 };
 
 // ── Stock Card ───────────────────────────────────────────────────────────────
@@ -292,7 +286,6 @@ export function StockDashboard() {
             ref={listRef}
             data={filtered}
             keyExtractor={(r: StockLevel) => r.item.id}
-            estimatedItemSize={112}
             refreshing={stockQuery.isRefetching}
             onRefresh={onRefresh}
             renderItem={renderItem}

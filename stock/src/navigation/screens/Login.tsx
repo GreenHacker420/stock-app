@@ -11,7 +11,6 @@ import {
   ActivityIndicator
 } from "react-native";
 import * as LocalAuthentication from "expo-local-authentication";
-import * as Haptics from "expo-haptics";
 import { Divider, Icon, Text, TextInput as PaperInput } from "react-native-paper";
 import { z } from "zod";
 import { initializeAsync, verifyUserAsync, TruecallerErrorCodes } from "expo-truecaller";
@@ -23,6 +22,7 @@ import { Screen } from "../../components/Screen";
 import { Button } from "../../components/ui/Button";
 import { FormTextField } from "../../components/forms/FormTextField";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
+import { triggerLightHaptic, triggerMediumHaptic } from "../../utils/haptics";
 
 const LAST_IDENTIFIER_KEY = "shopcontrol_last_identifier";
 
@@ -77,9 +77,7 @@ export function Login() {
     
     if (isTruecallerUsable) {
       setIsTruecallerLoading(true);
-      if (Platform.OS !== "web") {
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
-      }
+      triggerMediumHaptic();
       try {
         const { authorizationCode, codeVerifier } = await verifyUserAsync();
         await signInWithTruecaller(authorizationCode, codeVerifier);
@@ -409,9 +407,7 @@ export function Login() {
   const handleKeyInput = useCallback((digit: string) => {
     if (isSubmitting) return;
     setError(null);
-    if (Platform.OS !== "web") {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    }
+    triggerLightHaptic();
     setPinDigits(prev => {
       if (prev.length < 4) {
         return prev + digit;
@@ -422,9 +418,7 @@ export function Login() {
 
   const handleBackspace = useCallback(() => {
     if (isSubmitting) return;
-    if (Platform.OS !== "web") {
-      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-    }
+    triggerLightHaptic();
     setPinDigits(prev => prev.slice(0, -1));
   }, [isSubmitting]);
 

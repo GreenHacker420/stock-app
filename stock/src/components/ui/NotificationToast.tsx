@@ -23,12 +23,16 @@ export function NotificationToast({
 }: NotificationToastProps) {
   const slideAnim = useRef(new Animated.Value(-120)).current;
   const opacityAnim = useRef(new Animated.Value(0)).current;
+  const wasVisibleRef = useRef(false);
 
   useEffect(() => {
     if (visible) {
-      if (type === "success" || type === "payment" || type === "sale") triggerSuccessHaptic();
-      if (type === "warning" || type === "low_stock" || type === "rate_approval") triggerWarningHaptic();
-      if (type === "danger" || type === "error" || type === "shortage") triggerErrorHaptic();
+      if (!wasVisibleRef.current) {
+        if (type === "success" || type === "payment" || type === "sale") triggerSuccessHaptic();
+        if (type === "warning" || type === "low_stock" || type === "rate_approval") triggerWarningHaptic();
+        if (type === "danger" || type === "error" || type === "shortage") triggerErrorHaptic();
+      }
+      wasVisibleRef.current = true;
 
       Animated.parallel([
         Animated.timing(slideAnim, {
@@ -49,6 +53,7 @@ export function NotificationToast({
 
       return () => clearTimeout(timer);
     } else {
+      wasVisibleRef.current = false;
       Animated.parallel([
         Animated.timing(slideAnim, {
           toValue: -120,

@@ -3,7 +3,6 @@ import { View, StyleSheet, Pressable } from "react-native";
 import { Text, Icon } from "react-native-paper";
 import { useRoute } from "@react-navigation/native";
 import { useOwnerDashboardQuery } from "../../hooks/useDashboard";
-import * as Haptics from "expo-haptics";
 import { LinearGradient } from "expo-linear-gradient";
 
 import { ScreenScaffold } from "../../components/layout/ScreenScaffold";
@@ -14,6 +13,7 @@ import { LoadingState } from "../../components/feedback/LoadingState";
 import { Button } from "../../components/ui/Button";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { navigate } from "../navigation-ref";
+import { triggerLightHaptic, triggerMediumHaptic } from "../../utils/haptics";
 
 const smartTitle = (routeName: string) => {
   return routeName
@@ -116,7 +116,7 @@ export function OwnerRecords() {
 
 export function OwnerStock() {
   const handleCatalogPress = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    triggerMediumHaptic();
     navigate("ItemList");
   };
 
@@ -202,7 +202,7 @@ function AlertCard({ title, desc, count, icon, color, bgColor, borderColor, onPr
   const isPending = count > 0;
 
   const handlePress = () => {
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    triggerLightHaptic();
     onPress();
   };
 

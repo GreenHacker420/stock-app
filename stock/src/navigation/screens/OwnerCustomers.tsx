@@ -409,7 +409,6 @@ export function AddEditCustomer() {
                 <List
                   data={filteredContacts}
                   keyExtractor={(item: any) => item.id}
-                  estimatedItemSize={72}
                   renderItem={({ item }: any) => {
                     const phone = item.phoneNumbers?.[0]?.number || "No phone";
                     const initials = (item.name || "C")[0].toUpperCase();

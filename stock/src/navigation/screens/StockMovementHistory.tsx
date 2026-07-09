@@ -143,7 +143,6 @@ export function StockMovementHistory() {
           <List
             data={movements}
             keyExtractor={(item: any) => item.id}
-            estimatedItemSize={115}
             onRefresh={refetch}
             refreshing={isFetching}
             renderItem={({ item: move }: { item: any }) => {
