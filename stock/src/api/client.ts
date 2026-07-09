@@ -1400,6 +1400,8 @@ export type StorageObjectsResponse = {
   brands: { id: string; name: string }[];
   nextCursor?: string | null;
   hasMore?: boolean;
+  totalOrphanedCount?: number;
+  totalOrphanedBytes?: number;
 };
 
 export async function fetchStorageObjects(

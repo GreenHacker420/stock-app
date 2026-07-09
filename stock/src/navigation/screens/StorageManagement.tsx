@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useDeferredValue } from "react";
+import { useState, useMemo, useCallback, useDeferredValue, useRef, useEffect, forwardRef } from "react";
 import {
   View,
   StyleSheet,
@@ -9,14 +9,26 @@ import {
   useWindowDimensions,
   Platform,
   KeyboardAvoidingView,
+  BackHandler,
 } from "react-native";
-import { Pressable } from "react-native-gesture-handler";
+import { Pressable, GestureHandlerRootView, GestureDetector, Gesture } from "react-native-gesture-handler";
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+  SlideInDown,
+  SlideOutDown,
+} from "react-native-reanimated";
+import { scheduleOnRN } from "react-native-worklets";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   Text,
   ActivityIndicator,
   Icon,
   Divider,
   Searchbar,
+  IconButton,
 } from "react-native-paper";
 import * as Sharing from "expo-sharing";
 import { File, Directory, Paths } from "expo-file-system";
@@ -128,6 +140,96 @@ function InfoRow({
   );
 }
 
+// ── BottomSheet (shared, Reanimated + GestureDetector) ───────────────────────
+
+function BottomSheet({
+  visible,
+  onClose,
+  children,
+  maxHeight = 0.85,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  children: React.ReactNode;
+  maxHeight?: number;
+}) {
+  const { height: screenH } = useWindowDimensions();
+  const insets = useSafeAreaInsets();
+  const translateY = useSharedValue(screenH);
+  const startY = useSharedValue(0);
+
+  // Entrance / exit animation
+  useEffect(() => {
+    if (visible) {
+      translateY.value = withSpring(0, { damping: 28, stiffness: 300, mass: 0.8 });
+    }
+  }, [visible, translateY]);
+
+  const dismiss = useCallback(() => {
+    translateY.value = withTiming(screenH, { duration: 260 }, () => {
+      scheduleOnRN(onClose);
+    });
+  }, [screenH, translateY, onClose]);
+
+  const panGesture = Gesture.Pan()
+    .activeOffsetY([8, 999])          // only trigger on clear downward pulls
+    .failOffsetX([-12, 12])           // yield to horizontal scroll
+    .onBegin(() => {
+      startY.value = translateY.value;
+    })
+    .onUpdate((e) => {
+      translateY.value = Math.max(0, startY.value + e.translationY);
+    })
+    .onEnd((e) => {
+      const sheetH = screenH * maxHeight;
+      if (e.velocityY > 600 || translateY.value > sheetH * 0.38) {
+        scheduleOnRN(dismiss);
+      } else {
+        translateY.value = withSpring(0, { damping: 28, stiffness: 300 });
+      }
+    });
+
+  const sheetStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: translateY.value }],
+  }));
+
+  if (!visible) return null;
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="none"
+      onRequestClose={dismiss}
+      statusBarTranslucent
+    >
+      {/* GestureHandlerRootView is required inside every Modal because Modal
+          renders in a separate native window outside the app root GHRV. */}
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <GestureDetector gesture={Gesture.Tap().onEnd(() => scheduleOnRN(dismiss))}>
+          <Animated.View style={styles.modalOverlay} />
+        </GestureDetector>
+        <GestureDetector gesture={panGesture}>
+        <Animated.View
+          style={[
+            styles.sheetContainer,
+            { maxHeight: screenH * maxHeight, paddingBottom: insets.bottom + spacing.md },
+            sheetStyle,
+          ]}
+          accessibilityViewIsModal
+        >
+          {/* Drag handle */}
+          <View style={styles.dragHandleWrap} accessibilityLabel="Drag to dismiss">
+            <View style={styles.dragHandle} />
+          </View>
+          {children}
+          </Animated.View>
+        </GestureDetector>
+      </GestureHandlerRootView>
+    </Modal>
+  );
+}
+
 function PickerSheet({
   visible,
   title,
@@ -144,49 +246,41 @@ function PickerSheet({
   onClose: () => void;
 }) {
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="slide"
-      onRequestClose={onClose}
-    >
-      <Pressable style={styles.modalOverlay} onPress={onClose} />
-      <View style={styles.pickerSheet}>
-        <Text style={styles.sheetTitle}>{title}</Text>
-        <Divider style={{ marginVertical: spacing.sm }} />
-        <ScrollView>
-          {items.map((item) => (
-            <Pressable
-              key={item.id}
-              style={({ pressed }) => [
-                styles.pickerRow,
-                selected === item.id && styles.pickerRowActive,
-                pressed && styles.pickerRowPressed,
+    <BottomSheet visible={visible} onClose={onClose}>
+      <Text style={styles.sheetTitle}>{title}</Text>
+      <Divider style={{ marginVertical: spacing.sm }} />
+      <ScrollView keyboardShouldPersistTaps="handled">
+        {items.map((item) => (
+          <Pressable
+            key={item.id}
+            style={({ pressed }) => [
+              styles.pickerRow,
+              selected === item.id && styles.pickerRowActive,
+              pressed && styles.pickerRowPressed,
+            ]}
+            onPress={() => {
+              void Haptics.selectionAsync().catch(() => {});
+              onSelect(item.id);
+            }}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: selected === item.id }}
+            accessibilityLabel={item.name}
+          >
+            <Text
+              style={[
+                styles.pickerRowText,
+                selected === item.id && styles.pickerRowTextActive,
               ]}
-              onPress={() => {
-                void Haptics.selectionAsync().catch(() => {});
-                onSelect(item.id);
-              }}
-              accessibilityRole="radio"
-              accessibilityState={{ selected: selected === item.id }}
-              accessibilityLabel={item.name}
             >
-              <Text
-                style={[
-                  styles.pickerRowText,
-                  selected === item.id && styles.pickerRowTextActive,
-                ]}
-              >
-                {item.name}
-              </Text>
-              {selected === item.id && (
-                <Icon source="check-circle" size={18} color={colors.primary} />
-              )}
-            </Pressable>
-          ))}
-        </ScrollView>
-      </View>
-    </Modal>
+              {item.name}
+            </Text>
+            {selected === item.id && (
+              <Icon source="check-circle" size={18} color={colors.primary} />
+            )}
+          </Pressable>
+        ))}
+      </ScrollView>
+    </BottomSheet>
   );
 }
 
@@ -249,15 +343,24 @@ function StorageManagementHeader({
   return (
     <View style={styles.headerRoot}>
       {/* Search */}
-      <Searchbar
-        placeholder="Search products, files, categories…"
-        value={searchQuery}
-        onChangeText={onSearchChange}
-        style={styles.searchBar}
-        inputStyle={{ fontSize: fontSize.sm }}
-        elevation={0}
-        accessibilityLabel="Search assets"
-      />
+      <View style={styles.searchRow}>
+        <Searchbar
+          placeholder="Search products, files, categories…"
+          value={searchQuery}
+          onChangeText={onSearchChange}
+          style={[styles.searchBar, { flex: 1 }]}
+          inputStyle={{ fontSize: fontSize.sm }}
+          elevation={0}
+          accessibilityLabel="Search assets"
+        />
+        <IconButton
+          icon={viewMode === "grid" ? "view-list-outline" : "view-grid-outline"}
+          size={24}
+          onPress={onToggleViewMode}
+          accessibilityLabel={viewMode === "grid" ? "Switch to list view" : "Switch to grid view"}
+          style={{ margin: 0 }}
+        />
+      </View>
 
       {/* Tabs */}
       <View style={styles.tabRow}>
@@ -299,12 +402,7 @@ function StorageManagementHeader({
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.pillRow}
       >
-        <FilterPill
-          label={viewMode === "grid" ? "Grid" : "List"}
-          icon={viewMode === "grid" ? "view-grid-outline" : "view-list-outline"}
-          active={true}
-          onPress={onToggleViewMode}
-        />
+
         <FilterPill
           label={
             filterCategory === "ALL"
@@ -661,6 +759,11 @@ export function StorageManagement() {
 
   // ── Stats (single pass) ───────────────────────────────────────────────────
   const assetStats = useMemo(() => {
+    const serverTotal = data?.pages[0]?.totalOrphanedCount;
+    const serverBytes = data?.pages[0]?.totalOrphanedBytes;
+    if (serverTotal !== undefined && serverBytes !== undefined) {
+      return { unusedCount: serverTotal, unusedBytes: serverBytes };
+    }
     let unusedCount = 0;
     let unusedBytes = 0;
     for (const a of allAssets) {
@@ -670,7 +773,7 @@ export function StorageManagement() {
       }
     }
     return { unusedCount, unusedBytes };
-  }, [allAssets]);
+  }, [data, allAssets]);
 
   // ── Filter + Sort pipeline ────────────────────────────────────────────────
   const filtered = useMemo(() => {
@@ -875,7 +978,17 @@ export function StorageManagement() {
       void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(
         () => {}
       );
-      setSelectedIds(new Set([item.id]));
+      setSelectedIds((prev) => {
+        if (prev.size === 0) {
+          // Enter selection mode with this item
+          return new Set([item.id]);
+        }
+        // Already in selection mode — toggle this item (don't wipe other selections)
+        const next = new Set(prev);
+        if (next.has(item.id)) next.delete(item.id);
+        else next.add(item.id);
+        return next;
+      });
     },
     []
   );
@@ -894,11 +1007,33 @@ export function StorageManagement() {
     setSelectedIds(new Set());
   }, []);
 
+  // ── Android Back priority chain (P1-B) ────────────────────────────────────
+  // 1. Close open sheet  2. Clear selection  3. Default (go back)
+  useEffect(() => {
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => {
+      if (editFile !== null) { setEditFile(null); return true; }
+      if (infoFile !== null) { setInfoFile(null); return true; }
+      if (selectedIds.size > 0) { setSelectedIds(new Set()); return true; }
+      return false; // let navigator handle
+    });
+    return () => sub.remove();
+  }, [editFile, infoFile, selectedIds]);
+
   const handleBulkShare = useCallback(async () => {
     const files = filtered.filter((f) => selectedIds.has(f.id));
-    for (const file of files) {
-      await handleShare(file);
+    if (files.length === 0) return;
+    if (files.length > 1) {
+      Alert.alert(
+        "Share file",
+        `${files.length} files selected. Files must be shared one at a time. Sharing the first selected file.`,
+        [
+          { text: "Cancel", style: "cancel" },
+          { text: "Share first", onPress: () => { void handleShare(files[0]); } },
+        ]
+      );
+      return;
     }
+    await handleShare(files[0]);
     setSelectedIds(new Set());
   }, [filtered, selectedIds, handleShare]);
 
@@ -925,18 +1060,27 @@ export function StorageManagement() {
           text: "Delete",
           style: "destructive",
           onPress: async () => {
+            let successCount = 0;
+            const failedIds: string[] = [];
             for (const file of deletable) {
               await new Promise<void>((res) => {
                 deleteMutation.mutate(file.id, {
-                  onSuccess: () => res(),
-                  onError: () => res(),
+                  onSuccess: () => { successCount++; res(); },
+                  onError: () => { failedIds.push(file.id); res(); },
                 });
               });
             }
-            setSelectedIds(new Set());
-            void Haptics.notificationAsync(
-              Haptics.NotificationFeedbackType.Success
-            ).catch(() => {});
+            // Keep failed items selected so user can retry
+            setSelectedIds(new Set(failedIds));
+            if (failedIds.length > 0) {
+              void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+              Alert.alert(
+                "Partial delete",
+                `${successCount} file${successCount !== 1 ? "s" : ""} deleted, ${failedIds.length} failed. Failed items remain selected.`
+              );
+            } else {
+              void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+            }
           },
         },
       ]
@@ -982,10 +1126,10 @@ export function StorageManagement() {
           setEditError(null);
           if (activeShopId) invalidateAssetCache(activeShopId);
           refetch();
+          // Close without blocking Alert — success haptic is sufficient (P2-D)
           void Haptics.notificationAsync(
             Haptics.NotificationFeedbackType.Success
           ).catch(() => {});
-          Alert.alert("Saved", "Prices updated successfully.");
         },
         onError: (e: unknown) => {
           const msg = e instanceof Error ? e.message : "Could not save prices.";
@@ -1126,7 +1270,7 @@ export function StorageManagement() {
               fallbackIcon={mimeIcon(item.mimeType)}
               fallbackText={item.fileName.slice(0, 2).toUpperCase()}
               color={colors.primary}
-              style={StyleSheet.absoluteFill}
+              style={{ flex: 1 }}
             />
 
             {/* Usage badge */}
@@ -1316,20 +1460,25 @@ export function StorageManagement() {
   // ── Selection footer ──────────────────────────────────────────────────────
 
   const selectionBar = isSelecting ? (
-    <SelectionActionBar
-      count={selectedIds.size}
-      onShare={handleBulkShare}
-      onDelete={handleBulkDelete}
-      onCancel={handleCancelSelection}
-      canDelete={
-        isOwner &&
-        Array.from(selectedIds).some((id) => {
-          const f = allAssets.find((a: StorageObject) => a.id === id);
-          return f ? getUsageStatus(f) === "UNUSED" : false;
-        })
-      }
-      isBusy={isBusy}
-    />
+    <Animated.View
+      entering={SlideInDown.springify().damping(20)}
+      exiting={SlideOutDown.duration(200)}
+    >
+      <SelectionActionBar
+        count={selectedIds.size}
+        onShare={handleBulkShare}
+        onDelete={handleBulkDelete}
+        onCancel={handleCancelSelection}
+        canDelete={
+          isOwner &&
+          Array.from(selectedIds).some((id) => {
+            const f = allAssets.find((a: StorageObject) => a.id === id);
+            return f ? getUsageStatus(f) === "UNUSED" : false;
+          })
+        }
+        isBusy={isBusy}
+      />
+    </Animated.View>
   ) : undefined;
 
   if (!activeShopId) {
@@ -1503,8 +1652,8 @@ function InfoSheet({
     status === "PRODUCT"
       ? "Linked to product"
       : status === "WHATSAPP"
-      ? `Used in ${file.waMessagesCount} WhatsApp message(s)`
-      : "Not linked to anything";
+      ? `Used in messaging (${file.waMessagesCount})`
+      : "Not linked";
 
   const statusColor =
     status === "PRODUCT"
@@ -1514,138 +1663,132 @@ function InfoSheet({
       : colors.warning;
 
   return (
-    <Modal
-      visible
-      transparent
-      animationType="slide"
-      onRequestClose={onClose}
-    >
-      <Pressable style={styles.modalOverlay} onPress={onClose} />
-      <View style={styles.infoSheet}>
-        <View style={styles.sheetDragBar} />
-        <Text style={styles.sheetTitle}>File Info</Text>
-        <Divider style={{ marginVertical: spacing.sm }} />
+    <BottomSheet visible onClose={onClose}>
+      <Text style={styles.sheetTitle}>File Info</Text>
+      <Divider style={{ marginVertical: spacing.sm }} />
 
-        <ScrollView showsVerticalScrollIndicator={false}>
-          {/* Preview */}
-          {file.mimeType.startsWith("image/") && file.url && (
-            <View style={styles.infoPreviewContainer}>
-              <CachedThumbnail
-                uri={file.url}
-                fallbackIcon="image-outline"
-                fallbackText=""
-                color={colors.primary}
-                style={styles.infoPreview}
-              />
-            </View>
-          )}
-
-          <InfoRow label="Product" value={file.productName || "Not linked"} />
-          {file.categoryName && (
-            <InfoRow label="Category" value={file.categoryName} />
-          )}
-          {file.brandName && (
-            <InfoRow label="Brand" value={file.brandName} />
-          )}
-          <InfoRow label="Type" value={file.mimeType} />
-          {!!(file.width && file.height) && (
-            <InfoRow
-              label="Dimensions"
-              value={`${file.width} × ${file.height} px`}
+      <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+        {/* Preview */}
+        {file.mimeType.startsWith("image/") && file.url && (
+          <View style={styles.infoPreviewContainer}>
+            <CachedThumbnail
+              uri={file.url}
+              fallbackIcon="image-outline"
+              fallbackText=""
+              color={colors.primary}
+              style={styles.infoPreview}
             />
-          )}
-          <InfoRow label="Size" value={formatBytes(file.sizeBytes)} />
+          </View>
+        )}
+
+        <InfoRow label="Product" value={file.productName || "Not linked"} />
+        {file.categoryName && (
+          <InfoRow label="Category" value={file.categoryName} />
+        )}
+        {file.brandName && (
+          <InfoRow label="Brand" value={file.brandName} />
+        )}
+        <InfoRow label="Type" value={file.mimeType} />
+        {!!(file.width && file.height) && (
           <InfoRow
-            label="Uploaded"
-            value={formatDate(file.createdAt)}
+            label="Dimensions"
+            value={`${file.width} × ${file.height} px`}
           />
-          <InfoRow
-            label="Status"
-            value={statusLabel}
-            valueColor={statusColor}
-          />
+        )}
+        <InfoRow label="Size" value={formatBytes(file.sizeBytes)} />
+        <InfoRow
+          label="Uploaded"
+          value={formatDate(file.createdAt)}
+        />
+        <InfoRow
+          label="Status"
+          value={statusLabel}
+          valueColor={statusColor}
+        />
 
-          {/* Prices */}
-          {file.productName && (
-            <>
-              <Divider style={{ marginVertical: spacing.sm }} />
-              {file.mrp && <InfoRow label="MRP" value={`₹ ${file.mrp}`} />}
-              {file.sellingPrice && (
-                <InfoRow label="Selling" value={`₹ ${file.sellingPrice}`} />
-              )}
-              {file.minPrice && (
-                <InfoRow label="Min Price" value={`₹ ${file.minPrice}`} />
-              )}
-            </>
-          )}
+        {/* Prices */}
+        {file.productName && (
+          <>
+            <Divider style={{ marginVertical: spacing.sm }} />
+            {file.mrp && <InfoRow label="MRP" value={`₹ ${file.mrp}`} />}
+            {file.sellingPrice && (
+              <InfoRow label="Selling" value={`₹ ${file.sellingPrice}`} />
+            )}
+            {file.minPrice && (
+              <InfoRow label="Min Price" value={`₹ ${file.minPrice}`} />
+            )}
+          </>
+        )}
 
-          <Divider style={{ marginVertical: spacing.md }} />
+        <Divider style={{ marginVertical: spacing.md }} />
 
-          {/* Actions */}
-          <View style={styles.infoActions}>
+        {/* Actions */}
+        <View style={styles.infoActions}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.infoActionBtn,
+              { backgroundColor: colors.primaryLight },
+              pressed && { opacity: 0.8 },
+            ]}
+            onPress={onShare}
+            disabled={isBusy}
+            accessibilityRole="button"
+            accessibilityLabel="Share file"
+          >
+            <Icon source="share-variant-outline" size={18} color={colors.primary} />
+            <Text style={[styles.infoActionText, { color: colors.primary }]}>
+              Share
+            </Text>
+          </Pressable>
+
+          {isOwner && file.itemId && (
             <Pressable
               style={({ pressed }) => [
                 styles.infoActionBtn,
-                { backgroundColor: colors.primaryLight },
+                { backgroundColor: colors.successLight },
                 pressed && { opacity: 0.8 },
               ]}
-              onPress={onShare}
-              disabled={isBusy}
+              onPress={onEditPrices}
               accessibilityRole="button"
-              accessibilityLabel="Share file"
+              accessibilityLabel="Edit prices"
             >
-              <Icon source="share-variant-outline" size={18} color={colors.primary} />
-              <Text style={[styles.infoActionText, { color: colors.primary }]}>
-                Share
+              <Icon source="tag-edit-outline" size={18} color={colors.success} />
+              <Text
+                style={[styles.infoActionText, { color: colors.success }]}
+              >
+                Edit Prices
               </Text>
             </Pressable>
+          )}
 
-            {isOwner && file.itemId && (
-              <Pressable
-                style={({ pressed }) => [
-                  styles.infoActionBtn,
-                  { backgroundColor: colors.successLight },
-                  pressed && { opacity: 0.8 },
-                ]}
-                onPress={onEditPrices}
-                accessibilityRole="button"
-                accessibilityLabel="Edit prices"
-              >
-                <Icon source="tag-edit-outline" size={18} color={colors.success} />
-                <Text
-                  style={[styles.infoActionText, { color: colors.success }]}
-                >
-                  Edit Prices
-                </Text>
-              </Pressable>
-            )}
-
-            {canDelete && (
-              <Pressable
-                style={({ pressed }) => [
-                  styles.infoActionBtn,
-                  { backgroundColor: colors.dangerLight },
-                  pressed && { opacity: 0.8 },
-                ]}
-                onPress={onDelete}
-                disabled={isBusy}
-                accessibilityRole="button"
-                accessibilityLabel="Delete file"
-              >
-                <Icon source="delete-outline" size={18} color={colors.danger} />
-                <Text style={[styles.infoActionText, { color: colors.danger }]}>
-                  Delete
-                </Text>
-              </Pressable>
-            )}
-          </View>
-        </ScrollView>
-      </View>
-    </Modal>
+          {canDelete && (
+            <Pressable
+              style={({ pressed }) => [
+                styles.infoActionBtn,
+                { backgroundColor: colors.dangerLight },
+                pressed && { opacity: 0.8 },
+              ]}
+              onPress={onDelete}
+              disabled={isBusy}
+              accessibilityRole="button"
+              accessibilityLabel="Delete file"
+            >
+              <Icon source="delete-outline" size={18} color={colors.danger} />
+              <Text style={[styles.infoActionText, { color: colors.danger }]}>
+                Delete
+              </Text>
+            </Pressable>
+          )}
+        </View>
+      </ScrollView>
+    </BottomSheet>
   );
 }
 
 // ── PriceEditModal ────────────────────────────────────────────────────────────
+// Uses BottomSheet (swipe-to-dismiss + tap-backdrop-dismiss).
+// Form is in a ScrollView so it's reachable on small/landscape screens.
+// Ref chain MRP → Selling → Min → Save for native keyboard flow.
 
 function PriceEditModal({
   file,
@@ -1672,26 +1815,22 @@ function PriceEditModal({
   onSave: () => void;
   onCancel: () => void;
 }) {
-  return (
-    <Modal
-      visible
-      transparent
-      animationType="slide"
-      onRequestClose={onCancel}
-    >
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        style={{ flex: 1 }}
-      >
-        <Pressable style={styles.modalOverlay} onPress={onCancel} />
-        <View style={styles.priceSheet}>
-          <View style={styles.sheetDragBar} />
-          <Text style={styles.sheetTitle}>Edit Prices</Text>
-          <Text style={styles.priceSubtitle} numberOfLines={1}>
-            {file.productName}
-          </Text>
-          <Divider style={{ marginVertical: spacing.md }} />
+  const sellingRef = useRef<RNTextInput>(null);
+  const minRef = useRef<RNTextInput>(null);
 
+  return (
+    <BottomSheet visible onClose={onCancel}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        style={{ flex: 0 }}
+      >
+        <Text style={styles.sheetTitle}>Edit Prices</Text>
+        <Text style={styles.priceSubtitle} numberOfLines={1}>
+          {file.productName}
+        </Text>
+        <Divider style={{ marginVertical: spacing.md }} />
+
+        <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
           {error && (
             <View style={styles.errorBanner}>
               <Icon source="alert-circle-outline" size={16} color={colors.danger} />
@@ -1704,18 +1843,22 @@ function PriceEditModal({
             value={mrp}
             onChange={onMrpChange}
             returnKeyType="next"
+            onSubmit={() => sellingRef.current?.focus()}
           />
           <PriceField
             label="Selling Price"
             value={selling}
             onChange={onSellingChange}
             returnKeyType="next"
+            ref={sellingRef}
+            onSubmit={() => minRef.current?.focus()}
           />
           <PriceField
             label="Min Allowed Price"
             value={min}
             onChange={onMinChange}
             returnKeyType="done"
+            ref={minRef}
             onSubmit={onSave}
           />
 
@@ -1755,31 +1898,29 @@ function PriceEditModal({
               )}
             </Pressable>
           </View>
-        </View>
+        </ScrollView>
       </KeyboardAvoidingView>
-    </Modal>
+    </BottomSheet>
   );
 }
 
-function PriceField({
-  label,
-  value,
-  onChange,
-  returnKeyType,
-  onSubmit,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  returnKeyType?: "next" | "done";
-  onSubmit?: () => void;
-}) {
+const PriceField = forwardRef<
+  RNTextInput,
+  {
+    label: string;
+    value: string;
+    onChange: (v: string) => void;
+    returnKeyType?: "next" | "done";
+    onSubmit?: () => void;
+  }
+>(function PriceField({ label, value, onChange, returnKeyType, onSubmit }, ref) {
   return (
     <View style={styles.priceField}>
       <Text style={styles.priceLabel}>{label}</Text>
       <View style={styles.priceInputRow}>
         <Text style={styles.priceRupee}>₹</Text>
         <RNTextInput
+          ref={ref}
           style={styles.priceInput}
           value={value}
           onChangeText={onChange}
@@ -1789,11 +1930,12 @@ function PriceField({
           placeholder="0.00"
           placeholderTextColor={colors.textMuted}
           accessibilityLabel={label}
+          submitBehavior={returnKeyType === "done" ? "blurAndSubmit" : "submit"}
         />
       </View>
     </View>
   );
-}
+});
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 
@@ -1814,6 +1956,11 @@ const styles = StyleSheet.create({
   headerRoot: {
     gap: spacing.sm,
     paddingBottom: spacing.sm,
+  },
+  searchRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
   },
   searchBar: {
     backgroundColor: colors.surface,
@@ -2076,18 +2223,47 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xs,
     fontWeight: fontWeight.bold,
   },
-  // Modals
+  // Modals / BottomSheet
   modalOverlay: {
-    flex: 1,
+    ...StyleSheet.absoluteFill,
     backgroundColor: "rgba(0,0,0,0.48)",
   },
-  // Info sheet
+  sheetContainer: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
+    paddingHorizontal: spacing.lg,
+    paddingTop: 0,
+    // paddingBottom set dynamically from insets in BottomSheet
+  },
+  dragHandleWrap: {
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.xs,
+    alignItems: "center",
+  },
+  dragHandle: {
+    width: 36,
+    height: 4,
+    backgroundColor: colors.border,
+    borderRadius: 2,
+  },
+  // Legacy — kept for any remaining reference
   infoSheet: {
     backgroundColor: colors.surface,
     borderTopLeftRadius: radius.xl,
     borderTopRightRadius: radius.xl,
-    padding: spacing.lg,
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.lg,
     maxHeight: "88%",
+  },
+  dragArea: {
+    paddingTop: spacing.md,
+    paddingBottom: spacing.xs,
+    width: "100%",
   },
   sheetDragBar: {
     width: 36,
@@ -2095,7 +2271,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.border,
     borderRadius: 2,
     alignSelf: "center",
-    marginBottom: spacing.md,
+    marginBottom: spacing.sm,
   },
   sheetTitle: {
     fontSize: fontSize.lg,

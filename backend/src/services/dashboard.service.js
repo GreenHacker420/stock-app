@@ -399,7 +399,35 @@ export async function listStorageObjects(user, { shopId, filter, cursor, limit }
     nextCursor = finalAssets[finalAssets.length - 1].id;
   }
 
-  return { assets: finalAssets, nextCursor, hasMore, categories, brands };
+  const allShopAssets = await prisma.asset.findMany({
+    where: { shopId, deletedAt: null },
+    select: {
+      storageKey: true,
+      sizeBytes: true,
+      _count: { select: { waMessages: true } },
+    },
+  });
+  let totalOrphanedCount = 0;
+  let totalOrphanedBytes = 0;
+  for (const a of allShopAssets) {
+    const isOrphan = a.storageKey
+      ? !referencedKeys.has(a.storageKey) && a._count.waMessages === 0
+      : a._count.waMessages === 0;
+    if (isOrphan) {
+      totalOrphanedCount++;
+      totalOrphanedBytes += Number(a.sizeBytes || 0);
+    }
+  }
+
+  return {
+    assets: finalAssets,
+    nextCursor,
+    hasMore,
+    categories,
+    brands,
+    totalOrphanedCount,
+    totalOrphanedBytes,
+  };
 }
 
 
