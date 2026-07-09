@@ -5,7 +5,7 @@ import { focusManager, onlineManager, QueryClientProvider } from '@tanstack/reac
 import { Asset } from 'expo-asset';
 import { createURL } from 'expo-linking';
 import * as SplashScreen from 'expo-splash-screen';
-import * as React from 'react';
+import { useEffect } from 'react';
 import { AppState, Platform, Image, StatusBar, StyleSheet, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { ActivityIndicator, PaperProvider, Text } from 'react-native-paper';
@@ -24,6 +24,9 @@ import { useNotificationSetup } from './notifications/FCMManager';
 import { useEnsureActiveShop } from './hooks/useActiveShop';
 import { queryClient } from './query/queryClient';
 import NetInfo from '@react-native-community/netinfo';
+import { ErrorBoundary } from './components/ErrorBoundary';
+import { OfflineBanner } from './components/OfflineBanner';
+import { checkAppUpdatesBackground } from './utils/inAppUpdates';
 
 Asset.loadAsync([
   ...NavigationAssets,
@@ -80,7 +83,7 @@ export function App() {
   const isBootstrapping = useAuthStore((state) => state.isBootstrapping);
   const user = useAuthStore((state) => state.user);
 
-  React.useEffect(() => {
+  useEffect(() => {
     runDataHardeningStorageMigration();
     runEventSequenceCursorMigration();
     restoreSession();
@@ -95,12 +98,15 @@ export function App() {
         <QueryClientProvider client={queryClient}>
           <PaperProvider theme={paperTheme} settings={paperSettings}>
             <RneThemeProvider theme={rneTheme}>
-              <AppContent
-                isBootstrapping={isBootstrapping}
-                user={user}
-                navigationTheme={navigationTheme}
-                prefix={prefix}
-              />
+              <ErrorBoundary>
+                <AppContent
+                  isBootstrapping={isBootstrapping}
+                  user={user}
+                  navigationTheme={navigationTheme}
+                  prefix={prefix}
+                />
+                <OfflineBanner />
+              </ErrorBoundary>
             </RneThemeProvider>
           </PaperProvider>
         </QueryClientProvider>
@@ -122,12 +128,16 @@ function AppContent({
 }) {
   useNotificationSetup();
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (!user?.id) return;
     initializeDomainReadCache(user.id).catch((error) => {
       if (__DEV__) console.warn("[domain-cache] initialization failed", error);
     });
   }, [user?.id]);
+
+  useEffect(() => {
+    checkAppUpdatesBackground();
+  }, []);
 
   if (isBootstrapping) {
     return <AppLoading />;
@@ -150,7 +160,7 @@ function AuthenticatedApp({ theme, prefix }: { theme: typeof navigationThemes.Li
   const activeShopId = useShopStore((state) => state.activeShopId);
   useEnsureActiveShop();
 
-  React.useEffect(() => {
+  useEffect(() => {
     if (!activeShopId) {
       SplashScreen.hideAsync();
     }

@@ -1,5 +1,9 @@
 import { useState, useEffect } from "react";
-import { View, StyleSheet, Pressable, Alert, Linking } from "react-native";
+import { View, StyleSheet, Pressable, Alert, Linking, Platform, ActivityIndicator, ScrollView } from "react-native";
+import SpInAppUpdates, { NeedsUpdateResponse } from "sp-react-native-in-app-updates";
+import { shareLogs } from "../../utils/logger";
+import { runSecurityDiagnostics, DiagnosticsResult } from "../../utils/securityDiagnostics";
+import { triggerLightHaptic, triggerSuccessHaptic, triggerErrorHaptic } from "../../utils/haptics";
 import { Text, Icon, Divider, Portal, Modal, Button, Switch } from "react-native-paper";
 import { ScrollScreen } from "../../components/layout/ScrollScreen";
 import { ScreenSection } from "../../components/layout/ScreenSection";
@@ -80,6 +84,92 @@ export function Settings() {
   const [dailyReport, setDailyReport] = useState(true);
 
   const [aboutVisible, setAboutVisible] = useState(false);
+
+  // Production Hardening & Google Play States
+  const [checkingUpdates, setCheckingUpdates] = useState(false);
+  const [diagnosticsVisible, setDiagnosticsVisible] = useState(false);
+  const [runningDiagnostics, setRunningDiagnostics] = useState(false);
+  const [diagnosticsStatus, setDiagnosticsStatus] = useState("");
+  const [diagnosticsResult, setDiagnosticsResult] = useState<DiagnosticsResult | null>(null);
+  const [sharingLogs, setSharingLogs] = useState(false);
+
+  const handleCheckUpdates = async () => {
+    triggerLightHaptic();
+    setCheckingUpdates(true);
+    try {
+      const inAppUpdates = new SpInAppUpdates(__DEV__);
+      const result = await inAppUpdates.checkNeedsUpdate();
+      if (result.shouldUpdate) {
+        triggerSuccessHaptic();
+        Alert.alert(
+          "Update Available",
+          `A new version ${result.storeVersion} of ShopControl is available. Would you like to update?`,
+          [
+            { text: "Cancel", style: "cancel" },
+            {
+              text: "Update Now",
+              onPress: () => {
+                inAppUpdates.startUpdate({
+                  updateType: 0 // Flexible
+                });
+              }
+            }
+          ]
+        );
+      } else {
+        triggerSuccessHaptic();
+        Alert.alert("Up to date", "You are already using the latest version of ShopControl.");
+      }
+    } catch (err) {
+      triggerErrorHaptic();
+      console.warn("Update check failed:", err);
+      Alert.alert("Up to date", "You are running the latest development build.");
+    } finally {
+      setCheckingUpdates(false);
+    }
+  };
+
+  const handleRunDiagnostics = async () => {
+    triggerLightHaptic();
+    setDiagnosticsVisible(true);
+    setRunningDiagnostics(true);
+    setDiagnosticsStatus("Starting security diagnostics...");
+    setDiagnosticsResult(null);
+
+    try {
+      const res = await runSecurityDiagnostics((status) => {
+        setDiagnosticsStatus(status);
+      });
+      triggerSuccessHaptic();
+      setDiagnosticsResult(res);
+    } catch (err) {
+      triggerErrorHaptic();
+      setDiagnosticsStatus("Play Integrity check failed.");
+      setDiagnosticsResult({
+        platform: Platform.OS === "android" ? "Android" : "iOS",
+        isDevice: require("expo-device").isDevice,
+        verdict: "Simulated (Play integrity library failed or not registered)",
+        integrityToken: undefined
+      });
+    } finally {
+      setRunningDiagnostics(false);
+    }
+  };
+
+  const handleShareLogs = async () => {
+    triggerLightHaptic();
+    setSharingLogs(true);
+    try {
+      await shareLogs();
+      triggerSuccessHaptic();
+    } catch (err) {
+      triggerErrorHaptic();
+      const msg = err instanceof Error ? err.message : "Failed to export logs.";
+      Alert.alert("Log Export Failed", msg);
+    } finally {
+      setSharingLogs(false);
+    }
+  };
 
   useEffect(() => {
     async function loadSettings() {
@@ -216,6 +306,21 @@ export function Settings() {
               icon="information-outline"
               label="About ShopControl"
               onPress={() => setAboutVisible(true)}
+            />
+            <SettingRow
+              icon="cloud-download-outline"
+              label="Check for Updates"
+              onPress={handleCheckUpdates}
+            />
+            <SettingRow
+              icon="shield-check-outline"
+              label="App Security & Integrity"
+              onPress={handleRunDiagnostics}
+            />
+            <SettingRow
+              icon="file-document-outline"
+              label="Share Diagnostics Log"
+              onPress={handleShareLogs}
               isLast
             />
           </View>
