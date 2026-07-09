@@ -45,3 +45,8 @@ export const cancelInvoice = asyncHandler(async (req, res) => {
   const sale = await saleService.cancelInvoice(req.user, req.validated.params.id, req.validated.body || {});
   res.json({ success: true, data: sale });
 });
+
+export const updateGstInvoice = asyncHandler(async (req, res) => {
+  const sale = await saleService.updateGstInvoice(req.user, req.validated.params.id, req.validated.body);
+  res.json({ success: true, data: sale });
+});

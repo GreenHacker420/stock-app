@@ -24,6 +24,7 @@ console.log(`Running tests: ${files.map(f => path.basename(f)).join(", ")}...`);
 
 const stream = run({
   files,
+  concurrency: 1,
 });
 
 stream.on("test:fail", (data) => {
