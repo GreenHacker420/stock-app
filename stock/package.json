@@ -1,6 +1,6 @@
 {
-  "name": "stock",
-  "version": "1.0.0",
+  "name": "Shop Control",
+  "version": "1.0.1",
   "main": "index.tsx",
   "scripts": {
     "start": "expo start --dev-client",
