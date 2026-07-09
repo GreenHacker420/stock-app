@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useDeferredValue, useRef, useEffect, forwardRef } from "react";
+import React, { useState, useMemo, useCallback, useDeferredValue, useRef, useEffect, forwardRef, useImperativeHandle } from "react";
 import {
   View,
   StyleSheet,
@@ -32,7 +32,7 @@ import {
 } from "react-native-paper";
 import * as Sharing from "expo-sharing";
 import { File, Directory, Paths } from "expo-file-system";
-import * as Haptics from "expo-haptics";
+import { triggerLightHaptic, triggerMediumHaptic, triggerHeavyHaptic, triggerSuccessHaptic, triggerWarningHaptic, triggerErrorHaptic } from "../../utils/haptics";
 
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { ListScreen } from "../../components/layout/ListScreen";
@@ -141,22 +141,24 @@ function InfoRow({
 }
 
 // ── BottomSheet (shared, Reanimated + GestureDetector) ───────────────────────
+export interface BottomSheetRef {
+  dismiss: () => void;
+}
 
-function BottomSheet({
-  visible,
-  onClose,
-  children,
-  maxHeight = 0.85,
-}: {
-  visible: boolean;
-  onClose: () => void;
-  children: React.ReactNode;
-  maxHeight?: number;
-}) {
+const BottomSheet = forwardRef<
+  BottomSheetRef,
+  {
+    visible: boolean;
+    onClose: () => void;
+    children: React.ReactNode;
+    maxHeight?: number;
+  }
+>(function BottomSheet({ visible, onClose, children, maxHeight = 0.85 }, ref) {
   const { height: screenH } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const translateY = useSharedValue(screenH);
   const startY = useSharedValue(0);
+  const sheetHeight = useSharedValue(0);
 
   // Entrance / exit animation
   useEffect(() => {
@@ -165,15 +167,29 @@ function BottomSheet({
     }
   }, [visible, translateY]);
 
-  const dismiss = useCallback(() => {
-    translateY.value = withTiming(screenH, { duration: 260 }, () => {
-      scheduleOnRN(onClose);
+  const dismissOnUI = useCallback(() => {
+    "worklet";
+    translateY.value = withTiming(screenH, { duration: 260 }, (finished) => {
+      if (finished) {
+        scheduleOnRN(onClose);
+      }
     });
   }, [screenH, translateY, onClose]);
 
+  // Expose dismiss function to allow custom click triggers to animate slide down
+  useImperativeHandle(ref, () => ({
+    dismiss: () => {
+      translateY.value = withTiming(screenH, { duration: 260 }, (finished) => {
+        if (finished) {
+          scheduleOnRN(onClose);
+        }
+      });
+    },
+  }));
+
   const panGesture = Gesture.Pan()
-    .activeOffsetY([8, 999])          // only trigger on clear downward pulls
-    .failOffsetX([-12, 12])           // yield to horizontal scroll
+    .activeOffsetY(8)                 // valid downward offset contract
+    .failOffsetX([-12, 12])           // yield horizontal scroll
     .onBegin(() => {
       startY.value = translateY.value;
     })
@@ -181,9 +197,9 @@ function BottomSheet({
       translateY.value = Math.max(0, startY.value + e.translationY);
     })
     .onEnd((e) => {
-      const sheetH = screenH * maxHeight;
-      if (e.velocityY > 600 || translateY.value > sheetH * 0.38) {
-        scheduleOnRN(dismiss);
+      const limit = sheetHeight.value ? sheetHeight.value * 0.35 : 150;
+      if (e.velocityY > 600 || translateY.value > limit) {
+        dismissOnUI();
       } else {
         translateY.value = withSpring(0, { damping: 28, stiffness: 300 });
       }
@@ -193,6 +209,16 @@ function BottomSheet({
     transform: [{ translateY: translateY.value }],
   }));
 
+  const overlayStyle = useAnimatedStyle(() => {
+    const h = sheetHeight.value || screenH;
+    const opacity = Math.max(0, 0.48 * (1 - translateY.value / h));
+    return {
+      ...StyleSheet.absoluteFill,
+      backgroundColor: "rgba(0,0,0,1)",
+      opacity,
+    };
+  });
+
   if (!visible) return null;
 
   return (
@@ -200,53 +226,62 @@ function BottomSheet({
       visible={visible}
       transparent
       animationType="none"
-      onRequestClose={dismiss}
+      onRequestClose={() => {
+        // Run timing directly from modal request close
+        translateY.value = withTiming(screenH, { duration: 260 }, (finished) => {
+          if (finished) {
+            scheduleOnRN(onClose);
+          }
+        });
+      }}
       statusBarTranslucent
     >
-      {/* GestureHandlerRootView is required inside every Modal because Modal
-          renders in a separate native window outside the app root GHRV. */}
       <GestureHandlerRootView style={{ flex: 1 }}>
-        <GestureDetector gesture={Gesture.Tap().onEnd(() => scheduleOnRN(dismiss))}>
-          <Animated.View style={styles.modalOverlay} />
+        <GestureDetector gesture={Gesture.Tap().onEnd(() => { "worklet"; dismissOnUI(); })}>
+          <Animated.View style={overlayStyle} />
         </GestureDetector>
-        <GestureDetector gesture={panGesture}>
         <Animated.View
           style={[
             styles.sheetContainer,
             { maxHeight: screenH * maxHeight, paddingBottom: insets.bottom + spacing.md },
             sheetStyle,
           ]}
+          onLayout={(e) => {
+            sheetHeight.value = e.nativeEvent.layout.height;
+          }}
           accessibilityViewIsModal
         >
-          {/* Drag handle */}
-          <View style={styles.dragHandleWrap} accessibilityLabel="Drag to dismiss">
-            <View style={styles.dragHandle} />
-          </View>
+          {/* Restrict pan only to the drag handle wrap to avoid scroll conflict (P1-B) */}
+          <GestureDetector gesture={panGesture}>
+            <View style={styles.dragHandleWrap} accessibilityLabel="Drag to dismiss">
+              <View style={styles.dragHandle} />
+            </View>
+          </GestureDetector>
           {children}
-          </Animated.View>
-        </GestureDetector>
+        </Animated.View>
       </GestureHandlerRootView>
     </Modal>
   );
-}
+});
 
 function PickerSheet({
   visible,
   title,
   items,
   selected,
-  onSelect,
   onClose,
 }: {
   visible: boolean;
   title: string;
   items: { id: string; name: string }[];
   selected: string;
-  onSelect: (id: string) => void;
-  onClose: () => void;
+  onClose: (selectedId?: string) => void;
 }) {
+  const sheetRef = useRef<BottomSheetRef>(null);
+  const pendingId = useRef<string | undefined>(undefined);
+
   return (
-    <BottomSheet visible={visible} onClose={onClose}>
+    <BottomSheet ref={sheetRef} visible={visible} onClose={() => onClose(pendingId.current)}>
       <Text style={styles.sheetTitle}>{title}</Text>
       <Divider style={{ marginVertical: spacing.sm }} />
       <ScrollView keyboardShouldPersistTaps="handled">
@@ -259,8 +294,9 @@ function PickerSheet({
               pressed && styles.pickerRowPressed,
             ]}
             onPress={() => {
-              void Haptics.selectionAsync().catch(() => {});
-              onSelect(item.id);
+              triggerLightHaptic();
+              pendingId.current = item.id;
+              sheetRef.current?.dismiss();
             }}
             accessibilityRole="radio"
             accessibilityState={{ selected: selected === item.id }}
@@ -373,7 +409,7 @@ function StorageManagementHeader({
               pressed && styles.tabPressed,
             ]}
             onPress={() => {
-              void Haptics.selectionAsync().catch(() => {});
+              triggerLightHaptic();
               onTabChange(tab);
             }}
             accessibilityRole="tab"
@@ -484,10 +520,20 @@ function StorageManagementHeader({
             styles.cleanupBanner,
             pressed && { opacity: 0.85 },
           ]}
-          onPress={onCleanUp}
+          onPress={() => {
+            if (activeTab === "ALL") {
+              onTabChange("UNUSED");
+            } else {
+              onCleanUp();
+            }
+          }}
           disabled={isCleaningUp}
           accessibilityRole="button"
-          accessibilityLabel={`Clean up ${unusedCount} unused files, ${formatBytes(unusedBytes)}`}
+          accessibilityLabel={
+            activeTab === "ALL"
+              ? `Review ${unusedCount} unused files`
+              : `Clean up ${unusedCount} unused files, ${formatBytes(unusedBytes)}`
+          }
         >
           <View style={styles.cleanupLeft}>
             <Icon source="delete-sweep-outline" size={20} color={colors.danger} />
@@ -497,14 +543,20 @@ function StorageManagementHeader({
                 {unusedCount === 1 ? "file" : "files"} · {formatBytes(unusedBytes)}
               </Text>
               <Text style={styles.cleanupSub}>
-                Tap to review and clean up
+                {activeTab === "ALL"
+                  ? "Tap to review unused files"
+                  : "Tap to delete all unused files"}
               </Text>
             </View>
           </View>
           {isCleaningUp ? (
             <ActivityIndicator size="small" color={colors.danger} />
           ) : (
-            <Icon source="chevron-right" size={20} color={colors.danger} />
+            <Icon
+              source={activeTab === "ALL" ? "chevron-right" : "delete-forever-outline"}
+              size={20}
+              color={colors.danger}
+            />
           )}
         </Pressable>
       )}
@@ -623,8 +675,9 @@ function SelectionActionBar({
   canDelete: boolean;
   isBusy: boolean;
 }) {
+  const insets = useSafeAreaInsets();
   return (
-    <View style={styles.selectionBar}>
+    <View style={[styles.selectionBar, { paddingBottom: spacing.sm + insets.bottom }]}>
       <Pressable
         style={styles.selectionCancel}
         onPress={onCancel}
@@ -638,12 +691,20 @@ function SelectionActionBar({
       </Text>
       <View style={styles.selectionActions}>
         <Pressable
-          style={[styles.selectionBtn, styles.selectionBtnShare]}
+          style={[
+            styles.selectionBtn,
+            styles.selectionBtnShare,
+            (isBusy || count !== 1) && { opacity: 0.4 },
+          ]}
           onPress={onShare}
-          disabled={isBusy}
+          disabled={isBusy || count !== 1}
           accessibilityRole="button"
-          accessibilityLabel={`Share ${count} selected files`}
-          accessibilityState={{ disabled: isBusy }}
+          accessibilityLabel={
+            count === 1
+              ? "Share selected file"
+              : "Multiple files selected - sharing disabled"
+          }
+          accessibilityState={{ disabled: isBusy || count !== 1 }}
         >
           <Icon source="share-variant-outline" size={16} color={colors.primary} />
           <Text style={[styles.selectionBtnText, { color: colors.primary }]}>
@@ -726,6 +787,15 @@ export function StorageManagement() {
   const numColumns = viewMode === "grid" ? calculatedColumns : 1;
 
   // ── Queries ───────────────────────────────────────────────────────────────
+  const queryParams = useMemo(() => ({
+    filter: activeTab === "UNUSED" ? ("ORPHANED" as const) : ("ALL" as const),
+    search: deferredSearch,
+    categoryId: filterCategory,
+    brandId: filterBrand,
+    type: filterType,
+    sortBy,
+  }), [activeTab, deferredSearch, filterCategory, filterBrand, filterType, sortBy]);
+
   const {
     data,
     isLoading,
@@ -734,7 +804,7 @@ export function StorageManagement() {
     hasNextPage,
     fetchNextPage,
     isFetchingNextPage,
-  } = useStorageObjectsInfiniteQuery();
+  } = useStorageObjectsInfiniteQuery(queryParams);
 
   const deleteMutation = useDeleteStorageObjectMutation();
   const bulkDeleteMutation = useBulkDeleteOrphansMutation();
@@ -776,66 +846,7 @@ export function StorageManagement() {
   }, [data, allAssets]);
 
   // ── Filter + Sort pipeline ────────────────────────────────────────────────
-  const filtered = useMemo(() => {
-    let list = allAssets;
-    if (activeTab === "UNUSED") {
-      list = list.filter((a: StorageObject) => getUsageStatus(a) === "UNUSED");
-    }
-    if (filterCategory !== "ALL") {
-      list = list.filter((a: StorageObject) => a.categoryId === filterCategory);
-    }
-    if (filterBrand !== "ALL") {
-      list = list.filter((a: StorageObject) => a.brandId === filterBrand);
-    }
-    if (filterType !== "ALL") {
-      list = list.filter((a: StorageObject) => {
-        switch (filterType) {
-          case "IMAGE": return a.mimeType.startsWith("image/");
-          case "VIDEO": return a.mimeType.startsWith("video/");
-          case "AUDIO": return a.mimeType.startsWith("audio/");
-          case "DOC":
-            return (
-              !a.mimeType.startsWith("image/") &&
-              !a.mimeType.startsWith("video/") &&
-              !a.mimeType.startsWith("audio/")
-            );
-          default: return true;
-        }
-      });
-    }
-    if (deferredSearch.trim()) {
-      const q = deferredSearch.toLowerCase();
-      list = list.filter(
-        (a: StorageObject) =>
-          a.productName?.toLowerCase().includes(q) ||
-          a.fileName.toLowerCase().includes(q) ||
-          a.categoryName?.toLowerCase().includes(q) ||
-          a.brandName?.toLowerCase().includes(q)
-      );
-    }
-    return [...list].sort((a, b) => {
-      switch (sortBy) {
-        case "date_asc":
-          return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-        case "size_desc": return b.sizeBytes - a.sizeBytes;
-        case "size_asc":  return a.sizeBytes - b.sizeBytes;
-        case "name_asc":
-          return (a.productName || a.fileName).localeCompare(
-            b.productName || b.fileName
-          );
-        default:
-          return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-      }
-    });
-  }, [
-    allAssets,
-    activeTab,
-    filterCategory,
-    filterBrand,
-    filterType,
-    deferredSearch,
-    sortBy,
-  ]);
+  const filtered = allAssets;
 
   const totalSize = useMemo(
     () => filtered.reduce((s, a) => s + a.sizeBytes, 0),
@@ -882,9 +893,7 @@ export function StorageManagement() {
           dialogTitle: file.productName || file.fileName,
         });
       } catch (err: unknown) {
-        void Haptics.notificationAsync(
-          Haptics.NotificationFeedbackType.Error
-        ).catch(() => {});
+        triggerErrorHaptic();
         const msg = err instanceof Error ? err.message : "Could not share file.";
         Alert.alert("Share failed", msg);
       } finally {
@@ -906,9 +915,7 @@ export function StorageManagement() {
         );
         return;
       }
-      void Haptics.notificationAsync(
-        Haptics.NotificationFeedbackType.Warning
-      ).catch(() => {});
+      triggerWarningHaptic();
       Alert.alert(
         "Delete file",
         `Permanently delete "${file.productName || file.fileName}"? This cannot be undone.`,
@@ -923,9 +930,7 @@ export function StorageManagement() {
                 onSuccess: () => {
                   setDeletingId(null);
                   setInfoFile(null);
-                  void Haptics.notificationAsync(
-                    Haptics.NotificationFeedbackType.Success
-                  ).catch(() => {});
+                  triggerSuccessHaptic();
                 },
                 onError: (e: unknown) => {
                   setDeletingId(null);
@@ -948,9 +953,7 @@ export function StorageManagement() {
       Alert.alert("Nothing to clean up", "There are no unused files.");
       return;
     }
-    void Haptics.notificationAsync(
-      Haptics.NotificationFeedbackType.Warning
-    ).catch(() => {});
+    triggerWarningHaptic();
     Alert.alert(
       "Clean up unused files",
       `Delete ${unusedCount} unused file${unusedCount !== 1 ? "s" : ""} (${formatBytes(unusedBytes)})? This cannot be undone.`,
@@ -962,9 +965,7 @@ export function StorageManagement() {
           onPress: () => {
             bulkDeleteMutation.mutate(undefined, {
               onSuccess: () => {
-                void Haptics.notificationAsync(
-                  Haptics.NotificationFeedbackType.Success
-                ).catch(() => {});
+                triggerSuccessHaptic();
               },
             });
           },
@@ -975,9 +976,7 @@ export function StorageManagement() {
 
   const handleLongPress = useCallback(
     (item: StorageObject) => {
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(
-        () => {}
-      );
+      triggerMediumHaptic();
       setSelectedIds((prev) => {
         if (prev.size === 0) {
           // Enter selection mode with this item
@@ -994,7 +993,7 @@ export function StorageManagement() {
   );
 
   const handleToggleSelect = useCallback((id: string) => {
-    void Haptics.selectionAsync().catch(() => {});
+    triggerLightHaptic();
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -1007,17 +1006,17 @@ export function StorageManagement() {
     setSelectedIds(new Set());
   }, []);
 
-  // ── Android Back priority chain (P1-B) ────────────────────────────────────
-  // 1. Close open sheet  2. Clear selection  3. Default (go back)
+  // ── Android Back Handler ──────────────────────────────────────────────────
+  // Clear selection if active; otherwise propagate back event to the navigator.
+  // Open sheets are managed natively via Modal's onRequestClose configuration.
   useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
-      if (editFile !== null) { setEditFile(null); return true; }
-      if (infoFile !== null) { setInfoFile(null); return true; }
-      if (selectedIds.size > 0) { setSelectedIds(new Set()); return true; }
-      return false; // let navigator handle
+      if (!isSelecting) return false;
+      setSelectedIds(new Set());
+      return true;
     });
     return () => sub.remove();
-  }, [editFile, infoFile, selectedIds]);
+  }, [isSelecting]);
 
   const handleBulkShare = useCallback(async () => {
     const files = filtered.filter((f) => selectedIds.has(f.id));
@@ -1048,9 +1047,7 @@ export function StorageManagement() {
       );
       return;
     }
-    void Haptics.notificationAsync(
-      Haptics.NotificationFeedbackType.Warning
-    ).catch(() => {});
+    triggerWarningHaptic();
     Alert.alert(
       "Delete selected",
       `Delete ${deletable.length} unused file${deletable.length !== 1 ? "s" : ""}?`,
@@ -1073,13 +1070,13 @@ export function StorageManagement() {
             // Keep failed items selected so user can retry
             setSelectedIds(new Set(failedIds));
             if (failedIds.length > 0) {
-              void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+              triggerErrorHaptic();
               Alert.alert(
                 "Partial delete",
                 `${successCount} file${successCount !== 1 ? "s" : ""} deleted, ${failedIds.length} failed. Failed items remain selected.`
               );
             } else {
-              void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+              triggerSuccessHaptic();
             }
           },
         },
@@ -1098,7 +1095,7 @@ export function StorageManagement() {
     setInfoFile(null);
   }, []);
 
-  const handleSavePrices = useCallback(() => {
+  const handleSavePrices = useCallback((onSuccessCallback?: () => void) => {
     if (!editFile?.itemId) return;
     const err = validatePrices(editMrp, editSelling, editMin);
     if (err) {
@@ -1122,14 +1119,16 @@ export function StorageManagement() {
       },
       {
         onSuccess: () => {
-          setEditFile(null);
+          if (onSuccessCallback) {
+            onSuccessCallback();
+          } else {
+            setEditFile(null);
+          }
           setEditError(null);
           if (activeShopId) invalidateAssetCache(activeShopId);
           refetch();
           // Close without blocking Alert — success haptic is sufficient (P2-D)
-          void Haptics.notificationAsync(
-            Haptics.NotificationFeedbackType.Success
-          ).catch(() => {});
+          triggerSuccessHaptic();
         },
         onError: (e: unknown) => {
           const msg = e instanceof Error ? e.message : "Could not save prices.";
@@ -1406,7 +1405,7 @@ export function StorageManagement() {
   const listHeader = useMemo(
     () => (
       <StorageManagementHeader
-        allCount={allAssets.length}
+        allCount={data?.pages[0]?.totalAllCount ?? 0}
         unusedCount={assetStats.unusedCount}
         unusedBytes={assetStats.unusedBytes}
         activeTab={activeTab}
@@ -1461,7 +1460,7 @@ export function StorageManagement() {
 
   const selectionBar = isSelecting ? (
     <Animated.View
-      entering={SlideInDown.springify().damping(20)}
+      entering={SlideInDown.springify().damping(28).stiffness(300).mass(0.8)}
       exiting={SlideOutDown.duration(200)}
     >
       <SelectionActionBar
@@ -1523,22 +1522,20 @@ export function StorageManagement() {
         title="Filter by Category"
         items={[{ id: "ALL", name: "All Categories" }, ...categories]}
         selected={filterCategory}
-        onSelect={(id) => {
-          setFilterCategory(id);
+        onClose={(id) => {
+          if (id) setFilterCategory(id);
           setShowCatSheet(false);
         }}
-        onClose={() => setShowCatSheet(false)}
       />
       <PickerSheet
         visible={showBrandSheet}
         title="Filter by Brand"
         items={[{ id: "ALL", name: "All Brands" }, ...brands]}
         selected={filterBrand}
-        onSelect={(id) => {
-          setFilterBrand(id);
+        onClose={(id) => {
+          if (id) setFilterBrand(id);
           setShowBrandSheet(false);
         }}
-        onClose={() => setShowBrandSheet(false)}
       />
       <PickerSheet
         visible={showTypeSheet}
@@ -1551,11 +1548,10 @@ export function StorageManagement() {
           { id: "AUDIO", name: "Audio" },
         ]}
         selected={filterType}
-        onSelect={(id) => {
-          setFilterType(id as FileTypeFilter);
+        onClose={(id) => {
+          if (id) setFilterType(id as FileTypeFilter);
           setShowTypeSheet(false);
         }}
-        onClose={() => setShowTypeSheet(false)}
       />
       <PickerSheet
         visible={showSortSheet}
@@ -1568,11 +1564,10 @@ export function StorageManagement() {
           { id: "name_asc", name: "Name A – Z" },
         ]}
         selected={sortBy}
-        onSelect={(id) => {
-          setSortBy(id as SortKey);
+        onClose={(id) => {
+          if (id) setSortBy(id as SortKey);
           setShowSortSheet(false);
         }}
-        onClose={() => setShowSortSheet(false)}
       />
 
       {/* ── Info sheet ─────────────────────────────────────────────────── */}
@@ -1581,16 +1576,16 @@ export function StorageManagement() {
           file={infoFile}
           isOwner={isOwner}
           isBusy={isBusy}
-          onClose={() => setInfoFile(null)}
-          onShare={() => {
+          onClose={(action) => {
             setInfoFile(null);
-            void handleShare(infoFile);
+            if (action === "share") {
+              void handleShare(infoFile);
+            } else if (action === "delete") {
+              handleDelete(infoFile);
+            } else if (action === "edit") {
+              openPriceEdit(infoFile);
+            }
           }}
-          onDelete={() => {
-            setInfoFile(null);
-            handleDelete(infoFile);
-          }}
-          onEditPrices={() => openPriceEdit(infoFile)}
         />
       )}
 
@@ -1633,17 +1628,11 @@ function InfoSheet({
   isOwner,
   isBusy,
   onClose,
-  onShare,
-  onDelete,
-  onEditPrices,
 }: {
   file: StorageObject;
   isOwner: boolean;
   isBusy: boolean;
-  onClose: () => void;
-  onShare: () => void;
-  onDelete: () => void;
-  onEditPrices: () => void;
+  onClose: (action?: "share" | "delete" | "edit") => void;
 }) {
   const status = getUsageStatus(file);
   const canDelete = isOwner && status === "UNUSED";
@@ -1662,8 +1651,11 @@ function InfoSheet({
       ? colors.primary
       : colors.warning;
 
+  const sheetRef = useRef<BottomSheetRef>(null);
+  const pendingAction = useRef<"share" | "delete" | "edit" | undefined>(undefined);
+
   return (
-    <BottomSheet visible onClose={onClose}>
+    <BottomSheet ref={sheetRef} visible onClose={() => onClose(pendingAction.current)}>
       <Text style={styles.sheetTitle}>File Info</Text>
       <Divider style={{ marginVertical: spacing.sm }} />
 
@@ -1730,7 +1722,10 @@ function InfoSheet({
               { backgroundColor: colors.primaryLight },
               pressed && { opacity: 0.8 },
             ]}
-            onPress={onShare}
+            onPress={() => {
+              pendingAction.current = "share";
+              sheetRef.current?.dismiss();
+            }}
             disabled={isBusy}
             accessibilityRole="button"
             accessibilityLabel="Share file"
@@ -1748,7 +1743,10 @@ function InfoSheet({
                 { backgroundColor: colors.successLight },
                 pressed && { opacity: 0.8 },
               ]}
-              onPress={onEditPrices}
+              onPress={() => {
+                pendingAction.current = "edit";
+                sheetRef.current?.dismiss();
+              }}
               accessibilityRole="button"
               accessibilityLabel="Edit prices"
             >
@@ -1768,7 +1766,10 @@ function InfoSheet({
                 { backgroundColor: colors.dangerLight },
                 pressed && { opacity: 0.8 },
               ]}
-              onPress={onDelete}
+              onPress={() => {
+                pendingAction.current = "delete";
+                sheetRef.current?.dismiss();
+              }}
               disabled={isBusy}
               accessibilityRole="button"
               accessibilityLabel="Delete file"
@@ -1812,16 +1813,23 @@ function PriceEditModal({
   onMrpChange: (v: string) => void;
   onSellingChange: (v: string) => void;
   onMinChange: (v: string) => void;
-  onSave: () => void;
+  onSave: (onSuccess: () => void) => void;
   onCancel: () => void;
 }) {
   const sellingRef = useRef<RNTextInput>(null);
   const minRef = useRef<RNTextInput>(null);
+  const sheetRef = useRef<BottomSheetRef>(null);
+
+  const handleSave = () => {
+    onSave(() => {
+      sheetRef.current?.dismiss();
+    });
+  };
 
   return (
-    <BottomSheet visible onClose={onCancel}>
+    <BottomSheet ref={sheetRef} visible onClose={onCancel}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={{ flex: 0 }}
       >
         <Text style={styles.sheetTitle}>Edit Prices</Text>
@@ -1859,7 +1867,7 @@ function PriceEditModal({
             onChange={onMinChange}
             returnKeyType="done"
             ref={minRef}
-            onSubmit={onSave}
+            onSubmit={handleSave}
           />
 
           <Text style={styles.priceHint}>
@@ -1873,7 +1881,7 @@ function PriceEditModal({
                 styles.cancelBtn,
                 pressed && { opacity: 0.7 },
               ]}
-              onPress={onCancel}
+              onPress={() => sheetRef.current?.dismiss()}
               accessibilityRole="button"
               accessibilityLabel="Cancel"
             >
@@ -1885,7 +1893,7 @@ function PriceEditModal({
                 isSaving && { opacity: 0.7 },
                 pressed && { opacity: 0.85 },
               ]}
-              onPress={onSave}
+              onPress={handleSave}
               disabled={isSaving}
               accessibilityRole="button"
               accessibilityLabel="Save prices"
@@ -2147,7 +2155,7 @@ const styles = StyleSheet.create({
   },
   actionBtn: {
     flex: 1,
-    minHeight: 36,
+    minHeight: 44,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -2179,7 +2187,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
-    paddingBottom: Platform.OS === "ios" ? spacing.xl : spacing.md,
     backgroundColor: colors.surface,
     borderTopWidth: 1,
     borderTopColor: colors.border,
@@ -2207,7 +2214,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 5,
     paddingHorizontal: spacing.md,
-    minHeight: 36,
+    minHeight: 44,
     borderRadius: radius.full,
     borderWidth: 1,
   },

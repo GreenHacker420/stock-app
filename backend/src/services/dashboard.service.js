@@ -245,13 +245,13 @@ export async function getStaffTodaySummary(user, { shopId, date, staffId, dateFr
   };
 }
 
-export async function listStorageObjects(user, { shopId, filter, cursor, limit }) {
+export async function listStorageObjects(user, { shopId, filter, cursor, limit, search, categoryId, brandId, type, sortBy }) {
   await assertShopAccess(user, shopId);
   if (user.role !== "OWNER") {
     throw new ApiError(403, "Access restricted to owners");
   }
 
-  // We query all active items to build the reference map (this is fast/indexed)
+  // We query all active items in the shop to compute referenced keys and metadata
   const activeItems = await prisma.item.findMany({
     where: { shopId, status: "ACTIVE", imageUrl: { not: null } },
     select: {
@@ -268,9 +268,9 @@ export async function listStorageObjects(user, { shopId, filter, cursor, limit }
     },
   });
 
-  // Build a map: storageKey → item details
+  // Build referenced keys set and itemReferenceMap
   const referencedKeys = new Set();
-  const itemReferenceMap = new Map(); // key → { itemId, productName, categoryId, categoryName, brandId, brandName, sellingPrice, minPrice, mrp }
+  const itemReferenceMap = new Map();
 
   activeItems.forEach((it) => {
     if (it.imageUrl) {
@@ -301,7 +301,7 @@ export async function listStorageObjects(user, { shopId, filter, cursor, limit }
     }
   });
 
-  // Collect unique categories and brands for filter UI (only on first page load/no cursor)
+  // Unique categories and brands for filter UI (first page load/no cursor)
   let categories = [];
   let brands = [];
   if (!cursor) {
@@ -315,122 +315,182 @@ export async function listStorageObjects(user, { shopId, filter, cursor, limit }
     brands = [...brandsMap.entries()].map(([id, name]) => ({ id, name }));
   }
 
+  // Find active items matching the category/brand/search filters
+  const itemWhere = { shopId, status: "ACTIVE" };
+  if (categoryId && categoryId !== "ALL") {
+    itemWhere.categoryId = categoryId;
+  }
+  if (brandId && brandId !== "ALL") {
+    itemWhere.brandId = brandId;
+  }
+  if (search && search.trim()) {
+    itemWhere.name = { contains: search.trim(), mode: "insensitive" };
+  }
+
+  const needsItemQuery = (categoryId && categoryId !== "ALL") || (brandId && brandId !== "ALL") || (search && search.trim());
+  let matchingItemKeys = [];
+
+  if (needsItemQuery) {
+    const matchedItems = await prisma.item.findMany({
+      where: itemWhere,
+      select: { imageUrl: true }
+    });
+    const keys = new Set();
+    matchedItems.forEach((it) => {
+      if (it.imageUrl) {
+        it.imageUrl.split(",").forEach((url) => {
+          const trimmed = url.trim();
+          keys.add(trimmed);
+          if (trimmed.includes(".amazonaws.com/")) {
+            const key = trimmed.split(".amazonaws.com/")[1];
+            if (key) keys.add(key);
+          }
+        });
+      }
+    });
+    matchingItemKeys = Array.from(keys);
+  }
+
+  // Build Prisma filter query on the Asset table
+  const assetWhere = {
+    shopId,
+    deletedAt: null,
+  };
+
+  // Type filter
+  if (type && type !== "ALL") {
+    if (type === "IMAGE") {
+      assetWhere.mimeType = { startsWith: "image/" };
+    } else if (type === "VIDEO") {
+      assetWhere.mimeType = { startsWith: "video/" };
+    } else if (type === "AUDIO") {
+      assetWhere.mimeType = { startsWith: "audio/" };
+    } else if (type === "DOC") {
+      assetWhere.AND = [
+        { mimeType: { not: { startsWith: "image/" } } },
+        { mimeType: { not: { startsWith: "video/" } } },
+        { mimeType: { not: { startsWith: "audio/" } } },
+      ];
+    }
+  }
+
+  // Category / Brand / Search filters
+  if (needsItemQuery) {
+    const isCategoryOrBrandFilter = (categoryId && categoryId !== "ALL") || (brandId && brandId !== "ALL");
+    if (isCategoryOrBrandFilter) {
+      if (matchingItemKeys.length > 0) {
+        assetWhere.storageKey = { in: matchingItemKeys };
+      } else {
+        assetWhere.id = "force-no-match-non-existent-id";
+      }
+    } else if (search && search.trim()) {
+      const s = search.trim();
+      const searchConditions = [
+        { fileName: { contains: s, mode: "insensitive" } },
+        { storageKey: { contains: s, mode: "insensitive" } },
+      ];
+      if (matchingItemKeys.length > 0) {
+        searchConditions.push({ storageKey: { in: matchingItemKeys } });
+      }
+      if (assetWhere.AND) {
+        assetWhere.AND.push({ OR: searchConditions });
+      } else {
+        assetWhere.OR = searchConditions;
+      }
+    }
+  }
+
+  // Unused/Orphaned filter
+  if (filter === "ORPHANED" || filter === "UNUSED") {
+    assetWhere.waMessages = { none: {} };
+    assetWhere.storageKey = { notIn: Array.from(referencedKeys) };
+  }
+
+  // Sort order mapping
+  let orderBy = { createdAt: "desc" };
+  if (sortBy) {
+    if (sortBy === "date_asc") orderBy = { createdAt: "asc" };
+    else if (sortBy === "size_desc") orderBy = { sizeBytes: "desc" };
+    else if (sortBy === "size_asc") orderBy = { sizeBytes: "asc" };
+    else if (sortBy === "name_asc") orderBy = { fileName: "asc" };
+  }
+
+  // Execute database query with cursor pagination
   const targetLimit = Math.min(Number(limit) || 30, 100);
-  let pageAssets = [];
-  let currentCursor = cursor;
-  let hasMore = false;
-  let nextCursor = null;
-
-  while (true) {
-    const rawAssets = await prisma.asset.findMany({
-      where: {
-        shopId,
-        deletedAt: null,
+  const rawAssets = await prisma.asset.findMany({
+    where: assetWhere,
+    include: {
+      _count: {
+        select: { waMessages: true },
       },
-      include: {
-        _count: {
-          select: { waMessages: true },
-        },
-      },
-      orderBy: { createdAt: "desc" },
-      take: targetLimit + 1,
-      ...(currentCursor ? { cursor: { id: currentCursor }, skip: 1 } : {}),
-    });
-
-    if (rawAssets.length === 0) {
-      break;
-    }
-
-    const hasMoreInBatch = rawAssets.length > targetLimit;
-    const batch = hasMoreInBatch ? rawAssets.slice(0, targetLimit) : rawAssets;
-    const lastAssetInBatch = batch[batch.length - 1];
-
-    let mappedBatch = batch.map((a) => {
-      const meta = a.storageKey ? itemReferenceMap.get(a.storageKey) : null;
-      return {
-        id: a.id,
-        fileName: a.fileName || (a.storageKey ? a.storageKey.split("/").pop() : "Unnamed File"),
-        storageKey: a.storageKey || "",
-        sizeBytes: a.sizeBytes ? Number(a.sizeBytes) : 0,
-        mimeType: a.mimeType || "application/octet-stream",
-        createdAt: a.createdAt,
-        url: a.storageKey && a.storageBucket
-          ? `https://${a.storageBucket}.s3.amazonaws.com/${a.storageKey}`
-          : (a.remoteUrl || ""),
-        width: a.width ?? null,
-        height: a.height ?? null,
-        waMessagesCount: a._count.waMessages,
-        itemId: meta?.itemId || null,
-        productName: meta?.productName || null,
-        categoryId: meta?.categoryId || null,
-        categoryName: meta?.categoryName || null,
-        brandId: meta?.brandId || null,
-        brandName: meta?.brandName || null,
-        sellingPrice: meta?.sellingPrice || null,
-        minPrice: meta?.minPrice || null,
-        mrp: meta?.mrp || null,
-      };
-    });
-
-    if (filter === "ORPHANED" || filter === "UNUSED") {
-      mappedBatch = mappedBatch.filter((a) => {
-        if (!a.storageKey) return true;
-        return !referencedKeys.has(a.storageKey) && a.waMessagesCount === 0;
-      });
-    }
-
-    pageAssets.push(...mappedBatch);
-    currentCursor = lastAssetInBatch.id;
-
-    if (!hasMoreInBatch) {
-      break;
-    }
-
-    if (pageAssets.length >= targetLimit) {
-      hasMore = true;
-      nextCursor = lastAssetInBatch.id;
-      break;
-    }
-  }
-
-  const finalAssets = pageAssets.slice(0, targetLimit);
-  if (pageAssets.length > finalAssets.length) {
-    hasMore = true;
-    nextCursor = finalAssets[finalAssets.length - 1].id;
-  }
-
-  const allShopAssets = await prisma.asset.findMany({
-    where: { shopId, deletedAt: null },
-    select: {
-      storageKey: true,
-      sizeBytes: true,
-      _count: { select: { waMessages: true } },
     },
+    orderBy,
+    take: targetLimit + 1,
+    ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
   });
-  let totalOrphanedCount = 0;
-  let totalOrphanedBytes = 0;
-  for (const a of allShopAssets) {
-    const isOrphan = a.storageKey
-      ? !referencedKeys.has(a.storageKey) && a._count.waMessages === 0
-      : a._count.waMessages === 0;
-    if (isOrphan) {
-      totalOrphanedCount++;
-      totalOrphanedBytes += Number(a.sizeBytes || 0);
-    }
+
+  const hasMore = rawAssets.length > targetLimit;
+  const batch = hasMore ? rawAssets.slice(0, targetLimit) : rawAssets;
+  const nextCursor = batch.length > 0 ? batch[batch.length - 1].id : null;
+
+  const assets = batch.map((a) => {
+    const meta = a.storageKey ? itemReferenceMap.get(a.storageKey) : null;
+    return {
+      id: a.id,
+      fileName: a.fileName || (a.storageKey ? a.storageKey.split("/").pop() : "Unnamed File"),
+      storageKey: a.storageKey || "",
+      sizeBytes: a.sizeBytes ? Number(a.sizeBytes) : 0,
+      mimeType: a.mimeType || "application/octet-stream",
+      createdAt: a.createdAt,
+      url: a.storageKey && a.storageBucket
+        ? `https://${a.storageBucket}.s3.amazonaws.com/${a.storageKey}`
+        : (a.remoteUrl || ""),
+      width: a.width ?? null,
+      height: a.height ?? null,
+      waMessagesCount: a._count.waMessages,
+      itemId: meta?.itemId || null,
+      productName: meta?.productName || null,
+      categoryId: meta?.categoryId || null,
+      categoryName: meta?.categoryName || null,
+      brandId: meta?.brandId || null,
+      brandName: meta?.brandName || null,
+      sellingPrice: meta?.sellingPrice || null,
+      minPrice: meta?.minPrice || null,
+      mrp: meta?.mrp || null,
+    };
+  });
+
+  // Calculate filtered stats/counts for correct tab headings
+  const countWhere = { ...assetWhere };
+  delete countWhere.waMessages;
+  if (countWhere.storageKey && countWhere.storageKey.notIn) {
+    delete countWhere.storageKey;
   }
+  const totalAllCount = await prisma.asset.count({ where: countWhere });
+
+  const orphanCountWhere = {
+    ...countWhere,
+    waMessages: { none: {} },
+    storageKey: { notIn: Array.from(referencedKeys) },
+  };
+  const totalOrphanedCount = await prisma.asset.count({ where: orphanCountWhere });
+  const totalOrphanedBytesAggregate = await prisma.asset.aggregate({
+    where: orphanCountWhere,
+    _sum: { sizeBytes: true }
+  });
+  const totalOrphanedBytes = Number(totalOrphanedBytesAggregate._sum.sizeBytes || 0);
 
   return {
-    assets: finalAssets,
+    assets,
     nextCursor,
     hasMore,
     categories,
     brands,
+    totalAllCount,
     totalOrphanedCount,
     totalOrphanedBytes,
   };
 }
-
-
 
 export async function deleteStorageObject(user, id) {
   const asset = await prisma.asset.findUnique({

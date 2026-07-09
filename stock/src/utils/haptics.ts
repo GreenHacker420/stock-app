@@ -25,3 +25,18 @@ export function triggerSoftHaptic() {
   if (Platform.OS === "web") return;
   void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft).catch(() => {});
 }
+
+export function triggerSuccessHaptic() {
+  if (Platform.OS === "web") return;
+  void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+}
+
+export function triggerWarningHaptic() {
+  if (Platform.OS === "web") return;
+  void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+}
+
+export function triggerErrorHaptic() {
+  if (Platform.OS === "web") return;
+  void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+}

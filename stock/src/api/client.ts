@@ -1400,6 +1400,7 @@ export type StorageObjectsResponse = {
   brands: { id: string; name: string }[];
   nextCursor?: string | null;
   hasMore?: boolean;
+  totalAllCount?: number;
   totalOrphanedCount?: number;
   totalOrphanedBytes?: number;
 };
@@ -1407,12 +1408,26 @@ export type StorageObjectsResponse = {
 export async function fetchStorageObjects(
   token: string,
   shopId: string,
-  params?: { filter?: "ALL" | "ORPHANED"; cursor?: string; limit?: number }
+  params?: {
+    filter?: "ALL" | "ORPHANED";
+    cursor?: string;
+    limit?: number;
+    search?: string;
+    categoryId?: string;
+    brandId?: string;
+    type?: string;
+    sortBy?: string;
+  }
 ) {
   let query = `shopId=${encodeURIComponent(shopId)}`;
   if (params?.filter) query += `&filter=${encodeURIComponent(params.filter)}`;
   if (params?.cursor) query += `&cursor=${encodeURIComponent(params.cursor)}`;
   if (params?.limit) query += `&limit=${encodeURIComponent(String(params.limit))}`;
+  if (params?.search) query += `&search=${encodeURIComponent(params.search)}`;
+  if (params?.categoryId) query += `&categoryId=${encodeURIComponent(params.categoryId)}`;
+  if (params?.brandId) query += `&brandId=${encodeURIComponent(params.brandId)}`;
+  if (params?.type) query += `&type=${encodeURIComponent(params.type)}`;
+  if (params?.sortBy) query += `&sortBy=${encodeURIComponent(params.sortBy)}`;
   return apiRequest<StorageObjectsResponse>(`/dashboard/storage/objects?${query}`, { token });
 }
 

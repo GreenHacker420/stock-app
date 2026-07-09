@@ -61,13 +61,28 @@ export function useStaffTodaySummaryQuery(
   });
 }
 
-export function useStorageObjectsInfiniteQuery(filter?: "ALL" | "ORPHANED") {
+export function useStorageObjectsInfiniteQuery(params?: {
+  filter?: "ALL" | "ORPHANED";
+  search?: string;
+  categoryId?: string;
+  brandId?: string;
+  type?: string;
+  sortBy?: string;
+}) {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
-  const effectiveFilter = filter ?? "ALL";
+  const effectiveFilter = params?.filter ?? "ALL";
+
+  const isDefaultQuery =
+    effectiveFilter === "ALL" &&
+    !params?.search &&
+    (!params?.categoryId || params?.categoryId === "ALL") &&
+    (!params?.brandId || params?.brandId === "ALL") &&
+    (!params?.type || params?.type === "ALL") &&
+    (!params?.sortBy || params?.sortBy === "date_desc");
 
   const [initialData] = useState(() => {
-    if (!activeShopId) return undefined;
+    if (!activeShopId || !isDefaultQuery) return undefined;
     const cached = readAssetCache(activeShopId, effectiveFilter);
     if (!cached) return undefined;
     return {
@@ -77,14 +92,23 @@ export function useStorageObjectsInfiniteQuery(filter?: "ALL" | "ORPHANED") {
   });
 
   return useInfiniteQuery({
-    queryKey: queryKeys.storageObjectsInfinite(activeShopId ?? "", filter),
+    queryKey: queryKeys.storageObjectsInfinite(activeShopId ?? "", params),
     queryFn: async ({ pageParam }) => {
       const result = await fetchStorageObjects(
         token ?? "",
         activeShopId ?? "",
-        { filter, cursor: pageParam as string | undefined, limit: 30 }
+        {
+          filter: params?.filter,
+          search: params?.search,
+          categoryId: params?.categoryId,
+          brandId: params?.brandId,
+          type: params?.type,
+          sortBy: params?.sortBy,
+          cursor: pageParam as string | undefined,
+          limit: 30,
+        }
       );
-      if (!pageParam && activeShopId) {
+      if (!pageParam && activeShopId && isDefaultQuery) {
         writeAssetCache(activeShopId, effectiveFilter, result);
       }
       return result;
@@ -93,7 +117,7 @@ export function useStorageObjectsInfiniteQuery(filter?: "ALL" | "ORPHANED") {
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     initialData: initialData as any,
     enabled: !!token && !!activeShopId,
-    staleTime: 5 * 60 * 1000,
+    staleTime: isDefaultQuery ? 5 * 60 * 1000 : 0,
   });
 }
 
