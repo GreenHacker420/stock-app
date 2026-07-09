@@ -263,6 +263,7 @@ export function Login() {
       promptMessage: "Unlock ShopControl",
       fallbackLabel: "Use PIN",
       biometricsSecurityLevel: "strong",
+      disableDeviceFallback: true,
     });
     
     if (result.success) {
