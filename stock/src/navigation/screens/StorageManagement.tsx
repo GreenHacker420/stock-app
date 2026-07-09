@@ -19,6 +19,7 @@ import Animated, {
   withTiming,
   SlideInDown,
   SlideOutDown,
+  useReducedMotion,
 } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -32,7 +33,7 @@ import {
 } from "react-native-paper";
 import * as Sharing from "expo-sharing";
 import { File, Directory, Paths } from "expo-file-system";
-import { triggerLightHaptic, triggerMediumHaptic, triggerHeavyHaptic, triggerSuccessHaptic, triggerWarningHaptic, triggerErrorHaptic } from "../../utils/haptics";
+import { triggerLightHaptic, triggerMediumHaptic, triggerSuccessHaptic, triggerWarningHaptic, triggerErrorHaptic } from "../../utils/haptics";
 
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { ListScreen } from "../../components/layout/ListScreen";
@@ -159,31 +160,44 @@ const BottomSheet = forwardRef<
   const translateY = useSharedValue(screenH);
   const startY = useSharedValue(0);
   const sheetHeight = useSharedValue(0);
+  const reduceMotion = useReducedMotion();
 
   // Entrance / exit animation
   useEffect(() => {
     if (visible) {
-      translateY.value = withSpring(0, { damping: 28, stiffness: 300, mass: 0.8 });
+      translateY.value = reduceMotion
+        ? 0
+        : withSpring(0, { damping: 28, stiffness: 300, mass: 0.8 });
     }
-  }, [visible, translateY]);
+  }, [visible, translateY, reduceMotion]);
 
   const dismissOnUI = useCallback(() => {
     "worklet";
-    translateY.value = withTiming(screenH, { duration: 260 }, (finished) => {
-      if (finished) {
-        scheduleOnRN(onClose);
-      }
-    });
-  }, [screenH, translateY, onClose]);
-
-  // Expose dismiss function to allow custom click triggers to animate slide down
-  useImperativeHandle(ref, () => ({
-    dismiss: () => {
+    if (reduceMotion) {
+      translateY.value = screenH;
+      scheduleOnRN(onClose);
+    } else {
       translateY.value = withTiming(screenH, { duration: 260 }, (finished) => {
         if (finished) {
           scheduleOnRN(onClose);
         }
       });
+    }
+  }, [screenH, translateY, onClose, reduceMotion]);
+
+  // Expose dismiss function to allow custom click triggers to animate slide down
+  useImperativeHandle(ref, () => ({
+    dismiss: () => {
+      if (reduceMotion) {
+        translateY.value = screenH;
+        onClose();
+      } else {
+        translateY.value = withTiming(screenH, { duration: 260 }, (finished) => {
+          if (finished) {
+            scheduleOnRN(onClose);
+          }
+        });
+      }
     },
   }));
 
@@ -201,7 +215,9 @@ const BottomSheet = forwardRef<
       if (e.velocityY > 600 || translateY.value > limit) {
         dismissOnUI();
       } else {
-        translateY.value = withSpring(0, { damping: 28, stiffness: 300 });
+        translateY.value = reduceMotion
+          ? 0
+          : withSpring(0, { damping: 28, stiffness: 300 });
       }
     });
 
@@ -227,12 +243,16 @@ const BottomSheet = forwardRef<
       transparent
       animationType="none"
       onRequestClose={() => {
-        // Run timing directly from modal request close
-        translateY.value = withTiming(screenH, { duration: 260 }, (finished) => {
-          if (finished) {
-            scheduleOnRN(onClose);
-          }
-        });
+        if (reduceMotion) {
+          translateY.value = screenH;
+          onClose();
+        } else {
+          translateY.value = withTiming(screenH, { duration: 260 }, (finished) => {
+            if (finished) {
+              scheduleOnRN(onClose);
+            }
+          });
+        }
       }}
       statusBarTranslucent
     >
@@ -280,8 +300,21 @@ function PickerSheet({
   const sheetRef = useRef<BottomSheetRef>(null);
   const pendingId = useRef<string | undefined>(undefined);
 
+  // Reset pendingId when sheet opens to prevent applying stale selections (P1-F)
+  useEffect(() => {
+    if (visible) {
+      pendingId.current = undefined;
+    }
+  }, [visible]);
+
+  const handleClosed = () => {
+    const selectedId = pendingId.current;
+    pendingId.current = undefined;
+    onClose(selectedId);
+  };
+
   return (
-    <BottomSheet ref={sheetRef} visible={visible} onClose={() => onClose(pendingId.current)}>
+    <BottomSheet ref={sheetRef} visible={visible} onClose={handleClosed}>
       <Text style={styles.sheetTitle}>{title}</Text>
       <Divider style={{ marginVertical: spacing.sm }} />
       <ScrollView keyboardShouldPersistTaps="handled">
@@ -735,17 +768,31 @@ function SelectionActionBar({
 
 export function StorageManagement() {
   const activeShopId = useShopStore((s) => s.activeShopId);
+  const reduceMotion = useReducedMotion();
   const user = useAuthStore((s) => s.user);
   const isOwner = user?.role === "OWNER";
 
   // ── Filter / Sort ─────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<"ALL" | "UNUSED">("ALL");
   const [searchQuery, setSearchQuery] = useState("");
-  const deferredSearch = useDeferredValue(searchQuery);
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState<string>("ALL");
   const [filterBrand, setFilterBrand] = useState<string>("ALL");
   const [filterType, setFilterType] = useState<FileTypeFilter>("ALL");
   const [sortBy, setSortBy] = useState<SortKey>("date_desc");
+
+  // Debounce search requests by 300ms to prevent heavy typing request spikes (P1-C)
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchQuery.trim());
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
+
+  // Clear active selection on shop or filter context changes to prevent leaky states (P1-B)
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [activeShopId, activeTab, filterCategory, filterBrand, filterType, sortBy, debouncedSearch]);
 
   // ── Picker sheet state ────────────────────────────────────────────────────
   const [showCatSheet, setShowCatSheet] = useState(false);
@@ -774,6 +821,7 @@ export function StorageManagement() {
   });
 
   const toggleViewMode = useCallback(() => {
+    triggerLightHaptic();
     setViewMode((prev) => {
       const next = prev === "grid" ? "list" : "grid";
       mmkvStorage.setItem("storage-layout", next);
@@ -789,12 +837,12 @@ export function StorageManagement() {
   // ── Queries ───────────────────────────────────────────────────────────────
   const queryParams = useMemo(() => ({
     filter: activeTab === "UNUSED" ? ("ORPHANED" as const) : ("ALL" as const),
-    search: deferredSearch,
+    search: debouncedSearch,
     categoryId: filterCategory,
     brandId: filterBrand,
     type: filterType,
     sortBy,
-  }), [activeTab, deferredSearch, filterCategory, filterBrand, filterType, sortBy]);
+  }), [activeTab, debouncedSearch, filterCategory, filterBrand, filterType, sortBy]);
 
   const {
     data,
@@ -832,18 +880,10 @@ export function StorageManagement() {
     const serverTotal = data?.pages[0]?.totalOrphanedCount;
     const serverBytes = data?.pages[0]?.totalOrphanedBytes;
     if (serverTotal !== undefined && serverBytes !== undefined) {
-      return { unusedCount: serverTotal, unusedBytes: serverBytes };
+      return { unusedCount: serverTotal, unusedBytes: serverBytes, hasStats: true };
     }
-    let unusedCount = 0;
-    let unusedBytes = 0;
-    for (const a of allAssets) {
-      if (getUsageStatus(a) === "UNUSED") {
-        unusedCount++;
-        unusedBytes += a.sizeBytes;
-      }
-    }
-    return { unusedCount, unusedBytes };
-  }, [data, allAssets]);
+    return { unusedCount: 0, unusedBytes: 0, hasStats: false };
+  }, [data]);
 
   // ── Filter + Sort pipeline ────────────────────────────────────────────────
   const filtered = allAssets;
@@ -911,11 +951,10 @@ export function StorageManagement() {
           "Cannot delete",
           file.productName
             ? `This file is linked to "${file.productName}". Remove the product image first.`
-            : `This file is used in ${file.waMessagesCount} WhatsApp message(s).`
+            : "This file is referenced in messaging history."
         );
         return;
       }
-      triggerWarningHaptic();
       Alert.alert(
         "Delete file",
         `Permanently delete "${file.productName || file.fileName}"? This cannot be undone.`,
@@ -925,6 +964,7 @@ export function StorageManagement() {
             text: "Delete",
             style: "destructive",
             onPress: () => {
+              triggerWarningHaptic();
               setDeletingId(file.id);
               deleteMutation.mutate(file.id, {
                 onSuccess: () => {
@@ -933,6 +973,7 @@ export function StorageManagement() {
                   triggerSuccessHaptic();
                 },
                 onError: (e: unknown) => {
+                  triggerErrorHaptic();
                   setDeletingId(null);
                   const msg =
                     e instanceof Error ? e.message : "Delete failed.";
@@ -948,31 +989,41 @@ export function StorageManagement() {
   );
 
   const handleBulkCleanup = useCallback(() => {
-    const { unusedCount, unusedBytes } = assetStats;
-    if (unusedCount === 0) {
-      Alert.alert("Nothing to clean up", "There are no unused files.");
+    const { unusedCount, unusedBytes, hasStats } = assetStats;
+    if (!hasStats || unusedCount === 0) {
+      Alert.alert("Nothing to clean up", "There are no unused files or stats are loading.");
       return;
     }
-    triggerWarningHaptic();
+    const isFiltered = activeFilterCount > 0 || debouncedSearch !== "";
+    const confirmationMsg = isFiltered
+      ? `Delete ALL ${unusedCount} unused files across this shop? (Note: filters are currently active, but this will clean up all unused files shop-wide). This cannot be undone.`
+      : `Delete ${unusedCount} unused file${unusedCount !== 1 ? "s" : ""} (${formatBytes(unusedBytes)})? This cannot be undone.`;
+
     Alert.alert(
       "Clean up unused files",
-      `Delete ${unusedCount} unused file${unusedCount !== 1 ? "s" : ""} (${formatBytes(unusedBytes)})? This cannot be undone.`,
+      confirmationMsg,
       [
         { text: "Cancel", style: "cancel" },
         {
           text: "Delete all",
           style: "destructive",
           onPress: () => {
+            triggerWarningHaptic();
             bulkDeleteMutation.mutate(undefined, {
               onSuccess: () => {
                 triggerSuccessHaptic();
+              },
+              onError: (e: unknown) => {
+                triggerErrorHaptic();
+                const msg = e instanceof Error ? e.message : "Cleanup failed.";
+                Alert.alert("Error", msg);
               },
             });
           },
         },
       ]
     );
-  }, [assetStats, bulkDeleteMutation]);
+  }, [assetStats, bulkDeleteMutation, activeFilterCount, debouncedSearch]);
 
   const handleLongPress = useCallback(
     (item: StorageObject) => {
@@ -1020,18 +1071,7 @@ export function StorageManagement() {
 
   const handleBulkShare = useCallback(async () => {
     const files = filtered.filter((f) => selectedIds.has(f.id));
-    if (files.length === 0) return;
-    if (files.length > 1) {
-      Alert.alert(
-        "Share file",
-        `${files.length} files selected. Files must be shared one at a time. Sharing the first selected file.`,
-        [
-          { text: "Cancel", style: "cancel" },
-          { text: "Share first", onPress: () => { void handleShare(files[0]); } },
-        ]
-      );
-      return;
-    }
+    if (files.length !== 1) return;
     await handleShare(files[0]);
     setSelectedIds(new Set());
   }, [filtered, selectedIds, handleShare]);
@@ -1047,7 +1087,6 @@ export function StorageManagement() {
       );
       return;
     }
-    triggerWarningHaptic();
     Alert.alert(
       "Delete selected",
       `Delete ${deletable.length} unused file${deletable.length !== 1 ? "s" : ""}?`,
@@ -1057,6 +1096,7 @@ export function StorageManagement() {
           text: "Delete",
           style: "destructive",
           onPress: async () => {
+            triggerWarningHaptic();
             let successCount = 0;
             const failedIds: string[] = [];
             for (const file of deletable) {
@@ -1230,7 +1270,7 @@ export function StorageManagement() {
                 ) : (
                   <View style={styles.listActionBtn}>
                     <Icon
-                      source={status === "PRODUCT" ? "link-variant" : "whatsapp"}
+                      source={status === "PRODUCT" ? "link-variant" : "message-text-outline"}
                       size={15}
                       color={colors.textMuted}
                     />
@@ -1281,7 +1321,7 @@ export function StorageManagement() {
             )}
             {status === "WHATSAPP" && (
               <View style={[styles.unusedBadge, { backgroundColor: colors.primary }]}>
-                <Icon source="whatsapp" size={10} color="#fff" />
+                <Icon source="message-text-outline" size={10} color="#fff" />
                 <Text style={styles.unusedBadgeText}>
                   {item.waMessagesCount}x
                 </Text>
@@ -1431,7 +1471,7 @@ export function StorageManagement() {
         }}
         onCleanUp={handleBulkCleanup}
         isCleaningUp={bulkDeleteMutation.isPending}
-        isOwner={isOwner}
+        isOwner={isOwner && assetStats.hasStats}
         viewMode={viewMode}
         onToggleViewMode={toggleViewMode}
       />
@@ -1460,8 +1500,8 @@ export function StorageManagement() {
 
   const selectionBar = isSelecting ? (
     <Animated.View
-      entering={SlideInDown.springify().damping(28).stiffness(300).mass(0.8)}
-      exiting={SlideOutDown.duration(200)}
+      entering={reduceMotion ? undefined : SlideInDown.springify().damping(28).stiffness(300).mass(0.8)}
+      exiting={reduceMotion ? undefined : SlideOutDown.duration(200)}
     >
       <SelectionActionBar
         count={selectedIds.size}
@@ -1493,7 +1533,7 @@ export function StorageManagement() {
     <>
       <ListScreen
         title="Cloud Assets"
-        subtitle={`${filtered.length} files · ${formatBytes(totalSize)}`}
+        subtitle={`${data?.pages[0]?.totalCount ?? 0} files · ${formatBytes(data?.pages[0]?.totalBytes ?? 0)}`}
         showBack
         data={filtered}
         keyExtractor={keyExtractor}
@@ -2248,9 +2288,9 @@ const styles = StyleSheet.create({
     // paddingBottom set dynamically from insets in BottomSheet
   },
   dragHandleWrap: {
-    paddingTop: spacing.sm,
-    paddingBottom: spacing.xs,
+    minHeight: 44,
     alignItems: "center",
+    justifyContent: "center",
   },
   dragHandle: {
     width: 36,

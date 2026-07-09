@@ -1400,6 +1400,8 @@ export type StorageObjectsResponse = {
   brands: { id: string; name: string }[];
   nextCursor?: string | null;
   hasMore?: boolean;
+  totalCount?: number;
+  totalBytes?: number;
   totalAllCount?: number;
   totalOrphanedCount?: number;
   totalOrphanedBytes?: number;

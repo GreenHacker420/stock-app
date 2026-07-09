@@ -479,6 +479,12 @@ export async function listStorageObjects(user, { shopId, filter, cursor, limit, 
     _sum: { sizeBytes: true }
   });
   const totalOrphanedBytes = Number(totalOrphanedBytesAggregate._sum.sizeBytes || 0);
+  const totalCount = await prisma.asset.count({ where: assetWhere });
+  const totalBytesAggregate = await prisma.asset.aggregate({
+    where: assetWhere,
+    _sum: { sizeBytes: true }
+  });
+  const totalBytes = Number(totalBytesAggregate._sum.sizeBytes || 0);
 
   return {
     assets,
@@ -486,6 +492,8 @@ export async function listStorageObjects(user, { shopId, filter, cursor, limit, 
     hasMore,
     categories,
     brands,
+    totalCount,
+    totalBytes,
     totalAllCount,
     totalOrphanedCount,
     totalOrphanedBytes,
