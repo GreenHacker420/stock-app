@@ -45,9 +45,9 @@ async function run() {
     });
     console.log("Item A created:", itemA.id);
 
-    // Try creating a draft sale and updating it
     const draftSale = await prisma.sale.create({
       data: {
+        saleNumber: "SALE-001",
         shopId: shop.id,
         customerId: customer.id,
         saleStatus: "DRAFT",
