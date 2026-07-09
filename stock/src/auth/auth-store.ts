@@ -3,6 +3,7 @@ import * as Crypto from "expo-crypto";
 import { ApiUser, fetchMe, login, truecallerLogin, truecallerOtpLogin } from "../api/client";
 import { useShopStore } from "./shop-store";
 import { deleteToken, getToken, setToken } from "./token-storage";
+import { createMMKV } from "react-native-mmkv";
 import { clearDomainEventCursors } from "../realtime/domainEventCursor";
 import { clearDomainReadCacheForUser, destroyDomainReadCache } from "./domain-cache";
 import { clearRuntimeQueryState } from "../query/queryClient";
@@ -100,10 +101,32 @@ function createAuthStore() {
         throw new Error("Invalid quick login PIN.");
       }
     }
-    const user = await fetchMe(token);
-    await setToken(TOKEN_KEY, token);
-	    restoreUserShopSelection(user.id);
-	    set({ token, user, isBootstrapping: false });
+
+    const cachedUserStr = userCacheStorage.getString("cached_user");
+    let cachedUser: ApiUser | null = null;
+    if (cachedUserStr) {
+      try {
+        cachedUser = JSON.parse(cachedUserStr);
+      } catch (e) {}
+    }
+
+    if (cachedUser) {
+      await setToken(TOKEN_KEY, token);
+      restoreUserShopSelection(cachedUser.id);
+      set({ token, user: cachedUser, isBootstrapping: false });
+      
+      // Fetch fresh user profile in background
+      fetchMe(token).then((freshUser) => {
+        set({ user: freshUser });
+      }).catch((e) => {
+        console.warn("Background profile refresh failed", e);
+      });
+    } else {
+      const user = await fetchMe(token);
+      await setToken(TOKEN_KEY, token);
+      restoreUserShopSelection(user.id);
+      set({ token, user, isBootstrapping: false });
+    }
   },
   async restoreSession() {
     try {
@@ -120,9 +143,29 @@ function createAuthStore() {
         return;
       }
 
-      const user = await fetchMe(token);
-	      restoreUserShopSelection(user.id);
-	      set({ token, user, isBootstrapping: false });
+      const cachedUserStr = userCacheStorage.getString("cached_user");
+      let cachedUser: ApiUser | null = null;
+      if (cachedUserStr) {
+        try {
+          cachedUser = JSON.parse(cachedUserStr);
+        } catch (e) {}
+      }
+
+      if (cachedUser) {
+        restoreUserShopSelection(cachedUser.id);
+        set({ token, user: cachedUser, isBootstrapping: false });
+        
+        // Refresh profile in background
+        fetchMe(token).then((freshUser) => {
+          set({ user: freshUser });
+        }).catch((e) => {
+          console.warn("Background restore refresh failed", e);
+        });
+      } else {
+        const user = await fetchMe(token);
+        restoreUserShopSelection(user.id);
+        set({ token, user, isBootstrapping: false });
+      }
     } catch {
       await get().signOut();
       set({ isBootstrapping: false });
@@ -157,6 +200,17 @@ async function hashQuickPin(identifier: string, pin: string) {
   return Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, `${identifier.trim()}:${pin}`);
 }
 
+export const userCacheStorage = createMMKV({ id: "shopcontrol_user_cache" });
+
 export const useAuthStore = globalAuthStore.__shopControlAuthStore ?? createAuthStore();
 
 globalAuthStore.__shopControlAuthStore = useAuthStore;
+
+// Sync store updates with user cache automatically
+useAuthStore.subscribe((state: AuthState) => {
+  if (state.user) {
+    userCacheStorage.set("cached_user", JSON.stringify(state.user));
+  } else {
+    userCacheStorage.remove("cached_user");
+  }
+});
