@@ -1,8 +1,7 @@
-import { useEffect, useState, useMemo } from "react";
-import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Pressable, Alert } from "react-native";
+import { useEffect, useState, useMemo, useRef } from "react";
+import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Pressable, Alert, Keyboard } from "react-native";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Button, Text, TextInput, Divider, Icon, Switch } from "react-native-paper";
-import { LinearGradient } from "expo-linear-gradient";
 import * as Crypto from "expo-crypto";
 import * as LocalAuthentication from "expo-local-authentication";
 import { updateMe, fetchShopStorageStats } from "../../api/client";
@@ -66,9 +65,12 @@ export function Profile() {
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [biometricEnabled, setBiometricEnabled] = useState(false);
   const [pin, setPin] = useState("");
-  const [pinConfirm, setPinConfirm] = useState("");
+  const [pinStage, setPinStage] = useState<"enter" | "confirm">("enter");
+  const [tempPin, setTempPin] = useState("");
+  const [isPinInputFocused, setIsPinInputFocused] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"personal" | "system">("personal");
+  const [activeTab, setActiveTab] = useState<"personal" | "system">("system");
+  const hiddenPinInputRef = useRef<any>(null);
 
   const activeShopId = useShopStore((state) => state.activeShopId);
 
@@ -119,6 +121,13 @@ export function Profile() {
     }
   }, [user]);
 
+  useEffect(() => {
+    const sub = Keyboard.addListener("keyboardDidHide", () => {
+      hiddenPinInputRef.current?.blur();
+    });
+    return () => sub.remove();
+  }, []);
+
   const isDirty = useMemo(() => {
     return name !== (user?.name ?? "") || email !== (user?.email ?? "") || password !== "";
   }, [name, email, password, user]);
@@ -155,36 +164,70 @@ export function Profile() {
     }
   };
 
-  const handleSavePin = async () => {
-    setError(null);
-    if (!/^\d{4}$/.test(pin)) {
-      triggerErrorHaptic();
-      setError("PIN must be exactly 4 digits.");
-      return;
+  const handlePasscodePress = () => {
+    triggerLightHaptic();
+    if (isPinInputFocused) {
+      Keyboard.dismiss();
+      hiddenPinInputRef.current?.blur();
+    } else {
+      hiddenPinInputRef.current?.focus();
     }
-    if (pin !== pinConfirm) {
-      triggerErrorHaptic();
-      setError("PIN codes do not match.");
-      return;
-    }
-    if (user?.mobile) {
-      const hash = await hashQuickPin(user.mobile, pin);
-      await setToken("shopcontrol_quick_pin_hash", hash);
-      await setToken("shopcontrol_last_identifier", user.mobile);
-      await setToken("shopcontrol_pin_set", "true");
-      if (user?.name) {
-        await setToken("shopcontrol_last_user_name", user.name);
+  };
+
+  const resetPinSetup = () => {
+    setPin("");
+    setTempPin("");
+    setPinStage("enter");
+  };
+
+  const handlePinChange = async (val: string) => {
+    if (!/^\d*$/.test(val)) return;
+    setPin(val);
+
+    if (val.length === 4) {
+      if (pinStage === "enter") {
+        triggerSuccessHaptic();
+        setTempPin(val);
+        setPin("");
+        setPinStage("confirm");
+      } else {
+        // Confirm stage
+        if (val === tempPin) {
+          triggerSuccessHaptic();
+          setError(null);
+          if (user?.mobile) {
+            try {
+              const hash = await hashQuickPin(user.mobile, val);
+              await setToken("shopcontrol_quick_pin_hash", hash);
+              await setToken("shopcontrol_last_identifier", user.mobile);
+              await setToken("shopcontrol_pin_set", "true");
+              if (user?.name) {
+                await setToken("shopcontrol_last_user_name", user.name);
+              }
+              await setToken("shopcontrol_last_user_phone", user.mobile);
+              
+              const activeToken = await getToken("shopcontrol_token");
+              if (activeToken) {
+                await setToken("shopcontrol_quick_token", activeToken);
+              }
+              resetPinSetup();
+              triggerSuccessHaptic();
+              Keyboard.dismiss();
+              showSuccess("PIN Set Successfully", "Your quick login PIN has been updated.");
+            } catch (e) {
+              triggerErrorHaptic();
+              setError("Failed to save PIN.");
+            }
+          }
+        } else {
+          triggerErrorHaptic();
+          Alert.alert(
+            "PINs Do Not Match",
+            "The confirmation passcode you entered does not match. Please try again.",
+            [{ text: "Try Again", onPress: resetPinSetup }]
+          );
+        }
       }
-      await setToken("shopcontrol_last_user_phone", user.mobile);
-      
-      const activeToken = await getToken("shopcontrol_token");
-      if (activeToken) {
-        await setToken("shopcontrol_quick_token", activeToken);
-      }
-      setPin("");
-      setPinConfirm("");
-      triggerSuccessHaptic();
-      showSuccess("PIN Set Successfully", "Your quick login PIN has been updated.");
     }
   };
 
@@ -320,49 +363,63 @@ export function Profile() {
                           <Icon source="lock-reset" size={20} color={colors.primary} />
                         </View>
                         <View>
-                          <Text style={styles.settingItemTitle}>Set Quick Login PIN</Text>
-                          <Text style={styles.settingItemSubtitle}>Fast 4-digit passcode access</Text>
+                          <Text style={styles.settingItemTitle}>
+                            {pinStage === "enter" ? "Create Quick Login PIN" : "Confirm Quick Login PIN"}
+                          </Text>
+                          <Text style={styles.settingItemSubtitle}>
+                            {pinStage === "enter"
+                              ? "Choose a 4-digit passcode for fast access"
+                              : "Re-enter your passcode to verify"}
+                          </Text>
                         </View>
                       </View>
                       
-                      <View style={styles.pinInputs}>
+                      <View style={styles.pinInputsContainer}>
+                        <View style={styles.passcodeRowCentered}>
+                          {[0, 1, 2, 3].map((index) => {
+                            const char = pin[index] || "";
+                            const isFocused = isPinInputFocused && pin.length === index;
+                            return (
+                              <Pressable
+                                key={index}
+                                onPress={handlePasscodePress}
+                                style={[
+                                  styles.passcodeBoxBig,
+                                  isFocused && styles.passcodeBoxBigFocused,
+                                  char ? styles.passcodeBoxBigFilled : null,
+                                ]}
+                              >
+                                <Text style={styles.passcodeTextBig}>{char ? "•" : ""}</Text>
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+
+                        {/* Hidden Native TextInput */}
                         <TextInput
-                          mode="outlined"
-                          label="New PIN"
+                          ref={hiddenPinInputRef}
                           value={pin}
-                          onChangeText={(val) => {
-                            if (/^\d*$/.test(val)) setPin(val);
-                          }}
-                          secureTextEntry
+                          onChangeText={handlePinChange}
                           keyboardType="number-pad"
                           maxLength={4}
-                          style={styles.pinInput}
-                          outlineStyle={styles.inputOutline}
-                          activeOutlineColor={colors.primary}
-                        />
-                        <TextInput
-                          mode="outlined"
-                          label="Confirm PIN"
-                          value={pinConfirm}
-                          onChangeText={(val) => {
-                            if (/^\d*$/.test(val)) setPinConfirm(val);
-                          }}
+                          style={styles.hiddenInput}
                           secureTextEntry
-                          keyboardType="number-pad"
-                          maxLength={4}
-                          style={styles.pinInput}
-                          outlineStyle={styles.inputOutline}
-                          activeOutlineColor={colors.primary}
+                          onFocus={() => setIsPinInputFocused(true)}
+                          onBlur={() => setIsPinInputFocused(false)}
                         />
                       </View>
-                      <Button 
-                        mode="contained" 
-                        onPress={handleSavePin}
-                        style={styles.savePinBtn}
-                        labelStyle={styles.savePinLabel}
-                      >
-                        UPDATE SECURE PIN
-                      </Button>
+
+                      {pinStage === "confirm" && (
+                        <Button 
+                          mode="text" 
+                          onPress={resetPinSetup}
+                          textColor={colors.danger}
+                          style={styles.cancelPinBtn}
+                          labelStyle={styles.cancelPinLabel}
+                        >
+                          Cancel & Reset
+                        </Button>
+                      )}
                     </View>
                   </View>
                 </ScreenSection>
@@ -443,6 +500,7 @@ export function Profile() {
                     icon="content-save-outline"
                     onPress={() => {
                       triggerLightHaptic();
+                      Keyboard.dismiss();
                       mutation.mutate();
                     }}
                     loading={mutation.isPending}
@@ -817,14 +875,53 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     gap: spacing.md,
   },
-  pinInputs: {
+  pinInputsContainer: {
+    marginVertical: spacing.md,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  passcodeRowCentered: {
     flexDirection: "row",
     gap: spacing.md,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  passcodeBoxBig: {
+    width: 56,
+    height: 56,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceOffset,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  passcodeBoxBigFocused: {
+    borderColor: colors.primary,
+    backgroundColor: colors.surface,
+  },
+  passcodeBoxBigFilled: {
+    borderColor: colors.primary,
+    backgroundColor: colors.primaryLight,
+  },
+  passcodeTextBig: {
+    fontSize: 28,
+    fontWeight: fontWeight.extrabold,
+    color: colors.primary,
+  },
+  hiddenInput: {
+    position: "absolute",
+    width: 0,
+    height: 0,
+    opacity: 0,
+  },
+  cancelPinBtn: {
+    alignSelf: "center",
     marginTop: spacing.xs,
   },
-  pinInput: {
-    flex: 1,
-    backgroundColor: colors.surface,
+  cancelPinLabel: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
   },
   savePinBtn: {
     borderRadius: radius.md,
