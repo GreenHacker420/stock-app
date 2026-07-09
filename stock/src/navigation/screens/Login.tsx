@@ -262,6 +262,7 @@ export function Login() {
     const result = await LocalAuthentication.authenticateAsync({
       promptMessage: "Unlock ShopControl",
       fallbackLabel: "Use PIN",
+      biometricsSecurityLevel: "strong",
     });
     
     if (result.success) {

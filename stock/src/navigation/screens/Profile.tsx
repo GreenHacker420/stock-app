@@ -4,13 +4,16 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { Button, Text, TextInput, Divider, Icon, Switch } from "react-native-paper";
 import * as Crypto from "expo-crypto";
 import * as LocalAuthentication from "expo-local-authentication";
+import Constants from "expo-constants";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { updateMe, fetchShopStorageStats } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
 import { Screen } from "../../components/Screen";
 import { ScreenSection } from "../../components/layout/ScreenSection";
 import { StatusPill } from "../../components/ui/StatusPill";
-import { SuccessModal } from "../../components/ui/SuccessModal";
+import { AppSegmentedControl } from "../../components/ui/AppSegmentedControl";
+import { NotificationToast } from "../../components/ui/NotificationToast";
 import { getToken, setToken } from "../../auth/token-storage";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { triggerLightHaptic, triggerSuccessHaptic, triggerWarningHaptic, triggerErrorHaptic } from "../../utils/haptics";
@@ -36,6 +39,9 @@ function SettingItem({ icon, title, subtitle, onPress, isLast }: SettingItemProp
         isLast ? styles.settingItemLast : styles.settingItem,
         pressed && styles.pressed
       ]}
+      accessibilityRole="button"
+      accessibilityLabel={title}
+      accessibilityHint={subtitle}
     >
       <View style={styles.settingItemLeft}>
         <View style={styles.settingItemIconBg}>
@@ -61,16 +67,35 @@ export function Profile() {
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
 
+  const insets = useSafeAreaInsets();
+
+  // Input refs for progression
+  const nameInputRef = useRef<any>(null);
+  const emailInputRef = useRef<any>(null);
+  const passwordInputRef = useRef<any>(null);
+
   // Biometrics & PIN state
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [biometricEnabled, setBiometricEnabled] = useState(false);
+  const [biometricTypeLabel, setBiometricTypeLabel] = useState("Biometric Login");
+  const [biometricPending, setBiometricPending] = useState(false);
+
   const [pin, setPin] = useState("");
   const [pinStage, setPinStage] = useState<"enter" | "confirm">("enter");
   const [tempPin, setTempPin] = useState("");
   const [isPinInputFocused, setIsPinInputFocused] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"personal" | "system">("system");
   const hiddenPinInputRef = useRef<any>(null);
+
+  // Split error states
+  const [profileError, setProfileError] = useState<string | null>(null);
+  const [securityError, setSecurityError] = useState<string | null>(null);
+
+  const [activeTab, setActiveTab] = useState<"personal" | "system">("system");
+
+  const profileTabOptions = useMemo(() => [
+    { value: "personal", label: "Personal", icon: "account-circle-outline" },
+    { value: "system", label: "System", icon: "cog-outline" },
+  ] as const, []);
 
   const activeShopId = useShopStore((state) => state.activeShopId);
 
@@ -91,25 +116,42 @@ export function Profile() {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
   };
 
-  // Success Modal state
-  const [successVisible, setSuccessVisible] = useState(false);
-  const [successTitle, setSuccessTitle] = useState("");
-  const [successMessage, setSuccessMessage] = useState("");
+  // Toast notifications state
+  const [toastVisible, setToastVisible] = useState(false);
+  const [toastTitle, setToastTitle] = useState("");
+  const [toastMessage, setToastMessage] = useState("");
+  const [toastType, setToastType] = useState<"success" | "warning" | "error" | "info">("success");
 
-  const showSuccess = (title: string, message: string) => {
-    setSuccessTitle(title);
-    setSuccessMessage(message);
-    setSuccessVisible(true);
+  const showToast = (title: string, message: string, type: "success" | "warning" | "error" | "info" = "success") => {
+    setToastTitle(title);
+    setToastMessage(message);
+    setToastType(type);
+    setToastVisible(true);
   };
 
   useEffect(() => {
     async function checkSecuritySettings() {
       const hasHardware = await LocalAuthentication.hasHardwareAsync().catch(() => false);
       const isEnrolled = await LocalAuthentication.isEnrolledAsync().catch(() => false);
-      setBiometricAvailable(hasHardware && isEnrolled);
-      
+      const isAvailable = hasHardware && isEnrolled;
+      setBiometricAvailable(isAvailable);
+
       const enabled = await getToken("shopcontrol_biometric_enabled");
-      setBiometricEnabled(enabled === "true");
+      if (!isAvailable && enabled === "true") {
+        await setToken("shopcontrol_biometric_enabled", "false");
+        setBiometricEnabled(false);
+      } else {
+        setBiometricEnabled(enabled === "true");
+      }
+
+      const types = (await LocalAuthentication.supportedAuthenticationTypesAsync().catch(() => [])) as LocalAuthentication.AuthenticationType[];
+      if (types.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION)) {
+        setBiometricTypeLabel("Face Unlock");
+      } else if (types.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)) {
+        setBiometricTypeLabel("Fingerprint");
+      } else {
+        setBiometricTypeLabel("Biometric Login");
+      }
     }
     checkSecuritySettings();
   }, []);
@@ -133,16 +175,21 @@ export function Profile() {
   }, [name, email, password, user]);
 
   const handleBiometricToggle = async (value: boolean) => {
-    setError(null);
+    setSecurityError(null);
+    if (biometricPending) return;
+
+    setBiometricPending(true);
     triggerLightHaptic();
     if (value) {
       if (!biometricAvailable) {
         triggerErrorHaptic();
-        setError("Biometric authentication is not set up on this device.");
+        setSecurityError("Biometric authentication is not set up or enrolled on this device.");
+        setBiometricPending(false);
         return;
       }
       const result = await LocalAuthentication.authenticateAsync({
-        promptMessage: "Confirm identity to enable Biometric Login",
+        promptMessage: `Confirm identity to enable ${biometricTypeLabel}`,
+        biometricsSecurityLevel: "strong",
       });
       if (result.success) {
         await setToken("shopcontrol_biometric_enabled", "true");
@@ -151,17 +198,16 @@ export function Profile() {
         if (activeToken) {
           await setToken("shopcontrol_quick_token", activeToken);
         }
-        triggerSuccessHaptic();
-        showSuccess("Biometrics Enabled", "Biometric login is now enabled for quick access.");
+        showToast("Biometrics Enabled", `${biometricTypeLabel} is now enabled for quick access.`, "success");
       } else {
         setBiometricEnabled(false);
       }
     } else {
       await setToken("shopcontrol_biometric_enabled", "false");
       setBiometricEnabled(false);
-      triggerSuccessHaptic();
-      showSuccess("Biometrics Disabled", "Biometric login has been deactivated.");
+      showToast("Biometrics Disabled", `${biometricTypeLabel} has been deactivated.`, "info");
     }
+    setBiometricPending(false);
   };
 
   const handlePasscodePress = () => {
@@ -182,19 +228,18 @@ export function Profile() {
 
   const handlePinChange = async (val: string) => {
     if (!/^\d*$/.test(val)) return;
+    setSecurityError(null);
     setPin(val);
 
     if (val.length === 4) {
       if (pinStage === "enter") {
-        triggerSuccessHaptic();
+        triggerLightHaptic();
         setTempPin(val);
         setPin("");
         setPinStage("confirm");
       } else {
         // Confirm stage
         if (val === tempPin) {
-          triggerSuccessHaptic();
-          setError(null);
           if (user?.mobile) {
             try {
               const hash = await hashQuickPin(user.mobile, val);
@@ -205,18 +250,17 @@ export function Profile() {
                 await setToken("shopcontrol_last_user_name", user.name);
               }
               await setToken("shopcontrol_last_user_phone", user.mobile);
-              
+
               const activeToken = await getToken("shopcontrol_token");
               if (activeToken) {
                 await setToken("shopcontrol_quick_token", activeToken);
               }
               resetPinSetup();
-              triggerSuccessHaptic();
               Keyboard.dismiss();
-              showSuccess("PIN Set Successfully", "Your quick login PIN has been updated.");
+              showToast("PIN Set Successfully", "Your quick login PIN has been updated.", "success");
             } catch (e) {
               triggerErrorHaptic();
-              setError("Failed to save PIN.");
+              setSecurityError("Failed to save PIN.");
             }
           }
         } else {
@@ -236,23 +280,29 @@ export function Profile() {
     onSuccess: (updatedUser) => {
       setPassword("");
       useAuthStore.setState({ user: updatedUser });
-      triggerSuccessHaptic();
-      showSuccess("Profile Saved", "Your profile changes have been saved.");
+      showToast("Profile Saved", "Your profile changes have been saved.", "success");
     },
     onError: (err: any) => {
       triggerErrorHaptic();
-      setError(err instanceof Error ? err.message : "Failed to update profile.");
+      setProfileError(err instanceof Error ? err.message : "Failed to update profile.");
     }
   });
 
   const handleSignOut = () => {
-    triggerWarningHaptic();
+    triggerLightHaptic();
     Alert.alert(
       "Sign Out",
       "Are you sure you want to sign out from your account?",
       [
         { text: "Cancel", style: "cancel" },
-        { text: "Sign Out", style: "destructive", onPress: signOut }
+        {
+          text: "Sign Out",
+          style: "destructive",
+          onPress: () => {
+            triggerWarningHaptic();
+            signOut();
+          }
+        }
       ]
     );
   };
@@ -277,8 +327,9 @@ export function Profile() {
         style={styles.flex1}
       >
         <ScrollView
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + spacing.xl }]}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
         >
           {/* Centralized Airy Profile Header */}
           <View style={styles.headerSection}>
@@ -289,9 +340,9 @@ export function Profile() {
                 </View>
               </View>
             </View>
-            
+
             <Text style={styles.userName}>{user?.name}</Text>
-            
+
             <View style={styles.userMetaRow}>
               <View style={[styles.roleBadge, user?.role === 'OWNER' ? styles.badgeOwner : styles.badgeStaff]}>
                 <Text style={[styles.roleText, user?.role === 'OWNER' ? styles.roleTextOwner : styles.roleTextStaff]}>
@@ -307,30 +358,15 @@ export function Profile() {
           </View>
 
           {/* Segmented Tab Switcher */}
-          <View style={styles.tabContainer}>
-            <Pressable
-              onPress={() => {
-                triggerLightHaptic();
-                setActiveTab("personal");
-              }}
-              style={[styles.tabButton, activeTab === "personal" && styles.tabButtonActive]}
-            >
-              <Text style={[styles.tabText, activeTab === "personal" && styles.tabTextActive]}>
-                Personal & Security
-              </Text>
-            </Pressable>
-            <Pressable
-              onPress={() => {
-                triggerLightHaptic();
-                setActiveTab("system");
-              }}
-              style={[styles.tabButton, activeTab === "system" && styles.tabButtonActive]}
-            >
-              <Text style={[styles.tabText, activeTab === "system" && styles.tabTextActive]}>
-                System & Storage
-              </Text>
-            </Pressable>
-          </View>
+          <AppSegmentedControl
+            options={profileTabOptions}
+            value={activeTab}
+            onChange={(val) => {
+              triggerLightHaptic();
+              setActiveTab(val);
+            }}
+            style={{ marginHorizontal: spacing.lg, marginVertical: spacing.md }}
+          />
 
           <View style={styles.sectionsContainer}>
             {activeTab === "personal" ? (
@@ -338,160 +374,215 @@ export function Profile() {
                 {/* Security & Quick Login */}
                 <ScreenSection title="Security & quick login">
                   <View style={styles.detailsCard}>
-                    <View style={styles.settingToggle}>
-                      <View style={styles.detailLeft}>
-                        <View style={styles.detailIconBg}>
-                          <Icon source="fingerprint" size={20} color={colors.primary} />
+                    <View style={{ borderRadius: 20, overflow: "hidden" }}>
+                      <View style={styles.settingToggle}>
+                        <View style={styles.detailLeft}>
+                          <View style={styles.detailIconBg}>
+                            <Icon source="fingerprint" size={20} color={colors.primary} />
+                          </View>
+                          <View style={styles.flex1}>
+                            <Text style={styles.settingItemTitle}>{biometricTypeLabel}</Text>
+                            <Text style={styles.settingItemSubtitle}>Use device biometrics for quick access</Text>
+                          </View>
                         </View>
-                        <View style={styles.flex1}>
-                          <Text style={styles.settingItemTitle}>Biometric Login</Text>
-                          <Text style={styles.settingItemSubtitle}>Use FaceID/TouchID to unlock</Text>
-                        </View>
-                      </View>
-                      <Switch
-                        value={biometricEnabled}
-                        onValueChange={handleBiometricToggle}
-                        color={colors.primary}
-                      />
-                    </View>
-                    
-                    <Divider style={styles.divider} />
-                    
-                    <View style={styles.pinForm}>
-                      <View style={styles.detailLeft}>
-                        <View style={styles.detailIconBg}>
-                          <Icon source="lock-reset" size={20} color={colors.primary} />
-                        </View>
-                        <View>
-                          <Text style={styles.settingItemTitle}>
-                            {pinStage === "enter" ? "Create Quick Login PIN" : "Confirm Quick Login PIN"}
-                          </Text>
-                          <Text style={styles.settingItemSubtitle}>
-                            {pinStage === "enter"
-                              ? "Choose a 4-digit passcode for fast access"
-                              : "Re-enter your passcode to verify"}
-                          </Text>
-                        </View>
-                      </View>
-                      
-                      <View style={styles.pinInputsContainer}>
-                        <View style={styles.passcodeRowCentered}>
-                          {[0, 1, 2, 3].map((index) => {
-                            const char = pin[index] || "";
-                            const isFocused = isPinInputFocused && pin.length === index;
-                            return (
-                              <Pressable
-                                key={index}
-                                onPress={handlePasscodePress}
-                                style={[
-                                  styles.passcodeBoxBig,
-                                  isFocused && styles.passcodeBoxBigFocused,
-                                  char ? styles.passcodeBoxBigFilled : null,
-                                ]}
-                              >
-                                <Text style={styles.passcodeTextBig}>{char ? "•" : ""}</Text>
-                              </Pressable>
-                            );
-                          })}
-                        </View>
-
-                        {/* Hidden Native TextInput */}
-                        <TextInput
-                          ref={hiddenPinInputRef}
-                          value={pin}
-                          onChangeText={handlePinChange}
-                          keyboardType="number-pad"
-                          maxLength={4}
-                          style={styles.hiddenInput}
-                          secureTextEntry
-                          onFocus={() => setIsPinInputFocused(true)}
-                          onBlur={() => setIsPinInputFocused(false)}
+                        <Switch
+                          value={biometricEnabled}
+                          onValueChange={handleBiometricToggle}
+                          disabled={biometricPending || (!biometricAvailable && !biometricEnabled)}
+                          color={colors.primary}
                         />
                       </View>
 
-                      {pinStage === "confirm" && (
-                        <Button 
-                          mode="text" 
-                          onPress={resetPinSetup}
-                          textColor={colors.danger}
-                          style={styles.cancelPinBtn}
-                          labelStyle={styles.cancelPinLabel}
+                      <Divider style={styles.divider} />
+
+                      <View style={styles.pinForm}>
+                        <View style={styles.detailLeft}>
+                          <View style={styles.detailIconBg}>
+                            <Icon source="lock-reset" size={20} color={colors.primary} />
+                          </View>
+                          <View style={styles.flex1}>
+                            <Text style={styles.settingItemTitle}>
+                              {pinStage === "enter" ? "Create Quick Login PIN" : "Confirm Quick Login PIN"}
+                            </Text>
+                            <Text style={styles.settingItemSubtitle}>
+                              {pinStage === "enter"
+                                ? "Choose a 4-digit passcode for fast access"
+                                : "Re-enter your passcode to verify"}
+                            </Text>
+                          </View>
+                        </View>
+
+                        <Pressable
+                          onPress={handlePasscodePress}
+                          accessibilityRole="button"
+                          accessibilityLabel={
+                            pinStage === "enter"
+                              ? "Create 4-digit quick login PIN"
+                              : "Confirm 4-digit quick login PIN"
+                          }
+                          accessibilityValue={{
+                            text: `${pin.length} of 4 digits entered`,
+                          }}
+                          style={styles.pinInputsContainer}
                         >
-                          Cancel & Reset
-                        </Button>
-                      )}
+                          <View style={styles.passcodeRowCentered}>
+                            {[0, 1, 2, 3].map((index) => {
+                              const char = pin[index] || "";
+                              const isFocused = isPinInputFocused && pin.length === index;
+                              return (
+                                <View
+                                  key={index}
+                                  accessible={false}
+                                  style={[
+                                    styles.passcodeBoxBig,
+                                    isFocused && styles.passcodeBoxBigFocused,
+                                    char ? styles.passcodeBoxBigFilled : null,
+                                  ]}
+                                >
+                                  <Text style={styles.passcodeTextBig} accessible={false}>{char ? "•" : ""}</Text>
+                                </View>
+                              );
+                            })}
+                          </View>
+
+                          {/* Hidden Native TextInput */}
+                          <TextInput
+                            ref={hiddenPinInputRef}
+                            value={pin}
+                            onChangeText={handlePinChange}
+                            keyboardType="number-pad"
+                            maxLength={4}
+                            style={styles.hiddenInput}
+                            secureTextEntry
+                            onFocus={() => setIsPinInputFocused(true)}
+                            onBlur={() => setIsPinInputFocused(false)}
+                            accessible={false}
+                          />
+                        </Pressable>
+
+                        {pinStage === "confirm" && (
+                          <Button
+                            mode="text"
+                            onPress={resetPinSetup}
+                            textColor={colors.danger}
+                            style={styles.cancelPinBtn}
+                            labelStyle={styles.cancelPinLabel}
+                          >
+                            Cancel & Reset
+                          </Button>
+                        )}
+                      </View>
                     </View>
                   </View>
+
+                  {securityError && (
+                    <View style={styles.errorBox}>
+                      <Icon source="alert-circle" size={18} color={colors.danger} />
+                      <Text style={styles.errorText}>{securityError}</Text>
+                    </View>
+                  )}
                 </ScreenSection>
 
                 {/* Redesigned iOS-Style Update Profile Card */}
                 <ScreenSection title="Update profile">
                   <View style={styles.formCard}>
-                    <View style={styles.formInputRow}>
-                      <View style={styles.formIconBg}>
-                        <Icon source="account-outline" size={20} color={colors.primary} />
+                    <View style={{ borderRadius: 20, overflow: "hidden" }}>
+                      <View style={styles.formInputRow}>
+                        <View style={styles.formIconBg}>
+                          <Icon source="account-outline" size={20} color={colors.primary} />
+                        </View>
+                        <TextInput
+                          ref={nameInputRef}
+                          mode="flat"
+                          label="Full Name"
+                          value={name}
+                          onChangeText={(val) => {
+                            setProfileError(null);
+                            setName(val);
+                          }}
+                          style={styles.flatInput}
+                          underlineColor="transparent"
+                          activeUnderlineColor="transparent"
+                          textColor={colors.textPrimary}
+                          returnKeyType="next"
+                          onSubmitEditing={() => emailInputRef.current?.focus()}
+                          autoComplete="name"
+                          textContentType="name"
+                        />
                       </View>
-                      <TextInput
-                        mode="flat"
-                        label="Full Name"
-                        value={name}
-                        onChangeText={setName}
-                        style={styles.flatInput}
-                        underlineColor="transparent"
-                        activeUnderlineColor="transparent"
-                        textColor={colors.textPrimary}
-                      />
-                    </View>
-                    <Divider style={styles.formDivider} />
+                      <Divider style={styles.formDivider} />
 
-                    <View style={styles.formInputRow}>
-                      <View style={styles.formIconBg}>
-                        <Icon source="email-outline" size={20} color={colors.primary} />
+                      <View style={styles.formInputRow}>
+                        <View style={styles.formIconBg}>
+                          <Icon source="email-outline" size={20} color={colors.primary} />
+                        </View>
+                        <TextInput
+                          ref={emailInputRef}
+                          mode="flat"
+                          label="Email Address"
+                          value={email}
+                          onChangeText={(val) => {
+                            setProfileError(null);
+                            setEmail(val);
+                          }}
+                          keyboardType="email-address"
+                          autoCapitalize="none"
+                          style={styles.flatInput}
+                          underlineColor="transparent"
+                          activeUnderlineColor="transparent"
+                          textColor={colors.textPrimary}
+                          returnKeyType="next"
+                          onSubmitEditing={() => passwordInputRef.current?.focus()}
+                          autoComplete="email"
+                          textContentType="emailAddress"
+                        />
                       </View>
-                      <TextInput
-                        mode="flat"
-                        label="Email Address"
-                        value={email}
-                        onChangeText={setEmail}
-                        keyboardType="email-address"
-                        autoCapitalize="none"
-                        style={styles.flatInput}
-                        underlineColor="transparent"
-                        activeUnderlineColor="transparent"
-                        textColor={colors.textPrimary}
-                      />
-                    </View>
-                    <Divider style={styles.formDivider} />
+                      <Divider style={styles.formDivider} />
 
-                    <View style={styles.formInputRow}>
-                      <View style={styles.formIconBg}>
-                        <Icon source="lock-outline" size={20} color={colors.primary} />
+                      <View style={styles.formInputRow}>
+                        <View style={styles.formIconBg}>
+                          <Icon source="lock-outline" size={20} color={colors.primary} />
+                        </View>
+                        <TextInput
+                          ref={passwordInputRef}
+                          mode="flat"
+                          label="New Password (Optional)"
+                          value={password}
+                          onChangeText={(val) => {
+                            setProfileError(null);
+                            setPassword(val);
+                          }}
+                          secureTextEntry={!showPassword}
+                          style={styles.flatInput}
+                          underlineColor="transparent"
+                          activeUnderlineColor="transparent"
+                          textColor={colors.textPrimary}
+                          right={
+                            <TextInput.Icon
+                              icon={showPassword ? "eye-off" : "eye"}
+                              onPress={() => setShowPassword(!showPassword)}
+                              color={colors.textSecondary}
+                            />
+                          }
+                          returnKeyType="done"
+                          onSubmitEditing={() => {
+                            Keyboard.dismiss();
+                            if (isDirty && !mutation.isPending) {
+                              triggerLightHaptic();
+                              mutation.mutate();
+                            }
+                          }}
+                          autoComplete="password-new"
+                          textContentType="newPassword"
+                        />
                       </View>
-                      <TextInput
-                        mode="flat"
-                        label="New Password (Optional)"
-                        value={password}
-                        onChangeText={setPassword}
-                        secureTextEntry={!showPassword}
-                        style={styles.flatInput}
-                        underlineColor="transparent"
-                        activeUnderlineColor="transparent"
-                        textColor={colors.textPrimary}
-                        right={
-                          <TextInput.Icon
-                            icon={showPassword ? "eye-off" : "eye"}
-                            onPress={() => setShowPassword(!showPassword)}
-                            color={colors.textSecondary}
-                          />
-                        }
-                      />
                     </View>
                   </View>
-                  
-                  {error && (
+
+                  {profileError && (
                     <View style={styles.errorBox}>
                       <Icon source="alert-circle" size={18} color={colors.danger} />
-                      <Text style={styles.errorText}>{error}</Text>
+                      <Text style={styles.errorText}>{profileError}</Text>
                     </View>
                   )}
 
@@ -521,45 +612,56 @@ export function Profile() {
                 {/* Account Details */}
                 <ScreenSection title="Account details">
                   <View style={styles.detailsCard}>
-                    <View style={styles.detailRow}>
-                      <View style={styles.detailLeft}>
-                        <View style={styles.detailIconBg}>
-                          <Icon source="email-outline" size={20} color={colors.primary} />
-                        </View>
-                        <View>
-                          <Text style={styles.detailLabel}>Email Address</Text>
-                          <Text style={styles.detailSubLabel}>{user?.email || "Not configured"}</Text>
-                        </View>
-                      </View>
-                    </View>
-                    <View style={styles.detailRowNoBorder}>
-                      <View style={styles.detailLeft}>
-                        <View style={styles.detailIconBg}>
-                          <Icon source="shield-check-outline" size={20} color={colors.primary} />
-                        </View>
-                        <View>
-                          <Text style={styles.detailLabel}>Role</Text>
-                          <Text style={styles.detailSubLabel}>User access level</Text>
+                    <View style={{ borderRadius: 20, overflow: "hidden" }}>
+                      <View style={styles.detailRow}>
+                        <View style={styles.detailLeft}>
+                          <View style={styles.detailIconBg}>
+                            <Icon source="email-outline" size={20} color={colors.primary} />
+                          </View>
+                          <View style={styles.flex1}>
+                            <Text style={styles.detailLabel} numberOfLines={1}>Email Address</Text>
+                            <Text style={styles.detailSubLabel} numberOfLines={1}>{user?.email || "Not configured"}</Text>
+                          </View>
                         </View>
                       </View>
-                      <StatusPill label={user?.role ?? "USER"} tone={user?.role === 'OWNER' ? 'green' : 'blue'} />
+                      <View style={styles.detailRowNoBorder}>
+                        <View style={styles.detailLeft}>
+                          <View style={styles.detailIconBg}>
+                            <Icon source="shield-check-outline" size={20} color={colors.primary} />
+                          </View>
+                          <View style={styles.flex1}>
+                            <Text style={styles.detailLabel} numberOfLines={1}>Role</Text>
+                            <Text style={styles.detailSubLabel} numberOfLines={1}>User access level</Text>
+                          </View>
+                        </View>
+                        <StatusPill label={user?.role ?? "USER"} tone={user?.role === 'OWNER' ? 'green' : 'blue'} />
+                      </View>
                     </View>
                   </View>
                 </ScreenSection>
 
                 {user?.role === "OWNER" && (
                   <ScreenSection title="Shop Storage">
-                    <Pressable onPress={() => navigate("StorageManagement")}>
-                      <View style={styles.detailsCard}>
+                    <Pressable
+                      onPress={() => navigate("StorageManagement")}
+                      accessibilityRole="button"
+                      accessibilityLabel="Manage shop storage"
+                      accessibilityHint="View storage usage and manage uploaded files"
+                      style={({ pressed }) => [
+                        styles.detailsCard,
+                        pressed && styles.pressed
+                      ]}
+                    >
+                      <View style={{ borderRadius: 20, overflow: "hidden" }}>
                         {storageLoading ? (
                           <Text style={styles.loadingText}>Loading storage metrics...</Text>
                         ) : storageStats ? (
                           <View style={styles.storageContainer}>
                             <View style={styles.storageInfoRow}>
                               <Icon source="database" size={24} color={colors.primary} />
-                              <View style={{ flex: 1, marginLeft: spacing.sm }}>
-                                <Text style={styles.storageLabel}>S3 Storage Used</Text>
-                                <Text style={styles.storageValue}>
+                              <View style={{ flex: 1, marginLeft: spacing.sm, minWidth: 0 }}>
+                                <Text style={styles.storageLabel} numberOfLines={1}>Storage used</Text>
+                                <Text style={styles.storageValue} numberOfLines={1}>
                                   {formatBytes(storageStats.totalBytes)} ({storageStats.totalCount} files)
                                 </Text>
                               </View>
@@ -569,10 +671,10 @@ export function Profile() {
                               <View style={styles.breakdownList}>
                                 {storageStats.breakdown.map((b) => (
                                   <View key={b.kind} style={styles.breakdownRow}>
-                                    <Text style={styles.breakdownKind}>
+                                    <Text style={styles.breakdownKind} numberOfLines={1}>
                                       {b.kind === "IMAGE" ? "Product Images" : b.kind}
                                     </Text>
-                                    <Text style={styles.breakdownValue}>
+                                    <Text style={styles.breakdownValue} numberOfLines={1}>
                                       {formatBytes(b.sizeBytes)} ({b.count})
                                     </Text>
                                   </View>
@@ -591,30 +693,32 @@ export function Profile() {
                 {/* App Settings */}
                 <ScreenSection title="App settings">
                   <View style={styles.detailsCard}>
-                    {user?.role === 'OWNER' && (
-                      <SettingItem 
-                        icon="store-edit-outline" 
-                        title="Manage Shops" 
-                        subtitle="View and edit shop locations"
-                        onPress={() => navigate("Updates")}
+                    <View style={{ borderRadius: 20, overflow: "hidden" }}>
+                      {user?.role === 'OWNER' && (
+                        <SettingItem
+                          icon="store-edit-outline"
+                          title="Manage Shops"
+                          subtitle="View and edit shop locations"
+                          onPress={() => navigate("Updates")}
+                        />
+                      )}
+                      <SettingItem
+                        icon="cog-outline"
+                        title="Preferences"
+                        subtitle="Notifications and display"
+                        onPress={() => navigate("Settings")}
+                        isLast={user?.role !== 'OWNER'}
                       />
-                    )}
-                    <SettingItem 
-                      icon="cog-outline" 
-                      title="Preferences" 
-                      subtitle="Notifications and display"
-                      onPress={() => navigate("Settings")}
-                      isLast={user?.role !== 'OWNER'}
-                    />
-                    {user?.role === 'OWNER' && (
-                      <SettingItem 
-                        icon="account-tie-outline" 
-                        title="Staff Management" 
-                        subtitle="Assign permissions and PINs"
-                        onPress={() => navigate("StaffManagement")}
-                        isLast={true}
-                      />
-                    )}
+                      {user?.role === 'OWNER' && (
+                        <SettingItem
+                          icon="account-tie-outline"
+                          title="Staff Management"
+                          subtitle="Assign permissions and PINs"
+                          onPress={() => navigate("StaffManagement")}
+                          isLast={true}
+                        />
+                      )}
+                    </View>
                   </View>
                 </ScreenSection>
 
@@ -622,6 +726,9 @@ export function Profile() {
                 <View style={styles.signOutContainer}>
                   <Pressable
                     onPress={handleSignOut}
+                    accessibilityRole="button"
+                    accessibilityLabel="Sign out"
+                    accessibilityHint="Logs out of the active shop session"
                     style={({ pressed }) => [
                       styles.signOutCard,
                       pressed && styles.signOutCardPressed
@@ -630,7 +737,9 @@ export function Profile() {
                     <Icon source="logout" size={20} color={colors.danger} />
                     <Text style={styles.signOutText}>Sign Out from Account</Text>
                   </Pressable>
-                  <Text style={styles.versionText}>v1.0.4 • Build 2026.06.15</Text>
+                  <Text style={styles.versionText}>
+                    v{Constants.expoConfig?.version ?? "1.0.4"} • Build {Constants.expoConfig?.android?.versionCode ?? Constants.expoConfig?.ios?.buildNumber ?? "1"}
+                  </Text>
                 </View>
               </>
             )}
@@ -638,11 +747,12 @@ export function Profile() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      <SuccessModal
-        visible={successVisible}
-        title={successTitle}
-        message={successMessage}
-        onClose={() => setSuccessVisible(false)}
+      <NotificationToast
+        visible={toastVisible}
+        title={toastTitle}
+        message={toastMessage}
+        type={toastType}
+        onDismiss={() => setToastVisible(false)}
       />
     </Screen>
   );
@@ -653,61 +763,32 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 160,
-  },
-  tabContainer: {
-    flexDirection: "row",
-    backgroundColor: colors.surfaceOffset,
-    borderRadius: radius.lg,
-    padding: 4,
-    marginHorizontal: spacing.lg,
-    marginVertical: spacing.md,
-  },
-  tabButton: {
-    flex: 1,
-    paddingVertical: spacing.md,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: radius.md,
-  },
-  tabButtonActive: {
-    backgroundColor: colors.surface,
-    ...shadow.sm,
-  },
-  tabText: {
-    fontSize: fontSize.xs + 1,
-    fontWeight: fontWeight.bold,
-    color: colors.textSecondary,
-  },
-  tabTextActive: {
-    color: colors.primary,
-    fontWeight: fontWeight.extrabold,
   },
   headerSection: {
     alignItems: "center",
-    paddingVertical: spacing.xl,
-    paddingTop: spacing.xxl,
+    paddingVertical: spacing.md,
+    paddingTop: spacing.lg,
     backgroundColor: colors.surface,
     borderBottomWidth: 1,
     borderBottomColor: "rgba(229, 231, 235, 0.5)",
     marginBottom: spacing.sm,
   },
   avatarOuterRing: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     backgroundColor: colors.primaryLight,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: spacing.md,
+    marginBottom: spacing.xs,
     borderWidth: 1,
     borderColor: "rgba(59, 130, 246, 0.15)",
     ...shadow.sm,
   },
   avatarInnerRing: {
-    width: 82,
-    height: 82,
-    borderRadius: 41,
+    width: 70,
+    height: 70,
+    borderRadius: 35,
     backgroundColor: colors.surface,
     alignItems: "center",
     justifyContent: "center",
@@ -715,9 +796,9 @@ const styles = StyleSheet.create({
     borderColor: "rgba(59, 130, 246, 0.1)",
   },
   avatar: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: 62,
+    height: 62,
+    borderRadius: 31,
     backgroundColor: colors.primary,
     alignItems: "center",
     justifyContent: "center",
@@ -786,7 +867,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     borderWidth: 1,
     borderColor: "rgba(229, 231, 235, 0.5)",
-    overflow: "hidden",
     ...shadow.sm,
   },
   detailRow: {
@@ -939,7 +1019,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     borderWidth: 1,
     borderColor: "rgba(229, 231, 235, 0.5)",
-    overflow: "hidden",
     ...shadow.sm,
   },
   formInputRow: {
