@@ -54,6 +54,8 @@ async function cleanup() {
     await prisma.dispatchItem.deleteMany({ where: { dispatch: { shopId: { in: shopIds } } } });
     await prisma.dispatch.deleteMany({ where: { shopId: { in: shopIds } } });
     await prisma.saleItem.deleteMany({ where: { sale: { shopId: { in: shopIds } } } });
+    await prisma.saleAmendment.deleteMany({ where: { sale: { shopId: { in: shopIds } } } });
+    await prisma.invoice.deleteMany({ where: { sale: { shopId: { in: shopIds } } } });
     await prisma.deliveryMemoItem.deleteMany({ where: { deliveryMemo: { shopId: { in: shopIds } } } });
     await prisma.sale.deleteMany({ where: { shopId: { in: shopIds } } });
     await prisma.deliveryMemo.deleteMany({ where: { shopId: { in: shopIds } } });

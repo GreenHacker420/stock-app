@@ -26,12 +26,22 @@ export const getSale = asyncHandler(async (req, res) => {
   res.json({ success: true, data: sale });
 });
 
-export const updateGstInvoice = asyncHandler(async (req, res) => {
-  const sale = await saleService.updateGstInvoice(req.user, req.validated.params.id, req.validated.body);
+export const updateSale = asyncHandler(async (req, res) => {
+  const sale = await saleService.updateSale(req.user, req.validated.params.id, req.validated.body);
   res.json({ success: true, data: sale });
 });
 
-export const updateSale = asyncHandler(async (req, res) => {
-  const sale = await saleService.updateSale(req.user, req.validated.params.id, req.validated.body);
+export const amendSale = asyncHandler(async (req, res) => {
+  const sale = await saleService.amendSale(req.user, req.validated.params.id, req.validated.body);
+  res.json({ success: true, data: sale });
+});
+
+export const issueInvoice = asyncHandler(async (req, res) => {
+  const sale = await saleService.issueInvoice(req.user, req.validated.params.id, req.validated.body);
+  res.json({ success: true, data: sale });
+});
+
+export const cancelInvoice = asyncHandler(async (req, res) => {
+  const sale = await saleService.cancelInvoice(req.user, req.validated.params.id, req.validated.body || {});
   res.json({ success: true, data: sale });
 });

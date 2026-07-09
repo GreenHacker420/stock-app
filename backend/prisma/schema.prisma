@@ -388,6 +388,7 @@ model User {
   returnsApproved        InventoryReturn[]    @relation("ReturnApprovedBy")
   expensesCreated        Expense[]
   expensesVerified       Expense[]            @relation("ExpenseVerifiedBy")
+  amendmentsCreated      SaleAmendment[]      @relation("AmendmentCreator")
   priceChanges           ItemPriceHistory[]
   attendance             Attendance[]
   leaveRequests          LeaveRequest[]
@@ -932,8 +933,11 @@ model Sale {
   updatedAt             DateTime          @updatedAt
   cancelledAt           DateTime?
   cancelReason          String?
+  version               Int               @default(1)
 
   shop             Shop              @relation(fields: [shopId], references: [id], onDelete: Restrict)
+  amendments       SaleAmendment[]
+  invoices         Invoice[]
   staff            User              @relation("SaleStaff", fields: [staffId], references: [id])
   customer         Customer          @relation(fields: [customerId], references: [id], onDelete: Restrict)
   order            Order?            @relation(fields: [orderId], references: [id])
@@ -1926,4 +1930,56 @@ model WaBroadcastRecipient {
 
   @@unique([broadcastId, customerId])
   @@index([broadcastId, status])
+}
+
+model SaleAmendment {
+  id               String   @id @default(cuid())
+  saleId           String
+  version          Int
+  previousSubtotal Decimal  @db.Decimal(12, 2)
+  newSubtotal      Decimal  @db.Decimal(12, 2)
+  previousTotal    Decimal  @db.Decimal(12, 2)
+  newTotal         Decimal  @db.Decimal(12, 2)
+  reason           String
+  createdById      String
+  createdAt        DateTime @default(now())
+  beforeSnapshot   Json
+  afterSnapshot    Json
+  stockDelta       Json
+  financialDelta   Json
+
+  sale             Sale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  createdBy        User @relation("AmendmentCreator", fields: [createdById], references: [id])
+
+  @@index([saleId])
+}
+
+model Invoice {
+  id             String        @id @default(cuid())
+  saleId         String
+  invoiceNumber  String
+  status         InvoiceStatus @default(DRAFT)
+  issuedAt       DateTime?
+  cancelledAt    DateTime?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+  saleSnapshot   Json
+  subtotal       Decimal       @db.Decimal(12, 2)
+  discountAmount Decimal       @db.Decimal(12, 2)
+  taxableAmount  Decimal       @db.Decimal(12, 2)
+  cgstAmount     Decimal       @db.Decimal(12, 2)
+  sgstAmount     Decimal       @db.Decimal(12, 2)
+  igstAmount     Decimal       @db.Decimal(12, 2)
+  grandTotal     Decimal       @db.Decimal(12, 2)
+  version        Int           @default(1)
+  
+  sale           Sale          @relation(fields: [saleId], references: [id], onDelete: Restrict)
+
+  @@index([saleId])
+}
+
+enum InvoiceStatus {
+  DRAFT
+  ISSUED
+  CANCELLED
 }

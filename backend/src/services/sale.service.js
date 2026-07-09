@@ -294,75 +294,24 @@ export async function getSale(user, id) {
   return sale;
 }
 
-export async function updateGstInvoice(user, id, { gstInvoiceNumber }) {
-  if (user.role !== "OWNER") {
-    throw new ApiError(403, "Only owners can update GST invoice status");
-  }
-
-  const sale = await prisma.sale.findUnique({ where: { id } });
-  if (!sale) throw new ApiError(404, "Sale not found");
-
-  await assertShopAccess(user, sale.shopId);
-
-  return prisma.$transaction(async (tx) => {
-    const updated = await tx.sale.update({
-      where: { id },
-      data: {
-        gstInvoiceStatus: "GENERATED",
-        gstInvoiceNumber,
-        gstInvoiceGeneratedAt: new Date(),
-      },
-      include: { customer: true, items: { include: { item: true } }, payments: true },
-    });
-
-    await enqueueDomainEvent(tx, {
-      shopId: sale.shopId,
-      entity: "sale",
-      action: "updated",
-      entityId: id,
-      actorUserId: user.id,
-      actorRole: user.role,
-      visibility: { owners: true, staff: true },
-    });
-
-    return updated;
-  });
-}
-
-
 export async function updateSale(user, id, data) {
-  if (user.role !== "OWNER") {
-    throw new ApiError(403, "Only owners can update sale details");
-  }
-
   const sale = await prisma.sale.findUnique({
     where: { id },
-    include: { items: true, payments: true }
+    include: { items: true }
   });
   if (!sale) throw new ApiError(404, "Sale not found");
-
   await assertShopAccess(user, sale.shopId);
 
+  if (sale.saleStatus !== "DRAFT") {
+    throw new ApiError(400, "Cannot directly edit a confirmed sale. Use the amendments endpoint instead.");
+  }
+
   return prisma.$transaction(async (tx) => {
-    // 1. Revert previous stock movements for this sale
-    await tx.stockLedger.deleteMany({
-      where: {
-        shopId: sale.shopId,
-        referenceType: "Sale",
-        referenceId: sale.id,
-      }
-    });
-
-    // 2. Revert previous customer debt increase
-    await decreaseCustomerDebt(tx, sale.customerId, sale.totalAmount);
-
-    // 3. Process items updates if provided, otherwise keep existing items
     let updatedItems = sale.items;
     if (data.items) {
       updatedItems = data.items;
     }
 
-    // 4. Calculate new subtotal, discount, and totals
     const { items: newItems, subtotal, discountAmount: itemsDiscount, totalAmount } = calculateItemTotals(
       updatedItems.map(item => ({
         itemId: item.itemId,
@@ -378,15 +327,132 @@ export async function updateSale(user, id, data) {
     const newSubtotal = subtotal;
     const newTotalAmount = Math.max(0, Number(newSubtotal) - Number(newDiscountAmount));
 
-    // 5. Check and Lock available stock for new items
-    await checkAndLockAvailableStock(tx, sale.shopId, newItems);
+    await tx.saleItem.deleteMany({ where: { saleId: sale.id } });
 
-    // Validate serial numbers if required by the items
+    const totalVal = money(newTotalAmount);
+    const subtotalVal = money(newSubtotal);
+    const discountVal = money(newDiscountAmount);
+
+    const updatedSale = await tx.sale.update({
+      where: { id: sale.id },
+      data: {
+        subtotal: subtotalVal,
+        discountAmount: discountVal,
+        totalAmount: totalVal,
+        balanceAmount: totalVal,
+        gstRequired: data.gstRequired !== undefined ? data.gstRequired : sale.gstRequired,
+        notes: data.notes !== undefined ? data.notes : sale.notes,
+        items: {
+          create: newItems.map((item) => {
+            const snList = item.serialNumbers || [];
+            const desc = item.description || (snList.length > 0 ? `S/N: ${snList.join(", ")}` : null);
+            return {
+              itemId: item.itemId,
+              quantity: item.quantity,
+              rate: money(item.rate),
+              discountAmount: money(item.discountAmount),
+              totalAmount: money(item.lineTotal),
+              serialNumbers: snList.length > 0 ? snList : null,
+              description: desc,
+            };
+          }),
+        },
+      },
+      include: { customer: true, items: { include: { item: true } }, payments: true },
+    });
+
+    return updatedSale;
+  });
+}
+
+export async function amendSale(user, id, data) {
+  if (user.role !== "OWNER") {
+    throw new ApiError(403, "Only owners can amend confirmed sales");
+  }
+
+  const sale = await prisma.sale.findUnique({
+    where: { id },
+    include: { items: { include: { item: true } }, payments: true }
+  });
+  if (!sale) throw new ApiError(404, "Sale not found");
+  await assertShopAccess(user, sale.shopId);
+
+  return prisma.$transaction(async (tx) => {
+    // 1. Optimistic Concurrency check
+    const result = await tx.sale.updateMany({
+      where: {
+        id,
+        version: data.expectedVersion,
+      },
+      data: {
+        version: {
+          increment: 1,
+        },
+      },
+    });
+
+    if (result.count !== 1) {
+      throw new ApiError(
+        409,
+        "This sale was modified by another user. Please refresh and review the latest version."
+      );
+    }
+
+    // 2. Parse new items configuration
+    const { items: newItems, subtotal, discountAmount: itemsDiscount, totalAmount } = calculateItemTotals(
+      data.items.map(item => ({
+        itemId: item.itemId,
+        quantity: item.quantity,
+        rate: item.rate,
+        discountAmount: item.discountAmount || 0,
+        serialNumbers: item.serialNumbers,
+        description: item.description,
+      }))
+    );
+
+    const newDiscountAmount = data.discountAmount !== undefined ? data.discountAmount : Number(sale.discountAmount);
+    const newSubtotal = subtotal;
+    const newTotalAmount = Math.max(0, Number(newSubtotal) - Number(newDiscountAmount));
+
+    // 3. Compute delta and validate stock
+    const beforeMap = new Map(sale.items.map(item => [item.itemId, item]));
+    const afterMap = new Map(newItems.map(item => [item.itemId, item]));
+    const allItemIds = new Set([...beforeMap.keys(), ...afterMap.keys()]);
+    
+    const stockDeltas = [];
+    for (const itemId of allItemIds) {
+      const beforeItem = beforeMap.get(itemId);
+      const afterItem = afterMap.get(itemId);
+
+      const beforeQty = beforeItem ? Number(beforeItem.quantity) : 0;
+      const afterQty = afterItem ? Number(afterItem.quantity) : 0;
+      const deltaQty = afterQty - beforeQty;
+
+      if (deltaQty !== 0) {
+        stockDeltas.push({
+          itemId,
+          name: afterItem?.name || beforeItem?.item?.name || "Product",
+          beforeQty,
+          afterQty,
+          deltaQty,
+        });
+      }
+    }
+
+    // Check available stock for positive deltas
+    for (const change of stockDeltas) {
+      if (change.deltaQty > 0) {
+        await checkAndLockAvailableStock(tx, sale.shopId, [{
+          itemId: change.itemId,
+          quantity: change.deltaQty,
+        }]);
+      }
+    }
+
+    // 4. Validate serial numbers for new configuration
     for (const item of newItems) {
       const dbItem = await tx.item.findUnique({ where: { id: item.itemId } });
-      if (!dbItem) {
-        throw new ApiError(400, `Item not found: ${item.itemId}`);
-      }
+      if (!dbItem) throw new ApiError(400, `Item not found: ${item.itemId}`);
       if (dbItem.requiresSerialNumber) {
         if (!item.serialNumbers || !Array.isArray(item.serialNumbers) || item.serialNumbers.length !== Number(item.quantity)) {
           throw new ApiError(
@@ -397,27 +463,47 @@ export async function updateSale(user, id, data) {
       }
     }
 
-    // 6. Delete old SaleItem entries and create new ones
-    await tx.saleItem.deleteMany({
-      where: { saleId: sale.id }
-    });
-
-    // 7. Write new StockOut entries
-    const stockRequirements = await expandStockRequirements(tx, sale.shopId, newItems);
-    for (const item of stockRequirements) {
-      await createStockOut(tx, {
-        shopId: sale.shopId,
-        itemId: item.itemId,
-        quantity: item.quantity,
-        movementType: "SALE",
-        referenceType: "Sale",
-        referenceId: sale.id,
-        reason: "Sale edited by Owner",
-        userId: user.id,
-      });
+    // 5. Append Stock Ledger (Append-only)
+    for (const change of stockDeltas) {
+      if (change.deltaQty > 0) {
+        await createStockOut(tx, {
+          shopId: sale.shopId,
+          itemId: change.itemId,
+          quantity: change.deltaQty,
+          movementType: "SALE_AMENDMENT",
+          referenceType: "Sale",
+          referenceId: sale.id,
+          reason: `Sale Amendment: quantity increased by ${change.deltaQty} (Reason: ${data.reason})`,
+          userId: user.id,
+        });
+      } else if (change.deltaQty < 0) {
+        await tx.stockLedger.create({
+          data: {
+            shopId: sale.shopId,
+            itemId: change.itemId,
+            movementType: "SALE_AMENDMENT_REVERSAL",
+            quantityIn: Math.abs(change.deltaQty),
+            quantityOut: 0,
+            referenceType: "Sale",
+            referenceId: sale.id,
+            reason: `Sale Amendment: quantity decreased by ${Math.abs(change.deltaQty)} (Reason: ${data.reason})`,
+            createdById: user.id,
+          }
+        });
+      }
     }
 
-    // 8. Calculate new payment status and balance
+    // 6. financial Delta & receivable Correction
+    const prevTotal = Number(sale.totalAmount);
+    const financialDelta = newTotalAmount - prevTotal;
+
+    if (financialDelta > 0) {
+      await increaseCustomerDebt(tx, sale.customerId, financialDelta);
+    } else if (financialDelta < 0) {
+      await decreaseCustomerDebt(tx, sale.customerId, Math.abs(financialDelta));
+    }
+
+    // 7. Recalculate Payment Statuses
     const totalVal = money(newTotalAmount);
     const subtotalVal = money(newSubtotal);
     const discountVal = money(newDiscountAmount);
@@ -429,24 +515,12 @@ export async function updateSale(user, id, data) {
     const balanceVal = money(Math.max(0, newTotalAmount - paidAmount));
     const newPaymentStatus = getBillPaymentStatus(totalVal, paidVal);
 
-    // 9. Increase new customer debt
-    await increaseCustomerDebt(tx, sale.customerId, totalVal);
-
-    // 10. Update the Sale row
-    const newGstRequired = data.gstRequired !== undefined ? data.gstRequired : sale.gstRequired;
-    const newGstInvoiceNumber = data.gstInvoiceNumber !== undefined ? data.gstInvoiceNumber : sale.gstInvoiceNumber;
-    let newGstStatus = "NOT_REQUIRED";
-    if (newGstRequired) {
-      newGstStatus = newGstInvoiceNumber ? "GENERATED" : "PENDING";
-    }
+    // 8. Replace SaleItem records
+    await tx.saleItem.deleteMany({ where: { saleId: sale.id } });
 
     const updatedSale = await tx.sale.update({
       where: { id: sale.id },
       data: {
-        gstRequired: newGstRequired,
-        gstInvoiceStatus: newGstStatus,
-        gstInvoiceNumber: newGstInvoiceNumber || null,
-        gstInvoiceGeneratedAt: newGstInvoiceNumber ? new Date() : null,
         subtotal: subtotalVal,
         discountAmount: discountVal,
         totalAmount: totalVal,
@@ -474,7 +548,43 @@ export async function updateSale(user, id, data) {
       include: { customer: true, items: { include: { item: true } }, payments: true },
     });
 
-    // 11. Create Audit Log
+    // 9. Save Amendment log
+    const beforeSnapshot = sale.items.map(item => ({
+      itemId: item.itemId,
+      quantity: Number(item.quantity),
+      rate: Number(item.rate),
+      discountAmount: Number(item.discountAmount),
+    }));
+
+    const afterSnapshot = newItems.map(item => ({
+      itemId: item.itemId,
+      quantity: Number(item.quantity),
+      rate: Number(item.rate),
+      discountAmount: Number(item.discountAmount),
+    }));
+
+    await tx.saleAmendment.create({
+      data: {
+        saleId: sale.id,
+        version: updatedSale.version,
+        previousSubtotal: sale.subtotal,
+        newSubtotal: subtotalVal,
+        previousTotal: sale.totalAmount,
+        newTotal: totalVal,
+        reason: data.reason,
+        createdById: user.id,
+        beforeSnapshot,
+        afterSnapshot,
+        stockDelta: stockDeltas,
+        financialDelta: {
+          previousTotal: prevTotal,
+          newTotal: newTotalAmount,
+          difference: financialDelta,
+        },
+      }
+    });
+
+    // 10. Audit Log and Event outbox
     await tx.auditLog.create({
       data: {
         userId: user.id,
@@ -482,19 +592,143 @@ export async function updateSale(user, id, data) {
         action: AuditAction.UPDATED,
         entityType: EntityType.SALE,
         entityId: sale.id,
-        details: `Sale edited by Owner: total changed from ${sale.totalAmount} to ${newTotalAmount}`,
+        details: `Sale amended (Version ${updatedSale.version}): total changed from ${prevTotal} to ${newTotalAmount} (Reason: ${data.reason})`,
       },
     });
 
-    // 12. Emit domain events
     await enqueueDomainEvent(tx, {
       shopId: sale.shopId,
       entity: "sale",
-      action: "updated",
+      action: "amended",
       referenceId: sale.id,
-      payload: { totalAmount: newTotalAmount },
+      payload: { totalAmount: newTotalAmount, version: updatedSale.version },
     });
 
     return updatedSale;
   });
 }
+
+export async function issueInvoice(user, id, data) {
+  const sale = await prisma.sale.findUnique({
+    where: { id },
+    include: { items: { include: { item: true } }, customer: true }
+  });
+  if (!sale) throw new ApiError(404, "Sale not found");
+  await assertShopAccess(user, sale.shopId);
+
+  return prisma.$transaction(async (tx) => {
+    // Frozen snapshot of the sale
+    const saleSnapshot = {
+      saleNumber: sale.saleNumber,
+      customer: {
+        name: sale.customer.name,
+        gstin: sale.customer.gstin,
+        phone: sale.customer.phone,
+        address: sale.customer.address,
+      },
+      items: sale.items.map(item => ({
+        name: item.item.name,
+        sku: item.item.sku,
+        quantity: Number(item.quantity),
+        rate: Number(item.rate),
+        discountAmount: Number(item.discountAmount),
+        totalAmount: Number(item.totalAmount),
+      })),
+      subtotal: Number(sale.subtotal),
+      discountAmount: Number(sale.discountAmount),
+      totalAmount: Number(sale.totalAmount),
+    };
+
+    const sub = Number(sale.subtotal);
+    const disc = Number(sale.discountAmount);
+    const taxable = Math.max(0, sub - disc);
+    
+    // In India, Local GST is split as CGST + SGST (9% each for standard 18% slab)
+    const cgst = taxable * 0.09;
+    const sgst = taxable * 0.09;
+
+    const invoice = await tx.invoice.create({
+      data: {
+        saleId: sale.id,
+        invoiceNumber: data.invoiceNumber,
+        status: "ISSUED",
+        issuedAt: data.issuedAt || new Date(),
+        saleSnapshot,
+        subtotal: sub,
+        discountAmount: disc,
+        taxableAmount: taxable,
+        cgstAmount: cgst,
+        sgstAmount: sgst,
+        igstAmount: 0,
+        grandTotal: taxable + cgst + sgst,
+      }
+    });
+
+    await tx.sale.update({
+      where: { id: sale.id },
+      data: {
+        gstInvoiceStatus: "GENERATED",
+        gstInvoiceNumber: data.invoiceNumber,
+        gstInvoiceGeneratedAt: data.issuedAt || new Date(),
+      }
+    });
+
+    await tx.auditLog.create({
+      data: {
+        userId: user.id,
+        shopId: sale.shopId,
+        action: AuditAction.APPROVED,
+        entityType: EntityType.SALE,
+        entityId: sale.id,
+        details: `Invoice issued for sale #${sale.saleNumber}: ${data.invoiceNumber}`,
+      },
+    });
+
+    return invoice;
+  });
+}
+
+export async function cancelInvoice(user, id, data) {
+  const sale = await prisma.sale.findUnique({
+    where: { id },
+    include: { invoices: { where: { status: "ISSUED" } } }
+  });
+  if (!sale) throw new ApiError(404, "Sale not found");
+  await assertShopAccess(user, sale.shopId);
+
+  const activeInvoice = sale.invoices[0];
+  if (!activeInvoice) throw new ApiError(400, "No active issued invoice found for this sale");
+
+  return prisma.$transaction(async (tx) => {
+    await tx.invoice.update({
+      where: { id: activeInvoice.id },
+      data: {
+        status: "CANCELLED",
+        cancelledAt: new Date(),
+      }
+    });
+
+    await tx.sale.update({
+      where: { id: sale.id },
+      data: {
+        gstInvoiceStatus: "PENDING",
+        gstInvoiceNumber: null,
+      }
+    });
+
+    await tx.auditLog.create({
+      data: {
+        userId: user.id,
+        shopId: sale.shopId,
+        action: AuditAction.VOIDED,
+        entityType: EntityType.SALE,
+        entityId: sale.id,
+        details: `Invoice ${activeInvoice.invoiceNumber} cancelled for sale #${sale.saleNumber}`,
+      },
+    });
+
+    return { success: true };
+  });
+}
+
+

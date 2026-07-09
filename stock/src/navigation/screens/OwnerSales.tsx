@@ -6,7 +6,7 @@ import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import Svg, { Path } from "react-native-svg";
-import { useSalesQuery, useSaleQuery, useUpdateGstMutation, useUpdateSaleMutation } from "../../hooks/useSales";
+import { useSalesQuery, useSaleQuery, useAmendSaleMutation, useIssueInvoiceMutation, useCancelInvoiceMutation } from "../../hooks/useSales";
 import { useItemsQuery } from "../../hooks/useItems";
 import { usePaymentsQuery, useAttachPaymentMutation } from "../../hooks/usePayments";
 import { type Sale } from "../../api/client";
@@ -162,138 +162,63 @@ export function SaleDetail() {
 
   const [sharing, setSharing] = useState(false);
 
-  // GST Editing Modal States
-  const [isGstEditVisible, setIsGstEditVisible] = useState(false);
-  const [editGstRequired, setEditGstRequired] = useState(false);
-  const [editGstInvoiceNumber, setEditGstInvoiceNumber] = useState("");
+  // GST Invoice Mutations
+  const issueInvoiceMutation = useIssueInvoiceMutation();
+  const cancelInvoiceMutation = useCancelInvoiceMutation();
 
-  const updateGstMutation = useUpdateGstMutation();
+  const [isInvoiceModalVisible, setIsInvoiceModalVisible] = useState(false);
+  const [invoiceNumber, setInvoiceNumber] = useState("");
 
-  // Edit Items Modal States
-  const itemsQuery = useItemsQuery({ limit: 1000 });
-  const updateSaleMutation = useUpdateSaleMutation();
+  const handleOpenIssueInvoice = () => {
+    setInvoiceNumber("");
+    setIsInvoiceModalVisible(true);
+  };
 
-  const [isItemsEditVisible, setIsItemsEditVisible] = useState(false);
-  const [editItems, setEditItems] = useState<any[]>([]);
-  const [editDiscountAmount, setEditDiscountAmount] = useState("0");
-  const [productSearch, setProductSearch] = useState("");
-
-  const handleOpenItemsEdit = () => {
+  const handleConfirmIssueInvoice = () => {
     if (!sale) return;
-    setEditItems(
-      (sale.items || []).map((item: any) => ({
-        itemId: item.itemId,
-        name: item.item.name,
-        quantity: String(item.quantity),
-        rate: String(item.rate),
-        unit: item.item.unit,
-        defaultSellingPrice: item.item.defaultSellingPrice,
-        minimumPrice: item.item.minimumPrice,
-      }))
-    );
-    setEditDiscountAmount(String(sale.discountAmount || 0));
-    setProductSearch("");
-    setIsItemsEditVisible(true);
-  };
-
-  const allProducts = itemsQuery.data?.items ?? [];
-  const filteredProducts = useMemo(() => {
-    if (!productSearch) return [];
-    return allProducts.filter((p: any) => 
-      p.name.toLowerCase().includes(productSearch.toLowerCase()) || 
-      (p.sku && p.sku.toLowerCase().includes(productSearch.toLowerCase()))
-    ).slice(0, 5);
-  }, [productSearch, allProducts]);
-
-  const handleAddProduct = (prod: any) => {
-    setEditItems(prev => {
-      const existing = prev.find(item => item.itemId === prod.id);
-      if (existing) {
-        return prev.map(item => 
-          item.itemId === prod.id 
-            ? { ...item, quantity: String(Number(item.quantity) + 1) } 
-            : item
-        );
-      } else {
-        return [
-          ...prev,
-          {
-            itemId: prod.id,
-            name: prod.name,
-            quantity: "1",
-            rate: String(prod.defaultSellingPrice),
-            unit: prod.unit,
-            defaultSellingPrice: prod.defaultSellingPrice,
-            minimumPrice: prod.minimumPrice,
-          }
-        ];
-      }
-    });
-    setProductSearch("");
-  };
-
-  const handleSaveItems = () => {
-    const formattedItems = editItems.map(item => ({
-      itemId: item.itemId,
-      quantity: Number(item.quantity),
-      rate: Number(item.rate),
-    }));
-
-    if (formattedItems.length === 0) {
-      Alert.alert("Error", "Sale must contain at least one item.");
+    if (!invoiceNumber.trim()) {
+      Alert.alert("Error", "Please enter a valid invoice number");
       return;
     }
-
-    for (const item of formattedItems) {
-      if (isNaN(item.quantity) || item.quantity <= 0) {
-        Alert.alert("Error", "All item quantities must be greater than 0.");
-        return;
-      }
-      if (isNaN(item.rate) || item.rate < 0) {
-        Alert.alert("Error", "All item rates must be greater than or equal to 0.");
-        return;
-      }
-    }
-
-    updateSaleMutation.mutate({
-      saleId: sale?.id || "",
-      data: {
-        items: formattedItems,
-        discountAmount: Number(editDiscountAmount || 0),
-      }
-    }, {
-      onSuccess: () => {
-        setIsItemsEditVisible(false);
-        Alert.alert("Success", "Sale items updated successfully!");
-      },
-      onError: (err: any) => {
-        Alert.alert("Error", err.message || "Failed to update sale items");
-      }
-    });
-  };
-
-  const handleOpenGstEdit = () => {
-    if (!sale) return;
-    setEditGstRequired(!!sale.isGstRequired);
-    setEditGstInvoiceNumber(sale.gstInvoiceNumber || "");
-    setIsGstEditVisible(true);
-  };
-
-  const handleSaveGst = () => {
-    if (!sale) return;
-    updateGstMutation.mutate({
+    issueInvoiceMutation.mutate({
       saleId: sale.id,
-      gstRequired: editGstRequired,
-      gstInvoiceNumber: editGstRequired ? editGstInvoiceNumber.trim() : null
+      data: { invoiceNumber: invoiceNumber.trim() }
     }, {
       onSuccess: () => {
-        setIsGstEditVisible(false);
-        Alert.alert("Success", "GST details updated successfully!");
+        setIsInvoiceModalVisible(false);
+        Alert.alert("Success", "GST Invoice issued successfully!");
       },
       onError: (err: any) => {
-        Alert.alert("Error", err.message || "Failed to update GST details");
+        Alert.alert("Error", err.message || "Failed to issue invoice");
       }
     });
+  };
+
+  const handleCancelInvoice = () => {
+    if (!sale || !sale.gstInvoiceNumber) return;
+    Alert.alert(
+      "Cancel GST Invoice",
+      `Are you sure you want to cancel the invoice #${sale.gstInvoiceNumber}?`,
+      [
+        { text: "No", style: "cancel" },
+        {
+          text: "Yes, Cancel",
+          style: "destructive",
+          onPress: () => {
+            cancelInvoiceMutation.mutate({
+              saleId: sale.id
+            }, {
+              onSuccess: () => {
+                Alert.alert("Success", "GST Invoice cancelled.");
+              },
+              onError: (err: any) => {
+                Alert.alert("Error", err.message || "Failed to cancel invoice");
+              }
+            });
+          }
+        }
+      ]
+    );
   };
 
   if (saleQuery.isLoading) return <SkeletonList count={5} />;
@@ -342,13 +267,22 @@ export function SaleDetail() {
                   : "No GST invoice required for this transaction"}
               </Text>
             </View>
-            {user?.role === "OWNER" && (
-              <Button
-                label="EDIT"
-                variant="ghost"
-                onPress={handleOpenGstEdit}
-                style={styles.gstEditBtn}
-              />
+            {user?.role === "OWNER" && sale.isGstRequired && (
+              sale.gstInvoiceNumber ? (
+                <Button
+                  label="CANCEL"
+                  variant="danger"
+                  onPress={handleCancelInvoice}
+                  style={styles.gstEditBtn}
+                />
+              ) : (
+                <Button
+                  label="ISSUE"
+                  variant="ghost"
+                  onPress={handleOpenIssueInvoice}
+                  style={styles.gstEditBtn}
+                />
+              )
             )}
           </View>
         </View>
@@ -359,7 +293,7 @@ export function SaleDetail() {
             <Button
               label="EDIT ITEMS"
               variant="ghost"
-              onPress={handleOpenItemsEdit}
+              onPress={() => navigation.navigate("EditSale", { saleId: sale.id })}
               style={styles.itemsEditBtn}
             />
           )}
@@ -577,206 +511,49 @@ export function SaleDetail() {
 
       <Portal>
         <Modal
-          visible={isGstEditVisible}
-          onDismiss={() => setIsGstEditVisible(false)}
+          visible={isInvoiceModalVisible}
+          onDismiss={() => setIsInvoiceModalVisible(false)}
           contentContainerStyle={styles.editModal}
         >
           <View style={styles.modalIcon}>
             <Icon source="file-percent-outline" size={48} color={colors.primary} />
           </View>
-          <Text style={styles.modalTitle}>Edit GST Details</Text>
+          <Text style={styles.modalTitle}>Issue GST Invoice</Text>
           <Divider style={styles.modalDivider} />
 
           <View style={styles.modalForm}>
-            <View style={styles.modalSwitchRow}>
-              <Text style={styles.modalLabel}>GST Required</Text>
-              <Switch
-                value={editGstRequired}
-                onValueChange={setEditGstRequired}
-                color={colors.primary}
-              />
-            </View>
-
-            {editGstRequired && (
-              <PaperTextInput
-                mode="outlined"
-                label="GST Invoice Number"
-                value={editGstInvoiceNumber}
-                onChangeText={setEditGstInvoiceNumber}
-                style={styles.modalInput}
-                outlineColor={colors.border}
-                activeOutlineColor={colors.primary}
-                textColor={colors.textPrimary}
-                placeholder="e.g. VS-2026-145"
-                autoCapitalize="characters"
-              />
-            )}
+            <PaperTextInput
+              mode="outlined"
+              label="Tally Invoice Number"
+              value={invoiceNumber}
+              onChangeText={setInvoiceNumber}
+              style={styles.modalInput}
+              outlineColor={colors.border}
+              activeOutlineColor={colors.primary}
+              textColor={colors.textPrimary}
+              placeholder="e.g. VS-2026-145"
+              autoCapitalize="characters"
+            />
           </View>
 
           <View style={styles.modalActionsRow}>
             <Button
               label="CANCEL"
               variant="ghost"
-              onPress={() => setIsGstEditVisible(false)}
+              onPress={() => setIsInvoiceModalVisible(false)}
               style={{ flex: 1 }}
             />
             <Button
-              label="SAVE"
+              label="ISSUE"
               variant="primary"
-              loading={updateGstMutation.isPending}
-              disabled={updateGstMutation.isPending}
-              onPress={handleSaveGst}
+              loading={issueInvoiceMutation.isPending}
+              disabled={issueInvoiceMutation.isPending || !invoiceNumber.trim()}
+              onPress={handleConfirmIssueInvoice}
               style={{ flex: 1.5 }}
             />
           </View>
         </Modal>
-              <Modal
-            visible={isItemsEditVisible}
-            onDismiss={() => setIsItemsEditVisible(false)}
-            contentContainerStyle={styles.editItemsModal}
-          >
-            <View style={styles.modalIcon}>
-              <Icon source="format-list-bulleted" size={48} color={colors.primary} />
-            </View>
-            <Text style={styles.modalTitle}>Edit Sale Items</Text>
-            <Divider style={styles.modalDivider} />
-
-            {/* Product Search & Add Row */}
-            <View style={{ width: "100%", gap: spacing.xs, zIndex: 1000 }}>
-              <PaperTextInput
-                mode="outlined"
-                label="Search products to add..."
-                value={productSearch}
-                onChangeText={setProductSearch}
-                placeholder="Type product name or SKU"
-                style={styles.modalInput}
-                outlineColor={colors.border}
-                activeOutlineColor={colors.primary}
-                textColor={colors.textPrimary}
-                right={<PaperTextInput.Icon icon="magnify" color={colors.textSecondary} />}
-              />
-              {filteredProducts.length > 0 && (
-                <View style={styles.suggestionsContainer}>
-                  {filteredProducts.map((prod: any) => (
-                    <Pressable
-                      key={prod.id}
-                      onPress={() => handleAddProduct(prod)}
-                      style={({ pressed }) => [
-                        styles.suggestionRow,
-                        pressed && styles.suggestionRowPressed
-                      ]}
-                    >
-                      <Text style={styles.suggestionName}>{prod.name}</Text>
-                      <Text style={styles.suggestionPrice}>{money(prod.defaultSellingPrice)}</Text>
-                    </Pressable>
-                  ))}
-                </View>
-              )}
-            </View>
-
-            <ScrollView style={styles.editItemsScroll} contentContainerStyle={{ gap: spacing.md }}>
-              {editItems.map((item, index) => {
-                const handleQtyChange = (val: string) => {
-                  setEditItems(prev => prev.map((it, idx) => idx === index ? { ...it, quantity: val } : it));
-                };
-                const handleRateChange = (val: string) => {
-                  setEditItems(prev => prev.map((it, idx) => idx === index ? { ...it, rate: val } : it));
-                };
-                const handleRemove = () => {
-                  setEditItems(prev => prev.filter((_, idx) => idx !== index));
-                };
-                const handleIncrement = () => {
-                  const cur = Number(item.quantity) || 0;
-                  handleQtyChange(String(cur + 1));
-                };
-                const handleDecrement = () => {
-                  const cur = Number(item.quantity) || 0;
-                  handleQtyChange(String(Math.max(1, cur - 1)));
-                };
-
-                return (
-                  <View key={item.itemId + index} style={styles.editItemRow}>
-                    <View style={{ flex: 1, gap: spacing.xs }}>
-                      <Text style={styles.editItemName} numberOfLines={1}>{item.name}</Text>
-                      <View style={{ flexDirection: "row", gap: spacing.sm, alignItems: "center" }}>
-                        <View style={styles.qtyContainer}>
-                          <Pressable onPress={handleDecrement} style={styles.qtyBtn}>
-                            <Text style={styles.qtyBtnText}>-</Text>
-                          </Pressable>
-                          <PaperTextInput
-                            mode="flat"
-                            value={item.quantity}
-                            onChangeText={handleQtyChange}
-                            keyboardType="numeric"
-                            style={styles.qtyInput}
-                            underlineColor="transparent"
-                            activeUnderlineColor="transparent"
-                            dense
-                          />
-                          <Pressable onPress={handleIncrement} style={styles.qtyBtn}>
-                            <Text style={styles.qtyBtnText}>+</Text>
-                          </Pressable>
-                        </View>
-
-                        <PaperTextInput
-                          mode="outlined"
-                          label="Rate (₹)"
-                          value={item.rate}
-                          onChangeText={handleRateChange}
-                          keyboardType="numeric"
-                          style={styles.rateInput}
-                          outlineColor={colors.border}
-                          activeOutlineColor={colors.primary}
-                          dense
-                        />
-                      </View>
-                    </View>
-
-                    <Pressable onPress={handleRemove} style={styles.removeBtn}>
-                      <Icon source="trash-can-outline" size={22} color={colors.danger} />
-                    </Pressable>
-                  </View>
-                );
-              })}
-
-              {editItems.length === 0 && (
-                <Text style={styles.emptyText}>No items. Add products using search above.</Text>
-              )}
-
-              <Divider style={styles.modalDivider} />
-
-              <PaperTextInput
-                mode="outlined"
-                label="Overall Discount (₹)"
-                value={editDiscountAmount}
-                onChangeText={setEditDiscountAmount}
-                keyboardType="numeric"
-                style={styles.modalInput}
-                outlineColor={colors.border}
-                activeOutlineColor={colors.primary}
-                textColor={colors.textPrimary}
-                placeholder="0"
-              />
-            </ScrollView>
-
-            <View style={styles.modalActionsRow}>
-              <Button
-                label="CANCEL"
-                variant="ghost"
-                onPress={() => setIsItemsEditVisible(false)}
-                style={{ flex: 1 }}
-              />
-              <Button
-                label="SAVE CHANGES"
-                variant="primary"
-                loading={updateSaleMutation.isPending}
-                disabled={updateSaleMutation.isPending || editItems.length === 0}
-                onPress={handleSaveItems}
-                style={{ flex: 1.5 }}
-              />
-            </View>
-          </Modal>
-        </Portal>
+      </Portal>
     </Screen>
   );
 }

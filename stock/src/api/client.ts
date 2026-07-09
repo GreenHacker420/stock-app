@@ -241,6 +241,7 @@ export type ChequePayment = Payment & {
 
 export type Sale = {
   id: string;
+  version: number;
   saleNumber: string;
   shopId: string;
   customerId?: string | null;
@@ -533,6 +534,48 @@ export async function updateSale(token: string, saleId: string, data: {
     method: "PATCH",
     token,
     body: JSON.stringify(data),
+  });
+}
+
+export async function amendSale(token: string, saleId: string, data: {
+  expectedVersion: number;
+  reason: string;
+  items: Array<{
+    itemId: string;
+    quantity: number;
+    rate: number;
+    discountAmount?: number;
+    serialNumbers?: string[];
+    description?: string;
+  }>;
+  discountAmount?: number;
+  notes?: string;
+}) {
+  return apiRequest<Sale>(`/sales/${saleId}/amendments`, {
+    method: "POST",
+    token,
+    body: JSON.stringify(data),
+  });
+}
+
+export async function issueInvoice(token: string, saleId: string, data: {
+  invoiceNumber: string;
+  issuedAt?: string | Date;
+}) {
+  return apiRequest<any>(`/sales/${saleId}/invoice`, {
+    method: "POST",
+    token,
+    body: JSON.stringify(data),
+  });
+}
+
+export async function cancelInvoice(token: string, saleId: string, data?: {
+  reason?: string;
+}) {
+  return apiRequest<any>(`/sales/${saleId}/invoice/cancel`, {
+    method: "POST",
+    token,
+    body: JSON.stringify(data || {}),
   });
 }
 

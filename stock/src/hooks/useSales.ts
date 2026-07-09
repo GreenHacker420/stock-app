@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from "@tansta
 import { useAuthStore } from "../auth/auth-store";
 import { useShopStore } from "../auth/shop-store";
 import { queryKeys } from "./query-keys";
-import { fetchSales, fetchSale, createSale, createWalkInSale, CreateSalePayload, updateSaleGst, updateSale } from "../api/client";
+import { fetchSales, fetchSale, createSale, createWalkInSale, CreateSalePayload, updateSaleGst, updateSale, amendSale, issueInvoice, cancelInvoice } from "../api/client";
 import { newIdempotencyKey } from "../utils/idempotency";
 import { requireActiveShopId } from "./useActiveShop";
 
@@ -141,6 +141,59 @@ export function useUpdateSaleMutation() {
         queryClient.invalidateQueries({ queryKey: ["owner-dashboard"] });
         queryClient.invalidateQueries({ queryKey: ["current-stock", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["item-stock"] });
+      }
+    },
+  });
+}
+
+export function useAmendSaleMutation() {
+  const token = useAuthStore((state) => state.token);
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ saleId, data }: { saleId: string; data: any }) =>
+      amendSale(token ?? "", saleId, data),
+    onSuccess: (updatedSale) => {
+      if (activeShopId) {
+        queryClient.invalidateQueries({ queryKey: ["sales", activeShopId] });
+        queryClient.invalidateQueries({ queryKey: ["sale", updatedSale.id] });
+        queryClient.invalidateQueries({ queryKey: ["owner-dashboard"] });
+        queryClient.invalidateQueries({ queryKey: ["current-stock", activeShopId] });
+        queryClient.invalidateQueries({ queryKey: ["item-stock"] });
+      }
+    },
+  });
+}
+
+export function useIssueInvoiceMutation() {
+  const token = useAuthStore((state) => state.token);
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ saleId, data }: { saleId: string; data: any }) =>
+      issueInvoice(token ?? "", saleId, data),
+    onSuccess: (_, variables) => {
+      if (activeShopId) {
+        queryClient.invalidateQueries({ queryKey: ["sales", activeShopId] });
+        queryClient.invalidateQueries({ queryKey: ["sale", variables.saleId] });
+        queryClient.invalidateQueries({ queryKey: ["owner-dashboard"] });
+      }
+    },
+  });
+}
+
+export function useCancelInvoiceMutation() {
+  const token = useAuthStore((state) => state.token);
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ saleId, data }: { saleId: string; data?: any }) =>
+      cancelInvoice(token ?? "", saleId, data),
+    onSuccess: (_, variables) => {
+      if (activeShopId) {
+        queryClient.invalidateQueries({ queryKey: ["sales", activeShopId] });
+        queryClient.invalidateQueries({ queryKey: ["sale", variables.saleId] });
+        queryClient.invalidateQueries({ queryKey: ["owner-dashboard"] });
       }
     },
   });

@@ -26,6 +26,7 @@ import { ItemDetail } from "./screens/items/ItemDetail";
 import { ItemList } from "./screens/items/ItemList";
 import { StorageManagement } from "./screens/StorageManagement";
 import { SaleDetail, SalesList } from "./screens/OwnerSales";
+import { EditSale } from "./screens/EditSale";
 import { AddEditStaff, StaffManagement, StaffDetail } from "./screens/OwnerStaff";
 import {
   GenericPlannedScreen,
@@ -314,6 +315,10 @@ const OwnerTabs = createBottomTabNavigator({
 });
 
 const sharedStackScreens = {
+  EditSale: {
+    screen: EditSale,
+    options: { title: "Edit Sale Workspace" },
+  },
   NotFound: {
     screen: NotFound,
     options: { title: "404" },
@@ -655,6 +660,7 @@ export type RootStackParamList = {
   PriceHistory: undefined;
   SalesList: { filter?: string };
   SaleDetail: { id: string };
+  EditSale: { saleId: string };
   ChequeList: undefined;
   ChequeDetail: undefined;
   CustomerList: undefined;

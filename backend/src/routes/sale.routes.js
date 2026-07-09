@@ -62,19 +62,46 @@ const listSchema = z.object({
 const updateSaleSchema = z.object({
   params: idParams,
   body: z.object({
-    gstRequired: z.boolean().optional(),
-    gstInvoiceNumber: z.string().nullable().optional(),
     notes: z.string().optional(),
     items: z.array(saleItemSchema).optional(),
     discountAmount: z.coerce.number().nonnegative().optional(),
+    gstRequired: z.boolean().optional(),
   }),
+});
+
+const amendSchema = z.object({
+  params: idParams,
+  body: z.object({
+    expectedVersion: z.coerce.number().int().nonnegative(),
+    reason: z.string().min(1),
+    items: z.array(saleItemSchema).min(1),
+    discountAmount: z.coerce.number().nonnegative().optional(),
+    notes: z.string().optional(),
+  }),
+});
+
+const issueInvoiceSchema = z.object({
+  params: idParams,
+  body: z.object({
+    invoiceNumber: z.string().min(1),
+    issuedAt: z.coerce.date().optional(),
+  }),
+});
+
+const cancelInvoiceSchema = z.object({
+  params: idParams,
+  body: z.object({
+    reason: z.string().optional(),
+  }).optional(),
 });
 
 router.use(requireAuth);
 router.get("/", requirePermission(PERMISSIONS.SALE_VIEW_OWN), validate(listSchema), saleController.listSales);
 router.get("/:id", requirePermission(PERMISSIONS.SALE_VIEW_OWN), validate(z.object({ params: idParams })), saleController.getSale);
 router.post("/", requirePermission(PERMISSIONS.SALE_CREATE), validate(createSchema), saleController.createSale);
-router.patch("/:id", requirePermission(PERMISSIONS.SALE_CREATE), validate(updateSaleSchema), saleController.updateSale);
-router.patch("/:id/gst", requirePermission(PERMISSIONS.SALE_VIEW_ALL), validate(z.object({ params: idParams, body: z.object({ gstRequired: z.boolean().optional(), gstInvoiceNumber: z.string().nullable().optional() }) })), saleController.updateGstInvoice);
+router.patch("/:id", requirePermission(PERMISSIONS.SALE_EDIT_DRAFT), validate(updateSaleSchema), saleController.updateSale);
+router.post("/:id/amendments", requirePermission(PERMISSIONS.SALE_AMEND_CONFIRMED), validate(amendSchema), saleController.amendSale);
+router.post("/:id/invoice", requirePermission(PERMISSIONS.INVOICE_ISSUE), validate(issueInvoiceSchema), saleController.issueInvoice);
+router.post("/:id/invoice/cancel", requirePermission(PERMISSIONS.INVOICE_CANCEL), validate(cancelInvoiceSchema), saleController.cancelInvoice);
 
 export default router;

@@ -27,7 +27,8 @@ export async function runSecurityDiagnostics(
     onProgress("Initializing Play Integrity Provider...");
     try {
       // Use standard Google Cloud Project Number placeholder.
-      await AppIntegrity.prepareIntegrityTokenProviderAsync("474633049000");
+      const projectNumber = process.env.EXPO_PUBLIC_PLAY_INTEGRITY_GCP_PROJECT_NUMBER || "474633049000";
+      await AppIntegrity.prepareIntegrityTokenProviderAsync(projectNumber);
       
       onProgress("Checking hardware attestation...");
       result.hardwareAttestation = await AppIntegrity.isHardwareAttestationSupportedAsync();
