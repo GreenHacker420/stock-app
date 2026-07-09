@@ -66,6 +66,7 @@ const updateSaleSchema = z.object({
     items: z.array(saleItemSchema).optional(),
     discountAmount: z.coerce.number().nonnegative().optional(),
     gstRequired: z.boolean().optional(),
+    gstInvoiceNumber: z.string().nullable().optional(),
   }),
 });
 
@@ -77,6 +78,8 @@ const amendSchema = z.object({
     items: z.array(saleItemSchema).min(1),
     discountAmount: z.coerce.number().nonnegative().optional(),
     notes: z.string().optional(),
+    gstRequired: z.boolean().optional(),
+    gstInvoiceNumber: z.string().nullable().optional(),
   }),
 });
 

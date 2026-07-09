@@ -297,67 +297,127 @@ export async function getSale(user, id) {
 export async function updateSale(user, id, data) {
   const sale = await prisma.sale.findUnique({
     where: { id },
-    include: { items: true }
+    include: { items: true, payments: true }
   });
   if (!sale) throw new ApiError(404, "Sale not found");
   await assertShopAccess(user, sale.shopId);
 
+  const hasItemsChanged = (data.items !== undefined || data.discountAmount !== undefined);
+
   if (sale.saleStatus !== "DRAFT") {
-    throw new ApiError(400, "Cannot directly edit a confirmed sale. Use the amendments endpoint instead.");
+    if (user.role !== "OWNER") {
+      throw new ApiError(403, "Only owners can edit confirmed sales");
+    }
+    if (hasItemsChanged) {
+      throw new ApiError(400, "Cannot directly edit a confirmed sale. Use the amendments endpoint instead.");
+    }
   }
 
   return prisma.$transaction(async (tx) => {
-    let updatedItems = sale.items;
-    if (data.items) {
-      updatedItems = data.items;
+    let newItems = [];
+    let subtotalVal = sale.subtotal;
+    let discountVal = sale.discountAmount;
+    let totalVal = sale.totalAmount;
+    let balanceVal = sale.balanceAmount;
+    let newPaymentStatus = sale.paymentStatus;
+
+    if (hasItemsChanged) {
+      let updatedItems = sale.items;
+      if (data.items) {
+        updatedItems = data.items;
+      }
+
+      const { items: processedItems, subtotal: computedSubtotal, totalAmount: computedTotal } = calculateItemTotals(
+        updatedItems.map(item => ({
+          itemId: item.itemId,
+          quantity: item.quantity,
+          rate: item.rate,
+          discountAmount: item.discountAmount || 0,
+          serialNumbers: item.serialNumbers,
+          description: item.description,
+        }))
+      );
+
+      newItems = processedItems;
+      const newDiscountAmount = data.discountAmount !== undefined ? data.discountAmount : Number(sale.discountAmount);
+      const newTotalAmount = Math.max(0, Number(computedSubtotal) - Number(newDiscountAmount));
+
+      subtotalVal = money(computedSubtotal);
+      discountVal = money(newDiscountAmount);
+      totalVal = money(newTotalAmount);
+
+      const paidAmount = sale.payments
+        .filter(p => p.status === "VERIFIED" || p.status === "APPROVED" || p.status === "RECEIVED")
+        .reduce((sum, p) => sum + Number(p.amount), 0);
+      const paidVal = money(paidAmount);
+      balanceVal = money(Math.max(0, newTotalAmount - paidAmount));
+      newPaymentStatus = getBillPaymentStatus(totalVal, paidVal);
+
+      await tx.saleItem.deleteMany({ where: { saleId: sale.id } });
     }
 
-    const { items: newItems, subtotal, discountAmount: itemsDiscount, totalAmount } = calculateItemTotals(
-      updatedItems.map(item => ({
-        itemId: item.itemId,
-        quantity: item.quantity,
-        rate: item.rate,
-        discountAmount: item.discountAmount || 0,
-        serialNumbers: item.serialNumbers,
-        description: item.description,
-      }))
-    );
-
-    const newDiscountAmount = data.discountAmount !== undefined ? data.discountAmount : Number(sale.discountAmount);
-    const newSubtotal = subtotal;
-    const newTotalAmount = Math.max(0, Number(newSubtotal) - Number(newDiscountAmount));
-
-    await tx.saleItem.deleteMany({ where: { saleId: sale.id } });
-
-    const totalVal = money(newTotalAmount);
-    const subtotalVal = money(newSubtotal);
-    const discountVal = money(newDiscountAmount);
+    const newGstRequired = data.gstRequired !== undefined ? data.gstRequired : sale.gstRequired;
+    let newGstInvoiceNumber = data.gstInvoiceNumber !== undefined ? data.gstInvoiceNumber : sale.gstInvoiceNumber;
+    let newGstStatus = "NOT_REQUIRED";
+    if (newGstRequired) {
+      newGstStatus = newGstInvoiceNumber ? "GENERATED" : "PENDING";
+    } else {
+      newGstInvoiceNumber = null;
+    }
 
     const updatedSale = await tx.sale.update({
       where: { id: sale.id },
       data: {
+        gstRequired: newGstRequired,
+        gstInvoiceStatus: newGstStatus,
+        gstInvoiceNumber: newGstInvoiceNumber,
+        gstInvoiceGeneratedAt: newGstInvoiceNumber ? (sale.gstInvoiceGeneratedAt || new Date()) : null,
         subtotal: subtotalVal,
         discountAmount: discountVal,
         totalAmount: totalVal,
-        balanceAmount: totalVal,
-        gstRequired: data.gstRequired !== undefined ? data.gstRequired : sale.gstRequired,
-        items: {
-          create: newItems.map((item) => {
-            const snList = item.serialNumbers || [];
-            const desc = item.description || (snList.length > 0 ? `S/N: ${snList.join(", ")}` : null);
-            return {
-              itemId: item.itemId,
-              quantity: item.quantity,
-              rate: money(item.rate),
-              discountAmount: money(item.discountAmount),
-              totalAmount: money(item.lineTotal),
-              serialNumbers: snList.length > 0 ? snList : null,
-              description: desc,
-            };
-          }),
-        },
+        balanceAmount: balanceVal,
+        paymentStatus: newPaymentStatus,
+        saleStatus: (sale.saleStatus !== "DRAFT") ? sale.saleStatus : (newPaymentStatus === "PAID" ? "PAID" : "DRAFT"),
+        ...(hasItemsChanged ? {
+          items: {
+            create: newItems.map((item) => {
+              const snList = item.serialNumbers || [];
+              const desc = item.description || (snList.length > 0 ? `S/N: ${snList.join(", ")}` : null);
+              return {
+                itemId: item.itemId,
+                quantity: item.quantity,
+                rate: money(item.rate),
+                discountAmount: money(item.discountAmount),
+                totalAmount: money(item.lineTotal),
+                serialNumbers: snList.length > 0 ? snList : null,
+                description: desc,
+              };
+            }),
+          },
+        } : {})
       },
       include: { customer: true, items: { include: { item: true } }, payments: true },
+    });
+
+    await tx.auditLog.create({
+      data: {
+        userId: user.id,
+        shopId: sale.shopId,
+        action: AuditAction.UPDATED,
+        entityType: EntityType.SALE,
+        entityId: sale.id,
+        reason: `Sale updated by ${user.role}. GST Required: ${newGstRequired}, Invoice Number: ${newGstInvoiceNumber || "None"}. Notes: ${data.notes || "None"}`,
+      },
+    });
+
+    await enqueueDomainEvent(tx, {
+      shopId: sale.shopId,
+      entity: "sale",
+      action: "updated",
+      entityId: sale.id,
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: true },
     });
 
     return updatedSale;
@@ -517,9 +577,22 @@ export async function amendSale(user, id, data) {
     // 8. Replace SaleItem records
     await tx.saleItem.deleteMany({ where: { saleId: sale.id } });
 
+    const newGstRequired = data.gstRequired !== undefined ? data.gstRequired : sale.gstRequired;
+    let newGstInvoiceNumber = data.gstInvoiceNumber !== undefined ? data.gstInvoiceNumber : sale.gstInvoiceNumber;
+    let newGstStatus = "NOT_REQUIRED";
+    if (newGstRequired) {
+      newGstStatus = newGstInvoiceNumber ? "GENERATED" : "PENDING";
+    } else {
+      newGstInvoiceNumber = null;
+    }
+
     const updatedSale = await tx.sale.update({
       where: { id: sale.id },
       data: {
+        gstRequired: newGstRequired,
+        gstInvoiceStatus: newGstStatus,
+        gstInvoiceNumber: newGstInvoiceNumber,
+        gstInvoiceGeneratedAt: newGstInvoiceNumber ? (sale.gstInvoiceGeneratedAt || new Date()) : null,
         subtotal: subtotalVal,
         discountAmount: discountVal,
         totalAmount: totalVal,

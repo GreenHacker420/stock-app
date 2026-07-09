@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { View, StyleSheet, Pressable, ScrollView, Alert, ActivityIndicator } from "react-native";
+import { View, StyleSheet, Pressable, ScrollView, Alert, ActivityIndicator, Switch, Platform } from "react-native";
 import { Divider, Text, Icon, TextInput as PaperTextInput } from "react-native-paper";
 import { useRoute, useNavigation } from "@react-navigation/native";
 
@@ -32,6 +32,7 @@ export function EditSale() {
   const [productSearch, setProductSearch] = useState("");
   const [initialized, setInitialized] = useState(false);
   const [isReviewing, setIsReviewing] = useState(false);
+  const [gstRequired, setGstRequired] = useState(false);
 
   // Initialize form fields once sale data is loaded
   if (sale && !initialized) {
@@ -47,6 +48,7 @@ export function EditSale() {
       }))
     );
     setEditDiscountAmount(String(sale.discountAmount || 0));
+    setGstRequired(sale.gstRequired || false);
     setInitialized(true);
   }
 
@@ -169,6 +171,7 @@ export function EditSale() {
         data: {
           items: formattedItems,
           discountAmount: Number(editDiscountAmount || 0),
+          gstRequired,
         }
       }, {
         onSuccess: () => {
@@ -192,6 +195,7 @@ export function EditSale() {
         items: formattedItems,
         discountAmount: Number(editDiscountAmount || 0),
         notes: sale.notes || undefined,
+        gstRequired,
       }
     }, {
       onSuccess: () => {
@@ -459,6 +463,16 @@ export function EditSale() {
             activeOutlineColor={colors.primary}
             textColor={colors.textPrimary}
           />
+          <Divider style={styles.divider} />
+          <View style={[styles.impactRow, { paddingVertical: spacing.xs, alignItems: "center" }]}>
+            <Text style={styles.impactLabel}>GST Invoice Required</Text>
+            <Switch
+              value={gstRequired}
+              onValueChange={setGstRequired}
+              trackColor={{ false: colors.border, true: colors.warning }}
+              thumbColor={Platform.OS === 'android' ? (gstRequired ? colors.warning : '#f4f3f4') : undefined}
+            />
+          </View>
           <Divider style={styles.divider} />
           <View style={styles.impactRow}>
             <Text style={styles.boldText}>New Total</Text>
