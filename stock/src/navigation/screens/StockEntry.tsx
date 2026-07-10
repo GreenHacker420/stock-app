@@ -8,7 +8,7 @@ import {
   Alert,
   Keyboard,
 } from "react-native";
-import { useRoute } from "@react-navigation/native";
+import { useRoute, useNavigation } from "@react-navigation/native";
 import { Text, Icon } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 
@@ -158,6 +158,7 @@ const ItemRow = memo(
 // ── Main Screen ───────────────────────────────────────────────────────────────
 export function StockEntry() {
   const route       = useRoute();
+  const navigation  = useNavigation();
   const user        = useAuthStore((s) => s.user);
   const activeShopId = useShopStore((s) => s.activeShopId);
   const isStaff     = user?.role === "STAFF";
@@ -195,6 +196,18 @@ export function StockEntry() {
     () => itemsQuery.data?.items ?? [],
     [itemsQuery.data?.items]
   );
+
+  useEffect(() => {
+    const unsubscribe = navigation.addListener("focus", () => {
+      itemsQuery.refetch();
+      stockQuery.refetch();
+      categoriesQuery.refetch();
+      if (specificItemId) {
+        specificItemQuery.refetch();
+      }
+    });
+    return unsubscribe;
+  }, [navigation, itemsQuery, stockQuery, categoriesQuery, specificItemQuery, specificItemId]);
 
   const [debSearch, setDebSearch] = useState("");
   useEffect(() => {

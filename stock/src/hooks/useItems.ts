@@ -173,6 +173,7 @@ export function useUpdateItemMutation() {
       updateItem(token ?? "", id, data),
     onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: ["items"] });
+      queryClient.invalidateQueries({ queryKey: ["item", id] });
       queryClient.invalidateQueries({ queryKey: ["item-price-history", id] });
       queryClient.invalidateQueries({ queryKey: ["item-price-change-history", id] });
       queryClient.invalidateQueries({ queryKey: ["item-stock", id] });

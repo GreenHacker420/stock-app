@@ -127,6 +127,16 @@ export function ItemList() {
     enabled: !isGridMode && !isDebouncePending,
   });
 
+  useEffect(() => {
+    const unsubscribe = navigation.addListener("focus", () => {
+      listQuery.refetch();
+      summaryQuery.refetch();
+      categoriesQuery.refetch();
+      brandsQuery.refetch();
+    });
+    return unsubscribe;
+  }, [navigation, listQuery, summaryQuery, categoriesQuery, brandsQuery]);
+
   const allItems: Item[] = useMemo(() => {
     return listQuery.data?.items ?? [];
   }, [listQuery.data]);

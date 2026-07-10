@@ -54,6 +54,37 @@ type BundleComponentForm = {
   quantity: string;
 };
 
+const STOP_WORDS = new Set([
+  "toner", "cartridge", "ink", "drum", "unit", "parts", "with", "chip", "color",
+  "black", "cyan", "yellow", "magenta", "original", "refill", "easyrefill", "easy",
+  "laser", "copier", "photocopier", "group", "sales", "brand", "printer", "for",
+  "use", "new", "compatible", "pantum", "brother", "canon", "epson", "hp", "samsung"
+]);
+
+function extractModels(name: string): string[] {
+  const tokens = name.toLowerCase().split(/[\s,.\-_/()]+/);
+  const models: string[] = [];
+
+  for (const token of tokens) {
+    if (!token) continue;
+
+    const hasDigit = /\d/.test(token);
+    if (!hasDigit) continue;
+
+    const isWeightOrYield = /^\d+(g|ml|k|pcs|pk|p|pages|ml|l|oz|v|w|ah|amp)$/.test(token);
+    if (isWeightOrYield) continue;
+
+    if (token.length >= 2 && token.length <= 12) {
+      const normalized = token.replace(/[^a-z0-9]/g, "");
+      if (normalized && !models.includes(normalized)) {
+        models.push(normalized);
+      }
+    }
+  }
+
+  return models;
+}
+
 export function AddEditItem() {
   const route = useRoute();
   const navigation = useNavigation<any>();
@@ -426,17 +457,33 @@ export function AddEditItem() {
         continue;
       }
 
-      // 3. Check highly similar Name
+      // 3. Check highly similar Name using model numbers
       if (trimmedName && trimmedName.length > 3 && itemName.length > 3) {
-        const aWords = trimmedName.split(/\s+/).filter(w => w.length > 2);
-        const bWords = itemName.split(/\s+/).filter(w => w.length > 2);
-        const sharedWords = aWords.filter(w => bWords.includes(w));
-        
-        const isSubstring = itemName.includes(trimmedName) || trimmedName.includes(itemName);
-        const highWordOverlap = aWords.length > 0 && sharedWords.length >= Math.ceil(aWords.length * 0.6);
+        const modelsA = extractModels(trimmedName);
+        const modelsB = extractModels(itemName);
 
-        if (isSubstring || highWordOverlap) {
-          found.push({ item, reason: "similar_name" });
+        if (modelsA.length > 0 && modelsB.length > 0) {
+          // If both have model numbers, check if any models match/overlap
+          const modelOverlap = modelsA.some(mA => 
+            modelsB.some(mB => mA === mB || mA.includes(mB) || mB.includes(mA))
+          );
+          if (modelOverlap) {
+            found.push({ item, reason: "similar_name" });
+          }
+        } else {
+          // Fallback: if no models are found, do stopword filtered token overlap check
+          const aWords = trimmedName.split(/[\s,.\-_/()]+/).filter(w => w.length > 2 && !STOP_WORDS.has(w));
+          const bWords = itemName.split(/[\s,.\-_/()]+/).filter(w => w.length > 2 && !STOP_WORDS.has(w));
+
+          if (aWords.length > 0 && bWords.length > 0) {
+            const sharedWords = aWords.filter(w => bWords.includes(w));
+            const isSubstring = itemName.includes(trimmedName) || trimmedName.includes(itemName);
+            const highWordOverlap = aWords.length > 0 && sharedWords.length >= Math.ceil(aWords.length * 0.6);
+
+            if (isSubstring || highWordOverlap) {
+              found.push({ item, reason: "similar_name" });
+            }
+          }
         }
       }
     }
