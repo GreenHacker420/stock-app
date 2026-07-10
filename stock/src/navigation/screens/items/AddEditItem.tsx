@@ -552,11 +552,14 @@ export function AddEditItem() {
         return false;
       }
 
-      const similarDuplicate = duplicates.find((d) => d.reason === "similar_name");
+      const similarDuplicate = duplicates.find(
+        (d) => d.reason === "similar_name" || d.reason === "possible_match"
+      );
       if (similarDuplicate) {
+        const confidence = similarDuplicate.reason === "similar_name" ? "highly" : "possibly";
         Alert.alert(
           "Similar Product Exists",
-          `A highly similar product "${similarDuplicate.item.name}" already exists (SKU: ${similarDuplicate.item.sku || "No SKU"}). Would you still like to create this product?`,
+          `A ${confidence} similar product "${similarDuplicate.item.name}" already exists (SKU: ${similarDuplicate.item.sku || "No SKU"}). Would you still like to create this product?`,
           [
             { text: "Cancel", style: "cancel" },
             { text: "Create Anyway", onPress: () => void handleSave(addAnother, true, afterSuccess) }
@@ -926,22 +929,35 @@ export function AddEditItem() {
               />
             </View>
 
-            {duplicates.length > 0 && (
+            {/* Semantic duplicate warnings — powered by server-side all-MiniLM-L6-v2 */}
+            {(duplicates.length > 0 || duplicatesFetching) && (
               <View style={styles.warningContainer}>
                 <View style={styles.warningHeader}>
-                  <Icon source="alert-circle-outline" size={18} color="#b45309" />
-                  <Text style={styles.warningTitle}>Potential Duplicate Found</Text>
+                  <Icon
+                    source={duplicatesFetching ? "loading" : "alert-circle-outline"}
+                    size={18}
+                    color={duplicatesFetching ? "#9ca3af" : "#b45309"}
+                  />
+                  <Text style={[
+                    styles.warningTitle,
+                    duplicatesFetching && { color: "#9ca3af" },
+                  ]}>
+                    {duplicatesFetching ? "Checking for duplicates…" : "Potential Duplicate Found"}
+                  </Text>
                 </View>
-                <View style={styles.warningBody}>
-                  {duplicates.map(({ item, reason }) => (
-                    <Text key={item.id} style={styles.warningText}>
-                      • <Text style={styles.boldText}>{item.name}</Text>
-                      {reason === "sku" ? ` already has the SKU "${item.sku}"` : 
-                       reason === "name" ? " matches this product name exactly" : 
-                       ` has a very similar name (SKU: ${item.sku || "No SKU"})`}
-                    </Text>
-                  ))}
-                </View>
+                {!duplicatesFetching && (
+                  <View style={styles.warningBody}>
+                    {duplicates.map(({ item, reason, score }) => (
+                      <Text key={item.id} style={styles.warningText}>
+                        • <Text style={styles.boldText}>{item.name}</Text>
+                        {reason === "sku"           ? ` already has the SKU "${item.sku}"` :
+                         reason === "name"          ? " matches this product name exactly" :
+                         reason === "similar_name"  ? ` is very similar — ${Math.round(score * 100)}% match (SKU: ${item.sku || "No SKU"})` :
+                         ` may be related — ${Math.round(score * 100)}% match (SKU: ${item.sku || "No SKU"})`}
+                      </Text>
+                    ))}
+                  </View>
+                )}
               </View>
             )}
           </View>
