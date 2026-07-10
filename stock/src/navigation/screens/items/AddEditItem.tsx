@@ -205,6 +205,12 @@ export function AddEditItem() {
       if (hydratedItemIdRef.current !== null) {
         hydratedItemIdRef.current = null;
       }
+      if (params?.initialName) {
+        setForm((prev) => ({
+          ...prev,
+          name: params.initialName ?? "",
+        }));
+      }
       return;
     }
 
@@ -249,7 +255,7 @@ export function AddEditItem() {
       );
       hydratedItemIdRef.current = itemId;
     }
-  }, [buildSnapshot, existingItem, itemId]);
+  }, [buildSnapshot, existingItem, itemId, params?.initialName]);
 
   useEffect(() => {
     focusTimerRef.current = setTimeout(() => {

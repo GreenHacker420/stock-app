@@ -729,7 +729,7 @@ export function ItemList() {
                       <Button
                         label="Add Product"
                         icon="plus"
-                        onPress={() => navigate("AddEditItem")}
+                        onPress={() => navigate("AddEditItem", search.trim() ? { initialName: search.trim() } : undefined)}
                       />
                     ) : undefined
                   }
@@ -744,7 +744,7 @@ export function ItemList() {
       {/* FAB */}
       {isOwner && !hasPendingDrafts && (
         <Pressable
-          onPress={() => navigate("AddEditItem")}
+          onPress={() => navigate("AddEditItem", search.trim() ? { initialName: search.trim() } : undefined)}
           style={({ pressed }) => [
             styles.fab,
             { bottom: insets.bottom + spacing.xl },

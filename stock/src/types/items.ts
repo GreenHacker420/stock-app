@@ -2,6 +2,7 @@ import type { Item } from "../api/client";
 
 export type AddEditItemRouteParams = {
   itemId?: string;
+  initialName?: string;
 };
 
 export type ItemDetailRouteParams = {
