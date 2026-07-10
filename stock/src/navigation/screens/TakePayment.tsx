@@ -10,6 +10,7 @@ import {
   Alert,
   Modal as RNModal
 } from "react-native";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import {
   Text,
   Icon,
@@ -123,8 +124,6 @@ export function TakePayment() {
   const [chequeBankName, setChequeBankName] = useState("");
   const [chequeDate, setChequeDate] = useState<Date | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [calendarMonth, setCalendarMonth] = useState(new Date().getMonth());
-  const [calendarYear, setCalendarYear] = useState(new Date().getFullYear());
   const [notes, setNote] = useState("");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successVisible, setSuccessVisible] = useState(false);
@@ -224,8 +223,6 @@ export function TakePayment() {
     setChequeNumber("");
     setChequeBankName("");
     setChequeDate(null);
-    setCalendarMonth(new Date().getMonth());
-    setCalendarYear(new Date().getFullYear());
     setNote("");
     setErrorMsg(null);
     setSelectedCustomer(params.customer || null);
@@ -836,146 +833,57 @@ export function TakePayment() {
         }}
       />
 
-      {/* Calendar Date Picker Modal */}
-      <RNModal
-        visible={showDatePicker}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowDatePicker(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.calendarCard}>
-            {/* Calendar Header */}
-            <View style={styles.calendarHeader}>
-              <Pressable 
-                onPress={() => {
-                  haptic();
-                  if (calendarMonth === 0) {
-                    setCalendarMonth(11);
-                    setCalendarYear(y => y - 1);
-                  } else {
-                    setCalendarMonth(m => m - 1);
+      {/* Native Date Picker Modal (iOS specific container, Android is system native) */}
+      {Platform.OS === 'ios' ? (
+        <RNModal
+          visible={showDatePicker}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowDatePicker(false)}
+        >
+          <View style={styles.iosPickerModalOverlay}>
+            <View style={styles.iosPickerContainer}>
+              <View style={styles.iosPickerHeader}>
+                <Text style={styles.iosPickerTitle}>Select Cheque Date</Text>
+                <Pressable onPress={() => setShowDatePicker(false)} style={styles.closeBtn}>
+                  <Icon source="close" size={20} color={colors.textPrimary} />
+                </Pressable>
+              </View>
+              <DateTimePicker
+                value={chequeDate || new Date()}
+                mode="date"
+                display="spinner"
+                onChange={(event, selectedDate) => {
+                  if (selectedDate) {
+                    setChequeDate(selectedDate);
                   }
                 }}
-                style={styles.calendarNavBtn}
-              >
-                <Icon source="chevron-left" size={24} color={colors.primary} />
-              </Pressable>
-              
-              <Text style={styles.calendarHeaderTitle}>
-                {new Date(calendarYear, calendarMonth).toLocaleDateString("en-IN", { month: "long", year: "numeric" })}
-              </Text>
-
-              <Pressable 
-                onPress={() => {
-                  haptic();
-                  if (calendarMonth === 11) {
-                    setCalendarMonth(0);
-                    setCalendarYear(y => y + 1);
-                  } else {
-                    setCalendarMonth(m => m + 1);
-                  }
-                }}
-                style={styles.calendarNavBtn}
-              >
-                <Icon source="chevron-right" size={24} color={colors.primary} />
-              </Pressable>
-            </View>
-
-            {/* Weekdays Labels */}
-            <View style={styles.weekdaysRow}>
-              {["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"].map(day => (
-                <Text key={day} style={styles.weekdayLabel}>{day}</Text>
-              ))}
-            </View>
-
-            {/* Days Grid */}
-            <View style={styles.daysGrid}>
-              {(() => {
-                const cells = [];
-                // Number of days in calendarMonth
-                const daysInMonth = new Date(calendarYear, calendarMonth + 1, 0).getDate();
-                // 0 = Sunday, 1 = Monday, etc.
-                const firstDayOfWeek = new Date(calendarYear, calendarMonth, 1).getDay();
-
-                // Empty cells before first day of month
-                for (let i = 0; i < firstDayOfWeek; i++) {
-                  cells.push(<View key={`empty-${i}`} style={styles.dayCellEmpty} />);
-                }
-                
-                // Days of month
-                for (let day = 1; day <= daysInMonth; day++) {
-                  const isSelected = chequeDate?.getDate() === day && 
-                                     chequeDate?.getMonth() === calendarMonth && 
-                                     chequeDate?.getFullYear() === calendarYear;
-                  
-                  const isToday = new Date().getDate() === day &&
-                                  new Date().getMonth() === calendarMonth &&
-                                  new Date().getFullYear() === calendarYear;
-
-                  cells.push(
-                    <Pressable
-                      key={`day-${day}`}
-                      onPress={() => {
-                        haptic("light");
-                        setChequeDate(new Date(calendarYear, calendarMonth, day));
-                        setShowDatePicker(false);
-                      }}
-                      style={[
-                        styles.dayCell,
-                        isSelected ? styles.dayCellSelected : undefined,
-                        isToday && !isSelected ? styles.dayCellToday : undefined
-                      ]}
-                    >
-                      <Text style={[
-                        styles.dayText,
-                        isSelected ? styles.dayTextSelected : undefined,
-                        isToday && !isSelected ? styles.dayTextToday : undefined
-                      ]}>
-                        {day}
-                      </Text>
-                    </Pressable>
-                  );
-                }
-
-                // Chunk into rows of 7
-                const rows = [];
-                for (let i = 0; i < cells.length; i += 7) {
-                  rows.push(
-                    <View key={`row-${i}`} style={styles.calendarRow}>
-                      {cells.slice(i, i + 7)}
-                    </View>
-                  );
-                }
-                return rows;
-              })()}
-            </View>
-
-            {/* Calendar Actions */}
-            <View style={styles.calendarActions}>
-              <Button
-                label="TODAY"
-                variant="ghost"
-                onPress={() => {
-                  haptic();
-                  const today = new Date();
-                  setChequeDate(today);
-                  setCalendarMonth(today.getMonth());
-                  setCalendarYear(today.getFullYear());
-                  setShowDatePicker(false);
-                }}
-                style={{ flex: 1 }}
               />
               <Button
-                label="CANCEL"
-                variant="secondary"
-                onPress={() => { haptic(); setShowDatePicker(false); }}
-                style={{ flex: 1 }}
+                label="CONFIRM DATE"
+                variant="primary"
+                onPress={() => setShowDatePicker(false)}
+                style={{ marginTop: spacing.md }}
+                fullWidth
               />
             </View>
           </View>
-        </View>
-      </RNModal>
+        </RNModal>
+      ) : (
+        showDatePicker && (
+          <DateTimePicker
+            value={chequeDate || new Date()}
+            mode="date"
+            display="default"
+            onChange={(event, selectedDate) => {
+              setShowDatePicker(false);
+              if (selectedDate) {
+                setChequeDate(selectedDate);
+              }
+            }}
+          />
+        )
+      )}
     </Screen>
   );
 }
@@ -1467,84 +1375,34 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: spacing.xl,
   },
-  calendarCard: {
+  iosPickerModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "flex-end",
+  },
+  iosPickerContainer: {
     backgroundColor: colors.surface,
-    borderRadius: radius.xl,
-    width: 320,
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
     padding: spacing.lg,
+    paddingBottom: Platform.OS === 'ios' ? 40 : spacing.lg,
     ...shadow.lg,
   },
-  calendarHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+  iosPickerHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
     marginBottom: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    paddingBottom: spacing.sm,
   },
-  calendarNavBtn: {
-    padding: spacing.xs,
-    borderRadius: radius.md,
-  },
-  calendarHeaderTitle: {
+  iosPickerTitle: {
     fontSize: 16,
-    fontWeight: fontWeight.extrabold,
+    fontWeight: fontWeight.bold,
     color: colors.textPrimary,
   },
-  weekdaysRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginBottom: spacing.sm,
-  },
-  weekdayLabel: {
-    width: 36,
-    textAlign: "center",
-    fontSize: 13,
-    fontWeight: fontWeight.bold,
-    color: colors.textSecondary,
-  },
-  daysGrid: {
-    gap: spacing.xs,
-  },
-  calendarRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  dayCell: {
-    width: 36,
-    height: 36,
-    justifyContent: "center",
-    alignItems: "center",
-    borderRadius: 18,
-  },
-  dayCellEmpty: {
-    width: 36,
-    height: 36,
-  },
-  dayCellSelected: {
-    backgroundColor: colors.primary,
-  },
-  dayCellToday: {
-    borderWidth: 1.5,
-    borderColor: colors.primary,
-  },
-  dayText: {
-    fontSize: 14,
-    fontWeight: fontWeight.medium,
-    color: colors.textPrimary,
-  },
-  dayTextSelected: {
-    color: "#ffffff",
-    fontWeight: fontWeight.bold,
-  },
-  dayTextToday: {
-    color: colors.primary,
-    fontWeight: fontWeight.bold,
-  },
-  calendarActions: {
-    flexDirection: "row",
-    gap: spacing.md,
-    marginTop: spacing.lg,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    paddingTop: spacing.md,
+  closeBtn: {
+    padding: 4,
   },
 });

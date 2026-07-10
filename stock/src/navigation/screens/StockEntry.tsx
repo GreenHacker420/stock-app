@@ -595,6 +595,7 @@ const styles = StyleSheet.create({
   rowMeta: {
     flexDirection: "row",
     alignItems: "center",
+    flexWrap: "wrap",
     gap: spacing.xs,
   },
   catTag: {
