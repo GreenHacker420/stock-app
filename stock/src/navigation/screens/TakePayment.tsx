@@ -118,6 +118,8 @@ export function TakePayment() {
   const [paymentMode, setPaymentMode] = useState<typeof paymentModes[number]["value"]>("CASH");
   const [upiMode, setUpiMode] = useState<"STATIC_QR" | "DYNAMIC_QR">("STATIC_QR");
   const [reference, setReference] = useState("");
+  const [chequeNumber, setChequeNumber] = useState("");
+  const [chequeBankName, setChequeBankName] = useState("");
   const [notes, setNote] = useState("");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successVisible, setSuccessVisible] = useState(false);
@@ -214,6 +216,8 @@ export function TakePayment() {
     setPaymentMode("CASH");
     setUpiMode("STATIC_QR");
     setReference("");
+    setChequeNumber("");
+    setChequeBankName("");
     setNote("");
     setErrorMsg(null);
     setSelectedCustomer(params.customer || null);
@@ -252,6 +256,11 @@ export function TakePayment() {
       return;
     }
 
+    const details = paymentMode === "CHEQUE" ? {
+      chequeNumber: chequeNumber.trim() || undefined,
+      chequeBankName: chequeBankName.trim() || undefined,
+    } : undefined;
+
     paymentMutation.mutate({
       customerId: isWalkin ? undefined : customerId,
       saleId,
@@ -259,8 +268,9 @@ export function TakePayment() {
       dmId,
       paymentMode,
       amount: numericAmount,
-      referenceNumber: reference || undefined,
+      referenceNumber: paymentMode === "CHEQUE" ? (chequeNumber.trim() || undefined) : (reference || undefined),
       notes: notes || (upiMode === 'DYNAMIC_QR' ? 'Paid via generated QR' : undefined),
+      details,
     }, {
       onSuccess: () => {
         haptic("success");
@@ -548,6 +558,24 @@ export function TakePayment() {
                      </Text>
                   </View>
                )}
+            </View>
+          )}
+
+          {paymentMode === 'CHEQUE' && (
+            <View style={styles.chequeFieldsContainer}>
+              <FormTextField
+                 label="Cheque Number"
+                 value={chequeNumber}
+                 onChangeText={setChequeNumber}
+                 placeholder="Enter 6-digit cheque number"
+                 keyboardType="numeric"
+              />
+              <FormTextField
+                 label="Bank Name"
+                 value={chequeBankName}
+                 onChangeText={setChequeBankName}
+                 placeholder="Enter cheque issuing bank (e.g. HDFC, SBI)"
+              />
             </View>
           )}
 
@@ -1223,5 +1251,10 @@ const styles = StyleSheet.create({
   },
   dialogBtn: {
     flex: 1,
+  },
+  chequeFieldsContainer: {
+    paddingHorizontal: spacing.lg,
+    marginTop: spacing.md,
+    gap: spacing.sm,
   },
 });

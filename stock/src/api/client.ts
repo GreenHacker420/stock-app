@@ -953,6 +953,12 @@ export async function addPayment(token: string, data: {
   amount: number;
   referenceNumber?: string;
   notes?: string;
+  details?: {
+    chequeNumber?: string;
+    chequeBankName?: string;
+    upiReference?: string;
+    bankUtr?: string;
+  };
 }, opts: { idempotencyKey?: string } = {}) {
   return apiRequest("/payments", {
     method: "POST",
