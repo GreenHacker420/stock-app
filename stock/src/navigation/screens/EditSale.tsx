@@ -33,6 +33,7 @@ export function EditSale() {
   const [initialized, setInitialized] = useState(false);
   const [isReviewing, setIsReviewing] = useState(false);
   const [gstRequired, setGstRequired] = useState(false);
+  const [gstInvoiceNumber, setGstInvoiceNumber] = useState("");
 
   // Initialize form fields once sale data is loaded
   if (sale && !initialized) {
@@ -48,7 +49,8 @@ export function EditSale() {
       }))
     );
     setEditDiscountAmount(String(sale.discountAmount || 0));
-    setGstRequired(sale.gstRequired || false);
+    setGstRequired(sale.isGstRequired ?? sale.gstRequired ?? false);
+    setGstInvoiceNumber(sale.gstInvoiceNumber || "");
     setInitialized(true);
   }
 
@@ -172,6 +174,7 @@ export function EditSale() {
           items: formattedItems,
           discountAmount: Number(editDiscountAmount || 0),
           gstRequired,
+          gstInvoiceNumber: gstRequired ? (gstInvoiceNumber.trim() || null) : null,
         }
       }, {
         onSuccess: () => {
@@ -196,6 +199,7 @@ export function EditSale() {
         discountAmount: Number(editDiscountAmount || 0),
         notes: sale.notes || undefined,
         gstRequired,
+        gstInvoiceNumber: gstRequired ? (gstInvoiceNumber.trim() || null) : null,
       }
     }, {
       onSuccess: () => {
@@ -366,6 +370,31 @@ export function EditSale() {
       </View>
 
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+        {/* Customer Info Card */}
+        <View style={styles.customerCard}>
+          <View style={styles.customerHeader}>
+            <Icon source="account-outline" size={20} color={colors.primary} />
+            <Text style={styles.customerLabel}>Customer Details</Text>
+          </View>
+          <Text style={styles.customerName}>
+            {sale.isWalkin ? "Walk-in Customer" : sale.customer?.name || "N/A"}
+          </Text>
+          {!sale.isWalkin && sale.customer && (
+            <View style={styles.customerDetailsRow}>
+              {sale.customer.phone ? (
+                <Text style={styles.customerDetailText}>📞 {sale.customer.phone}</Text>
+              ) : null}
+              {sale.customer.gstin ? (
+                <Text style={styles.customerDetailText}>🆔 GSTIN: {sale.customer.gstin}</Text>
+              ) : (
+                <Text style={[styles.customerDetailText, { color: colors.danger, fontWeight: fontWeight.bold }]}>
+                  ⚠️ No GSTIN provided
+                </Text>
+              )}
+            </View>
+          )}
+        </View>
+
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>ITEMS LIST</Text>
         </View>
@@ -390,36 +419,41 @@ export function EditSale() {
               handleQtyChange(String(Math.max(1, cur - 1)));
             };
 
+            const itemTotal = Number(item.quantity || 0) * Number(item.rate || 0);
+
             return (
               <View key={item.itemId + index} style={styles.editItemRow}>
-                <View style={{ flex: 1, gap: spacing.xs }}>
-                  <Text style={styles.itemName} numberOfLines={1}>{item.name}</Text>
-                  
-                  <View style={{ flexDirection: "row", gap: spacing.sm, alignItems: "center", marginTop: 4 }}>
-                    {/* Quantity Selector */}
-                    <View style={styles.qtyContainer}>
-                      <Pressable onPress={handleDecrement} style={styles.qtyBtn}>
-                        <Text style={styles.qtyBtnText}>-</Text>
-                      </Pressable>
-                      <PaperTextInput
-                        mode="flat"
-                        value={item.quantity}
-                        onChangeText={handleQtyChange}
-                        keyboardType="numeric"
-                        style={styles.qtyInput}
-                        underlineColor="transparent"
-                        activeUnderlineColor="transparent"
-                        dense
-                      />
-                      <Pressable onPress={handleIncrement} style={styles.qtyBtn}>
-                        <Text style={styles.qtyBtnText}>+</Text>
-                      </Pressable>
-                    </View>
+                <View style={styles.itemHeaderRow}>
+                  <Text style={styles.itemName} numberOfLines={2}>{item.name}</Text>
+                  <Text style={styles.itemTotalText}>{money(itemTotal)}</Text>
+                </View>
+                
+                <View style={styles.itemControlsRow}>
+                  {/* Quantity Selector */}
+                  <View style={styles.qtyContainer}>
+                    <Pressable onPress={handleDecrement} style={styles.qtyBtn}>
+                      <Text style={styles.qtyBtnText}>-</Text>
+                    </Pressable>
+                    <PaperTextInput
+                      mode="flat"
+                      value={item.quantity}
+                      onChangeText={handleQtyChange}
+                      keyboardType="numeric"
+                      style={styles.qtyInput}
+                      underlineColor="transparent"
+                      activeUnderlineColor="transparent"
+                      dense
+                    />
+                    <Pressable onPress={handleIncrement} style={styles.qtyBtn}>
+                      <Text style={styles.qtyBtnText}>+</Text>
+                    </Pressable>
+                  </View>
 
-                    {/* Rate Input */}
+                  {/* Rate Input */}
+                  <View style={styles.rateInputWrapper}>
                     <PaperTextInput
                       mode="outlined"
-                      label="Rate (₹)"
+                      label="Rate"
                       value={item.rate}
                       onChangeText={handleRateChange}
                       keyboardType="numeric"
@@ -429,11 +463,12 @@ export function EditSale() {
                       dense
                     />
                   </View>
-                </View>
 
-                <Pressable onPress={handleRemove} style={styles.removeBtn}>
-                  <Icon source="trash-can-outline" size={24} color={colors.danger} />
-                </Pressable>
+                  <Pressable onPress={handleRemove} style={styles.removeBtn}>
+                    <Icon source="trash-can-outline" size={20} color={colors.danger} />
+                  </Pressable>
+                </View>
+                {index < editItems.length - 1 && <Divider style={styles.itemDivider} />}
               </View>
             );
           })}
@@ -464,8 +499,19 @@ export function EditSale() {
             textColor={colors.textPrimary}
           />
           <Divider style={styles.divider} />
-          <View style={[styles.impactRow, { paddingVertical: spacing.xs, alignItems: "center" }]}>
-            <Text style={styles.impactLabel}>GST Invoice Required</Text>
+          <View style={styles.impactRow}>
+            <Text style={styles.boldText}>New Total</Text>
+            <Text style={styles.impactValue}>{money(totalAmount)}</Text>
+          </View>
+        </View>
+
+        {/* GST Card Overhaul */}
+        <View style={[styles.gstToggleCard, gstRequired && styles.gstToggleCardActive]}>
+          <View style={styles.gstToggleHeaderRow}>
+            <View style={styles.gstToggleLabelWrapper}>
+              <Icon source="file-percent-outline" size={22} color={gstRequired ? colors.warning : colors.textSecondary} />
+              <Text style={styles.gstToggleLabel}>GST Invoice Required</Text>
+            </View>
             <Switch
               value={gstRequired}
               onValueChange={setGstRequired}
@@ -473,11 +519,31 @@ export function EditSale() {
               thumbColor={Platform.OS === 'android' ? (gstRequired ? colors.warning : '#f4f3f4') : undefined}
             />
           </View>
-          <Divider style={styles.divider} />
-          <View style={styles.impactRow}>
-            <Text style={styles.boldText}>New Total</Text>
-            <Text style={styles.impactValue}>{money(totalAmount)}</Text>
-          </View>
+          {gstRequired && (
+            <View style={styles.gstInvoiceInputWrapper}>
+              <PaperTextInput
+                mode="outlined"
+                label="Tally Invoice Number"
+                value={gstInvoiceNumber}
+                onChangeText={setGstInvoiceNumber}
+                placeholder="e.g. VS-2026-145"
+                autoCapitalize="characters"
+                style={styles.gstInvoiceInput}
+                outlineColor={colors.border}
+                activeOutlineColor={colors.warning}
+                textColor={colors.textPrimary}
+                left={<PaperTextInput.Icon icon="file-document-edit-outline" color={colors.warning} />}
+              />
+              {!sale.isWalkin && sale.customer && !sale.customer.gstin && (
+                <View style={styles.gstWarningBox}>
+                  <Icon source="alert-outline" size={16} color={colors.danger} />
+                  <Text style={styles.gstWarningText}>
+                    Customer has no registered GSTIN. Update customer profile to avoid billing issues.
+                  </Text>
+                </View>
+              )}
+            </View>
+          )}
         </View>
 
         {!isDraft && (
@@ -531,15 +597,66 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     ...shadow.sm,
   },
+  customerCard: {
+    backgroundColor: colors.surface,
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: spacing.xs,
+    marginTop: spacing.md,
+    ...shadow.sm,
+  },
+  customerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+  },
+  customerLabel: {
+    fontSize: 10,
+    fontWeight: fontWeight.bold,
+    color: colors.textMuted,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
+  },
+  customerName: {
+    fontSize: 16,
+    fontWeight: fontWeight.black,
+    color: colors.textPrimary,
+  },
+  customerDetailsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.md,
+    marginTop: spacing.xs,
+  },
+  customerDetailText: {
+    fontSize: 12,
+    color: colors.textSecondary,
+  },
   sectionHeader: { marginTop: spacing.lg, marginBottom: spacing.xs },
   sectionTitle: { fontSize: 11, fontWeight: fontWeight.black, color: colors.textMuted, letterSpacing: 1 },
   editItemRow: {
+    paddingVertical: spacing.sm,
+  },
+  itemName: { fontSize: 14, fontWeight: fontWeight.bold, color: colors.textPrimary, flex: 1 },
+  itemHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  itemTotalText: {
+    fontSize: 14,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  itemControlsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: spacing.xs,
+    marginTop: spacing.sm,
   },
-  itemName: { fontSize: 14, fontWeight: fontWeight.bold, color: colors.textPrimary },
   qtyContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -571,13 +688,21 @@ const styles = StyleSheet.create({
     fontSize: 12,
     paddingHorizontal: 0,
   },
+  rateInputWrapper: {
+    flex: 1,
+    marginLeft: spacing.md,
+    marginRight: spacing.sm,
+  },
   rateInput: {
-    width: 100,
     height: 38,
     backgroundColor: colors.surface,
   },
   removeBtn: { padding: spacing.sm },
   divider: { marginVertical: spacing.xs, backgroundColor: colors.surfaceOffset },
+  itemDivider: {
+    marginTop: spacing.sm,
+    backgroundColor: colors.surfaceOffset,
+  },
   impactRow: { flexDirection: "row", justifyContent: "space-between" },
   impactLabel: { fontSize: 13, color: colors.textSecondary },
   impactValue: { fontSize: 14, fontWeight: fontWeight.bold, color: colors.textPrimary },
@@ -611,4 +736,53 @@ const styles = StyleSheet.create({
   suggestionRowPressed: { backgroundColor: colors.surfaceOffset },
   suggestionName: { fontSize: 13, color: colors.textPrimary, fontWeight: fontWeight.bold, flex: 1 },
   suggestionPrice: { fontSize: 13, color: colors.primary, fontWeight: fontWeight.bold },
+  gstToggleCard: {
+    backgroundColor: colors.surface,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginTop: spacing.sm,
+  },
+  gstToggleCardActive: {
+    borderColor: colors.warning,
+    backgroundColor: '#fffdf5',
+  },
+  gstToggleHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  gstToggleLabelWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  gstToggleLabel: {
+    fontSize: 14,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  gstInvoiceInputWrapper: {
+    marginTop: spacing.md,
+    gap: spacing.sm,
+  },
+  gstInvoiceInput: {
+    backgroundColor: colors.surface,
+    fontSize: 13,
+  },
+  gstWarningBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    backgroundColor: colors.dangerLight,
+    padding: spacing.sm,
+    borderRadius: radius.sm,
+  },
+  gstWarningText: {
+    fontSize: 11,
+    color: colors.danger,
+    flex: 1,
+    fontWeight: fontWeight.medium,
+  },
 });

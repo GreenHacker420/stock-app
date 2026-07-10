@@ -516,6 +516,10 @@ export async function batchQuickUpdate(
   });
 }
 
+function mapSale(sale: Sale): Sale {
+  return { ...sale, isGstRequired: sale.isGstRequired ?? sale.gstRequired };
+}
+
 export async function updateSale(token: string, saleId: string, data: {
   gstRequired?: boolean;
   gstInvoiceNumber?: string | null;
@@ -530,11 +534,12 @@ export async function updateSale(token: string, saleId: string, data: {
   }>;
   discountAmount?: number;
 }) {
-  return apiRequest<Sale>(`/sales/${saleId}`, {
+  const sale = await apiRequest<Sale>(`/sales/${saleId}`, {
     method: "PATCH",
     token,
     body: JSON.stringify(data),
   });
+  return mapSale(sale);
 }
 
 export async function amendSale(token: string, saleId: string, data: {
@@ -550,12 +555,15 @@ export async function amendSale(token: string, saleId: string, data: {
   }>;
   discountAmount?: number;
   notes?: string;
+  gstRequired?: boolean;
+  gstInvoiceNumber?: string | null;
 }) {
-  return apiRequest<Sale>(`/sales/${saleId}/amendments`, {
+  const sale = await apiRequest<Sale>(`/sales/${saleId}/amendments`, {
     method: "POST",
     token,
     body: JSON.stringify(data),
   });
+  return mapSale(sale);
 }
 
 export async function issueInvoice(token: string, saleId: string, data: {
@@ -714,7 +722,8 @@ export async function fetchSales(
 }
 
 export async function fetchSale(token: string, id: string) {
-  return apiRequest<Sale>(`/sales/${id}`, { token });
+  const sale = await apiRequest<Sale>(`/sales/${id}`, { token });
+  return mapSale(sale);
 }
 
 export async function createSale(token: string, data: CreateSalePayload, opts: { idempotencyKey?: string } = {}) {
@@ -1238,11 +1247,12 @@ export async function verifyExpense(token: string, id: string, status: "APPROVED
 }
 
 export async function updateSaleGst(token: string, saleId: string, data: { gstRequired?: boolean; gstInvoiceNumber?: string | null }) {
-  return apiRequest<Sale>(`/sales/${saleId}/gst`, {
+  const sale = await apiRequest<Sale>(`/sales/${saleId}/gst`, {
     method: "PATCH",
     token,
     body: JSON.stringify(data),
   });
+  return mapSale(sale);
 }
 
 export type UserDevicePlatform = "IOS" | "ANDROID" | "WEB";

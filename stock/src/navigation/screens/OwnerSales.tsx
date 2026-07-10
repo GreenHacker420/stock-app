@@ -289,9 +289,17 @@ export function SaleDetail() {
           </View>
 
           <View style={styles.gstBox}>
-            <Icon source="file-percent-outline" size={20} color={sale.isGstRequired ? colors.warning : colors.textSecondary} />
+            <Icon 
+              source={sale.isGstRequired ? (sale.gstInvoiceNumber ? "file-check-outline" : "file-percent-outline") : "file-percent-outline"} 
+              size={20} 
+              color={sale.isGstRequired ? (sale.gstInvoiceNumber ? colors.success : colors.warning) : colors.textSecondary} 
+            />
             <View style={{ flex: 1 }}>
-              <Text style={styles.gstTitle}>{sale.isGstRequired ? "GST Invoice Required" : "GST Not Required"}</Text>
+              <Text style={styles.gstTitle}>
+                {sale.isGstRequired 
+                  ? (sale.gstInvoiceNumber ? "GST Invoice Created" : "GST Invoice Required") 
+                  : "GST Not Required"}
+              </Text>
               <Text style={styles.gstDesc}>
                 {sale.isGstRequired 
                   ? (sale.gstInvoiceNumber ? `Invoice: ${sale.gstInvoiceNumber}` : "Pending entry in Tally")
