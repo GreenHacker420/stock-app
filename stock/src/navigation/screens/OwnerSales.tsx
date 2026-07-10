@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { View, StyleSheet, Pressable, ScrollView, Alert } from "react-native";
+import { View, StyleSheet, Pressable, ScrollView, Alert, Modal as RNModal } from "react-native";
 import { Divider, Text, Icon, Portal, Modal, Switch, TextInput as PaperTextInput } from "react-native-paper";
 import { useAuthStore } from "../../auth/auth-store";
 import { FlashList } from "@shopify/flash-list";
@@ -77,7 +77,7 @@ export function SalesList() {
       );
     }
     if (activeTab === "ALL") return data;
-    if (activeTab === "gst_pending") return data.filter(s => s.isGstRequired && !s.gstInvoiceNumber);
+    if (activeTab === "gst_pending") return data.filter(s => (s.isGstRequired || s.gstRequired) && !s.gstInvoiceNumber);
     if (activeTab === "PENDING") {
       return data.filter(s => s.paymentStatus !== "PAID");
     }
@@ -177,9 +177,11 @@ export function SaleDetail() {
   const [editGstRequired, setEditGstRequired] = useState(false);
   const [editGstInvoiceNumber, setEditGstInvoiceNumber] = useState("");
 
+  const [selectedItemDetails, setSelectedItemDetails] = useState<any | null>(null);
+
   const handleOpenGstModal = () => {
     if (!sale) return;
-    setEditGstRequired(sale.isGstRequired || false);
+    setEditGstRequired(sale.isGstRequired || sale.gstRequired || false);
     setEditGstInvoiceNumber(sale.gstInvoiceNumber || "");
     setIsGstModalVisible(true);
   };
@@ -336,20 +338,25 @@ export function SaleDetail() {
               const isPriceModified = Number(item.rate) !== Number(item.item?.defaultSellingPrice);
               return (
                 <View key={item.id}>
-                  <View style={styles.itemRow}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.itemName}>{item.item.name}</Text>
-                      <Text style={styles.itemSub}>
-                        {item.quantity} {item.item.unit} @ {money(item.rate)}
-                        {isPriceModified && (
-                          <Text style={styles.priceModifiedText}>
-                            {" "}• List: {money(item.item?.defaultSellingPrice)}
-                          </Text>
-                        )}
-                      </Text>
+                  <Pressable 
+                    onPress={() => setSelectedItemDetails(item)}
+                    style={({ pressed }) => [styles.itemRowPressable, pressed && { backgroundColor: colors.surfaceOffset }]}
+                  >
+                    <View style={styles.itemRow}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.itemName}>{item.item.name}</Text>
+                        <Text style={styles.itemSub}>
+                          {item.quantity} {item.item.unit} @ {money(item.rate)}
+                          {isPriceModified && (
+                            <Text style={styles.priceModifiedText}>
+                              {" "}• List: {money(item.item?.defaultSellingPrice)}
+                            </Text>
+                          )}
+                        </Text>
+                      </View>
+                      <Text style={styles.itemTotal}>{money(Number(item.quantity) * Number(item.rate))}</Text>
                     </View>
-                    <Text style={styles.itemTotal}>{money(Number(item.quantity) * Number(item.rate))}</Text>
-                  </View>
+                  </Pressable>
                   {idx < (sale.items?.length ?? 0) - 1 && <Divider style={styles.divider} />}
                 </View>
               );
@@ -541,6 +548,77 @@ export function SaleDetail() {
           />
         </View>
       </ScrollView>
+
+      {/* Product Details Modal */}
+      <RNModal
+        visible={!!selectedItemDetails}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSelectedItemDetails(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.detailsModalContent}>
+            <View style={styles.detailsModalHeader}>
+              <Text style={styles.detailsModalTitle}>Item Specification</Text>
+              <Pressable onPress={() => setSelectedItemDetails(null)} style={styles.closeBtn}>
+                <Icon source="close" size={20} color={colors.textPrimary} />
+              </Pressable>
+            </View>
+
+            {selectedItemDetails && (
+              <ScrollView style={styles.detailsModalBody}>
+                <Text style={styles.detailsModalName}>{selectedItemDetails.item.name}</Text>
+                
+                <View style={styles.detailsGrid}>
+                  <View style={styles.detailsGridRow}>
+                    <Text style={styles.detailsLabel}>SKU Code</Text>
+                    <Text style={styles.detailsValue}>{selectedItemDetails.item.sku || "—"}</Text>
+                  </View>
+                  <View style={styles.detailsGridRow}>
+                    <Text style={styles.detailsLabel}>Company / Brand</Text>
+                    <Text style={styles.detailsValue}>{selectedItemDetails.item.brand?.name || "—"}</Text>
+                  </View>
+                  <View style={styles.detailsGridRow}>
+                    <Text style={styles.detailsLabel}>Category</Text>
+                    <Text style={styles.detailsValue}>{selectedItemDetails.item.category?.name || "—"}</Text>
+                  </View>
+                  <View style={styles.detailsGridRow}>
+                    <Text style={styles.detailsLabel}>Measurement Unit</Text>
+                    <Text style={styles.detailsValue}>{selectedItemDetails.item.unit || "—"}</Text>
+                  </View>
+                  
+                  <Divider style={{ marginVertical: spacing.sm, backgroundColor: colors.border }} />
+
+                  <View style={styles.detailsGridRow}>
+                    <Text style={styles.detailsLabel}>Maximum Retail Price (MRP)</Text>
+                    <Text style={[styles.detailsValue, { fontWeight: fontWeight.bold }]}>{money(selectedItemDetails.item.mrp)}</Text>
+                  </View>
+                  <View style={styles.detailsGridRow}>
+                    <Text style={styles.detailsLabel}>Original Selling Price</Text>
+                    <Text style={styles.detailsValue}>{money(selectedItemDetails.item.defaultSellingPrice)}</Text>
+                  </View>
+                  <View style={styles.detailsGridRow}>
+                    <Text style={styles.detailsLabel}>Billed Selling Rate</Text>
+                    <Text style={[styles.detailsValue, { color: colors.primary, fontWeight: fontWeight.black }]}>{money(selectedItemDetails.rate)}</Text>
+                  </View>
+                  <View style={styles.detailsGridRow}>
+                    <Text style={styles.detailsLabel}>Minimum Allowed Price</Text>
+                    <Text style={styles.detailsValue}>{money(selectedItemDetails.item.minPrice)}</Text>
+                  </View>
+                </View>
+              </ScrollView>
+            )}
+
+            <Button
+              label="CLOSE DETAILS"
+              variant="secondary"
+              onPress={() => setSelectedItemDetails(null)}
+              style={{ marginTop: spacing.md }}
+              fullWidth
+            />
+          </View>
+        </View>
+      </RNModal>
 
       <Portal>
         <Modal
@@ -876,5 +954,67 @@ const styles = StyleSheet.create({
     width: '100%',
     marginVertical: spacing.sm,
     backgroundColor: colors.border,
-  }
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: spacing.xl,
+  },
+  detailsModalContent: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    width: "100%",
+    maxHeight: "80%",
+    padding: spacing.lg,
+    ...shadow.lg,
+  },
+  detailsModalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    paddingBottom: spacing.sm,
+    marginBottom: spacing.md,
+  },
+  detailsModalTitle: {
+    fontSize: 16,
+    fontWeight: fontWeight.black,
+    color: colors.textPrimary,
+  },
+  closeBtn: {
+    padding: 4,
+  },
+  detailsModalBody: {
+    marginBottom: spacing.sm,
+  },
+  detailsModalName: {
+    fontSize: 15,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+    marginBottom: spacing.md,
+  },
+  detailsGrid: {
+    gap: spacing.sm,
+  },
+  detailsGridRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 4,
+  },
+  detailsLabel: {
+    fontSize: 13,
+    color: colors.textSecondary,
+  },
+  detailsValue: {
+    fontSize: 13,
+    color: colors.textPrimary,
+    fontWeight: fontWeight.medium,
+  },
+  itemRowPressable: {
+    borderRadius: radius.md,
+  },
 });

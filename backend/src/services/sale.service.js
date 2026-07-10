@@ -275,7 +275,16 @@ export async function getSale(user, id) {
     where: { id },
     include: { 
       customer: true, 
-      items: { include: { item: true } }, 
+      items: { 
+        include: { 
+          item: { 
+            include: { 
+              category: true, 
+              brand: true 
+            } 
+          } 
+        } 
+      },
       payments: { 
         include: { 
           details: true,
