@@ -297,7 +297,8 @@ export async function generateSaleInvoiceHtml({ sale, shop, signatureBase64 }: S
     const qty = toFiniteNumber(item.quantity);
     const rate = toFiniteNumber(item.rate);
     const itemTotal = qty * rate;
-    const itemName = escapeHtml(item.item?.name || "Unknown Item");
+    const brandPrefix = item.item?.brand?.name ? `${item.item.brand.name} · ` : "";
+    const itemName = escapeHtml(`${brandPrefix} ${item.item?.name}`);
     const itemSku = item.item?.sku ? `(${escapeHtml(item.item.sku)})` : "";
     const itemUnit = escapeHtml(item.item?.unit || "pcs");
     return `

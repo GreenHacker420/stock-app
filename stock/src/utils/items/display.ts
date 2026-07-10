@@ -44,3 +44,12 @@ export function initialsOf(name: string) {
     .join("")
     .toUpperCase();
 }
+
+export function itemDisplayName(item: {
+  name: string;
+  brand?: { name: string } | null;
+}): string {
+  const brand = item.brand?.name?.trim();
+  return brand ? `${brand} · ${item.name}` : item.name;
+}
+

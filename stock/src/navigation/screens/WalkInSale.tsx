@@ -40,6 +40,7 @@ import { InfoRow } from "../../components/ui/InfoRow";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { shareSaleInvoicePdf, printSaleInvoiceDirect } from "../../utils/pdf";
 import { triggerLightHaptic } from "../../utils/haptics";
+import { itemDisplayName } from "../../utils/items/display";
 
 function money(value?: string | number | null) {
   return `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
@@ -1160,7 +1161,7 @@ export function WalkInSale() {
                   {cartArray.map(({ item, quantity }) => (
                     <View key={item.id} style={styles.receiptItemRow}>
                       <View style={{ flex: 1, marginRight: spacing.sm }}>
-                        <Text style={styles.receiptItemName}>{item.name}</Text>
+                        <Text style={styles.receiptItemName}>{itemDisplayName(item)}</Text>
                         <Text style={styles.receiptItemSubText}>
                           {quantity} {item.unit} x {money(item.defaultSellingPrice)}
                         </Text>
