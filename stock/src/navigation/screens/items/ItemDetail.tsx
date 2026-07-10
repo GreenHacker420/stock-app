@@ -1,9 +1,19 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useMemo, useState, useRef } from "react";
 import { View, StyleSheet, ScrollView, Alert, Dimensions, Pressable, Modal } from "react-native";
 import { Image } from "expo-image";
 import { Text, Divider, Icon } from "react-native-paper";
 import { useRoute } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Animated, {
+  useSharedValue,
+  useAnimatedScrollHandler,
+  useAnimatedStyle,
+  interpolate,
+  Extrapolation,
+} from "react-native-reanimated";
+
+const AnimatedExpoImage = Animated.createAnimatedComponent(Image);
+
 
 import { useAuthStore } from "../../../auth/auth-store";
 import { useShopStore } from "../../../auth/shop-store";
@@ -24,11 +34,13 @@ import { StockTransferDialog } from "../../../components/items/StockTransferDial
 import { ItemSummaryCard } from "../../../components/items/ItemSummaryCard";
 import { ItemDetailActions } from "../../../components/items/ItemDetailActions";
 import { ItemDetailTabId, ItemTabBar } from "../../../components/items/ItemTabBar";
+import { CollapsingItemHero } from "../../../components/items/CollapsingItemHero";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../../theme";
 import { navigate } from "../../navigation-ref";
 import { money } from "../../../utils/items/display";
 import { STOCK_MOVEMENT_PERMISSION, hasPermission } from "../../../utils/items/permissions";
 import { ItemDetailRouteParams, ItemStockResponse, PriceChangeHistoryEntry, StockMovementEntry } from "../../../types/items";
+
 
 export function ItemDetail() {
   const route = useRoute();
@@ -37,6 +49,113 @@ export function ItemDetail() {
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
   const insets = useSafeAreaInsets();
+
+  const [cardLayout, setCardLayout] = useState<{ y: number; height: number } | null>(null);
+  const scrollY = useSharedValue(0);
+
+  const scrollHandler = useAnimatedScrollHandler({
+    onScroll: (event) => {
+      scrollY.value = event.contentOffset.y;
+    },
+  });
+
+  const onCardLayout = (e: any) => {
+    const { y, height } = e.nativeEvent.layout;
+    setCardLayout({ y, height });
+  };
+
+
+  const targetLayout = useMemo(() => {
+    if (!cardLayout) return null;
+    return {
+      x: 28, // 16 marginHorizontal + 12 card padding
+      y: cardLayout.y + (cardLayout.height - 52) / 2,
+      width: 52,
+      height: 52,
+    };
+  }, [cardLayout]);
+
+  const thumbnailStyle = useAnimatedStyle(() => {
+    const opacity = interpolate(
+      scrollY.value,
+      [0, 50, 60, 170, 180],
+      [1, 1, 0, 0, 1],
+      Extrapolation.CLAMP
+    );
+    return { opacity };
+  });
+
+  const scrollViewRef = useRef<any>(null);
+
+  const HERO_HEIGHT = 220;
+  const MORPH_START = 50;
+  const MORPH_END = 180;
+  const screenWidth = Dimensions.get("window").width;
+
+  const overlayAnimatedStyle = useAnimatedStyle(() => {
+    if (!targetLayout) {
+      return { opacity: 0 };
+    }
+
+    const opacity = interpolate(
+      scrollY.value,
+      [MORPH_START, MORPH_START + 10, MORPH_END - 10, MORPH_END],
+      [0, 1, 1, 0],
+      Extrapolation.CLAMP
+    );
+
+    const width = interpolate(
+      scrollY.value,
+      [MORPH_START, MORPH_END],
+      [screenWidth, targetLayout.width],
+      Extrapolation.CLAMP
+    );
+
+    const height = interpolate(
+      scrollY.value,
+      [MORPH_START, MORPH_END],
+      [HERO_HEIGHT, targetLayout.height],
+      Extrapolation.CLAMP
+    );
+
+    const borderRadius = interpolate(
+      scrollY.value,
+      [MORPH_START, MORPH_END],
+      [0, 12],
+      Extrapolation.CLAMP
+    );
+
+    const translateX = interpolate(
+      scrollY.value,
+      [MORPH_START, MORPH_END],
+      [0, targetLayout.x],
+      Extrapolation.CLAMP
+    );
+
+    const p = interpolate(
+      scrollY.value,
+      [MORPH_START, MORPH_END],
+      [0, 1],
+      Extrapolation.CLAMP
+    );
+
+    const currentHeroY = -scrollY.value * 0.6;
+    const currentThumbY = targetLayout.y - scrollY.value;
+    const translateY = currentHeroY + p * (currentThumbY - currentHeroY);
+
+    return {
+      position: "absolute",
+      top: 0,
+      left: 0,
+      width,
+      height,
+      borderRadius,
+      opacity,
+      transform: [{ translateX }, { translateY }],
+    };
+  });
+
+
 
   const user = useAuthStore((s) => s.user);
   const { activeShopId } = useShopStore();
@@ -170,172 +289,159 @@ export function ItemDetail() {
   const showTransfer = canManageStock;
   const showStockEntry = canManageStock;
 
+  const activeUrl = imageUrls[activeImageIndex] || imageUrls[0];
+
   return (
-    <Screen edges={["top", "left", "right"]} scroll={false}>
+    <Screen edges={["top", "left", "right"]}>
       <AppHeader title={itemData.name} subtitle={itemData.category?.name ?? "No Category"} fallbackRoute="ItemList" />
 
-      {imageUrls.length > 0 && (
-        <View style={styles.carouselContainer}>
-          <ScrollView
-            horizontal
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-            onScroll={(e) => {
-              const contentOffset = e.nativeEvent.contentOffset.x;
-              const viewSize = e.nativeEvent.layoutMeasurement.width;
-              const pageNum = Math.floor(contentOffset / viewSize);
-              setActiveImageIndex(pageNum);
-            }}
-            scrollEventThrottle={16}
-            style={styles.carouselScrollView}
-          >
-            {imageUrls.map((url, idx) => (
-              <Pressable
-                key={idx}
-                onPress={() => setPreviewImageUrl(url)}
-                style={({ pressed }) => [
-                  styles.carouselImageContainer,
-                  pressed && { opacity: 0.9 }
-                ]}
-              >
-                <Image
-                  source={{ uri: url }}
-                  style={styles.carouselImage}
-                  contentFit="cover"
-                />
-              </Pressable>
-            ))}
-          </ScrollView>
+      <View style={{ flex: 1, position: "relative" }}>
+        <Animated.ScrollView
+          ref={scrollViewRef}
+          onScroll={scrollHandler}
+          scrollEventThrottle={16}
+          showsVerticalScrollIndicator={false}
+        >
+        <CollapsingItemHero
+          imageUrls={imageUrls}
+          activeImageIndex={activeImageIndex}
+          onActiveImageChange={setActiveImageIndex}
+          scrollY={scrollY}
+          targetLayout={targetLayout}
+          onImagePress={setPreviewImageUrl}
+        />
 
-          {imageUrls.length > 1 && (
-            <View style={styles.dotsRow}>
-              {imageUrls.map((_, idx) => (
-                <View
-                  key={idx}
-                  style={[
-                    styles.dot,
-                    activeImageIndex === idx && styles.activeDot
-                  ]}
-                />
+        <View onLayout={onCardLayout}>
+          <ItemSummaryCard
+            item={itemData}
+            availableStock={availableStock}
+            minStock={minStock}
+            thumbnailStyle={thumbnailStyle}
+          />
+        </View>
+
+        <ItemTabBar tabs={tabs} activeTab={activeTab} onChange={setActiveTab} />
+
+        <View style={styles.detailContent}>
+          {activeTab === "overview" && (
+            <View style={styles.detailCard}>
+              {[
+                { label: "Available Stock", value: `${availableStock} ${itemData.unit}`, tone: availableStock <= 0 ? "red" : availableStock <= minStock ? "amber" : "green" },
+                { label: "Reserved Stock", value: `${reservedStock} ${itemData.unit}`, tone: reservedStock > 0 ? "amber" : "default" },
+                { label: "Physical Stock", value: `${physicalStock} ${itemData.unit}` },
+                { label: "Unit", value: itemData.unit },
+                { label: "Category", value: itemData.category?.name ?? "—" },
+                { label: "MRP", value: money(itemData.mrp) },
+                { label: "Selling Price", value: money(itemData.defaultSellingPrice) },
+                { label: "Min Allowed Price", value: money(itemData.minimumAllowedPrice) },
+                { label: "Purchase Price", value: money(itemData.purchasePrice) },
+                { label: "Low Stock Alert", value: `${itemData.minimumStock ?? 0} ${itemData.unit}` },
+              ].map((row, i, arr) => (
+                <Fragment key={row.label}>
+                  <InfoRow label={row.label} value={row.value} tone={row.tone as any} style={styles.detailRow} />
+                  {i < arr.length - 1 && <Divider style={styles.rowDivider} />}
+                </Fragment>
               ))}
             </View>
           )}
-        </View>
-      )}
 
-      <ItemSummaryCard item={itemData} availableStock={availableStock} minStock={minStock} />
-      <ItemTabBar tabs={tabs} activeTab={activeTab} onChange={setActiveTab} />
+          {activeTab === "stock" && (
+            <View style={styles.detailCard}>
+              {movementsQuery.isLoading ? (
+                <SkeletonList count={4} itemHeight={52} />
+              ) : !(movementsQuery.data as StockMovementEntry[] | undefined)?.length ? (
+                <EmptyState icon="transfer" title="No stock movements" subtitle="Stock entries will appear here." />
+              ) : (
+                (movementsQuery.data as StockMovementEntry[]).map((m, i, arr) => {
+                  const quantityIn = Number(m.quantityIn || 0);
+                  const quantityOut = Number(m.quantityOut || 0);
+                  const isEntryIn = quantityIn > 0;
+                  const quantityVal = isEntryIn ? quantityIn : quantityOut;
 
-      <ScrollView contentContainerStyle={styles.detailContent} showsVerticalScrollIndicator={false}>
-        {activeTab === "overview" && (
-          <View style={styles.detailCard}>
-            {[
-              { label: "Available Stock", value: `${availableStock} ${itemData.unit}`, tone: availableStock <= 0 ? "red" : availableStock <= minStock ? "amber" : "green" },
-              { label: "Reserved Stock", value: `${reservedStock} ${itemData.unit}`, tone: reservedStock > 0 ? "amber" : "default" },
-              { label: "Physical Stock", value: `${physicalStock} ${itemData.unit}` },
-              { label: "Unit", value: itemData.unit },
-              { label: "Category", value: itemData.category?.name ?? "—" },
-              { label: "MRP", value: money(itemData.mrp) },
-              { label: "Selling Price", value: money(itemData.defaultSellingPrice) },
-              { label: "Min Allowed Price", value: money(itemData.minimumAllowedPrice) },
-              { label: "Purchase Price", value: money(itemData.purchasePrice) },
-              { label: "Low Stock Alert", value: `${itemData.minimumStock ?? 0} ${itemData.unit}` },
-            ].map((row, i, arr) => (
-              <Fragment key={row.label}>
-                <InfoRow label={row.label} value={row.value} tone={row.tone as any} style={styles.detailRow} />
-                {i < arr.length - 1 && <Divider style={styles.rowDivider} />}
-              </Fragment>
-            ))}
-          </View>
-        )}
+                  return (
+                    <Fragment key={m.id}>
+                      <Pressable 
+                        onPress={() => setSelectedMovement(m)}
+                        style={({ pressed }) => pressed && { opacity: 0.7 }}
+                      >
+                        <StockMovementRow
+                          title={getMovementTypeLabel(m.movementType)}
+                          date={new Date(m.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                          quantity={`${isEntryIn ? "+" : "-"}${quantityVal} ${itemData.unit}`}
+                          tone={isEntryIn ? "green" : "red"}
+                        />
+                      </Pressable>
+                      {i < arr.length - 1 && <Divider style={styles.rowDivider} />}
+                    </Fragment>
+                  );
+                })
+              )}
+            </View>
+          )}
 
-        {activeTab === "stock" && (
-          <View style={styles.detailCard}>
-            {movementsQuery.isLoading ? (
-              <SkeletonList count={4} itemHeight={52} />
-            ) : !(movementsQuery.data as StockMovementEntry[] | undefined)?.length ? (
-              <EmptyState icon="transfer" title="No stock movements" subtitle="Stock entries will appear here." />
-            ) : (
-              (movementsQuery.data as StockMovementEntry[]).map((m, i, arr) => {
-                const quantityIn = Number(m.quantityIn || 0);
-                const quantityOut = Number(m.quantityOut || 0);
-                const isEntryIn = quantityIn > 0;
-                const quantityVal = isEntryIn ? quantityIn : quantityOut;
+          {activeTab === "pricing" && (
+            <View style={styles.detailCard}>
+              <View style={styles.priceGrid}>
+                {[
+                  { label: "MRP", value: money(itemData.mrp), color: colors.textSecondary },
+                  { label: "Selling", value: money(itemData.defaultSellingPrice), color: colors.primary },
+                  { label: "Min Price", value: money(itemData.minimumAllowedPrice), color: colors.warning },
+                  { label: "Purchase", value: money(itemData.purchasePrice), color: colors.textPrimary },
+                ].map((p) => (
+                  <View key={p.label} style={styles.priceCard}>
+                    <Text style={styles.priceCardLabel}>{p.label}</Text>
+                    <Text style={[styles.priceCardValue, { color: p.color }]}>{p.value}</Text>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
 
-                return (
-                  <Fragment key={m.id}>
-                    <Pressable 
-                      onPress={() => setSelectedMovement(m)}
-                      style={({ pressed }) => pressed && { opacity: 0.7 }}
-                    >
-                      <StockMovementRow
-                        title={getMovementTypeLabel(m.movementType)}
-                        date={new Date(m.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
-                        quantity={`${isEntryIn ? "+" : "-"}${quantityVal} ${itemData.unit}`}
-                        tone={isEntryIn ? "green" : "red"}
-                      />
-                    </Pressable>
+          {activeTab === "history" && (
+            <View style={styles.detailCard}>
+              {priceChangeHistoryQuery.isLoading ? (
+                <SkeletonList count={3} itemHeight={52} />
+              ) : !(priceChangeHistoryQuery.data as PriceChangeHistoryEntry[] | undefined)?.length ? (
+                <EmptyState icon="history" title="No price changes" subtitle="Price change history will appear here." />
+              ) : (
+                (priceChangeHistoryQuery.data as PriceChangeHistoryEntry[]).map((h, i, arr) => (
+                  <Fragment key={h.id}>
+                    <View style={styles.movRow}>
+                      <View style={{ flex: 1, minWidth: 0 }}>
+                        <Text style={styles.movType}>{h.priceType}</Text>
+                        <Text style={styles.movDate}>{new Date(h.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}</Text>
+                      </View>
+                      <Text style={styles.movQty}>
+                        {money(h.oldPrice)} → {money(h.newPrice)}
+                      </Text>
+                    </View>
                     {i < arr.length - 1 && <Divider style={styles.rowDivider} />}
                   </Fragment>
-                );
-              })
-            )}
-          </View>
-        )}
-
-        {activeTab === "pricing" && (
-          <View style={styles.detailCard}>
-            <View style={styles.priceGrid}>
-              {[
-                { label: "MRP", value: money(itemData.mrp), color: colors.textSecondary },
-                { label: "Selling", value: money(itemData.defaultSellingPrice), color: colors.primary },
-                { label: "Min Price", value: money(itemData.minimumAllowedPrice), color: colors.warning },
-                { label: "Purchase", value: money(itemData.purchasePrice), color: colors.textPrimary },
-              ].map((p) => (
-                <View key={p.label} style={styles.priceCard}>
-                  <Text style={styles.priceCardLabel}>{p.label}</Text>
-                  <Text style={[styles.priceCardValue, { color: p.color }]}>{p.value}</Text>
-                </View>
-              ))}
+                ))
+              )}
             </View>
-          </View>
-        )}
+          )}
 
-        {activeTab === "history" && (
-          <View style={styles.detailCard}>
-            {priceChangeHistoryQuery.isLoading ? (
-              <SkeletonList count={3} itemHeight={52} />
-            ) : !(priceChangeHistoryQuery.data as PriceChangeHistoryEntry[] | undefined)?.length ? (
-              <EmptyState icon="history" title="No price changes" subtitle="Price change history will appear here." />
-            ) : (
-              (priceChangeHistoryQuery.data as PriceChangeHistoryEntry[]).map((h, i, arr) => (
-                <Fragment key={h.id}>
-                  <View style={styles.movRow}>
-                    <View style={{ flex: 1, minWidth: 0 }}>
-                      <Text style={styles.movType}>{h.priceType}</Text>
-                      <Text style={styles.movDate}>{new Date(h.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short" })}</Text>
-                    </View>
-                    <Text style={styles.movQty}>
-                      {money(h.oldPrice)} → {money(h.newPrice)}
-                    </Text>
-                  </View>
-                  {i < arr.length - 1 && <Divider style={styles.rowDivider} />}
-                </Fragment>
-              ))
-            )}
-          </View>
-        )}
+          <ItemDetailActions
+            showEdit={showEdit}
+            showTransfer={showTransfer}
+            showStockEntry={showStockEntry}
+            onEdit={() => navigate("AddEditItem", { itemId: itemData.id })}
+            onTransfer={() => setTransferModalVisible(true)}
+            onStockEntry={() => navigate("StockEntry", { itemId })}
+          />
+        </View>
+      </Animated.ScrollView>
 
-        <ItemDetailActions
-          showEdit={showEdit}
-          showTransfer={showTransfer}
-          showStockEntry={showStockEntry}
-          onEdit={() => navigate("AddEditItem", { itemId: itemData.id })}
-          onTransfer={() => setTransferModalVisible(true)}
-          onStockEntry={() => navigate("StockEntry", { itemId })}
+      {targetLayout && activeUrl && (
+        <AnimatedExpoImage
+          source={{ uri: activeUrl }}
+          style={overlayAnimatedStyle}
+          contentFit="cover"
+          pointerEvents="none"
         />
-      </ScrollView>
-
+      )}
+    </View>
       <StockTransferDialog
         visible={transferModalVisible}
         unit={itemData.unit}

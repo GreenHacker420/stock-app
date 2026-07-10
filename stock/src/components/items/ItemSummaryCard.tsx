@@ -1,5 +1,6 @@
-import { View, StyleSheet } from "react-native";
+import { View, StyleSheet, LayoutChangeEvent } from "react-native";
 import { Text } from "react-native-paper";
+import Animated from "react-native-reanimated";
 
 import { Item } from "../../api/client";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
@@ -11,9 +12,17 @@ type ItemSummaryCardProps = {
   item: Item;
   availableStock: number;
   minStock: number;
+  onThumbnailLayout?: (event: LayoutChangeEvent) => void;
+  thumbnailStyle?: any;
 };
 
-export function ItemSummaryCard({ item, availableStock, minStock }: ItemSummaryCardProps) {
+export function ItemSummaryCard({
+  item,
+  availableStock,
+  minStock,
+  onThumbnailLayout,
+  thumbnailStyle,
+}: ItemSummaryCardProps) {
   const avatarColor = getAvatarColor(item.name);
   const stockColor =
     availableStock <= 0 ? colors.danger : availableStock <= minStock ? colors.warning : colors.primary;
@@ -21,13 +30,15 @@ export function ItemSummaryCard({ item, availableStock, minStock }: ItemSummaryC
   return (
     <View style={styles.card}>
       <View style={styles.left}>
-        <CachedThumbnail
-          uri={item.imageUrl}
-          fallbackText=""
-          fallbackIcon="package-variant-closed"
-          color={colors.textSecondary}
-          style={styles.avatar}
-        />
+        <Animated.View style={[thumbnailStyle]} onLayout={onThumbnailLayout}>
+          <CachedThumbnail
+            uri={item.imageUrl}
+            fallbackText=""
+            fallbackIcon="package-variant-closed"
+            color={colors.textSecondary}
+            style={styles.avatar}
+          />
+        </Animated.View>
         <View style={styles.info}>
           <Text style={styles.name} numberOfLines={2}>
             {item.name}
@@ -50,6 +61,7 @@ export function ItemSummaryCard({ item, availableStock, minStock }: ItemSummaryC
     </View>
   );
 }
+
 
 const styles = StyleSheet.create({
   card: {
