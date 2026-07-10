@@ -227,6 +227,8 @@ export type AuditLog = {
 };
 
 export type ChequePayment = Payment & {
+  notes?: string | null;
+  deliveryMemo?: { id: string; dmNumber: string } | null;
   details?: {
     chequeNumber?: string | null;
     chequeBankName?: string | null;

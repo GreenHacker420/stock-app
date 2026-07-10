@@ -370,6 +370,13 @@ function OwnerHome({ navigate }: { navigate: (s: any, params?: any) => void }) {
               onPress={() => navigate("CustomerList")} 
               width={actionCardWidth}
             />
+            <QuickActionCard 
+              title="Track Cheques" 
+              desc="Monitor received cheques" 
+              icon="book-open-outline" 
+              onPress={() => navigate("ChequeList")} 
+              width={actionCardWidth}
+            />
           </View>
         );
       case 'inventory':

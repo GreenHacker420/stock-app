@@ -34,6 +34,8 @@ import {
   OwnerRecords,
   OwnerStock,
 } from "./screens/PlannedScreens";
+import { ChequeList } from "./screens/ChequeList";
+import { ChequeDetail } from "./screens/ChequeDetail";
 import { NewSaleType } from "./screens/NewSaleType";
 import { RegularSale } from "./screens/RegularSale";
 import { Notifications } from "./screens/Notifications";
@@ -473,11 +475,11 @@ const sharedStackScreens = {
     options: { title: "Sale detail" },
   },
   ChequeList: {
-    screen: GenericPlannedScreen,
+    screen: ChequeList,
     options: { title: "Cheques" },
   },
   ChequeDetail: {
-    screen: GenericPlannedScreen,
+    screen: ChequeDetail,
     options: { title: "Cheque detail" },
   },
   CustomerList: {
@@ -662,7 +664,7 @@ export type RootStackParamList = {
   SaleDetail: { id: string };
   EditSale: { saleId: string };
   ChequeList: undefined;
-  ChequeDetail: undefined;
+  ChequeDetail: { chequeId: string };
   CustomerList: undefined;
   AddEditCustomer: { customer?: any };
   CustomerDetail: { customerId: string };
