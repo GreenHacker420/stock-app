@@ -191,6 +191,7 @@ function createAuthStore() {
       destroyDomainReadCache();
     }
 	    shopState.clearActiveShop();
+    userCacheStorage.remove("cached_user");
     set({ token: null, user: null, isBootstrapping: false });
   },
 }));
@@ -210,7 +211,5 @@ globalAuthStore.__shopControlAuthStore = useAuthStore;
 useAuthStore.subscribe((state: AuthState) => {
   if (state.user) {
     userCacheStorage.set("cached_user", JSON.stringify(state.user));
-  } else {
-    userCacheStorage.remove("cached_user");
   }
 });

@@ -1,4 +1,5 @@
 import { pipeline, env } from '@xenova/transformers';
+import { getReadCacheRedis } from '../cache/redis-read-cache.js';
 
 // Configure cache directory to use writable /tmp in containerized environment
 env.cacheDir = '/tmp/transformers-cache';
@@ -17,6 +18,7 @@ async function getExtractor() {
 
 /**
  * Generates a 384-dimensional vector embedding for the given text.
+ * Uses local in-memory cache and Redis cache to prevent CPU-intensive recalculation.
  * @param {string} text 
  * @returns {Promise<number[]>}
  */
@@ -25,28 +27,64 @@ export async function generateEmbedding(text) {
     return new Array(384).fill(0);
   }
 
-  const cacheKey = text.trim().toLowerCase();
-  if (embeddingCache.has(cacheKey)) {
-    return embeddingCache.get(cacheKey);
+  const cleanText = text.trim().toLowerCase();
+
+  // 1. Try local in-memory cache first (O(1) lookups)
+  if (embeddingCache.has(cleanText)) {
+    return embeddingCache.get(cleanText);
   }
-  
+
+  // 2. Try Redis cache (keeps cache across server restarts)
+  const redisKey = `embedding:v1:${cleanText}`;
+  try {
+    const redis = await getReadCacheRedis();
+    if (redis) {
+      const cached = await redis.get(redisKey);
+      if (cached) {
+        const vector = JSON.parse(cached);
+        if (Array.isArray(vector) && vector.length === 384) {
+          // Sync to local memory cache for even faster subsequent reads
+          if (embeddingCache.size >= MAX_CACHE_SIZE) {
+            const firstKey = embeddingCache.keys().next().value;
+            embeddingCache.delete(firstKey);
+          }
+          embeddingCache.set(cleanText, vector);
+          return vector;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn("[redis-cache] failed to fetch from redis:", err);
+  }
+
+  // 3. Generate using deep learning model on CPU
   try {
     const extractor = await getExtractor();
     const output = await extractor(text, { pooling: 'mean', normalize: true });
     const vector = Array.from(output.data);
 
-    // Keep cache size bounded
+    // Save to local Map cache
     if (embeddingCache.size >= MAX_CACHE_SIZE) {
       const firstKey = embeddingCache.keys().next().value;
       embeddingCache.delete(firstKey);
     }
-    embeddingCache.set(cacheKey, vector);
+    embeddingCache.set(cleanText, vector);
+
+    // Persist in Redis with a 7-day TTL (604800 seconds)
+    try {
+      const redis = await getReadCacheRedis();
+      if (redis) {
+        await redis.setex(redisKey, 604800, JSON.stringify(vector));
+      }
+    } catch (err) {
+      console.warn("[redis-cache] failed to write to redis:", err);
+    }
 
     return vector;
   } catch (error) {
     console.error("Failed to generate embedding for text:", text, error);
-    // Return a zero vector as a fallback rather than failing entirely
     return new Array(384).fill(0);
   }
 }
+
 
