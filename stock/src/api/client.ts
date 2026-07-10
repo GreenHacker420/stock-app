@@ -1,4 +1,5 @@
 export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? "https://shop-api.evergreenclassic.in";
+import { useNetworkStore } from "../auth/network-store";
 
 export type PaymentMode = "CASH" | "UPI" | "CARD" | "BANK_TRANSFER" | "CHEQUE";
 export type PaymentStatus = "RECORDED" | "VERIFIED" | "REJECTED" | "CANCELLED";
@@ -326,19 +327,29 @@ export class ApiError extends Error {
   }
 }
 
+
 export async function apiRequest<T>(
   path: string,
   options: RequestInit & { token?: string | null } = {},
 ): Promise<T> {
   const startedAt = Date.now();
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
-      ...options.headers,
-    },
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...(options.token ? { Authorization: `Bearer ${options.token}` } : {}),
+        ...options.headers,
+      },
+    });
+    useNetworkStore.getState().setServerReachable(true);
+  } catch (error: any) {
+    if (error instanceof TypeError && error.message.includes("Network request failed")) {
+      useNetworkStore.getState().setServerReachable(false);
+    }
+    throw error;
+  }
 
   const responseText = await response.text();
   if (__DEV__) {
@@ -351,6 +362,7 @@ export async function apiRequest<T>(
   const payload = responseText
     ? JSON.parse(responseText) as ApiResponse<T>
     : { success: response.ok, data: undefined as T };
+
 
   if (!response.ok) {
     throw new ApiError(payload.message || "Request failed", response.status, (payload as any).field ?? null);

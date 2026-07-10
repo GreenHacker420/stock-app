@@ -10,17 +10,21 @@ import Animated, {
   useReducedMotion,
 } from "react-native-reanimated";
 import { colors, spacing, radius, fontSize, fontWeight } from "../theme";
+import { useNetworkStore } from "../auth/network-store";
 
 export function OfflineBanner() {
   const netInfo = useNetInfo();
   const insets = useSafeAreaInsets();
   const reduceMotion = useReducedMotion();
+  const isServerReachable = useNetworkStore((state) => state.isServerReachable);
+  
   const isOffline = netInfo.isConnected === false;
+  const showBanner = isOffline || !isServerReachable;
 
   const translateY = useSharedValue(-100);
 
   useEffect(() => {
-    if (isOffline) {
+    if (showBanner) {
       translateY.value = reduceMotion
         ? insets.top + spacing.sm
         : withSpring(insets.top + spacing.sm, { damping: 20, stiffness: 180 });
@@ -29,7 +33,7 @@ export function OfflineBanner() {
         ? -100
         : withSpring(-100, { damping: 20, stiffness: 180 });
     }
-  }, [isOffline, translateY, insets.top, reduceMotion]);
+  }, [showBanner, translateY, insets.top, reduceMotion]);
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: translateY.value }],
@@ -39,13 +43,22 @@ export function OfflineBanner() {
 
   return (
     <Animated.View style={[styles.container, animatedStyle]}>
-      <View style={styles.banner}>
-        <Icon source="wifi-off" size={16} color={colors.textInverse} />
-        <Text style={styles.text}>No internet connection. Operating offline.</Text>
+      <View style={[styles.banner, !isOffline && !isServerReachable && { backgroundColor: colors.warning }]}>
+        <Icon 
+          source={isOffline ? "wifi-off" : "server-off"} 
+          size={16} 
+          color={colors.textInverse} 
+        />
+        <Text style={styles.text}>
+          {isOffline 
+            ? "No internet connection. Operating offline." 
+            : "Server is unreachable. Operating offline."}
+        </Text>
       </View>
     </Animated.View>
   );
 }
+
 
 const styles = StyleSheet.create({
   container: {
