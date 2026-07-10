@@ -9,7 +9,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Item, ItemCategory, ItemBrand } from "../../../api/client";
 import { useAuthStore } from "../../../auth/auth-store";
 import { useShopStore } from "../../../auth/shop-store";
-import { useItemsQuery, useCategoriesQuery, useBrandsQuery, useItemSummaryQuery, useBatchQuickUpdateMutation, useDeleteItemMutation } from "../../../hooks/useItems";
+import { useItemsQuery, useCategoriesQuery, useBrandsQuery, useItemSummaryQuery, useBatchQuickUpdateMutation, useDeleteItemMutation, useMergeItemsMutation } from "../../../hooks/useItems";
 import { Screen } from "../../../components/Screen";
 import { AppHeader } from "../../../components/ui/AppHeader";
 import { SkeletonList } from "../../../components/ui/SkeletonCard";
@@ -202,6 +202,46 @@ export function ItemList() {
       ]
     );
   }, [selectedItemIds, deleteItemMutation, exitSelectMode]);
+
+  const mergeItemsMutation = useMergeItemsMutation();
+
+  const handleMergeSelected = useCallback(() => {
+    const ids = Array.from(selectedItemIds);
+    if (ids.length !== 2) {
+      Alert.alert("Merge Products", "Please select exactly 2 products to merge.");
+      return;
+    }
+    const itemA = allItems.find((i) => i.id === ids[0]);
+    const itemB = allItems.find((i) => i.id === ids[1]);
+    if (!itemA || !itemB) return;
+
+    Alert.alert(
+      "Merge Products",
+      "Which product should be the PRIMARY product to keep? (The other product's history will be merged into it, and the duplicate will be deactivated)",
+      [
+        {
+          text: `${itemA.brand?.name || "Generic"} · ${itemA.name}`,
+          onPress: () => executeMerge([itemB.id], itemA.id),
+        },
+        {
+          text: `${itemB.brand?.name || "Generic"} · ${itemB.name}`,
+          onPress: () => executeMerge([itemA.id], itemB.id),
+        },
+        { text: "Cancel", style: "cancel" },
+      ]
+    );
+  }, [selectedItemIds, allItems]);
+
+  const executeMerge = async (sourceIds: string[], targetId: string) => {
+    triggerLightHaptic();
+    try {
+      await mergeItemsMutation.mutateAsync({ sourceItemIds: sourceIds, targetItemId: targetId });
+      Alert.alert("Success", "Products merged successfully.");
+      exitSelectMode();
+    } catch (err: any) {
+      Alert.alert("Error", `Failed to merge products: ${err.message}`);
+    }
+  };
 
   // Reset pending drafts when switching shops
   useEffect(() => {
@@ -508,6 +548,15 @@ export function ItemList() {
             {selectedItemIds.size} product{selectedItemIds.size !== 1 ? "s" : ""} selected
           </Text>
           <View style={styles.selectionActions}>
+            {selectedItemIds.size === 2 && (
+              <Pressable
+                onPress={handleMergeSelected}
+                style={({ pressed }) => [styles.btnMergeSelected, pressed && { opacity: 0.8 }]}
+              >
+                <Icon source="call-merge" size={14} color="white" />
+                <Text style={styles.btnMergeSelectedText}>Merge</Text>
+              </Pressable>
+            )}
             {selectedItemIds.size > 0 && (
               <Pressable
                 onPress={handleDeleteSelected}
@@ -980,5 +1029,19 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xs,
     fontWeight: fontWeight.bold,
     color: colors.textSecondary,
+  },
+  btnMergeSelected: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: colors.primary,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: radius.md,
+  },
+  btnMergeSelectedText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
+    color: "white",
   },
 });

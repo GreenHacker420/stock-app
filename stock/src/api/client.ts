@@ -498,6 +498,15 @@ export async function deleteItem(token: string, id: string) {
   return apiRequest<Item>(`/items/${id}`, { method: "DELETE", token });
 }
 
+export async function mergeItems(token: string, shopId: string, sourceItemIds: string[], targetItemId: string) {
+  return apiRequest<{ success: boolean }>("/items/merge", {
+    method: "POST",
+    token,
+    body: JSON.stringify({ shopId, sourceItemIds, targetItemId }),
+  });
+}
+
+
 export async function batchQuickUpdate(
   token: string,
   data: {

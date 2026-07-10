@@ -7,6 +7,7 @@ import {
   createItem,
   updateItem,
   deleteItem,
+  mergeItems,
   fetchCurrentStock,
   createStockMovement,
   fetchStockMovements,
@@ -195,6 +196,26 @@ export function useDeleteItemMutation() {
     onSuccess: (_, id) => {
       queryClient.invalidateQueries({ queryKey: ["items"] });
       queryClient.invalidateQueries({ queryKey: ["item-stock", id] });
+      if (activeShopId) {
+        queryClient.invalidateQueries({ queryKey: ["item-summary", activeShopId] });
+        queryClient.invalidateQueries({ queryKey: ["current-stock", activeShopId] });
+        queryClient.invalidateQueries({ queryKey: ["stock-movements", activeShopId] });
+        refreshCatalogReadModelAfterMutation({ userId, shopId: activeShopId, token, queryClient, domains: ["items"] });
+      }
+    },
+  });
+}
+
+export function useMergeItemsMutation() {
+  const token = useAuthStore((state) => state.token);
+  const userId = useAuthStore((state) => state.user?.id);
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { sourceItemIds: string[]; targetItemId: string }) =>
+      mergeItems(token ?? "", activeShopId ?? "", data.sourceItemIds, data.targetItemId),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["items"] });
       if (activeShopId) {
         queryClient.invalidateQueries({ queryKey: ["item-summary", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["current-stock", activeShopId] });
