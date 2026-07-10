@@ -529,7 +529,22 @@ export function SaleDetail() {
           </Section>
         )}
 
-        <View style={[styles.shareBtnContainer, { flexDirection: "row", gap: spacing.md }]}>
+        {sale.paymentStatus !== "PAID" && (
+          <Button
+            label="COLLECT PAYMENT"
+            variant="primary"
+            icon="currency-inr"
+            onPress={() => navigation.navigate("TakePayment", {
+              customerId: sale.customerId,
+              customer: sale.customer,
+              saleId: sale.id,
+              amount: sale.balanceAmount
+            })}
+            style={{ marginTop: spacing.md, backgroundColor: colors.success }}
+          />
+        )}
+
+        <View style={[styles.shareBtnContainer, { flexDirection: "row", gap: spacing.md, marginTop: sale.paymentStatus !== "PAID" ? spacing.sm : spacing.lg }]}>
           <Button
             label="VIEW"
             variant="ghost"

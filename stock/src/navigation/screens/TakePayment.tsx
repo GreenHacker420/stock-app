@@ -47,6 +47,7 @@ import {
 type TakePaymentRouteProp = RouteProp<{
   TakePayment: {
     customerId?: string;
+    customer?: any;
     saleId?: string;
     orderId?: string;
     dmId?: string;
@@ -106,7 +107,7 @@ export function TakePayment() {
   const isLinked = Boolean(route.params?.saleId || route.params?.orderId || route.params?.dmId);
 
   const [isWalkin, setIsWalkin] = useState(!route.params?.customerId);
-  const [selectedCustomer, setSelectedCustomer] = useState<any | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<any | null>(route.params?.customer || null);
   const [customerId, setCustomerId] = useState<string | undefined>(route.params?.customerId);
   const [saleId, setSaleId] = useState<string | undefined>(route.params?.saleId);
   const [orderId, setOrderId] = useState<string | undefined>(route.params?.orderId);
@@ -215,7 +216,7 @@ export function TakePayment() {
     setReference("");
     setNote("");
     setErrorMsg(null);
-    setSelectedCustomer(null);
+    setSelectedCustomer(params.customer || null);
     setSearchQuery("");
     setShowMetadata(false);
   }, [route.params]);

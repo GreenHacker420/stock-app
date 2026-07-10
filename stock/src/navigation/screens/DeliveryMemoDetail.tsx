@@ -43,6 +43,7 @@ export function DeliveryMemoDetail() {
     if (!dm) return;
     navigate("TakePayment", {
       customerId: dm.customerId,
+      customer: dm.customer,
       dmId: dm.id,
       amount: dm.balanceAmount || dm.estimatedAmount,
     });

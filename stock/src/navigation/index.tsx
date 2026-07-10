@@ -636,7 +636,7 @@ export type RootStackParamList = {
   CreateDeliveryMemo: undefined;
   DeliveryMemoList: undefined;
   DeliveryMemoDetail: { id: string };
-  TakePayment: { customerId?: string; orderId?: string; dmId?: string; amount?: number };
+  TakePayment: { customerId?: string; customer?: any; orderId?: string; dmId?: string; amount?: number };
   RequestCorrection: undefined;
   RequestRateChange: undefined;
   CreateEditShop: { shop?: any };
