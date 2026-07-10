@@ -31,7 +31,8 @@ import { Button } from "../../components/ui/Button";
 import { navigate, goBack } from "../navigation-ref";
 import { useNetworkStatus } from "../../hooks/useNetworkStatus";
 import { requireActiveShopId } from "../../hooks/useActiveShop";
-import { useCustomersQuery } from "../../hooks/useCustomers";
+import { useCustomersQuery, useCreateCustomerMutation, useUpdateCustomerMutation } from "../../hooks/useCustomers";
+import { AppKeyboardAvoidingView } from "../../components/ui/AppKeyboardAvoidingView";
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 const internetRequiredMessage = "Internet connection required. Please connect to the internet to complete this action.";
@@ -221,28 +222,8 @@ export function AddEditCustomer() {
 
   const set = (key: keyof typeof form, value: string) => setForm((prev) => ({ ...prev, [key]: value }));
 
-  const mutation = useMutation({
-    mutationFn: () => {
-      if (network.isOffline) {
-        throw new Error(internetRequiredMessage);
-      }
-      const payload = { 
-        shopId: requireActiveShopId(activeShopId), 
-        ...form, 
-        phone: cleanPhoneNumber(form.phone),
-        creditLimit: form.creditLimit ? Number(form.creditLimit) : undefined 
-      };
-      return (customer && customer.id) ? updateCustomer(token ?? "", customer.id, payload) : createCustomer(token ?? "", payload);
-    },
-    onSuccess: (result: any) => {
-      if (result?.ok === false) return;
-      queryClient.invalidateQueries({ queryKey: ["customers", activeShopId] });
-      goBack();
-    },
-    onError: (error: Error) => {
-      Alert.alert("Internet required", error.message || internetRequiredMessage);
-    },
-  });
+  const createMutation = useCreateCustomerMutation();
+  const updateMutation = useUpdateCustomerMutation();
 
   const handleSave = () => {
     if (!form.name.trim()) {
@@ -258,7 +239,44 @@ export function AddEditCustomer() {
       Alert.alert("Validation Error", "Please enter a valid 10-digit mobile number starting with 6-9.");
       return;
     }
-    mutation.mutate();
+
+    if (network.isOffline) {
+      Alert.alert("Internet required", internetRequiredMessage);
+      return;
+    }
+
+    const payload = {
+      name: form.name.trim(),
+      phone: cleaned,
+      address: form.address.trim(),
+      city: form.city.trim(),
+      gstin: form.gstin.trim(),
+      contactPerson: form.contactPerson.trim(),
+      creditLimit: form.creditLimit ? Number(form.creditLimit) : undefined,
+      notes: form.notes.trim(),
+    };
+
+    if (customer && customer.id) {
+      updateMutation.mutate({ id: customer.id, data: payload }, {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: ["sales"] });
+          queryClient.invalidateQueries({ queryKey: ["sale"] });
+          goBack();
+        },
+        onError: (err: any) => {
+          Alert.alert("Error", err.message || "Failed to update customer");
+        }
+      });
+    } else {
+      createMutation.mutate(payload, {
+        onSuccess: () => {
+          goBack();
+        },
+        onError: (err: any) => {
+          Alert.alert("Error", err.message || "Failed to create customer");
+        }
+      });
+    }
   };
 
   return (
@@ -268,7 +286,7 @@ export function AddEditCustomer() {
         subtitle="Maintain customer profile settings" 
         fallbackRoute="CustomerList"
       />
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <AppKeyboardAvoidingView>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 32 }} keyboardShouldPersistTaps="handled">
       <View style={styles.formContainer}>
         <Section title="Customer details">
@@ -365,7 +383,7 @@ export function AddEditCustomer() {
           <Button 
             label="Save Customer"
             onPress={handleSave} 
-            loading={mutation.isPending} 
+            loading={createMutation.isPending || updateMutation.isPending} 
             disabled={!form.name.trim() || !form.phone.trim() || !form.contactPerson.trim()}
             fullWidth
             size="lg"
@@ -373,7 +391,7 @@ export function AddEditCustomer() {
         </View>
       </View>
       </ScrollView>
-      </KeyboardAvoidingView>
+      </AppKeyboardAvoidingView>
 
       <Modal
         visible={contactsModalVisible}

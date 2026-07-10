@@ -12,7 +12,7 @@ import {
   Animated,
   Modal
 } from "react-native";
-import { Searchbar, Text, Icon, TextInput, SegmentedButtons, List, Divider } from "react-native-paper";
+import { Text, Icon, TextInput, SegmentedButtons, List, Divider } from "react-native-paper";
 import { useNavigation } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FlashList } from "@shopify/flash-list";
@@ -28,6 +28,7 @@ import { useShopStore } from "../../auth/shop-store";
 import { useNetworkStatus } from "../../hooks/useNetworkStatus";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
+import { AppSearchBar } from "../../components/ui/AppSearchBar";
 import { SkeletonList } from "../../components/ui/SkeletonCard";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { SerialNumberScannerModal } from "../../components/items/SerialNumberScannerModal";
@@ -788,13 +789,11 @@ export function WalkInSale() {
                     {!selectedCustomer ? (
                       <>
                         <View style={styles.searchRow}>
-                          <Searchbar
+                          <AppSearchBar
                             placeholder="Search existing customer..."
                             onChangeText={setCustomerSearch}
                             value={customerSearch}
-                            style={[styles.searchBar, { flex: 1, marginBottom: 0 }]}
-                            inputStyle={styles.searchInput}
-                            elevation={0}
+                            style={{ flex: 1 }}
                           />
                           <Pressable 
                             onPress={() => navigation.navigate("AddEditCustomer")}
@@ -924,13 +923,11 @@ export function WalkInSale() {
 
               <Section title="Select Items">
                 <View style={styles.searchRow}>
-                  <Searchbar
+                  <AppSearchBar
                     placeholder="Search name or SKU..."
                     onChangeText={setSearch}
                     value={search}
-                    style={[styles.searchBar, { flex: 1, marginBottom: 0 }]}
-                    inputStyle={styles.searchInput}
-                    elevation={0}
+                    style={{ flex: 1 }}
                   />
                   <Pressable 
                     onPress={() => {

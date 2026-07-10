@@ -1,7 +1,7 @@
 import { useState, useMemo, memo, useCallback, useRef, useEffect } from "react";
 import { useNavigation } from "@react-navigation/native";
 import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Pressable, Modal, Alert, Animated, PanResponder } from "react-native";
-import { Searchbar, Text, Icon, List, TextInput, Switch, SegmentedButtons, Divider } from "react-native-paper";
+import { Text, Icon, List, TextInput, Switch, SegmentedButtons, Divider } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
@@ -14,6 +14,7 @@ import { useShopStore } from "../../auth/shop-store";
 import { useCreateSaleMutation } from "../../hooks/useSales";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
+import { AppSearchBar } from "../../components/ui/AppSearchBar";
 import { SuccessModal } from "../../components/ui/SuccessModal";
 import { SignaturePad } from "../../components/ui/SignaturePad";
 import { Button } from "../../components/ui/Button";
@@ -738,13 +739,11 @@ export function RegularSale() {
                 {!selectedCustomer ? (
                   <View style={styles.formCard}>
                     <View style={styles.searchRow}>
-                      <Searchbar
+                      <AppSearchBar
                         placeholder="Search customer name or phone..."
                         onChangeText={setCustomerSearch}
                         value={customerSearch}
-                        style={[styles.searchBar, { flex: 1, marginBottom: 0 }]}
-                        inputStyle={styles.searchInput}
-                        elevation={0}
+                        style={{ flex: 1 }}
                       />
                       <Pressable 
                         onPress={() => navigate("AddEditCustomer")}
@@ -800,13 +799,11 @@ export function RegularSale() {
 
               <Section title="Select Items">
                 <View style={styles.searchRow}>
-                  <Searchbar
+                  <AppSearchBar
                     placeholder="Search name or SKU..."
                     onChangeText={setItemSearch}
                     value={itemSearch}
-                    style={[styles.searchBar, { flex: 1, marginBottom: 0 }]}
-                    inputStyle={styles.searchInput}
-                    elevation={0}
+                    style={{ flex: 1 }}
                   />
                   <Pressable 
                     onPress={() => {

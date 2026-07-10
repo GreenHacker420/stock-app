@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { View, StyleSheet, Pressable, ScrollView, Alert, ActivityIndicator, Switch, Platform } from "react-native";
+import { View, StyleSheet, Pressable, ScrollView, Alert, ActivityIndicator, Switch, Platform, TextInput } from "react-native";
 import { Divider, Text, Icon, TextInput as PaperTextInput } from "react-native-paper";
 import { useRoute, useNavigation } from "@react-navigation/native";
 
@@ -7,6 +7,8 @@ import { useSaleQuery, useAmendSaleMutation, useUpdateSaleMutation } from "../..
 import { useItemsQuery } from "../../hooks/useItems";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
+import { AppSearchBar } from "../../components/ui/AppSearchBar";
+import { AppKeyboardAvoidingView } from "../../components/ui/AppKeyboardAvoidingView";
 import { Button } from "../../components/ui/Button";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { triggerLightHaptic, triggerSuccessHaptic } from "../../utils/haptics";
@@ -57,8 +59,8 @@ export function EditSale() {
   const allProducts = itemsQuery.data?.items ?? [];
   const filteredProducts = useMemo(() => {
     if (!productSearch) return [];
-    return allProducts.filter((p: any) => 
-      p.name.toLowerCase().includes(productSearch.toLowerCase()) || 
+    return allProducts.filter((p: any) =>
+      p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
       (p.sku && p.sku.toLowerCase().includes(productSearch.toLowerCase()))
     ).slice(0, 5);
   }, [productSearch, allProducts]);
@@ -68,9 +70,9 @@ export function EditSale() {
     setEditItems(prev => {
       const existing = prev.find(item => item.itemId === prod.id);
       if (existing) {
-        return prev.map(item => 
-          item.itemId === prod.id 
-            ? { ...item, quantity: String(Number(item.quantity) + 1) } 
+        return prev.map(item =>
+          item.itemId === prod.id
+            ? { ...item, quantity: String(Number(item.quantity) + 1) }
             : item
         );
       } else {
@@ -109,7 +111,7 @@ export function EditSale() {
     const beforeMap = new Map((sale.items || []).map((item: any) => [item.itemId, item]));
     const afterMap = new Map(editItems.map(item => [item.itemId, item]));
     const allIds = new Set([...beforeMap.keys(), ...afterMap.keys()]);
-    
+
     const deltas = [];
     for (const itemId of allIds) {
       const before = beforeMap.get(itemId);
@@ -240,32 +242,75 @@ export function EditSale() {
     return (
       <Screen edges={["top", "left", "right"]}>
         <AppHeader title="Review Sale Changes" showBack onBack={() => setIsReviewing(false)} />
-        <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+        <AppKeyboardAvoidingView>
+          <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>ITEM CHANGES</Text>
           </View>
-          
-          <View style={styles.card}>
-            {itemDeltas.map((change, idx) => (
-              <View key={change.itemId + idx} style={change.deltaQty !== 0 || change.beforeRate !== change.afterRate ? styles.changeRow : styles.noChangeRow}>
-                <Text style={styles.itemName}>{change.name}</Text>
-                
-                {change.deltaQty !== 0 && (
-                  <Text style={styles.changeLabel}>
-                    Quantity: <Text style={styles.boldText}>{change.beforeQty} → {change.afterQty}</Text> (Delta: {change.deltaQty > 0 ? `+${change.deltaQty}` : change.deltaQty})
-                  </Text>
-                )}
 
-                {change.beforeRate !== change.afterRate && (
-                  <Text style={styles.changeLabel}>
-                    Rate: <Text style={styles.boldText}>{money(change.beforeRate)} → {money(change.afterRate)}</Text>
-                  </Text>
-                )}
-                {idx < itemDeltas.length - 1 && <Divider style={styles.divider} />}
-              </View>
-            ))}
+          <View style={{ gap: spacing.md }}>
+            {itemDeltas.map((change, idx) => {
+              const hasQtyChanged = change.deltaQty !== 0;
+              const hasRateChanged = change.beforeRate !== change.afterRate;
+              const isIncrease = change.deltaQty > 0 || (change.deltaQty === 0 && change.afterRate > change.beforeRate);
+
+              return (
+                <View
+                  key={change.itemId + idx}
+                  style={[
+                    styles.changeCard,
+                    hasQtyChanged || hasRateChanged
+                      ? (isIncrease ? styles.changeCardIncrease : styles.changeCardDecrease)
+                      : styles.changeCardNone
+                  ]}
+                >
+                  <View style={styles.changeHeader}>
+                    <Text style={styles.changeItemName} numberOfLines={1}>{change.name}</Text>
+                    {hasQtyChanged || hasRateChanged ? (
+                      <View style={[styles.diffBadge, isIncrease ? styles.diffBadgeIncrease : styles.diffBadgeDecrease]}>
+                        <Icon
+                          source={isIncrease ? "arrow-up-bold" : "arrow-down-bold"}
+                          size={12}
+                          color={isIncrease ? colors.success : colors.danger}
+                        />
+                        <Text style={[styles.diffBadgeText, { color: isIncrease ? colors.success : colors.danger }]}>
+                          {isIncrease ? "ADDED" : "REDUCED"}
+                        </Text>
+                      </View>
+                    ) : (
+                      <Text style={styles.noChangeBadge}>NO CHANGE</Text>
+                    )}
+                  </View>
+
+                  <View style={styles.changeDetails}>
+                    {hasQtyChanged && (
+                      <View style={styles.changeDetailRow}>
+                        <Text style={styles.changeDetailLabel}>Quantity</Text>
+                        <Text style={styles.changeDetailValue}>
+                          {change.beforeQty} → <Text style={styles.boldText}>{change.afterQty}</Text>
+                          <Text style={{ color: change.deltaQty > 0 ? colors.success : colors.danger, fontWeight: fontWeight.bold }}>
+                            {" "} ({change.deltaQty > 0 ? `+${change.deltaQty}` : change.deltaQty})
+                          </Text>
+                        </Text>
+                      </View>
+                    )}
+
+                    {hasRateChanged && (
+                      <View style={styles.changeDetailRow}>
+                        <Text style={styles.changeDetailLabel}>Rate</Text>
+                        <Text style={styles.changeDetailValue}>
+                          {money(change.beforeRate)} → <Text style={styles.boldText}>{money(change.afterRate)}</Text>
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+              );
+            })}
             {itemDeltas.length === 0 && (
-              <Text style={styles.emptyText}>No items changed.</Text>
+              <View style={styles.card}>
+                <Text style={styles.emptyText}>No items changed.</Text>
+              </View>
             )}
           </View>
 
@@ -273,7 +318,7 @@ export function EditSale() {
             <Text style={styles.sectionTitle}>FINANCIAL IMPACT</Text>
           </View>
 
-          <View style={styles.card}>
+          <View style={styles.impactCard}>
             <View style={styles.impactRow}>
               <Text style={styles.impactLabel}>Previous Total</Text>
               <Text style={styles.impactValue}>{money(previousTotal)}</Text>
@@ -283,10 +328,10 @@ export function EditSale() {
               <Text style={styles.impactLabel}>New Total</Text>
               <Text style={styles.impactValue}>{money(totalAmount)}</Text>
             </View>
-            <Divider style={styles.divider} />
-            <View style={styles.impactRow}>
-              <Text style={styles.impactLabel}>Receivable Difference</Text>
-              <Text style={[styles.impactValue, { color: financialChange >= 0 ? colors.success : colors.danger }]}>
+            <View style={styles.receiptDashedLine} />
+            <View style={[styles.impactRow, styles.impactRowTotal]}>
+              <Text style={styles.impactTotalLabel}>Receivable Change</Text>
+              <Text style={[styles.impactTotalValue, { color: financialChange >= 0 ? colors.success : colors.danger }]}>
                 {financialChange >= 0 ? `+${money(financialChange)}` : `-${money(Math.abs(financialChange))}`}
               </Text>
             </View>
@@ -304,7 +349,7 @@ export function EditSale() {
           )}
 
           {sale.gstInvoiceNumber && (
-            <View style={[styles.card, { borderColor: colors.warning, borderWidth: 1, backgroundColor: colors.warningLight }]}>
+            <View style={[styles.card, { borderColor: colors.warning, borderWidth: 1, backgroundColor: colors.warningLight, marginTop: spacing.md }]}>
               <View style={{ flexDirection: "row", gap: spacing.sm, alignItems: "center" }}>
                 <Icon source="alert-circle-outline" size={24} color={colors.warning} />
                 <View style={{ flex: 1 }}>
@@ -327,7 +372,8 @@ export function EditSale() {
               style={{ flex: 1.5 }}
             />
           </View>
-        </ScrollView>
+          </ScrollView>
+        </AppKeyboardAvoidingView>
       </Screen>
     );
   }
@@ -335,20 +381,13 @@ export function EditSale() {
   return (
     <Screen edges={["top", "left", "right"]}>
       <AppHeader title={`Edit Sale #${sale.saleNumber}`} showBack />
-      
+
       {/* Product Search & Autocomplete suggestions */}
       <View style={styles.searchContainer}>
-        <PaperTextInput
-          mode="outlined"
-          label="Search products to add..."
+        <AppSearchBar
           value={productSearch}
           onChangeText={setProductSearch}
-          placeholder="Type product name or SKU"
-          outlineColor={colors.border}
-          activeOutlineColor={colors.primary}
-          textColor={colors.textPrimary}
-          style={styles.searchInput}
-          right={<PaperTextInput.Icon icon="magnify" color={colors.textSecondary} />}
+          placeholder="Search products to add..."
         />
         {filteredProducts.length > 0 && (
           <View style={styles.suggestionsContainer}>
@@ -369,7 +408,8 @@ export function EditSale() {
         )}
       </View>
 
-      <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+      <AppKeyboardAvoidingView>
+        <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
         {/* Customer Info Card */}
         <View style={styles.customerCard}>
           <View style={styles.customerHeader}>
@@ -427,22 +467,19 @@ export function EditSale() {
                   <Text style={styles.itemName} numberOfLines={2}>{item.name}</Text>
                   <Text style={styles.itemTotalText}>{money(itemTotal)}</Text>
                 </View>
-                
+
                 <View style={styles.itemControlsRow}>
                   {/* Quantity Selector */}
                   <View style={styles.qtyContainer}>
                     <Pressable onPress={handleDecrement} style={styles.qtyBtn}>
                       <Text style={styles.qtyBtnText}>-</Text>
                     </Pressable>
-                    <PaperTextInput
-                      mode="flat"
+                    <TextInput
                       value={item.quantity}
                       onChangeText={handleQtyChange}
                       keyboardType="numeric"
-                      style={styles.qtyInput}
-                      underlineColor="transparent"
-                      activeUnderlineColor="transparent"
-                      dense
+                      style={styles.qtyNativeInput}
+                      selectTextOnFocus
                     />
                     <Pressable onPress={handleIncrement} style={styles.qtyBtn}>
                       <Text style={styles.qtyBtnText}>+</Text>
@@ -450,17 +487,15 @@ export function EditSale() {
                   </View>
 
                   {/* Rate Input */}
-                  <View style={styles.rateInputWrapper}>
-                    <PaperTextInput
-                      mode="outlined"
-                      label="Rate"
+                  <View style={styles.rateWrapper}>
+                    <Text style={styles.rateSymbol}>₹</Text>
+                    <TextInput
                       value={item.rate}
                       onChangeText={handleRateChange}
                       keyboardType="numeric"
-                      style={styles.rateInput}
-                      outlineColor={colors.border}
-                      activeOutlineColor={colors.primary}
-                      dense
+                      style={styles.rateNativeInput}
+                      placeholder="0"
+                      placeholderTextColor={colors.textMuted}
                     />
                   </View>
 
@@ -551,7 +586,7 @@ export function EditSale() {
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>AMENDMENT REASON</Text>
             </View>
-            
+
             <View style={styles.card}>
               <PaperTextInput
                 mode="outlined"
@@ -577,7 +612,8 @@ export function EditSale() {
           onPress={() => setIsReviewing(true)}
           style={{ marginVertical: spacing.lg }}
         />
-      </ScrollView>
+        </ScrollView>
+      </AppKeyboardAvoidingView>
     </Screen>
   );
 }
@@ -722,7 +758,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     marginTop: 2,
     position: 'absolute',
-    top: 50,
+    top: 54,
     zIndex: 2000,
     ...shadow.sm,
   },
@@ -784,5 +820,146 @@ const styles = StyleSheet.create({
     color: colors.danger,
     flex: 1,
     fontWeight: fontWeight.medium,
+  },
+  rateWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    height: 38,
+    flex: 1,
+    marginLeft: spacing.md,
+    marginRight: spacing.sm,
+    paddingHorizontal: spacing.sm,
+  },
+  rateSymbol: {
+    fontSize: 14,
+    fontWeight: fontWeight.bold,
+    color: colors.textSecondary,
+    marginRight: 4,
+  },
+  rateNativeInput: {
+    flex: 1,
+    height: '100%',
+    fontSize: 13,
+    fontWeight: fontWeight.medium,
+    color: colors.textPrimary,
+    padding: 0,
+  },
+  qtyNativeInput: {
+    flex: 1,
+    height: '100%',
+    backgroundColor: 'transparent',
+    textAlign: 'center',
+    fontSize: 13,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+    padding: 0,
+  },
+  changeCard: {
+    backgroundColor: colors.surface,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    ...shadow.sm,
+  },
+  changeCardIncrease: {
+    borderLeftWidth: 4,
+    borderLeftColor: colors.success,
+    backgroundColor: '#f4fbf7',
+  },
+  changeCardDecrease: {
+    borderLeftWidth: 4,
+    borderLeftColor: colors.danger,
+    backgroundColor: '#fdf5f5',
+  },
+  changeCardNone: {
+    opacity: 0.72,
+  },
+  changeHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.xs,
+  },
+  changeItemName: {
+    fontSize: 14,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+    flex: 1,
+  },
+  diffBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radius.sm,
+  },
+  diffBadgeIncrease: {
+    backgroundColor: colors.successLight,
+  },
+  diffBadgeDecrease: {
+    backgroundColor: colors.dangerLight,
+  },
+  diffBadgeText: {
+    fontSize: 9,
+    fontWeight: fontWeight.black,
+  },
+  noChangeBadge: {
+    fontSize: 9,
+    fontWeight: fontWeight.bold,
+    color: colors.textMuted,
+    backgroundColor: colors.surfaceOffset,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radius.sm,
+  },
+  changeDetails: {
+    gap: 4,
+    marginTop: spacing.xs,
+  },
+  changeDetailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  changeDetailLabel: {
+    fontSize: 12,
+    color: colors.textSecondary,
+  },
+  changeDetailValue: {
+    fontSize: 12,
+    color: colors.textPrimary,
+  },
+  receiptDashedLine: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderStyle: 'dashed',
+    marginVertical: spacing.md,
+  },
+  impactCard: {
+    backgroundColor: colors.surface,
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    gap: spacing.sm,
+    ...shadow.sm,
+  },
+  impactRowTotal: {
+    paddingTop: spacing.xs,
+  },
+  impactTotalLabel: {
+    fontSize: 15,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  impactTotalValue: {
+    fontSize: 16,
+    fontWeight: fontWeight.black,
   },
 });

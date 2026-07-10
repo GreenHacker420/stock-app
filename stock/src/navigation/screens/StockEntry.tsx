@@ -24,6 +24,7 @@ import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
+import { AppSearchBar } from "../../components/ui/AppSearchBar";
 import { SkeletonList } from "../../components/ui/SkeletonCard";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { Button } from "../../components/ui/Button";
@@ -83,6 +84,11 @@ const ItemRow = memo(
         <View style={styles.rowInfo}>
           <Text style={styles.rowName} numberOfLines={2}>{item.name}</Text>
           <View style={styles.rowMeta}>
+            {item.brand?.name && (
+              <View style={styles.brandTag}>
+                <Text style={styles.brandTagText}>{item.brand.name}</Text>
+              </View>
+            )}
             {item.category?.name && (
               <View style={styles.catTag}>
                 <Text style={styles.catTagText}>{item.category.name}</Text>
@@ -286,25 +292,13 @@ export function StockEntry() {
         {!specificItemId && (
           <View style={styles.filtersWrap}>
             {/* Search */}
-            <View style={styles.searchBox}>
-              <Icon source="magnify" size={18} color={colors.textMuted} />
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Search items..."
-                placeholderTextColor={colors.textMuted}
-                value={search}
-                onChangeText={setSearch}
-                returnKeyType="search"
-                autoCorrect={false}
-                autoCapitalize="none"
-                clearButtonMode="while-editing"
-              />
-              {search.length > 0 && (
-                <Pressable onPress={() => setSearch("")} hitSlop={8}>
-                  <Icon source="close-circle" size={16} color={colors.textMuted} />
-                </Pressable>
-              )}
-            </View>
+            <AppSearchBar
+              value={search}
+              onChangeText={setSearch}
+              placeholder="Search items..."
+              style={{ minHeight: 40, height: 40 }}
+              inputStyle={{ minHeight: 40, paddingVertical: 0 }}
+            />
 
             {/* Category chips */}
             {categories.length > 0 && (
@@ -613,6 +607,17 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: fontWeight.semibold,
     color: colors.textSecondary,
+  },
+  brandTag: {
+    backgroundColor: '#eff6ff',
+    borderRadius: radius.sm,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+  },
+  brandTagText: {
+    fontSize: 9,
+    fontWeight: fontWeight.bold,
+    color: '#1d4ed8',
   },
   stockTag: {
     flexDirection: "row",

@@ -78,6 +78,9 @@ export function SalesList() {
     }
     if (activeTab === "ALL") return data;
     if (activeTab === "gst_pending") return data.filter(s => s.isGstRequired && !s.gstInvoiceNumber);
+    if (activeTab === "PENDING") {
+      return data.filter(s => s.paymentStatus !== "PAID");
+    }
     return data.filter(s => s.paymentStatus === activeTab);
   }, [allSales, activeTab, debouncedSearch]);
 
