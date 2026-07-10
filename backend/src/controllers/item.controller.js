@@ -114,3 +114,9 @@ export const batchQuickUpdate = asyncHandler(async (req, res) => {
   );
   res.status(result.statusCode).json({ success: true, data: result.data });
 });
+
+export const mergeItems = asyncHandler(async (req, res) => {
+  const result = await itemService.mergeItems(req.user, req.validated.body);
+  res.json({ success: true, data: result });
+});
+

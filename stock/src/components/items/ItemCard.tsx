@@ -23,6 +23,8 @@ export const ItemCard = memo(({
   onSaveStock,
   onCancelInline,
   onPressImage,
+  isSelected = false,
+  isSelectMode = false,
 }: {
   item: Item;
   stock: number;
@@ -38,6 +40,8 @@ export const ItemCard = memo(({
   onSaveStock?: (draft: { adjustment: string }) => void;
   onCancelInline?: () => void;
   onPressImage?: (uri: string) => void;
+  isSelected?: boolean;
+  isSelectMode?: boolean;
 }) => {
   const minStock = Number(item.minimumStock ?? 0);
 
@@ -219,9 +223,21 @@ export const ItemCard = memo(({
       style={({ pressed }) => [
         styles.itemCard,
         hasDraft && styles.itemCardActiveDraft,
+        isSelected && styles.itemCardSelected,
         pressed && styles.itemCardPressed
       ]}
     >
+      {/* Selector Checkbox (only in Select Mode) */}
+      {isSelectMode && (
+        <View style={styles.selectorContainer}>
+          <Icon
+            source={isSelected ? "checkbox-marked" : "checkbox-blank-outline"}
+            size={22}
+            color={isSelected ? colors.primary : colors.textMuted}
+          />
+        </View>
+      )}
+
       {/* Avatar */}
       {firstImageUrl ? (
         <Pressable
@@ -557,4 +573,16 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.bold,
     color: "#1d4ed8",
   },
+  itemCardSelected: {
+    borderColor: colors.primary,
+    borderWidth: 1.5,
+    backgroundColor: "#eff6ff",
+  },
+  selectorContainer: {
+    justifyContent: "center",
+    alignItems: "center",
+    height: 42,
+    marginRight: 2,
+  },
 });
+

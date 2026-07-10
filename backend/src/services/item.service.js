@@ -1505,3 +1505,149 @@ export async function batchQuickUpdate(user, shopId, updates) {
 
   return result.results;
 }
+
+export async function mergeItems(user, { shopId, sourceItemIds, targetItemId }) {
+  await assertShopAccess(user, shopId);
+  assertCanManageItems(user);
+
+  if (sourceItemIds.includes(targetItemId)) {
+    throw new ApiError(400, "Target item cannot be one of the source items");
+  }
+
+  const itemsToMerge = await prisma.item.findMany({
+    where: { id: { in: [...sourceItemIds, targetItemId] }, shopId }
+  });
+
+  if (itemsToMerge.length !== sourceItemIds.length + 1) {
+    throw new ApiError(404, "Some items were not found in this shop");
+  }
+
+  const result = await prisma.$transaction(async (tx) => {
+    // 1. Re-point SaleItem references
+    await tx.saleItem.updateMany({
+      where: { itemId: { in: sourceItemIds } },
+      data: { itemId: targetItemId }
+    });
+
+    // 2. Re-point OrderItem references
+    await tx.orderItem.updateMany({
+      where: { itemId: { in: sourceItemIds } },
+      data: { itemId: targetItemId }
+    });
+
+    // 3. Re-point DeliveryMemoItem references
+    await tx.deliveryMemoItem.updateMany({
+      where: { itemId: { in: sourceItemIds } },
+      data: { itemId: targetItemId }
+    });
+
+    // 4. Re-point StockLedger references
+    await tx.stockLedger.updateMany({
+      where: { itemId: { in: sourceItemIds } },
+      data: { itemId: targetItemId }
+    });
+
+    // 5. Re-point StockReservation references
+    await tx.stockReservation.updateMany({
+      where: { itemId: { in: sourceItemIds } },
+      data: { itemId: targetItemId }
+    });
+
+    // 6. Re-point InventoryReturnItem references
+    await tx.inventoryReturnItem.updateMany({
+      where: { itemId: { in: sourceItemIds } },
+      data: { itemId: targetItemId }
+    });
+
+    // 7. Re-point ItemPriceHistory references
+    await tx.itemPriceHistory.updateMany({
+      where: { itemId: { in: sourceItemIds } },
+      data: { itemId: targetItemId }
+    });
+
+    // 8. Update target StockBalance by combining totals
+    const sourceBalances = await tx.stockBalance.findMany({
+      where: { itemId: { in: sourceItemIds } }
+    });
+    const targetBalance = await tx.stockBalance.findUnique({
+      where: { itemId: targetItemId }
+    });
+
+    let totalPhysical = targetBalance ? Number(targetBalance.physicalStock) : 0;
+    let totalReserved = targetBalance ? Number(targetBalance.reservedStock) : 0;
+    let totalAvailable = targetBalance ? Number(targetBalance.availableStock) : 0;
+
+    for (const sb of sourceBalances) {
+      totalPhysical += Number(sb.physicalStock);
+      totalReserved += Number(sb.reservedStock);
+      totalAvailable += Number(sb.availableStock);
+    }
+
+    if (targetBalance) {
+      await tx.stockBalance.update({
+        where: { itemId: targetItemId },
+        data: {
+          physicalStock: totalPhysical,
+          reservedStock: totalReserved,
+          availableStock: totalAvailable,
+        }
+      });
+    } else {
+      await tx.stockBalance.create({
+        data: {
+          shopId,
+          itemId: targetItemId,
+          physicalStock: totalPhysical,
+          reservedStock: totalReserved,
+          availableStock: totalAvailable,
+        }
+      });
+    }
+
+    // 9. Delete source StockBalances
+    await tx.stockBalance.deleteMany({
+      where: { itemId: { in: sourceItemIds } }
+    });
+
+    // 10. Soft-delete source items (set status to INACTIVE and clear SKU to prevent constraints clash)
+    await tx.item.updateMany({
+      where: { id: { in: sourceItemIds } },
+      data: { status: "INACTIVE", sku: null }
+    });
+
+    // Create audit log for each merged item
+    for (const sourceId of sourceItemIds) {
+      const orig = itemsToMerge.find(i => i.id === sourceId);
+      await tx.auditLog.create({
+        data: {
+          userId: user.id,
+          shopId,
+          action: AuditAction.DELETED,
+          entityType: EntityType.ITEM,
+          entityId: sourceId,
+          oldValueJson: orig || {},
+          newValueJson: { status: "INACTIVE", mergedInto: targetItemId },
+        }
+      });
+    }
+
+    // Enqueue domain event for real-time synchronization
+    const event = createDomainEvent({
+      shopId,
+      entity: "item",
+      action: "updated",
+      entityId: targetItemId,
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: true },
+    });
+    await enqueueDomainEvent(tx, event);
+
+    return { success: true, event };
+  });
+
+  // Invalidate caches
+  await bestEffortInvalidateForDomainEvent(result.event);
+
+  return { success: true };
+}

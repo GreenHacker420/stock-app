@@ -9,7 +9,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Item, ItemCategory, ItemBrand } from "../../../api/client";
 import { useAuthStore } from "../../../auth/auth-store";
 import { useShopStore } from "../../../auth/shop-store";
-import { useItemsQuery, useCategoriesQuery, useBrandsQuery, useItemSummaryQuery, useBatchQuickUpdateMutation } from "../../../hooks/useItems";
+import { useItemsQuery, useCategoriesQuery, useBrandsQuery, useItemSummaryQuery, useBatchQuickUpdateMutation, useDeleteItemMutation } from "../../../hooks/useItems";
 import { Screen } from "../../../components/Screen";
 import { AppHeader } from "../../../components/ui/AppHeader";
 import { SkeletonList } from "../../../components/ui/SkeletonCard";
@@ -139,13 +139,76 @@ export function ItemList() {
 
   const token = useAuthStore((s) => s.token);
   const batchQuickUpdateMutation = useBatchQuickUpdateMutation();
+  const deleteItemMutation = useDeleteItemMutation();
   const [isSavingBatch, setIsSavingBatch] = useState(false);
+
+  // Multi-select / deletion states
+  const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
+  const [isSelectMode, setIsSelectMode] = useState(false);
+
+  const toggleSelectItem = useCallback((itemId: string) => {
+    triggerLightHaptic();
+    setSelectedItemIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemId)) {
+        next.delete(itemId);
+      } else {
+        next.add(itemId);
+      }
+      return next;
+    });
+  }, []);
+
+  const enterSelectMode = useCallback((itemId?: string) => {
+    triggerLightHaptic();
+    setIsSelectMode(true);
+    if (itemId) {
+      setSelectedItemIds(new Set([itemId]));
+    } else {
+      setSelectedItemIds(new Set());
+    }
+  }, []);
+
+  const exitSelectMode = useCallback(() => {
+    triggerLightHaptic();
+    setIsSelectMode(false);
+    setSelectedItemIds(new Set());
+  }, []);
+
+  const handleDeleteSelected = useCallback(() => {
+    if (selectedItemIds.size === 0) return;
+    Alert.alert(
+      "Delete Products",
+      `Are you sure you want to delete the ${selectedItemIds.size} selected product(s)? This action is permanent.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            triggerLightHaptic();
+            try {
+              const ids = Array.from(selectedItemIds);
+              for (const id of ids) {
+                await deleteItemMutation.mutateAsync(id);
+              }
+              Alert.alert("Success", "Selected products deleted successfully.");
+              exitSelectMode();
+            } catch (err: any) {
+              Alert.alert("Error", `Failed to delete some products: ${err.message}`);
+            }
+          },
+        },
+      ]
+    );
+  }, [selectedItemIds, deleteItemMutation, exitSelectMode]);
 
   // Reset pending drafts when switching shops
   useEffect(() => {
     setDraftUpdates({});
     setEditingItemId(null);
     setEditingMode(null);
+    exitSelectMode();
   }, [activeShopId]);
 
   const handleSavePrices = (itemId: string, mrp: string, sellingPrice: string) => {
@@ -439,6 +502,31 @@ export function ItemList() {
         />
       </View>
 
+      {isSelectMode && (
+        <View style={styles.selectionBar}>
+          <Text style={styles.selectionText}>
+            {selectedItemIds.size} product{selectedItemIds.size !== 1 ? "s" : ""} selected
+          </Text>
+          <View style={styles.selectionActions}>
+            {selectedItemIds.size > 0 && (
+              <Pressable
+                onPress={handleDeleteSelected}
+                style={({ pressed }) => [styles.btnDeleteSelected, pressed && { opacity: 0.8 }]}
+              >
+                <Icon source="delete-outline" size={14} color="white" />
+                <Text style={styles.btnDeleteSelectedText}>Delete</Text>
+              </Pressable>
+            )}
+            <Pressable
+              onPress={exitSelectMode}
+              style={({ pressed }) => [styles.btnCancelSelection, pressed && { opacity: 0.8 }]}
+            >
+              <Text style={styles.btnCancelSelectionText}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      )}
+
       {isGridMode ? (
         <ScrollView
           contentContainerStyle={styles.gridScroll}
@@ -541,19 +629,34 @@ export function ItemList() {
                 stock={stockByItem.get(item.id) ?? 0}
                 canEdit={isOwner}
                 canManageStock={canManageStock}
-                onPress={() => navigate("ItemDetail", { itemId: item.id })}
-                onLongPress={() => {
-                  triggerLightHaptic();
-                  Alert.alert(
-                    item.name,
-                    `SKU: ${item.sku || "N/A"}\nMRP: ${money(item.mrp)}\nSelling Price: ${money(item.defaultSellingPrice)}\nMin Allowed Price: ${money(item.minimumAllowedPrice)}\nUnit: ${item.unit}\nTrack Serials: ${item.requiresSerialNumber ? "Yes" : "No"}\nCategory: ${item.category?.name || "None"}\nBrand: ${item.brand?.name || "None"}\nCurrent Stock: ${stockByItem.get(item.id) ?? 0} ${item.unit}`,
-                    [
-                      { text: "Close", style: "cancel" },
-                      isOwner ? { text: "Edit Product", onPress: () => navigate("AddEditItem", { itemId: item.id }) } : null,
-                      canManageStock ? { text: "Add Stock", onPress: () => navigate("StockEntry", { itemId: item.id }) } : null
-                    ].filter(Boolean) as any
-                  );
+                onPress={() => {
+                  if (isSelectMode) {
+                    toggleSelectItem(item.id);
+                  } else {
+                    navigate("ItemDetail", { itemId: item.id });
+                  }
                 }}
+                onLongPress={() => {
+                  if (isOwner) {
+                    if (isSelectMode) {
+                      toggleSelectItem(item.id);
+                    } else {
+                      enterSelectMode(item.id);
+                    }
+                  } else {
+                    triggerLightHaptic();
+                    Alert.alert(
+                      item.name,
+                      `SKU: ${item.sku || "N/A"}\nMRP: ${money(item.mrp)}\nSelling Price: ${money(item.defaultSellingPrice)}\nMin Allowed Price: ${money(item.minimumAllowedPrice)}\nUnit: ${item.unit}\nTrack Serials: ${item.requiresSerialNumber ? "Yes" : "No"}\nCategory: ${item.category?.name || "None"}\nBrand: ${item.brand?.name || "None"}\nCurrent Stock: ${stockByItem.get(item.id) ?? 0} ${item.unit}`,
+                      [
+                        { text: "Close", style: "cancel" },
+                        canManageStock ? { text: "Add Stock", onPress: () => navigate("StockEntry", { itemId: item.id }) } : null
+                      ].filter(Boolean) as any
+                    );
+                  }
+                }}
+                isSelected={selectedItemIds.has(item.id)}
+                isSelectMode={isSelectMode}
                 onEdit={() => { triggerLightHaptic(); navigate("AddEditItem", { itemId: item.id }); }}
                 onManageStock={() => { triggerLightHaptic(); setEditingItemId(item.id); setEditingMode("STOCK"); }}
                 isEditing={editingItemId === item.id ? editingMode : null}
@@ -829,5 +932,53 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0, 0, 0, 0.06)",
     justifyContent: "center",
     alignItems: "center",
+  },
+  selectionBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#eff6ff",
+    borderColor: "#3b82f6",
+    borderWidth: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    marginHorizontal: 16,
+    borderRadius: radius.lg,
+    marginBottom: spacing.sm,
+  },
+  selectionText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
+    color: colors.primary,
+  },
+  selectionActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+  },
+  btnDeleteSelected: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: colors.danger,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: radius.md,
+  },
+  btnDeleteSelectedText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
+    color: "white",
+  },
+  btnCancelSelection: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: radius.md,
+    backgroundColor: colors.border,
+  },
+  btnCancelSelectionText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
+    color: colors.textSecondary,
   },
 });

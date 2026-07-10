@@ -192,6 +192,23 @@ router.get(
   validate(z.object({ params: idParams, query: z.object({ customerId: z.string().min(1) }), body: z.object({}).optional() })),
   itemController.getRateSuggestion,
 );
+const mergeItemsSchema = z.object({
+  body: z.object({
+    shopId: z.string().min(1),
+    sourceItemIds: z.array(z.string().min(1)).min(1),
+    targetItemId: z.string().min(1),
+  }),
+  params: z.object({}).optional(),
+  query: z.object({}).optional(),
+});
+
+router.post(
+  "/merge",
+  requirePermission(PERMISSIONS.ITEM_UPDATE),
+  validate(mergeItemsSchema),
+  itemController.mergeItems,
+);
+
 router.patch("/:id", requirePermission(PERMISSIONS.ITEM_UPDATE), validate(updateItemSchema), itemController.updateItem);
 router.delete("/:id", requirePermission(PERMISSIONS.ITEM_UPDATE), validate(z.object({ params: idParams, body: z.object({}).optional(), query: z.object({}).optional() })), itemController.deleteItem);
 
