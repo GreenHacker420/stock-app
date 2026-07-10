@@ -575,12 +575,12 @@ const styles = StyleSheet.create({
     ...shadow.sm,
   },
   rowPositive: {
-    backgroundColor: "rgba(22,163,74,0.03)",
-    borderColor: "rgba(22,163,74,0.2)",
+    backgroundColor: "#f0fdf4",
+    borderColor: "#bbf7d0",
   },
   rowNegative: {
-    backgroundColor: "rgba(220,38,38,0.03)",
-    borderColor: "rgba(220,38,38,0.2)",
+    backgroundColor: "#fef2f2",
+    borderColor: "#fecaca",
   },
   rowInfo: {
     flex: 1,
