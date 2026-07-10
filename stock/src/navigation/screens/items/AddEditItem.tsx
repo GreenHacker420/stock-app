@@ -403,17 +403,21 @@ export function AddEditItem() {
     setBundleComponents((current) => current.filter((component: any) => component.componentItemId !== itemId));
   };
 
-  // ── Debounced name for server-side duplicate check ─────────────────────────
-  const [debouncedName] = useDebounce(form.name, 500);
+  // ── Debounced inputs for server-side duplicate check ───────────────────────
+  // We debounce 750ms to prevent query key churn and heavy server requests.
+  const [debouncedName] = useDebounce(form.name, 750);
+  const [debouncedSku] = useDebounce(form.sku, 750);
+
   const {
     data: duplicates,
     isFetching: duplicatesFetching,
   } = useFindDuplicatesQuery({
     name:          debouncedName,
-    sku:           form.sku,
+    sku:           debouncedSku,
     categoryId:    form.categoryId || undefined,
     excludeItemId: existingItem?.id,
   });
+
 
   if (!activeShopId) {
     return (
