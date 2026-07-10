@@ -81,6 +81,7 @@ export function AddEditItem() {
   const nameInputRef = useRef<any>(null);
   const focusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hydratedItemIdRef = useRef<string | null>(null);
+  const hydratedItemRef = useRef<any>(null);
   const hasScanned = useRef(false);
   const submittingRef = useRef(false);
   const savedRef = useRef(false);
@@ -204,6 +205,7 @@ export function AddEditItem() {
     if (!itemId) {
       if (hydratedItemIdRef.current !== null) {
         hydratedItemIdRef.current = null;
+        hydratedItemRef.current = null;
       }
       if (params?.initialName) {
         setForm((prev) => ({
@@ -214,46 +216,96 @@ export function AddEditItem() {
       return;
     }
 
-    if (existingItem && hydratedItemIdRef.current !== itemId) {
-      workflowShopIdRef.current = existingItem.shopId ?? null;
-      const nextForm = {
-        name: existingItem.name ?? "",
-        sku: existingItem.sku ?? "",
-        unit: existingItem.unit ?? "pcs",
-        defaultSellingPrice: existingItem.defaultSellingPrice?.toString() ?? "",
-        minimumAllowedPrice: existingItem.minimumAllowedPrice?.toString() ?? "",
-        mrp: existingItem.mrp?.toString() ?? "",
-        purchasePrice: existingItem.purchasePrice?.toString() ?? "",
-        minimumStock: existingItem.minimumStock?.toString() ?? "0",
-        categoryId: existingItem.categoryId ?? existingItem.category?.id ?? "",
-        brandId: existingItem.brandId ?? existingItem.brand?.id ?? "",
-        initialStock: "",
-      };
-      const nextImageUrls = existingItem.imageUrl ? existingItem.imageUrl.split(",").filter(Boolean) : [];
-      const nextIsBundle = (existingItem.bundleComponents ?? []).length > 0;
-      const nextRequiresSerialNumber = existingItem.requiresSerialNumber ?? false;
-      const nextBundleComponents = (existingItem.bundleComponents ?? []).map((component: any) => ({
+    if (existingItem) {
+      const prevHydrated = hydratedItemRef.current;
+
+      // If it's a completely new itemId or first load, do full hydration
+      if (hydratedItemIdRef.current !== itemId || !prevHydrated) {
+        workflowShopIdRef.current = existingItem.shopId ?? null;
+        const nextForm = {
+          name: existingItem.name ?? "",
+          sku: existingItem.sku ?? "",
+          unit: existingItem.unit ?? "pcs",
+          defaultSellingPrice: existingItem.defaultSellingPrice?.toString() ?? "",
+          minimumAllowedPrice: existingItem.minimumAllowedPrice?.toString() ?? "",
+          mrp: existingItem.mrp?.toString() ?? "",
+          purchasePrice: existingItem.purchasePrice?.toString() ?? "",
+          minimumStock: existingItem.minimumStock?.toString() ?? "0",
+          categoryId: existingItem.categoryId ?? existingItem.category?.id ?? "",
+          brandId: existingItem.brandId ?? existingItem.brand?.id ?? "",
+          initialStock: "",
+        };
+        const nextImageUrls = existingItem.imageUrl ? existingItem.imageUrl.split(",").filter(Boolean) : [];
+        const nextIsBundle = (existingItem.bundleComponents ?? []).length > 0;
+        const nextRequiresSerialNumber = existingItem.requiresSerialNumber ?? false;
+        const nextBundleComponents = (existingItem.bundleComponents ?? []).map((component: any) => ({
           componentItemId: component.componentItemId,
           quantity: String(component.quantity ?? 1),
         }));
 
-      setForm(nextForm);
-      setImageUrls(nextImageUrls);
-      setSelectedImages([]);
-      setIsBundle(nextIsBundle);
-      setRequiresSerialNumber(nextRequiresSerialNumber);
-      setBundleComponents(nextBundleComponents);
-      setInitialSnapshot(
-        buildSnapshot({
-          form: nextForm,
-          imageUrls: nextImageUrls,
-          selectedImages: [],
-          isBundle: nextIsBundle,
-          requiresSerialNumber: nextRequiresSerialNumber,
-          bundleComponents: nextBundleComponents,
-        }),
-      );
-      hydratedItemIdRef.current = itemId;
+        setForm(nextForm);
+        setImageUrls(nextImageUrls);
+        setSelectedImages([]);
+        setIsBundle(nextIsBundle);
+        setRequiresSerialNumber(nextRequiresSerialNumber);
+        setBundleComponents(nextBundleComponents);
+        setInitialSnapshot(
+          buildSnapshot({
+            form: nextForm,
+            imageUrls: nextImageUrls,
+            selectedImages: [],
+            isBundle: nextIsBundle,
+            requiresSerialNumber: nextRequiresSerialNumber,
+            bundleComponents: nextBundleComponents,
+          }),
+        );
+        hydratedItemIdRef.current = itemId;
+        hydratedItemRef.current = existingItem;
+      } else {
+        // Smart conditional update (background refetch merge)
+        // If a background refetch brings updated fields, merge them if the user hasn't modified them.
+        setForm((prev) => {
+          const next = { ...prev };
+          const keys: Array<keyof FormState> = [
+            "name", "sku", "unit", "defaultSellingPrice",
+            "minimumAllowedPrice", "mrp", "purchasePrice",
+            "minimumStock", "categoryId", "brandId"
+          ];
+          keys.forEach((key) => {
+            let prevVal = "";
+            let newVal = "";
+
+            if (key === "categoryId") {
+              prevVal = prevHydrated.categoryId ?? prevHydrated.category?.id ?? "";
+              newVal = existingItem.categoryId ?? existingItem.category?.id ?? "";
+            } else if (key === "brandId") {
+              prevVal = prevHydrated.brandId ?? prevHydrated.brand?.id ?? "";
+              newVal = existingItem.brandId ?? existingItem.brand?.id ?? "";
+            } else {
+              prevVal = (prevHydrated as any)[key]?.toString() ?? "";
+              newVal = (existingItem as any)[key]?.toString() ?? "";
+            }
+
+            if (prev[key] === prevVal && prevVal !== newVal) {
+              next[key] = newVal;
+            }
+          });
+          return next;
+        });
+
+        // Merge image URLs if the user has not modified them
+        const prevImgStr = prevHydrated.imageUrl ?? "";
+        const newImgStr = existingItem.imageUrl ?? "";
+        if (prevImgStr !== newImgStr) {
+          const currentImgStr = imageUrls.join(",");
+          if (currentImgStr === prevImgStr && selectedImages.length === 0) {
+            const nextImageUrls = existingItem.imageUrl ? existingItem.imageUrl.split(",").filter(Boolean) : [];
+            setImageUrls(nextImageUrls);
+          }
+        }
+
+        hydratedItemRef.current = existingItem;
+      }
     }
   }, [buildSnapshot, existingItem, itemId, params?.initialName]);
 

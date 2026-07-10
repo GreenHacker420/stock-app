@@ -44,7 +44,7 @@ import {
   useDeleteStorageObjectMutation,
   useBulkDeleteOrphansMutation,
 } from "../../hooks/useDashboard";
-import { useUpdateItemMutation } from "../../hooks/useItems";
+import { useUpdateItemMutation, useItemsQuery } from "../../hooks/useItems";
 import { invalidateAssetCache } from "../../hooks/useAssetCache";
 import { useShopStore } from "../../auth/shop-store";
 import { useAuthStore } from "../../auth/auth-store";
@@ -727,17 +727,13 @@ function SelectionActionBar({
           style={[
             styles.selectionBtn,
             styles.selectionBtnShare,
-            (isBusy || count !== 1) && { opacity: 0.4 },
+            (isBusy || count === 0) && { opacity: 0.4 },
           ]}
           onPress={onShare}
-          disabled={isBusy || count !== 1}
+          disabled={isBusy || count === 0}
           accessibilityRole="button"
-          accessibilityLabel={
-            count === 1
-              ? "Share selected file"
-              : "Multiple files selected - sharing disabled"
-          }
-          accessibilityState={{ disabled: isBusy || count !== 1 }}
+          accessibilityLabel="Share selected files"
+          accessibilityState={{ disabled: isBusy || count === 0 }}
         >
           <Icon source="share-variant-outline" size={16} color={colors.primary} />
           <Text style={[styles.selectionBtnText, { color: colors.primary }]}>
@@ -811,6 +807,7 @@ export function StorageManagement() {
   // ── Sheet state ───────────────────────────────────────────────────────────
   const [infoFile, setInfoFile] = useState<StorageObject | null>(null);
   const [editFile, setEditFile] = useState<StorageObject | null>(null);
+  const [assignFile, setAssignFile] = useState<StorageObject | null>(null);
   const [editMrp, setEditMrp] = useState("");
   const [editSelling, setEditSelling] = useState("");
   const [editMin, setEditMin] = useState("");
@@ -1071,10 +1068,46 @@ export function StorageManagement() {
 
   const handleBulkShare = useCallback(async () => {
     const files = filtered.filter((f) => selectedIds.has(f.id));
-    if (files.length !== 1) return;
-    await handleShare(files[0]);
-    setSelectedIds(new Set());
-  }, [filtered, selectedIds, handleShare]);
+    if (files.length === 0) return;
+
+    const canShare = await Sharing.isAvailableAsync();
+    if (!canShare) {
+      Alert.alert("Sharing unavailable", "Sharing is not available on this device.");
+      return;
+    }
+
+    setSharingId("BULK");
+    try {
+      const cacheDir = new Directory(Paths.cache, "asset-share");
+      cacheDir.create({ idempotent: true, intermediates: true });
+
+      for (const file of files) {
+        if (!file.url) continue;
+        const ext =
+          file.fileName.split(".").pop()?.replace(/[^a-z0-9]/gi, "") ||
+          file.mimeType.split("/")[1]?.replace(/[^a-z0-9]/gi, "") ||
+          "bin";
+        const localFile = new File(cacheDir, `${file.id}.${ext}`);
+        const shareFile = localFile.exists
+          ? localFile
+          : await File.downloadFileAsync(file.url, localFile, {
+              idempotent: true,
+            });
+
+        await Sharing.shareAsync(shareFile.uri, {
+          mimeType: file.mimeType,
+          dialogTitle: file.productName || file.fileName,
+        });
+      }
+    } catch (err: unknown) {
+      triggerErrorHaptic();
+      const msg = err instanceof Error ? err.message : "Could not share file.";
+      Alert.alert("Share failed", msg);
+    } finally {
+      setSharingId(null);
+      setSelectedIds(new Set());
+    }
+  }, [filtered, selectedIds]);
 
   const handleBulkDelete = useCallback(() => {
     const deletable = filtered.filter(
@@ -1624,6 +1657,8 @@ export function StorageManagement() {
               handleDelete(infoFile);
             } else if (action === "edit") {
               openPriceEdit(infoFile);
+            } else if (action === "assign") {
+              setAssignFile(infoFile);
             }
           }}
         />
@@ -1657,6 +1692,19 @@ export function StorageManagement() {
           }}
         />
       )}
+
+      {/* ── Product assign modal ───────────────────────────────────────── */}
+      {assignFile && (
+        <ProductAssignModal
+          visible={!!assignFile}
+          file={assignFile}
+          onCancel={() => setAssignFile(null)}
+          onSuccess={() => {
+            setAssignFile(null);
+            void refetch();
+          }}
+        />
+      )}
     </>
   );
 }
@@ -1672,7 +1720,7 @@ function InfoSheet({
   file: StorageObject;
   isOwner: boolean;
   isBusy: boolean;
-  onClose: (action?: "share" | "delete" | "edit") => void;
+  onClose: (action?: "share" | "delete" | "edit" | "assign") => void;
 }) {
   const status = getUsageStatus(file);
   const canDelete = isOwner && status === "UNUSED";
@@ -1692,7 +1740,7 @@ function InfoSheet({
       : colors.warning;
 
   const sheetRef = useRef<BottomSheetRef>(null);
-  const pendingAction = useRef<"share" | "delete" | "edit" | undefined>(undefined);
+  const pendingAction = useRef<"share" | "delete" | "edit" | "assign" | undefined>(undefined);
 
   return (
     <BottomSheet ref={sheetRef} visible onClose={() => onClose(pendingAction.current)}>
@@ -1799,6 +1847,29 @@ function InfoSheet({
             </Pressable>
           )}
 
+          {isOwner && !file.itemId && (
+            <Pressable
+              style={({ pressed }) => [
+                styles.infoActionBtn,
+                { backgroundColor: colors.successLight },
+                pressed && { opacity: 0.8 },
+              ]}
+              onPress={() => {
+                pendingAction.current = "assign";
+                sheetRef.current?.dismiss();
+              }}
+              accessibilityRole="button"
+              accessibilityLabel="Assign to product"
+            >
+              <Icon source="link-variant" size={18} color={colors.success} />
+              <Text
+                style={[styles.infoActionText, { color: colors.success }]}
+              >
+                Assign Product
+              </Text>
+            </Pressable>
+          )}
+
           {canDelete && (
             <Pressable
               style={({ pressed }) => [
@@ -1821,6 +1892,168 @@ function InfoSheet({
             </Pressable>
           )}
         </View>
+      </ScrollView>
+    </BottomSheet>
+  );
+}
+
+// ── ProductAssignModal ─────────────────────────────────────────────────────────
+
+interface ProductAssignModalProps {
+  visible: boolean;
+  file: StorageObject;
+  onCancel: () => void;
+  onSuccess: () => void;
+}
+
+function ProductAssignModal({
+  visible,
+  file,
+  onCancel,
+  onSuccess,
+}: ProductAssignModalProps) {
+  const [searchQuery, setSearchQuery] = useState("");
+  const debouncedSearch = useDeferredValue(searchQuery);
+  const activeShopId = useShopStore((state) => state.activeShopId);
+
+  const { data, isLoading } = useItemsQuery({
+    search: debouncedSearch.trim() || undefined,
+    enabled: visible,
+    limit: 10,
+  });
+
+  const products = data?.items || [];
+  const updateItemMutation = useUpdateItemMutation();
+  const sheetRef = useRef<BottomSheetRef>(null);
+
+  const handleAssign = (item: any) => {
+    triggerMediumHaptic();
+
+    const existingUrls = item.imageUrl ? item.imageUrl.split(",").filter(Boolean) : [];
+    const isAlreadyAssigned = existingUrls.includes(file.url);
+
+    if (isAlreadyAssigned) {
+      Alert.alert("Already assigned", `This image is already linked to ${item.name}.`);
+      return;
+    }
+
+    const options: any[] = [];
+
+    options.push({
+      text: existingUrls.length > 0 ? "Add as Additional" : "Assign Image",
+      onPress: async () => {
+        try {
+          const nextUrls = [...existingUrls, file.url];
+          await updateItemMutation.mutateAsync({
+            id: item.id,
+            data: {
+              imageUrl: nextUrls.join(","),
+            },
+          });
+          triggerSuccessHaptic();
+          Alert.alert("Success", `Image assigned to ${item.name} successfully!`);
+          sheetRef.current?.dismiss();
+          onSuccess();
+        } catch (err: any) {
+          triggerErrorHaptic();
+          Alert.alert("Error", err.message || "Failed to assign image.");
+        }
+      }
+    });
+
+    if (existingUrls.length > 0) {
+      options.push({
+        text: "Replace Existing Images",
+        style: "destructive",
+        onPress: async () => {
+          try {
+            await updateItemMutation.mutateAsync({
+              id: item.id,
+              data: {
+                imageUrl: file.url,
+              },
+            });
+            triggerSuccessHaptic();
+            Alert.alert("Success", `Image assigned to ${item.name} (existing replaced).`);
+            sheetRef.current?.dismiss();
+            onSuccess();
+          } catch (err: any) {
+            triggerErrorHaptic();
+            Alert.alert("Error", err.message || "Failed to assign image.");
+          }
+        }
+      });
+    }
+
+    options.push({
+      text: "Cancel",
+      style: "cancel"
+    });
+
+    Alert.alert(
+      "Assign Image",
+      existingUrls.length > 0
+        ? `"${item.name}" already has ${existingUrls.length} image(s). Do you want to add this image as an additional photo or replace them all?`
+        : `Are you sure you want to assign this image to "${item.name}"?`,
+      options,
+      { cancelable: true }
+    );
+  };
+
+  return (
+    <BottomSheet ref={sheetRef} visible={visible} onClose={onCancel}>
+      <Text style={styles.sheetTitle}>Assign to Product</Text>
+      <Text style={styles.priceSubtitle} numberOfLines={1}>
+        {file.fileName}
+      </Text>
+      <Divider style={{ marginVertical: spacing.sm }} />
+
+      <Searchbar
+        placeholder="Search products by name/SKU..."
+        onChangeText={setSearchQuery}
+        value={searchQuery}
+        style={styles.modalSearchbar}
+        inputStyle={styles.modalSearchInput}
+        placeholderTextColor={colors.textSecondary}
+        iconColor={colors.primary}
+        clearIcon="close"
+      />
+
+      <ScrollView 
+        keyboardShouldPersistTaps="handled" 
+        showsVerticalScrollIndicator={false}
+        style={{ maxHeight: 350, marginTop: spacing.sm }}
+      >
+        {isLoading && (
+          <ActivityIndicator style={{ marginVertical: spacing.lg }} color={colors.primary} />
+        )}
+
+        {!isLoading && searchQuery.trim() === "" && products.length === 0 && (
+          <Text style={styles.emptyText}>Type to search for products...</Text>
+        )}
+
+        {!isLoading && searchQuery.trim() !== "" && products.length === 0 && (
+          <Text style={styles.emptyText}>No products found matching "{searchQuery}"</Text>
+        )}
+
+        {!isLoading && products.map((item) => (
+          <Pressable
+            key={item.id}
+            style={({ pressed }) => [
+              styles.pickerRow,
+              pressed && styles.pickerRowPressed,
+            ]}
+            onPress={() => handleAssign(item)}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={styles.pickerRowText}>{item.name}</Text>
+              <Text style={styles.pickerRowSubtext}>
+                SKU: {item.sku || "No SKU"} • Price: ₹{item.defaultSellingPrice}
+              </Text>
+            </View>
+            <Icon source="chevron-right" size={20} color={colors.textSecondary} />
+          </Pressable>
+        ))}
       </ScrollView>
     </BottomSheet>
   );
@@ -2575,5 +2808,29 @@ const styles = StyleSheet.create({
     padding: spacing.sm,
     ...shadow.sm,
     overflow: "hidden",
+  },
+  modalSearchbar: {
+    backgroundColor: colors.surfaceOffset,
+    elevation: 0,
+    shadowColor: "transparent",
+    marginVertical: spacing.xs,
+    borderRadius: radius.md,
+    height: 44,
+    justifyContent: "center",
+  },
+  modalSearchInput: {
+    fontSize: fontSize.sm,
+    minHeight: 0,
+  },
+  emptyText: {
+    fontSize: fontSize.sm,
+    color: colors.textSecondary,
+    textAlign: "center",
+    marginVertical: spacing.lg,
+  },
+  pickerRowSubtext: {
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+    marginTop: 2,
   },
 });
