@@ -19,7 +19,8 @@ import { Item, ItemCategory, ItemBrand, CreateItemPayload, UpdateItemPayload, Lo
 import { useAuthStore } from "../../../auth/auth-store";
 import { useShopStore } from "../../../auth/shop-store";
 import { requireActiveShopId } from "../../../hooks/useActiveShop";
-import { useCategoriesQuery, useBrandsQuery, useCreateItemMutation, useItemsQuery, useUpdateItemMutation, useCreateCategoryMutation, useCreateBrandMutation, useItemQuery } from "../../../hooks/useItems";
+import { useCategoriesQuery, useBrandsQuery, useCreateItemMutation, useItemsQuery, useUpdateItemMutation, useCreateCategoryMutation, useCreateBrandMutation, useItemQuery, useFindDuplicatesQuery } from "../../../hooks/useItems";
+import { useDebounce } from "use-debounce";
 import { Screen } from "../../../components/Screen";
 import { AppHeader } from "../../../components/ui/AppHeader";
 import { Button } from "../../../components/ui/Button";
@@ -54,36 +55,6 @@ type BundleComponentForm = {
   quantity: string;
 };
 
-const STOP_WORDS = new Set([
-  "toner", "cartridge", "ink", "drum", "unit", "parts", "with", "chip", "color",
-  "black", "cyan", "yellow", "magenta", "original", "refill", "easyrefill", "easy",
-  "laser", "copier", "photocopier", "group", "sales", "brand", "printer", "for",
-  "use", "new", "compatible", "pantum", "brother", "canon", "epson", "hp", "samsung"
-]);
-
-function extractModels(name: string): string[] {
-  const tokens = name.toLowerCase().split(/[\s,.\-_/()]+/);
-  const models: string[] = [];
-
-  for (const token of tokens) {
-    if (!token) continue;
-
-    const hasDigit = /\d/.test(token);
-    if (!hasDigit) continue;
-
-    const isWeightOrYield = /^\d+(g|ml|k|pcs|pk|p|pages|ml|l|oz|v|w|ah|amp)$/.test(token);
-    if (isWeightOrYield) continue;
-
-    if (token.length >= 2 && token.length <= 12) {
-      const normalized = token.replace(/[^a-z0-9]/g, "");
-      if (normalized && !models.includes(normalized)) {
-        models.push(normalized);
-      }
-    }
-  }
-
-  return models;
-}
 
 export function AddEditItem() {
   const route = useRoute();
@@ -432,64 +403,17 @@ export function AddEditItem() {
     setBundleComponents((current) => current.filter((component: any) => component.componentItemId !== itemId));
   };
 
-  const duplicates = useMemo(() => {
-    const trimmedName = form.name.trim().toLowerCase();
-    const trimmedSku = form.sku.trim().toLowerCase();
-    if (!trimmedName && !trimmedSku) return [];
-
-    const found: Array<{ item: Item; reason: "sku" | "name" | "similar_name" }> = [];
-
-    for (const item of availableItems) {
-      if (existingItem && item.id === existingItem.id) continue;
-
-      const itemName = item.name.trim().toLowerCase();
-      const itemSku = (item.sku || "").trim().toLowerCase();
-
-      // 1. Check exact SKU match
-      if (trimmedSku && itemSku === trimmedSku) {
-        found.push({ item, reason: "sku" });
-        continue;
-      }
-
-      // 2. Check exact Name match
-      if (trimmedName && itemName === trimmedName) {
-        found.push({ item, reason: "name" });
-        continue;
-      }
-
-      // 3. Check highly similar Name using model numbers
-      if (trimmedName && trimmedName.length > 3 && itemName.length > 3) {
-        const modelsA = extractModels(trimmedName);
-        const modelsB = extractModels(itemName);
-
-        if (modelsA.length > 0 && modelsB.length > 0) {
-          // If both have model numbers, check if any models match/overlap
-          const modelOverlap = modelsA.some(mA => 
-            modelsB.some(mB => mA === mB || mA.includes(mB) || mB.includes(mA))
-          );
-          if (modelOverlap) {
-            found.push({ item, reason: "similar_name" });
-          }
-        } else {
-          // Fallback: if no models are found, do stopword filtered token overlap check
-          const aWords = trimmedName.split(/[\s,.\-_/()]+/).filter(w => w.length > 2 && !STOP_WORDS.has(w));
-          const bWords = itemName.split(/[\s,.\-_/()]+/).filter(w => w.length > 2 && !STOP_WORDS.has(w));
-
-          if (aWords.length > 0 && bWords.length > 0) {
-            const sharedWords = aWords.filter(w => bWords.includes(w));
-            const isSubstring = itemName.includes(trimmedName) || trimmedName.includes(itemName);
-            const highWordOverlap = aWords.length > 0 && sharedWords.length >= Math.ceil(aWords.length * 0.6);
-
-            if (isSubstring || highWordOverlap) {
-              found.push({ item, reason: "similar_name" });
-            }
-          }
-        }
-      }
-    }
-
-    return found;
-  }, [form.name, form.sku, availableItems, existingItem]);
+  // ── Debounced name for server-side duplicate check ─────────────────────────
+  const [debouncedName] = useDebounce(form.name, 500);
+  const {
+    data: duplicates,
+    isFetching: duplicatesFetching,
+  } = useFindDuplicatesQuery({
+    name:          debouncedName,
+    sku:           form.sku,
+    categoryId:    form.categoryId || undefined,
+    excludeItemId: existingItem?.id,
+  });
 
   if (!activeShopId) {
     return (

@@ -166,6 +166,25 @@ router.post(
   itemController.batchQuickUpdate,
 );
 
+const findDuplicatesSchema = z.object({
+  query: z.object({
+    shopId:        z.string().min(1),
+    name:          z.string().optional(),
+    sku:           z.string().optional(),
+    categoryId:    z.string().optional(),
+    excludeItemId: z.string().optional(),
+    limit:         z.coerce.number().int().positive().max(10).optional(),
+  }),
+  params: z.object({}).optional(),
+  body:   z.object({}).optional(),
+});
+router.get(
+  "/find-duplicates",
+  requirePermission(PERMISSIONS.ITEM_VIEW),
+  validate(findDuplicatesSchema),
+  itemController.findDuplicates,
+);
+
 // INDIVIDUAL ITEM ROUTES
 router.get("/:id/stock", requirePermission(PERMISSIONS.ITEM_VIEW), validate(z.object({ params: idParams })), itemController.getItemStock);
 router.get(

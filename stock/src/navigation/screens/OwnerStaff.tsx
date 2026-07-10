@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Alert, Pressable, ScrollView, View, StyleSheet, RefreshControl , KeyboardAvoidingView, Platform,} from "react-native";
 import { useRoute } from "@react-navigation/native";
 import { ActivityIndicator, Button, Text, TextInput, Divider, HelperText, Icon, Switch, Portal, Dialog } from "react-native-paper";
@@ -11,6 +11,7 @@ import { useShopStore } from "../../auth/shop-store";
 import { useShopsQuery, useAssignStaffToShopMutation, useUnassignStaffFromShopMutation } from "../../hooks/useShops";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
+import { AppChipGroup } from "../../components/ui/AppChipGroup";
 import { Section } from "../../components/ui/Section";
 import { ListScreen } from "../../components/layout/ListScreen";
 import { ScreenSection } from "../../components/layout/ScreenSection";
@@ -33,28 +34,52 @@ function getInitials(name: string) {
 
 export function StaffManagement() {
   const staffQuery = useStaffQuery();
+  const [filterStatus, setFilterStatus] = useState<"ALL" | "ACTIVE" | "INACTIVE">("ALL");
+
+  const filteredStaff = useMemo(() => {
+    const rawList = staffQuery.data ?? [];
+    if (filterStatus === "ALL") return rawList;
+    return rawList.filter((s) => {
+      const isActive = s.status === "ACTIVE" || !s.status;
+      return filterStatus === "ACTIVE" ? isActive : !isActive;
+    });
+  }, [staffQuery.data, filterStatus]);
+
+  const filterOptions = [
+    { value: "ALL", label: "All Staff", tone: "neutral" },
+    { value: "ACTIVE", label: "Active", tone: "green" },
+    { value: "INACTIVE", label: "Inactive", tone: "red" },
+  ] as const;
 
   return (
     <ListScreen
       title="Staff Management"
       subtitle="Manage accounts, status, and permissions."
-      data={staffQuery.data ?? []}
+      data={filteredStaff}
       keyExtractor={(staff: ApiUser) => staff.id}
       isLoading={staffQuery.isLoading}
       isRefreshing={staffQuery.isRefetching}
       onRefresh={() => staffQuery.refetch()}
       header={
-        <View style={styles.headerButtonContainer}>
-        <Button 
-          mode="contained" 
-          icon="account-plus" 
-          onPress={() => navigate("AddEditStaff")} 
-          style={styles.addButton} 
-          contentStyle={styles.buttonContent}
-          labelStyle={styles.addButtonLabel}
-        >
-          Add Staff Member
-        </Button>
+        <View>
+          <View style={styles.headerButtonContainer}>
+            <Button 
+              mode="contained" 
+              icon="account-plus" 
+              onPress={() => navigate("AddEditStaff")} 
+              style={styles.addButton} 
+              contentStyle={styles.buttonContent}
+              labelStyle={styles.addButtonLabel}
+            >
+              Add Staff Member
+            </Button>
+          </View>
+          <AppChipGroup
+            options={filterOptions}
+            value={filterStatus}
+            onChange={setFilterStatus}
+            style={{ marginBottom: spacing.md }}
+          />
         </View>
       }
       empty={
@@ -163,6 +188,42 @@ export function AddEditStaff() {
     );
   };
 
+  const handleRestore = () => {
+    if (!staff || isPending) return;
+    Alert.alert(
+      "Restore staff access?",
+      `Do you want to restore access for ${staff.name}? This will reactivate their account.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Restore",
+          onPress: () => {
+            const payload = {
+              name: form.name.trim(),
+              mobile: form.mobile.trim(),
+              email: form.email || null,
+              status: "ACTIVE",
+              role: form.role,
+            };
+            updateMutation.mutate(
+              { id: staff.id, data: payload },
+              {
+                onSuccess: () => {
+                  Alert.alert(
+                    "Staff Restored",
+                    "Staff access has been restored. Please remember to re-assign them to their respective shops.",
+                    [{ text: "OK", onPress: () => goBack() }]
+                  );
+                },
+                onError: (err: any) => setError(err?.message || "Failed to restore staff member."),
+              }
+            );
+          },
+        },
+      ],
+    );
+  };
+
   const isPending = createMutation.isPending || updateMutation.isPending || deleteMutation.isPending;
 
   return (
@@ -264,18 +325,34 @@ export function AddEditStaff() {
             {staff ? "Update Staff Member" : "Create Staff Member"}
           </Button>
           {staff ? (
-            <Button
-              mode="outlined"
-              icon="delete-outline"
-              textColor={colors.danger}
-              loading={deleteMutation.isPending}
-              disabled={isPending}
-              onPress={handleDelete}
-              style={styles.deleteButton}
-              contentStyle={styles.buttonContent}
-            >
-              Delete Staff Access
-            </Button>
+            staff.status === "INACTIVE" ? (
+              <Button
+                mode="contained"
+                icon="account-reactivate"
+                textColor="white"
+                loading={updateMutation.isPending}
+                disabled={isPending}
+                onPress={handleRestore}
+                style={[styles.addButton, { backgroundColor: colors.success, marginTop: spacing.md }]}
+                contentStyle={styles.buttonContent}
+                labelStyle={styles.addButtonLabel}
+              >
+                Restore Staff Access
+              </Button>
+            ) : (
+              <Button
+                mode="outlined"
+                icon="delete-outline"
+                textColor={colors.danger}
+                loading={deleteMutation.isPending}
+                disabled={isPending}
+                onPress={handleDelete}
+                style={styles.deleteButton}
+                contentStyle={styles.buttonContent}
+              >
+                Delete Staff Access
+              </Button>
+            )
           ) : null}
         </View>
       </ScrollView>

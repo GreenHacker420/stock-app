@@ -1,5 +1,6 @@
 import { asyncHandler } from "../utils/asyncHandler.js";
 import * as itemService from "../services/item.service.js";
+import * as itemDuplicateService from "../services/item.duplicate.service.js";
 import { runIdempotentCreate } from "../services/idempotency.service.js";
 
 export const listItems = asyncHandler(async (req, res) => {
@@ -120,3 +121,15 @@ export const mergeItems = asyncHandler(async (req, res) => {
   res.json({ success: true, data: result });
 });
 
+export const findDuplicates = asyncHandler(async (req, res) => {
+  const { shopId, name, sku, categoryId, excludeItemId, limit } = req.validated.query;
+  const results = await itemDuplicateService.findDuplicates(req.user, {
+    shopId,
+    name,
+    sku,
+    categoryId,
+    excludeItemId,
+    limit: limit ? Number(limit) : 5,
+  });
+  res.json({ success: true, data: results });
+});

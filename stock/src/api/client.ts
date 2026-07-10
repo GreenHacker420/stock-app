@@ -506,6 +506,33 @@ export async function mergeItems(token: string, shopId: string, sourceItemIds: s
   });
 }
 
+export type DuplicateReason = "sku" | "name" | "similar_name" | "possible_match";
+
+export type DuplicateCandidate = {
+  reason: DuplicateReason;
+  score: number;
+  item: Item;
+};
+
+export async function fetchItemDuplicates(
+  token: string,
+  params: {
+    shopId: string;
+    name?: string;
+    sku?: string;
+    categoryId?: string;
+    excludeItemId?: string;
+    limit?: number;
+  },
+): Promise<DuplicateCandidate[]> {
+  const q = new URLSearchParams({ shopId: params.shopId });
+  if (params.name?.trim())        q.set("name",          params.name.trim());
+  if (params.sku?.trim())         q.set("sku",           params.sku.trim());
+  if (params.categoryId)          q.set("categoryId",    params.categoryId);
+  if (params.excludeItemId)       q.set("excludeItemId", params.excludeItemId);
+  if (params.limit)               q.set("limit",         String(params.limit));
+  return apiRequest<DuplicateCandidate[]>(`/items/find-duplicates?${q.toString()}`, { token });
+}
 
 export async function batchQuickUpdate(
   token: string,

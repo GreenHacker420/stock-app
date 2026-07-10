@@ -24,12 +24,14 @@ import {
   createBrand,
   updateBrand,
   deleteBrand,
+  fetchItemDuplicates,
   CreateItemPayload,
   UpdateItemPayload,
   StockEntryPayload,
   ItemCategory,
   ItemBrand,
   ItemSummary,
+  DuplicateCandidate,
   batchQuickUpdate,
   Item,
 } from "../api/client";
@@ -464,4 +466,50 @@ export function useBatchQuickUpdateMutation() {
       }
     },
   });
+}
+
+export function useFindDuplicatesQuery(opts: {
+  name?: string;
+  sku?: string;
+  categoryId?: string;
+  excludeItemId?: string;
+  enabled?: boolean;
+}): { data: DuplicateCandidate[]; isLoading: boolean; isFetching: boolean } {
+  const token = useAuthStore((s) => s.token);
+  const activeShopId = useShopStore((s) => s.activeShopId);
+
+  const hasName = (opts.name?.trim().length ?? 0) >= 3;
+  const hasSku  = (opts.sku?.trim().length  ?? 0) >= 1;
+  const shouldFetch = !!token && !!activeShopId && (hasName || hasSku) && (opts.enabled !== false);
+
+  const query = useQuery<DuplicateCandidate[]>({
+    queryKey: [
+      "item-duplicates",
+      activeShopId,
+      opts.name?.trim() ?? "",
+      opts.sku?.trim()  ?? "",
+      opts.categoryId   ?? "",
+      opts.excludeItemId ?? "",
+    ],
+    queryFn: () =>
+      fetchItemDuplicates(token ?? "", {
+        shopId:        activeShopId ?? "",
+        name:          opts.name,
+        sku:           opts.sku,
+        categoryId:    opts.categoryId,
+        excludeItemId: opts.excludeItemId,
+        limit:         5,
+      }),
+    enabled: shouldFetch,
+    staleTime: 60_000,          // 60s — catalog changes slowly
+    gcTime:    5 * 60_000,      // 5min cache retention
+    retry: false,               // don't retry on error — degrade silently
+    placeholderData: [],        // never undefined while loading
+  });
+
+  return {
+    data:       (query.data ?? []) as DuplicateCandidate[],
+    isLoading:  query.isLoading && shouldFetch,
+    isFetching: query.isFetching,
+  };
 }
