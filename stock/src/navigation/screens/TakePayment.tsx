@@ -359,12 +359,11 @@ export function TakePayment() {
 
   return (
     <Screen edges={['top', 'left', 'right']}>
+      <View style={styles.keyboardView}>
       <KeyboardAwareScreen
-        style={styles.keyboardView} 
         layoutMetrics={{ footerHeight: 88 }}
         contentContainerStyle={styles.scrollContent}
       >
-        <>
           {/* Curved Brand Customer Header Card */}
           <View style={styles.customerCard}>
             <View style={styles.customerHeader}>
@@ -730,7 +729,7 @@ export function TakePayment() {
               <Text style={styles.errorText}>{errorMsg}</Text>
             </View>
           ) : null}
-        </>
+      </KeyboardAwareScreen>
 
         {/* Footer Confirm Action */}
         {!showQrSection && (
@@ -750,7 +749,7 @@ export function TakePayment() {
             />
           </View>
         )}
-      </KeyboardAwareScreen>
+      </View>
 
       {/* Quick Create Customer Dialog */}
       <Portal>
