@@ -8,12 +8,12 @@ import {
   ScrollView,
   StyleSheet,
   View,
-  KeyboardAvoidingView,
 } from "react-native";
 import { Icon, Text, TextInput } from "react-native-paper";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../../../theme";
 import { DynamicUpiQr } from "../../../../components/ui/DynamicUpiQr";
 import { Button } from "../../../../components/ui/Button";
+import { AppKeyboardAvoidingView } from "../../../../components/ui/AppKeyboardAvoidingView";
 
 interface WalkInCheckoutSheetProps {
   visible: boolean;
@@ -91,13 +91,10 @@ export function WalkInCheckoutSheet({
       transparent
       animationType="none"
       onRequestClose={onClose}
+      statusBarTranslucent
     >
-      <View style={styles.overlay}>
+      <AppKeyboardAvoidingView style={styles.overlay}>
         <Pressable style={styles.backdrop} onPress={onClose} />
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-          style={styles.avoidingView}
-        >
           <Animated.View
             style={[
               styles.sheetContainer,
@@ -302,9 +299,8 @@ export function WalkInCheckoutSheet({
               </Pressable>
             </View>
           </Animated.View>
-        </KeyboardAvoidingView>
-      </View>
-    </Modal>
+        </AppKeyboardAvoidingView>
+      </Modal>
   );
 }
 

@@ -463,6 +463,7 @@ export function RegularSaleScreen() {
           <KeyboardAwareScreen
             style={styles.keyboardScreen}
             contentContainerStyle={[styles.scrollContent, { paddingBottom: footerHeight + 10 }]}
+            bottomOffset={footerHeight}
           >
             <RegularReviewStep
               cartArray={cartArray}
@@ -497,6 +498,7 @@ export function RegularSaleScreen() {
           <KeyboardAwareScreen
             style={styles.keyboardScreen}
             contentContainerStyle={[styles.scrollContent, { paddingBottom: footerHeight + 10 }]}
+            bottomOffset={footerHeight}
           >
             <RegularPaymentStep
               paymentType={paymentType}
