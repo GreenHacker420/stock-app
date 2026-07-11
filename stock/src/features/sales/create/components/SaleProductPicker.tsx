@@ -120,11 +120,11 @@ const styles = StyleSheet.create({
     width: "100%",
   },
   listContent: {
-    paddingHorizontal: spacing.md,
     paddingTop: spacing.sm,
   },
   headerContainer: {
     marginBottom: spacing.md,
+    paddingHorizontal: spacing.md,
   },
   searchRow: {
     flexDirection: "row",
@@ -145,6 +145,7 @@ const styles = StyleSheet.create({
   },
   emptyContainer: {
     paddingVertical: spacing.xl,
+    paddingHorizontal: spacing.md,
   },
   flex1: {
     flex: 1,

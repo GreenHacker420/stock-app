@@ -1,7 +1,7 @@
-import { memo } from "react";
+import React, { memo } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Icon, Text } from "react-native-paper";
-import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../../../theme";
+import { colors, spacing, radius, fontSize, fontWeight } from "../../../../theme";
 import { triggerLightHaptic } from "../../../../utils/haptics";
 import { fromMinorUnits } from "../core/sale-calculations";
 import { SerialNumberAction } from "./SerialNumberAction";
@@ -46,113 +46,97 @@ export const SaleProductRow = memo(
     return (
       <View
         style={[
-          styles.card,
-          hasQty && styles.cardSelected,
-          isOutOfStock && styles.cardOutOfStock,
+          styles.container,
+          hasQty && styles.containerSelected,
+          isOutOfStock && styles.containerOutOfStock,
         ]}
         accessibilityRole="none"
         accessibilityLabel={`${item.name}, price ${formattedPrice} per ${item.unit}. Available stock ${stockQty} ${item.unit}.`}
       >
+        {/* Left Green Indicator bar */}
         {hasQty && <View style={styles.leftAccent} />}
 
-        <View style={styles.mainRow}>
-          {/* Left Avatar Icon */}
-          <View
-            style={[
-              styles.avatarContainer,
-              hasQty && styles.avatarContainerActive,
-            ]}
-          >
-            <Icon
-              source="package-variant-closed"
-              size={20}
-              color={hasQty ? colors.primary : colors.textSecondary}
-            />
-          </View>
+        {/* Content Column */}
+        <View style={styles.leftCol}>
+          {/* Title */}
+          <Text style={styles.name} numberOfLines={2}>
+            {item.name}
+          </Text>
 
-          {/* Product Details */}
-          <View style={styles.detailsContainer}>
-            <Text style={styles.name} numberOfLines={2}>
-              {item.name}
-            </Text>
-            <View style={styles.metaRow}>
-              {item.brandName ? (
-                <Text style={styles.brandText}>{item.brandName.toUpperCase()}</Text>
-              ) : null}
-              {item.sku ? (
-                <Text style={styles.metaText}>
-                  {item.brandName ? " • " : ""}SKU: {item.sku}
-                </Text>
-              ) : null}
-            </View>
-            <Text style={[styles.stockText, stockQty <= 10 && styles.stockTextLow]}>
-              {isOutOfStock
-                ? "OUT OF STOCK"
-                : stockQty <= 10
-                ? `Low Stock: ${stockQty} ${item.unit}`
-                : `Available: ${stockQty} ${item.unit}`}
+          {/* Subtitles: Brand, SKU, Stock */}
+          <View style={styles.metaRow}>
+            {item.brandName ? (
+              <Text style={styles.brandText}>{item.brandName.toUpperCase()}</Text>
+            ) : null}
+            {item.sku ? (
+              <Text style={styles.metaText}>
+                {item.brandName ? " • " : ""}SKU: {item.sku}
+              </Text>
+            ) : null}
+            <Text style={[styles.metaText, { color: colors.textSecondary }]}>
+              {item.brandName || item.sku ? " • " : ""}Stock: {stockQty} {item.unit}
             </Text>
           </View>
-        </View>
 
-        {/* Pricing & Control Row */}
-        <View style={styles.pricingRow}>
+          {/* Price */}
           <Text style={styles.priceText}>
             {formattedPrice}
             <Text style={styles.unitText}> / {item.unit}</Text>
+            {stockQty <= 10 && !isOutOfStock && (
+              <Text style={styles.lowStockText}>  (Low Stock)</Text>
+            )}
           </Text>
 
-          <View style={styles.stepperContainer}>
-            {quantity === 0 ? (
-              <Pressable
-                onPress={handleIncrement}
-                disabled={isOutOfStock}
-                accessibilityRole="button"
-                accessibilityLabel={`Add ${item.name} to cart`}
-                style={({ pressed }) => [
-                  styles.addButton,
-                  isOutOfStock && styles.addButtonDisabled,
-                  pressed && !isOutOfStock && styles.pressed,
-                ]}
-              >
-                <Icon
-                  source="plus"
-                  size={18}
-                  color={isOutOfStock ? colors.textMuted : colors.primary}
-                />
-                <Text
-                  style={[
-                    styles.addButtonLabel,
-                    isOutOfStock && styles.addButtonLabelDisabled,
-                  ]}
-                >
-                  ADD
-                </Text>
-              </Pressable>
-            ) : (
-              <QuantityStepper
-                itemName={item.name}
-                quantity={quantity}
-                maximum={stockQty}
-                onIncrement={handleIncrement}
-                onDecrement={handleDecrement}
-                compact
-              />
-            )}
-          </View>
-        </View>
-
-        {/* Serial Numbers Warning/Status */}
-        {hasQty && !!item.requiresSerialNumber && onScanPress && (
-          <View style={styles.serialContainer}>
+          {/* Serial Action inline if selected */}
+          {hasQty && !!item.requiresSerialNumber && onScanPress && (
             <SerialNumberAction
               itemName={item.name}
               quantity={quantity}
               serialNumbers={serialNumbers}
               onScanPress={onScanPress}
             />
-          </View>
-        )}
+          )}
+        </View>
+
+        {/* Right Controls Column */}
+        <View style={styles.rightCol}>
+          {quantity === 0 ? (
+            <Pressable
+              onPress={handleIncrement}
+              disabled={isOutOfStock}
+              accessibilityRole="button"
+              accessibilityLabel={`Add ${item.name} to cart`}
+              style={({ pressed }) => [
+                styles.addButton,
+                isOutOfStock && styles.addButtonDisabled,
+                pressed && !isOutOfStock && styles.pressed,
+              ]}
+            >
+              <Icon
+                source="plus"
+                size={16}
+                color={isOutOfStock ? colors.textMuted : colors.primary}
+              />
+              <Text
+                style={[
+                  styles.addButtonLabel,
+                  isOutOfStock && styles.addButtonLabelDisabled,
+                ]}
+              >
+                ADD
+              </Text>
+            </Pressable>
+          ) : (
+            <QuantityStepper
+              itemName={item.name}
+              quantity={quantity}
+              maximum={stockQty}
+              onIncrement={handleIncrement}
+              onDecrement={handleDecrement}
+              compact
+            />
+          )}
+        </View>
       </View>
     );
   },
@@ -163,22 +147,21 @@ export const SaleProductRow = memo(
 );
 
 const styles = StyleSheet.create({
-  card: {
+  container: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     backgroundColor: colors.surface,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    marginBottom: spacing.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.md,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
     position: "relative",
-    overflow: "hidden",
-    ...shadow.sm,
   },
-  cardSelected: {
-    borderColor: colors.primary,
+  containerSelected: {
     backgroundColor: `${colors.primary}05`, // Very light 2% green tint
   },
-  cardOutOfStock: {
+  containerOutOfStock: {
     opacity: 0.6,
   },
   leftAccent: {
@@ -189,24 +172,15 @@ const styles = StyleSheet.create({
     width: 4,
     backgroundColor: colors.primary,
   },
-  mainRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: spacing.md,
-  },
-  avatarContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: radius.md,
-    backgroundColor: colors.surfaceOffset,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  avatarContainerActive: {
-    backgroundColor: colors.primaryLight,
-  },
-  detailsContainer: {
+  leftCol: {
     flex: 1,
+    paddingRight: spacing.md,
+    gap: 4,
+  },
+  rightCol: {
+    justifyContent: "center",
+    alignItems: "flex-end",
+    minWidth: 90,
   },
   name: {
     fontSize: fontSize.md,
@@ -217,7 +191,7 @@ const styles = StyleSheet.create({
   metaRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: spacing.xs,
+    flexWrap: "wrap",
   },
   brandText: {
     fontSize: fontSize.xs,
@@ -228,26 +202,8 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xs,
     color: colors.textSecondary,
   },
-  stockText: {
-    fontSize: fontSize.xs,
-    color: colors.textSecondary,
-    marginTop: spacing.xs,
-  },
-  stockTextLow: {
-    color: colors.warning,
-    fontWeight: fontWeight.semibold,
-  },
-  pricingRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    paddingTop: spacing.sm,
-  },
   priceText: {
-    fontSize: fontSize.md,
+    fontSize: fontSize.sm + 1,
     fontWeight: fontWeight.extrabold,
     color: colors.textPrimary,
   },
@@ -256,9 +212,10 @@ const styles = StyleSheet.create({
     color: colors.textSecondary,
     fontWeight: fontWeight.regular,
   },
-  stepperContainer: {
-    height: 44, // Align with minimum target height
-    justifyContent: "center",
+  lowStockText: {
+    fontSize: fontSize.xs,
+    color: colors.warning,
+    fontWeight: fontWeight.semibold,
   },
   addButton: {
     flexDirection: "row",
@@ -266,10 +223,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: colors.primaryLight,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
     borderRadius: radius.md,
     gap: spacing.xs,
-    minHeight: 36,
+    minHeight: 40,
+    minWidth: 80,
   },
   addButtonDisabled: {
     backgroundColor: colors.surfaceOffset,
@@ -281,12 +238,6 @@ const styles = StyleSheet.create({
   },
   addButtonLabelDisabled: {
     color: colors.textMuted,
-  },
-  serialContainer: {
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    marginTop: spacing.sm,
-    paddingTop: spacing.xs,
   },
   pressed: {
     opacity: 0.7,

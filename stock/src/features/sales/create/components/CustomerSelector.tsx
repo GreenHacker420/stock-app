@@ -632,18 +632,13 @@ const styles = StyleSheet.create({
   },
   // Regular search section
   searchSectionRegular: {
-    backgroundColor: colors.surface,
-    padding: spacing.md,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    ...shadow.sm,
+    paddingVertical: spacing.xs,
   },
   sectionLabelRegular: {
     fontSize: fontSize.sm,
     fontWeight: fontWeight.bold,
     color: colors.textPrimary,
-    marginBottom: spacing.md,
+    marginBottom: spacing.xs,
   },
   dropdownRegular: {
     borderWidth: 1,
