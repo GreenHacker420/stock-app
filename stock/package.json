@@ -8,6 +8,7 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "typecheck": "tsc --noEmit",
+    "test:sales": "tsx --test src/features/sales/create/core/*.test.ts",
     "doctor": "expo-doctor",
     "build:android:preview": "npx eas-cli build --platform android --profile preview",
     "build:android:preview:local": "npx eas-cli build --platform android --profile preview --local",
@@ -95,10 +96,12 @@
   "devDependencies": {
     "@babel/core": "^7.20.0",
     "@types/react": "~19.2.10",
+    "@types/node": "^24.10.1",
     "babel-preset-expo": "^56.0.13",
     "expo-doctor": "^1.20.0",
     "patch-package": "^8.0.1",
     "react-test-renderer": "19.2.3",
+    "tsx": "^4.20.6",
     "typescript": "~6.0.3"
   },
   "overrides": {

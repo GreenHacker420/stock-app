@@ -42,6 +42,8 @@ import { shareSaleInvoicePdf, printSaleInvoiceDirect } from "../../utils/pdf";
 import { triggerLightHaptic } from "../../utils/haptics";
 import { itemDisplayName } from "../../utils/items/display";
 import { KeyboardAwareScreen } from "../../components/keyboard/KeyboardAwareScreen";
+import { clampLineQuantity } from "../../features/sales/create/core/sale-calculations";
+import { requireActiveShopId } from "../../hooks/useActiveShop";
 
 function money(value?: string | number | null) {
   return `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
@@ -491,6 +493,7 @@ export function WalkInSale() {
   const user = useAuthStore((state) => state.user);
   const token = useAuthStore((state) => state.token);
   const { activeShopId } = useShopStore();
+  const [draftShopId, setDraftShopId] = useState(() => requireActiveShopId(activeShopId));
   const network = useNetworkStatus();
   const shopsQuery = useShopsQuery();
 
@@ -512,6 +515,7 @@ export function WalkInSale() {
 
   // Customer selection & search states
   const [customerId, setCustomerId] = useState<string | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [customerSearch, setCustomerSearch] = useState("");
   const [customerDetailsExpanded, setCustomerDetailsExpanded] = useState(false);
 
@@ -524,6 +528,7 @@ export function WalkInSale() {
   const [amountReceived, setAmountReceived] = useState("");
   const [notes, setNotes] = useState("");
   const [skuScannerVisible, setSkuScannerVisible] = useState(false);
+  const [upiConfirmedFingerprint, setUpiConfirmedFingerprint] = useState<string | null>(null);
 
   const itemsQuery = useItemsQuery({ search: debouncedSearch, limit: 50, enabled: !network.isOffline });
   const customersQuery = useCustomersQuery({ enabled: !network.isOffline });
@@ -540,11 +545,6 @@ export function WalkInSale() {
       return 0;
     });
   }, [itemsQuery.data, network.isOffline, cart]);
-
-  const selectedCustomer = useMemo(() => 
-    mergedCustomers.find((c: any) => c.id === customerId),
-    [mergedCustomers, customerId]
-  );
 
   const customerSummaryText = useMemo(() => {
     if (selectedCustomer) {
@@ -570,6 +570,14 @@ export function WalkInSale() {
     cartArray.reduce((sum, i) => sum + (i.quantity * (i.customRate !== undefined ? i.customRate : Number(i.item.defaultSellingPrice))), 0), 
     [cartArray]
   );
+  const paymentFingerprint = useMemo(
+    () => JSON.stringify({
+      shopId: draftShopId,
+      total: cartTotal,
+      lines: cartArray.map((line) => [line.item.id, line.quantity, line.customRate ?? line.item.defaultSellingPrice]),
+    }),
+    [cartArray, cartTotal, draftShopId],
+  );
 
   const hasMissingPrice = useMemo(() => {
     return cartArray.some(i => {
@@ -586,15 +594,17 @@ export function WalkInSale() {
   }, [amountReceived, cartTotal]);
 
   const isPaymentValid = useMemo(() => {
-    if (paymentMode === "UPI") return true;
+    if (paymentMode === "UPI") {
+      return Boolean(selectedShop?.upiId) && upiConfirmedFingerprint === paymentFingerprint;
+    }
     const received = Number(amountReceived);
     return !isNaN(received) && received >= cartTotal;
-  }, [paymentMode, amountReceived, cartTotal]);
+  }, [amountReceived, cartTotal, paymentFingerprint, paymentMode, selectedShop?.upiId, upiConfirmedFingerprint]);
 
   const updateQuantity = useCallback((item: Item, delta: number) => {
     setCart(prev => {
       const current = prev[item.id] || { item, quantity: 0, serialNumbers: [] };
-      const nextQty = Math.max(0, current.quantity + delta);
+      const nextQty = clampLineQuantity(current.quantity + delta, Number(item.availableStock ?? 0));
       
       const nextCart = { ...prev };
       if (nextQty === 0) {
@@ -644,6 +654,14 @@ export function WalkInSale() {
     if (saleMutation.isPending) return;
     if (network.isOffline) {
       Alert.alert("Internet required", internetRequiredMessage);
+      return;
+    }
+    if (activeShopId !== draftShopId) {
+      Alert.alert("Shop Changed", "This sale was started in another shop. Discard it and start a new sale before submitting.");
+      return;
+    }
+    if (!isPaymentValid) {
+      Alert.alert("Payment Not Confirmed", paymentMode === "UPI" ? "Confirm that the UPI payment was received." : "Enter the full cash amount received.");
       return;
     }
 
@@ -820,7 +838,11 @@ export function WalkInSale() {
                                 key={c.id}
                                 title={c.name}
                                 description={c.phone || "No phone"}
-                                onPress={() => { setCustomerId(c.id); setCustomerSearch(""); }}
+                                onPress={() => {
+                                  setSelectedCustomer(c);
+                                  setCustomerId(c.id);
+                                  setCustomerSearch("");
+                                }}
                                 right={props => <List.Icon {...props} icon="account-check-outline" color={colors.primary} />}
                               />
                             ))}
@@ -867,7 +889,10 @@ export function WalkInSale() {
                           </View>
                         </View>
                         <Pressable 
-                          onPress={() => setCustomerId(null)}
+                          onPress={() => {
+                            setSelectedCustomer(null);
+                            setCustomerId(null);
+                          }}
                           style={({ pressed }) => [styles.changeCustBtn, pressed && styles.pressed]}
                         >
                           <Text style={styles.changeCustText}>CHANGE</Text>
@@ -1011,6 +1036,7 @@ export function WalkInSale() {
                         key={mode}
                         onPress={() => {
                           setPaymentMode(mode);
+                          setUpiConfirmedFingerprint(null);
                           if (mode === "UPI") {
                             setAmountReceived(String(cartTotal));
                           } else {
@@ -1085,13 +1111,30 @@ export function WalkInSale() {
                 ) : (
                   <>
                     {selectedShop?.upiId ? (
-                      <DynamicUpiQr 
-                        upiId={selectedShop.upiId}
-                        upiName={selectedShop.upiName || selectedShop.name}
-                        amount={cartTotal}
-                        transactionNote="Walk-In Sale"
-                        size={180}
-                      />
+                      <View style={{ width: "100%", alignItems: "center", gap: spacing.md }}>
+                        <DynamicUpiQr
+                          upiId={selectedShop.upiId}
+                          upiName={selectedShop.upiName || selectedShop.name}
+                          amount={cartTotal}
+                          transactionNote="Walk-In Sale"
+                          size={180}
+                        />
+                        <Pressable
+                          onPress={() => setUpiConfirmedFingerprint(paymentFingerprint)}
+                          style={[styles.calcInfoBox, upiConfirmedFingerprint === paymentFingerprint ? styles.calcInfoBoxSuccess : styles.calcInfoBoxError]}
+                          accessibilityRole="checkbox"
+                          accessibilityState={{ checked: upiConfirmedFingerprint === paymentFingerprint }}
+                        >
+                          <Icon
+                            source={upiConfirmedFingerprint === paymentFingerprint ? "checkbox-marked-circle" : "checkbox-blank-circle-outline"}
+                            size={20}
+                            color={upiConfirmedFingerprint === paymentFingerprint ? colors.success : colors.danger}
+                          />
+                          <Text style={upiConfirmedFingerprint === paymentFingerprint ? styles.calcSuccessText : styles.calcErrorText}>
+                            I confirm {money(cartTotal)} was received by UPI
+                          </Text>
+                        </Pressable>
+                      </View>
                     ) : (
                       <View style={[styles.calcInfoBox, styles.calcInfoBoxError, { width: "100%", marginTop: spacing.md }]}>
                         <Icon source="alert-circle-outline" size={20} color={colors.danger} />
@@ -1155,15 +1198,15 @@ export function WalkInSale() {
                 {/* Items List */}
                 <View style={styles.receiptSection}>
                   <Text style={styles.receiptSectionTitle}>ITEMS</Text>
-                  {cartArray.map(({ item, quantity }) => (
+                  {cartArray.map(({ item, quantity, customRate }) => (
                     <View key={item.id} style={styles.receiptItemRow}>
                       <View style={{ flex: 1, marginRight: spacing.sm }}>
                         <Text style={styles.receiptItemName}>{itemDisplayName(item)}</Text>
                         <Text style={styles.receiptItemSubText}>
-                          {quantity} {item.unit} x {money(item.defaultSellingPrice)}
+                          {quantity} {item.unit} x {money(customRate ?? item.defaultSellingPrice)}
                         </Text>
                       </View>
-                      <Text style={styles.receiptItemSubtotal}>{money(quantity * Number(item.defaultSellingPrice))}</Text>
+                      <Text style={styles.receiptItemSubtotal}>{money(quantity * Number(customRate ?? item.defaultSellingPrice))}</Text>
                     </View>
                   ))}
                 </View>
@@ -1215,6 +1258,7 @@ export function WalkInSale() {
                   variant="success"
                   onPress={() => {
                     setCart({});
+                    setSelectedCustomer(null);
                     setCustomerId(null);
                     setCustomerSearch("");
                     setCustomerName("");
@@ -1222,7 +1266,16 @@ export function WalkInSale() {
                     setPaymentMode("CASH");
                     setAmountReceived("");
                     setNotes("");
+                    setCompletedSale(null);
                     setCompletedSaleNumber(null);
+                    setSearch("");
+                    setCustomerDetailsExpanded(false);
+                    setActiveSerialScanItemId(null);
+                    setSkuScannerVisible(false);
+                    setIsPrinting(false);
+                    setIsSharing(false);
+                    setUpiConfirmedFingerprint(null);
+                    setDraftShopId(requireActiveShopId(activeShopId));
                     saleMutation.reset();
                     setCurrentStep(1);
                   }}
