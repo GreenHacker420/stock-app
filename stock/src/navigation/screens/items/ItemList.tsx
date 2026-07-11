@@ -94,13 +94,26 @@ export function ItemList() {
   const [editingMode, setEditingMode] = useState<"PRICES" | "STOCK" | null>(null);
 
   useEffect(() => {
-    const params = route.params as { categoryId?: string } | undefined;
+    const params = route.params as { categoryId?: string; brandId?: string } | undefined;
+    let paramsUpdated = false;
+    const newParams: any = {};
+
     if (params?.categoryId !== undefined) {
       setSelectedCat(params.categoryId);
-      // Clear route params so it doesn't trigger on returning from other flows
-      navigation.setParams({ categoryId: undefined });
+      newParams.categoryId = undefined;
+      paramsUpdated = true;
     }
-  }, [route.params]);
+    if (params?.brandId !== undefined) {
+      setSelectedBrandId(params.brandId);
+      setSelectedCat("ALL"); // Enter list mode to show the brand items
+      newParams.brandId = undefined;
+      paramsUpdated = true;
+    }
+
+    if (paramsUpdated) {
+      navigation.setParams(newParams);
+    }
+  }, [route.params, navigation]);
 
   // Summary data (fast!)
   const summaryQuery = useItemSummaryQuery();
@@ -550,6 +563,37 @@ export function ItemList() {
           }}
           loading={listQuery.isFetching || isDebouncePending}
         />
+        
+        {/* Active Filter Chips */}
+        {((selectedCat && selectedCat !== "ALL") || selectedBrandId) ? (
+          <View style={styles.activeFiltersRow}>
+            {selectedCat && selectedCat !== "ALL" && (
+              <Pressable
+                onPress={() => setSelectedCat("ALL")}
+                style={({ pressed }) => [styles.activeFilterChip, pressed && { opacity: 0.8 }]}
+              >
+                <Icon source="tag-outline" size={12} color={colors.primary} />
+                <Text style={styles.activeFilterText} numberOfLines={1}>
+                  Cat: {activeCatName}
+                </Text>
+                <Icon source="close-circle" size={14} color={colors.primary} />
+              </Pressable>
+            )}
+            
+            {!!selectedBrandId && (
+              <Pressable
+                onPress={() => setSelectedBrandId("")}
+                style={({ pressed }) => [styles.activeFilterChip, pressed && { opacity: 0.8 }]}
+              >
+                <Icon source="certificate-outline" size={12} color={colors.primary} />
+                <Text style={styles.activeFilterText} numberOfLines={1}>
+                  Brand: {brands.find(b => b.id === selectedBrandId)?.name ?? "Brand"}
+                </Text>
+                <Icon source="close-circle" size={14} color={colors.primary} />
+              </Pressable>
+            )}
+          </View>
+        ) : null}
       </View>
 
       {isSelectMode && (
@@ -1053,5 +1097,29 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xs,
     fontWeight: fontWeight.bold,
     color: "white",
+  },
+  activeFiltersRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.sm,
+    marginTop: spacing.xs,
+    paddingBottom: spacing.xs,
+  },
+  activeFilterChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.primaryLight,
+    borderColor: colors.primary,
+    borderWidth: 0.5,
+    borderRadius: radius.full,
+    paddingVertical: 4,
+    paddingHorizontal: spacing.sm,
+    gap: 4,
+  },
+  activeFilterText: {
+    fontSize: 11,
+    color: colors.primary,
+    fontWeight: fontWeight.bold,
+    maxWidth: 150,
   },
 });

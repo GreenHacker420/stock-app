@@ -11,6 +11,7 @@ import {
   Platform,
 } from "react-native";
 import { Text, TextInput, Divider, Icon } from "react-native-paper";
+import { useNavigation } from "@react-navigation/native";
 
 import { ItemBrand } from "../../api/client";
 import {
@@ -101,21 +102,28 @@ function EditModal({
 // ─────────────────────────────────────────────────────────────────────────────
 function BrandRow({
   brand,
+  onPress,
   onEdit,
   onDelete,
 }: {
   brand: ItemBrand;
+  onPress: (brand: ItemBrand) => void;
   onEdit: (brand: ItemBrand) => void;
   onDelete: (brand: ItemBrand) => void;
 }) {
   return (
     <View style={styles.row}>
-      <View style={styles.rowIconWrap}>
-        <Icon source="certificate-outline" size={18} color={colors.primary} />
-      </View>
-      <Text style={styles.rowName} numberOfLines={1}>
-        {brand.name}
-      </Text>
+      <Pressable
+        onPress={() => onPress(brand)}
+        style={styles.rowPressable}
+      >
+        <View style={styles.rowIconWrap}>
+          <Icon source="certificate-outline" size={18} color={colors.primary} />
+        </View>
+        <Text style={styles.rowName} numberOfLines={1}>
+          {brand.name}
+        </Text>
+      </Pressable>
       <View style={styles.rowActions}>
         <Pressable
           onPress={() => {
@@ -150,6 +158,7 @@ function BrandRow({
 // Main Screen
 // ─────────────────────────────────────────────────────────────────────────────
 export function ManageBrands() {
+  const navigation = useNavigation<any>();
   const brandsQuery = useBrandsQuery();
   const createMutation = useCreateBrandMutation();
   const updateMutation = useUpdateBrandMutation();
@@ -280,6 +289,10 @@ export function ManageBrands() {
                     brand={brand}
                     onEdit={setEditingBrand}
                     onDelete={handleDelete}
+                    onPress={(b) => {
+                      triggerLightHaptic();
+                      navigation.navigate("ItemList", { brandId: b.id });
+                    }}
                   />
                   {idx < brands.length - 1 && <Divider style={styles.rowDivider} />}
                 </Fragment>
@@ -395,6 +408,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: spacing.lg,
     paddingVertical: spacing.md,
+    gap: spacing.md,
+  },
+  rowPressable: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
     gap: spacing.md,
   },
   rowIconWrap: {
