@@ -17,6 +17,7 @@ import { SuccessModal } from "../../components/ui/SuccessModal";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from '../../theme';
 import { goBack } from "../navigation-ref";
 import { triggerLightHaptic, triggerMediumHaptic, triggerSuccessHaptic } from "../../utils/haptics";
+import { KeyboardAwareScreen } from "../../components/keyboard/KeyboardAwareScreen";
 
 const internetRequiredMessage = "Internet connection required. Please connect to the internet to complete this action.";
 
@@ -388,11 +389,10 @@ export function CreateOrder() {
     <Screen edges={['top', 'left', 'right']}>
       <AppHeader title="Create Order" subtitle="Take party order" />
 
-      <KeyboardAvoidingView 
-        style={{ flex: 1 }} 
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <ScrollView 
+      <>
+        <KeyboardAwareScreen
+          style={{ flex: 1 }}
+          layoutMetrics={{ footerHeight: 96 }}
           showsVerticalScrollIndicator={false} 
           contentContainerStyle={[
             styles.scrollContainer, 
@@ -901,7 +901,7 @@ export function CreateOrder() {
               {renderAdvancedDetails()}
             </View>
           )}
-        </ScrollView>
+        </KeyboardAwareScreen>
 
         {/* STICKY FOOTER (Phone layout only) */}
         {!isTablet && (
@@ -935,7 +935,7 @@ export function CreateOrder() {
             </Button>
           </View>
         )}
-      </KeyboardAvoidingView>
+      </>
 
       <SuccessModal
         visible={successVisible}

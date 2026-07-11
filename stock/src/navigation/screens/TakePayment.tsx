@@ -38,6 +38,7 @@ import { Button } from "../../components/ui/Button";
 import { FormTextField } from "../../components/forms/FormTextField";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { goBack } from "../navigation-ref";
+import { KeyboardAwareScreen } from "../../components/keyboard/KeyboardAwareScreen";
 import {
   triggerLightHaptic,
   triggerMediumHaptic,
@@ -358,19 +359,12 @@ export function TakePayment() {
 
   return (
     <Screen edges={['top', 'left', 'right']}>
-      <KeyboardAvoidingView 
+      <KeyboardAwareScreen
         style={styles.keyboardView} 
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+        layoutMetrics={{ footerHeight: 88 }}
+        contentContainerStyle={styles.scrollContent}
       >
-
-        <ScrollView 
-          style={styles.scrollView}
-          showsVerticalScrollIndicator={false} 
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-        >
+        <>
           {/* Curved Brand Customer Header Card */}
           <View style={styles.customerCard}>
             <View style={styles.customerHeader}>
@@ -736,7 +730,7 @@ export function TakePayment() {
               <Text style={styles.errorText}>{errorMsg}</Text>
             </View>
           ) : null}
-        </ScrollView>
+        </>
 
         {/* Footer Confirm Action */}
         {!showQrSection && (
@@ -756,7 +750,7 @@ export function TakePayment() {
             />
           </View>
         )}
-      </KeyboardAvoidingView>
+      </KeyboardAwareScreen>
 
       {/* Quick Create Customer Dialog */}
       <Portal>

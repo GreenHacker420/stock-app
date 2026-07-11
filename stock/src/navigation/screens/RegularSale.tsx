@@ -28,6 +28,7 @@ import { triggerLightHaptic } from "../../utils/haptics";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { goBack, navigate } from "../navigation-ref";
 import { useShopsQuery } from "../../hooks/useShops";
+import { KeyboardAwareScreen } from "../../components/keyboard/KeyboardAwareScreen";
 import { shareSaleInvoicePdf } from "../../utils/pdf";
 import { useNetworkStatus } from "../../hooks/useNetworkStatus";
 import { requireActiveShopId } from "../../hooks/useActiveShop";
@@ -710,11 +711,7 @@ export function RegularSale() {
 
   return (
     <Screen edges={['top', 'left', 'right']}>
-      <KeyboardAvoidingView 
-        style={styles.keyboardView} 
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
-      >
+      <View style={styles.keyboardView}>
         {currentStep < 4 && (
           <>
             <AppHeader 
@@ -727,7 +724,7 @@ export function RegularSale() {
           </>
         )}
 
-        <ScrollView 
+        <KeyboardAwareScreen
           style={styles.scrollView}
           scrollEnabled={scrollEnabled} 
           showsVerticalScrollIndicator={false} 
@@ -1229,7 +1226,7 @@ export function RegularSale() {
             </View>
           )}
 
-        </ScrollView>
+        </KeyboardAwareScreen>
 
         {currentStep === 1 && (
           <View style={[styles.bottomBar, { paddingBottom: bottomPadding }]}>
@@ -1299,7 +1296,7 @@ export function RegularSale() {
             />
           </View>
         )}
-      </KeyboardAvoidingView>
+      </View>
 
       {/* Full Screen Signature Modal */}
       <Modal

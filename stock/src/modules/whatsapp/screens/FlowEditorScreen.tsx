@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Alert, Linking, ScrollView, StyleSheet, View } from "react-native";
+import { Alert, Linking, StyleSheet, View } from "react-native";
 import {
   ActivityIndicator,
   Button,
@@ -29,6 +29,7 @@ import { useAuthStore } from "../../../auth/auth-store";
 import { useShopStore } from "../../../auth/shop-store";
 import { FormTextField } from "../../../components/forms/FormTextField";
 import { waColors } from "../whatsapp-ui";
+import { KeyboardAwareScreen } from "../../../components/keyboard/KeyboardAwareScreen";
 
 const STARTER_FLOW = {
   version: "7.3",
@@ -192,7 +193,7 @@ export function FlowEditorScreen() {
   const deployed = flow?.deployedRevision === flow?.localRevision;
 
   return (
-    <ScrollView
+    <KeyboardAwareScreen
       style={styles.screen}
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
@@ -352,7 +353,7 @@ export function FlowEditorScreen() {
           ))}
         </Section>
       )}
-    </ScrollView>
+    </KeyboardAwareScreen>
   );
 }
 

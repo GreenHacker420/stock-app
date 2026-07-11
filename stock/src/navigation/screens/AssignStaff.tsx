@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { View, ScrollView, StyleSheet, KeyboardAvoidingView, Platform } from "react-native";
+import { View, StyleSheet } from "react-native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRoute } from "@react-navigation/native";
 import { Button, TextInput, HelperText, Portal, Modal, IconButton, Text } from "react-native-paper";
@@ -12,6 +12,7 @@ import { Section } from "../../components/ui/Section";
 import { StaffCard } from "../../components/domain/staff/StaffCard";
 import { colors, spacing, radius, fontSize, fontWeight } from '../../theme';
 import { goBack } from "../navigation-ref";
+import { KeyboardAwareScreen } from "../../components/keyboard/KeyboardAwareScreen";
 
 export function AssignStaff() {
   const token = useAuthStore((state) => state.token);
@@ -97,8 +98,7 @@ export function AssignStaff() {
     <Screen scroll={false}>
       <AppHeader title="Assign Staff" subtitle={`Manage operators for ${currentShop.name}`} />
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView style={{ flex: 1, marginTop: 8 }} keyboardShouldPersistTaps="handled">
+      <KeyboardAwareScreen style={{ flex: 1, marginTop: 8 }}>
         <Section title="Active Staff Members">
           <View style={styles.staffContainer}>
             {staffQuery.data?.length === 0 ? (
@@ -138,8 +138,7 @@ export function AssignStaff() {
             })}
           </View>
         </Section>
-      </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardAwareScreen>
 
       <View style={styles.footer}>
         <Button

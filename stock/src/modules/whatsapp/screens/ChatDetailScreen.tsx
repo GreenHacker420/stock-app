@@ -5,12 +5,12 @@ import {
   StyleSheet,
   TextInput,
   TouchableOpacity,
-  KeyboardAvoidingView,
   Platform,
   Modal,
   Alert,
   ActivityIndicator,
 } from "react-native";
+import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { FlashList } from "@shopify/flash-list";
 
 const FlashListAny = FlashList as any;
@@ -704,6 +704,7 @@ export const ChatDetailScreen = () => {
 
   return (
     <KeyboardAvoidingView
+      automaticOffset
       style={styles.container}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 80}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Alert, Pressable, RefreshControl, StyleSheet, View } from "react-native";
 import { FlashList } from "@shopify/flash-list";
+import { KeyboardAwareListScrollComponent } from "../../../components/keyboard/KeyboardAwareListScrollComponent";
 import { ActivityIndicator, FAB, IconButton, Searchbar, Text } from "react-native-paper";
 import { useNavigation } from "@react-navigation/native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -109,6 +110,7 @@ export function FlowLibraryScreen() {
         <ActivityIndicator style={styles.loader} color={waColors.green} />
       ) : (
         <FlashList
+          renderScrollComponent={KeyboardAwareListScrollComponent}
           data={query.data?.data || []}
           keyExtractor={(item) => item.id}
           refreshControl={<RefreshControl refreshing={query.isRefetching} onRefresh={query.refetch} />}

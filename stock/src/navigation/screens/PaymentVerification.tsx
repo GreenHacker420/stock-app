@@ -13,6 +13,7 @@ import { AppChipGroup } from "../../components/ui/AppChipGroup";
 import { VerificationCard } from "../../components/domain/verification/VerificationCard";
 import { colors, spacing, radius, fontWeight, shadow, fontSize } from "../../theme";
 import { triggerMediumHaptic } from "../../utils/haptics";
+import { KeyboardAwareScreen } from "../../components/keyboard/KeyboardAwareScreen";
 
 export function PaymentVerification() {
   const activeShopId = useShopStore((state) => state.activeShopId);
@@ -112,8 +113,7 @@ export function PaymentVerification() {
         />
       </View>
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.listContent} keyboardShouldPersistTaps="handled">
+      <KeyboardAwareScreen contentContainerStyle={styles.listContent}>
         <View style={styles.listGap}>
           {filteredPayments.map(p => (
             <VerificationCard
@@ -191,8 +191,7 @@ export function PaymentVerification() {
             </View>
           )}
         </View>
-      </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardAwareScreen>
 
       <Portal>
         <Dialog visible={!!actionType} onDismiss={() => setActionType(null)} style={styles.dialog}>

@@ -4,10 +4,10 @@ import {
   StyleSheet,
   Modal as RNModal,
   Platform,
-  KeyboardAvoidingView,
   Keyboard,
   Pressable,
 } from "react-native";
+import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { Text, TextInput, HelperText } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { TaxonomyEntity, TaxonomyCopy, EditorSession } from "./taxonomy.types";
@@ -125,6 +125,7 @@ export function TaxonomyEditorSheet<T extends TaxonomyEntity>({
       accessibilityViewIsModal
     >
       <KeyboardAvoidingView
+        automaticOffset
         style={styles.modalRoot}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
       >

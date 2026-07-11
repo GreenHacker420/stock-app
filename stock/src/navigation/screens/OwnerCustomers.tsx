@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Alert, Pressable, View, StyleSheet, ActivityIndicator, ScrollView, KeyboardAvoidingView, Platform, Modal, Dimensions } from "react-native";
+import { Alert, Pressable, View, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, Modal, Dimensions } from "react-native";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRoute } from "@react-navigation/native";
 import { Divider, Icon, Text, TextInput } from "react-native-paper";
@@ -33,6 +33,7 @@ import { useNetworkStatus } from "../../hooks/useNetworkStatus";
 import { requireActiveShopId } from "../../hooks/useActiveShop";
 import { useCustomersQuery, useCreateCustomerMutation, useUpdateCustomerMutation } from "../../hooks/useCustomers";
 import { AppKeyboardAvoidingView } from "../../components/ui/AppKeyboardAvoidingView";
+import { KeyboardAwareScreen } from "../../components/keyboard/KeyboardAwareScreen";
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 const internetRequiredMessage = "Internet connection required. Please connect to the internet to complete this action.";
@@ -286,8 +287,7 @@ export function AddEditCustomer() {
         subtitle="Maintain customer profile settings" 
         fallbackRoute="CustomerList"
       />
-      <AppKeyboardAvoidingView>
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 32 }} keyboardShouldPersistTaps="handled">
+      <KeyboardAwareScreen style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 32 }}>
       <View style={styles.formContainer}>
         <Section title="Customer details">
           <Button
@@ -390,8 +390,7 @@ export function AddEditCustomer() {
           />
         </View>
       </View>
-      </ScrollView>
-      </AppKeyboardAvoidingView>
+      </KeyboardAwareScreen>
 
       <Modal
         visible={contactsModalVisible}

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { View, StyleSheet, Pressable, ScrollView, Alert, ActivityIndicator, Switch, Platform, TextInput } from "react-native";
+import { View, StyleSheet, Pressable, Alert, ActivityIndicator, Switch, Platform, TextInput } from "react-native";
 import { Divider, Text, Icon, TextInput as PaperTextInput } from "react-native-paper";
 import { useRoute, useNavigation } from "@react-navigation/native";
 
@@ -9,6 +9,7 @@ import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { AppSearchBar } from "../../components/ui/AppSearchBar";
 import { AppKeyboardAvoidingView } from "../../components/ui/AppKeyboardAvoidingView";
+import { KeyboardAwareScreen } from "../../components/keyboard/KeyboardAwareScreen";
 import { Button } from "../../components/ui/Button";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { triggerLightHaptic, triggerSuccessHaptic } from "../../utils/haptics";
@@ -242,8 +243,7 @@ export function EditSale() {
     return (
       <Screen edges={["top", "left", "right"]}>
         <AppHeader title="Review Sale Changes" showBack onBack={() => setIsReviewing(false)} />
-        <AppKeyboardAvoidingView>
-          <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
+          <KeyboardAwareScreen style={styles.scroll} contentContainerStyle={styles.scrollContent}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>ITEM CHANGES</Text>
           </View>
@@ -372,8 +372,7 @@ export function EditSale() {
               style={{ flex: 1.5 }}
             />
           </View>
-          </ScrollView>
-        </AppKeyboardAvoidingView>
+          </KeyboardAwareScreen>
       </Screen>
     );
   }
@@ -408,8 +407,7 @@ export function EditSale() {
         )}
       </View>
 
-      <AppKeyboardAvoidingView>
-        <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+        <KeyboardAwareScreen style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         {/* Customer Info Card */}
         <View style={styles.customerCard}>
           <View style={styles.customerHeader}>
@@ -612,8 +610,7 @@ export function EditSale() {
           onPress={() => setIsReviewing(true)}
           style={{ marginVertical: spacing.lg }}
         />
-        </ScrollView>
-      </AppKeyboardAvoidingView>
+        </KeyboardAwareScreen>
     </Screen>
   );
 }

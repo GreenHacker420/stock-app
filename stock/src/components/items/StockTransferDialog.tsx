@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { View, StyleSheet, Pressable, ScrollView, KeyboardAvoidingView, Platform, Alert } from "react-native";
+import { View, StyleSheet, Pressable, ScrollView, Platform, Alert } from "react-native";
+import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { Text, Icon, Portal, Dialog, TextInput } from "react-native-paper";
 
 import { Shop } from "../../api/client";
@@ -58,7 +59,7 @@ export function StockTransferDialog({
   return (
     <Portal>
       <Dialog visible={visible} onDismiss={isPending ? undefined : onDismiss} style={styles.dialog}>
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined}>
+        <KeyboardAvoidingView automaticOffset behavior={Platform.OS === "ios" ? "padding" : "height"}>
           <Dialog.Title style={styles.title}>Inter-Shop Stock Transfer</Dialog.Title>
           <Dialog.Content style={styles.content}>
             <ScrollView keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>

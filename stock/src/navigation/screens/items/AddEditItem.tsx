@@ -27,6 +27,7 @@ import { Button } from "../../../components/ui/Button";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { SkeletonList } from "../../../components/ui/SkeletonCard";
 import { AppKeyboardAvoidingView } from "../../../components/ui/AppKeyboardAvoidingView";
+import { KeyboardAwareScreen } from "../../../components/keyboard/KeyboardAwareScreen";
 import { ImagePickerField } from "../../../components/forms/ImagePickerField";
 import { CategoryPickerSheet } from "../../../components/items/CategoryPickerSheet";
 import { BrandPickerSheet } from "../../../components/items/BrandPickerSheet";
@@ -875,8 +876,7 @@ export function AddEditItem() {
         onBack={() => requestLeave(goBack)}
         onRequestShopSwitch={requestShopSwitch}
       />
-      <AppKeyboardAvoidingView>
-        <ScrollView
+        <KeyboardAwareScreen
           contentContainerStyle={styles.aeiScroll}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
@@ -1179,8 +1179,7 @@ export function AddEditItem() {
               />
             )}
           </View>
-        </ScrollView>
-      </AppKeyboardAvoidingView>
+        </KeyboardAwareScreen>
 
       <CategoryPickerSheet
         visible={showCatPicker}

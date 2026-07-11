@@ -4,10 +4,10 @@ import {
   StyleSheet,
   Modal as RNModal,
   Platform,
-  KeyboardAvoidingView,
   Keyboard,
   Pressable,
 } from "react-native";
+import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { Text } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
@@ -36,6 +36,7 @@ export function PickerSheet({ visible, onDismiss, title, children }: PickerSheet
       accessibilityViewIsModal
     >
       <KeyboardAvoidingView
+        automaticOffset
         style={styles.modalRoot}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
       >

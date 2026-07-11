@@ -1,5 +1,6 @@
 import { PropsWithChildren } from "react";
-import { KeyboardAvoidingView, Platform, StyleSheet, StyleProp, ViewStyle } from "react-native";
+import { Platform, StyleSheet, StyleProp, ViewStyle } from "react-native";
+import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 
 type AppKeyboardAvoidingViewProps = PropsWithChildren<{
   style?: StyleProp<ViewStyle>;
@@ -14,6 +15,7 @@ export function AppKeyboardAvoidingView({
   return (
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : "height"}
+      automaticOffset
       keyboardVerticalOffset={keyboardVerticalOffset}
       style={[styles.container, style]}
     >

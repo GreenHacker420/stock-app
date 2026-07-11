@@ -1,5 +1,5 @@
-import { ComponentProps } from "react";
-import { StyleSheet } from "react-native";
+import { ComponentProps, forwardRef } from "react";
+import { StyleSheet, type TextInput as NativeTextInput } from "react-native";
 import { HelperText, TextInput } from "react-native-paper";
 
 import { colors, radius } from "../../theme";
@@ -9,11 +9,15 @@ type FormTextFieldProps = ComponentProps<typeof TextInput> & {
   errorText?: string;
 };
 
-export function FormTextField({ helperText, errorText, style, outlineStyle, activeOutlineColor, ...props }: FormTextFieldProps) {
+export const FormTextField = forwardRef<NativeTextInput, FormTextFieldProps>(function FormTextField(
+  { helperText, errorText, style, outlineStyle, activeOutlineColor, ...props },
+  ref,
+) {
   const hasError = !!errorText || !!props.error;
   return (
     <>
       <TextInput
+        ref={ref}
         mode="outlined"
         activeOutlineColor={activeOutlineColor ?? (hasError ? colors.danger : colors.primary)}
         outlineStyle={[styles.outline, outlineStyle]}
@@ -32,7 +36,7 @@ export function FormTextField({ helperText, errorText, style, outlineStyle, acti
       ) : null}
     </>
   );
-}
+});
 
 const styles = StyleSheet.create({
   input: {

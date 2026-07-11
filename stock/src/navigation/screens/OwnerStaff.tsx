@@ -21,6 +21,7 @@ import { EmptyState } from "../../components/ui/EmptyState";
 import { StatusPill } from "../../components/ui/StatusPill";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { navigate, goBack } from "../navigation-ref";
+import { KeyboardAwareScreen } from "../../components/keyboard/KeyboardAwareScreen";
 
 function getInitials(name: string) {
   if (!name) return "ST";
@@ -233,8 +234,7 @@ export function AddEditStaff() {
         subtitle="Configure access credentials and status." 
         fallbackRoute="StaffManagement"
       />
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
+      <KeyboardAwareScreen contentContainerStyle={styles.scrollContent}>
         <Section title="Account details">
           <View style={styles.formCard}>
             <FormTextField
@@ -355,8 +355,7 @@ export function AddEditStaff() {
             )
           ) : null}
         </View>
-      </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardAwareScreen>
     </Screen>
   );
 }

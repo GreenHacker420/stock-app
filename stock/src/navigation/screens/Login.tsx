@@ -23,6 +23,7 @@ import { Button } from "../../components/ui/Button";
 import { FormTextField } from "../../components/forms/FormTextField";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { triggerLightHaptic, triggerMediumHaptic } from "../../utils/haptics";
+import { KeyboardAwareScreen } from "../../components/keyboard/KeyboardAwareScreen";
 
 const LAST_IDENTIFIER_KEY = "shopcontrol_last_identifier";
 
@@ -470,15 +471,11 @@ export function Login() {
 
   return (
     <Screen edges={['top', 'bottom', 'left', 'right']} bg={colors.bg}>
-      <KeyboardAvoidingView 
+      <KeyboardAwareScreen
         style={styles.container} 
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        contentContainerStyle={styles.scrollContent}
+        mode="layout"
       >
-        <ScrollView 
-          contentContainerStyle={styles.scrollContent} 
-          keyboardShouldPersistTaps="handled" 
-          showsVerticalScrollIndicator={false}
-        >
           <View style={styles.header}>
             <View style={styles.logoBox}>
               <Text style={styles.logoText}>SC</Text>
@@ -855,8 +852,7 @@ export function Login() {
               </View>
             </View>
           </Modal>
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardAwareScreen>
     </Screen>
   );
 }

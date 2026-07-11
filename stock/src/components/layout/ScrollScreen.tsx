@@ -1,9 +1,10 @@
 import { ReactNode } from "react";
-import { ScrollView, StyleProp, StyleSheet, ViewStyle } from "react-native";
+import { StyleProp, StyleSheet, ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ScreenScaffold } from "./ScreenScaffold";
 import { spacing } from "../../theme";
+import { KeyboardAwareScreen } from "../keyboard/KeyboardAwareScreen";
 
 type ScrollScreenProps = {
   title: string;
@@ -30,7 +31,7 @@ export function ScrollScreen({
 
   return (
     <ScreenScaffold title={title} subtitle={subtitle} showBack={showBack} fallbackRoute={fallbackRoute} footer={footer}>
-      <ScrollView
+      <KeyboardAwareScreen
         contentInsetAdjustmentBehavior="automatic"
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
@@ -41,7 +42,7 @@ export function ScrollScreen({
         ]}
       >
         {children}
-      </ScrollView>
+      </KeyboardAwareScreen>
     </ScreenScaffold>
   );
 }

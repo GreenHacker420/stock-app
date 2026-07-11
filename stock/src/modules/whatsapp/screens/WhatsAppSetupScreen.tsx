@@ -14,6 +14,7 @@ import { useNavigation } from "@react-navigation/native";
 import { waColors } from "../whatsapp-ui";
 import { sendTestPushNotification } from "../../../api/client";
 import { useAuthStore } from "../../../auth/auth-store";
+import { KeyboardAwareScreen } from "../../../components/keyboard/KeyboardAwareScreen";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -275,7 +276,7 @@ export const WhatsAppSetupScreen = () => {
 
   return (
     <Screen>
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.flex1}>
+      <KeyboardAwareScreen style={styles.flex1} contentContainerStyle={styles.scrollContent}>
         {/* Connection Banner */}
         <Card style={[styles.statusCard, isConnected ? styles.cardConnected : styles.cardDisconnected]}>
           <Card.Content style={styles.statusCardContent}>
@@ -458,7 +459,7 @@ export const WhatsAppSetupScreen = () => {
           </TouchableOpacity>
         </View>
 
-        <ScrollView contentContainerStyle={styles.scrollContent}>
+        <>
           {activeTab === "easy" ? (
             <View style={styles.tabContent}>
               <Card style={styles.formCard}>
@@ -609,8 +610,8 @@ export const WhatsAppSetupScreen = () => {
               </Card>
             </View>
           )}
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </>
+      </KeyboardAwareScreen>
     </Screen>
   );
 };

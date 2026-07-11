@@ -41,6 +41,7 @@ import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../the
 import { shareSaleInvoicePdf, printSaleInvoiceDirect } from "../../utils/pdf";
 import { triggerLightHaptic } from "../../utils/haptics";
 import { itemDisplayName } from "../../utils/items/display";
+import { KeyboardAwareScreen } from "../../components/keyboard/KeyboardAwareScreen";
 
 function money(value?: string | number | null) {
   return `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
@@ -742,11 +743,7 @@ export function WalkInSale() {
 
   return (
     <Screen edges={['top', 'left', 'right']}>
-      <KeyboardAvoidingView 
-        style={styles.keyboardView} 
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
-      >
+      <View style={styles.keyboardView}>
         {currentStep < 3 && (
           <>
             <AppHeader 
@@ -759,7 +756,7 @@ export function WalkInSale() {
           </>
         )}
         
-        <ScrollView 
+        <KeyboardAwareScreen
           style={styles.scrollView}
           showsVerticalScrollIndicator={false} 
           contentContainerStyle={[
@@ -1345,7 +1342,7 @@ export function WalkInSale() {
               </View>
             </View>
           )}
-        </ScrollView>
+        </KeyboardAwareScreen>
 
         {/* Action Bottom Bars */}
         {currentStep === 1 && cartItemCount > 0 && (
@@ -1403,7 +1400,7 @@ export function WalkInSale() {
             />
           </View>
         )}
-      </KeyboardAvoidingView>
+      </View>
       {!!activeSerialScanItemId && !!cart[activeSerialScanItemId] && (
         <SerialNumberScannerModal
           visible={!!activeSerialScanItemId}

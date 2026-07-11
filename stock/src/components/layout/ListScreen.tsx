@@ -7,6 +7,7 @@ import { ScreenScaffold } from "./ScreenScaffold";
 import { EmptyState } from "../ui/EmptyState";
 import { SkeletonList } from "../ui/SkeletonCard";
 import { colors, spacing } from "../../theme";
+import { KeyboardAwareListScrollComponent } from "../keyboard/KeyboardAwareListScrollComponent";
 
 type ListScreenProps<T> = Omit<FlashListProps<T>, "refreshControl"> & {
   title: string;
@@ -41,6 +42,7 @@ export function ListScreen<T>({
   contentStyle,
   contentContainerStyle,
   loadingView,
+  renderScrollComponent,
   ...listProps
 }: ListScreenProps<T>) {
   const insets = useSafeAreaInsets();
@@ -55,6 +57,7 @@ export function ListScreen<T>({
           ) : (
             <FlashList
               {...listProps}
+              renderScrollComponent={renderScrollComponent ?? KeyboardAwareListScrollComponent}
               refreshControl={
                 onRefresh ? (
                   <RefreshControl refreshing={!!isRefreshing} onRefresh={onRefresh} colors={[colors.primary]} />

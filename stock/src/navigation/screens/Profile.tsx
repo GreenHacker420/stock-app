@@ -18,6 +18,7 @@ import { getToken, setToken } from "../../auth/token-storage";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { triggerLightHaptic, triggerSuccessHaptic, triggerWarningHaptic, triggerErrorHaptic } from "../../utils/haptics";
 import { navigate } from "../navigation-ref";
+import { KeyboardAwareScreen } from "../../components/keyboard/KeyboardAwareScreen";
 
 async function hashQuickPin(mobile: string, pin: string) {
   return Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, `${mobile.trim()}:${pin}`);
@@ -321,12 +322,8 @@ export function Profile() {
 
   return (
     <Screen>
-      <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
-        style={styles.flex1}
-      >
-        <ScrollView
+      <KeyboardAwareScreen
+          style={styles.flex1}
           contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + spacing.xl }]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
@@ -744,8 +741,7 @@ export function Profile() {
               </>
             )}
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardAwareScreen>
 
       <NotificationToast
         visible={toastVisible}

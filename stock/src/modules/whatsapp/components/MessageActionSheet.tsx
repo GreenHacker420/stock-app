@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import {
-  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -8,6 +7,7 @@ import {
   StyleSheet,
   View,
 } from "react-native";
+import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { Button, IconButton, Text, TextInput } from "react-native-paper";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { colors as Colors } from "../../../theme";
@@ -159,6 +159,7 @@ export function MessageActionSheet({
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <KeyboardAvoidingView
+        automaticOffset
         style={styles.overlay}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >

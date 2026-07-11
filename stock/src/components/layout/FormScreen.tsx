@@ -1,9 +1,9 @@
 import { ReactNode } from "react";
-import { ScrollView, StyleProp, StyleSheet, ViewStyle } from "react-native";
+import { StyleProp, StyleSheet, ViewStyle } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { ScreenScaffold } from "./ScreenScaffold";
-import { AppKeyboardAvoidingView } from "../ui/AppKeyboardAvoidingView";
+import { KeyboardAwareScreen } from "../keyboard/KeyboardAwareScreen";
 import { STICKY_FOOTER_MIN_HEIGHT } from "./StickyFooterActions";
 import { spacing } from "../../theme";
 
@@ -30,8 +30,7 @@ export function FormScreen({
 
   return (
     <ScreenScaffold title={title} subtitle={subtitle} showBack={showBack} fallbackRoute={fallbackRoute}>
-      <AppKeyboardAvoidingView>
-        <ScrollView
+        <KeyboardAwareScreen
           contentInsetAdjustmentBehavior="automatic"
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
@@ -40,11 +39,11 @@ export function FormScreen({
             { paddingBottom: Math.max(insets.bottom, 0) + (footer ? STICKY_FOOTER_MIN_HEIGHT + spacing.xxl : spacing.xxl) },
             contentContainerStyle,
           ]}
+          layoutMetrics={{ footerHeight: footer ? STICKY_FOOTER_MIN_HEIGHT : 0 }}
         >
           {children}
-        </ScrollView>
+        </KeyboardAwareScreen>
         {footer}
-      </AppKeyboardAvoidingView>
     </ScreenScaffold>
   );
 }

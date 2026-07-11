@@ -222,6 +222,7 @@ const styles = StyleSheet.create({
 
 const floatingTabOptions = {
   headerShown: false,
+  tabBarHideOnKeyboard: true,
 };
 
 function AccessDeniedScreen() {

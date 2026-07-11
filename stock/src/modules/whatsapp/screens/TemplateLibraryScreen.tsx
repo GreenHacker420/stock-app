@@ -1,6 +1,7 @@
 import { useContext, useEffect, useRef, useState } from "react";
 import { Alert, Pressable, RefreshControl, StyleSheet, View } from "react-native";
 import { FlashList } from "@shopify/flash-list";
+import { KeyboardAwareListScrollComponent } from "../../../components/keyboard/KeyboardAwareListScrollComponent";
 import { ActivityIndicator, Button, Dialog, FAB, IconButton, Portal, Searchbar, Text } from "react-native-paper";
 import { useNavigation } from "@react-navigation/native";
 import { BottomTabBarHeightContext } from "@react-navigation/bottom-tabs";
@@ -148,6 +149,7 @@ export function TemplateLibraryScreen() {
         <ErrorState title="Templates unavailable" message={query.error.message} onRetry={() => query.refetch()} />
       ) : (
         <FlashList
+          renderScrollComponent={KeyboardAwareListScrollComponent}
           data={query.data?.data || []}
           keyExtractor={(item) => item.id}
           refreshControl={<RefreshControl refreshing={query.isRefetching} onRefresh={query.refetch} />}

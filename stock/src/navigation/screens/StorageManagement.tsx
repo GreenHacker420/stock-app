@@ -8,9 +8,9 @@ import {
   TextInput as RNTextInput,
   useWindowDimensions,
   Platform,
-  KeyboardAvoidingView,
   BackHandler,
 } from "react-native";
+import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { Pressable, GestureHandlerRootView, GestureDetector, Gesture } from "react-native-gesture-handler";
 import Animated, {
   useSharedValue,
@@ -2102,6 +2102,7 @@ function PriceEditModal({
   return (
     <BottomSheet ref={sheetRef} visible onClose={onCancel}>
       <KeyboardAvoidingView
+        automaticOffset
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={{ flex: 0 }}
       >

@@ -2,6 +2,7 @@ import { useContext, useEffect, useMemo, useState } from "react";
 import { Alert, Modal, Pressable, RefreshControl, StyleSheet, View } from "react-native";
 import { FlashList } from "@shopify/flash-list";
 import { FAB, IconButton, Searchbar, Text } from "react-native-paper";
+import { KeyboardAwareListScrollComponent } from "../../../components/keyboard/KeyboardAwareListScrollComponent";
 import { useNavigation } from "@react-navigation/native";
 import { BottomTabBarHeightContext } from "@react-navigation/bottom-tabs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -115,6 +116,7 @@ export const ChatListScreen = () => {
       )}
 
       <FlashList
+        renderScrollComponent={KeyboardAwareListScrollComponent}
         data={conversations}
         keyExtractor={(item) => item.id}
         refreshControl={<RefreshControl refreshing={query.isRefetching} onRefresh={query.refetch} />}
