@@ -669,7 +669,7 @@ export type RootStackParamList = {
   AddEditCustomer: { customer?: any };
   CustomerDetail: { customerId: string };
   CustomerOutstandingList: undefined;
-  ItemList: undefined;
+  ItemList: { brandId?: string; categoryId?: string } | undefined;
   AddEditItem: { itemId?: string; initialName?: string };
   ItemDetail: { itemId: string };
   StorageManagement: undefined;
