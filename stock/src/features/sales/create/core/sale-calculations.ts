@@ -46,3 +46,21 @@ export const getSettlementCreditMinor = (settlement: SettlementDraft) =>
     ? settlement.creditMinor
     : 0;
 
+export function adaptItemToSnapshot(item: any) {
+  const defaultPrice = Number(item.defaultSellingPrice ?? 0);
+  const minPrice = item.minimumAllowedPrice !== null && item.minimumAllowedPrice !== undefined
+    ? Number(item.minimumAllowedPrice)
+    : defaultPrice;
+
+  return {
+    id: item.id,
+    name: item.name,
+    sku: item.sku,
+    unit: item.unit,
+    availableStock: Number(item.availableStock ?? 0),
+    defaultRateMinor: Math.round(defaultPrice * 100),
+    minimumRateMinor: Math.round(minPrice * 100),
+    requiresSerialNumber: !!item.requiresSerialNumber,
+  };
+}
+

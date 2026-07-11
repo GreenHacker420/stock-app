@@ -33,6 +33,17 @@ import { shareSaleInvoicePdf } from "../../utils/pdf";
 import { useNetworkStatus } from "../../hooks/useNetworkStatus";
 import { requireActiveShopId } from "../../hooks/useActiveShop";
 import { QuantityStepper } from "../../features/sales/create/components/QuantityStepper";
+import { useSaleDraft } from "../../features/sales/create/core/useSaleDraft";
+import {
+  adaptItemToSnapshot,
+  fromMinorUnits,
+  toMinorUnits,
+  getSettlementPaidMinor,
+  getSettlementCreditMinor,
+} from "../../features/sales/create/core/sale-calculations";
+import { createSaleFingerprint } from "../../features/sales/create/core/sale-fingerprint";
+import { buildSalePayload } from "../../features/sales/create/core/sale-payload";
+import { adaptSaleToInvoice } from "../../features/sales/create/core/sale-invoice-adapter";
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 const internetRequiredMessage = "Internet connection required. Please connect to the internet to complete this action.";
@@ -172,11 +183,11 @@ const SaleItemCard = memo(({
 const SwipeableCartItem = memo(({ 
   item, 
   quantity, 
-  customRate,
+  customRate, 
   serialNumbers,
   onScanPress,
   onUpdateRate,
-  onUpdateQuantity,
+  onAdjustQuantity,
   userRole
 }: { 
   item: Item;
@@ -185,7 +196,7 @@ const SwipeableCartItem = memo(({
   serialNumbers?: string[];
   onScanPress?: () => void;
   onUpdateRate: (rate: number | undefined) => void;
-  onUpdateQuantity: (qty: number) => void;
+  onAdjustQuantity: (delta: -1 | 1) => void;
   userRole?: string;
 }) => {
   const [showEditModal, setShowEditModal] = useState(false);
@@ -297,7 +308,7 @@ const SwipeableCartItem = memo(({
           </Pressable>
         </View>
 
-        <QuantityStepper compact itemName={item.name} quantity={quantity} maximum={Number(item.availableStock ?? 0)} onIncrement={() => onUpdateQuantity(quantity + 1)} onDecrement={() => onUpdateQuantity(quantity - 1)} />
+        <QuantityStepper compact itemName={item.name} quantity={quantity} maximum={Number(item.availableStock ?? 0)} onIncrement={() => onAdjustQuantity(1)} onDecrement={() => onAdjustQuantity(-1)} />
 
         <View style={styles.cartItemRight}>
           <Text style={styles.cartItemSubtotal}>{money(quantity * currentRate)}</Text>
@@ -416,12 +427,11 @@ export function RegularSale() {
   const insets = useSafeAreaInsets();
 
   const shopsQuery = useShopsQuery();
-  const activeShop = useMemo(() => 
-    shopsQuery.data?.find(s => s.id === activeShopId),
-    [shopsQuery.data, activeShopId]
+  const draftShop = useMemo(() => 
+    shopsQuery.data?.find((s: any) => s.id === draftShopId), 
+    [shopsQuery.data, draftShopId]
   );
-  const [completedSale, setCompletedSale] = useState<any | null>(null);
-
+  
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(1);
   const bottomPadding = insets.bottom > 0 ? insets.bottom + 12 : spacing.lg;
 
@@ -433,7 +443,12 @@ export function RegularSale() {
   const [debouncedCustomerSearch] = useDebounce(normalizedCustomerSearch, 150);
   const [debouncedItemSearch] = useDebounce(itemSearch, 300);
 
-  const [cart, setCart] = useState<Record<string, { item: Item, quantity: number, customRate?: number, serialNumbers?: string[] }>>({});
+  // useSaleDraft Hook Integration
+  const { draft, dispatch, totalMinor, validation, policy } = useSaleDraft({
+    mode: "REGULAR",
+    shopId: draftShopId,
+  });
+
   const [activeSerialScanItemId, setActiveSerialScanItemId] = useState<string | null>(null);
   
   const [paymentType, setPaymentType] = useState<PaymentType>("CASH");
@@ -448,6 +463,12 @@ export function RegularSale() {
   const [skuScannerVisible, setSkuScannerVisible] = useState(false);
   const [signatureKey, setSignatureKey] = useState(0);
 
+  const [completedSale, setCompletedSale] = useState<any | null>(null);
+  const [completedSaleSnapshot, setCompletedSaleSnapshot] = useState<{
+    completedSale: any;
+    submittedDraft: any;
+  } | null>(null);
+
   const customersQuery = useCustomersQuery({
     search: debouncedCustomerSearch,
     limit: debouncedCustomerSearch ? 20 : 50,
@@ -461,18 +482,19 @@ export function RegularSale() {
   const displayItems = useMemo(() => {
     const items = !network.isOffline ? itemsQuery.data?.items ?? [] : [];
     return [...items].sort((a, b) => {
-      const aSelected = (cart[a.id]?.quantity ?? 0) > 0;
-      const bSelected = (cart[b.id]?.quantity ?? 0) > 0;
+      const aSelected = (draft.lines[a.id]?.quantity ?? 0) > 0;
+      const bSelected = (draft.lines[b.id]?.quantity ?? 0) > 0;
       if (aSelected && !bSelected) return -1;
       if (!aSelected && bSelected) return 1;
       return 0;
     });
-  }, [itemsQuery.data, network.isOffline, cart]);
+  }, [itemsQuery.data, network.isOffline, draft.lines]);
 
   const filteredCustomers = useMemo(() => {
     if (!normalizedCustomerSearch || normalizedCustomerSearch !== debouncedCustomerSearch) return [];
     return mergedCustomers.slice(0, 5);
   }, [debouncedCustomerSearch, mergedCustomers, normalizedCustomerSearch]);
+  
   const isWaitingForCustomerSearch = normalizedCustomerSearch !== debouncedCustomerSearch;
   const isCustomerSearchPending = isWaitingForCustomerSearch || customersQuery.isFetching;
   const canOfferCustomerCreation =
@@ -481,25 +503,106 @@ export function RegularSale() {
     !customersQuery.isError &&
     filteredCustomers.length === 0;
 
-  const cartArray = useMemo(() => Object.values(cart), [cart]);
-  const cartItemCount = useMemo(() => cartArray.reduce((sum, i) => sum + i.quantity, 0), [cartArray]);
-  const cartTotal = useMemo(() => 
-    cartArray.reduce((sum, i) => sum + (i.quantity * (i.customRate !== undefined ? i.customRate : Number(i.item.defaultSellingPrice))), 0), 
-    [cartArray]
-  );
+  // Sync draftShopId to useSaleDraft reducer
+  useEffect(() => {
+    dispatch({ type: "RESET_DRAFT", shopId: draftShopId });
+  }, [draftShopId]);
+
+  // Sync customer state to draft
+  useEffect(() => {
+    if (customerId && selectedCustomer) {
+      dispatch({
+        type: "SET_CUSTOMER",
+        customer: { kind: "EXISTING", customer: { id: selectedCustomer.id, name: selectedCustomer.name, phone: selectedCustomer.phone, address: selectedCustomer.address, gstin: selectedCustomer.gstin } }
+      });
+    } else {
+      dispatch({
+        type: "SET_CUSTOMER",
+        customer: { kind: "ANONYMOUS" }
+      });
+    }
+  }, [customerId, selectedCustomer]);
+
+  // Sync GST state to draft
+  useEffect(() => {
+    dispatch({ type: "SET_GST", required: isGstSale });
+  }, [isGstSale]);
+
+  // Sync notes state to draft
+  useEffect(() => {
+    dispatch({ type: "SET_NOTES", notes });
+  }, [notes]);
+
+  const cartTotal = useMemo(() => fromMinorUnits(totalMinor), [totalMinor]);
+
+  const cartArray = useMemo(() => {
+    return Object.values(draft.lines).map(line => {
+      const hasCustomRate = line.rateMinor !== line.item.defaultRateMinor;
+      return {
+        item: {
+          ...line.item,
+          defaultSellingPrice: fromMinorUnits(line.item.defaultRateMinor),
+          minimumAllowedPrice: fromMinorUnits(line.item.minimumRateMinor),
+        } as any,
+        quantity: line.quantity,
+        customRate: hasCustomRate ? fromMinorUnits(line.rateMinor) : undefined,
+        serialNumbers: line.serialNumbers,
+      };
+    });
+  }, [draft.lines]);
+
+  const cartItemCount = useMemo(() => {
+    return cartArray.reduce((sum, line) => sum + line.quantity, 0);
+  }, [cartArray]);
 
   const hasMissingPrice = useMemo(() => {
-    return cartArray.some(i => {
-      const rate = i.customRate !== undefined ? i.customRate : Number(i.item.defaultSellingPrice || 0);
-      return rate <= 0 || isNaN(rate);
-    });
-  }, [cartArray]);
+    return Object.values(draft.lines).some(line => line.rateMinor <= 0);
+  }, [draft.lines]);
 
   useEffect(() => {
     if (cartItemCount === 0 && currentStep > 1 && currentStep < 4) {
       setCurrentStep(1);
     }
   }, [cartItemCount, currentStep]);
+
+  // Settlement sync to reducer
+  useEffect(() => {
+    const totalMinorVal = totalMinor;
+    if (paymentType === "CREDIT") {
+      const paidMinorVal = toMinorUnits(amountPaid);
+      if (paidMinorVal <= 0) {
+        dispatch({
+          type: "SET_SETTLEMENT",
+          settlement: {
+            kind: "FULL_CREDIT",
+            paidMinor: 0,
+            creditMinor: totalMinorVal
+          }
+        });
+      } else {
+        dispatch({
+          type: "SET_SETTLEMENT",
+          settlement: {
+            kind: "PARTIAL_CREDIT",
+            upfrontMode: partialPaymentMode === "UPI" ? "UPI" : "CASH",
+            paidMinor: Math.min(totalMinorVal, paidMinorVal),
+            creditMinor: Math.max(0, totalMinorVal - paidMinorVal)
+          }
+        });
+      }
+    } else {
+      const mode = paymentType === "BANK_TRANSFER" ? "BANK_TRANSFER" : paymentType;
+      dispatch({
+        type: "SET_SETTLEMENT",
+        settlement: {
+          kind: "FULL_PAYMENT",
+          mode,
+          paidMinor: totalMinorVal,
+          changeMinor: 0
+        }
+      });
+    }
+  }, [paymentType, partialPaymentMode, amountPaid, totalMinor]);
 
   const parsedAmountPaid = Number(amountPaid);
   const isAmountPaidValid =
@@ -514,60 +617,28 @@ export function RegularSale() {
     : Math.max(0, cartTotal - effectivePaidAmount);
   const isCredit = balance > 0.01;
   const isCreditUpfrontWithinBounds = paymentType !== "CREDIT" || (effectivePaidAmount !== null && effectivePaidAmount <= cartTotal);
-  const creditTransactionFingerprint = useMemo(
-    () => JSON.stringify({
-      customerId,
-      total: cartTotal,
-      paid: effectivePaidAmount,
-      credit: balance,
-      lines: cartArray
-        .map((line) => [line.item.id, line.quantity, line.customRate ?? line.item.defaultSellingPrice, line.serialNumbers ?? []])
-        .sort((left, right) => String(left[0]).localeCompare(String(right[0]))),
-    }),
-    [balance, cartArray, cartTotal, customerId, effectivePaidAmount],
-  );
+
   const isCreditAuthorizationCurrent = Boolean(
-    customerSignature && signatureFingerprint === creditTransactionFingerprint,
+    draft.creditAuthorization &&
+    draft.creditAuthorization.transactionFingerprint === createSaleFingerprint(draft)
   );
+
   const openSignatureModal = useCallback(() => {
     setDraftSignature(customerSignature);
     setSignatureKey((previous) => previous + 1);
     setIsSignatureModalVisible(true);
   }, [customerSignature]);
 
-  const updateQuantity = useCallback((item: Item, delta: number) => {
-    setCart(prev => {
-      const current = prev[item.id] || { item, quantity: 0, serialNumbers: [] };
-      const availableStock = Math.max(0, Number(item.availableStock ?? 0));
-      const nextQty = Math.min(availableStock, Math.max(0, current.quantity + delta));
-      
-      const nextCart = { ...prev };
-      if (nextQty === 0) {
-        delete nextCart[item.id];
-      } else {
-        let serials = current.serialNumbers || [];
-        if (serials.length > nextQty) {
-          serials = serials.slice(0, nextQty);
-        }
-        nextCart[item.id] = { ...current, quantity: nextQty, serialNumbers: serials };
-      }
-      return nextCart;
-    });
-  }, []);
-
   const handleProductScanned = useCallback(async (sku: string) => {
     try {
-      // 1. Search locally in displayItems
       let found = displayItems.find(i => i.sku === sku);
-
-      // 2. If not found locally, fetch from backend
       if (!found) {
         const res = await fetchItems(token ?? "", draftShopId, { search: sku, limit: 1 });
         found = res.items?.find(i => i.sku === sku || i.name === sku);
       }
 
       if (found) {
-        updateQuantity(found, 1);
+        dispatch({ type: "ADD_QUANTITY", item: adaptItemToSnapshot(found), delta: 1 });
         return { success: true, name: found.name };
       } else {
         return { success: false, name: "", msg: "Product not found" };
@@ -575,7 +646,7 @@ export function RegularSale() {
     } catch (err: any) {
       return { success: false, name: "", msg: err.message || "Failed to lookup product" };
     }
-  }, [displayItems, token, draftShopId, updateQuantity]);
+  }, [displayItems, token, draftShopId]);
 
   const saleMutation = useCreateSaleMutation();
 
@@ -590,63 +661,23 @@ export function RegularSale() {
       Alert.alert("Internet required", internetRequiredMessage);
       return;
     }
-    if (!isAmountPaidValid || effectivePaidAmount === null) {
-      Alert.alert("Invalid Payment", "Enter a valid non-negative amount received.");
+
+    if (!validation.isValid) {
+      const firstErr = Object.values(validation.errors)[0];
+      Alert.alert("Validation Error", firstErr || "Please verify the sale details.");
       return;
     }
-    if (!isCreditUpfrontWithinBounds) {
-      Alert.alert("Invalid Credit Payment", "Upfront payment cannot exceed the sale total.");
-      return;
-    }
 
-    const payments = [];
-    const paid = Number(amountPaid);
-    if (paymentType !== "CREDIT") {
-       const finalAmount = amountPaid === "" ? cartTotal : paid;
-       if (finalAmount > 0) {
-         payments.push({
-           paymentMode: paymentType,
-           amount: finalAmount,
-         });
-       }
-    } else if (paid > 0) {
-       payments.push({
-         paymentMode: partialPaymentMode,
-         amount: paid,
-       });
-     }
-
-    // Validate serial numbers before submitting
-    for (const i of cartArray) {
-      if (i.item.requiresSerialNumber) {
-        if (!i.serialNumbers || i.serialNumbers.length !== i.quantity) {
-          Alert.alert(
-            "Serial Numbers Required",
-            `Please scan all serial numbers for "${i.item.name}" before completing the sale.`
-          );
-          return;
-        }
-      }
-    }
-
-    const payload = {
-      shopId: requireActiveShopId(activeShopId),
-      customerId: customerId || undefined,
-      items: cartArray.map(i => ({ 
-        itemId: i.item.id, 
-        quantity: i.quantity, 
-        rate: i.customRate !== undefined ? i.customRate : Number(i.item.defaultSellingPrice),
-        serialNumbers: i.serialNumbers || [],
-      })),
-      payments: payments.length > 0 ? payments : undefined,
-      notes: notes || undefined,
-      gstRequired: isGstSale,
-      customerSignature: isCreditAuthorizationCurrent ? customerSignature : undefined,
-    };
+    const payload = buildSalePayload(draft);
 
     saleMutation.mutate(payload, {
       onSuccess: (res: any) => {
+        setCompletedSaleSnapshot({
+          completedSale: res,
+          submittedDraft: { ...draft },
+        });
         setCompletedSale(res);
+        dispatch({ type: "RESET_DRAFT", shopId: requireActiveShopId(activeShopId) });
         setCurrentStep(4);
       },
       onError: (error: any) => {
@@ -655,17 +686,53 @@ export function RegularSale() {
         } else {
           Alert.alert("Failed to Complete Sale", error?.message || "Something went wrong.");
         }
-      },
+      }
     });
   };
 
-  const isSerialsComplete = useMemo(() => {
-    return cartArray.every(
-      (i) => !i.item.requiresSerialNumber || (i.serialNumbers && i.serialNumbers.length === i.quantity)
-    );
-  }, [cartArray]);
+  const invoiceSale = useMemo(() => {
+    if (!completedSaleSnapshot) return null;
+    return adaptSaleToInvoice(completedSaleSnapshot.submittedDraft, completedSaleSnapshot.completedSale);
+  }, [completedSaleSnapshot]);
 
-  const isFormValid = Boolean(customerId) && cartArray.length > 0 && !hasMissingPrice && isAmountPaidValid && effectivePaidAmount !== null && isCreditUpfrontWithinBounds && (!isCredit || isCreditAuthorizationCurrent) && isSerialsComplete;
+  const receiptCustomerName = useMemo(() => {
+    if (!completedSaleSnapshot) return "Customer";
+    const draftCust = completedSaleSnapshot.submittedDraft.customer;
+    if (draftCust.kind === "EXISTING") return draftCust.customer.name;
+    return "Customer";
+  }, [completedSaleSnapshot]);
+
+  const receiptPaymentMode = useMemo(() => {
+    if (!completedSaleSnapshot) return "CASH";
+    const draftSettlement = completedSaleSnapshot.submittedDraft.settlement;
+    if (draftSettlement.kind === "FULL_CREDIT") return "CREDIT";
+    if (draftSettlement.kind === "PARTIAL_CREDIT") return `CREDIT (+ ${draftSettlement.upfrontMode})`;
+    if (draftSettlement.kind === "FULL_PAYMENT") return draftSettlement.mode;
+    return "CASH";
+  }, [completedSaleSnapshot]);
+
+  const receiptPaidAmount = useMemo(() => {
+    if (!completedSaleSnapshot) return 0;
+    return fromMinorUnits(getSettlementPaidMinor(completedSaleSnapshot.submittedDraft.settlement));
+  }, [completedSaleSnapshot]);
+
+  const receiptCreditAmount = useMemo(() => {
+    if (!completedSaleSnapshot) return 0;
+    return fromMinorUnits(getSettlementCreditMinor(completedSaleSnapshot.submittedDraft.settlement));
+  }, [completedSaleSnapshot]);
+
+  const receiptChangeAmount = useMemo(() => {
+    if (!completedSaleSnapshot) return 0;
+    const draftSettlement = completedSaleSnapshot.submittedDraft.settlement;
+    if (draftSettlement.kind === "FULL_PAYMENT") {
+      return fromMinorUnits(draftSettlement.changeMinor);
+    }
+    return 0;
+  }, [completedSaleSnapshot]);
+
+  const isSerialsComplete = useMemo(() => !validation.errors.serialNumbers, [validation.errors.serialNumbers]);
+
+  const isFormValid = validation.isValid;
 
   const FlashListAny = FlashList as any;
 
@@ -851,9 +918,13 @@ export function RegularSale() {
                     renderItem={({ item }: { item: Item }) => (
                       <SaleItemCard 
                         item={item} 
-                        quantity={cart[item.id]?.quantity ?? 0}
-                        onAdd={() => updateQuantity(item, 1)}
-                        onRemove={() => updateQuantity(item, -1)}
+                        quantity={draft.lines[item.id]?.quantity ?? 0}
+                        onAdd={() => {
+                          dispatch({ type: "ADD_QUANTITY", item: adaptItemToSnapshot(item), delta: 1 });
+                        }}
+                        onRemove={() => {
+                          dispatch({ type: "ADD_QUANTITY", item: adaptItemToSnapshot(item), delta: -1 });
+                        }}
                       />
                     )}
                     ListEmptyComponent={
@@ -900,40 +971,14 @@ export function RegularSale() {
                       serialNumbers={serialNumbers}
                       onScanPress={() => setActiveSerialScanItemId(item.id)}
                       onUpdateRate={(rate) => {
-                        setCart(prev => {
-                          if (!prev[item.id]) return prev;
-                          return {
-                            ...prev,
-                            [item.id]: {
-                              ...prev[item.id],
-                              customRate: rate
-                            }
-                          };
+                        dispatch({
+                          type: "SET_RATE",
+                          itemId: item.id,
+                          rateMinor: rate !== undefined ? toMinorUnits(rate) : toMinorUnits(item.defaultSellingPrice)
                         });
                       }}
-                      onUpdateQuantity={(qty) => {
-                        setCart(prev => {
-                          if (!prev[item.id]) return prev;
-                          const availableStock = Math.max(0, Number(item.availableStock ?? 0));
-                          const safeQuantity = Math.min(availableStock, Math.max(0, qty));
-                          if (safeQuantity === 0) {
-                            const next = { ...prev };
-                            delete next[item.id];
-                            return next;
-                          }
-                          let serials = prev[item.id].serialNumbers || [];
-                          if (serials.length > safeQuantity) {
-                            serials = serials.slice(0, safeQuantity);
-                          }
-                          return {
-                            ...prev,
-                            [item.id]: {
-                              ...prev[item.id],
-                              quantity: safeQuantity,
-                              serialNumbers: serials
-                            }
-                          };
-                        });
+                      onAdjustQuantity={(delta) => {
+                        dispatch({ type: "ADD_QUANTITY", item: adaptItemToSnapshot(item), delta });
                       }}
                       userRole={user?.role}
                     />
@@ -1147,26 +1192,26 @@ export function RegularSale() {
             </View>
           )}
 
-          {currentStep === 4 && (
+          {currentStep === 4 && invoiceSale && (
             <View style={styles.successContainer}>
               <View style={styles.successIconWrapper}>
                 <Icon source="check-circle" size={80} color={colors.success} />
               </View>
               <Text style={styles.successTitle}>Sale Completed!</Text>
               <Text style={styles.successSubtitle}>
-                {`Recorded sale of ${money(cartTotal)} successfully.`}
+                {`Recorded sale of ${money(invoiceSale.totalAmount)} successfully.`}
               </Text>
               
               <View style={styles.receiptCard}>
-                <InfoRow label="Sale Number" value={(saleMutation.data as any)?.saleNumber || "N/A"} />
-                <InfoRow label="Customer" value={selectedCustomer?.name} />
-                <InfoRow label="Payment Mode" value={paymentType} />
-                <InfoRow label="Amount Received" value={money(amountPaid || (paymentType === "CREDIT" ? 0 : cartTotal))} />
-                {Number(amountPaid) > cartTotal && (
-                  <InfoRow label="Change Returned" value={money(Number(amountPaid) - cartTotal)} tone="green" />
+                <InfoRow label="Sale Number" value={invoiceSale.saleNumber} />
+                <InfoRow label="Customer" value={receiptCustomerName} />
+                <InfoRow label="Payment Mode" value={receiptPaymentMode} />
+                <InfoRow label="Amount Received" value={money(receiptPaidAmount)} />
+                {receiptChangeAmount > 0.01 && (
+                  <InfoRow label="Change Returned" value={money(receiptChangeAmount)} tone="green" />
                 )}
-                {isCredit && balance > 0 && (
-                  <InfoRow label="Balance to Credit" value={money(balance)} tone="red" />
+                {receiptCreditAmount > 0.01 && (
+                  <InfoRow label="Balance to Credit" value={money(receiptCreditAmount)} tone="red" />
                 )}
               </View>
               
@@ -1176,30 +1221,7 @@ export function RegularSale() {
                   variant="ghost"
                   icon="eye-outline"
                   onPress={() => {
-                    const finalSale = completedSale || {
-                      saleNumber: (saleMutation.data as any)?.saleNumber || "N/A",
-                      totalAmount: String(cartTotal),
-                      paidAmount: String(amountPaid || (paymentType === "CREDIT" ? 0 : cartTotal)),
-                      balanceAmount: String(isCredit ? balance : 0),
-                      isWalkin: false,
-                      createdAt: new Date().toISOString(),
-                      customer: selectedCustomer,
-                      customerSignature: isCreditAuthorizationCurrent ? customerSignature : undefined,
-                      items: cartArray.map(i => ({
-                        id: i.item.id,
-                        quantity: String(i.quantity),
-                        rate: String(i.customRate !== undefined ? i.customRate : Number(i.item.defaultSellingPrice)),
-                        totalAmount: String(i.quantity * (i.customRate !== undefined ? i.customRate : Number(i.item.defaultSellingPrice))),
-                        item: i.item,
-                      })),
-                      notes: notes || null,
-                      payments: paymentType !== "CREDIT" || (amountPaid && Number(amountPaid) > 0) ? [{
-                        paymentMode: paymentType === "CREDIT" ? partialPaymentMode : paymentType,
-                        amount: String(amountPaid === "" ? cartTotal : amountPaid),
-                        receivedAt: new Date().toISOString()
-                      }] : []
-                    };
-                    navigation.navigate("InvoiceViewer", { sale: finalSale, shop: activeShop });
+                    navigation.navigate("InvoiceViewer", { sale: invoiceSale, shop: draftShop });
                   }}
                   style={styles.halfBtn}
                 />
@@ -1209,31 +1231,8 @@ export function RegularSale() {
                   icon="share-variant-outline"
                   onPress={async () => {
                     await shareSaleInvoicePdf({
-                      sale: completedSale || {
-                        saleNumber: (saleMutation.data as any)?.saleNumber || "N/A",
-                        totalAmount: String(cartTotal),
-                        paidAmount: String(amountPaid || (paymentType === "CREDIT" ? 0 : cartTotal)),
-                        balanceAmount: String(isCredit ? balance : 0),
-                        isWalkin: false,
-                        createdAt: new Date().toISOString(),
-                        customer: selectedCustomer,
-                        customerSignature: isCreditAuthorizationCurrent ? customerSignature : undefined,
-                        items: cartArray.map(i => ({
-                          id: i.item.id,
-                          quantity: String(i.quantity),
-                          rate: String(i.customRate !== undefined ? i.customRate : Number(i.item.defaultSellingPrice)),
-                          totalAmount: String(i.quantity * (i.customRate !== undefined ? i.customRate : Number(i.item.defaultSellingPrice))),
-                          item: i.item,
-                        })),
-                        notes: notes || null,
-                        payments: paymentType !== "CREDIT" || (amountPaid && Number(amountPaid) > 0) ? [{
-                          paymentMode: paymentType === "CREDIT" ? partialPaymentMode : paymentType,
-                          amount: String(amountPaid === "" ? cartTotal : amountPaid),
-                          receivedAt: new Date().toISOString()
-                        }] : []
-                      },
-                      shop: activeShop,
-                      signatureBase64: isCreditAuthorizationCurrent ? customerSignature : undefined,
+                      sale: invoiceSale,
+                      shop: draftShop,
                     });
                   }}
                   style={styles.halfBtn}
@@ -1244,7 +1243,6 @@ export function RegularSale() {
                 label="START NEW SALE"
                 variant="success"
                 onPress={() => {
-                  setCart({});
                   setSelectedCustomer(null);
                   setCustomerId(null);
                   setCustomerSearch("");
@@ -1258,6 +1256,8 @@ export function RegularSale() {
                   setSignatureKey(prev => prev + 1);
                   setIsGstSale(false);
                   saleMutation.reset();
+                  setCompletedSaleSnapshot(null);
+                  setCompletedSale(null);
                   setCurrentStep(1);
                 }}
                 style={styles.newSaleBtn}
@@ -1385,7 +1385,20 @@ export function RegularSale() {
                 icon={<Icon source="check" size={18} color="white" />}
                 onPress={() => {
                   setCustomerSignature(draftSignature);
-                  setSignatureFingerprint(creditTransactionFingerprint);
+                  const fingerprint = createSaleFingerprint(draft);
+                  setSignatureFingerprint(fingerprint);
+                  dispatch({
+                    type: "AUTHORIZE_CREDIT",
+                    authorization: {
+                      signatureBase64: draftSignature,
+                      customerId: customerId || "",
+                      transactionFingerprint: fingerprint,
+                      totalMinor: totalMinor,
+                      paidMinor: getSettlementPaidMinor(draft.settlement),
+                      creditMinor: getSettlementCreditMinor(draft.settlement),
+                      capturedAt: new Date().toISOString()
+                    }
+                  });
                   setIsSignatureModalVisible(false);
                 }}
                 style={styles.floatingBtnContinue}
@@ -1395,24 +1408,15 @@ export function RegularSale() {
         </View>
       </Modal>
 
-      {!!activeSerialScanItemId && !!cart[activeSerialScanItemId] && (
+      {!!activeSerialScanItemId && !!draft.lines[activeSerialScanItemId] && (
         <SerialNumberScannerModal
           visible={!!activeSerialScanItemId}
-          itemName={cart[activeSerialScanItemId].item.name}
-          quantity={cart[activeSerialScanItemId].quantity}
-          serialNumbers={cart[activeSerialScanItemId].serialNumbers || []}
+          itemName={draft.lines[activeSerialScanItemId].item.name}
+          quantity={draft.lines[activeSerialScanItemId].quantity}
+          serialNumbers={draft.lines[activeSerialScanItemId].serialNumbers || []}
           onDismiss={() => setActiveSerialScanItemId(null)}
           onSave={(serials) => {
-            setCart(prev => {
-              if (!prev[activeSerialScanItemId]) return prev;
-              return {
-                ...prev,
-                [activeSerialScanItemId]: {
-                  ...prev[activeSerialScanItemId],
-                  serialNumbers: serials
-                }
-              };
-            });
+            dispatch({ type: "SET_SERIALS", itemId: activeSerialScanItemId, serialNumbers: serials });
             setActiveSerialScanItemId(null);
           }}
         />

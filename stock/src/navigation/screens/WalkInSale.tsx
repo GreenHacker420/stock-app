@@ -42,9 +42,19 @@ import { shareSaleInvoicePdf, printSaleInvoiceDirect } from "../../utils/pdf";
 import { triggerLightHaptic } from "../../utils/haptics";
 import { itemDisplayName } from "../../utils/items/display";
 import { KeyboardAwareScreen } from "../../components/keyboard/KeyboardAwareScreen";
-import { clampLineQuantity } from "../../features/sales/create/core/sale-calculations";
 import { requireActiveShopId } from "../../hooks/useActiveShop";
 import { QuantityStepper } from "../../features/sales/create/components/QuantityStepper";
+import { useSaleDraft } from "../../features/sales/create/core/useSaleDraft";
+import {
+  adaptItemToSnapshot,
+  fromMinorUnits,
+  toMinorUnits,
+  getSettlementPaidMinor,
+  getSettlementCreditMinor,
+} from "../../features/sales/create/core/sale-calculations";
+import { createSaleFingerprint } from "../../features/sales/create/core/sale-fingerprint";
+import { buildSalePayload } from "../../features/sales/create/core/sale-payload";
+import { adaptSaleToInvoice } from "../../features/sales/create/core/sale-invoice-adapter";
 
 function money(value?: string | number | null) {
   return `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
@@ -215,7 +225,7 @@ const CartItem = memo(({
   serialNumbers,
   onScanPress,
   onUpdateRate,
-  onUpdateQuantity,
+  onAdjustQuantity,
   userRole
 }: { 
   item: Item;
@@ -224,7 +234,7 @@ const CartItem = memo(({
   serialNumbers?: string[];
   onScanPress?: () => void;
   onUpdateRate: (rate: number | undefined) => void;
-  onUpdateQuantity: (qty: number) => void;
+  onAdjustQuantity: (delta: -1 | 1) => void;
   userRole?: string;
 }) => {
   const [showEditModal, setShowEditModal] = useState(false);
@@ -327,7 +337,7 @@ const CartItem = memo(({
           )}
         </View>
 
-        <QuantityStepper compact itemName={item.name} quantity={quantity} maximum={Number(item.availableStock ?? 0)} onIncrement={() => onUpdateQuantity(quantity + 1)} onDecrement={() => onUpdateQuantity(quantity - 1)} />
+        <QuantityStepper compact itemName={item.name} quantity={quantity} maximum={Number(item.availableStock ?? 0)} onIncrement={() => onAdjustQuantity(1)} onDecrement={() => onAdjustQuantity(-1)} />
 
         <View style={styles.cartItemRight}>
           <Text style={styles.cartItemSubtotal}>{money(quantity * currentRate)}</Text>
@@ -446,19 +456,29 @@ export function WalkInSale() {
   const network = useNetworkStatus();
   const shopsQuery = useShopsQuery();
 
-  const selectedShop = useMemo(() => 
-    shopsQuery.data?.find(s => s.id === activeShopId), 
-    [shopsQuery.data, activeShopId]
+  const draftShop = useMemo(() => 
+    shopsQuery.data?.find((s: any) => s.id === draftShopId), 
+    [shopsQuery.data, draftShopId]
   );
 
   const [currentStep, setCurrentStep] = useState<1 | 2 | 3>(1);
   const [search, setSearch] = useState("");
   const [debouncedSearch] = useDebounce(search, 300);
-  const [cart, setCart] = useState<Record<string, { item: Item, quantity: number, customRate?: number, serialNumbers?: string[] }>>({});
+
+  // useSaleDraft Hook Integration
+  const { draft, dispatch, totalMinor, validation, policy } = useSaleDraft({
+    mode: "WALK_IN",
+    shopId: draftShopId,
+  });
+
   const [activeSerialScanItemId, setActiveSerialScanItemId] = useState<string | null>(null);
   
   const [completedSaleNumber, setCompletedSaleNumber] = useState<string | null>(null);
-  const [completedSale, setCompletedSale] = useState<any | null>(null);
+  const [completedSaleSnapshot, setCompletedSaleSnapshot] = useState<{
+    completedSale: any;
+    submittedDraft: any;
+  } | null>(null);
+  
   const [isPrinting, setIsPrinting] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
 
@@ -479,21 +499,100 @@ export function WalkInSale() {
   const [skuScannerVisible, setSkuScannerVisible] = useState(false);
   const [upiConfirmedFingerprint, setUpiConfirmedFingerprint] = useState<string | null>(null);
 
+  // Shop Lock: always fetch items and customers with draftShopId!
   const itemsQuery = useItemsQuery({ search: debouncedSearch, limit: 50, enabled: !network.isOffline });
-  const customersQuery = useCustomersQuery({ enabled: !network.isOffline });
+  
+  const normalizedCustomerSearch = customerSearch.trim();
+  const [debouncedCustomerSearch] = useDebounce(normalizedCustomerSearch, 150);
+
+  const customersQuery = useCustomersQuery({
+    search: debouncedCustomerSearch,
+    limit: debouncedCustomerSearch ? 20 : 50,
+    enabled: !network.isOffline,
+  });
+
   const mergedCustomers = useMemo(() => {
     return customersQuery.data ?? [];
   }, [customersQuery.data]);
+
+  const filteredCustomers = useMemo(() => {
+    if (!normalizedCustomerSearch) return [];
+    return mergedCustomers.filter((c: any) =>
+      c.name.toLowerCase().includes(normalizedCustomerSearch.toLowerCase()) ||
+      (c.phone && c.phone.includes(normalizedCustomerSearch))
+    ).slice(0, 5);
+  }, [mergedCustomers, normalizedCustomerSearch]);
+
+  const isWaitingForCustomerSearch = normalizedCustomerSearch !== debouncedCustomerSearch;
+  const isCustomerSearchPending = isWaitingForCustomerSearch || customersQuery.isFetching;
+  const canOfferCustomerCreation =
+    !isCustomerSearchPending &&
+    normalizedCustomerSearch &&
+    filteredCustomers.length === 0 &&
+    !customersQuery.isError;
+
+  // Sync draftShopId to useSaleDraft reducer
+  useEffect(() => {
+    dispatch({ type: "RESET_DRAFT", shopId: draftShopId });
+  }, [draftShopId]);
+
+  // Sync customer state to draft
+  useEffect(() => {
+    if (customerId && selectedCustomer) {
+      dispatch({
+        type: "SET_CUSTOMER",
+        customer: { kind: "EXISTING", customer: { id: selectedCustomer.id, name: selectedCustomer.name, phone: selectedCustomer.phone, address: selectedCustomer.address, gstin: selectedCustomer.gstin } }
+      });
+    } else if (customerName || customerPhone) {
+      dispatch({
+        type: "SET_CUSTOMER",
+        customer: { kind: "QUICK_WALK_IN", name: customerName || undefined, phone: customerPhone || undefined }
+      });
+    } else {
+      dispatch({
+        type: "SET_CUSTOMER",
+        customer: { kind: "ANONYMOUS" }
+      });
+    }
+  }, [customerId, selectedCustomer, customerName, customerPhone]);
+
+  // Sync notes state to draft
+  useEffect(() => {
+    dispatch({ type: "SET_NOTES", notes });
+  }, [notes]);
+
+  const cartTotal = useMemo(() => fromMinorUnits(totalMinor), [totalMinor]);
+
+  const cartArray = useMemo(() => {
+    return Object.values(draft.lines).map(line => {
+      const hasCustomRate = line.rateMinor !== line.item.defaultRateMinor;
+      return {
+        item: {
+          ...line.item,
+          defaultSellingPrice: fromMinorUnits(line.item.defaultRateMinor),
+          minimumAllowedPrice: fromMinorUnits(line.item.minimumRateMinor),
+        } as any,
+        quantity: line.quantity,
+        customRate: hasCustomRate ? fromMinorUnits(line.rateMinor) : undefined,
+        serialNumbers: line.serialNumbers,
+      };
+    });
+  }, [draft.lines]);
+
+  const cartItemCount = useMemo(() => {
+    return cartArray.reduce((sum, line) => sum + line.quantity, 0);
+  }, [cartArray]);
+
   const displayItems = useMemo(() => {
     const items = !network.isOffline ? itemsQuery.data?.items ?? [] : [];
     return [...items].sort((a, b) => {
-      const aSelected = (cart[a.id]?.quantity ?? 0) > 0;
-      const bSelected = (cart[b.id]?.quantity ?? 0) > 0;
+      const aSelected = (draft.lines[a.id]?.quantity ?? 0) > 0;
+      const bSelected = (draft.lines[b.id]?.quantity ?? 0) > 0;
       if (aSelected && !bSelected) return -1;
       if (!aSelected && bSelected) return 1;
       return 0;
     });
-  }, [itemsQuery.data, network.isOffline, cart]);
+  }, [itemsQuery.data, network.isOffline, draft.lines]);
 
   const customerSummaryText = useMemo(() => {
     if (selectedCustomer) {
@@ -505,37 +604,44 @@ export function WalkInSale() {
     return "Default Walk-In (Anonymous)";
   }, [selectedCustomer, customerName]);
 
-  const filteredCustomers = useMemo(() => {
-    if (!customerSearch) return [];
-    return mergedCustomers.filter((c: any) =>
-      c.name.toLowerCase().includes(customerSearch.toLowerCase()) ||
-      (c.phone && c.phone.includes(customerSearch))
-    ).slice(0, 5);
-  }, [mergedCustomers, customerSearch]);
-
-  const cartArray = useMemo(() => Object.values(cart), [cart]);
-  const cartItemCount = useMemo(() => cartArray.reduce((sum, i) => sum + i.quantity, 0), [cartArray]);
-  const cartTotal = useMemo(() => 
-    cartArray.reduce((sum, i) => sum + (i.quantity * (i.customRate !== undefined ? i.customRate : Number(i.item.defaultSellingPrice))), 0), 
-    [cartArray]
-  );
-  const paymentFingerprint = useMemo(
-    () => JSON.stringify({
-      shopId: draftShopId,
-      total: cartTotal,
-      lines: cartArray.map((line) => [line.item.id, line.quantity, line.customRate ?? line.item.defaultSellingPrice]),
-    }),
-    [cartArray, cartTotal, draftShopId],
-  );
-
   const hasMissingPrice = useMemo(() => {
-    return cartArray.some(i => {
-      const rate = i.customRate !== undefined ? i.customRate : Number(i.item.defaultSellingPrice || 0);
-      return rate <= 0 || isNaN(rate);
-    });
-  }, [cartArray]);
+    return Object.values(draft.lines).some(line => line.rateMinor <= 0);
+  }, [draft.lines]);
 
-  // Settlement Calculations
+  // UPI proposal fingerprint computation for confirm lock
+  const proposedUpiSettlement = useMemo(() => {
+    return { kind: "WALK_IN_UPI" as const, paidMinor: totalMinor, confirmedFingerprint: null };
+  }, [totalMinor]);
+
+  const proposedDraftForUpi = useMemo(() => {
+    return { ...draft, settlement: proposedUpiSettlement };
+  }, [draft, proposedUpiSettlement]);
+
+  const upiProposalFingerprint = useMemo(() => {
+    return createSaleFingerprint(proposedDraftForUpi);
+  }, [proposedDraftForUpi]);
+
+  // Settlement sync to reducer
+  useEffect(() => {
+    if (paymentMode === "UPI") {
+      dispatch({
+        type: "SET_SETTLEMENT",
+        settlement: { kind: "WALK_IN_UPI", paidMinor: totalMinor, confirmedFingerprint: upiConfirmedFingerprint }
+      });
+    } else {
+      const paidMinorVal = toMinorUnits(amountReceived);
+      dispatch({
+        type: "SET_SETTLEMENT",
+        settlement: {
+          kind: "FULL_PAYMENT",
+          mode: "CASH",
+          paidMinor: paidMinorVal,
+          changeMinor: Math.max(0, paidMinorVal - totalMinor)
+        }
+      });
+    }
+  }, [paymentMode, amountReceived, totalMinor, upiConfirmedFingerprint]);
+
   const calculatedChange = useMemo(() => {
     const received = Number(amountReceived);
     if (isNaN(received) || received <= cartTotal) return 0;
@@ -544,44 +650,23 @@ export function WalkInSale() {
 
   const isPaymentValid = useMemo(() => {
     if (paymentMode === "UPI") {
-      return Boolean(selectedShop?.upiId) && upiConfirmedFingerprint === paymentFingerprint;
+      return Boolean(draftShop?.upiId) && upiConfirmedFingerprint === upiProposalFingerprint;
     }
     const received = Number(amountReceived);
     return !isNaN(received) && received >= cartTotal;
-  }, [amountReceived, cartTotal, paymentFingerprint, paymentMode, selectedShop?.upiId, upiConfirmedFingerprint]);
-
-  const updateQuantity = useCallback((item: Item, delta: number) => {
-    setCart(prev => {
-      const current = prev[item.id] || { item, quantity: 0, serialNumbers: [] };
-      const nextQty = clampLineQuantity(current.quantity + delta, Number(item.availableStock ?? 0));
-      
-      const nextCart = { ...prev };
-      if (nextQty === 0) {
-        delete nextCart[item.id];
-      } else {
-        let serials = current.serialNumbers || [];
-        if (serials.length > nextQty) {
-          serials = serials.slice(0, nextQty);
-        }
-        nextCart[item.id] = { ...current, quantity: nextQty, serialNumbers: serials };
-      }
-      return nextCart;
-    });
-  }, []);
+  }, [amountReceived, cartTotal, paymentMode, draftShop?.upiId, upiConfirmedFingerprint, upiProposalFingerprint]);
 
   const handleProductScanned = useCallback(async (sku: string) => {
     try {
-      // 1. Search locally in displayItems
       let found = displayItems.find(i => i.sku === sku);
-
-      // 2. If not found locally, fetch from backend
       if (!found) {
-        const res = await fetchItems(token ?? "", activeShopId ?? "", { search: sku, limit: 1 });
+        // Use draftShopId for scanner fetch lookup!
+        const res = await fetchItems(token ?? "", draftShopId, { search: sku, limit: 1 });
         found = res.items?.find(i => i.sku === sku || i.name === sku);
       }
 
       if (found) {
-        updateQuantity(found, 1);
+        dispatch({ type: "ADD_QUANTITY", item: adaptItemToSnapshot(found), delta: 1 });
         return { success: true, name: found.name };
       } else {
         return { success: false, name: "", msg: "Product not found" };
@@ -589,15 +674,9 @@ export function WalkInSale() {
     } catch (err: any) {
       return { success: false, name: "", msg: err.message || "Failed to lookup product" };
     }
-  }, [displayItems, token, activeShopId, updateQuantity]);
+  }, [displayItems, token, draftShopId]);
 
   const saleMutation = useCreateSaleMutation();
-
-  const isSerialsComplete = useMemo(() => {
-    return cartArray.every(
-      (i) => !i.item.requiresSerialNumber || (i.serialNumbers && i.serialNumbers.length === i.quantity)
-    );
-  }, [cartArray]);
 
   const handleCompleteSale = () => {
     if (saleMutation.isPending) return;
@@ -609,46 +688,23 @@ export function WalkInSale() {
       Alert.alert("Shop Changed", "This sale was started in another shop. Discard it and start a new sale before submitting.");
       return;
     }
-    if (!isPaymentValid) {
-      Alert.alert("Payment Not Confirmed", paymentMode === "UPI" ? "Confirm that the UPI payment was received." : "Enter the full cash amount received.");
+
+    if (!validation.isValid) {
+      const firstErr = Object.values(validation.errors)[0];
+      Alert.alert("Validation Error", firstErr || "Please verify the sale details.");
       return;
     }
 
-    // Validate serial numbers before submitting
-    for (const i of cartArray) {
-      if (i.item.requiresSerialNumber) {
-        if (!i.serialNumbers || i.serialNumbers.length !== i.quantity) {
-          Alert.alert(
-            "Serial Numbers Required",
-            `Please scan all serial numbers for "${i.item.name}" before completing the sale.`
-          );
-          return;
-        }
-      }
-    }
+    const payload = buildSalePayload(draft);
 
-    saleMutation.mutate({
-      items: cartArray.map(i => ({ 
-        itemId: i.item.id, 
-        quantity: i.quantity, 
-        rate: i.customRate !== undefined ? i.customRate : Number(i.item.defaultSellingPrice),
-        serialNumbers: i.serialNumbers || [],
-      })),
-      isWalkin: !customerId,
-      customerId: customerId || undefined,
-      customerInfo: !customerId && (customerName || customerPhone) ? {
-        name: customerName || undefined,
-        phone: customerPhone || undefined,
-      } : undefined,
-      payments: [{
-        paymentMode: paymentMode,
-        amount: cartTotal
-      }],
-      notes: notes || undefined,
-    }, {
+    saleMutation.mutate(payload, {
       onSuccess: (res: any) => {
-        setCompletedSale(res);
+        setCompletedSaleSnapshot({
+          completedSale: res,
+          submittedDraft: { ...draft },
+        });
         setCompletedSaleNumber(res?.saleNumber || "N/A");
+        dispatch({ type: "RESET_DRAFT", shopId: requireActiveShopId(activeShopId) });
         setCurrentStep(3);
       },
       onError: (error: any) => {
@@ -660,6 +716,36 @@ export function WalkInSale() {
       }
     });
   };
+
+  const invoiceSale = useMemo(() => {
+    if (!completedSaleSnapshot) return null;
+    return adaptSaleToInvoice(completedSaleSnapshot.submittedDraft, completedSaleSnapshot.completedSale);
+  }, [completedSaleSnapshot]);
+
+  const receiptCustomerName = useMemo(() => {
+    if (!completedSaleSnapshot) return "Walk-in Customer";
+    const draftCust = completedSaleSnapshot.submittedDraft.customer;
+    if (draftCust.kind === "EXISTING") return draftCust.customer.name;
+    if (draftCust.kind === "QUICK_WALK_IN") return draftCust.name || "Walk-in Customer";
+    return "Walk-in Customer";
+  }, [completedSaleSnapshot]);
+
+  const receiptCustomerPhone = useMemo(() => {
+    if (!completedSaleSnapshot) return null;
+    const draftCust = completedSaleSnapshot.submittedDraft.customer;
+    if (draftCust.kind === "EXISTING") return draftCust.customer.phone;
+    if (draftCust.kind === "QUICK_WALK_IN") return draftCust.phone || null;
+    return null;
+  }, [completedSaleSnapshot]);
+
+  const receiptPaymentMode = useMemo(() => {
+    if (!completedSaleSnapshot) return "CASH";
+    const draftSettlement = completedSaleSnapshot.submittedDraft.settlement;
+    if (draftSettlement.kind === "WALK_IN_UPI") return "UPI";
+    return "CASH";
+  }, [completedSaleSnapshot]);
+
+  const isSerialsComplete = useMemo(() => !validation.errors.serialNumbers, [validation.errors.serialNumbers]);
 
   const handleHeaderBack = () => {
     if (currentStep === 2) {
@@ -864,27 +950,14 @@ export function WalkInSale() {
                         serialNumbers={serialNumbers}
                         onScanPress={() => setActiveSerialScanItemId(item.id)}
                         onUpdateRate={(rate) => {
-                          setCart(prev => {
-                            if (!prev[item.id]) return prev;
-                            return {
-                              ...prev,
-                              [item.id]: {
-                                ...prev[item.id],
-                                customRate: rate
-                              }
-                            };
+                          dispatch({
+                            type: "SET_RATE",
+                            itemId: item.id,
+                            rateMinor: rate !== undefined ? toMinorUnits(rate) : toMinorUnits(item.defaultSellingPrice)
                           });
                         }}
-                        onUpdateQuantity={(qty) => {
-                          if (qty <= 0) {
-                            setCart(prev => {
-                              const next = { ...prev };
-                              delete next[item.id];
-                              return next;
-                            });
-                          } else {
-                            updateQuantity(item, qty - (cart[item.id]?.quantity ?? 0));
-                          }
+                        onAdjustQuantity={(delta) => {
+                          dispatch({ type: "ADD_QUANTITY", item: adaptItemToSnapshot(item), delta });
                         }}
                         userRole={user?.role}
                       />
@@ -919,11 +992,15 @@ export function WalkInSale() {
                     renderItem={({ item }: { item: Item }) => (
                       <SaleItemCard 
                         item={item} 
-                        quantity={cart[item.id]?.quantity ?? 0}
-                        serialNumbers={cart[item.id]?.serialNumbers}
+                        quantity={draft.lines[item.id]?.quantity ?? 0}
+                        serialNumbers={draft.lines[item.id]?.serialNumbers}
                         onScanPress={() => setActiveSerialScanItemId(item.id)}
-                        onAdd={() => updateQuantity(item, 1)}
-                        onRemove={() => updateQuantity(item, -1)}
+                        onAdd={() => {
+                          dispatch({ type: "ADD_QUANTITY", item: adaptItemToSnapshot(item), delta: 1 });
+                        }}
+                        onRemove={() => {
+                          dispatch({ type: "ADD_QUANTITY", item: adaptItemToSnapshot(item), delta: -1 });
+                        }}
                       />
                     )}
                     ListEmptyComponent={
@@ -1059,27 +1136,27 @@ export function WalkInSale() {
                   </View>
                 ) : (
                   <>
-                    {selectedShop?.upiId ? (
+                    {draftShop?.upiId ? (
                       <View style={{ width: "100%", alignItems: "center", gap: spacing.md }}>
                         <DynamicUpiQr
-                          upiId={selectedShop.upiId}
-                          upiName={selectedShop.upiName || selectedShop.name}
+                          upiId={draftShop.upiId}
+                          upiName={draftShop.upiName || draftShop.name}
                           amount={cartTotal}
                           transactionNote="Walk-In Sale"
                           size={180}
                         />
                         <Pressable
-                          onPress={() => setUpiConfirmedFingerprint(paymentFingerprint)}
-                          style={[styles.calcInfoBox, upiConfirmedFingerprint === paymentFingerprint ? styles.calcInfoBoxSuccess : styles.calcInfoBoxError]}
+                          onPress={() => setUpiConfirmedFingerprint(upiProposalFingerprint)}
+                          style={[styles.calcInfoBox, upiConfirmedFingerprint === upiProposalFingerprint ? styles.calcInfoBoxSuccess : styles.calcInfoBoxError]}
                           accessibilityRole="checkbox"
-                          accessibilityState={{ checked: upiConfirmedFingerprint === paymentFingerprint }}
+                          accessibilityState={{ checked: upiConfirmedFingerprint === upiProposalFingerprint }}
                         >
                           <Icon
-                            source={upiConfirmedFingerprint === paymentFingerprint ? "checkbox-marked-circle" : "checkbox-blank-circle-outline"}
+                            source={upiConfirmedFingerprint === upiProposalFingerprint ? "checkbox-marked-circle" : "checkbox-blank-circle-outline"}
                             size={20}
-                            color={upiConfirmedFingerprint === paymentFingerprint ? colors.success : colors.danger}
+                            color={upiConfirmedFingerprint === upiProposalFingerprint ? colors.success : colors.danger}
                           />
-                          <Text style={upiConfirmedFingerprint === paymentFingerprint ? styles.calcSuccessText : styles.calcErrorText}>
+                          <Text style={upiConfirmedFingerprint === upiProposalFingerprint ? styles.calcSuccessText : styles.calcErrorText}>
                             I confirm {money(cartTotal)} was received by UPI
                           </Text>
                         </Pressable>
@@ -1114,7 +1191,7 @@ export function WalkInSale() {
             </View>
           )}
 
-          {currentStep === 3 && (
+          {currentStep === 3 && invoiceSale && (
             <View style={styles.successContainer}>
               <View style={styles.successIconWrapper}>
                 <View style={styles.successPulseCircle}>
@@ -1123,16 +1200,16 @@ export function WalkInSale() {
               </View>
               <Text style={styles.successTitle}>Sale Completed!</Text>
               <Text style={styles.successSubtitle}>
-                {`Recorded walk-in sale of ${money(cartTotal)} successfully.`}
+                {`Recorded walk-in sale of ${money(invoiceSale.totalAmount)} successfully.`}
               </Text>
               
               {/* Receipt / Invoice Mock */}
               <View style={styles.receiptCard}>
                 <View style={styles.receiptHeader}>
-                  <Text style={styles.receiptShopName}>{selectedShop?.name ?? "Vardaman Sales"}</Text>
+                  <Text style={styles.receiptShopName}>{draftShop?.name ?? "Vardaman Sales"}</Text>
                   <Text style={styles.receiptMetaSub}>WALK-IN RECEIPT</Text>
                   <Text style={styles.receiptMetaDate}>
-                    {new Date().toLocaleDateString("en-IN", {
+                    {new Date(invoiceSale.createdAt || new Date()).toLocaleDateString("en-IN", {
                       day: "numeric",
                       month: "short",
                       year: "numeric",
@@ -1147,15 +1224,15 @@ export function WalkInSale() {
                 {/* Items List */}
                 <View style={styles.receiptSection}>
                   <Text style={styles.receiptSectionTitle}>ITEMS</Text>
-                  {cartArray.map(({ item, quantity, customRate }) => (
-                    <View key={item.id} style={styles.receiptItemRow}>
+                  {invoiceSale.items.map((line: any) => (
+                    <View key={line.item.id} style={styles.receiptItemRow}>
                       <View style={{ flex: 1, marginRight: spacing.sm }}>
-                        <Text style={styles.receiptItemName}>{itemDisplayName(item)}</Text>
+                        <Text style={styles.receiptItemName}>{itemDisplayName(line.item)}</Text>
                         <Text style={styles.receiptItemSubText}>
-                          {quantity} {item.unit} x {money(customRate ?? item.defaultSellingPrice)}
+                          {line.quantity} {line.item.unit} x {money(line.rate)}
                         </Text>
                       </View>
-                      <Text style={styles.receiptItemSubtotal}>{money(quantity * Number(customRate ?? item.defaultSellingPrice))}</Text>
+                      <Text style={styles.receiptItemSubtotal}>{money(line.totalAmount)}</Text>
                     </View>
                   ))}
                 </View>
@@ -1164,16 +1241,16 @@ export function WalkInSale() {
 
                 {/* Transaction Details */}
                 <View style={styles.receiptSection}>
-                  <InfoRow label="Sale Number" value={completedSaleNumber || "N/A"} />
-                  <InfoRow label="Customer" value={customerId ? selectedCustomer?.name : (customerName || "Walk-in Customer")} />
-                  {customerPhone ? (
-                    <InfoRow label="Mobile" value={customerPhone} />
+                  <InfoRow label="Sale Number" value={invoiceSale.saleNumber} />
+                  <InfoRow label="Customer" value={receiptCustomerName} />
+                  {receiptCustomerPhone ? (
+                    <InfoRow label="Mobile" value={receiptCustomerPhone} />
                   ) : null}
-                  <InfoRow label="Payment Mode" value={paymentMode} />
-                  {notes ? (
+                  <InfoRow label="Payment Mode" value={receiptPaymentMode} />
+                  {invoiceSale.notes ? (
                     <View style={styles.receiptDetailRowCol}>
                       <Text style={styles.receiptDetailLabel}>Notes</Text>
-                      <Text style={styles.receiptDetailValNotes}>{notes}</Text>
+                      <Text style={styles.receiptDetailValNotes}>{invoiceSale.notes}</Text>
                     </View>
                   ) : null}
                 </View>
@@ -1184,49 +1261,29 @@ export function WalkInSale() {
                 <View style={styles.receiptSection}>
                   <View style={[styles.receiptBreakdownRow, styles.receiptTotalRow]}>
                     <Text style={styles.receiptTotalLabel}>Total Amount</Text>
-                    <Text style={styles.receiptTotalVal}>{money(cartTotal)}</Text>
+                    <Text style={styles.receiptTotalVal}>{money(invoiceSale.totalAmount)}</Text>
                   </View>
-                  {paymentMode === "CASH" && amountReceived ? (
-                    <>
-                      <InfoRow label="Amount Received" value={money(amountReceived)} />
-                      <InfoRow label="Change Returned" value={money(calculatedChange)} tone="green" />
-                    </>
-                  ) : null}
-                </View>
-
-                {/* Receipt Footer */}
-                <View style={styles.receiptFooter}>
-                  <Text style={styles.receiptThankYou}>Thank you for your business!</Text>
-                  <Text style={styles.receiptPowered}>Powered by ShopControl</Text>
                 </View>
               </View>
-              
+
+              {/* Action Buttons */}
               <View style={styles.successActionsContainer}>
                 <Button
-                  label="START NEW WALK-IN"
-                  variant="success"
+                  label="Start New Walk-In"
+                  variant="primary"
+                  icon="plus"
                   onPress={() => {
-                    setCart({});
-                    setSelectedCustomer(null);
+                    setCurrentStep(1);
                     setCustomerId(null);
-                    setCustomerSearch("");
+                    setSelectedCustomer(null);
                     setCustomerName("");
                     setCustomerPhone("");
                     setPaymentMode("CASH");
                     setAmountReceived("");
                     setNotes("");
-                    setCompletedSale(null);
-                    setCompletedSaleNumber(null);
-                    setSearch("");
-                    setCustomerDetailsExpanded(false);
-                    setActiveSerialScanItemId(null);
-                    setSkuScannerVisible(false);
-                    setIsPrinting(false);
-                    setIsSharing(false);
                     setUpiConfirmedFingerprint(null);
-                    setDraftShopId(requireActiveShopId(activeShopId));
-                    saleMutation.reset();
-                    setCurrentStep(1);
+                    setCompletedSaleSnapshot(null);
+                    setCompletedSaleNumber(null);
                   }}
                   style={styles.newSaleBtn}
                 />
@@ -1237,28 +1294,7 @@ export function WalkInSale() {
                     variant="ghost"
                     icon="eye-outline"
                     onPress={() => {
-                      const finalSale = completedSale || {
-                        saleNumber: completedSaleNumber || "N/A",
-                        totalAmount: String(cartTotal),
-                        paidAmount: String(cartTotal),
-                        balanceAmount: "0",
-                        isWalkin: !customerId,
-                        createdAt: new Date().toISOString(),
-                        items: cartArray.map(i => ({
-                          id: i.item.id,
-                          quantity: String(i.quantity),
-                          rate: String(i.customRate !== undefined ? i.customRate : i.item.defaultSellingPrice),
-                          totalAmount: String(i.quantity * (i.customRate !== undefined ? i.customRate : Number(i.item.defaultSellingPrice))),
-                          item: i.item,
-                        })),
-                        notes: notes || null,
-                        payments: [{
-                          paymentMode: paymentMode,
-                          amount: String(cartTotal),
-                          receivedAt: new Date().toISOString()
-                        }]
-                      };
-                      navigation.navigate("InvoiceViewer", { sale: finalSale, shop: selectedShop });
+                      navigation.navigate("InvoiceViewer", { sale: invoiceSale, shop: draftShop });
                     }}
                     style={styles.receiptActionBtn}
                   />
@@ -1272,28 +1308,8 @@ export function WalkInSale() {
                       setIsPrinting(true);
                       try {
                         await printSaleInvoiceDirect({
-                          sale: completedSale || {
-                            saleNumber: completedSaleNumber || "N/A",
-                            totalAmount: String(cartTotal),
-                            paidAmount: String(cartTotal),
-                            balanceAmount: "0",
-                            isWalkin: !customerId,
-                            createdAt: new Date().toISOString(),
-                            items: cartArray.map(i => ({
-                              id: i.item.id,
-                              quantity: String(i.quantity),
-                              rate: String(i.customRate !== undefined ? i.customRate : i.item.defaultSellingPrice),
-                              totalAmount: String(i.quantity * (i.customRate !== undefined ? i.customRate : Number(i.item.defaultSellingPrice))),
-                              item: i.item,
-                            })),
-                            notes: notes || null,
-                            payments: [{
-                              paymentMode: paymentMode,
-                              amount: String(cartTotal),
-                              receivedAt: new Date().toISOString()
-                            }]
-                          },
-                          shop: selectedShop,
+                          sale: invoiceSale,
+                          shop: draftShop,
                         });
                       } finally {
                         setIsPrinting(false);
@@ -1311,28 +1327,8 @@ export function WalkInSale() {
                       setIsSharing(true);
                       try {
                         await shareSaleInvoicePdf({
-                          sale: completedSale || {
-                            saleNumber: completedSaleNumber || "N/A",
-                            totalAmount: String(cartTotal),
-                            paidAmount: String(cartTotal),
-                            balanceAmount: "0",
-                            isWalkin: !customerId,
-                            createdAt: new Date().toISOString(),
-                            items: cartArray.map(i => ({
-                              id: i.item.id,
-                              quantity: String(i.quantity),
-                              rate: String(i.customRate !== undefined ? i.customRate : i.item.defaultSellingPrice),
-                              totalAmount: String(i.quantity * (i.customRate !== undefined ? i.customRate : Number(i.item.defaultSellingPrice))),
-                              item: i.item,
-                            })),
-                            notes: notes || null,
-                            payments: [{
-                              paymentMode: paymentMode,
-                              amount: String(cartTotal),
-                              receivedAt: new Date().toISOString()
-                            }]
-                          },
-                          shop: selectedShop,
+                          sale: invoiceSale,
+                          shop: draftShop,
                         });
                       } finally {
                         setIsSharing(false);
@@ -1376,7 +1372,7 @@ export function WalkInSale() {
                 * Some items require serial scans
               </Text>
             )}
-            {hasMissingPrice && !isSerialsComplete && (
+            {hasMissingPrice && (
               <Text style={{ color: colors.danger, fontSize: 11, alignSelf: "flex-end", fontWeight: "bold" }}>
                 * Some items have missing prices (swipe to set)
               </Text>
@@ -1397,30 +1393,21 @@ export function WalkInSale() {
               variant="success"
               onPress={handleCompleteSale} 
               loading={saleMutation.isPending}
-              disabled={!isPaymentValid || !isSerialsComplete}
+              disabled={!isPaymentValid}
               style={{ flex: 1.8 }}
             />
           </View>
         )}
       </View>
-      {!!activeSerialScanItemId && !!cart[activeSerialScanItemId] && (
+      {!!activeSerialScanItemId && !!draft.lines[activeSerialScanItemId] && (
         <SerialNumberScannerModal
           visible={!!activeSerialScanItemId}
-          itemName={cart[activeSerialScanItemId].item.name}
-          quantity={cart[activeSerialScanItemId].quantity}
-          serialNumbers={cart[activeSerialScanItemId].serialNumbers || []}
+          itemName={draft.lines[activeSerialScanItemId].item.name}
+          quantity={draft.lines[activeSerialScanItemId].quantity}
+          serialNumbers={draft.lines[activeSerialScanItemId].serialNumbers || []}
           onDismiss={() => setActiveSerialScanItemId(null)}
           onSave={(serials) => {
-            setCart(prev => {
-              if (!prev[activeSerialScanItemId]) return prev;
-              return {
-                ...prev,
-                [activeSerialScanItemId]: {
-                  ...prev[activeSerialScanItemId],
-                  serialNumbers: serials
-                }
-              };
-            });
+            dispatch({ type: "SET_SERIALS", itemId: activeSerialScanItemId, serialNumbers: serials });
             setActiveSerialScanItemId(null);
           }}
         />
