@@ -6,7 +6,7 @@
     "orientation": "default",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
-    "scheme": "Shop Control",
+    "scheme": "shopcontrol",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.shopcontrol"
