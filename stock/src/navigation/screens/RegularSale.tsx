@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
 
-import { Item, fetchItems } from "../../api/client";
+import { Customer, Item, fetchItems } from "../../api/client";
 import { useItemsQuery } from "../../hooks/useItems";
 import { useCustomersQuery } from "../../hooks/useCustomers";
 import { useAuthStore } from "../../auth/auth-store";
@@ -313,6 +313,15 @@ const SwipeableCartItem = memo(({
               )}
             </Pressable>
           )}
+          <Pressable
+            onPress={() => setShowEditModal(true)}
+            style={styles.priceEditTrigger}
+            accessibilityRole="button"
+            accessibilityLabel={`Edit price for ${item.name}`}
+          >
+            <Icon source="pencil-outline" size={14} color={colors.primary} />
+            <Text style={styles.priceEditTriggerText}>Edit price</Text>
+          </Pressable>
         </View>
 
         <View style={styles.counterRow}>
@@ -368,7 +377,7 @@ const SwipeableCartItem = memo(({
               </View>
               <View style={styles.pricingGridCell}>
                 <Text style={styles.pricingGridLabel}>Min Price</Text>
-                <Text style={styles.pricingGridValue}>{item.minimumAllowedPrice ? money(item.minimumAllowedPrice) : money(item.defaultSellingPrice)}</Text>
+                <Text style={styles.pricingGridValue}>{item.minimumAllowedPrice != null ? money(item.minimumAllowedPrice) : money(item.defaultSellingPrice)}</Text>
               </View>
             </View>
 
@@ -387,7 +396,7 @@ const SwipeableCartItem = memo(({
                   setRateError(null);
                 }
               }}
-              keyboardType="numeric"
+              keyboardType="decimal-pad"
               style={styles.modalInput}
               outlineStyle={styles.inputOutline}
               left={<TextInput.Affix text="₹ " />}
@@ -467,9 +476,11 @@ export function RegularSale() {
   const bottomPadding = insets.bottom > 0 ? insets.bottom + 12 : spacing.lg;
 
   const [customerId, setCustomerId] = useState<string | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [customerSearch, setCustomerSearch] = useState("");
   const [itemSearch, setItemSearch] = useState("");
-  const [debouncedCustomerSearch] = useDebounce(customerSearch, 300);
+  const normalizedCustomerSearch = customerSearch.trim();
+  const [debouncedCustomerSearch] = useDebounce(normalizedCustomerSearch, 150);
   const [debouncedItemSearch] = useDebounce(itemSearch, 300);
 
   const [cart, setCart] = useState<Record<string, { item: Item, quantity: number, customRate?: number, serialNumbers?: string[] }>>({});
@@ -507,15 +518,17 @@ export function RegularSale() {
     });
   }, [itemsQuery.data, network.isOffline, cart]);
 
-  const selectedCustomer = useMemo(() => 
-    mergedCustomers.find((c: any) => c.id === customerId),
-    [mergedCustomers, customerId]
-  );
-
   const filteredCustomers = useMemo(() => {
-    if (!customerSearch) return [];
+    if (!normalizedCustomerSearch || normalizedCustomerSearch !== debouncedCustomerSearch) return [];
     return mergedCustomers.slice(0, 5);
-  }, [mergedCustomers, customerSearch]);
+  }, [debouncedCustomerSearch, mergedCustomers, normalizedCustomerSearch]);
+  const isWaitingForCustomerSearch = normalizedCustomerSearch !== debouncedCustomerSearch;
+  const isCustomerSearchPending = isWaitingForCustomerSearch || customersQuery.isFetching;
+  const canOfferCustomerCreation =
+    normalizedCustomerSearch.length > 0 &&
+    !isCustomerSearchPending &&
+    !customersQuery.isError &&
+    filteredCustomers.length === 0;
 
   const cartArray = useMemo(() => Object.values(cart), [cart]);
   const cartItemCount = useMemo(() => cartArray.reduce((sum, i) => sum + i.quantity, 0), [cartArray]);
@@ -537,13 +550,24 @@ export function RegularSale() {
     }
   }, [cartItemCount, currentStep]);
 
-  const balance = cartTotal - (Number(amountPaid) || (paymentType === "CREDIT" ? 0 : cartTotal));
+  const parsedAmountPaid = Number(amountPaid);
+  const isAmountPaidValid =
+    amountPaid.trim() === "" || (Number.isFinite(parsedAmountPaid) && parsedAmountPaid >= 0);
+  const effectivePaidAmount = !isAmountPaidValid
+    ? null
+    : amountPaid.trim() === ""
+      ? paymentType === "CREDIT" ? 0 : cartTotal
+      : parsedAmountPaid;
+  const balance = effectivePaidAmount === null
+    ? cartTotal
+    : Math.max(0, cartTotal - effectivePaidAmount);
   const isCredit = paymentType === "CREDIT" || balance > 0.01;
 
   const updateQuantity = useCallback((item: Item, delta: number) => {
     setCart(prev => {
       const current = prev[item.id] || { item, quantity: 0, serialNumbers: [] };
-      const nextQty = Math.max(0, current.quantity + delta);
+      const availableStock = Math.max(0, Number(item.availableStock ?? 0));
+      const nextQty = Math.min(availableStock, Math.max(0, current.quantity + delta));
       
       const nextCart = { ...prev };
       if (nextQty === 0) {
@@ -584,9 +608,14 @@ export function RegularSale() {
   const saleMutation = useCreateSaleMutation();
 
   const handleCompleteSale = () => {
+    if (saleMutation.isPending) return;
     if (!activeShopId) return;
     if (network.isOffline) {
       Alert.alert("Internet required", internetRequiredMessage);
+      return;
+    }
+    if (!isAmountPaidValid || effectivePaidAmount === null) {
+      Alert.alert("Invalid Payment", "Enter a valid non-negative amount received.");
       return;
     }
 
@@ -656,7 +685,7 @@ export function RegularSale() {
     );
   }, [cartArray]);
 
-  const isFormValid = customerId && cartArray.length > 0 && (!isCredit || !!customerSignature) && isSerialsComplete;
+  const isFormValid = Boolean(customerId) && cartArray.length > 0 && !hasMissingPrice && isAmountPaidValid && effectivePaidAmount !== null && (!isCredit || !!customerSignature) && isSerialsComplete;
 
   const FlashListAny = FlashList as any;
 
@@ -750,26 +779,44 @@ export function RegularSale() {
                       </Pressable>
                     </View>
 
-                    {customerSearch && filteredCustomers.length === 0 ? (
+                    {isCustomerSearchPending && normalizedCustomerSearch ? (
+                      <View style={styles.addNewCustomerRow}>
+                        <Icon source="magnify" size={20} color={colors.textMuted} />
+                        <Text style={styles.addNewCustomerText}>Searching customers…</Text>
+                      </View>
+                    ) : null}
+
+                    {customersQuery.isError && normalizedCustomerSearch && !isWaitingForCustomerSearch ? (
+                      <Pressable onPress={() => customersQuery.refetch()} style={styles.addNewCustomerRow}>
+                        <Icon source="alert-circle-outline" size={20} color={colors.danger} />
+                        <Text style={styles.addNewCustomerText}>Customer search failed. Tap to retry.</Text>
+                      </Pressable>
+                    ) : null}
+
+                    {canOfferCustomerCreation ? (
                       <Pressable 
-                        onPress={network.isOffline ? () => Alert.alert("Internet required", internetRequiredMessage) : () => navigate("AddEditCustomer", { customer: { name: customerSearch } })}
+                        onPress={network.isOffline ? () => Alert.alert("Internet required", internetRequiredMessage) : () => navigate("AddEditCustomer", { customer: { name: normalizedCustomerSearch } })}
                         style={styles.addNewCustomerRow}
                       >
                         <Icon source="account-plus-outline" size={20} color={colors.primary} />
                         <Text style={styles.addNewCustomerText}>
-                          No matches. Create "{customerSearch}"?
+                          No matches. Create "{normalizedCustomerSearch}"?
                         </Text>
                       </Pressable>
                     ) : null}
 
-                    {customerSearch && filteredCustomers.length > 0 ? (
+                    {!isCustomerSearchPending && normalizedCustomerSearch && filteredCustomers.length > 0 ? (
                       <View style={styles.searchDropdown}>
                         {filteredCustomers.map(c => (
                           <List.Item
                             key={c.id}
                             title={c.name}
                             description={c.phone || "No phone"}
-                            onPress={() => { setCustomerId(c.id); setCustomerSearch(""); }}
+                            onPress={() => {
+                              setSelectedCustomer(c);
+                              setCustomerId(c.id);
+                              setCustomerSearch("");
+                            }}
                             right={props => <List.Icon {...props} icon="account-check-outline" color={colors.primary} />}
                           />
                         ))}
@@ -786,7 +833,13 @@ export function RegularSale() {
                         <Text style={styles.customerName}>{selectedCustomer.name}</Text>
                         <Text style={styles.customerDetails}>{selectedCustomer.phone || "No phone"}</Text>
                       </View>
-                      <Pressable onPress={() => setCustomerId(null)} style={styles.changeCustomerBtn}>
+                      <Pressable
+                        onPress={() => {
+                          setSelectedCustomer(null);
+                          setCustomerId(null);
+                        }}
+                        style={styles.changeCustomerBtn}
+                      >
                          <Text style={styles.changeCustomerText}>CHANGE</Text>
                       </Pressable>
                     </View>
@@ -883,20 +936,22 @@ export function RegularSale() {
                       onUpdateQuantity={(qty) => {
                         setCart(prev => {
                           if (!prev[item.id]) return prev;
-                          if (qty === 0) {
+                          const availableStock = Math.max(0, Number(item.availableStock ?? 0));
+                          const safeQuantity = Math.min(availableStock, Math.max(0, qty));
+                          if (safeQuantity === 0) {
                             const next = { ...prev };
                             delete next[item.id];
                             return next;
                           }
                           let serials = prev[item.id].serialNumbers || [];
-                          if (serials.length > qty) {
-                            serials = serials.slice(0, qty);
+                          if (serials.length > safeQuantity) {
+                            serials = serials.slice(0, safeQuantity);
                           }
                           return {
                             ...prev,
                             [item.id]: {
                               ...prev[item.id],
-                              quantity: qty,
+                              quantity: safeQuantity,
                               serialNumbers: serials
                             }
                           };
@@ -1017,15 +1072,14 @@ export function RegularSale() {
                 </View>
               </Section>
 
-              {paymentType !== "CREDIT" && (
-                <Section title="Amount Received">
+              <Section title={paymentType === "CREDIT" ? "Upfront Payment (Optional)" : "Amount Received"}>
                   <View style={styles.formCard}>
                     <TextInput
                       mode="outlined"
-                      label="Amount Paid"
+                      label={paymentType === "CREDIT" ? "Amount Received Now" : "Amount Paid"}
                       value={amountPaid}
                       onChangeText={setAmountPaid}
-                      keyboardType="numeric"
+                      keyboardType="decimal-pad"
                       style={styles.input}
                       outlineStyle={styles.inputOutline}
                       left={<TextInput.Affix text="₹ " />}
@@ -1049,7 +1103,6 @@ export function RegularSale() {
                     </View>
                   </View>
                 </Section>
-              )}
 
               {paymentType === "CREDIT" && Number(amountPaid) > 0 && (
                  <Section title="Partial Payment Details">
@@ -1211,7 +1264,10 @@ export function RegularSale() {
                 variant="success"
                 onPress={() => {
                   setCart({});
+                  setSelectedCustomer(null);
                   setCustomerId(null);
+                  setCustomerSearch("");
+                  setItemSearch("");
                   setAmountPaid("");
                   setNotes("");
                   setCustomerSignature(undefined);
@@ -1238,23 +1294,14 @@ export function RegularSale() {
               <Button 
                 label="Proceed to Checkout →" 
                 variant="success"
-                onPress={() => {
-                  if (hasMissingPrice) {
-                    Alert.alert("Invalid Price", "One or more items in the cart do not have a price set. Please swipe right on the item in the Cart list to edit the price.");
-                    return;
-                  }
-                  setCurrentStep(2);
-                }} 
-                disabled={!customerId || cartItemCount === 0 || !isSerialsComplete}
+                onPress={() => setCurrentStep(2)}
+                disabled={!customerId || cartItemCount === 0}
               />
               {!customerId && cartItemCount > 0 && (
                 <Text style={styles.helperWarning}>* Select a customer above to proceed</Text>
               )}
-              {!isSerialsComplete && cartItemCount > 0 && customerId && (
-                <Text style={styles.helperWarning}>* Some items require serial scans</Text>
-              )}
-              {hasMissingPrice && cartItemCount > 0 && customerId && isSerialsComplete && (
-                <Text style={styles.helperWarning}>* Some items have missing prices (swipe to set)</Text>
+              {(hasMissingPrice || !isSerialsComplete) && cartItemCount > 0 && customerId && (
+                <Text style={styles.helperWarning}>* Prices and serial numbers can be completed in Review</Text>
               )}
             </View>
           </View>
@@ -1268,13 +1315,19 @@ export function RegularSale() {
               onPress={() => setCurrentStep(1)} 
               style={{ flex: 1 }}
             />
-            <Button 
-              label={`Payment (${money(cartTotal)}) →`} 
-              variant="success"
-              onPress={() => setCurrentStep(3)} 
-              disabled={!isSerialsComplete}
-              style={{ flex: 1.5 }}
-            />
+            <View style={{ flex: 1.5, gap: 4 }}>
+              <Button
+                label={`Payment (${money(cartTotal)}) →`}
+                variant="success"
+                onPress={() => setCurrentStep(3)}
+                disabled={!isSerialsComplete || hasMissingPrice}
+              />
+              {!isSerialsComplete ? (
+                <Text style={styles.helperWarning}>* Scan all required serial numbers before payment</Text>
+              ) : hasMissingPrice ? (
+                <Text style={styles.helperWarning}>* Set a valid price for every item before payment</Text>
+              ) : null}
+            </View>
           </View>
         )}
 
@@ -1993,6 +2046,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: spacing.xs,
     gap: spacing.xs,
+  },
+  priceEditTriggerText: {
+    fontSize: fontSize.xs,
+    color: colors.primary,
+    fontWeight: fontWeight.bold,
   },
   customPriceLabel: {
     fontSize: fontSize.xs,
