@@ -22,7 +22,9 @@ export type ItemSnapshot = {
   availableStock: number;
   defaultRateMinor: number;
   minimumRateMinor: number;
+  mrpMinor?: number;
   requiresSerialNumber: boolean;
+  brandName?: string | null;
 };
 
 export type SaleLine = {
@@ -37,7 +39,24 @@ export type SettlementDraft =
   | { kind: "FULL_PAYMENT"; mode: PaymentMode; paidMinor: number; changeMinor: number }
   | { kind: "PARTIAL_CREDIT"; upfrontMode: PaymentMode; paidMinor: number; creditMinor: number }
   | { kind: "FULL_CREDIT"; paidMinor: 0; creditMinor: number }
-  | { kind: "WALK_IN_UPI"; paidMinor: number; confirmedFingerprint: string | null };
+  | {
+      kind: "WALK_IN_UPI";
+      paidMinor: number;
+      upiId: string;
+      confirmedFingerprint: string | null;
+    };
+
+
+export type SettlementResult =
+  | { ok: true; settlement: SettlementDraft }
+  | {
+      ok: false;
+      error:
+        | "INVALID_TOTAL"
+        | "INVALID_PAYMENT"
+        | "INSUFFICIENT_PAYMENT"
+        | "CREDIT_PAYMENT_EXCEEDS_TOTAL";
+    };
 
 export type CreditAuthorization = {
   signatureBase64: string;
@@ -98,4 +117,3 @@ export const walkInSalePolicy: SalePolicy = {
   showDynamicUpiQr: true,
   allowPrint: true,
 };
-

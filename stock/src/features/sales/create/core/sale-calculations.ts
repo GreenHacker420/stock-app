@@ -1,66 +1,169 @@
-import type { SaleDraft, SaleLine, SettlementDraft } from "./sale.types";
+import type { ItemSnapshot, SaleDraft, SaleLine, SettlementDraft, SettlementResult } from "./sale.types";
 
-export const toMinorUnits = (value: number | string | null | undefined) => {
-  const parsed = typeof value === "string" ? Number(value.trim()) : Number(value ?? 0);
-  return Number.isFinite(parsed) ? Math.round(parsed * 100) : 0;
-};
+// ── Strict money parsing ──────────────────────────────────────────────────────
+
+export function parseMoneyToMinor(
+  input: string | number | null | undefined,
+): number | null {
+  const text =
+    typeof input === "number"
+      ? String(input)
+      : (input?.trim() ?? "");
+
+  // Allow "0", "100", "99.99", "0.5" — reject blank, "1e3", "1.234", "-1"
+  if (!/^\d+(?:\.\d{0,2})?$/.test(text)) return null;
+
+  const [wholePart, decimalPart = ""] = text.split(".");
+  const whole = Number(wholePart);
+  const paise = Number(decimalPart.padEnd(2, "0"));
+
+  if (!Number.isSafeInteger(whole) || !Number.isSafeInteger(paise)) return null;
+
+  const minor = whole * 100 + paise;
+  return Number.isSafeInteger(minor) ? minor : null;
+}
+
+export const moneyToMinorOrZero = (
+  input: string | number | null | undefined,
+): number => parseMoneyToMinor(input) ?? 0;
+
+/**
+ * @deprecated Use parseMoneyToMinor (strict, returns null) or
+ * moneyToMinorOrZero (explicit zero-default).
+ * This alias is kept for existing display-only call sites to avoid churn.
+ */
+export const toMinorUnits = moneyToMinorOrZero;
 
 export const fromMinorUnits = (value: number) => value / 100;
 
-export const clampLineQuantity = (quantity: number, availableStock: number) =>
-  Math.min(Math.max(0, Math.floor(availableStock)), Math.max(0, Math.floor(quantity)));
+// ── Quantity helpers ──────────────────────────────────────────────────────────
 
-export const calculateLineTotalMinor = (line: SaleLine) => line.quantity * line.rateMinor;
 
-export const calculateSaleTotalMinor = (lines: SaleDraft["lines"]) =>
+const safeInteger = (value: number): number =>
+  Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0;
+
+export const clampLineQuantity = (quantity: number, availableStock: number): number =>
+  Math.min(safeInteger(quantity), safeInteger(availableStock));
+
+// ── Line / total ──────────────────────────────────────────────────────────────
+
+export const calculateLineTotalMinor = (line: SaleLine): number =>
+  line.quantity * line.rateMinor;
+
+export const calculateSaleTotalMinor = (lines: SaleDraft["lines"]): number =>
   Object.values(lines).reduce((total, line) => total + calculateLineTotalMinor(line), 0);
+
+// ── Validated settlement builder ──────────────────────────────────────────────
 
 export function createRegularSettlement(
   mode: "CASH" | "UPI" | "BANK_TRANSFER" | "CREDIT",
   totalMinor: number,
   paidMinor: number,
   upfrontMode: "CASH" | "UPI" | "BANK_TRANSFER" = "CASH",
-): SettlementDraft {
-  const safePaid = Math.max(0, Math.round(paidMinor));
+): SettlementResult {
+  if (!Number.isSafeInteger(totalMinor) || totalMinor <= 0) {
+    return { ok: false, error: "INVALID_TOTAL" };
+  }
+  if (!Number.isSafeInteger(paidMinor) || paidMinor < 0) {
+    return { ok: false, error: "INVALID_PAYMENT" };
+  }
+
   if (mode === "CREDIT") {
-    if (safePaid <= 0) return { kind: "FULL_CREDIT", paidMinor: 0, creditMinor: totalMinor };
-    if (safePaid < totalMinor) {
-      return { kind: "PARTIAL_CREDIT", upfrontMode, paidMinor: safePaid, creditMinor: totalMinor - safePaid };
+    if (paidMinor > totalMinor) {
+      return { ok: false, error: "CREDIT_PAYMENT_EXCEEDS_TOTAL" };
     }
-    return { kind: "FULL_PAYMENT", mode: upfrontMode, paidMinor: totalMinor, changeMinor: 0 };
+    if (paidMinor === 0) {
+      return { ok: true, settlement: { kind: "FULL_CREDIT", paidMinor: 0, creditMinor: totalMinor } };
+    }
+    if (paidMinor < totalMinor) {
+      return {
+        ok: true,
+        settlement: {
+          kind: "PARTIAL_CREDIT",
+          upfrontMode,
+          paidMinor,
+          creditMinor: totalMinor - paidMinor,
+        },
+      };
+    }
+    // paid === total in credit mode → treat as full payment via the upfront mode
+    return {
+      ok: true,
+      settlement: { kind: "FULL_PAYMENT", mode: upfrontMode, paidMinor: totalMinor, changeMinor: 0 },
+    };
+  }
+
+  // Cash / UPI / Bank: customer must pay at least the full amount
+  if (paidMinor < totalMinor) {
+    return { ok: false, error: "INSUFFICIENT_PAYMENT" };
   }
 
   return {
-    kind: "FULL_PAYMENT",
-    mode,
-    paidMinor: safePaid,
-    changeMinor: Math.max(0, safePaid - totalMinor),
+    ok: true,
+    settlement: {
+      kind: "FULL_PAYMENT",
+      mode,
+      paidMinor,
+      changeMinor: paidMinor - totalMinor,
+    },
   };
 }
 
-export const getSettlementPaidMinor = (settlement: SettlementDraft) =>
+export const getSettlementPaidMinor = (settlement: SettlementDraft): number =>
   settlement.kind === "UNSETTLED" ? 0 : settlement.paidMinor;
 
-export const getSettlementCreditMinor = (settlement: SettlementDraft) =>
+export const getSettlementCreditMinor = (settlement: SettlementDraft): number =>
   settlement.kind === "FULL_CREDIT" || settlement.kind === "PARTIAL_CREDIT"
     ? settlement.creditMinor
     : 0;
 
-export function adaptItemToSnapshot(item: any) {
-  const defaultPrice = Number(item.defaultSellingPrice ?? 0);
-  const minPrice = item.minimumAllowedPrice !== null && item.minimumAllowedPrice !== undefined
-    ? Number(item.minimumAllowedPrice)
-    : defaultPrice;
+// ── Item snapshot adapter ─────────────────────────────────────────────────────
+
+/** Structural type accepted by adaptItemToSnapshot. */
+export type SnapshotItemInput = {
+  id: string;
+  name: string;
+  sku?: string | null;
+  unit: string;
+  availableStock?: number | string | null;
+  defaultSellingPrice?: number | string | null;
+  minimumAllowedPrice?: number | string | null;
+  mrp?: number | string | null;
+  requiresSerialNumber?: boolean | null;
+  brand?: { name?: string | null } | null;
+};
+
+
+export function adaptItemToSnapshot(item: SnapshotItemInput): ItemSnapshot {
+  if (!item.id || !item.name) {
+    throw new Error("Cannot create sale item snapshot: id and name are required.");
+  }
+
+  const defaultRateMinor = parseMoneyToMinor(item.defaultSellingPrice);
+  const minimumRateMinor =
+    item.minimumAllowedPrice == null
+      ? defaultRateMinor
+      : parseMoneyToMinor(item.minimumAllowedPrice);
+
+  if (defaultRateMinor === null || minimumRateMinor === null) {
+    throw new Error(`Invalid selling price for item "${item.id}" (${item.name}).`);
+  }
+
+  const rawStock = Number(item.availableStock ?? 0);
+  if (!Number.isFinite(rawStock)) {
+    throw new Error(`Invalid stock quantity for item "${item.id}" (${item.name}).`);
+  }
 
   return {
     id: item.id,
     name: item.name,
-    sku: item.sku,
+    sku: item.sku ?? undefined,
     unit: item.unit,
-    availableStock: Number(item.availableStock ?? 0),
-    defaultRateMinor: Math.round(defaultPrice * 100),
-    minimumRateMinor: Math.round(minPrice * 100),
-    requiresSerialNumber: !!item.requiresSerialNumber,
+    availableStock: Math.max(0, Math.floor(rawStock)),
+    defaultRateMinor,
+    minimumRateMinor,
+    mrpMinor: parseMoneyToMinor(item.mrp) ?? undefined,
+    requiresSerialNumber: Boolean(item.requiresSerialNumber),
+    brandName: item.brand?.name ?? null,
   };
 }
-

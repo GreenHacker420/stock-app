@@ -68,7 +68,12 @@ export function NewSaleType() {
         : s.customer?.name.toLowerCase().includes(q);
 
       const matchesSearch = !q || numMatch || nameMatch;
-      const matchesStatus = statusFilter === "ALL" || s.paymentStatus === statusFilter;
+
+      // Treat UNPAID as PENDING (backend may return either value)
+      const effectiveStatus =
+        s.paymentStatus === "UNPAID" ? "PENDING" : s.paymentStatus;
+      const matchesStatus =
+        statusFilter === "ALL" || effectiveStatus === statusFilter;
 
       return matchesSearch && matchesStatus;
     });

@@ -1,6 +1,6 @@
 import { useState, useMemo, memo, useCallback, useRef, useEffect } from "react";
 import { useNavigation } from "@react-navigation/native";
-import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Pressable, Modal, Alert, Animated, PanResponder } from "react-native";
+import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Pressable, Modal, Alert, Animated, PanResponder, useWindowDimensions } from "react-native";
 import { Text, Icon, List, TextInput, Switch, SegmentedButtons, Divider } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FlashList } from "@shopify/flash-list";
@@ -38,9 +38,12 @@ import {
   adaptItemToSnapshot,
   fromMinorUnits,
   toMinorUnits,
+  parseMoneyToMinor,
   getSettlementPaidMinor,
   getSettlementCreditMinor,
+  createRegularSettlement,
 } from "../../features/sales/create/core/sale-calculations";
+import type { ItemSnapshot } from "../../features/sales/create/core/sale.types";
 import { createSaleFingerprint } from "../../features/sales/create/core/sale-fingerprint";
 import { buildSalePayload } from "../../features/sales/create/core/sale-payload";
 import { adaptSaleToInvoice } from "../../features/sales/create/core/sale-invoice-adapter";
@@ -66,56 +69,7 @@ const SaleItemCard = memo(({
   const isMaxStockReached = quantity >= stockQty;
   const hasQty = quantity > 0;
 
-  const intervalRef = useRef<any>(null);
-  const timeoutRef = useRef<any>(null);
-
-  useEffect(() => {
-    return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, []);
-
-  const startIncrement = () => {
-    if (isMaxStockReached) return;
-    onAdd();
-    timeoutRef.current = setTimeout(() => {
-      intervalRef.current = setInterval(() => {
-        onAdd();
-      }, 120);
-    }, 350);
-  };
-
-  const stopIncrement = () => {
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
-  };
-
-  const startDecrement = () => {
-    onRemove();
-    timeoutRef.current = setTimeout(() => {
-      intervalRef.current = setInterval(() => {
-        onRemove();
-      }, 120);
-    }, 350);
-  };
-
-  const stopDecrement = () => {
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
-  };
+  // Repeat-press behaviour is owned by QuantityStepper — no local timers needed.
 
   return (
     <View style={[
@@ -136,6 +90,9 @@ const SaleItemCard = memo(({
 
       <View style={styles.itemInfo}>
         <Text style={styles.itemName}>{item.name}</Text>
+        {item.brand?.name ? (
+          <Text style={styles.itemBrandSubText}>{item.brand.name.toUpperCase()}</Text>
+        ) : null}
         <View style={styles.metaRow}>
           <Text style={styles.itemSubtitle}>
             {item.sku || "No SKU"} • {money(item.defaultSellingPrice)} / {item.unit}
@@ -180,6 +137,12 @@ const SaleItemCard = memo(({
   );
 }, (p, n) => p.item.id === n.item.id && p.quantity === n.quantity);
 
+/** Cart item shape: ItemSnapshot core fields + any optional Item fields (brand, mrp, etc.). */
+type CartItemData = ItemSnapshot & Partial<Item> & {
+  defaultSellingPrice: number;
+  minimumAllowedPrice: number;
+};
+
 const SwipeableCartItem = memo(({ 
   item, 
   quantity, 
@@ -190,7 +153,7 @@ const SwipeableCartItem = memo(({
   onAdjustQuantity,
   userRole
 }: { 
-  item: Item;
+  item: CartItemData;
   quantity: number;
   customRate?: number;
   serialNumbers?: string[];
@@ -266,6 +229,11 @@ const SwipeableCartItem = memo(({
       >
         <View style={styles.cartItemLeft}>
           <Text style={styles.cartItemName} numberOfLines={1}>{item.name}</Text>
+          {item.brandName ? (
+            <Text style={styles.itemBrandSubText}>{item.brandName.toUpperCase()}</Text>
+          ) : item.brand?.name ? (
+            <Text style={styles.itemBrandSubText}>{item.brand.name.toUpperCase()}</Text>
+          ) : null}
           <Text style={styles.cartItemPrice}>
             {customRate !== undefined ? (
               <>
@@ -425,6 +393,7 @@ export function RegularSale() {
   const user = useAuthStore((state) => state.user);
   const network = useNetworkStatus();
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
 
   const shopsQuery = useShopsQuery();
   const draftShop = useMemo(() => 
@@ -456,9 +425,7 @@ export function RegularSale() {
   const [amountPaid, setAmountPaid] = useState("");
   const [notes, setNotes] = useState("");
   const [isGstSale, setIsGstSale] = useState(false);
-  const [customerSignature, setCustomerSignature] = useState<string | undefined>();
   const [draftSignature, setDraftSignature] = useState<string | undefined>();
-  const [signatureFingerprint, setSignatureFingerprint] = useState<string | null>(null);
   const [isSignatureModalVisible, setIsSignatureModalVisible] = useState(false);
   const [skuScannerVisible, setSkuScannerVisible] = useState(false);
   const [signatureKey, setSignatureKey] = useState(0);
@@ -474,7 +441,11 @@ export function RegularSale() {
     limit: debouncedCustomerSearch ? 20 : 50,
     enabled: !network.isOffline,
   });
-  const itemsQuery = useItemsQuery({ search: debouncedItemSearch, limit: 50, enabled: !network.isOffline });
+  const itemsQuery = useItemsQuery({
+    search: debouncedItemSearch,
+    limit: 50,
+    enabled: !network.isOffline && activeShopId === draftShopId,
+  });
   const mergedCustomers = useMemo(() => {
     return customersQuery.data ?? [];
   }, [customersQuery.data]);
@@ -565,58 +536,41 @@ export function RegularSale() {
     }
   }, [cartItemCount, currentStep]);
 
-  // Settlement sync to reducer
-  useEffect(() => {
-    const totalMinorVal = totalMinor;
-    if (paymentType === "CREDIT") {
-      const paidMinorVal = toMinorUnits(amountPaid);
-      if (paidMinorVal <= 0) {
-        dispatch({
-          type: "SET_SETTLEMENT",
-          settlement: {
-            kind: "FULL_CREDIT",
-            paidMinor: 0,
-            creditMinor: totalMinorVal
-          }
-        });
-      } else {
-        dispatch({
-          type: "SET_SETTLEMENT",
-          settlement: {
-            kind: "PARTIAL_CREDIT",
-            upfrontMode: partialPaymentMode === "UPI" ? "UPI" : "CASH",
-            paidMinor: Math.min(totalMinorVal, paidMinorVal),
-            creditMinor: Math.max(0, totalMinorVal - paidMinorVal)
-          }
-        });
-      }
-    } else {
-      const mode = paymentType === "BANK_TRANSFER" ? "BANK_TRANSFER" : paymentType;
-      dispatch({
-        type: "SET_SETTLEMENT",
-        settlement: {
-          kind: "FULL_PAYMENT",
-          mode,
-          paidMinor: totalMinorVal,
-          changeMinor: 0
-        }
-      });
-    }
-  }, [paymentType, partialPaymentMode, amountPaid, totalMinor]);
+  const [settlementError, setSettlementError] = useState<string | null>(null);
 
-  const parsedAmountPaid = Number(amountPaid);
-  const isAmountPaidValid =
-    amountPaid.trim() === "" || (Number.isFinite(parsedAmountPaid) && parsedAmountPaid >= 0);
-  const effectivePaidAmount = !isAmountPaidValid
-    ? null
-    : amountPaid.trim() === ""
-      ? paymentType === "CREDIT" ? 0 : cartTotal
-      : parsedAmountPaid;
-  const balance = effectivePaidAmount === null
-    ? cartTotal
-    : Math.max(0, cartTotal - effectivePaidAmount);
-  const isCredit = balance > 0.01;
-  const isCreditUpfrontWithinBounds = paymentType !== "CREDIT" || (effectivePaidAmount !== null && effectivePaidAmount <= cartTotal);
+  // Settlement sync to reducer — uses createRegularSettlement for validation.
+  useEffect(() => {
+    const paidMinor = parseMoneyToMinor(amountPaid);
+
+    if (paidMinor === null) {
+      // Blank / invalid input — no settlement yet.
+      setSettlementError(null);
+      dispatch({ type: "SET_SETTLEMENT", settlement: { kind: "UNSETTLED" } });
+      return;
+    }
+
+    const result = createRegularSettlement(
+      paymentType as "CASH" | "UPI" | "BANK_TRANSFER" | "CREDIT",
+      totalMinor,
+      paidMinor,
+      partialPaymentMode,
+    );
+
+    if (result.ok) {
+      setSettlementError(null);
+      dispatch({ type: "SET_SETTLEMENT", settlement: result.settlement });
+    } else {
+      setSettlementError(result.error);
+      dispatch({ type: "SET_SETTLEMENT", settlement: { kind: "UNSETTLED" } });
+    }
+  }, [paymentType, partialPaymentMode, amountPaid, totalMinor, dispatch]);
+
+  // Derive display values from the reducer — single source of truth.
+  const creditMinorFromDraft = getSettlementCreditMinor(draft.settlement);
+  const paidMinorFromDraft = getSettlementPaidMinor(draft.settlement);
+  const balance = fromMinorUnits(creditMinorFromDraft);
+  const isCredit = creditMinorFromDraft > 0;
+  const isCreditUpfrontWithinBounds = settlementError !== "CREDIT_PAYMENT_EXCEEDS_TOTAL";
 
   const isCreditAuthorizationCurrent = Boolean(
     draft.creditAuthorization &&
@@ -624,10 +578,14 @@ export function RegularSale() {
   );
 
   const openSignatureModal = useCallback(() => {
-    setDraftSignature(customerSignature);
+    setDraftSignature(
+      isCreditAuthorizationCurrent
+        ? draft.creditAuthorization?.signatureBase64
+        : undefined,
+    );
     setSignatureKey((previous) => previous + 1);
     setIsSignatureModalVisible(true);
-  }, [customerSignature]);
+  }, [isCreditAuthorizationCurrent, draft.creditAuthorization]);
 
   const handleProductScanned = useCallback(async (sku: string) => {
     try {
@@ -1249,9 +1207,7 @@ export function RegularSale() {
                   setItemSearch("");
                   setAmountPaid("");
                   setNotes("");
-                  setCustomerSignature(undefined);
                   setDraftSignature(undefined);
-                  setSignatureFingerprint(null);
                   setDraftShopId(requireActiveShopId(activeShopId));
                   setSignatureKey(prev => prev + 1);
                   setIsGstSale(false);
@@ -1275,7 +1231,7 @@ export function RegularSale() {
             </View>
             <View style={{ flex: 1.5, gap: 4 }}>
               <Button 
-                label="Proceed to Checkout →" 
+                label={width < 375 ? "Checkout →" : "Proceed to Checkout →"} 
                 variant="success"
                 onPress={() => setCurrentStep(2)}
                 disabled={!customerId || cartItemCount === 0}
@@ -1300,7 +1256,7 @@ export function RegularSale() {
             />
             <View style={{ flex: 1.5, gap: 4 }}>
               <Button
-                label={`Payment (${money(cartTotal)}) →`}
+                label={width < 375 ? `Pay (${money(cartTotal)}) →` : `Payment (${money(cartTotal)}) →`}
                 variant="success"
                 onPress={() => setCurrentStep(3)}
                 disabled={!isSerialsComplete || hasMissingPrice}
@@ -1323,7 +1279,7 @@ export function RegularSale() {
               style={{ flex: 1 }}
             />
             <Button 
-              label="COMPLETE SALE →" 
+              label={width < 375 ? "Complete →" : "COMPLETE SALE →"} 
               variant="success"
               onPress={handleCompleteSale} 
               loading={saleMutation.isPending}
@@ -1352,7 +1308,7 @@ export function RegularSale() {
             onClear={() => setDraftSignature(undefined)}
           />
 
-          <View style={styles.floatingHeader}>
+          <View style={[styles.floatingHeader, { top: insets.top > 0 ? insets.top + 8 : 16 }]}>
             <View>
               <Text style={styles.floatingTitle}>Authorize Credit Sale</Text>
               <Text style={styles.floatingSubtitle}>Amount: {money(balance)}</Text>
@@ -1369,7 +1325,7 @@ export function RegularSale() {
           </View>
 
           {draftSignature ? (
-            <View style={styles.floatingBottomBar}>
+            <View style={[styles.floatingBottomBar, { bottom: insets.bottom > 0 ? insets.bottom + 8 : 16 }]}>
               <Button
                 label="CLEAR"
                 variant="ghost"
@@ -1384,20 +1340,19 @@ export function RegularSale() {
                 variant="success"
                 icon={<Icon source="check" size={18} color="white" />}
                 onPress={() => {
-                  setCustomerSignature(draftSignature);
+                  if (!draftSignature) return;
                   const fingerprint = createSaleFingerprint(draft);
-                  setSignatureFingerprint(fingerprint);
                   dispatch({
                     type: "AUTHORIZE_CREDIT",
                     authorization: {
                       signatureBase64: draftSignature,
                       customerId: customerId || "",
                       transactionFingerprint: fingerprint,
-                      totalMinor: totalMinor,
+                      totalMinor,
                       paidMinor: getSettlementPaidMinor(draft.settlement),
                       creditMinor: getSettlementCreditMinor(draft.settlement),
-                      capturedAt: new Date().toISOString()
-                    }
+                      capturedAt: new Date().toISOString(),
+                    },
                   });
                   setIsSignatureModalVisible(false);
                 }}
@@ -1537,6 +1492,14 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: colors.textSecondary,
     marginTop: 2,
+  },
+  itemBrandSubText: {
+    fontSize: 10,
+    fontWeight: fontWeight.bold,
+    color: colors.primary,
+    marginTop: 1,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
   },
   stockBadgeLow: {
     backgroundColor: colors.warningLight,

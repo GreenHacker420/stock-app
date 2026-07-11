@@ -10,7 +10,8 @@ import {
   Alert,
   PanResponder,
   Animated,
-  Modal
+  Modal,
+  useWindowDimensions
 } from "react-native";
 import { Text, Icon, TextInput, SegmentedButtons, List, Divider } from "react-native-paper";
 import { useNavigation } from "@react-navigation/native";
@@ -52,6 +53,7 @@ import {
   getSettlementPaidMinor,
   getSettlementCreditMinor,
 } from "../../features/sales/create/core/sale-calculations";
+import type { ItemSnapshot } from "../../features/sales/create/core/sale.types";
 import { createSaleFingerprint } from "../../features/sales/create/core/sale-fingerprint";
 import { buildSalePayload } from "../../features/sales/create/core/sale-payload";
 import { adaptSaleToInvoice } from "../../features/sales/create/core/sale-invoice-adapter";
@@ -81,56 +83,7 @@ const SaleItemCard = memo(({
   const isMaxStockReached = quantity >= stockQty;
   const hasQty = quantity > 0;
 
-  const intervalRef = useRef<any>(null);
-  const timeoutRef = useRef<any>(null);
 
-  useEffect(() => {
-    return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, []);
-
-  const startIncrement = () => {
-    if (isMaxStockReached) return;
-    onAdd();
-    timeoutRef.current = setTimeout(() => {
-      intervalRef.current = setInterval(() => {
-        onAdd();
-      }, 120);
-    }, 350);
-  };
-
-  const stopIncrement = () => {
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
-  };
-
-  const startDecrement = () => {
-    onRemove();
-    timeoutRef.current = setTimeout(() => {
-      intervalRef.current = setInterval(() => {
-        onRemove();
-      }, 120);
-    }, 350);
-  };
-
-  const stopDecrement = () => {
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current);
-      timeoutRef.current = null;
-    }
-    if (intervalRef.current) {
-      clearInterval(intervalRef.current);
-      intervalRef.current = null;
-    }
-  };
 
   return (
     <View style={[
@@ -151,6 +104,9 @@ const SaleItemCard = memo(({
 
       <View style={styles.itemInfo}>
         <Text style={styles.itemName}>{item.name}</Text>
+        {item.brand?.name ? (
+          <Text style={styles.itemBrandSubText}>{item.brand.name.toUpperCase()}</Text>
+        ) : null}
         <View style={styles.metaRow}>
           <Text style={styles.itemSubtitle}>
             {item.sku || "No SKU"} • {money(item.defaultSellingPrice)} / {item.unit}
@@ -218,17 +174,23 @@ const SaleItemCard = memo(({
   p.serialNumbers?.join(",") === n.serialNumbers?.join(",")
 );
 
-const CartItem = memo(({ 
-  item, 
-  quantity, 
-  customRate, 
+/** Cart item shape: ItemSnapshot core fields + any optional Item fields (brand, mrp, etc.). */
+type CartItemData = ItemSnapshot & Partial<Item> & {
+  defaultSellingPrice: number;
+  minimumAllowedPrice: number;
+};
+
+const CartItem = memo(({
+  item,
+  quantity,
+  customRate,
   serialNumbers,
   onScanPress,
   onUpdateRate,
   onAdjustQuantity,
   userRole
-}: { 
-  item: Item;
+}: {
+  item: CartItemData;
   quantity: number;
   customRate?: number;
   serialNumbers?: string[];
@@ -304,6 +266,11 @@ const CartItem = memo(({
       >
         <View style={styles.cartItemLeft}>
           <Text style={styles.cartItemName} numberOfLines={1}>{item.name}</Text>
+          {item.brandName ? (
+            <Text style={styles.itemBrandSubText}>{item.brandName.toUpperCase()}</Text>
+          ) : item.brand?.name ? (
+            <Text style={styles.itemBrandSubText}>{item.brand.name.toUpperCase()}</Text>
+          ) : null}
           <Text style={styles.cartItemPrice}>
             {customRate !== undefined ? (
               <>
@@ -500,7 +467,11 @@ export function WalkInSale() {
   const [upiConfirmedFingerprint, setUpiConfirmedFingerprint] = useState<string | null>(null);
 
   // Shop Lock: always fetch items and customers with draftShopId!
-  const itemsQuery = useItemsQuery({ search: debouncedSearch, limit: 50, enabled: !network.isOffline });
+  const itemsQuery = useItemsQuery({
+    search: debouncedSearch,
+    limit: 50,
+    enabled: !network.isOffline && activeShopId === draftShopId,
+  });
   
   const normalizedCustomerSearch = customerSearch.trim();
   const [debouncedCustomerSearch] = useDebounce(normalizedCustomerSearch, 150);
@@ -608,10 +579,17 @@ export function WalkInSale() {
     return Object.values(draft.lines).some(line => line.rateMinor <= 0);
   }, [draft.lines]);
 
-  // UPI proposal fingerprint computation for confirm lock
+  // UPI proposal fingerprint computation for confirm lock.
+  // Include the destination upiId so that if the shop UPI ID changes, the
+  // existing confirmation becomes stale automatically (via the fingerprint).
   const proposedUpiSettlement = useMemo(() => {
-    return { kind: "WALK_IN_UPI" as const, paidMinor: totalMinor, confirmedFingerprint: null };
-  }, [totalMinor]);
+    return {
+      kind: "WALK_IN_UPI" as const,
+      paidMinor: totalMinor,
+      upiId: draftShop?.upiId ?? "",
+      confirmedFingerprint: null,
+    };
+  }, [totalMinor, draftShop?.upiId]);
 
   const proposedDraftForUpi = useMemo(() => {
     return { ...draft, settlement: proposedUpiSettlement };
@@ -626,7 +604,12 @@ export function WalkInSale() {
     if (paymentMode === "UPI") {
       dispatch({
         type: "SET_SETTLEMENT",
-        settlement: { kind: "WALK_IN_UPI", paidMinor: totalMinor, confirmedFingerprint: upiConfirmedFingerprint }
+        settlement: {
+          kind: "WALK_IN_UPI",
+          paidMinor: totalMinor,
+          upiId: draftShop?.upiId ?? "",
+          confirmedFingerprint: upiConfirmedFingerprint,
+        },
       });
     } else {
       const paidMinorVal = toMinorUnits(amountReceived);
@@ -636,11 +619,11 @@ export function WalkInSale() {
           kind: "FULL_PAYMENT",
           mode: "CASH",
           paidMinor: paidMinorVal,
-          changeMinor: Math.max(0, paidMinorVal - totalMinor)
-        }
+          changeMinor: Math.max(0, paidMinorVal - totalMinor),
+        },
       });
     }
-  }, [paymentMode, amountReceived, totalMinor, upiConfirmedFingerprint]);
+  }, [paymentMode, amountReceived, totalMinor, upiConfirmedFingerprint, draftShop?.upiId, dispatch]);
 
   const calculatedChange = useMemo(() => {
     const received = Number(amountReceived);
@@ -1534,6 +1517,14 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: colors.textSecondary,
     marginTop: 2,
+  },
+  itemBrandSubText: {
+    fontSize: 10,
+    fontWeight: fontWeight.bold,
+    color: colors.primary,
+    marginTop: 1,
+    letterSpacing: 0.5,
+    textTransform: 'uppercase',
   },
   stockBadgeLow: {
     backgroundColor: colors.warningLight,
