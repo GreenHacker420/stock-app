@@ -26,6 +26,11 @@ const COPY: TaxonomyCopy = {
   createErrorFallback: "Could not create category. A category with this name may already exist.",
   updateErrorFallback: "Could not update category. A category with this name may already exist.",
   deleteErrorFallback: "Could not delete category. This category still has active items assigned to it.",
+  actionsSubtitle: "Category management",
+  editActionTitle: "Edit category",
+  editActionDescription: "Change the name shown across your inventory",
+  deleteActionTitle: "Delete category",
+  deleteActionDescription: "Available only when no products or records reference it",
 };
 
 const ICONS: TaxonomyIcons = {

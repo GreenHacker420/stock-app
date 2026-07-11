@@ -18,6 +18,11 @@ export interface TaxonomyCopy {
   createErrorFallback: string;
   updateErrorFallback: string;
   deleteErrorFallback: string;
+  actionsSubtitle?: string;
+  editActionTitle?: string;
+  editActionDescription?: string;
+  deleteActionTitle?: string;
+  deleteActionDescription?: string;
 }
 
 export interface TaxonomyIcons {

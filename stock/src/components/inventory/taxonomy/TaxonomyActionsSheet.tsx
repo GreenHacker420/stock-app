@@ -1,24 +1,40 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
+  AccessibilityInfo,
+  findNodeHandle,
   View,
   StyleSheet,
   Modal as RNModal,
-  Platform,
   Pressable,
+  useWindowDimensions,
 } from "react-native";
 import { Text, Icon } from "react-native-paper";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { GestureDetector, Gesture } from "react-native-gesture-handler";
+import {
+  GestureDetector,
+  Gesture,
+  GestureHandlerRootView,
+} from "react-native-gesture-handler";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withSpring,
   withTiming,
   runOnJS,
+  ReduceMotion,
 } from "react-native-reanimated";
 import { TaxonomyEntity, TaxonomyCopy } from "./taxonomy.types";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../../theme";
-import { triggerLightHaptic } from "../../../utils/haptics";
+import { triggerLightHaptic, triggerMediumHaptic } from "../../../utils/haptics";
+
+const OPEN_SPRING_CONFIG = {
+  damping: 26,
+  stiffness: 220,
+  overshootClamping: true,
+  reduceMotion: ReduceMotion.System,
+} as const;
+const CLOSE_DURATION = 180;
+const BACKDROP_DURATION = 150;
 
 interface TaxonomyActionsSheetProps<T extends TaxonomyEntity> {
   visible: boolean;
@@ -27,6 +43,7 @@ interface TaxonomyActionsSheetProps<T extends TaxonomyEntity> {
   onClose: () => void;
   onEdit: () => void;
   onDelete: () => void;
+  busy?: boolean;
 }
 
 export function TaxonomyActionsSheet<T extends TaxonomyEntity>({
@@ -36,56 +53,140 @@ export function TaxonomyActionsSheet<T extends TaxonomyEntity>({
   onClose,
   onEdit,
   onDelete,
+  busy = false,
 }: TaxonomyActionsSheetProps<T>) {
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const [renderModal, setRenderModal] = useState(false);
+  const [renderedEntity, setRenderedEntity] = useState<T | null>(null);
+  const [dismissing, setDismissing] = useState(false);
 
-  const translateY = useSharedValue(500);
+  const dismissingRef = useRef(false);
+  const pendingActionRef = useRef<(() => void) | null>(null);
+  const headerRef = useRef<View>(null);
+  const openedEntityIdRef = useRef<string | null>(null);
+
+  const translateY = useSharedValue(windowHeight);
   const backdropOpacity = useSharedValue(0);
+  const sheetHeight = useSharedValue(0);
+  const closing = useSharedValue(false);
 
-  const dismissModal = useCallback(() => {
-    translateY.value = withSpring(500, { damping: 22, stiffness: 150 }, (finished) => {
+  const finalizeDismiss = useCallback(() => {
+    const pendingAction = pendingActionRef.current;
+    pendingActionRef.current = null;
+    dismissingRef.current = false;
+    setDismissing(false);
+    setRenderModal(false);
+    setRenderedEntity(null);
+    openedEntityIdRef.current = null;
+    onClose();
+    pendingAction?.();
+  }, [onClose]);
+
+  const beginDismiss = useCallback(() => {
+    if (busy || dismissingRef.current) return;
+
+    dismissingRef.current = true;
+    setDismissing(true);
+    closing.value = true;
+    const hiddenTranslateY = Math.max(sheetHeight.value, windowHeight);
+    translateY.value = withTiming(hiddenTranslateY, {
+      duration: CLOSE_DURATION,
+      reduceMotion: ReduceMotion.System,
+    }, (finished) => {
       if (finished) {
-        runOnJS(setRenderModal)(false);
-        runOnJS(onClose)();
+        runOnJS(finalizeDismiss)();
       }
     });
-    backdropOpacity.value = withTiming(0, { duration: 150 });
-  }, [onClose, translateY, backdropOpacity]);
+    backdropOpacity.value = withTiming(0, {
+      duration: BACKDROP_DURATION,
+      reduceMotion: ReduceMotion.System,
+    });
+  }, [backdropOpacity, busy, closing, finalizeDismiss, sheetHeight, translateY, windowHeight]);
+
+  const dismissThen = useCallback((action: () => void) => {
+    if (busy || dismissingRef.current) return;
+    pendingActionRef.current = action;
+    beginDismiss();
+  }, [beginDismiss, busy]);
+
+  const markGestureDismissStarted = useCallback(() => {
+    if (dismissingRef.current) return;
+    dismissingRef.current = true;
+    setDismissing(true);
+  }, []);
 
   useEffect(() => {
-    if (visible) {
-      setRenderModal(true);
-      translateY.value = 500;
-      backdropOpacity.value = 0;
-      translateY.value = withSpring(0, { damping: 22, stiffness: 150 });
-      backdropOpacity.value = withTiming(1, { duration: 200 });
-    } else {
-      translateY.value = withSpring(500, { damping: 22, stiffness: 150 }, (finished) => {
-        if (finished) {
-          runOnJS(setRenderModal)(false);
-        }
-      });
-      backdropOpacity.value = withTiming(0, { duration: 150 });
-    }
-  }, [visible, translateY, backdropOpacity]);
-
-  const panGesture = Gesture.Pan()
-    .activeOffsetY([-10, 10])
-    .onUpdate((event) => {
-      translateY.value = Math.max(0, event.translationY);
-    })
-    .onEnd((event) => {
-      if (event.translationY > 100 || event.velocityY > 500) {
-        runOnJS(dismissModal)();
-      } else {
-        translateY.value = withSpring(0, { damping: 22, stiffness: 150 });
+    if (visible && entity) {
+      if (openedEntityIdRef.current === entity.id) {
+        setRenderedEntity(entity);
+        return;
       }
-    });
+
+      openedEntityIdRef.current = entity.id;
+      setRenderedEntity(entity);
+      setRenderModal(true);
+      dismissingRef.current = false;
+      pendingActionRef.current = null;
+      setDismissing(false);
+      closing.value = false;
+      translateY.value = Math.max(sheetHeight.value, windowHeight);
+      backdropOpacity.value = 0;
+      translateY.value = withSpring(0, OPEN_SPRING_CONFIG);
+      backdropOpacity.value = withTiming(1, {
+        duration: 200,
+        reduceMotion: ReduceMotion.System,
+      });
+      const focusTimer = setTimeout(() => {
+        const node = findNodeHandle(headerRef.current);
+        if (node) AccessibilityInfo.setAccessibilityFocus(node);
+      }, 250);
+      return () => clearTimeout(focusTimer);
+    }
+
+    if (!visible && renderModal) beginDismiss();
+  }, [backdropOpacity, beginDismiss, closing, entity, renderModal, sheetHeight, translateY, visible, windowHeight]);
+
+  const panGesture = useMemo(
+    () => Gesture.Pan()
+      .enabled(!busy && !dismissing)
+      .activeOffsetY(10)
+      .failOffsetX([-15, 15])
+      .onUpdate((event) => {
+        translateY.value = Math.max(0, event.translationY);
+      })
+      .onEnd((event) => {
+        if (event.translationY > 100 || event.velocityY > 500) {
+          closing.value = true;
+          runOnJS(markGestureDismissStarted)();
+          const hiddenTranslateY = Math.max(sheetHeight.value, windowHeight);
+          translateY.value = withTiming(hiddenTranslateY, {
+            duration: CLOSE_DURATION,
+            reduceMotion: ReduceMotion.System,
+          }, (finished) => {
+            if (finished) runOnJS(finalizeDismiss)();
+          });
+          backdropOpacity.value = withTiming(0, {
+            duration: BACKDROP_DURATION,
+            reduceMotion: ReduceMotion.System,
+          });
+        } else {
+          translateY.value = withSpring(0, OPEN_SPRING_CONFIG);
+        }
+      })
+      .onFinalize((_event, success) => {
+        if (!success && !closing.value) {
+          translateY.value = withSpring(0, OPEN_SPRING_CONFIG);
+        }
+      }),
+    [backdropOpacity, busy, closing, dismissing, finalizeDismiss, markGestureDismissStarted, sheetHeight, translateY, windowHeight],
+  );
 
   const backdropStyle = useAnimatedStyle(() => {
+    const distance = Math.max(sheetHeight.value, windowHeight, 1);
+    const dragProgress = Math.min(translateY.value / distance, 1);
     return {
-      opacity: backdropOpacity.value,
+      opacity: backdropOpacity.value * (1 - dragProgress * 0.65),
     };
   });
 
@@ -95,62 +196,83 @@ export function TaxonomyActionsSheet<T extends TaxonomyEntity>({
     };
   });
 
-  if (!renderModal || !entity) return null;
+  if (!renderModal || !renderedEntity) return null;
+
+  const interactionsDisabled = busy || dismissing;
+  const editTitle = copy.editActionTitle ?? `Edit ${copy.singular}`;
+  const deleteTitle = copy.deleteActionTitle ?? `Delete ${copy.singular}`;
 
   return (
     <RNModal
       visible={renderModal}
       transparent
       animationType="none"
-      onRequestClose={dismissModal}
+      onRequestClose={beginDismiss}
       statusBarTranslucent
-      accessibilityViewIsModal
     >
+      <GestureHandlerRootView style={styles.gestureRoot} unstable_forceActive>
       <View style={styles.modalRoot}>
         {/* Backdrop */}
-        <Animated.View style={[styles.backdropContainer, backdropStyle]}>
+        <Animated.View
+          accessible={false}
+          importantForAccessibility="no-hide-descendants"
+          style={[styles.backdropContainer, backdropStyle]}
+        >
           <Pressable
+            disabled={interactionsDisabled}
             accessibilityRole="button"
             accessibilityLabel="Close actions panel"
             style={styles.backdropPressable}
-            onPress={dismissModal}
+            onPress={beginDismiss}
           />
         </Animated.View>
 
         {/* Sheet Content */}
         <GestureDetector gesture={panGesture}>
-          <Animated.View style={[styles.sheet, sheetStyle, { paddingBottom: Math.max(insets.bottom, spacing.xl) }]}>
-            <View style={styles.handle} />
-
-            {/* Header */}
-            <View style={styles.header}>
-              <Text style={styles.title} numberOfLines={1}>
-                {entity.name}
-              </Text>
-              <Text style={styles.subtitle}>
-                {copy.singular} Management
-              </Text>
-            </View>
+          <Animated.View
+            style={[styles.sheet, sheetStyle, { paddingBottom: Math.max(insets.bottom, spacing.xl) }]}
+            onLayout={(event) => {
+              sheetHeight.value = event.nativeEvent.layout.height;
+            }}
+            accessibilityViewIsModal
+            accessibilityLabel={`${renderedEntity.name} actions`}
+            onAccessibilityEscape={beginDismiss}
+          >
+            <Animated.View style={styles.dragArea}>
+              <View style={styles.handle} />
+              <View ref={headerRef} style={styles.header} accessible accessibilityRole="header">
+                <Text style={styles.title} numberOfLines={1}>
+                  {renderedEntity.name}
+                </Text>
+                <Text style={styles.subtitle}>
+                  {copy.actionsSubtitle ?? `${copy.singular} Management`}
+                </Text>
+              </View>
+            </Animated.View>
 
             {/* Actions List */}
             <View style={styles.actionsContainer}>
               {/* Edit Action */}
               <Pressable
+                disabled={interactionsDisabled}
                 onPress={() => {
                   triggerLightHaptic();
-                  onEdit();
+                  dismissThen(onEdit);
                 }}
                 style={({ pressed }) => [styles.actionRow, pressed && styles.actionRowPressed]}
                 accessibilityRole="button"
-                accessibilityLabel={`Edit ${entity.name}`}
+                accessibilityLabel={`${editTitle}: ${renderedEntity.name}`}
                 accessibilityHint={`Opens edit sheet to rename this ${copy.singular.toLowerCase()}`}
+                accessibilityState={{ disabled: interactionsDisabled, busy }}
               >
                 <View style={[styles.iconWrap, styles.editIconWrap]}>
                   <Icon source="pencil-outline" size={20} color={colors.primary} />
                 </View>
                 <View style={styles.textWrap}>
-                  <Text style={styles.actionText}>Edit {copy.singular} Name</Text>
-                  <Text style={styles.actionSubtext}>Rename this item in your inventory</Text>
+                  <Text style={styles.actionText}>{editTitle}</Text>
+                  <Text style={styles.actionSubtext}>
+                    {copy.editActionDescription ?? `Change the name shown across your inventory`}
+                  </Text>
                 </View>
                 <Icon source="chevron-right" size={16} color={colors.textMuted} />
               </Pressable>
@@ -159,21 +281,25 @@ export function TaxonomyActionsSheet<T extends TaxonomyEntity>({
 
               {/* Delete Action */}
               <Pressable
+                disabled={interactionsDisabled}
                 onPress={() => {
-                  triggerLightHaptic();
-                  onDelete();
+                  triggerMediumHaptic();
+                  dismissThen(onDelete);
                 }}
                 style={({ pressed }) => [styles.actionRow, pressed && styles.actionRowPressed]}
                 accessibilityRole="button"
-                accessibilityLabel={`Delete ${entity.name}`}
+                accessibilityLabel={`${deleteTitle}: ${renderedEntity.name}`}
                 accessibilityHint={`Prompts a confirmation dialog to delete this ${copy.singular.toLowerCase()}`}
+                accessibilityState={{ disabled: interactionsDisabled, busy }}
               >
                 <View style={[styles.iconWrap, styles.deleteIconWrap]}>
                   <Icon source="trash-can-outline" size={20} color={colors.danger} />
                 </View>
                 <View style={styles.textWrap}>
-                  <Text style={[styles.actionText, styles.deleteText]}>Delete {copy.singular}</Text>
-                  <Text style={styles.actionSubtext}>Remove this item permanently</Text>
+                  <Text style={[styles.actionText, styles.deleteText]}>{deleteTitle}</Text>
+                  <Text style={styles.actionSubtext}>
+                    {copy.deleteActionDescription ?? `Available only when no products or records reference it`}
+                  </Text>
                 </View>
                 <Icon source="chevron-right" size={16} color={colors.textMuted} />
               </Pressable>
@@ -181,21 +307,27 @@ export function TaxonomyActionsSheet<T extends TaxonomyEntity>({
 
             {/* Close Button */}
             <Pressable
-              onPress={dismissModal}
+              disabled={interactionsDisabled}
+              onPress={beginDismiss}
               style={({ pressed }) => [styles.cancelBtn, pressed && styles.cancelBtnPressed]}
               accessibilityRole="button"
               accessibilityLabel="Cancel"
+              accessibilityState={{ disabled: interactionsDisabled, busy }}
             >
               <Text style={styles.cancelBtnText}>Cancel</Text>
             </Pressable>
           </Animated.View>
         </GestureDetector>
       </View>
+      </GestureHandlerRootView>
     </RNModal>
   );
 }
 
 const styles = StyleSheet.create({
+  gestureRoot: {
+    flex: 1,
+  },
   modalRoot: {
     flex: 1,
     justifyContent: "flex-end",
@@ -217,10 +349,11 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: radius.xxl,
     borderTopRightRadius: radius.xxl,
     paddingTop: spacing.md,
-    paddingHorizontal: spacing.lg,
-    maxHeight: "80%",
-    flexShrink: 1,
+    paddingHorizontal: 0,
     ...shadow.lg,
+  },
+  dragArea: {
+    paddingHorizontal: spacing.lg,
   },
   handle: {
     width: 36,
@@ -253,6 +386,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.xl,
     overflow: "hidden",
     marginBottom: spacing.lg,
+    marginHorizontal: spacing.lg,
     borderWidth: 1,
     borderColor: colors.border,
   },
@@ -302,7 +436,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.border,
   },
   cancelBtn: {
-    width: "100%",
+    alignSelf: "stretch",
+    marginHorizontal: spacing.lg,
     backgroundColor: colors.surfaceOffset,
     borderWidth: 1,
     borderColor: colors.border,

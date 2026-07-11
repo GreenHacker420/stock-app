@@ -306,17 +306,16 @@ export function TaxonomyManagementScreen<T extends TaxonomyEntity>({
         visible={actionsEntity !== null}
         entity={actionsEntity}
         copy={copy}
+        busy={actionsEntity !== null && deletingId === actionsEntity.id}
         onClose={() => setActionsEntity(null)}
         onEdit={() => {
           if (actionsEntity) {
             handleOpenEdit(actionsEntity);
-            setActionsEntity(null);
           }
         }}
         onDelete={() => {
           if (actionsEntity) {
             handleDelete(actionsEntity);
-            setActionsEntity(null);
           }
         }}
       />

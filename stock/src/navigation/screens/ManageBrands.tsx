@@ -26,6 +26,11 @@ const COPY: TaxonomyCopy = {
   createErrorFallback: "Could not create brand. A brand with this name may already exist.",
   updateErrorFallback: "Could not update brand. A brand with this name may already exist.",
   deleteErrorFallback: "Could not delete brand. This brand still has active items assigned to it.",
+  actionsSubtitle: "Brand management",
+  editActionTitle: "Edit brand",
+  editActionDescription: "Change the name shown across your inventory",
+  deleteActionTitle: "Delete brand",
+  deleteActionDescription: "Available only when no products or records reference it",
 };
 
 const ICONS: TaxonomyIcons = {
