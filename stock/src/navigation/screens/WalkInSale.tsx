@@ -44,6 +44,7 @@ import { itemDisplayName } from "../../utils/items/display";
 import { KeyboardAwareScreen } from "../../components/keyboard/KeyboardAwareScreen";
 import { clampLineQuantity } from "../../features/sales/create/core/sale-calculations";
 import { requireActiveShopId } from "../../hooks/useActiveShop";
+import { QuantityStepper } from "../../features/sales/create/components/QuantityStepper";
 
 function money(value?: string | number | null) {
   return `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
@@ -196,35 +197,7 @@ const SaleItemCard = memo(({
             </Text>
           </Pressable>
         ) : (
-          <View style={styles.counterRow}>
-            <Pressable 
-              onPressIn={startDecrement}
-              onPressOut={stopDecrement}
-              style={({ pressed }) => [
-                styles.qtyButton,
-                pressed && styles.buttonPressed
-              ]}
-            >
-              <Icon source="minus" size={20} color={colors.primary} />
-            </Pressable>
-            
-            <View style={styles.qtyDisplay}>
-              <Text style={styles.qtyText}>{quantity}</Text>
-            </View>
-            
-            <Pressable 
-              onPressIn={startIncrement}
-              onPressOut={stopIncrement}
-              disabled={isMaxStockReached}
-              style={({ pressed }) => [
-                styles.qtyButton,
-                isMaxStockReached && styles.disabledQtyButton,
-                pressed && !isMaxStockReached && styles.buttonPressed
-              ]}
-            >
-              <Icon source="plus" size={20} color={isMaxStockReached ? colors.textMuted : colors.primary} />
-            </Pressable>
-          </View>
+          <QuantityStepper itemName={item.name} quantity={quantity} maximum={stockQty} onIncrement={onAdd} onDecrement={onRemove} />
         )}
       </View>
     </View>
@@ -354,31 +327,7 @@ const CartItem = memo(({
           )}
         </View>
 
-        <View style={styles.counterRow}>
-          <Pressable 
-            onPress={() => onUpdateQuantity(quantity - 1)}
-            style={({ pressed }) => [
-              styles.qtyButton,
-              pressed && styles.buttonPressed
-            ]}
-          >
-            <Icon source="minus" size={18} color={colors.primary} />
-          </Pressable>
-          <View style={styles.qtyDisplay}>
-            <Text style={styles.qtyText}>{quantity}</Text>
-          </View>
-          <Pressable 
-            onPress={() => onUpdateQuantity(quantity + 1)}
-            disabled={quantity >= (item.availableStock ?? 0)}
-            style={({ pressed }) => [
-              styles.qtyButton,
-              quantity >= (item.availableStock ?? 0) && styles.disabledQtyButton,
-              pressed && quantity < (item.availableStock ?? 0) && styles.buttonPressed
-            ]}
-          >
-            <Icon source="plus" size={18} color={quantity >= (item.availableStock ?? 0) ? colors.textMuted : colors.primary} />
-          </Pressable>
-        </View>
+        <QuantityStepper compact itemName={item.name} quantity={quantity} maximum={Number(item.availableStock ?? 0)} onIncrement={() => onUpdateQuantity(quantity + 1)} onDecrement={() => onUpdateQuantity(quantity - 1)} />
 
         <View style={styles.cartItemRight}>
           <Text style={styles.cartItemSubtotal}>{money(quantity * currentRate)}</Text>

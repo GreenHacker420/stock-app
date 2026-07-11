@@ -32,6 +32,7 @@ import { KeyboardAwareScreen } from "../../components/keyboard/KeyboardAwareScre
 import { shareSaleInvoicePdf } from "../../utils/pdf";
 import { useNetworkStatus } from "../../hooks/useNetworkStatus";
 import { requireActiveShopId } from "../../hooks/useActiveShop";
+import { QuantityStepper } from "../../features/sales/create/components/QuantityStepper";
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 const internetRequiredMessage = "Internet connection required. Please connect to the internet to complete this action.";
@@ -161,35 +162,7 @@ const SaleItemCard = memo(({
             </Text>
           </Pressable>
         ) : (
-          <View style={styles.counterRow}>
-            <Pressable 
-              onPressIn={startDecrement}
-              onPressOut={stopDecrement}
-              style={({ pressed }) => [
-                styles.qtyButton,
-                pressed && styles.buttonPressed
-              ]}
-            >
-              <Icon source="minus" size={20} color={colors.primary} />
-            </Pressable>
-            
-            <View style={styles.qtyDisplay}>
-              <Text style={styles.qtyText}>{quantity}</Text>
-            </View>
-            
-            <Pressable 
-              onPressIn={startIncrement}
-              onPressOut={stopIncrement}
-              disabled={isMaxStockReached}
-              style={({ pressed }) => [
-                styles.qtyButton,
-                isMaxStockReached && styles.disabledQtyButton,
-                pressed && !isMaxStockReached && styles.buttonPressed
-              ]}
-            >
-              <Icon source="plus" size={20} color={isMaxStockReached ? colors.textMuted : colors.primary} />
-            </Pressable>
-          </View>
+          <QuantityStepper itemName={item.name} quantity={quantity} maximum={stockQty} onIncrement={onAdd} onDecrement={onRemove} />
         )}
       </View>
     </View>
@@ -324,31 +297,7 @@ const SwipeableCartItem = memo(({
           </Pressable>
         </View>
 
-        <View style={styles.counterRow}>
-          <Pressable 
-            onPress={() => onUpdateQuantity(quantity - 1)}
-            style={({ pressed }) => [
-              styles.qtyButton,
-              pressed && styles.buttonPressed
-            ]}
-          >
-            <Icon source="minus" size={18} color={colors.primary} />
-          </Pressable>
-          <View style={styles.qtyDisplay}>
-            <Text style={styles.qtyText}>{quantity}</Text>
-          </View>
-          <Pressable 
-            onPress={() => onUpdateQuantity(quantity + 1)}
-            disabled={quantity >= (item.availableStock ?? 0)}
-            style={({ pressed }) => [
-              styles.qtyButton,
-              quantity >= (item.availableStock ?? 0) && styles.disabledQtyButton,
-              pressed && quantity < (item.availableStock ?? 0) && styles.buttonPressed
-            ]}
-          >
-            <Icon source="plus" size={18} color={quantity >= (item.availableStock ?? 0) ? colors.textMuted : colors.primary} />
-          </Pressable>
-        </View>
+        <QuantityStepper compact itemName={item.name} quantity={quantity} maximum={Number(item.availableStock ?? 0)} onIncrement={() => onUpdateQuantity(quantity + 1)} onDecrement={() => onUpdateQuantity(quantity - 1)} />
 
         <View style={styles.cartItemRight}>
           <Text style={styles.cartItemSubtotal}>{money(quantity * currentRate)}</Text>
@@ -460,6 +409,7 @@ const SwipeableCartItem = memo(({
 export function RegularSale() {
   const navigation = useNavigation<any>();
   const { activeShopId } = useShopStore();
+  const [draftShopId, setDraftShopId] = useState(() => requireActiveShopId(activeShopId));
   const token = useAuthStore((state) => state.token);
   const user = useAuthStore((state) => state.user);
   const network = useNetworkStatus();
@@ -492,10 +442,11 @@ export function RegularSale() {
   const [notes, setNotes] = useState("");
   const [isGstSale, setIsGstSale] = useState(false);
   const [customerSignature, setCustomerSignature] = useState<string | undefined>();
+  const [draftSignature, setDraftSignature] = useState<string | undefined>();
+  const [signatureFingerprint, setSignatureFingerprint] = useState<string | null>(null);
   const [isSignatureModalVisible, setIsSignatureModalVisible] = useState(false);
   const [skuScannerVisible, setSkuScannerVisible] = useState(false);
   const [signatureKey, setSignatureKey] = useState(0);
-  const [scrollEnabled, setScrollEnabled] = useState(true);
 
   const customersQuery = useCustomersQuery({
     search: debouncedCustomerSearch,
@@ -561,7 +512,28 @@ export function RegularSale() {
   const balance = effectivePaidAmount === null
     ? cartTotal
     : Math.max(0, cartTotal - effectivePaidAmount);
-  const isCredit = paymentType === "CREDIT" || balance > 0.01;
+  const isCredit = balance > 0.01;
+  const isCreditUpfrontWithinBounds = paymentType !== "CREDIT" || (effectivePaidAmount !== null && effectivePaidAmount <= cartTotal);
+  const creditTransactionFingerprint = useMemo(
+    () => JSON.stringify({
+      customerId,
+      total: cartTotal,
+      paid: effectivePaidAmount,
+      credit: balance,
+      lines: cartArray
+        .map((line) => [line.item.id, line.quantity, line.customRate ?? line.item.defaultSellingPrice, line.serialNumbers ?? []])
+        .sort((left, right) => String(left[0]).localeCompare(String(right[0]))),
+    }),
+    [balance, cartArray, cartTotal, customerId, effectivePaidAmount],
+  );
+  const isCreditAuthorizationCurrent = Boolean(
+    customerSignature && signatureFingerprint === creditTransactionFingerprint,
+  );
+  const openSignatureModal = useCallback(() => {
+    setDraftSignature(customerSignature);
+    setSignatureKey((previous) => previous + 1);
+    setIsSignatureModalVisible(true);
+  }, [customerSignature]);
 
   const updateQuantity = useCallback((item: Item, delta: number) => {
     setCart(prev => {
@@ -590,7 +562,7 @@ export function RegularSale() {
 
       // 2. If not found locally, fetch from backend
       if (!found) {
-        const res = await fetchItems(token ?? "", activeShopId ?? "", { search: sku, limit: 1 });
+        const res = await fetchItems(token ?? "", draftShopId, { search: sku, limit: 1 });
         found = res.items?.find(i => i.sku === sku || i.name === sku);
       }
 
@@ -603,19 +575,27 @@ export function RegularSale() {
     } catch (err: any) {
       return { success: false, name: "", msg: err.message || "Failed to lookup product" };
     }
-  }, [displayItems, token, activeShopId, updateQuantity]);
+  }, [displayItems, token, draftShopId, updateQuantity]);
 
   const saleMutation = useCreateSaleMutation();
 
   const handleCompleteSale = () => {
     if (saleMutation.isPending) return;
     if (!activeShopId) return;
+    if (activeShopId !== draftShopId) {
+      Alert.alert("Shop Changed", "This sale was started in another shop. Discard it and start a new sale before submitting.");
+      return;
+    }
     if (network.isOffline) {
       Alert.alert("Internet required", internetRequiredMessage);
       return;
     }
     if (!isAmountPaidValid || effectivePaidAmount === null) {
       Alert.alert("Invalid Payment", "Enter a valid non-negative amount received.");
+      return;
+    }
+    if (!isCreditUpfrontWithinBounds) {
+      Alert.alert("Invalid Credit Payment", "Upfront payment cannot exceed the sale total.");
       return;
     }
 
@@ -661,7 +641,7 @@ export function RegularSale() {
       payments: payments.length > 0 ? payments : undefined,
       notes: notes || undefined,
       gstRequired: isGstSale,
-      customerSignature,
+      customerSignature: isCreditAuthorizationCurrent ? customerSignature : undefined,
     };
 
     saleMutation.mutate(payload, {
@@ -685,7 +665,7 @@ export function RegularSale() {
     );
   }, [cartArray]);
 
-  const isFormValid = Boolean(customerId) && cartArray.length > 0 && !hasMissingPrice && isAmountPaidValid && effectivePaidAmount !== null && (!isCredit || !!customerSignature) && isSerialsComplete;
+  const isFormValid = Boolean(customerId) && cartArray.length > 0 && !hasMissingPrice && isAmountPaidValid && effectivePaidAmount !== null && isCreditUpfrontWithinBounds && (!isCredit || isCreditAuthorizationCurrent) && isSerialsComplete;
 
   const FlashListAny = FlashList as any;
 
@@ -693,7 +673,6 @@ export function RegularSale() {
     if (currentStep === 2) {
       setCurrentStep(1);
     } else if (currentStep === 3) {
-      setScrollEnabled(true);
       setCurrentStep(2);
     } else {
       if (navigation.canGoBack()) {
@@ -755,7 +734,6 @@ export function RegularSale() {
 
         <KeyboardAwareScreen
           style={styles.scrollView}
-          scrollEnabled={scrollEnabled} 
           showsVerticalScrollIndicator={false} 
           contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom > 0 ? insets.bottom + 110 : 120 }]}
         >
@@ -1084,6 +1062,9 @@ export function RegularSale() {
                       outlineStyle={styles.inputOutline}
                       left={<TextInput.Affix text="₹ " />}
                     />
+                    {!isCreditUpfrontWithinBounds ? (
+                      <Text style={styles.rateErrorText}>Upfront payment cannot exceed {money(cartTotal)}.</Text>
+                    ) : null}
                     <View style={styles.suggestionsRow}>
                       <Pressable onPress={() => setAmountPaid(String(cartTotal))} style={styles.suggestionPill}>
                         <Text style={styles.suggestionPillText}>Exact</Text>
@@ -1128,7 +1109,7 @@ export function RegularSale() {
                     <Text style={styles.signatureSub}>Amount being credited: {money(balance)}</Text>
                   </View>
                   
-                  {customerSignature ? (
+                  {isCreditAuthorizationCurrent ? (
                     <View style={styles.signatureCapturedContainer}>
                       <View style={styles.signatureCapturedRow}>
                         <Icon source="check-circle" size={20} color={colors.success} />
@@ -1140,7 +1121,7 @@ export function RegularSale() {
                           variant="ghost" 
                           size="sm"
                           icon={<Icon source="pencil" size={16} color={colors.textPrimary} />}
-                          onPress={() => setIsSignatureModalVisible(true)}
+                          onPress={openSignatureModal}
                           style={{ flex: 1 }}
                         />
                       </View>
@@ -1151,7 +1132,7 @@ export function RegularSale() {
                         label="DRAW CUSTOMER SIGNATURE"
                         variant="primary"
                         icon={<Icon source="pencil" size={18} color="white" />}
-                        onPress={() => setIsSignatureModalVisible(true)}
+                        onPress={openSignatureModal}
                         fullWidth
                       />
                     </View>
@@ -1203,7 +1184,7 @@ export function RegularSale() {
                       isWalkin: false,
                       createdAt: new Date().toISOString(),
                       customer: selectedCustomer,
-                      customerSignature: customerSignature,
+                      customerSignature: isCreditAuthorizationCurrent ? customerSignature : undefined,
                       items: cartArray.map(i => ({
                         id: i.item.id,
                         quantity: String(i.quantity),
@@ -1236,7 +1217,7 @@ export function RegularSale() {
                         isWalkin: false,
                         createdAt: new Date().toISOString(),
                         customer: selectedCustomer,
-                        customerSignature: customerSignature,
+                        customerSignature: isCreditAuthorizationCurrent ? customerSignature : undefined,
                         items: cartArray.map(i => ({
                           id: i.item.id,
                           quantity: String(i.quantity),
@@ -1252,7 +1233,7 @@ export function RegularSale() {
                         }] : []
                       },
                       shop: activeShop,
-                      signatureBase64: customerSignature,
+                      signatureBase64: isCreditAuthorizationCurrent ? customerSignature : undefined,
                     });
                   }}
                   style={styles.halfBtn}
@@ -1271,10 +1252,12 @@ export function RegularSale() {
                   setAmountPaid("");
                   setNotes("");
                   setCustomerSignature(undefined);
+                  setDraftSignature(undefined);
+                  setSignatureFingerprint(null);
+                  setDraftShopId(requireActiveShopId(activeShopId));
                   setSignatureKey(prev => prev + 1);
                   setIsGstSale(false);
                   saleMutation.reset();
-                  setScrollEnabled(true);
                   setCurrentStep(1);
                 }}
                 style={styles.newSaleBtn}
@@ -1356,15 +1339,17 @@ export function RegularSale() {
         visible={isSignatureModalVisible}
         animationType="fade"
         transparent={true}
-        onRequestClose={() => setIsSignatureModalVisible(false)}
+        onRequestClose={() => {
+          setDraftSignature(undefined);
+          setIsSignatureModalVisible(false);
+        }}
       >
         <View style={styles.modalFullScreenContainer}>
           <SignaturePad 
             key={signatureKey}
             hideHeaderFooter={true}
-            onSave={setCustomerSignature} 
-            onClear={() => setCustomerSignature(undefined)} 
-            onDrawingStateChange={(isDrawing) => setScrollEnabled(!isDrawing)}
+            onSave={setDraftSignature}
+            onClear={() => setDraftSignature(undefined)}
           />
 
           <View style={styles.floatingHeader}>
@@ -1373,20 +1358,23 @@ export function RegularSale() {
               <Text style={styles.floatingSubtitle}>Amount: {money(balance)}</Text>
             </View>
             <Pressable 
-              onPress={() => setIsSignatureModalVisible(false)} 
+              onPress={() => {
+                setDraftSignature(undefined);
+                setIsSignatureModalVisible(false);
+              }}
               style={styles.floatingCloseBtn}
             >
               <Icon source="close" size={24} color={colors.textPrimary} />
             </Pressable>
           </View>
 
-          {customerSignature ? (
+          {draftSignature ? (
             <View style={styles.floatingBottomBar}>
               <Button
                 label="CLEAR"
                 variant="ghost"
                 onPress={() => {
-                  setCustomerSignature(undefined);
+                  setDraftSignature(undefined);
                   setSignatureKey(prev => prev + 1);
                 }}
                 style={styles.floatingBtnClear}
@@ -1395,7 +1383,11 @@ export function RegularSale() {
                 label="SAVE & CONTINUE"
                 variant="success"
                 icon={<Icon source="check" size={18} color="white" />}
-                onPress={() => setIsSignatureModalVisible(false)}
+                onPress={() => {
+                  setCustomerSignature(draftSignature);
+                  setSignatureFingerprint(creditTransactionFingerprint);
+                  setIsSignatureModalVisible(false);
+                }}
                 style={styles.floatingBtnContinue}
               />
             </View>
