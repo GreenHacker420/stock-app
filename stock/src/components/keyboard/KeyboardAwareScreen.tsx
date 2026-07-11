@@ -1,5 +1,5 @@
 import { forwardRef } from "react";
-import { Platform, type ScrollViewProps } from "react-native";
+import { Platform, StyleSheet, type ScrollViewProps } from "react-native";
 import {
   KeyboardAwareScrollView,
   type KeyboardAwareScrollViewRef,
@@ -32,6 +32,7 @@ export const KeyboardAwareScreen = forwardRef<
     keyboardShouldPersistTaps = "handled",
     keyboardDismissMode = Platform.OS === "ios" ? "interactive" : "on-drag",
     showsVerticalScrollIndicator = false,
+    style,
     ...props
   },
   ref,
@@ -48,6 +49,7 @@ export const KeyboardAwareScreen = forwardRef<
     <KeyboardAwareScrollView
       ref={ref}
       {...props}
+      style={[styles.container, style]}
       enabled={enabled}
       mode={mode}
       bottomOffset={resolvedBottomOffset}
@@ -59,3 +61,8 @@ export const KeyboardAwareScreen = forwardRef<
   );
 });
 
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+});

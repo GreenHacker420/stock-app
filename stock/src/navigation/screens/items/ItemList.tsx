@@ -27,6 +27,7 @@ import { navigate } from "../../navigation-ref";
 import { triggerLightHaptic } from "../../../utils/haptics";
 import { STOCK_MOVEMENT_PERMISSION, hasPermission } from "../../../utils/items/permissions";
 import { parseAmount } from "../../../utils/items/validation";
+import { KeyboardAwareListScrollComponent } from "../../../components/keyboard/KeyboardAwareListScrollComponent";
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 const FlashListAny = FlashList as any;
@@ -692,6 +693,7 @@ export function ItemList() {
       ) : (
         <View style={{ flex: 1 }}>
           <FlashListAny
+            renderScrollComponent={KeyboardAwareListScrollComponent}
             data={displayItems}
             keyExtractor={(item: any) => item.id}
             onRefresh={() => {
