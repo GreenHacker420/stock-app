@@ -1,18 +1,26 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import {
-  Animated,
   Modal,
   Pressable,
   StyleSheet,
   View,
   TextInput as RNTextInput,
-  KeyboardAvoidingView,
   Platform,
   Dimensions,
+  useWindowDimensions,
 } from "react-native";
 import { Icon, Text, TextInput } from "react-native-paper";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../../../theme";
 import { parseMoneyToMinor } from "../core/sale-calculations";
+import { AppKeyboardAvoidingView } from "../../../../components/ui/AppKeyboardAvoidingView";
+import { GestureDetector, Gesture, GestureHandlerRootView } from "react-native-gesture-handler";
+import Reanimated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+  runOnJS,
+} from "react-native-reanimated";
 
 interface PriceEditorSheetProps {
   visible: boolean;
@@ -39,30 +47,86 @@ export function PriceEditorSheet({
 }: PriceEditorSheetProps) {
   const [rateInput, setRateInput] = useState(String(currentPrice));
   const [rateError, setRateError] = useState<string | null>(null);
+  const [renderModal, setRenderModal] = useState(false);
+  const { height: windowHeight } = useWindowDimensions();
 
-  const slideAnim = useRef(new Animated.Value(Dimensions.get("window").height)).current;
   const inputRef = useRef<RNTextInput | null>(null);
+
+  const translateY = useSharedValue(windowHeight);
+  const backdropOpacity = useSharedValue(0);
+  const closing = useSharedValue(false);
+
+  const finalizeDismiss = useCallback(() => {
+    setRenderModal(false);
+    onClose();
+  }, [onClose]);
+
+  const beginDismiss = useCallback(() => {
+    closing.value = true;
+    translateY.value = withTiming(windowHeight, { duration: 180 }, (finished) => {
+      if (finished) runOnJS(finalizeDismiss)();
+    });
+    backdropOpacity.value = withTiming(0, { duration: 150 });
+  }, [finalizeDismiss, windowHeight]);
 
   useEffect(() => {
     if (visible) {
       setRateInput(String(currentPrice));
       setRateError(null);
-      Animated.timing(slideAnim, {
-        toValue: 0,
-        duration: 250,
-        useNativeDriver: true,
-      }).start(() => {
-        // Safe timeout to let transition finish before focusing
-        setTimeout(() => inputRef.current?.focus(), 50);
-      });
+      setRenderModal(true);
+      closing.value = false;
+      translateY.value = windowHeight;
+      backdropOpacity.value = 0;
+      translateY.value = withSpring(0, { damping: 26, stiffness: 220, overshootClamping: true });
+      backdropOpacity.value = withTiming(1, { duration: 200 });
+
+      // Safe timeout to let transition finish before focusing
+      const timer = setTimeout(() => inputRef.current?.focus(), 250);
+      return () => clearTimeout(timer);
     } else {
-      Animated.timing(slideAnim, {
-        toValue: Dimensions.get("window").height,
-        duration: 200,
-        useNativeDriver: true,
-      }).start();
+      if (renderModal) beginDismiss();
     }
-  }, [visible, currentPrice, slideAnim]);
+  }, [visible, currentPrice, windowHeight]);
+
+  const panGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetY(10)
+        .failOffsetX([-15, 15])
+        .onUpdate((event) => {
+          translateY.value = Math.max(0, event.translationY);
+        })
+        .onEnd((event) => {
+          if (event.translationY > 100 || event.velocityY > 500) {
+            closing.value = true;
+            translateY.value = withTiming(windowHeight, { duration: 180 }, (finished) => {
+              if (finished) runOnJS(finalizeDismiss)();
+            });
+            backdropOpacity.value = withTiming(0, { duration: 150 });
+          } else {
+            translateY.value = withSpring(0, { damping: 26, stiffness: 220, overshootClamping: true });
+          }
+        })
+        .onFinalize((_event, success) => {
+          if (!success && !closing.value) {
+            translateY.value = withSpring(0, { damping: 26, stiffness: 220, overshootClamping: true });
+          }
+        }),
+    [windowHeight, finalizeDismiss]
+  );
+
+  const backdropStyle = useAnimatedStyle(() => {
+    const dragProgress = Math.min(translateY.value / windowHeight, 1);
+    return {
+      opacity: backdropOpacity.value * (1 - dragProgress * 0.65),
+    };
+  });
+
+  const sheetStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ translateY: translateY.value }],
+    };
+  });
 
   const validate = (val: string) => {
     const valTrim = val.trim();
@@ -104,167 +168,169 @@ export function PriceEditorSheet({
       } else {
         onSave(numericVal);
       }
-      onClose();
+      beginDismiss();
     }
   };
 
   const handleReset = () => {
     setRateInput(String(defaultPrice));
     setRateError(null);
-    // Autofocus back to input
     inputRef.current?.focus();
   };
 
   const isSaveDisabled =
     !!rateError ||
     !rateInput.trim() ||
-    parseMoneyToMinor(rateInput.trim()) === parseMoneyToMinor(currentPrice);
+    parseMoneyToMinor(rateInput.trim()) === parseMoneyToMinor(String(currentPrice));
 
   return (
     <Modal
-      visible={visible}
+      visible={renderModal}
       transparent
       animationType="none"
-      onRequestClose={onClose}
+      onRequestClose={beginDismiss}
+      statusBarTranslucent
     >
-      <View style={styles.overlay}>
-        <Pressable style={styles.backdrop} onPress={onClose} />
-        <KeyboardAvoidingView
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-          style={styles.avoidingView}
-        >
-          <Animated.View
-            style={[
-              styles.sheetContainer,
-              { transform: [{ translateY: slideAnim }] },
-            ]}
-          >
-            {/* Header */}
-            <View style={styles.header}>
-              <View>
-                <Text style={styles.title}>Edit Price</Text>
-                <Text style={styles.subtitle} numberOfLines={1}>
-                  {itemName}
-                </Text>
-              </View>
-              <Pressable
-                onPress={onClose}
-                hitSlop={12}
-                accessibilityRole="button"
-                accessibilityLabel="Close sheet"
-                style={styles.closeButton}
-              >
-                <Icon source="close" size={24} color={colors.textSecondary} />
-              </Pressable>
-            </View>
+      <GestureHandlerRootView style={styles.gestureRoot} unstable_forceActive>
+        <AppKeyboardAvoidingView style={styles.overlay}>
+          <Reanimated.View style={[styles.backdropContainer, backdropStyle]}>
+            <Pressable style={styles.backdropPressable} onPress={beginDismiss} />
+          </Reanimated.View>
+          <GestureDetector gesture={panGesture}>
+            <Reanimated.View style={[styles.sheetContainer, sheetStyle]}>
+                {/* Drag Handle */}
+                <View style={styles.handle} />
 
-            {/* Info Grid */}
-            <View style={styles.grid}>
-              <View style={styles.gridCell}>
-                <Text style={styles.gridLabel}>MRP</Text>
-                <Text style={styles.gridValue}>
-                  {mrp !== undefined && mrp > 0
-                    ? `₹${mrp.toLocaleString("en-IN")}`
-                    : "N/A"}
-                </Text>
-              </View>
-              <View style={styles.gridCell}>
-                <Text style={styles.gridLabel}>Selling Price</Text>
-                <Text style={styles.gridValue}>
-                  ₹{defaultPrice.toLocaleString("en-IN")}
-                </Text>
-              </View>
-              <View style={styles.gridCell}>
-                <Text style={styles.gridLabel}>Min Price</Text>
-                <Text style={styles.gridValue}>
-                  ₹{minimumPrice.toLocaleString("en-IN")}
-                </Text>
-              </View>
-            </View>
-
-            {/* Input Section */}
-            <View style={styles.inputContainer}>
-              <TextInput
-                ref={(ref: any) => {
-                  inputRef.current = ref;
-                }}
-                mode="outlined"
-                label="New Selling Price"
-                value={rateInput}
-                onChangeText={handleTextChange}
-                keyboardType="decimal-pad"
-                outlineStyle={styles.inputOutline}
-                left={<TextInput.Affix text="₹ " />}
-                error={!!rateError}
-                style={styles.input}
-              />
-              {rateError && <Text style={styles.errorText}>{rateError}</Text>}
-            </View>
-
-            {/* Actions Stack — Anti-wrapping layout */}
-            <View style={styles.actionContainer}>
-              <Pressable
-                onPress={handleReset}
-                disabled={parseMoneyToMinor(rateInput.trim()) === parseMoneyToMinor(defaultPrice)}
-                accessibilityRole="button"
-                accessibilityLabel="Reset to default price"
-                style={({ pressed }) => [
-                  styles.resetBtn,
-                  parseMoneyToMinor(rateInput.trim()) === parseMoneyToMinor(defaultPrice) &&
-                    styles.disabledBtn,
-                  pressed && styles.pressed,
-                ]}
-              >
-                <Text style={styles.resetBtnText}>Reset to Default</Text>
-              </Pressable>
-
-              <View style={styles.footerRow}>
-                <Pressable
-                  onPress={onClose}
-                  accessibilityRole="button"
-                  accessibilityLabel="Cancel price editing"
-                  style={({ pressed }) => [styles.cancelBtn, pressed && styles.pressed]}
-                >
-                  <Text style={styles.cancelBtnText}>Cancel</Text>
-                </Pressable>
-
-                <Pressable
-                  onPress={handleSave}
-                  disabled={isSaveDisabled}
-                  accessibilityRole="button"
-                  accessibilityLabel="Save new price"
-                  style={({ pressed }) => [
-                    styles.saveBtn,
-                    isSaveDisabled && styles.disabledBtn,
-                    pressed && !isSaveDisabled && styles.pressed,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.saveBtnText,
-                      isSaveDisabled && styles.saveBtnTextDisabled,
-                    ]}
+                {/* Header */}
+                <View style={styles.header}>
+                  <View>
+                    <Text style={styles.title}>Edit Price</Text>
+                    <Text style={styles.subtitle} numberOfLines={1}>
+                      {itemName}
+                    </Text>
+                  </View>
+                  <Pressable
+                    onPress={beginDismiss}
+                    hitSlop={12}
+                    accessibilityRole="button"
+                    accessibilityLabel="Close sheet"
+                    style={styles.closeButton}
                   >
-                    Save Price
-                  </Text>
-                </Pressable>
-              </View>
-            </View>
-          </Animated.View>
-        </KeyboardAvoidingView>
-      </View>
-    </Modal>
+                    <Icon source="close" size={24} color={colors.textSecondary} />
+                  </Pressable>
+                </View>
+
+                {/* Info Grid */}
+                <View style={styles.grid}>
+                  <View style={styles.gridCell}>
+                    <Text style={styles.gridLabel}>MRP</Text>
+                    <Text style={styles.gridValue}>
+                      {mrp !== undefined && mrp > 0
+                        ? `₹${mrp.toLocaleString("en-IN")}`
+                        : "N/A"}
+                    </Text>
+                  </View>
+                  <View style={styles.gridCell}>
+                    <Text style={styles.gridLabel}>Selling Price</Text>
+                    <Text style={styles.gridValue}>
+                      ₹{defaultPrice.toLocaleString("en-IN")}
+                    </Text>
+                  </View>
+                  <View style={styles.gridCell}>
+                    <Text style={styles.gridLabel}>Min Price</Text>
+                    <Text style={styles.gridValue}>
+                      ₹{minimumPrice.toLocaleString("en-IN")}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Input Section */}
+                <View style={styles.inputContainer}>
+                  <TextInput
+                    ref={(ref: any) => {
+                      inputRef.current = ref;
+                    }}
+                    mode="outlined"
+                    label="New Selling Price"
+                    value={rateInput}
+                    onChangeText={handleTextChange}
+                    keyboardType="decimal-pad"
+                    outlineStyle={styles.inputOutline}
+                    left={<TextInput.Icon icon="currency-inr" />}
+                    style={styles.input}
+                    error={!!rateError}
+                  />
+                  {rateError && <Text style={styles.errorText}>{rateError}</Text>}
+                </View>
+
+                {/* Action buttons (vertical layout to prevent Canc/el text wrapping) */}
+                <View style={styles.actionContainer}>
+                  <Pressable
+                    onPress={handleReset}
+                    style={({ pressed }) => [styles.resetBtn, pressed && styles.pressed]}
+                    accessibilityRole="button"
+                    accessibilityLabel="Reset price to default selling price"
+                  >
+                    <Text style={styles.resetBtnText}>Reset to Default</Text>
+                  </Pressable>
+
+                  <View style={styles.footerRow}>
+                    <Pressable
+                      onPress={beginDismiss}
+                      style={({ pressed }) => [styles.cancelBtn, pressed && styles.pressed]}
+                      accessibilityRole="button"
+                      accessibilityLabel="Cancel editing"
+                    >
+                      <Text style={styles.cancelBtnText}>Cancel</Text>
+                    </Pressable>
+
+                    <Pressable
+                      disabled={isSaveDisabled}
+                      onPress={handleSave}
+                      style={({ pressed }) => [
+                        styles.saveBtn,
+                        isSaveDisabled && styles.disabledBtn,
+                        pressed && !isSaveDisabled && styles.pressed,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.saveBtnText,
+                          isSaveDisabled && styles.saveBtnTextDisabled,
+                        ]}
+                      >
+                        Save Price
+                      </Text>
+                    </Pressable>
+                  </View>
+                </View>
+              </Reanimated.View>
+            </GestureDetector>
+          </AppKeyboardAvoidingView>
+        </GestureHandlerRootView>
+      </Modal>
   );
 }
 
 const styles = StyleSheet.create({
+  gestureRoot: {
+    flex: 1,
+  },
   overlay: {
     flex: 1,
     justifyContent: "flex-end",
-    backgroundColor: colors.overlay,
   },
-  backdrop: {
-    ...StyleSheet.absoluteFill,
+  backdropContainer: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: "rgba(0,0,0,0.45)",
+  },
+  backdropPressable: {
+    width: "100%",
+    height: "100%",
   },
   avoidingView: {
     width: "100%",
@@ -274,9 +340,18 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: radius.xl,
     borderTopRightRadius: radius.xl,
     paddingHorizontal: spacing.lg,
-    paddingTop: spacing.lg,
+    paddingTop: spacing.xs,
     paddingBottom: Platform.OS === "ios" ? spacing.xxl + 8 : spacing.xl,
     ...shadow.lg,
+  },
+  handle: {
+    width: 36,
+    height: 4,
+    borderRadius: radius.full,
+    backgroundColor: colors.border,
+    alignSelf: "center",
+    marginTop: spacing.sm,
+    marginBottom: spacing.md,
   },
   header: {
     flexDirection: "row",

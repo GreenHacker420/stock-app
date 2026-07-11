@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import {
   Animated,
   Dimensions,
@@ -8,13 +8,22 @@ import {
   ScrollView,
   StyleSheet,
   View,
-  KeyboardAvoidingView,
+  useWindowDimensions,
 } from "react-native";
 import { Divider, Icon, List, Text, TextInput } from "react-native-paper";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../../../theme";
 import { AppSearchBar } from "../../../../components/ui/AppSearchBar";
 import { Button } from "../../../../components/ui/Button";
 import type { Customer } from "../../../../api/client";
+import { AppKeyboardAvoidingView } from "../../../../components/ui/AppKeyboardAvoidingView";
+import { GestureDetector, Gesture, GestureHandlerRootView } from "react-native-gesture-handler";
+import Reanimated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+  runOnJS,
+} from "react-native-reanimated";
 
 interface CustomerSelectorProps {
   mode: "REGULAR" | "WALK_IN";
@@ -55,6 +64,78 @@ export function CustomerSelector({
   isOffline = false,
 }: CustomerSelectorProps) {
   const [detailsModalVisible, setDetailsModalVisible] = useState(false);
+  const [renderModal, setRenderModal] = useState(false);
+  const { height: windowHeight } = useWindowDimensions();
+
+  const translateY = useSharedValue(windowHeight);
+  const backdropOpacity = useSharedValue(0);
+  const closing = useSharedValue(false);
+
+  const finalizeDismiss = useCallback(() => {
+    setRenderModal(false);
+    setDetailsModalVisible(false);
+  }, []);
+
+  const beginDismiss = useCallback(() => {
+    closing.value = true;
+    translateY.value = withTiming(windowHeight, { duration: 180 }, (finished) => {
+      if (finished) runOnJS(finalizeDismiss)();
+    });
+    backdropOpacity.value = withTiming(0, { duration: 150 });
+  }, [finalizeDismiss, windowHeight]);
+
+  useEffect(() => {
+    if (detailsModalVisible) {
+      setRenderModal(true);
+      closing.value = false;
+      translateY.value = windowHeight;
+      backdropOpacity.value = 0;
+      translateY.value = withSpring(0, { damping: 26, stiffness: 220, overshootClamping: true });
+      backdropOpacity.value = withTiming(1, { duration: 200 });
+    } else {
+      if (renderModal) beginDismiss();
+    }
+  }, [detailsModalVisible, windowHeight]);
+
+  const panGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .activeOffsetY(10)
+        .failOffsetX([-15, 15])
+        .onUpdate((event) => {
+          translateY.value = Math.max(0, event.translationY);
+        })
+        .onEnd((event) => {
+          if (event.translationY > 100 || event.velocityY > 500) {
+            closing.value = true;
+            translateY.value = withTiming(windowHeight, { duration: 180 }, (finished) => {
+              if (finished) runOnJS(finalizeDismiss)();
+            });
+            backdropOpacity.value = withTiming(0, { duration: 150 });
+          } else {
+            translateY.value = withSpring(0, { damping: 26, stiffness: 220, overshootClamping: true });
+          }
+        })
+        .onFinalize((_event, success) => {
+          if (!success && !closing.value) {
+            translateY.value = withSpring(0, { damping: 26, stiffness: 220, overshootClamping: true });
+          }
+        }),
+    [windowHeight, finalizeDismiss]
+  );
+
+  const backdropStyle = useAnimatedStyle(() => {
+    const dragProgress = Math.min(translateY.value / windowHeight, 1);
+    return {
+      opacity: backdropOpacity.value * (1 - dragProgress * 0.65),
+    };
+  });
+
+  const sheetStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ translateY: translateY.value }],
+    };
+  });
 
   // Derive Walk-in display text
   const walkInSummary = () => {
@@ -110,36 +191,37 @@ export function CustomerSelector({
 
         {/* Walk-in Customer Details Modal */}
         <Modal
-          visible={detailsModalVisible}
+          visible={renderModal}
           transparent
-          animationType="slide"
-          onRequestClose={() => setDetailsModalVisible(false)}
+          animationType="none"
+          onRequestClose={beginDismiss}
         >
-          <View style={styles.modalOverlay}>
-            <Pressable style={styles.backdrop} onPress={() => setDetailsModalVisible(false)} />
-            <KeyboardAvoidingView
-              behavior={Platform.OS === "ios" ? "padding" : undefined}
-              style={styles.modalAvoidingView}
-            >
-              <View style={styles.modalContent}>
-                {/* Modal Header */}
-                <View style={styles.modalHeader}>
-                  <Text style={styles.modalTitle}>Customer Details</Text>
-                  <Pressable
-                    onPress={() => setDetailsModalVisible(false)}
-                    hitSlop={12}
-                    accessibilityRole="button"
-                    style={styles.closeBtn}
-                  >
-                    <Icon source="close" size={24} color={colors.textSecondary} />
-                  </Pressable>
-                </View>
+          <GestureHandlerRootView style={styles.gestureRoot} unstable_forceActive>
+            <AppKeyboardAvoidingView style={styles.modalOverlay}>
+              <Reanimated.View style={[styles.backdropContainer, backdropStyle]}>
+                <Pressable style={styles.backdropPressable} onPress={beginDismiss} />
+              </Reanimated.View>
+              <GestureDetector gesture={panGesture}>
+                <Reanimated.View style={[styles.modalContent, sheetStyle]}>
+                    <View style={styles.handle} />
+                    {/* Modal Header */}
+                    <View style={styles.modalHeader}>
+                      <Text style={styles.modalTitle}>Customer Details</Text>
+                      <Pressable
+                        onPress={beginDismiss}
+                        hitSlop={12}
+                        accessibilityRole="button"
+                        style={styles.closeBtn}
+                      >
+                        <Icon source="close" size={24} color={colors.textSecondary} />
+                      </Pressable>
+                    </View>
 
-                <ScrollView
-                  keyboardShouldPersistTaps="handled"
-                  showsVerticalScrollIndicator={false}
-                  contentContainerStyle={styles.modalScroll}
-                >
+                    <ScrollView
+                      keyboardShouldPersistTaps="handled"
+                      showsVerticalScrollIndicator={false}
+                      contentContainerStyle={styles.modalScroll}
+                    >
                   {/* Search Existing */}
                   {!selectedCustomer && (
                     <View style={styles.searchSection}>
@@ -278,9 +360,10 @@ export function CustomerSelector({
                     <Text style={styles.footerSaveBtnText}>Confirm Details</Text>
                   </Pressable>
                 </View>
-              </View>
-            </KeyboardAvoidingView>
-          </View>
+                </Reanimated.View>
+              </GestureDetector>
+            </AppKeyboardAvoidingView>
+          </GestureHandlerRootView>
         </Modal>
       </View>
     );
@@ -448,11 +531,32 @@ const styles = StyleSheet.create({
   pressed: {
     opacity: 0.7,
   },
+  gestureRoot: {
+    flex: 1,
+  },
+  backdropContainer: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
+  },
+  backdropPressable: {
+    width: "100%",
+    height: "100%",
+  },
+  handle: {
+    width: 36,
+    height: 4,
+    borderRadius: radius.full,
+    backgroundColor: colors.border,
+    alignSelf: "center",
+    marginTop: spacing.sm,
+  },
   // Modal layout
   modalOverlay: {
     flex: 1,
     justifyContent: "flex-end",
-    backgroundColor: colors.overlay,
   },
   backdrop: {
     ...StyleSheet.absoluteFill,
