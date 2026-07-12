@@ -94,7 +94,7 @@ export function AppHeader({ title, subtitle, role, initials, showBack, onBack, h
           </Pressable>
         )}
         <View style={styles.titleContainer}>
-          <Text style={styles.title} numberOfLines={1}>{title}</Text>
+          <Text style={styles.title} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85}>{title}</Text>
           {activeShopId && selectedShop ? (
             <Pressable
               onPress={() => {

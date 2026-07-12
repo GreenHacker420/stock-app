@@ -322,8 +322,8 @@ export function SaleDetail() {
           </View>
         </View>
 
-        <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: spacing.md, marginBottom: spacing.xs }}>
-          <Text style={{ fontSize: 16, fontWeight: fontWeight.extrabold, color: colors.textPrimary }}>Items Summary</Text>
+        <View style={styles.sectionHeaderRow}>
+          <Text style={styles.sectionTitle}>Items Summary</Text>
           {user?.role === "OWNER" && (
             <Button
               label="EDIT ITEMS"
@@ -756,8 +756,18 @@ const styles = StyleSheet.create({
   cardFooter: { flexDirection: 'row', justifyContent: 'space-between' },
   footerLabel: { fontSize: 8, fontWeight: fontWeight.black, color: colors.textMuted, letterSpacing: 0.5 },
   footerValue: { fontSize: 12, fontWeight: fontWeight.bold, color: colors.textSecondary, marginTop: 2 },
-  detailScroll: { paddingHorizontal: spacing.lg, paddingBottom: 80 },
-  detailCard: { backgroundColor: colors.surface, borderRadius: 24, padding: spacing.xl, borderWidth: 1, borderColor: colors.border, ...shadow.sm, marginTop: spacing.md },
+  detailScroll: { paddingHorizontal: spacing.lg, paddingBottom: 80, gap: spacing.lg },
+  detailCard: { backgroundColor: colors.surface, borderRadius: 24, padding: spacing.xl, borderWidth: 1, borderColor: colors.border, ...shadow.sm },
+  sectionHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: fontWeight.extrabold,
+    color: colors.textPrimary,
+  },
   detailRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   customerNameBig: { fontSize: 18, fontWeight: fontWeight.black, color: colors.textPrimary },
   dateText: { fontSize: 12, color: colors.textSecondary, marginTop: 4 },

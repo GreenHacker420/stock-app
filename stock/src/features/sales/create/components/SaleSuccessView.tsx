@@ -100,14 +100,14 @@ export function SaleSuccessView({
 
         <View style={styles.rowActions}>
           <Button
-            label="VIEW INVOICE"
+            label="View Invoice"
             variant="ghost"
             icon="eye-outline"
             onPress={onViewInvoice}
             style={styles.flex1}
           />
           <Button
-            label="SHARE (PDF)"
+            label="Share PDF"
             variant="secondary"
             icon="share-variant-outline"
             onPress={onSharePdf}
