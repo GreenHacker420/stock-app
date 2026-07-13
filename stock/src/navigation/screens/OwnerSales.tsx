@@ -1504,7 +1504,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   shareBtn: {
-    flex: 1.5,
+    flex: 1,
   },
 
   gestureRoot: {
