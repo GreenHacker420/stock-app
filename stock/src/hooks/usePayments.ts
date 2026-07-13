@@ -33,14 +33,15 @@ export function useInfinitePaymentsQuery(opts: {
 }
 
 /** Simple one-shot query — kept for backward compat (customer detail page, etc.) */
-export function usePaymentsQuery(shopId?: string, options: { status?: PaymentStatus; customerId?: string; unlinked?: boolean } = {}) {
+export function usePaymentsQuery(shopId?: string, options: { status?: PaymentStatus; customerId?: string; unlinked?: boolean; enabled?: boolean } = {}) {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
   const targetShopId = shopId || activeShopId;
+  const isEnabled = options.enabled !== false;
   return useQuery({
     queryKey: ["payments", targetShopId ?? "", options],
     queryFn: () => fetchPayments(token ?? "", targetShopId ?? "", options),
-    enabled: !!token && !!targetShopId,
+    enabled: !!token && !!targetShopId && isEnabled,
     staleTime: 3 * 60 * 1000, // 3 mins
   });
 }

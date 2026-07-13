@@ -22,8 +22,8 @@ import Reanimated, {
   useAnimatedStyle,
   withSpring,
   withTiming,
-  runOnJS,
 } from "react-native-reanimated";
+import { scheduleOnRN } from "react-native-worklets";
 
 interface CustomerSelectorProps {
   mode: "REGULAR" | "WALK_IN";
@@ -79,7 +79,7 @@ export function CustomerSelector({
   const beginDismiss = useCallback(() => {
     closing.value = true;
     translateY.value = withTiming(windowHeight, { duration: 180 }, (finished) => {
-      if (finished) runOnJS(finalizeDismiss)();
+      if (finished) scheduleOnRN(finalizeDismiss);
     });
     backdropOpacity.value = withTiming(0, { duration: 150 });
   }, [finalizeDismiss, windowHeight]);
@@ -109,7 +109,7 @@ export function CustomerSelector({
           if (event.translationY > 100 || event.velocityY > 500) {
             closing.value = true;
             translateY.value = withTiming(windowHeight, { duration: 180 }, (finished) => {
-              if (finished) runOnJS(finalizeDismiss)();
+              if (finished) scheduleOnRN(finalizeDismiss);
             });
             backdropOpacity.value = withTiming(0, { duration: 150 });
           } else {

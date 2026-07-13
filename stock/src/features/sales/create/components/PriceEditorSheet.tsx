@@ -19,8 +19,8 @@ import Reanimated, {
   useAnimatedStyle,
   withSpring,
   withTiming,
-  runOnJS,
 } from "react-native-reanimated";
+import { scheduleOnRN } from "react-native-worklets";
 
 interface PriceEditorSheetProps {
   visible: boolean;
@@ -64,7 +64,7 @@ export function PriceEditorSheet({
   const beginDismiss = useCallback(() => {
     closing.value = true;
     translateY.value = withTiming(windowHeight, { duration: 180 }, (finished) => {
-      if (finished) runOnJS(finalizeDismiss)();
+      if (finished) scheduleOnRN(finalizeDismiss);
     });
     backdropOpacity.value = withTiming(0, { duration: 150 });
   }, [finalizeDismiss, windowHeight]);
@@ -100,7 +100,7 @@ export function PriceEditorSheet({
           if (event.translationY > 100 || event.velocityY > 500) {
             closing.value = true;
             translateY.value = withTiming(windowHeight, { duration: 180 }, (finished) => {
-              if (finished) runOnJS(finalizeDismiss)();
+              if (finished) scheduleOnRN(finalizeDismiss);
             });
             backdropOpacity.value = withTiming(0, { duration: 150 });
           } else {
