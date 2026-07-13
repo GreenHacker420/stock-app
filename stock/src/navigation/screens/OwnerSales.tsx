@@ -330,8 +330,8 @@ export function SaleDetail() {
   const handleConfirmIssueInvoice = () => {
     if (!sale) return;
     const normalizedInvoiceNumber = invoiceNumber.trim().toUpperCase();
-    if (!/^[A-Z0-9][A-Z0-9/_-]{1,39}$/.test(normalizedInvoiceNumber)) {
-      Alert.alert("Invalid Invoice Number", "Please enter a valid alphanumeric invoice number (e.g. VS-2026-145).");
+    if (!normalizedInvoiceNumber) {
+      Alert.alert("Error", "Please enter a valid invoice number.");
       return;
     }
     issueInvoiceMutation.mutate({
