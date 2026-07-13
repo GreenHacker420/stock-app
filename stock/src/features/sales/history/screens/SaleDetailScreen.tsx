@@ -1,37 +1,50 @@
-import { useMemo, useState, useRef, useEffect } from "react";
-import { View, StyleSheet, Pressable, ScrollView, Alert, Modal as RNModal } from "react-native";
-import { Divider, Text, Icon, Portal, Modal, Switch, TextInput as PaperTextInput } from "react-native-paper";
-import { useAuthStore } from "../../auth/auth-store";
-import { FlashList } from "@shopify/flash-list";
-import { useDebounce } from "use-debounce";
+import { useMemo, useState } from "react";
+import { View, StyleSheet, Pressable, ScrollView, Alert } from "react-native";
+import { Divider, Text, Icon } from "react-native-paper";
 import { useRoute, useNavigation, type RouteProp } from "@react-navigation/native";
 import { type NativeStackNavigationProp } from "@react-navigation/native-stack";
 import Svg, { Path } from "react-native-svg";
-import { useSalesQuery, useSaleQuery, useAmendSaleMutation, useIssueInvoiceMutation, useCancelInvoiceMutation, useUpdateSaleMutation } from "../../hooks/useSales";
-import { useItemsQuery } from "../../hooks/useItems";
-import { usePaymentsQuery, useAttachPaymentMutation, useVerifyPaymentMutation, useMarkPaymentMismatchMutation } from "../../hooks/usePayments";
-import { parseMoneyToMinor, fromMinorUnits } from "../../features/sales/create/core/sale-calculations";
-import { AppBottomSheetModal } from "../../components/overlays/AppBottomSheetModal";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { type Sale } from "../../api/client";
-import { Screen } from "../../components/Screen";
-import { AppHeader } from "../../components/ui/AppHeader";
-import { AppSearchBar } from "../../components/ui/AppSearchBar";
-import { AppSegmentedControl } from "../../components/ui/AppSegmentedControl";
-import { StatusPill } from "../../components/ui/StatusPill";
-import { SkeletonList } from "../../components/ui/SkeletonCard";
-import { EmptyState } from "../../components/ui/EmptyState";
-import { Button } from "../../components/ui/Button";
-import { Section } from "../../components/ui/Section";
-import { SaleCard } from "../../components/domain/sales/SaleCard";
-import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
-import { navigate } from "../navigation-ref";
-import { useShopsQuery } from "../../hooks/useShops";
-import { shareSaleInvoicePdf } from "../../utils/pdf";
-import { triggerLightHaptic, triggerMediumHaptic } from "../../utils/haptics";
-import Reanimated, { useSharedValue, useAnimatedStyle, LinearTransition, type SharedValue, FadeInUp } from "react-native-reanimated";
+import Reanimated, { LinearTransition } from "react-native-reanimated";
 
-const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
+import { useAuthStore } from "@/auth/auth-store";
+import { useShopsQuery } from "@/hooks/useShops";
+import { useSaleQuery, useIssueInvoiceMutation, useCancelInvoiceMutation, useUpdateSaleMutation } from "@/hooks/useSales";
+import { usePaymentsQuery, useAttachPaymentMutation, useVerifyPaymentMutation, useMarkPaymentMismatchMutation } from "@/hooks/usePayments";
+import { parseMoneyToMinor, fromMinorUnits } from "@/features/sales/create/core/sale-calculations";
+import { type Sale } from "@/api/client";
+import { Screen } from "@/components/Screen";
+import { AppHeader } from "@/components/ui/AppHeader";
+import { StatusPill } from "@/components/ui/StatusPill";
+import { SkeletonList } from "@/components/ui/SkeletonCard";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { Button } from "@/components/ui/Button";
+import { Section } from "@/components/ui/Section";
+import { colors, spacing, radius, fontSize, fontWeight, shadow } from "@/theme";
+import { shareSaleInvoicePdf } from "@/utils/pdf";
+import { triggerMediumHaptic } from "@/utils/haptics";
+
+import {
+  ItemSpecificationSheet,
+  GstRequirementSheet,
+  IssueInvoiceSheet,
+  CancelInvoiceSheet,
+} from "@/features/sales/history/components/SaleDetailSheets";
+
+type SaleDetailRoute = RouteProp<Record<string, { id: string }>, "SaleDetail">;
+type SaleDetailNavigation = NativeStackNavigationProp<any, "SaleDetail">;
+
+const formatMinorUnits = (valueMinor?: number | null) => {
+  if (valueMinor == null || isNaN(valueMinor)) return "—";
+  return `₹${(valueMinor / 100).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
+
+const formatRawMoney = (value?: string | number | null) => {
+  if (value == null || value === "") return "—";
+  const num = Number(value);
+  if (isNaN(num)) return "—";
+  return `₹${num.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
 
 const getSignatureViewBox = (paths: string[]): string => {
   let minX = Infinity;
@@ -62,117 +75,13 @@ const getSignatureViewBox = (paths: string[]): string => {
   return `${minX - padding} ${minY - padding} ${width + padding * 2} ${height + padding * 2}`;
 };
 
-export function SalesList() {
-  const [search, setSearch] = useState("");
-  const [debouncedSearch] = useDebounce(search, 300);
-  const route = useRoute<any>();
-  const initialFilter = route.params?.filter || "ALL"; // ALL, PAID, PENDING, PARTIAL
-  const [activeTab, setActiveTab] = useState(initialFilter);
-
-  const salesQuery = useSalesQuery();
-  const allSales = salesQuery.data ?? [];
-
-  const filteredSales = useMemo(() => {
-    let data = allSales;
-    if (debouncedSearch) {
-      const q = debouncedSearch.toLowerCase();
-      data = data.filter(s =>
-        s.saleNumber.toLowerCase().includes(q) ||
-        (s.customer?.name || "").toLowerCase().includes(q)
-      );
-    }
-    if (activeTab === "ALL") return data;
-    if (activeTab === "gst_pending") return data.filter(s => (s.isGstRequired || s.gstRequired) && !s.gstInvoiceNumber);
-    if (activeTab === "PENDING") {
-      return data.filter(s => s.paymentStatus !== "PAID");
-    }
-    return data.filter(s => s.paymentStatus === activeTab);
-  }, [allSales, activeTab, debouncedSearch]);
-
-  const List = FlashList as any;
-
-  return (
-    <Screen scroll={false} edges={['top', 'left', 'right']}>
-      <AppHeader title="Sales History" subtitle="Monitor revenue and collections" />
-
-      <View style={styles.container}>
-        <AppSearchBar
-          placeholder="Search invoice or customer"
-          onChangeText={setSearch}
-          value={search}
-          style={styles.searchBar}
-          inputStyle={styles.searchInput}
-        />
-
-        <AppSegmentedControl
-          value={activeTab}
-          onChange={setActiveTab}
-          options={[
-            { value: "ALL", label: "All" },
-            { value: "PAID", label: "Paid" },
-            { value: "PENDING", label: "Due" },
-            { value: "gst_pending", label: "GST" },
-          ]}
-          style={styles.tabs}
-        />
-
-        <View style={styles.listWrapper}>
-          {salesQuery.isLoading ? (
-            <SkeletonList count={6} itemHeight={100} />
-          ) : (
-            <List
-              data={filteredSales}
-              keyExtractor={(item: Sale) => item.id}
-              renderItem={({ item }: { item: Sale & { staff?: { name: string } | null } }) => (
-                <SaleCard
-                  saleNumber={item.saleNumber}
-                  customerName={item.isWalkin ? "Walk-in Customer" : item.customer?.name}
-                  subtitle={`Billed by: ${item.staff?.name || "System"}`}
-                  amount={money(item.totalAmount)}
-                  paymentStatus={item.paymentStatus || "PENDING"}
-                  statusTone={item.paymentStatus === "PAID" ? "green" : "amber"}
-                  date={new Date(item.createdAt).toLocaleString("en-IN", { dateStyle: "short", timeStyle: "short" })}
-                  onPress={() => navigate("SaleDetail", { id: item.id })}
-                />
-              )}
-              ListEmptyComponent={<EmptyState icon="receipt" title="No sales found" />}
-              contentContainerStyle={styles.listContent}
-            />
-          )}
-        </View>
-      </View>
-    </Screen>
-  );
-}
-
-type SaleDetailRoute = RouteProp<Record<string, { id: string }>, "SaleDetail">;
-type SaleDetailNavigation = NativeStackNavigationProp<any, "SaleDetail">;
-
-const formatMinorUnits = (valueMinor?: number | null) => {
-  if (valueMinor === null || valueMinor === undefined || isNaN(valueMinor)) return "₹0.00";
-  const absolutePaise = Math.abs(valueMinor);
-  const rupees = Math.floor(absolutePaise / 100);
-  const paise = absolutePaise % 100;
-  const formatted = `${rupees}.${String(paise).padEnd(2, "0")}`;
-  const localized = Number(formatted).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  return valueMinor < 0 ? `-₹${localized}` : `₹${localized}`;
-};
-
-
-const formatRawMoney = (value?: string | number | null) => {
-  if (value === null || value === undefined) return "—";
-  const minor = parseMoneyToMinor(value);
-  if (minor === null) return "—";
-  return formatMinorUnits(minor);
-};
-
-export function SaleDetail() {
+export function SaleDetailScreen() {
   const route = useRoute<SaleDetailRoute>();
   const navigation = useNavigation<SaleDetailNavigation>();
   const saleId = route.params?.id;
   const insets = useSafeAreaInsets();
 
-  const user = useAuthStore((state) => state.user);
+  const user = useAuthStore((state: any) => state.user);
   const shopsQuery = useShopsQuery();
 
   const saleQuery = useSaleQuery(saleId);
@@ -180,7 +89,7 @@ export function SaleDetail() {
 
   const saleShopId = sale?.shopId;
   const saleShop = useMemo(() =>
-    shopsQuery.data?.find(s => s.id === saleShopId),
+    shopsQuery.data?.find((s: any) => s.id === saleShopId),
     [shopsQuery.data, saleShopId]
   );
 
@@ -230,14 +139,8 @@ export function SaleDetail() {
       "Verify Payment",
       `Confirm that payment of ${formatRawMoney(payment.amount)} was received?`,
       [
-        {
-          text: "Cancel",
-          style: "cancel"
-        },
-        {
-          text: "Verify",
-          onPress: () => handleVerifyPayment(payment.id)
-        }
+        { text: "Cancel", style: "cancel" },
+        { text: "Verify", onPress: () => handleVerifyPayment(payment.id) }
       ]
     );
   };
@@ -247,15 +150,8 @@ export function SaleDetail() {
       "Mark Mismatch",
       `Are you sure you want to mark payment of ${formatRawMoney(payment.amount)} as mismatch/rejected?`,
       [
-        {
-          text: "Cancel",
-          style: "cancel"
-        },
-        {
-          text: "Reject",
-          style: "destructive",
-          onPress: () => handleRejectPayment(payment.id)
-        }
+        { text: "Cancel", style: "cancel" },
+        { text: "Reject", style: "destructive", onPress: () => handleRejectPayment(payment.id) }
       ]
     );
   };
@@ -307,9 +203,7 @@ export function SaleDetail() {
     if (!sale) return;
     updateSaleMutation.mutate({
       saleId: sale.id,
-      data: {
-        gstRequired: editGstRequired,
-      }
+      data: { gstRequired: editGstRequired }
     }, {
       onSuccess: () => {
         setIsGstModalVisible(false);
@@ -329,7 +223,7 @@ export function SaleDetail() {
 
   const handleConfirmIssueInvoice = () => {
     if (!sale) return;
-    const normalizedInvoiceNumber = invoiceNumber.trim().toUpperCase();
+    const normalizedInvoiceNumber = invoiceNumber.trim();
     if (!normalizedInvoiceNumber) {
       Alert.alert("Error", "Please enter a valid invoice number.");
       return;
@@ -405,8 +299,6 @@ export function SaleDetail() {
     }
   };
 
-
-
   if (saleQuery.isLoading) {
     return (
       <Screen edges={["top", "left", "right", "bottom"]}>
@@ -447,25 +339,19 @@ export function SaleDetail() {
     );
   }
 
-  // Financial locking policies
   const totalAmountMinor = parseMoneyToMinor(sale.totalAmount) ?? 0;
 
-  // Derived totals from payments list
-  const derivedVerifiedMinor = sale.payments?.reduce((sum, p) =>
+  const derivedVerifiedMinor = sale.payments?.reduce((sum: number, p: any) =>
     p.status === "VERIFIED" ? sum + (parseMoneyToMinor(p.amount) ?? 0) : sum, 0) ?? 0;
 
-  const derivedRecordedMinor = sale.payments?.reduce((sum, p) =>
+  const derivedRecordedMinor = sale.payments?.reduce((sum: number, p: any) =>
     p.status === "RECORDED" ? sum + (parseMoneyToMinor(p.amount) ?? 0) : sum, 0) ?? 0;
 
-  // Authoritative server-provided values, falling back to derived calculations
   const verifiedPaymentMinor = parseMoneyToMinor((sale as any).verifiedPaidAmount) ?? derivedVerifiedMinor;
   const recordedPaymentMinor = parseMoneyToMinor((sale as any).recordedPaymentAmount) ?? derivedRecordedMinor;
   const balanceDueMinor = parseMoneyToMinor(sale.balanceAmount) ?? Math.max(0, totalAmountMinor - verifiedPaymentMinor - recordedPaymentMinor);
 
-  // Pending verification = recorded but not verified (same data, clearer naming for display)
   const pendingPaymentMinor = recordedPaymentMinor;
-
-  // Only verified amount is "settled" — for the Collect button, show full unverified remainder
   const trulyOutstandingMinor = Math.max(0, totalAmountMinor - verifiedPaymentMinor);
 
   if (__DEV__) {
@@ -484,10 +370,9 @@ export function SaleDetail() {
   const canIssueInvoice = user?.role === "OWNER" && gstRequired && !hasIssuedInvoice;
   const canCancelInvoice = user?.role === "OWNER" && hasIssuedInvoice;
 
-  const hasVerifiedPayment = sale.payments?.some(p => p.status === "VERIFIED");
+  const hasVerifiedPayment = sale.payments?.some((p: any) => p.status === "VERIFIED");
   const isFinanciallyLocked = sale.paymentStatus === "PAID" || hasVerifiedPayment || hasIssuedInvoice;
   const canDirectEdit = user?.role === "OWNER" && !isFinanciallyLocked;
-  const canAmend = user?.role === "OWNER" && isFinanciallyLocked;
 
   const canAttachExistingPayment =
     Boolean(sale.customerId) &&
@@ -508,7 +393,7 @@ export function SaleDetail() {
         }}
         showsVerticalScrollIndicator={false}
       >
-        {/* REDESIGNED Hero Summary Card */}
+        {/* Hero Summary Card */}
         <View style={styles.heroCard}>
           <View style={styles.heroHeaderRow}>
             <Text style={styles.heroSaleNumber}>Sale #{sale.saleNumber}</Text>
@@ -518,7 +403,6 @@ export function SaleDetail() {
             />
           </View>
 
-          {/* Large Hero Amount */}
           <View style={styles.heroCenterBlock}>
             <Text style={[
               styles.heroMainAmountVal,
@@ -531,7 +415,6 @@ export function SaleDetail() {
             </Text>
           </View>
 
-          {/* Financial Breakdown Grid */}
           <View style={styles.heroBreakdownRow}>
             <View style={styles.heroBreakdownCell}>
               <Text style={styles.heroBreakdownLabel}>Total Value</Text>
@@ -548,7 +431,6 @@ export function SaleDetail() {
             </View>
           </View>
 
-          {/* Pending verification row — only shown when there are pending payments */}
           {pendingPaymentMinor > 0 && (
             <View style={[styles.heroBreakdownRow, { marginTop: spacing.xs }]}>
               <View style={styles.heroBreakdownCell}>
@@ -587,7 +469,7 @@ export function SaleDetail() {
           </View>
         </View>
 
-        {/* GST Invoice Row — uses normalized gstRequired throughout */}
+        {/* GST Invoice Row */}
         <View style={styles.gstStatusCard}>
           <View style={styles.gstStatusHeader}>
             <Icon
@@ -635,7 +517,6 @@ export function SaleDetail() {
                   <Text style={styles.complianceBadgeText}>Exempt</Text>
                 </View>
               )}
-              {/* GST action buttons — Edit, Issue, Cancel */}
               <View style={{ flexDirection: "row", gap: spacing.xs }}>
                 {canEditGstRequirement && (
                   <Button
@@ -669,6 +550,7 @@ export function SaleDetail() {
           </View>
         </View>
 
+        {/* Items Billed */}
         <View style={styles.sectionHeaderRow}>
           <Text style={styles.sectionTitle}>Items Billed</Text>
           {canDirectEdit ? (
@@ -679,9 +561,7 @@ export function SaleDetail() {
               style={styles.itemsEditBtn}
               size="sm"
             />
-          ) : null
-          /* Amend hidden until a real amendment workflow (separate route, audit record,
-             reason capture) is implemented. canAmend is intentionally unused here. */}
+          ) : null}
         </View>
         <View style={styles.itemsCard}>
           {sale.items?.map((item: any, idx: number) => {
@@ -752,22 +632,10 @@ export function SaleDetail() {
               const lineTone = p.status === "VERIFIED" ? "verified" : "pending";
 
               const paymentStatusPresentation = {
-                RECORDED: {
-                  label: "Pending Verification",
-                  tone: "amber",
-                },
-                VERIFIED: {
-                  label: "Verified",
-                  tone: "green",
-                },
-                REJECTED: {
-                  label: "Mismatch",
-                  tone: "red",
-                },
-                CANCELLED: {
-                  label: "Cancelled",
-                  tone: "neutral",
-                },
+                RECORDED: { label: "Pending Verification", tone: "amber" },
+                VERIFIED: { label: "Verified", tone: "green" },
+                REJECTED: { label: "Mismatch", tone: "red" },
+                CANCELLED: { label: "Cancelled", tone: "neutral" },
               } as const;
 
               const statusMeta = paymentStatusPresentation[p.status as keyof typeof paymentStatusPresentation] || {
@@ -937,7 +805,7 @@ Payment Date: ${new Date(p.receivedAt).toLocaleString("en-IN")}`,
           </Section>
         )}
 
-        {/* Customer signature — parsed once via useMemo, not on every render */}
+        {/* Customer signature */}
         {parsedSignature && parsedSignature.paths.length > 0 && (
           <Section title="Customer Signature">
             <View style={styles.signatureDisplayCard}>
@@ -967,6 +835,7 @@ Payment Date: ${new Date(p.receivedAt).toLocaleString("en-IN")}`,
           </Section>
         )}
 
+        {/* Notes */}
         {sale.notes && (
           <Section title="Operational Notes">
             <View style={styles.notesCard}>
@@ -981,7 +850,6 @@ Payment Date: ${new Date(p.receivedAt).toLocaleString("en-IN")}`,
         onLayout={(event) => setFooterHeight(event.nativeEvent.layout.height)}
         style={[styles.stickyBottomBar, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}
       >
-        {/* Only show Collect when there is a genuine outstanding amount */}
         {trulyOutstandingMinor > 0 && sale.paymentStatus !== "PAID" && (sale as any).status !== "CANCELLED" && (
           <Button
             label={`Collect ${formatMinorUnits(trulyOutstandingMinor)}`}
@@ -1017,254 +885,51 @@ Payment Date: ${new Date(p.receivedAt).toLocaleString("en-IN")}`,
         </View>
       </View>
 
-      {/* Specification Bottom Sheet */}
-      <AppBottomSheetModal
+      {/* Item Specification Bottom Sheet */}
+      <ItemSpecificationSheet
         visible={selectedItemDetails !== null}
-        title="Item Specification"
+        selectedItemDetails={selectedItemDetails}
         onDismiss={() => setSelectedItemDetails(null)}
-        scrollable
-      >
-        {selectedItemDetails && (() => {
-          const item = selectedItemDetails.item;
-          const itemName = item?.name || selectedItemDetails.itemName || "Deleted product";
-          const sku = item?.sku || "—";
-          const brandName = item?.brand?.name || "—";
-          const categoryName = item?.category?.name || "—";
-          const unitName = item?.unit || selectedItemDetails.itemUnit || "—";
-          const mrpVal = item?.mrp || selectedItemDetails.mrp || 0;
-          const defaultPriceVal = item?.defaultSellingPrice || selectedItemDetails.defaultPrice || 0;
-          const minPriceVal = item?.minimumAllowedPrice || item?.minPrice || 0;
-
-          return (
-            <View style={{ gap: spacing.sm }}>
-              <Text style={[styles.itemName, { fontSize: 16, marginBottom: spacing.md }]}>{itemName}</Text>
-              
-              <View style={styles.metaCell}>
-                <Text style={styles.metaLabel}>SKU Code</Text>
-                <Text style={styles.metaVal}>{sku}</Text>
-              </View>
-              <View style={styles.metaCell}>
-                <Text style={styles.metaLabel}>Company / Brand</Text>
-                <Text style={styles.metaVal}>{brandName}</Text>
-              </View>
-              <View style={styles.metaCell}>
-                <Text style={styles.metaLabel}>Category</Text>
-                <Text style={styles.metaVal}>{categoryName}</Text>
-              </View>
-              <View style={styles.metaCell}>
-                <Text style={styles.metaLabel}>Measurement Unit</Text>
-                <Text style={styles.metaVal}>{unitName}</Text>
-              </View>
-              
-              <Divider style={{ marginVertical: spacing.sm, backgroundColor: colors.border }} />
-
-              <View style={styles.metaCell}>
-                <Text style={styles.metaLabel}>Maximum Retail Price (MRP)</Text>
-                <Text style={[styles.metaVal, { fontWeight: fontWeight.bold }]}>{formatRawMoney(mrpVal)}</Text>
-              </View>
-              <View style={styles.metaCell}>
-                <Text style={styles.metaLabel}>Original Selling Price</Text>
-                <Text style={styles.metaVal}>{formatRawMoney(defaultPriceVal)}</Text>
-              </View>
-              <View style={styles.metaCell}>
-                <Text style={styles.metaLabel}>Billed Selling Rate</Text>
-                <Text style={[styles.metaVal, { color: colors.primary, fontWeight: fontWeight.black }]}>{formatRawMoney(selectedItemDetails.rate)}</Text>
-              </View>
-              <View style={styles.metaCell}>
-                <Text style={styles.metaLabel}>Minimum Allowed Price</Text>
-                <Text style={styles.metaVal}>{formatRawMoney(minPriceVal)}</Text>
-              </View>
-            </View>
-          );
-        })()}
-      </AppBottomSheetModal>
+        formatRawMoney={formatRawMoney}
+      />
 
       {/* Edit GST Details Bottom Sheet */}
-      <AppBottomSheetModal
+      <GstRequirementSheet
         visible={isGstModalVisible}
-        title="Edit GST Details"
+        editGstRequired={editGstRequired}
+        setEditGstRequired={setEditGstRequired}
         onDismiss={() => setIsGstModalVisible(false)}
-        isBusy={updateSaleMutation.isPending}
-      >
-        <View style={{ marginVertical: spacing.md, gap: spacing.md }}>
-          <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-            <Text style={{ fontSize: 14, fontWeight: fontWeight.bold, color: colors.textPrimary }}>GST Invoice Required</Text>
-            <Switch
-              value={editGstRequired}
-              onValueChange={setEditGstRequired}
-              color={colors.primary}
-            />
-          </View>
-        </View>
-
-        <View style={styles.shareRow}>
-          <Button
-            label="Cancel"
-            variant="ghost"
-            onPress={() => setIsGstModalVisible(false)}
-            style={{ flex: 1 }}
-          />
-          <Button
-            label="Save"
-            variant="primary"
-            loading={updateSaleMutation.isPending}
-            disabled={updateSaleMutation.isPending}
-            onPress={handleSaveGstDetails}
-            style={{ flex: 1.5 }}
-          />
-        </View>
-      </AppBottomSheetModal>
+        onSave={handleSaveGstDetails}
+        isPending={updateSaleMutation.isPending}
+      />
 
       {/* Issue GST Invoice Bottom Sheet */}
-      <AppBottomSheetModal
+      <IssueInvoiceSheet
         visible={isInvoiceModalVisible}
-        title="Issue GST Invoice"
+        invoiceNumber={invoiceNumber}
+        setInvoiceNumber={setInvoiceNumber}
         onDismiss={() => setIsInvoiceModalVisible(false)}
-        isBusy={issueInvoiceMutation.isPending}
-        scrollable
-      >
-        <View style={{ marginVertical: spacing.md }}>
-          <PaperTextInput
-            mode="outlined"
-            label="Tally Invoice Number"
-            value={invoiceNumber}
-            onChangeText={setInvoiceNumber}
-            outlineColor={colors.border}
-            activeOutlineColor={colors.primary}
-            textColor={colors.textPrimary}
-            placeholder="e.g. VS-2026-145"
-            autoCapitalize="characters"
-            style={{ backgroundColor: colors.surface }}
-          />
-        </View>
-
-        <View style={styles.shareRow}>
-          <Button
-            label="Cancel"
-            variant="ghost"
-            onPress={() => setIsInvoiceModalVisible(false)}
-            style={{ flex: 1 }}
-          />
-          <Button
-            label="Issue"
-            variant="primary"
-            loading={issueInvoiceMutation.isPending}
-            disabled={issueInvoiceMutation.isPending || !invoiceNumber.trim()}
-            onPress={handleConfirmIssueInvoice}
-            style={{ flex: 1.5 }}
-          />
-        </View>
-      </AppBottomSheetModal>
+        onConfirm={handleConfirmIssueInvoice}
+        isPending={issueInvoiceMutation.isPending}
+      />
 
       {/* Cancel GST Invoice Bottom Sheet */}
-      <AppBottomSheetModal
+      <CancelInvoiceSheet
         visible={isCancelModalVisible}
-        title="Cancel GST Invoice"
+        cancelReason={cancelReason}
+        setCancelReason={setCancelReason}
+        cancelNotes={cancelNotes}
+        setCancelNotes={setCancelNotes}
         onDismiss={() => setIsCancelModalVisible(false)}
-        isBusy={cancelInvoiceMutation.isPending}
-        scrollable
-      >
-        <Text style={{ fontSize: 13, color: colors.textSecondary, marginBottom: spacing.md }}>
-          Cancellations are permanent and recorded in the audit log. Select a reason:
-        </Text>
-
-        <View style={{ gap: spacing.sm, marginBottom: spacing.md }}>
-          {[
-            "Incorrect GST number",
-            "Duplicate invoice",
-            "Customer details incorrect",
-            "Sale cancelled",
-            "Other",
-          ].map((reason) => {
-            const isSelected = cancelReason === reason;
-            return (
-              <Pressable
-                key={reason}
-                onPress={() => {
-                  triggerLightHaptic();
-                  setCancelReason(reason);
-                }}
-                style={{
-                  flexDirection: "row",
-                  alignItems: "center",
-                  padding: spacing.md,
-                  borderRadius: radius.md,
-                  borderWidth: 1,
-                  borderColor: isSelected ? colors.primary : colors.border,
-                  backgroundColor: isSelected ? colors.surfaceOffset : colors.surface,
-                  gap: spacing.sm,
-                }}
-              >
-                <Icon
-                  source={isSelected ? "radiobox-marked" : "radiobox-blank"}
-                  size={20}
-                  color={isSelected ? colors.primary : colors.textSecondary}
-                />
-                <Text style={{ fontSize: 14, fontWeight: isSelected ? fontWeight.bold : fontWeight.regular, color: colors.textPrimary }}>
-                  {reason}
-                </Text>
-              </Pressable>
-            );
-          })}
-        </View>
-
-        {cancelReason === "Other" && (
-          <View style={{ marginBottom: spacing.md }}>
-            <PaperTextInput
-              mode="outlined"
-              label="Provide cancellation reason"
-              value={cancelNotes}
-              onChangeText={setCancelNotes}
-              outlineColor={colors.border}
-              activeOutlineColor={colors.primary}
-              textColor={colors.textPrimary}
-              placeholder="Explain why this invoice is being cancelled..."
-              style={{ backgroundColor: colors.surface }}
-              multiline
-              numberOfLines={2}
-            />
-          </View>
-        )}
-
-        <View style={styles.shareRow}>
-          <Button
-            label="Dismiss"
-            variant="ghost"
-            onPress={() => setIsCancelModalVisible(false)}
-            style={{ flex: 1 }}
-          />
-          <Button
-            label="Cancel Invoice"
-            variant="danger"
-            loading={cancelInvoiceMutation.isPending}
-            disabled={cancelInvoiceMutation.isPending || !cancelReason || (cancelReason === "Other" && !cancelNotes.trim())}
-            onPress={handleConfirmCancelInvoice}
-            style={{ flex: 1.5 }}
-          />
-        </View>
-      </AppBottomSheetModal>
+        onConfirm={handleConfirmCancelInvoice}
+        isPending={cancelInvoiceMutation.isPending}
+      />
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, paddingHorizontal: spacing.lg, paddingTop: spacing.md },
-  searchBar: { height: 44, marginBottom: spacing.md },
-  searchInput: { fontSize: 14 },
-  tabs: { marginBottom: spacing.lg },
-  listWrapper: { flex: 1 },
-  listContent: { paddingBottom: 100 },
-  saleCard: { backgroundColor: colors.surface, borderRadius: 20, borderWidth: 1, borderColor: colors.border, padding: spacing.lg, marginBottom: spacing.md, ...shadow.sm },
-  pressed: { opacity: 0.72, transform: [{ scale: 0.98 }] },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
-  saleNumber: { fontSize: 12, fontWeight: fontWeight.bold, color: colors.primary },
-  customerName: { fontSize: 15, fontWeight: fontWeight.black, color: colors.textPrimary, marginTop: 2 },
-  staffBilledText: { fontSize: 11, color: colors.textSecondary, marginTop: 2, fontStyle: 'italic' },
   divider: { marginVertical: spacing.md, backgroundColor: colors.surfaceOffset },
-  cardFooter: { flexDirection: 'row', justifyContent: 'space-between' },
-  footerLabel: { fontSize: 8, fontWeight: fontWeight.black, color: colors.textMuted, letterSpacing: 0.5 },
-  footerValue: { fontSize: 12, fontWeight: fontWeight.bold, color: colors.textSecondary, marginTop: 2 },
-  detailScroll: { paddingHorizontal: spacing.lg, paddingBottom: 180, gap: spacing.lg },
   heroCard: {
     backgroundColor: colors.surface,
     borderRadius: 24,
@@ -1327,38 +992,6 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.extrabold,
     color: colors.textPrimary,
   },
-  heroCurrencySymbol: {
-    fontSize: 18,
-    fontWeight: fontWeight.medium,
-    color: colors.textSecondary,
-    marginRight: 2,
-  },
-  barcodeWrapper: {
-    position: "absolute",
-    top: spacing.md,
-    right: spacing.md,
-    alignItems: "flex-end",
-    opacity: 0.6,
-  },
-  barcodeLines: {
-    flexDirection: "row",
-    height: 18,
-    alignItems: "stretch",
-  },
-  barcodeBar: {
-    backgroundColor: colors.textPrimary,
-    height: "100%",
-  },
-  barcodeText: {
-    fontSize: 7,
-    fontFamily: "monospace",
-    color: colors.textMuted,
-    marginTop: 2,
-    letterSpacing: 0.5,
-  },
-  heroBadgeRow: {
-    marginBottom: spacing.md,
-  },
   heroDivider: {
     width: "100%",
     marginVertical: spacing.md,
@@ -1388,21 +1021,6 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: "right",
   },
-  ticketTearWrapper: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 8,
-    overflow: "hidden",
-  },
-  ticketTearDashed: {
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderStyle: "dashed",
-    marginTop: 3,
-    marginHorizontal: -10,
-  },
   complianceBadge: {
     paddingHorizontal: 8,
     paddingVertical: 2,
@@ -1426,7 +1044,6 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.bold,
     color: colors.textSecondary,
   },
-
   gstStatusCard: {
     backgroundColor: colors.surface,
     borderRadius: 20,
@@ -1457,7 +1074,6 @@ const styles = StyleSheet.create({
     minHeight: 32,
     paddingHorizontal: spacing.sm,
   },
-
   sectionHeaderRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1469,24 +1085,14 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.extrabold,
     color: colors.textPrimary,
   },
-  itemHeaderRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: spacing.md,
-  },
   itemMetaRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: spacing.sm,
     marginTop: 2,
   },
-  itemSubText: {
-    fontSize: 12,
-    color: colors.textSecondary,
-  },
   rateAdjustedBadge: {
-    backgroundColor: colors.warningLight || "rgba(217, 119, 6, 0.1)",
+    backgroundColor: "rgba(217, 119, 6, 0.1)",
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: radius.sm,
@@ -1496,17 +1102,11 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.bold,
     color: colors.warning,
   },
-  itemTotalText: {
-    fontSize: 14,
-    fontWeight: fontWeight.black,
-    color: colors.textPrimary,
-  },
   itemOriginalText: {
     fontSize: 10,
     color: colors.textMuted,
     marginTop: 2,
   },
-
   timelineContainer: {
     position: "relative",
     paddingLeft: spacing.xl + 4,
@@ -1540,7 +1140,7 @@ const styles = StyleSheet.create({
   },
   timelineDotActive: {
     borderColor: colors.primary,
-    backgroundColor: colors.primaryLight || "rgba(79, 70, 229, 0.1)",
+    backgroundColor: "rgba(79, 70, 229, 0.1)",
   },
   paymentCard: {
     backgroundColor: colors.surface,
@@ -1594,36 +1194,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginTop: 2,
   },
-  paymentNoteCard: {
-    backgroundColor: colors.surfaceOffset,
-    padding: 6,
-    borderRadius: radius.sm,
-    marginTop: 4,
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  paymentNoteText: {
-    fontSize: 11,
-    color: colors.textSecondary,
-  },
-
-  swipeLeftAction: {
-    width: 80,
-    backgroundColor: colors.success,
-    justifyContent: "center",
-    alignItems: "center",
-    borderRadius: 16,
-    height: "100%",
-  },
-  swipeRightAction: {
-    width: 80,
-    backgroundColor: colors.danger,
-    justifyContent: "center",
-    alignItems: "center",
-    borderRadius: 16,
-    height: "100%",
-  },
-
   stickyBottomBar: {
     position: "absolute",
     bottom: 0,
@@ -1649,46 +1219,40 @@ const styles = StyleSheet.create({
   shareBtn: {
     flex: 1,
   },
-
-  gestureRoot: {
-    flex: 1,
-  },
-  sheetOverlay: {
-    flex: 1,
-    justifyContent: "flex-end",
-  },
-  sheetBackdrop: {
-    ...StyleSheet.absoluteFill,
-  },
-  sheetContainer: {
+  itemsCard: {
     backgroundColor: colors.surface,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    paddingTop: spacing.md,
-    paddingHorizontal: spacing.xl,
-    paddingBottom: spacing.xxl,
+    borderRadius: 20,
     borderWidth: 1,
     borderColor: colors.border,
-    ...shadow.lg,
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.sm
   },
-  sheetHandle: {
-    width: 40,
-    height: 5,
-    backgroundColor: colors.border,
-    borderRadius: 3,
-    alignSelf: "center",
-    marginBottom: spacing.lg,
+  itemName: {
+    fontSize: 14,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary
   },
-  overlay: {
-    width: "100%",
+  emptyText: {
+    textAlign: 'center',
+    padding: spacing.xl,
+    color: colors.textMuted,
+    fontSize: 12
   },
-
-  itemsCard: { backgroundColor: colors.surface, borderRadius: 20, borderWidth: 1, borderColor: colors.border, paddingHorizontal: spacing.lg, marginBottom: spacing.sm },
-  itemName: { fontSize: 14, fontWeight: fontWeight.bold, color: colors.textPrimary },
-  emptyText: { textAlign: 'center', padding: spacing.xl, color: colors.textMuted, fontSize: 12 },
-  notesCard: { backgroundColor: colors.surfaceOffset, padding: spacing.lg, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border },
-  notesText: { fontSize: 13, color: colors.textSecondary, lineHeight: 18 },
-  itemRowPressable: { borderRadius: radius.md },
+  notesCard: {
+    backgroundColor: colors.surfaceOffset,
+    padding: spacing.lg,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border
+  },
+  notesText: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    lineHeight: 18
+  },
+  itemRowPressable: {
+    borderRadius: radius.md
+  },
   signatureDisplayCard: {
     backgroundColor: 'white',
     borderRadius: 20,
@@ -1743,11 +1307,31 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     height: 32,
   },
-  paymentRowBlock: { paddingVertical: spacing.xs },
-  itemRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: spacing.lg },
-  itemSub: { fontSize: 12, color: colors.textSecondary, marginTop: 2 },
-  paymentMetaText: { fontSize: 11, color: colors.textSecondary, marginTop: 1, fontWeight: fontWeight.medium },
-  itemTotal: { fontSize: 14, fontWeight: fontWeight.black, color: colors.textPrimary },
+  paymentRowBlock: {
+    paddingVertical: spacing.xs
+  },
+  itemRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: spacing.lg
+  },
+  itemSub: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    marginTop: 2
+  },
+  paymentMetaText: {
+    fontSize: 11,
+    color: colors.textSecondary,
+    marginTop: 1,
+    fontWeight: fontWeight.medium
+  },
+  itemTotal: {
+    fontSize: 14,
+    fontWeight: fontWeight.black,
+    color: colors.textPrimary
+  },
   heroHeaderRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -1759,13 +1343,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: fontWeight.bold,
     color: colors.textSecondary,
-  },
-  heroMainRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-end",
-    width: "100%",
-    marginBottom: spacing.md,
   },
   timelineLineActive: {
     backgroundColor: colors.primary,

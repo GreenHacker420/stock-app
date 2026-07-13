@@ -1,10 +1,10 @@
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
-import { useAuthStore } from "../auth/auth-store";
-import { useShopStore } from "../auth/shop-store";
-import { queryKeys } from "./query-keys";
-import { fetchSales, fetchSale, createSale, createWalkInSale, CreateSalePayload, updateSaleGst, updateSale, amendSale, issueInvoice, cancelInvoice } from "../api/client";
-import { newIdempotencyKey } from "../utils/idempotency";
-import { requireActiveShopId } from "./useActiveShop";
+import { useAuthStore } from "@/auth/auth-store";
+import { useShopStore } from "@/auth/shop-store";
+import { queryKeys } from "@/hooks/query-keys";
+import { fetchSales, fetchSale, createSale, createWalkInSale, CreateSalePayload, updateSaleGst, updateSale, amendSale, issueInvoice, cancelInvoice, type Sale } from "@/api/client";
+import { newIdempotencyKey } from "@/utils/idempotency";
+import { requireActiveShopId } from "@/hooks/useActiveShop";
 
 const SALES_PAGE_SIZE = 30;
 
@@ -48,11 +48,53 @@ export function useSalesQuery() {
 
 export function useSaleQuery(id: string) {
   const token = useAuthStore((state) => state.token);
-  return useQuery({
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  const queryClient = useQueryClient();
+
+  return useQuery<Sale, Error>({
     queryKey: ["sale", id],
     queryFn: () => fetchSale(token ?? "", id),
     enabled: !!token && !!id,
     staleTime: 10 * 60 * 1000, // 10 mins
+    initialData: () => {
+      if (!activeShopId) return undefined;
+
+      // 1. Try to find the sale in the infinite query cache
+      const infiniteQueries = queryClient.getQueriesData<any>({
+        queryKey: ["sales", activeShopId, "infinite"],
+      });
+      for (const [_, queryData] of infiniteQueries) {
+        if (queryData?.pages) {
+          for (const page of queryData.pages) {
+            if (Array.isArray(page)) {
+              const found = page.find((s: any) => s.id === id);
+              if (found) return found;
+            }
+          }
+        }
+      }
+
+      // 2. Fallback to the simple list query cache
+      const sales = queryClient.getQueryData<Sale[]>(["sales", activeShopId]);
+      return sales?.find((s) => s.id === id);
+    },
+    initialDataUpdatedAt: () => {
+      if (!activeShopId) return undefined;
+
+      // 1. Try the infinite query
+      const infiniteQueries = queryClient.getQueriesData<any>({
+        queryKey: ["sales", activeShopId, "infinite"],
+      });
+      for (const [queryKey, _] of infiniteQueries) {
+        const state = queryClient.getQueryState(queryKey);
+        if (state?.dataUpdatedAt) {
+          return state.dataUpdatedAt;
+        }
+      }
+
+      // 2. Try the simple list query
+      return queryClient.getQueryState(["sales", activeShopId])?.dataUpdatedAt;
+    },
   });
 }
 

@@ -25,7 +25,8 @@ import { AddEditItem } from "./screens/items/AddEditItem";
 import { ItemDetail } from "./screens/items/ItemDetail";
 import { ItemList } from "./screens/items/ItemList";
 import { StorageManagement } from "./screens/StorageManagement";
-import { SaleDetail, SalesList } from "./screens/OwnerSales";
+import { SalesListScreen as SalesList } from "../features/sales/history/screens/SalesListScreen";
+import { SaleDetailScreen as SaleDetail } from "../features/sales/history/screens/SaleDetailScreen";
 import { EditSale } from "./screens/EditSale";
 import { AddEditStaff, StaffManagement, StaffDetail } from "./screens/OwnerStaff";
 import {
@@ -37,7 +38,7 @@ import {
 import { ChequeList } from "./screens/ChequeList";
 import { ChequeDetail } from "./screens/ChequeDetail";
 import { NewSaleType } from "./screens/NewSaleType";
-import { RegularSale } from "./screens/RegularSale";
+import { RegularSaleScreen as RegularSale } from "../features/sales/create/regular/RegularSaleScreen";
 import { Notifications } from "./screens/Notifications";
 import { StaffWork } from "./screens/StaffWork";
 import { Profile } from "./screens/Profile";
@@ -47,7 +48,7 @@ import { StockEntry } from "./screens/StockEntry";
 import { TakePayment } from "./screens/TakePayment";
 import { Updates } from "./screens/Updates";
 import { UpiConfig } from "./screens/UpiConfig";
-import { WalkInSale } from "./screens/WalkInSale";
+import { WalkInSaleScreen as WalkInSale } from "../features/sales/create/walk-in/WalkInSaleScreen";
 import { InvoiceViewer } from "./screens/InvoiceViewer";
 import { CreateOrder } from "./screens/CreateOrder";
 import { OrderList } from "./screens/OrderList";

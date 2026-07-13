@@ -189,10 +189,11 @@ export function ChequeDetail() {
                   <Pressable
                     onPress={() => {
                       haptic();
-                      navigation.navigate("OwnerSales" as any, {
-                        screen: "SaleDetail",
-                        params: { sale: cheque.sale },
-                      });
+                      if (cheque.saleId) {
+                        navigation.navigate("SaleDetail" as any, {
+                          id: cheque.saleId,
+                        });
+                      }
                     }}
                   >
                     <Text style={[styles.metaValue, styles.linkText]}>
