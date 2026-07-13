@@ -1,5 +1,5 @@
 import { useMemo, useState, useRef, useEffect } from "react";
-import { View, StyleSheet, Pressable, ScrollView, Alert, Modal as RNModal } from "react-native";
+import { View, StyleSheet, Pressable, Alert, Modal as RNModal } from "react-native";
 import { Divider, Text, Icon, Portal, Modal, Switch, TextInput as PaperTextInput } from "react-native-paper";
 import { useAuthStore } from "../../auth/auth-store";
 import { FlashList } from "@shopify/flash-list";
@@ -30,6 +30,7 @@ import { useShopsQuery } from "../../hooks/useShops";
 import { shareSaleInvoicePdf } from "../../utils/pdf";
 import { triggerLightHaptic, triggerMediumHaptic } from "../../utils/haptics";
 import ReanimatedSwipeable from "react-native-gesture-handler/ReanimatedSwipeable";
+import { ScrollView } from "react-native-gesture-handler";
 import Reanimated, { useSharedValue, useAnimatedStyle, LinearTransition, type SharedValue, FadeInUp } from "react-native-reanimated";
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
