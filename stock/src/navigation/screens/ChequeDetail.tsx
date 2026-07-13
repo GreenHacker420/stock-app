@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { View, StyleSheet, ScrollView, ActivityIndicator, Alert, Pressable } from "react-native";
 import { Text, Icon, Divider } from "react-native-paper";
-import { useRoute, useNavigation } from "@react-navigation/native";
+import { useRoute, useNavigation, type RouteProp, type NavigationProp } from "@react-navigation/native";
+import { type RootStackParamList } from "../index";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { StatusPill } from "../../components/ui/StatusPill";
@@ -25,8 +26,8 @@ const haptic = () => {
 };
 
 export function ChequeDetail() {
-  const route = useRoute<any>();
-  const navigation = useNavigation();
+  const route = useRoute<RouteProp<RootStackParamList, "ChequeDetail" | "ChequeDetail" & string>>();
+  const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const { chequeId } = route.params || {};
 
   const user = useAuthStore((state) => state.user);
@@ -190,7 +191,7 @@ export function ChequeDetail() {
                     onPress={() => {
                       haptic();
                       if (cheque.saleId) {
-                        navigation.navigate("SaleDetail" as any, {
+                        navigation.navigate("SaleDetail", {
                           id: cheque.saleId,
                         });
                       }

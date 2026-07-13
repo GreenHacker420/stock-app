@@ -1,17 +1,17 @@
 import { useMemo, useState, useCallback, useEffect } from "react";
 import { Alert, StyleSheet, View } from "react-native";
-import { AppHeader } from "../../../../components/ui/AppHeader";
-import { Screen } from "../../../../components/Screen";
-import { useNavigation } from "@react-navigation/native";
-import { useShopStore } from "../../../../auth/shop-store";
-import { useAuthStore } from "../../../../auth/auth-store";
-import { useNetworkStatus } from "../../../../hooks/useNetworkStatus";
-import { useShopsQuery } from "../../../../hooks/useShops";
-import { useItemsQuery } from "../../../../hooks/useItems";
-import { useCustomersQuery } from "../../../../hooks/useCustomers";
-import { useCreateSaleMutation } from "../../../../hooks/useSales";
+import { AppHeader } from "@/components/ui/AppHeader";
+import { Screen } from "@/components/Screen";
+import { useNavigation, type NavigationProp } from "@react-navigation/native";
+import { useShopStore } from "@/auth/shop-store";
+import { useAuthStore } from "@/auth/auth-store";
+import { useNetworkStatus } from "@/hooks/useNetworkStatus";
+import { useShopsQuery } from "@/hooks/useShops";
+import { useItemsQuery } from "@/hooks/useItems";
+import { useCustomersQuery } from "@/hooks/useCustomers";
+import { useCreateSaleMutation } from "@/hooks/useSales";
 import { useSaleDraft } from "../core/useSaleDraft";
-import { requireActiveShopId } from "../../../../hooks/useActiveShop";
+import { requireActiveShopId } from "@/hooks/useActiveShop";
 import {
   adaptItemToSnapshot,
   fromMinorUnits,
@@ -22,9 +22,9 @@ import {
 import { createSaleFingerprint } from "../core/sale-fingerprint";
 import { buildSalePayload } from "../core/sale-payload";
 import { adaptSaleToInvoice } from "../core/sale-invoice-adapter";
-import { shareSaleInvoicePdf, printSaleInvoiceDirect } from "../../../../utils/pdf";
-import { triggerLightHaptic } from "../../../../utils/haptics";
-import { fetchItems, type Customer, type Item } from "../../../../api/client";
+import { shareSaleInvoicePdf, printSaleInvoiceDirect } from "@/utils/pdf";
+import { triggerLightHaptic } from "@/utils/haptics";
+import { fetchItems, type Customer, type Item } from "@/api/client";
 
 // Import Shared Components
 import { CustomerSelector } from "../components/CustomerSelector";
@@ -34,15 +34,16 @@ import { SaleProductPicker } from "../components/SaleProductPicker";
 import { SaleStickyFooter } from "../components/SaleStickyFooter";
 import { SaleSuccessView } from "../components/SaleSuccessView";
 import { WalkInCheckoutSheet } from "./WalkInCheckoutSheet";
-import { SerialNumberScannerModal } from "../../../../components/items/SerialNumberScannerModal";
-import { ProductSkuScannerModal } from "../../../../components/items/ProductSkuScannerModal";
+import { SerialNumberScannerModal } from "@/components/items/SerialNumberScannerModal";
+import { ProductSkuScannerModal } from "@/components/items/ProductSkuScannerModal";
 import { Text } from "react-native-paper";
-import { colors, spacing, fontSize, fontWeight, radius, shadow } from "../../../../theme";
+import { colors, spacing, fontSize, fontWeight, radius, shadow } from "@/theme";
+import { type RootStackParamList } from "@/navigation";
 
 const internetRequiredMessage = "Internet connection required. Please connect to the internet to complete this action.";
 
 export function WalkInSaleScreen() {
-  const navigation = useNavigation<any>();
+  const navigation = useNavigation<NavigationProp<RootStackParamList>>();
   const { activeShopId } = useShopStore();
   const [draftShopId, setDraftShopId] = useState(() => requireActiveShopId(activeShopId));
   const token = useAuthStore((state) => state.token);
@@ -323,7 +324,11 @@ export function WalkInSaleScreen() {
     if (navigation.canGoBack()) {
       navigation.goBack();
     } else {
-      navigation.navigate(user?.role === "OWNER" ? "OwnerDashboard" : "StaffWork");
+      if (user?.role === "OWNER") {
+        navigation.navigate("OwnerTabs", { screen: "OwnerDashboard" });
+      } else {
+        navigation.navigate("StaffTabs", { screen: "StaffWork" });
+      }
     }
   };
 

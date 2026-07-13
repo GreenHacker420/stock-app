@@ -12,7 +12,7 @@ import { useShopsQuery } from "@/hooks/useShops";
 import { useSaleQuery, useIssueInvoiceMutation, useCancelInvoiceMutation, useUpdateSaleMutation } from "@/hooks/useSales";
 import { usePaymentsQuery, useAttachPaymentMutation, useVerifyPaymentMutation, useMarkPaymentMismatchMutation } from "@/hooks/usePayments";
 import { parseMoneyToMinor, fromMinorUnits } from "@/features/sales/create/core/sale-calculations";
-import { type Sale } from "@/api/client";
+import { type Sale, type Shop } from "@/api/client";
 import { Screen } from "@/components/Screen";
 import { AppHeader } from "@/components/ui/AppHeader";
 import { StatusPill } from "@/components/ui/StatusPill";
@@ -20,19 +20,62 @@ import { SkeletonList } from "@/components/ui/SkeletonCard";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Button } from "@/components/ui/Button";
 import { Section } from "@/components/ui/Section";
-import { colors, spacing, radius, fontSize, fontWeight, shadow } from "@/theme";
+import { colors, spacing, radius, fontWeight, shadow } from "@/theme";
 import { shareSaleInvoicePdf } from "@/utils/pdf";
 import { triggerMediumHaptic } from "@/utils/haptics";
 
-import {
-  ItemSpecificationSheet,
-  GstRequirementSheet,
-  IssueInvoiceSheet,
-  CancelInvoiceSheet,
-} from "@/features/sales/history/components/SaleDetailSheets";
+import { ItemSpecificationSheet } from "../sheets/ItemSpecificationSheet";
+import { GstRequirementSheet } from "../sheets/GstRequirementSheet";
+import { IssueInvoiceSheet } from "../sheets/IssueInvoiceSheet";
+import { CancelInvoiceSheet } from "../sheets/CancelInvoiceSheet";
+import { type RootStackParamList } from "@/navigation";
 
-type SaleDetailRoute = RouteProp<Record<string, { id: string }>, "SaleDetail">;
-type SaleDetailNavigation = NativeStackNavigationProp<any, "SaleDetail">;
+type HistorySale = Sale & {
+  staff?: { name: string } | null;
+};
+
+type SalePaymentRecord = {
+  id: string;
+  status: "RECORDED" | "VERIFIED" | "REJECTED" | "CANCELLED" | string;
+  amount: string | number;
+  paymentMode: string;
+  receivedAt: string;
+  saleId?: string | null;
+  staff?: { name: string } | null;
+  verifiedBy?: { name: string } | null;
+  verifiedAt?: string | null;
+  upiTransactionId?: string | null;
+  bankTransactionUtr?: string | null;
+  chequeNumber?: string | null;
+  notes?: string | null;
+};
+
+type SaleItemRecord = {
+  id: string;
+  itemId: string;
+  itemName?: string | null;
+  itemUnit?: string | null;
+  quantity: string | number;
+  rate: string | number;
+  discountAmount?: string | number | null;
+  totalAmount: string | number;
+  mrp?: string | number | null;
+  defaultPrice?: string | number | null;
+  item?: {
+    name?: string | null;
+    sku?: string | null;
+    brand?: { name?: string | null } | null;
+    category?: { name?: string | null } | null;
+    unit?: string | null;
+    mrp?: string | number | null;
+    defaultSellingPrice?: string | number | null;
+    minimumAllowedPrice?: string | number | null;
+    minPrice?: string | number | null;
+  } | null;
+};
+
+type SaleDetailRoute = RouteProp<RootStackParamList, "SaleDetail">;
+type SaleDetailNavigation = NativeStackNavigationProp<RootStackParamList, "SaleDetail">;
 
 const formatMinorUnits = (valueMinor?: number | null) => {
   if (valueMinor == null || isNaN(valueMinor)) return "—";
@@ -81,15 +124,15 @@ export function SaleDetailScreen() {
   const saleId = route.params?.id;
   const insets = useSafeAreaInsets();
 
-  const user = useAuthStore((state: any) => state.user);
+  const user = useAuthStore((state) => state.user);
   const shopsQuery = useShopsQuery();
 
   const saleQuery = useSaleQuery(saleId);
-  const sale = saleQuery.data as (Sale & { staff?: { name: string } | null }) | undefined;
+  const sale = saleQuery.data as HistorySale | undefined;
 
   const saleShopId = sale?.shopId;
   const saleShop = useMemo(() =>
-    shopsQuery.data?.find((s: any) => s.id === saleShopId),
+    shopsQuery.data?.find((s: Shop) => s.id === saleShopId),
     [shopsQuery.data, saleShopId]
   );
 
@@ -134,7 +177,7 @@ export function SaleDetailScreen() {
     });
   };
 
-  const requestVerifyPayment = (payment: any) => {
+  const requestVerifyPayment = (payment: SalePaymentRecord) => {
     Alert.alert(
       "Verify Payment",
       `Confirm that payment of ${formatRawMoney(payment.amount)} was received?`,
@@ -145,7 +188,7 @@ export function SaleDetailScreen() {
     );
   };
 
-  const requestRejectPayment = (payment: any) => {
+  const requestRejectPayment = (payment: SalePaymentRecord) => {
     Alert.alert(
       "Mark Mismatch",
       `Are you sure you want to mark payment of ${formatRawMoney(payment.amount)} as mismatch/rejected?`,
@@ -173,7 +216,7 @@ export function SaleDetailScreen() {
   const [isGstModalVisible, setIsGstModalVisible] = useState(false);
   const [editGstRequired, setEditGstRequired] = useState(false);
 
-  const [selectedItemDetails, setSelectedItemDetails] = useState<any | null>(null);
+  const [selectedItemDetails, setSelectedItemDetails] = useState<SaleItemRecord | null>(null);
   const [footerHeight, setFooterHeight] = useState(0);
 
   // Parse customer signature once — avoids IIFE on every render
@@ -340,11 +383,12 @@ export function SaleDetailScreen() {
   }
 
   const totalAmountMinor = parseMoneyToMinor(sale.totalAmount) ?? 0;
+  const paymentsList = (sale.payments as SalePaymentRecord[]) ?? [];
 
-  const derivedVerifiedMinor = sale.payments?.reduce((sum: number, p: any) =>
+  const derivedVerifiedMinor = paymentsList.reduce((sum: number, p: SalePaymentRecord) =>
     p.status === "VERIFIED" ? sum + (parseMoneyToMinor(p.amount) ?? 0) : sum, 0) ?? 0;
 
-  const derivedRecordedMinor = sale.payments?.reduce((sum: number, p: any) =>
+  const derivedRecordedMinor = paymentsList.reduce((sum: number, p: SalePaymentRecord) =>
     p.status === "RECORDED" ? sum + (parseMoneyToMinor(p.amount) ?? 0) : sum, 0) ?? 0;
 
   const verifiedPaymentMinor = parseMoneyToMinor((sale as any).verifiedPaidAmount) ?? derivedVerifiedMinor;
@@ -370,7 +414,7 @@ export function SaleDetailScreen() {
   const canIssueInvoice = user?.role === "OWNER" && gstRequired && !hasIssuedInvoice;
   const canCancelInvoice = user?.role === "OWNER" && hasIssuedInvoice;
 
-  const hasVerifiedPayment = sale.payments?.some((p: any) => p.status === "VERIFIED");
+  const hasVerifiedPayment = paymentsList.some((p: SalePaymentRecord) => p.status === "VERIFIED");
   const isFinanciallyLocked = sale.paymentStatus === "PAID" || hasVerifiedPayment || hasIssuedInvoice;
   const canDirectEdit = user?.role === "OWNER" && !isFinanciallyLocked;
 
@@ -379,6 +423,8 @@ export function SaleDetailScreen() {
     !sale.isWalkin &&
     sale.paymentStatus !== "PAID" &&
     user?.role === "OWNER";
+
+  const saleItems = (sale.items as unknown as SaleItemRecord[]) ?? [];
 
   return (
     <Screen edges={['top', 'left', 'right', 'bottom']}>
@@ -564,7 +610,7 @@ export function SaleDetailScreen() {
           ) : null}
         </View>
         <View style={styles.itemsCard}>
-          {sale.items?.map((item: any, idx: number) => {
+          {saleItems.map((item: SaleItemRecord, idx: number) => {
             const billedRateMinor = parseMoneyToMinor(item.rate);
             const defaultRateMinor = parseMoneyToMinor(item.item?.defaultSellingPrice);
             const isPriceModified = billedRateMinor !== null && defaultRateMinor !== null && billedRateMinor !== defaultRateMinor;
@@ -606,7 +652,7 @@ export function SaleDetailScreen() {
                     </View>
                   </View>
                 </Pressable>
-                {idx < (sale.items?.length ?? 0) - 1 && <Divider style={styles.divider} />}
+                {idx < saleItems.length - 1 && <Divider style={styles.divider} />}
               </View>
             );
           })}
@@ -615,7 +661,7 @@ export function SaleDetailScreen() {
         {/* Payments Ledger Section */}
         <Section title="Payment Timeline">
           <Reanimated.View layout={LinearTransition} style={styles.timelineContainer}>
-            {sale.payments?.map((p: any, index: number) => {
+            {paymentsList.map((p: SalePaymentRecord, index: number) => {
               const collectedBy = p.staff?.name ? `Collected by ${p.staff.name}` : null;
               const verifiedBy = p.verifiedBy?.name ? `Verified by ${p.verifiedBy.name}` : null;
               const upiRef = p.upiTransactionId ? `UPI Ref: ${p.upiTransactionId}` : null;
@@ -649,7 +695,7 @@ export function SaleDetailScreen() {
 
               return (
                 <View style={styles.timelineNode} key={p.id}>
-                  {index < (sale.payments?.length ?? 0) - 1 && (
+                  {index < paymentsList.length - 1 && (
                     <View style={[styles.timelineLine, lineTone === "verified" && styles.timelineLineActive]} />
                   )}
 
@@ -726,7 +772,7 @@ export function SaleDetailScreen() {
                 </View>
               );
             })}
-            {sale.payments?.length === 0 && <Text style={styles.emptyText}>No payments recorded yet.</Text>}
+            {paymentsList.length === 0 && <Text style={styles.emptyText}>No payments recorded yet.</Text>}
           </Reanimated.View>
         </Section>
 
@@ -739,7 +785,7 @@ export function SaleDetailScreen() {
               ) : !unlinkedPaymentsQuery.data || unlinkedPaymentsQuery.data.length === 0 ? (
                 <Text style={styles.emptyText}>No unlinked payments found for this customer.</Text>
               ) : (
-                unlinkedPaymentsQuery.data.map((p: any, idx: number) => {
+                (unlinkedPaymentsQuery.data as SalePaymentRecord[]).map((p: SalePaymentRecord, idx: number) => {
                   const paymentAmountMinor = parseMoneyToMinor(p.amount) ?? 0;
                   const excessMinor = Math.max(0, paymentAmountMinor - balanceDueMinor);
 
@@ -856,7 +902,7 @@ Payment Date: ${new Date(p.receivedAt).toLocaleString("en-IN")}`,
             variant="success"
             icon="currency-inr"
             onPress={() => navigation.navigate("TakePayment", {
-              customerId: sale.customerId,
+              customerId: sale.customerId || undefined,
               customer: sale.customer,
               saleId: sale.id,
               amount: fromMinorUnits(trulyOutstandingMinor)

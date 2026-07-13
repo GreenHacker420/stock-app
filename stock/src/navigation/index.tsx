@@ -640,7 +640,7 @@ export type RootStackParamList = {
   CreateDeliveryMemo: undefined;
   DeliveryMemoList: undefined;
   DeliveryMemoDetail: { id: string };
-  TakePayment: { customerId?: string; customer?: any; orderId?: string; dmId?: string; amount?: number };
+  TakePayment: { customerId?: string; customer?: any; orderId?: string; dmId?: string; amount?: number; saleId?: string };
   RequestCorrection: undefined;
   RequestRateChange: undefined;
   CreateEditShop: { shop?: any };
@@ -665,14 +665,15 @@ export type RootStackParamList = {
   SalesList: { filter?: string };
   SaleDetail: { id: string };
   EditSale: { saleId: string };
+  InvoiceViewer: { sale: any; shop?: any };
   ChequeList: undefined;
   ChequeDetail: { chequeId: string };
   CustomerList: undefined;
-  AddEditCustomer: { customer?: any };
+  AddEditCustomer: { customer?: any } | undefined;
   CustomerDetail: { customerId: string };
   CustomerOutstandingList: undefined;
   ItemList: { brandId?: string; categoryId?: string } | undefined;
-  AddEditItem: { itemId?: string; initialName?: string };
+  AddEditItem: { itemId?: string; initialName?: string } | undefined;
   ItemDetail: { itemId: string };
   StorageManagement: undefined;
   StockDashboard: undefined;
