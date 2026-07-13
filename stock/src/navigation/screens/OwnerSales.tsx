@@ -734,9 +734,9 @@ export function SaleDetail() {
                           {bankUtr ? <Text style={styles.paymentDetails}>{bankUtr}</Text> : null}
                           {cheque ? <Text style={styles.paymentDetails}>{cheque}</Text> : null}
 
-                          {verifiedBy ? (
+                          {p.status === "VERIFIED" ? (
                             <Text style={styles.paymentVerification}>
-                              ✓ {verifiedBy} {p.verifiedAt ? `on ${new Date(p.verifiedAt).toLocaleString("en-IN", { dateStyle: "short", timeStyle: "short" })}` : ""}
+                              ✓ {verifiedBy || "Verified"} {p.verifiedAt ? `on ${new Date(p.verifiedAt).toLocaleString("en-IN", { dateStyle: "short", timeStyle: "short" })}` : ""}
                             </Text>
                           ) : isRejected ? (
                             <Text style={[styles.paymentMeta, { color: colors.danger }]}>
