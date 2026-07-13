@@ -1,12 +1,12 @@
 import { useQuery, useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
-import { useAuthStore } from "../auth/auth-store";
-import { useShopStore } from "../auth/shop-store";
-import { queryKeys } from "./query-keys";
-import { fetchCustomers, fetchCustomer, createCustomer, updateCustomer, deleteCustomer, fetchCustomerSales, fetchCustomerPayments, fetchCustomerDMs, fetchCustomerReturns, fetchCustomerTimeline } from "../api/client";
-import { newIdempotencyKey } from "../utils/idempotency";
-import { requireActiveShopId } from "./useActiveShop";
-import { useCustomerReadModel, useReadModelRefresh } from "../local/read-model/read-model-selectors";
-import { refreshReadModelDomains } from "../local/read-model/read-model-coordinator";
+import { useAuthStore } from "@/auth/auth-store";
+import { useShopStore } from "@/auth/shop-store";
+import { queryKeys } from "@/hooks/query-keys";
+import { fetchCustomers, fetchCustomer, createCustomer, updateCustomer, deleteCustomer, fetchCustomerSales, fetchCustomerPayments, fetchCustomerDMs, fetchCustomerReturns, fetchCustomerTimeline, type Customer } from "@/api/client";
+import { newIdempotencyKey } from "@/utils/idempotency";
+import { requireActiveShopId } from "@/hooks/useActiveShop";
+import { useCustomerReadModel, useReadModelRefresh } from "@/local/read-model/read-model-selectors";
+import { refreshReadModelDomains } from "@/local/read-model/read-model-coordinator";
 
 function refreshCustomerReadModelAfterMutation({
   userId,
@@ -62,11 +62,41 @@ export function useCustomersQuery(opts: { search?: string; includeWalkin?: boole
 
 export function useCustomerDetailQuery(id: string) {
   const token = useAuthStore((state) => state.token);
-  return useQuery({
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  const queryClient = useQueryClient();
+
+  return useQuery<Customer, Error>({
     queryKey: queryKeys.customer(id),
     queryFn: () => fetchCustomer(token ?? "", id),
     enabled: !!token && !!id,
     staleTime: 15 * 60 * 1000, // 15 mins
+    initialData: () => {
+      if (!activeShopId) return undefined;
+      // Search in customers queries cache
+      const queries = queryClient.getQueriesData<any>({
+        queryKey: ["customers", activeShopId],
+      });
+      for (const [_, queryData] of queries) {
+        if (Array.isArray(queryData)) {
+          const found = queryData.find((c: any) => c.id === id);
+          if (found) return found;
+        }
+      }
+      return undefined;
+    },
+    initialDataUpdatedAt: () => {
+      if (!activeShopId) return undefined;
+      const queries = queryClient.getQueriesData<any>({
+        queryKey: ["customers", activeShopId],
+      });
+      for (const [queryKey, _] of queries) {
+        const state = queryClient.getQueryState(queryKey);
+        if (state?.dataUpdatedAt) {
+          return state.dataUpdatedAt;
+        }
+      }
+      return undefined;
+    },
   });
 }
 
