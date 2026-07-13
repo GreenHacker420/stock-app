@@ -24,7 +24,6 @@ import Animated, {
   ReduceMotion,
 } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
-import { useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Icon } from "react-native-paper";
 import { colors, spacing, radius, shadow, fontWeight, fontSize } from "../../theme";
@@ -77,6 +76,7 @@ export const AppBottomSheetModal = forwardRef<
 
   const [renderModal, setRenderModal] = useState(false);
   const [dismissing, setDismissing] = useState(false);
+  const [headerHeight, setHeaderHeight] = useState(60);
 
   const dismissingRef = useRef(false);
   const hasOpenedRef = useRef(false);
@@ -87,10 +87,7 @@ export const AppBottomSheetModal = forwardRef<
   const sheetHeight = useSharedValue(0);
   const closing = useSharedValue(false);
 
-  const resetDismissState = useCallback(() => {
-    dismissingRef.current = false;
-    setDismissing(false);
-  }, []);
+  const safeMaxHeight = Math.min(0.95, Math.max(0.4, maxHeight));
 
   const finalizeDismiss = useCallback(() => {
     hasOpenedRef.current = false;
@@ -99,6 +96,23 @@ export const AppBottomSheetModal = forwardRef<
     setRenderModal(false);
     onDismiss();
   }, [onDismiss]);
+
+  // Recover state if a close animation is cancelled or interrupted
+  const recoverInterruptedDismiss = useCallback(() => {
+    dismissingRef.current = false;
+    setDismissing(false);
+    closing.value = false;
+
+    if (visible) {
+      translateY.value = withSpring(0, OPEN_SPRING_CONFIG);
+      backdropOpacity.value = withTiming(1, {
+        duration: BACKDROP_DURATION,
+        reduceMotion: ReduceMotion.System,
+      });
+    } else {
+      finalizeDismiss();
+    }
+  }, [visible, closing, translateY, backdropOpacity, finalizeDismiss]);
 
   const beginDismiss = useCallback(() => {
     if (isBusy || dismissingRef.current) return;
@@ -115,22 +129,38 @@ export const AppBottomSheetModal = forwardRef<
       if (finished) {
         scheduleOnRN(finalizeDismiss);
       } else {
-        scheduleOnRN(resetDismissState);
+        scheduleOnRN(recoverInterruptedDismiss);
       }
     });
     backdropOpacity.value = withTiming(0, {
       duration: BACKDROP_DURATION,
       reduceMotion: ReduceMotion.System,
     });
-  }, [backdropOpacity, isBusy, closing, finalizeDismiss, resetDismissState, sheetHeight, translateY, screenH]);
+  }, [backdropOpacity, isBusy, closing, finalizeDismiss, recoverInterruptedDismiss, sheetHeight, translateY, screenH]);
 
+  // Effect 1: Handle visible changes, especially reopening during close
   useEffect(() => {
-    if (visible && !renderModal) {
+    if (!visible) return;
+
+    if (dismissingRef.current) {
+      dismissingRef.current = false;
+      setDismissing(false);
+      closing.value = false;
+
+      translateY.value = withSpring(0, OPEN_SPRING_CONFIG);
+      backdropOpacity.value = withTiming(1, {
+        duration: 200,
+        reduceMotion: ReduceMotion.System,
+      });
+      return;
+    }
+
+    if (!renderModal) {
       setRenderModal(true);
     }
-  }, [visible]);
+  }, [visible, renderModal, closing, translateY, backdropOpacity]);
 
-
+  // Effect 2: Opening animation — runs exactly once per open (guarded by hasOpenedRef)
   useEffect(() => {
     if (!renderModal || !visible || hasOpenedRef.current) return;
 
@@ -156,9 +186,9 @@ export const AppBottomSheetModal = forwardRef<
       }
     }, 250);
     return () => clearTimeout(focusTimer);
-  }, [renderModal, visible]);
+  }, [renderModal, visible, screenH, sheetHeight, translateY, backdropOpacity, closing]);
 
-
+  // Effect 3: Closing — reacts only to visible becoming false
   useEffect(() => {
     if (!visible && renderModal) {
       beginDismiss();
@@ -177,7 +207,7 @@ export const AppBottomSheetModal = forwardRef<
     setDismissing(true);
   }, []);
 
-
+  // Pan gesture scoped to the drag handle area only
   const panGesture = useMemo(
     () => Gesture.Pan()
       .enabled(!isBusy && !dismissing)
@@ -198,7 +228,7 @@ export const AppBottomSheetModal = forwardRef<
             if (finished) {
               scheduleOnRN(finalizeDismiss);
             } else {
-              scheduleOnRN(resetDismissState);
+              scheduleOnRN(recoverInterruptedDismiss);
             }
           });
           backdropOpacity.value = withTiming(0, {
@@ -214,10 +244,8 @@ export const AppBottomSheetModal = forwardRef<
           translateY.value = withSpring(0, OPEN_SPRING_CONFIG);
         }
       }),
-    [backdropOpacity, isBusy, closing, dismissing, finalizeDismiss, markGestureDismissStarted, resetDismissState, sheetHeight, translateY, screenH]
+    [backdropOpacity, isBusy, closing, dismissing, finalizeDismiss, markGestureDismissStarted, recoverInterruptedDismiss, sheetHeight, translateY, screenH]
   );
-
-  const keyboard = useReanimatedKeyboardAnimation();
 
   const backdropStyle = useAnimatedStyle(() => {
     const distance = Math.max(sheetHeight.value, screenH, 1);
@@ -227,16 +255,15 @@ export const AppBottomSheetModal = forwardRef<
     };
   });
 
-
   const sheetStyle = useAnimatedStyle(() => ({
     transform: [{ translateY: translateY.value }],
   }));
-  void keyboard;
 
   if (!renderModal) return null;
 
   const interactionsDisabled = isBusy || dismissing;
   const contentPaddingBottom = Math.max(insets.bottom, spacing.xl);
+  const maxContentHeight = screenH * safeMaxHeight - headerHeight;
 
   return (
     <Modal
@@ -245,6 +272,7 @@ export const AppBottomSheetModal = forwardRef<
       animationType="none"
       onRequestClose={beginDismiss}
       statusBarTranslucent
+      navigationBarTranslucent
     >
       <GestureHandlerRootView style={styles.gestureRoot}>
         <View style={styles.modalRoot}>
@@ -265,7 +293,7 @@ export const AppBottomSheetModal = forwardRef<
           <Animated.View
             style={[
               styles.sheetContainer,
-              { maxHeight: screenH * maxHeight },
+              { maxHeight: screenH * safeMaxHeight },
               sheetStyle,
             ]}
             onLayout={(e) => {
@@ -277,7 +305,12 @@ export const AppBottomSheetModal = forwardRef<
           >
             {/* Drag handle — GestureDetector scoped here only, not over content */}
             <GestureDetector gesture={panGesture}>
-              <View style={styles.dragHeader}>
+              <View 
+                style={styles.dragHeader}
+                onLayout={(e) => {
+                  setHeaderHeight(e.nativeEvent.layout.height);
+                }}
+              >
                 <View style={styles.handle} />
 
                 {/* Header: title block + close button */}
@@ -314,11 +347,12 @@ export const AppBottomSheetModal = forwardRef<
             {scrollable ? (
               <KeyboardAvoidingView
                 behavior={Platform.OS === "ios" ? "padding" : "height"}
-                style={styles.flex1}
+                style={{ maxHeight: maxContentHeight }}
               >
                 <ScrollView
                   keyboardShouldPersistTaps="handled"
                   keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+                  style={styles.scrollView}
                   contentContainerStyle={[
                     !fullBleed && styles.contentWrapPadded,
                     { paddingBottom: contentPaddingBottom },
@@ -345,9 +379,6 @@ export const AppBottomSheetModal = forwardRef<
 });
 
 const styles = StyleSheet.create({
-  flex1: {
-    flex: 1,
-  },
   gestureRoot: {
     flex: 1,
   },
@@ -415,6 +446,9 @@ const styles = StyleSheet.create({
     padding: spacing.xs,
     borderRadius: radius.sm,
     marginTop: -spacing.xs,
+  },
+  scrollView: {
+    flexGrow: 0,
   },
   contentWrap: {
     paddingBottom: spacing.md,

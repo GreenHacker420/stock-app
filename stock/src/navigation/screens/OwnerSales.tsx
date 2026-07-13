@@ -1,5 +1,5 @@
 import { useMemo, useState, useRef, useEffect } from "react";
-import { View, StyleSheet, Pressable, Alert, Modal as RNModal } from "react-native";
+import { View, StyleSheet, Pressable, ScrollView, Alert, Modal as RNModal } from "react-native";
 import { Divider, Text, Icon, Portal, Modal, Switch, TextInput as PaperTextInput } from "react-native-paper";
 import { useAuthStore } from "../../auth/auth-store";
 import { FlashList } from "@shopify/flash-list";
@@ -29,8 +29,6 @@ import { navigate } from "../navigation-ref";
 import { useShopsQuery } from "../../hooks/useShops";
 import { shareSaleInvoicePdf } from "../../utils/pdf";
 import { triggerLightHaptic, triggerMediumHaptic } from "../../utils/haptics";
-import ReanimatedSwipeable from "react-native-gesture-handler/ReanimatedSwipeable";
-import { ScrollView } from "react-native-gesture-handler";
 import Reanimated, { useSharedValue, useAnimatedStyle, LinearTransition, type SharedValue, FadeInUp } from "react-native-reanimated";
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
@@ -147,35 +145,6 @@ export function SalesList() {
   );
 }
 
-type PaymentSwipeActionProps = {
-  progress: SharedValue<number>;
-  type: "VERIFY" | "REJECT";
-};
-
-function PaymentSwipeAction({ progress, type }: PaymentSwipeActionProps) {
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [
-      {
-        scale: Math.max(0.8, progress.value),
-      },
-    ],
-  }));
-
-  const isVerify = type === "VERIFY";
-
-  return (
-    <View style={isVerify ? styles.swipeLeftAction : styles.swipeRightAction}>
-      <Reanimated.View style={animatedStyle}>
-        <Icon
-          source={isVerify ? "check-bold" : "close-thick"}
-          size={24}
-          color="white"
-        />
-      </Reanimated.View>
-    </View>
-  );
-}
-
 type SaleDetailRoute = RouteProp<Record<string, { id: string }>, "SaleDetail">;
 type SaleDetailNavigation = NativeStackNavigationProp<any, "SaleDetail">;
 
@@ -229,14 +198,10 @@ export function SaleDetail() {
   const attachPaymentMutation = useAttachPaymentMutation(saleShopId || undefined);
   const verifyPaymentMutation = useVerifyPaymentMutation(saleShopId || undefined);
   const rejectPaymentMutation = useMarkPaymentMismatchMutation(saleShopId || undefined);
-  
-  const swipeableRefs = useRef<Record<string, any>>({});
 
   const handleVerifyPayment = (paymentId: string) => {
-    // Close the swipeable row before mutation so UI doesn't linger in swiped state
-    swipeableRefs.current[paymentId]?.close();
     triggerMediumHaptic();
-    verifyPaymentMutation.mutate({ paymentId }, {
+    verifyPaymentMutation.mutate({ paymentId, saleId: sale?.id }, {
       onSuccess: () => {
         saleQuery.refetch();
         Alert.alert("Success", "Payment verified successfully!");
@@ -248,10 +213,8 @@ export function SaleDetail() {
   };
 
   const handleRejectPayment = (paymentId: string) => {
-    // Close the swipeable row before mutation
-    swipeableRefs.current[paymentId]?.close();
     triggerMediumHaptic();
-    rejectPaymentMutation.mutate({ paymentId, note: "Rejected by owner" }, {
+    rejectPaymentMutation.mutate({ paymentId, saleId: sale?.id, note: "Rejected by owner" }, {
       onSuccess: () => {
         saleQuery.refetch();
         Alert.alert("Success", "Payment marked as mismatch.");
@@ -269,10 +232,7 @@ export function SaleDetail() {
       [
         {
           text: "Cancel",
-          style: "cancel",
-          onPress: () => {
-            swipeableRefs.current[payment.id]?.close();
-          }
+          style: "cancel"
         },
         {
           text: "Verify",
@@ -289,10 +249,7 @@ export function SaleDetail() {
       [
         {
           text: "Cancel",
-          style: "cancel",
-          onPress: () => {
-            swipeableRefs.current[payment.id]?.close();
-          }
+          style: "cancel"
         },
         {
           text: "Reject",
@@ -312,6 +269,10 @@ export function SaleDetail() {
 
   const [isInvoiceModalVisible, setIsInvoiceModalVisible] = useState(false);
   const [invoiceNumber, setInvoiceNumber] = useState("");
+
+  const [isCancelModalVisible, setIsCancelModalVisible] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelNotes, setCancelNotes] = useState("");
 
   const [isGstModalVisible, setIsGstModalVisible] = useState(false);
   const [editGstRequired, setEditGstRequired] = useState(false);
@@ -368,13 +329,14 @@ export function SaleDetail() {
 
   const handleConfirmIssueInvoice = () => {
     if (!sale) return;
-    if (!invoiceNumber.trim()) {
-      Alert.alert("Error", "Please enter a valid invoice number");
+    const normalizedInvoiceNumber = invoiceNumber.trim().toUpperCase();
+    if (!/^[A-Z0-9][A-Z0-9/_-]{1,39}$/.test(normalizedInvoiceNumber)) {
+      Alert.alert("Invalid Invoice Number", "Please enter a valid alphanumeric invoice number (e.g. VS-2026-145).");
       return;
     }
     issueInvoiceMutation.mutate({
       saleId: sale.id,
-      data: { invoiceNumber: invoiceNumber.trim() }
+      data: { invoiceNumber: normalizedInvoiceNumber }
     }, {
       onSuccess: () => {
         setIsInvoiceModalVisible(false);
@@ -389,31 +351,39 @@ export function SaleDetail() {
 
   const handleCancelInvoice = () => {
     if (!sale || !sale.gstInvoiceNumber) return;
-    Alert.alert(
-      "Cancel GST Invoice",
-      `Are you sure you want to cancel the invoice #${sale.gstInvoiceNumber}?`,
-      [
-        { text: "No", style: "cancel" },
-        {
-          text: "Yes, Cancel",
-          style: "destructive",
-          onPress: () => {
-            cancelInvoiceMutation.mutate({
-              saleId: sale.id,
-              data: { reason: "Cancelled by owner" }
-            }, {
-              onSuccess: () => {
-                saleQuery.refetch();
-                Alert.alert("Success", "GST Invoice cancelled.");
-              },
-              onError: (err: any) => {
-                Alert.alert("Error", err.message || "Failed to cancel invoice");
-              }
-            });
-          }
-        }
-      ]
-    );
+    setCancelReason("");
+    setCancelNotes("");
+    setIsCancelModalVisible(true);
+  };
+
+  const handleConfirmCancelInvoice = () => {
+    if (!sale) return;
+    if (!cancelReason) {
+      Alert.alert("Error", "Please select a cancellation reason");
+      return;
+    }
+    const finalReason = cancelReason === "Other"
+      ? `Other: ${cancelNotes.trim()}`
+      : cancelReason;
+
+    if (cancelReason === "Other" && !cancelNotes.trim()) {
+      Alert.alert("Error", "Please enter a note for 'Other' reason");
+      return;
+    }
+
+    cancelInvoiceMutation.mutate({
+      saleId: sale.id,
+      data: { reason: finalReason }
+    }, {
+      onSuccess: () => {
+        setIsCancelModalVisible(false);
+        saleQuery.refetch();
+        Alert.alert("Success", "GST Invoice cancelled successfully.");
+      },
+      onError: (err: any) => {
+        Alert.alert("Error", err.message || "Failed to cancel invoice");
+      }
+    });
   };
 
   const handleSharePdf = async () => {
@@ -435,13 +405,7 @@ export function SaleDetail() {
     }
   };
 
-  const renderLeftActions = (progress: SharedValue<number>) => {
-    return <PaymentSwipeAction progress={progress} type="VERIFY" />;
-  };
 
-  const renderRightActions = (progress: SharedValue<number>) => {
-    return <PaymentSwipeAction progress={progress} type="REJECT" />;
-  };
 
   if (saleQuery.isLoading) {
     return (
@@ -486,22 +450,33 @@ export function SaleDetail() {
   // Financial locking policies
   const totalAmountMinor = parseMoneyToMinor(sale.totalAmount) ?? 0;
 
-  // Verified payments only — these are settled
-  const verifiedPaymentMinor = sale.payments?.reduce((sum, p) =>
+  // Derived totals from payments list
+  const derivedVerifiedMinor = sale.payments?.reduce((sum, p) =>
     p.status === "VERIFIED" ? sum + (parseMoneyToMinor(p.amount) ?? 0) : sum, 0) ?? 0;
 
-  // Recorded (unverified) payments — received by staff but not yet confirmed by owner
-  const recordedPaymentMinor = sale.payments?.reduce((sum, p) =>
+  const derivedRecordedMinor = sale.payments?.reduce((sum, p) =>
     p.status === "RECORDED" ? sum + (parseMoneyToMinor(p.amount) ?? 0) : sum, 0) ?? 0;
+
+  // Authoritative server-provided values, falling back to derived calculations
+  const verifiedPaymentMinor = parseMoneyToMinor((sale as any).verifiedPaidAmount) ?? derivedVerifiedMinor;
+  const recordedPaymentMinor = parseMoneyToMinor((sale as any).recordedPaymentAmount) ?? derivedRecordedMinor;
+  const balanceDueMinor = parseMoneyToMinor(sale.balanceAmount) ?? Math.max(0, totalAmountMinor - verifiedPaymentMinor - recordedPaymentMinor);
 
   // Pending verification = recorded but not verified (same data, clearer naming for display)
   const pendingPaymentMinor = recordedPaymentMinor;
 
-  // Balance = total minus verified AND recorded (both reduce the outstanding)
-  const balanceDueMinor = Math.max(0, totalAmountMinor - verifiedPaymentMinor - recordedPaymentMinor);
-
   // Only verified amount is "settled" — for the Collect button, show full unverified remainder
   const trulyOutstandingMinor = Math.max(0, totalAmountMinor - verifiedPaymentMinor);
+
+  if (__DEV__) {
+    const derivedBalanceMinor = Math.max(0, totalAmountMinor - derivedVerifiedMinor - derivedRecordedMinor);
+    const backendBalanceMinor = parseMoneyToMinor(sale.balanceAmount);
+    if (backendBalanceMinor !== null && derivedBalanceMinor !== backendBalanceMinor) {
+      console.warn(
+        `[SaleDetail] Balance reconciliation mismatch! Server: ${backendBalanceMinor}, Derived: ${derivedBalanceMinor}`
+      );
+    }
+  }
 
   const gstRequired = Boolean(sale.isGstRequired || sale.gstRequired);
   const hasIssuedInvoice = Boolean(sale.gstInvoiceNumber);
@@ -776,6 +751,34 @@ export function SaleDetail() {
 
               const lineTone = p.status === "VERIFIED" ? "verified" : "pending";
 
+              const paymentStatusPresentation = {
+                RECORDED: {
+                  label: "Pending Verification",
+                  tone: "amber",
+                },
+                VERIFIED: {
+                  label: "Verified",
+                  tone: "green",
+                },
+                REJECTED: {
+                  label: "Mismatch",
+                  tone: "red",
+                },
+                CANCELLED: {
+                  label: "Cancelled",
+                  tone: "neutral",
+                },
+              } as const;
+
+              const statusMeta = paymentStatusPresentation[p.status as keyof typeof paymentStatusPresentation] || {
+                label: p.status,
+                tone: "neutral"
+              };
+
+              const mutatingPaymentId = verifyPaymentMutation.variables?.paymentId || rejectPaymentMutation.variables?.paymentId;
+              const isMutatingThisRow = mutatingPaymentId === p.id;
+              const anyMutationPending = verifyPaymentMutation.isPending || rejectPaymentMutation.isPending;
+
               return (
                 <View style={styles.timelineNode} key={p.id}>
                   {index < (sale.payments?.length ?? 0) - 1 && (
@@ -786,19 +789,7 @@ export function SaleDetail() {
                     <Icon source={iconName} size={12} color={p.status === "VERIFIED" ? colors.primary : isRejected ? colors.danger : colors.textSecondary} />
                   </View>
 
-                  <ReanimatedSwipeable
-                    ref={(el) => { swipeableRefs.current[p.id] = el; }}
-                    enabled={user?.role === "OWNER" && p.status === "RECORDED"}
-                    renderLeftActions={renderLeftActions}
-                    renderRightActions={renderRightActions}
-                    onSwipeableOpen={(direction) => {
-                      if (direction === "right") {
-                        requestVerifyPayment(p);
-                      } else if (direction === "left") {
-                        requestRejectPayment(p);
-                      }
-                    }}
-                  >
+                  <View style={{ flex: 1 }}>
                     <View style={[styles.paymentCard, isPending && styles.paymentCardPending, isRejected && styles.paymentCardRejected]}>
                       <View style={styles.paymentCardRow}>
                         <View style={styles.paymentInfo}>
@@ -822,7 +813,7 @@ export function SaleDetail() {
                             </Text>
                           ) : (
                             <Text style={[styles.paymentMeta, styles.paymentVerificationPending]}>
-                              ⚠ Pending Verification {user?.role === "OWNER" ? "• Swipe to verify" : ""}
+                              ⚠ Pending Verification
                             </Text>
                           )}
 
@@ -834,8 +825,8 @@ export function SaleDetail() {
                         <View style={{ alignItems: 'flex-end', justifyContent: 'space-between', gap: 6 }}>
                           <Text style={[styles.itemTotal, { fontVariant: ["tabular-nums"] }]}>{formatRawMoney(p.amount)}</Text>
                           <StatusPill
-                            label={p.status}
-                            tone={p.status === 'VERIFIED' ? 'green' : p.status === 'REJECTED' ? 'red' : 'amber'}
+                            label={statusMeta.label}
+                            tone={statusMeta.tone}
                           />
                         </View>
                       </View>
@@ -847,7 +838,8 @@ export function SaleDetail() {
                             variant="primary"
                             size="sm"
                             onPress={() => requestVerifyPayment(p)}
-                            disabled={verifyPaymentMutation.isPending || rejectPaymentMutation.isPending}
+                            loading={verifyPaymentMutation.isPending && isMutatingThisRow}
+                            disabled={anyMutationPending}
                             style={styles.paymentInlineActionBtn}
                           />
                           <Button
@@ -855,13 +847,14 @@ export function SaleDetail() {
                             variant="secondary"
                             size="sm"
                             onPress={() => requestRejectPayment(p)}
-                            disabled={verifyPaymentMutation.isPending || rejectPaymentMutation.isPending}
+                            loading={rejectPaymentMutation.isPending && isMutatingThisRow}
+                            disabled={anyMutationPending}
                             style={styles.paymentInlineActionBtn}
                           />
                         </View>
                       )}
                     </View>
-                  </ReanimatedSwipeable>
+                  </View>
                 </View>
               );
             })}
@@ -1029,6 +1022,7 @@ Payment Date: ${new Date(p.receivedAt).toLocaleString("en-IN")}`,
         visible={selectedItemDetails !== null}
         title="Item Specification"
         onDismiss={() => setSelectedItemDetails(null)}
+        scrollable
       >
         {selectedItemDetails && (() => {
           const item = selectedItemDetails.item;
@@ -1127,6 +1121,7 @@ Payment Date: ${new Date(p.receivedAt).toLocaleString("en-IN")}`,
         title="Issue GST Invoice"
         onDismiss={() => setIsInvoiceModalVisible(false)}
         isBusy={issueInvoiceMutation.isPending}
+        scrollable
       >
         <View style={{ marginVertical: spacing.md }}>
           <PaperTextInput
@@ -1156,6 +1151,94 @@ Payment Date: ${new Date(p.receivedAt).toLocaleString("en-IN")}`,
             loading={issueInvoiceMutation.isPending}
             disabled={issueInvoiceMutation.isPending || !invoiceNumber.trim()}
             onPress={handleConfirmIssueInvoice}
+            style={{ flex: 1.5 }}
+          />
+        </View>
+      </AppBottomSheetModal>
+
+      {/* Cancel GST Invoice Bottom Sheet */}
+      <AppBottomSheetModal
+        visible={isCancelModalVisible}
+        title="Cancel GST Invoice"
+        onDismiss={() => setIsCancelModalVisible(false)}
+        isBusy={cancelInvoiceMutation.isPending}
+        scrollable
+      >
+        <Text style={{ fontSize: 13, color: colors.textSecondary, marginBottom: spacing.md }}>
+          Cancellations are permanent and recorded in the audit log. Select a reason:
+        </Text>
+
+        <View style={{ gap: spacing.sm, marginBottom: spacing.md }}>
+          {[
+            "Incorrect GST number",
+            "Duplicate invoice",
+            "Customer details incorrect",
+            "Sale cancelled",
+            "Other",
+          ].map((reason) => {
+            const isSelected = cancelReason === reason;
+            return (
+              <Pressable
+                key={reason}
+                onPress={() => {
+                  triggerLightHaptic();
+                  setCancelReason(reason);
+                }}
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  padding: spacing.md,
+                  borderRadius: radius.md,
+                  borderWidth: 1,
+                  borderColor: isSelected ? colors.primary : colors.border,
+                  backgroundColor: isSelected ? colors.surfaceOffset : colors.surface,
+                  gap: spacing.sm,
+                }}
+              >
+                <Icon
+                  source={isSelected ? "radiobox-marked" : "radiobox-blank"}
+                  size={20}
+                  color={isSelected ? colors.primary : colors.textSecondary}
+                />
+                <Text style={{ fontSize: 14, fontWeight: isSelected ? fontWeight.bold : fontWeight.regular, color: colors.textPrimary }}>
+                  {reason}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        {cancelReason === "Other" && (
+          <View style={{ marginBottom: spacing.md }}>
+            <PaperTextInput
+              mode="outlined"
+              label="Provide cancellation reason"
+              value={cancelNotes}
+              onChangeText={setCancelNotes}
+              outlineColor={colors.border}
+              activeOutlineColor={colors.primary}
+              textColor={colors.textPrimary}
+              placeholder="Explain why this invoice is being cancelled..."
+              style={{ backgroundColor: colors.surface }}
+              multiline
+              numberOfLines={2}
+            />
+          </View>
+        )}
+
+        <View style={styles.shareRow}>
+          <Button
+            label="Dismiss"
+            variant="ghost"
+            onPress={() => setIsCancelModalVisible(false)}
+            style={{ flex: 1 }}
+          />
+          <Button
+            label="Cancel Invoice"
+            variant="danger"
+            loading={cancelInvoiceMutation.isPending}
+            disabled={cancelInvoiceMutation.isPending || !cancelReason || (cancelReason === "Other" && !cancelNotes.trim())}
+            onPress={handleConfirmCancelInvoice}
             style={{ flex: 1.5 }}
           />
         </View>
