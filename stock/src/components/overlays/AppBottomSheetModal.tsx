@@ -6,13 +6,16 @@ import {
   Text,
   useWindowDimensions,
   Pressable,
+  Platform,
   AccessibilityInfo,
 } from "react-native";
 import {
   GestureHandlerRootView,
   GestureDetector,
   Gesture,
+  ScrollView,
 } from "react-native-gesture-handler";
+import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -23,6 +26,7 @@ import Animated, {
 import { scheduleOnRN } from "react-native-worklets";
 import { useReanimatedKeyboardAnimation } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Icon } from "react-native-paper";
 import { colors, spacing, radius, shadow, fontWeight, fontSize } from "../../theme";
 
 const OPEN_SPRING_CONFIG = {
@@ -46,9 +50,9 @@ interface AppBottomSheetModalProps {
   children: React.ReactNode;
   onDismiss: () => void;
   isBusy?: boolean;
-  keyboardAware?: boolean;
-  maxHeight?: number; // float between 0 and 1
+  maxHeight?: number;
   fullBleed?: boolean;
+  scrollable?: boolean;
 }
 
 export const AppBottomSheetModal = forwardRef<
@@ -62,9 +66,9 @@ export const AppBottomSheetModal = forwardRef<
     children,
     onDismiss,
     isBusy = false,
-    keyboardAware = true,
     maxHeight = 0.85,
     fullBleed = false,
+    scrollable = false,
   },
   ref
 ) {
@@ -75,6 +79,7 @@ export const AppBottomSheetModal = forwardRef<
   const [dismissing, setDismissing] = useState(false);
 
   const dismissingRef = useRef(false);
+  const hasOpenedRef = useRef(false);
   const headerRef = useRef<View>(null);
 
   const translateY = useSharedValue(screenH);
@@ -82,7 +87,13 @@ export const AppBottomSheetModal = forwardRef<
   const sheetHeight = useSharedValue(0);
   const closing = useSharedValue(false);
 
+  const resetDismissState = useCallback(() => {
+    dismissingRef.current = false;
+    setDismissing(false);
+  }, []);
+
   const finalizeDismiss = useCallback(() => {
+    hasOpenedRef.current = false;
     dismissingRef.current = false;
     setDismissing(false);
     setRenderModal(false);
@@ -95,7 +106,7 @@ export const AppBottomSheetModal = forwardRef<
     dismissingRef.current = true;
     setDismissing(true);
     closing.value = true;
-    
+
     const hiddenTranslateY = Math.max(sheetHeight.value, screenH);
     translateY.value = withTiming(hiddenTranslateY, {
       duration: CLOSE_DURATION,
@@ -103,13 +114,62 @@ export const AppBottomSheetModal = forwardRef<
     }, (finished) => {
       if (finished) {
         scheduleOnRN(finalizeDismiss);
+      } else {
+        scheduleOnRN(resetDismissState);
       }
     });
     backdropOpacity.value = withTiming(0, {
       duration: BACKDROP_DURATION,
       reduceMotion: ReduceMotion.System,
     });
-  }, [backdropOpacity, isBusy, closing, finalizeDismiss, sheetHeight, translateY, screenH]);
+  }, [backdropOpacity, isBusy, closing, finalizeDismiss, resetDismissState, sheetHeight, translateY, screenH]);
+
+  useEffect(() => {
+    if (visible && !renderModal) {
+      setRenderModal(true);
+    }
+  }, [visible]);
+
+
+  useEffect(() => {
+    if (!renderModal || !visible || hasOpenedRef.current) return;
+
+    hasOpenedRef.current = true;
+    dismissingRef.current = false;
+    setDismissing(false);
+    closing.value = false;
+
+    translateY.value = Math.max(sheetHeight.value, screenH);
+    backdropOpacity.value = 0;
+
+    requestAnimationFrame(() => {
+      translateY.value = withSpring(0, OPEN_SPRING_CONFIG);
+      backdropOpacity.value = withTiming(1, {
+        duration: 200,
+        reduceMotion: ReduceMotion.System,
+      });
+    });
+
+    const focusTimer = setTimeout(() => {
+      if (headerRef.current) {
+        AccessibilityInfo.sendAccessibilityEvent(headerRef.current, 'focus');
+      }
+    }, 250);
+    return () => clearTimeout(focusTimer);
+  }, [renderModal, visible]);
+
+
+  useEffect(() => {
+    if (!visible && renderModal) {
+      beginDismiss();
+    }
+  }, [visible, renderModal, beginDismiss]);
+
+  useImperativeHandle(ref, () => ({
+    dismiss: () => {
+      beginDismiss();
+    },
+  }));
 
   const markGestureDismissStarted = useCallback(() => {
     if (dismissingRef.current) return;
@@ -117,41 +177,7 @@ export const AppBottomSheetModal = forwardRef<
     setDismissing(true);
   }, []);
 
-  // Sync visible prop to animation trigger
-  useEffect(() => {
-    if (visible) {
-      setRenderModal(true);
-      dismissingRef.current = false;
-      setDismissing(false);
-      closing.value = false;
-      translateY.value = Math.max(sheetHeight.value, screenH);
-      backdropOpacity.value = 0;
-      
-      translateY.value = withSpring(0, OPEN_SPRING_CONFIG);
-      backdropOpacity.value = withTiming(1, {
-        duration: 200,
-        reduceMotion: ReduceMotion.System,
-      });
 
-      const focusTimer = setTimeout(() => {
-        if (headerRef.current) {
-          AccessibilityInfo.sendAccessibilityEvent(headerRef.current, 'focus');
-        }
-      }, 250);
-      return () => clearTimeout(focusTimer);
-    } else if (renderModal) {
-      beginDismiss();
-    }
-  }, [visible, renderModal, beginDismiss, screenH, sheetHeight, translateY, backdropOpacity, closing]);
-
-  // Expose dismiss method via Ref
-  useImperativeHandle(ref, () => ({
-    dismiss: () => {
-      beginDismiss();
-    },
-  }));
-
-  // Pan gesture for drag-to-dismiss (covers entire sheet)
   const panGesture = useMemo(
     () => Gesture.Pan()
       .enabled(!isBusy && !dismissing)
@@ -169,7 +195,11 @@ export const AppBottomSheetModal = forwardRef<
             duration: CLOSE_DURATION,
             reduceMotion: ReduceMotion.System,
           }, (finished) => {
-            if (finished) scheduleOnRN(finalizeDismiss);
+            if (finished) {
+              scheduleOnRN(finalizeDismiss);
+            } else {
+              scheduleOnRN(resetDismissState);
+            }
           });
           backdropOpacity.value = withTiming(0, {
             duration: BACKDROP_DURATION,
@@ -184,7 +214,7 @@ export const AppBottomSheetModal = forwardRef<
           translateY.value = withSpring(0, OPEN_SPRING_CONFIG);
         }
       }),
-    [backdropOpacity, isBusy, closing, dismissing, finalizeDismiss, markGestureDismissStarted, sheetHeight, translateY, screenH]
+    [backdropOpacity, isBusy, closing, dismissing, finalizeDismiss, markGestureDismissStarted, resetDismissState, sheetHeight, translateY, screenH]
   );
 
   const keyboard = useReanimatedKeyboardAnimation();
@@ -197,18 +227,16 @@ export const AppBottomSheetModal = forwardRef<
     };
   });
 
-  const sheetStyle = useAnimatedStyle(() => {
-    const keyboardOffset = keyboardAware ? keyboard.height.value : 0;
-    return {
-      transform: [
-        { translateY: translateY.value - keyboardOffset }
-      ],
-    };
-  });
+
+  const sheetStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: translateY.value }],
+  }));
+  void keyboard;
 
   if (!renderModal) return null;
 
   const interactionsDisabled = isBusy || dismissing;
+  const contentPaddingBottom = Math.max(insets.bottom, spacing.xl);
 
   return (
     <Modal
@@ -228,52 +256,88 @@ export const AppBottomSheetModal = forwardRef<
           >
             <Pressable
               disabled={interactionsDisabled}
-              accessibilityRole="button"
-              accessibilityLabel={`Close ${title} panel`}
               style={styles.backdropPressable}
               onPress={beginDismiss}
             />
           </Animated.View>
 
-          {/* Sheet Content */}
-          <GestureDetector gesture={panGesture}>
-            <Animated.View
-              style={[
-                styles.sheetContainer,
-                {
-                  maxHeight: screenH * maxHeight,
-                  paddingBottom: Math.max(insets.bottom, spacing.xl),
-                },
-                sheetStyle,
-              ]}
-              onLayout={(e) => {
-                sheetHeight.value = e.nativeEvent.layout.height;
-              }}
-              accessibilityViewIsModal
-              accessibilityLabel={`${title} sheet`}
-              onAccessibilityEscape={beginDismiss}
-            >
-              {/* Drag Handle Row */}
-              <View style={styles.dragArea}>
+          {/* Sheet */}
+          <Animated.View
+            style={[
+              styles.sheetContainer,
+              { maxHeight: screenH * maxHeight },
+              sheetStyle,
+            ]}
+            onLayout={(e) => {
+              sheetHeight.value = e.nativeEvent.layout.height;
+            }}
+            accessibilityViewIsModal
+            accessibilityLabel={`${title} sheet`}
+            onAccessibilityEscape={beginDismiss}
+          >
+            {/* Drag handle — GestureDetector scoped here only, not over content */}
+            <GestureDetector gesture={panGesture}>
+              <View style={styles.dragHeader}>
                 <View style={styles.handle} />
-              </View>
 
-              {/* Header */}
-              <View ref={headerRef} style={styles.header} accessible accessibilityRole="header">
-                <Text style={styles.title} numberOfLines={1}>
-                  {title}
-                </Text>
-                {subtitle ? (
-                  <Text style={styles.subtitle}>{subtitle}</Text>
-                ) : null}
-              </View>
+                {/* Header: title block + close button */}
+                <View style={styles.headerRow}>
+                  <View
+                    style={styles.headerTextBlock}
+                    ref={headerRef}
+                    accessible
+                    accessibilityRole="header"
+                  >
+                    <Text style={styles.title} numberOfLines={2}>
+                      {title}
+                    </Text>
+                    {subtitle ? (
+                      <Text style={styles.subtitle}>{subtitle}</Text>
+                    ) : null}
+                  </View>
 
-              {/* Scrollable Content wrapper */}
-              <View style={[styles.contentWrap, !fullBleed && styles.contentWrapPadded]}>
+                  <Pressable
+                    onPress={beginDismiss}
+                    disabled={interactionsDisabled}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Close ${title}`}
+                    hitSlop={8}
+                    style={styles.closeBtn}
+                  >
+                    <Icon source="close" size={20} color={colors.textSecondary} />
+                  </Pressable>
+                </View>
+              </View>
+            </GestureDetector>
+
+            {/* Content area */}
+            {scrollable ? (
+              <KeyboardAvoidingView
+                behavior={Platform.OS === "ios" ? "padding" : "height"}
+                style={styles.flex1}
+              >
+                <ScrollView
+                  keyboardShouldPersistTaps="handled"
+                  keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+                  contentContainerStyle={[
+                    !fullBleed && styles.contentWrapPadded,
+                    { paddingBottom: contentPaddingBottom },
+                  ]}
+                  showsVerticalScrollIndicator={false}
+                >
+                  {children}
+                </ScrollView>
+              </KeyboardAvoidingView>
+            ) : (
+              <View style={[
+                styles.contentWrap,
+                !fullBleed && styles.contentWrapPadded,
+                { paddingBottom: contentPaddingBottom },
+              ]}>
                 {children}
               </View>
-            </Animated.View>
-          </GestureDetector>
+            )}
+          </Animated.View>
         </View>
       </GestureHandlerRootView>
     </Modal>
@@ -281,6 +345,9 @@ export const AppBottomSheetModal = forwardRef<
 });
 
 const styles = StyleSheet.create({
+  flex1: {
+    flex: 1,
+  },
   gestureRoot: {
     flex: 1,
   },
@@ -311,8 +378,9 @@ const styles = StyleSheet.create({
     paddingTop: spacing.md,
     ...shadow.lg,
   },
-  dragArea: {
+  dragHeader: {
     paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.md,
   },
   handle: {
     width: 36,
@@ -322,17 +390,19 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     marginBottom: spacing.lg,
   },
-  header: {
-    alignItems: "center",
-    marginBottom: spacing.lg,
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.sm,
+  },
+  headerTextBlock: {
+    flex: 1,
     gap: 4,
-    paddingHorizontal: spacing.lg,
   },
   title: {
     fontSize: fontSize.lg,
     fontWeight: fontWeight.bold,
     color: colors.textPrimary,
-    textAlign: "center",
   },
   subtitle: {
     fontSize: fontSize.xs,
@@ -340,7 +410,11 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     textTransform: "uppercase",
     letterSpacing: 1,
-    textAlign: "center",
+  },
+  closeBtn: {
+    padding: spacing.xs,
+    borderRadius: radius.sm,
+    marginTop: -spacing.xs,
   },
   contentWrap: {
     paddingBottom: spacing.md,

@@ -1,19 +1,29 @@
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
 import { useAuthStore } from "../auth/auth-store";
 import { useShopStore } from "../auth/shop-store";
-import { queryKeys } from "./query-keys";
 import { fetchPayments, verifyPayment, addPayment, markPaymentMismatch, attachPayment, PaymentStatus } from "../api/client";
 import { newIdempotencyKey } from "../utils/idempotency";
 import { requireActiveShopId } from "./useActiveShop";
 
 const PAYMENTS_PAGE_SIZE = 30;
 
-/** Infinite-scroll version — preferred for the payments list screen */
-export function useInfinitePaymentsQuery(opts: {
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+/** Backend-filter params — never includes React Query control flags */
+type PaymentsFilters = {
   status?: PaymentStatus;
   customerId?: string;
   unlinked?: boolean;
-} = {}) {
+};
+
+/** React Query control options — separated from API params */
+type PaymentsQueryOptions = {
+  enabled?: boolean;
+};
+
+// ─── Infinite-scroll (payments list screen) ───────────────────────────────────
+
+export function useInfinitePaymentsQuery(opts: PaymentsFilters = {}) {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
   return useInfiniteQuery({
@@ -32,20 +42,31 @@ export function useInfinitePaymentsQuery(opts: {
   });
 }
 
-/** Simple one-shot query — kept for backward compat (customer detail page, etc.) */
-export function usePaymentsQuery(shopId?: string, options: { status?: PaymentStatus; customerId?: string; unlinked?: boolean; enabled?: boolean } = {}) {
+// ─── Simple one-shot query ────────────────────────────────────────────────────
+
+
+export function usePaymentsQuery(
+  shopId?: string,
+  filters: PaymentsFilters = {},
+  queryOptions: PaymentsQueryOptions = {}
+) {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
   const targetShopId = shopId || activeShopId;
-  const isEnabled = options.enabled !== false;
+
   return useQuery({
-    queryKey: ["payments", targetShopId ?? "", options],
-    queryFn: () => fetchPayments(token ?? "", targetShopId ?? "", options),
-    enabled: !!token && !!targetShopId && isEnabled,
-    staleTime: 3 * 60 * 1000, // 3 mins
+    // `filters` in key, NOT queryOptions — avoids cache splits on `enabled` flag
+    queryKey: ["payments", targetShopId ?? "", filters],
+    queryFn: () => fetchPayments(token ?? "", targetShopId ?? "", filters),
+    enabled:
+      !!token &&
+      !!targetShopId &&
+      queryOptions.enabled !== false,
+    staleTime: 3 * 60 * 1000,
   });
 }
 
+// ─── Add payment ──────────────────────────────────────────────────────────────
 
 export function useAddPaymentMutation() {
   const token = useAuthStore((state) => state.token);
@@ -56,39 +77,48 @@ export function useAddPaymentMutation() {
       addPayment(token ?? "", { ...data, shopId: requireActiveShopId(activeShopId) }, {
         idempotencyKey: newIdempotencyKey("PAYMENT"),
       }),
-    onSuccess: () => {
+    onSuccess: (_result, _variables) => {
       if (activeShopId) {
         queryClient.invalidateQueries({ queryKey: ["payments", activeShopId] });
+        queryClient.invalidateQueries({ queryKey: ["payments-infinite", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["sales", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["orders", activeShopId] });
-        queryClient.invalidateQueries({ queryKey: ["owner-dashboard"] });
         queryClient.invalidateQueries({ queryKey: ["staff-today-summary", activeShopId] });
       }
+      queryClient.invalidateQueries({ queryKey: ["owner-dashboard"] });
     },
   });
 }
 
+// ─── Verify payment ───────────────────────────────────────────────────────────
+
 export function useVerifyPaymentMutation(shopId?: string) {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
+  // Use the sale's shop for all invalidation, not the active shop
   const targetShopId = shopId || activeShopId;
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ paymentId, note }: { paymentId: string; note?: string }) =>
       verifyPayment(token ?? "", paymentId, note),
-    onSuccess: () => {
+    onSuccess: (updatedPayment: any) => {
       if (targetShopId) {
         queryClient.invalidateQueries({ queryKey: ["payments", targetShopId] });
+        queryClient.invalidateQueries({ queryKey: ["payments-infinite", targetShopId] });
+        queryClient.invalidateQueries({ queryKey: ["sales", targetShopId] });
+        queryClient.invalidateQueries({ queryKey: ["orders", targetShopId] });
+        queryClient.invalidateQueries({ queryKey: ["staff-today-summary", targetShopId] });
       }
-      if (activeShopId) {
-        queryClient.invalidateQueries({ queryKey: ["sales", activeShopId] });
-        queryClient.invalidateQueries({ queryKey: ["orders", activeShopId] });
-        queryClient.invalidateQueries({ queryKey: ["owner-dashboard"] });
-        queryClient.invalidateQueries({ queryKey: ["staff-today-summary", activeShopId] });
+      queryClient.invalidateQueries({ queryKey: ["owner-dashboard"] });
+      // Invalidate the specific sale detail if the API returns saleId
+      if (updatedPayment?.saleId) {
+        queryClient.invalidateQueries({ queryKey: ["sale", updatedPayment.saleId] });
       }
     },
   });
 }
+
+// ─── Mark payment mismatch ────────────────────────────────────────────────────
 
 export function useMarkPaymentMismatchMutation(shopId?: string) {
   const token = useAuthStore((state) => state.token);
@@ -98,36 +128,42 @@ export function useMarkPaymentMismatchMutation(shopId?: string) {
   return useMutation({
     mutationFn: ({ paymentId, note }: { paymentId: string; note?: string }) =>
       markPaymentMismatch(token ?? "", paymentId, note),
-    onSuccess: () => {
+    onSuccess: (updatedPayment: any) => {
       if (targetShopId) {
         queryClient.invalidateQueries({ queryKey: ["payments", targetShopId] });
+        queryClient.invalidateQueries({ queryKey: ["payments-infinite", targetShopId] });
+        queryClient.invalidateQueries({ queryKey: ["sales", targetShopId] });
+        queryClient.invalidateQueries({ queryKey: ["orders", targetShopId] });
+        queryClient.invalidateQueries({ queryKey: ["staff-today-summary", targetShopId] });
       }
-      if (activeShopId) {
-        queryClient.invalidateQueries({ queryKey: ["sales", activeShopId] });
-        queryClient.invalidateQueries({ queryKey: ["orders", activeShopId] });
-        queryClient.invalidateQueries({ queryKey: ["owner-dashboard"] });
-        queryClient.invalidateQueries({ queryKey: ["staff-today-summary", activeShopId] });
+      queryClient.invalidateQueries({ queryKey: ["owner-dashboard"] });
+      if (updatedPayment?.saleId) {
+        queryClient.invalidateQueries({ queryKey: ["sale", updatedPayment.saleId] });
       }
     },
   });
 }
 
-export function useAttachPaymentMutation() {
+// ─── Attach payment ───────────────────────────────────────────────────────────
+
+export function useAttachPaymentMutation(shopId?: string) {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
+  const targetShopId = shopId || activeShopId;
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ paymentId, saleId, dmId, orderId }: { paymentId: string; saleId?: string; dmId?: string; orderId?: string }) =>
       attachPayment(token ?? "", paymentId, { saleId, dmId, orderId }),
     onSuccess: (updatedPayment: any) => {
-      if (activeShopId) {
-        queryClient.invalidateQueries({ queryKey: ["payments", activeShopId] });
-        queryClient.invalidateQueries({ queryKey: ["sales", activeShopId] });
-        queryClient.invalidateQueries({ queryKey: ["orders", activeShopId] });
-        queryClient.invalidateQueries({ queryKey: ["owner-dashboard"] });
-        queryClient.invalidateQueries({ queryKey: ["staff-today-summary", activeShopId] });
+      if (targetShopId) {
+        queryClient.invalidateQueries({ queryKey: ["payments", targetShopId] });
+        queryClient.invalidateQueries({ queryKey: ["payments-infinite", targetShopId] });
+        queryClient.invalidateQueries({ queryKey: ["sales", targetShopId] });
+        queryClient.invalidateQueries({ queryKey: ["orders", targetShopId] });
+        queryClient.invalidateQueries({ queryKey: ["staff-today-summary", targetShopId] });
       }
-      if (updatedPayment.saleId) {
+      queryClient.invalidateQueries({ queryKey: ["owner-dashboard"] });
+      if (updatedPayment?.saleId) {
         queryClient.invalidateQueries({ queryKey: ["sale", updatedPayment.saleId] });
       }
     },

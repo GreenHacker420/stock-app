@@ -189,10 +189,11 @@ const formatMinorUnits = (valueMinor?: number | null) => {
   return valueMinor < 0 ? `-₹${localized}` : `₹${localized}`;
 };
 
+
 const formatRawMoney = (value?: string | number | null) => {
-  if (value === null || value === undefined) return "₹0.00";
+  if (value === null || value === undefined) return "—";
   const minor = parseMoneyToMinor(value);
-  if (minor === null) return "₹0.00";
+  if (minor === null) return "—";
   return formatMinorUnits(minor);
 };
 
@@ -214,19 +215,26 @@ export function SaleDetail() {
     [shopsQuery.data, saleShopId]
   );
 
-  const unlinkedPaymentsQuery = usePaymentsQuery(saleShopId || undefined, {
-    customerId: sale?.customerId ? (sale.customerId as string) : undefined,
-    unlinked: true,
-    enabled: Boolean(saleShopId) && Boolean(sale?.customerId) && sale?.paymentStatus !== "PAID" && !sale?.isWalkin,
-  });
+  const unlinkedPaymentsQuery = usePaymentsQuery(
+    saleShopId || undefined,
+    {
+      customerId: sale?.customerId ? (sale.customerId as string) : undefined,
+      unlinked: true,
+    },
+    {
+      enabled: Boolean(saleShopId) && Boolean(sale?.customerId) && sale?.paymentStatus !== "PAID" && !sale?.isWalkin,
+    }
+  );
 
-  const attachPaymentMutation = useAttachPaymentMutation();
+  const attachPaymentMutation = useAttachPaymentMutation(saleShopId || undefined);
   const verifyPaymentMutation = useVerifyPaymentMutation(saleShopId || undefined);
   const rejectPaymentMutation = useMarkPaymentMismatchMutation(saleShopId || undefined);
   
   const swipeableRefs = useRef<Record<string, any>>({});
 
   const handleVerifyPayment = (paymentId: string) => {
+    // Close the swipeable row before mutation so UI doesn't linger in swiped state
+    swipeableRefs.current[paymentId]?.close();
     triggerMediumHaptic();
     verifyPaymentMutation.mutate({ paymentId }, {
       onSuccess: () => {
@@ -240,6 +248,8 @@ export function SaleDetail() {
   };
 
   const handleRejectPayment = (paymentId: string) => {
+    // Close the swipeable row before mutation
+    swipeableRefs.current[paymentId]?.close();
     triggerMediumHaptic();
     rejectPaymentMutation.mutate({ paymentId, note: "Rejected by owner" }, {
       onSuccess: () => {
@@ -308,6 +318,23 @@ export function SaleDetail() {
 
   const [selectedItemDetails, setSelectedItemDetails] = useState<any | null>(null);
   const [footerHeight, setFooterHeight] = useState(0);
+
+  // Parse customer signature once — avoids IIFE on every render
+  const parsedSignature = useMemo(() => {
+    if (!sale?.customerSignature) return null;
+    try {
+      const parsed = JSON.parse(sale.customerSignature);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return { paths: (parsed.paths || []) as string[], viewBox: (parsed.viewBox || "0 0 300 150") as string };
+      } else if (Array.isArray(parsed)) {
+        return { paths: parsed as string[], viewBox: getSignatureViewBox(parsed) };
+      }
+      return null;
+    } catch (e) {
+      console.error("Failed to parse signature:", e);
+      return null;
+    }
+  }, [sale?.customerSignature]);
 
   const handleOpenGstModal = () => {
     if (!sale) return;
@@ -458,11 +485,23 @@ export function SaleDetail() {
 
   // Financial locking policies
   const totalAmountMinor = parseMoneyToMinor(sale.totalAmount) ?? 0;
-  const paidAmountMinor = sale.payments?.reduce((sum, p) => {
-    if (p.status === "REJECTED") return sum;
-    return sum + (parseMoneyToMinor(p.amount) ?? 0);
-  }, 0) ?? 0;
-  const balanceDueMinor = Math.max(0, totalAmountMinor - paidAmountMinor);
+
+  // Verified payments only — these are settled
+  const verifiedPaymentMinor = sale.payments?.reduce((sum, p) =>
+    p.status === "VERIFIED" ? sum + (parseMoneyToMinor(p.amount) ?? 0) : sum, 0) ?? 0;
+
+  // Recorded (unverified) payments — received by staff but not yet confirmed by owner
+  const recordedPaymentMinor = sale.payments?.reduce((sum, p) =>
+    p.status === "RECORDED" ? sum + (parseMoneyToMinor(p.amount) ?? 0) : sum, 0) ?? 0;
+
+  // Pending verification = recorded but not verified (same data, clearer naming for display)
+  const pendingPaymentMinor = recordedPaymentMinor;
+
+  // Balance = total minus verified AND recorded (both reduce the outstanding)
+  const balanceDueMinor = Math.max(0, totalAmountMinor - verifiedPaymentMinor - recordedPaymentMinor);
+
+  // Only verified amount is "settled" — for the Collect button, show full unverified remainder
+  const trulyOutstandingMinor = Math.max(0, totalAmountMinor - verifiedPaymentMinor);
 
   const gstRequired = Boolean(sale.isGstRequired || sale.gstRequired);
   const hasIssuedInvoice = Boolean(sale.gstInvoiceNumber);
@@ -508,12 +547,12 @@ export function SaleDetail() {
           <View style={styles.heroCenterBlock}>
             <Text style={[
               styles.heroMainAmountVal,
-              { color: balanceDueMinor > 0 ? colors.warning : colors.success, fontVariant: ['tabular-nums'] }
+              { color: trulyOutstandingMinor > 0 ? colors.warning : colors.success, fontVariant: ['tabular-nums'] }
             ]}>
-              {balanceDueMinor > 0 ? formatMinorUnits(balanceDueMinor) : formatRawMoney(sale.totalAmount)}
+              {trulyOutstandingMinor > 0 ? formatMinorUnits(trulyOutstandingMinor) : formatRawMoney(sale.totalAmount)}
             </Text>
             <Text style={styles.heroMainAmountLabel}>
-              {balanceDueMinor > 0 ? "Balance Due" : "Total Sale Value (Paid)"}
+              {trulyOutstandingMinor > 0 ? "Outstanding" : "Total Sale Value (Settled)"}
             </Text>
           </View>
 
@@ -527,12 +566,31 @@ export function SaleDetail() {
             </View>
             <View style={styles.heroBreakdownDivider} />
             <View style={styles.heroBreakdownCell}>
-              <Text style={styles.heroBreakdownLabel}>Total Paid</Text>
+              <Text style={styles.heroBreakdownLabel}>Verified Paid</Text>
               <Text style={[styles.heroBreakdownVal, { color: colors.success, fontVariant: ['tabular-nums'] }]}>
-                {formatMinorUnits(paidAmountMinor)}
+                {formatMinorUnits(verifiedPaymentMinor)}
               </Text>
             </View>
           </View>
+
+          {/* Pending verification row — only shown when there are pending payments */}
+          {pendingPaymentMinor > 0 && (
+            <View style={[styles.heroBreakdownRow, { marginTop: spacing.xs }]}>
+              <View style={styles.heroBreakdownCell}>
+                <Text style={[styles.heroBreakdownLabel, { color: colors.warning }]}>Pending Verification</Text>
+                <Text style={[styles.heroBreakdownVal, { color: colors.warning, fontVariant: ['tabular-nums'] }]}>
+                  {formatMinorUnits(pendingPaymentMinor)}
+                </Text>
+              </View>
+              <View style={styles.heroBreakdownDivider} />
+              <View style={styles.heroBreakdownCell}>
+                <Text style={[styles.heroBreakdownLabel, { color: colors.warning }]}>Balance Due</Text>
+                <Text style={[styles.heroBreakdownVal, { color: colors.warning, fontVariant: ['tabular-nums'] }]}>
+                  {formatMinorUnits(balanceDueMinor)}
+                </Text>
+              </View>
+            </View>
+          )}
 
           <Divider style={styles.heroDivider} />
 
@@ -554,39 +612,43 @@ export function SaleDetail() {
           </View>
         </View>
 
-        {/* GST Invoice Row */}
+        {/* GST Invoice Row — uses normalized gstRequired throughout */}
         <View style={styles.gstStatusCard}>
           <View style={styles.gstStatusHeader}>
             <Icon
               source={
-                sale.isGstRequired
-                  ? (sale.gstInvoiceNumber ? "file-check-outline" : "file-percent-outline")
+                gstRequired
+                  ? (hasIssuedInvoice ? "file-check-outline" : "file-percent-outline")
                   : "file-percent-outline"
               }
               size={22}
               color={
-                sale.isGstRequired
-                  ? (sale.gstInvoiceNumber ? colors.success : colors.warning)
+                gstRequired
+                  ? (hasIssuedInvoice ? colors.success : colors.warning)
                   : colors.textSecondary
               }
             />
             <View style={styles.gstStatusInfo}>
               <Text style={styles.gstStatusTitle}>
-                {sale.isGstRequired
-                  ? (sale.gstInvoiceNumber ? "GST Invoice Generated" : "GST Invoice Required")
-                  : "GST Not Required"}
+                {!gstRequired
+                  ? "GST Not Required"
+                  : hasIssuedInvoice
+                    ? "GST Invoice Generated"
+                    : "GST Invoice Required"}
               </Text>
               <Text style={styles.gstStatusDesc}>
-                {sale.isGstRequired
-                  ? (sale.gstInvoiceNumber ? `Tally Ref: ${sale.gstInvoiceNumber}` : "Pending creation in Tally")
-                  : "No GST invoice required for this sale"}
+                {!gstRequired
+                  ? "No GST invoice required for this sale"
+                  : hasIssuedInvoice
+                    ? `Tally Ref: ${sale.gstInvoiceNumber}`
+                    : "Pending creation in Tally"}
               </Text>
             </View>
             <View style={{ alignItems: "flex-end", gap: 6 }}>
-              {sale.isGstRequired ? (
-                sale.gstInvoiceNumber ? (
+              {gstRequired ? (
+                hasIssuedInvoice ? (
                   <View style={[styles.complianceBadge, styles.complianceBadgeVerified]}>
-                    <Text style={styles.complianceBadgeText}>100% Issued</Text>
+                    <Text style={styles.complianceBadgeText}>Issued</Text>
                   </View>
                 ) : (
                   <View style={[styles.complianceBadge, styles.complianceBadgeWarning]}>
@@ -598,15 +660,36 @@ export function SaleDetail() {
                   <Text style={styles.complianceBadgeText}>Exempt</Text>
                 </View>
               )}
-              {canEditGstRequirement && (
-                <Button
-                  label="Edit"
-                  variant="ghost"
-                  onPress={handleOpenGstModal}
-                  style={styles.gstActionBtn}
-                  size="sm"
-                />
-              )}
+              {/* GST action buttons — Edit, Issue, Cancel */}
+              <View style={{ flexDirection: "row", gap: spacing.xs }}>
+                {canEditGstRequirement && (
+                  <Button
+                    label="Edit"
+                    variant="ghost"
+                    onPress={handleOpenGstModal}
+                    style={styles.gstActionBtn}
+                    size="sm"
+                  />
+                )}
+                {canIssueInvoice && (
+                  <Button
+                    label="Issue"
+                    variant="primary"
+                    onPress={handleOpenIssueInvoice}
+                    style={styles.gstActionBtn}
+                    size="sm"
+                  />
+                )}
+                {canCancelInvoice && (
+                  <Button
+                    label="Cancel"
+                    variant="ghost"
+                    onPress={handleCancelInvoice}
+                    style={styles.gstActionBtn}
+                    size="sm"
+                  />
+                )}
+              </View>
             </View>
           </View>
         </View>
@@ -621,15 +704,9 @@ export function SaleDetail() {
               style={styles.itemsEditBtn}
               size="sm"
             />
-          ) : canAmend ? (
-            <Button
-              label="Amend"
-              variant="ghost"
-              onPress={() => navigation.navigate("EditSale", { saleId: sale.id })}
-              style={styles.itemsEditBtn}
-              size="sm"
-            />
-          ) : null}
+          ) : null
+          /* Amend hidden until a real amendment workflow (separate route, audit record,
+             reason capture) is implemented. canAmend is intentionally unused here. */}
         </View>
         <View style={styles.itemsCard}>
           {sale.items?.map((item: any, idx: number) => {
@@ -689,7 +766,7 @@ export function SaleDetail() {
               const upiRef = p.upiTransactionId ? `UPI Ref: ${p.upiTransactionId}` : null;
               const bankUtr = p.bankTransactionUtr ? `UTR: ${p.bankTransactionUtr}` : null;
               const cheque = p.chequeNumber ? `Cheque #${p.chequeNumber}` : null;
-              const isPending = p.status === "PENDING";
+              const isPending = p.status === "RECORDED";
               const isRejected = p.status === "REJECTED";
 
               const iconName =
@@ -711,7 +788,7 @@ export function SaleDetail() {
 
                   <ReanimatedSwipeable
                     ref={(el) => { swipeableRefs.current[p.id] = el; }}
-                    enabled={user?.role === "OWNER" && p.status === "PENDING"}
+                    enabled={user?.role === "OWNER" && p.status === "RECORDED"}
                     renderLeftActions={renderLeftActions}
                     renderRightActions={renderRightActions}
                     onSwipeableOpen={(direction) => {
@@ -867,54 +944,35 @@ Payment Date: ${new Date(p.receivedAt).toLocaleString("en-IN")}`,
           </Section>
         )}
 
-        {/* Customer signature grid pad */}
-        {sale.customerSignature ? (() => {
-          try {
-            const parsed = JSON.parse(sale.customerSignature);
-            let signaturePaths: string[] = [];
-            let signatureViewBox = "0 0 300 150";
-            if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-              signaturePaths = parsed.paths || [];
-              signatureViewBox = parsed.viewBox || "0 0 300 150";
-            } else if (Array.isArray(parsed)) {
-              signaturePaths = parsed;
-              signatureViewBox = getSignatureViewBox(parsed);
-            }
-            if (signaturePaths.length > 0) {
-              return (
-                <Section title="Customer Signature">
-                  <View style={styles.signatureDisplayCard}>
-                    <View style={styles.signaturePaperGrid}>
-                      <Svg style={styles.signatureSvg} viewBox={signatureViewBox}>
-                        {signaturePaths.map((path: string, index: number) => (
-                          <Path
-                            key={index}
-                            d={path}
-                            stroke={colors.primary}
-                            strokeWidth={3}
-                            fill="none"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        ))}
-                      </Svg>
-                      <View style={styles.signatureLineWrapper}>
-                        <Text style={styles.signatureX}>X</Text>
-                        <View style={styles.signatureLineDashed} />
-                      </View>
-                    </View>
-                    <Text style={styles.signatureDisplayHint}>
-                      Acknowledgment signature collected at billing
-                    </Text>
-                  </View>
-                </Section>
-              );
-            }
-          } catch (e) {
-            console.error("Failed to parse signature:", e);
-          }
-          return null;
-        })() : null}
+        {/* Customer signature — parsed once via useMemo, not on every render */}
+        {parsedSignature && parsedSignature.paths.length > 0 && (
+          <Section title="Customer Signature">
+            <View style={styles.signatureDisplayCard}>
+              <View style={styles.signaturePaperGrid}>
+                <Svg style={styles.signatureSvg} viewBox={parsedSignature.viewBox}>
+                  {parsedSignature.paths.map((path: string, index: number) => (
+                    <Path
+                      key={index}
+                      d={path}
+                      stroke={colors.primary}
+                      strokeWidth={3}
+                      fill="none"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  ))}
+                </Svg>
+                <View style={styles.signatureLineWrapper}>
+                  <Text style={styles.signatureX}>X</Text>
+                  <View style={styles.signatureLineDashed} />
+                </View>
+              </View>
+              <Text style={styles.signatureDisplayHint}>
+                Acknowledgment signature collected at billing
+              </Text>
+            </View>
+          </Section>
+        )}
 
         {sale.notes && (
           <Section title="Operational Notes">
@@ -930,16 +988,17 @@ Payment Date: ${new Date(p.receivedAt).toLocaleString("en-IN")}`,
         onLayout={(event) => setFooterHeight(event.nativeEvent.layout.height)}
         style={[styles.stickyBottomBar, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}
       >
-        {sale.paymentStatus !== "PAID" && (
+        {/* Only show Collect when there is a genuine outstanding amount */}
+        {trulyOutstandingMinor > 0 && sale.paymentStatus !== "PAID" && (sale as any).status !== "CANCELLED" && (
           <Button
-            label={`Collect ${formatMinorUnits(balanceDueMinor)}`}
+            label={`Collect ${formatMinorUnits(trulyOutstandingMinor)}`}
             variant="success"
             icon="currency-inr"
             onPress={() => navigation.navigate("TakePayment", {
               customerId: sale.customerId,
               customer: sale.customer,
               saleId: sale.id,
-              amount: fromMinorUnits(balanceDueMinor)
+              amount: fromMinorUnits(trulyOutstandingMinor)
             })}
             style={styles.collectBtn}
             fullWidth
