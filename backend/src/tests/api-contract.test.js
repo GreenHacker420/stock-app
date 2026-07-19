@@ -122,6 +122,11 @@ test("delivery memo routes contract", () => {
   assertRoute(src, "GET",  '"/"', "GET /delivery-memos");
   assertRoute(src, "GET",  '"/:id"', "GET /delivery-memos/:id");
   assertRoute(src, "POST", '"/"', "POST /delivery-memos");
+  assertRoute(src, "POST", '"/drafts"', "POST /delivery-memos/drafts");
+  assertRoute(src, "PATCH", '"/:id/draft"', "PATCH /delivery-memos/:id/draft");
+  assertRoute(src, "POST", '"/:id/post"', "POST /delivery-memos/:id/post");
+  assertRoute(src, "POST", '"/:id/convert-to-sale"', "POST /delivery-memos/:id/convert-to-sale");
+  assertRoute(src, "GET", '"/:id/timeline"', "GET /delivery-memos/:id/timeline");
   assert.ok(src.includes("customerPhone: z.string().nullish()"), "DM customerPhone must accept nullish mobile payloads");
   assert.ok(src.includes("customerAddress: z.string().nullish()"), "DM customerAddress must accept nullish mobile payloads");
   assert.ok(!src.includes("reason: z.string().optional()"), "DM reason must not remain half-connected in create schema");

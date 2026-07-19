@@ -3,15 +3,16 @@ import { View, StyleSheet, ScrollView, Pressable, ActivityIndicator, Alert } fro
 import { Text, TextInput, Card, Button, Portal, Dialog, Divider, List, Icon } from "react-native-paper";
 import { useCustomersQuery } from "../../hooks/useCustomers";
 import { useItemsQuery } from "../../hooks/useItems";
-import { useCreateDeliveryMemoMutation } from "../../hooks/useDeliveryMemos";
+import { useCreateDeliveryMemoDraftMutation, usePostDeliveryMemoMutation } from "../../hooks/useDeliveryMemos";
 import { useAuthStore } from "../../auth/auth-store";
 import { FormScreen } from "../../components/layout/FormScreen";
 import { ScreenSection } from "../../components/layout/ScreenSection";
 import { StickyFooterActions } from "../../components/layout/StickyFooterActions";
 import { FormTextField } from "../../components/forms/FormTextField";
 import { SearchablePicker } from "../../components/forms/SearchablePicker";
+import { SerialNumberScannerModal } from "../../components/items/SerialNumberScannerModal";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
-import { goBack } from "../navigation-ref";
+import { goBack, navigate } from "../navigation-ref";
 
 const money = (value?: string | number | null) => "₹" + Number(value ?? 0).toLocaleString("en-IN");
 
@@ -25,15 +26,20 @@ interface SelectedItem {
   defaultSellingPrice: number;
   quantity: number;
   rate: number;
+  availableStock: number;
+  reservedStock: number;
+  requiresSerialNumber: boolean;
+  serialNumbers: string[];
 }
 
 export function CreateDeliveryMemo() {
   const user = useAuthStore((state) => state.user);
   const isStaff = user?.role === "STAFF";
 
-  const customersQuery = useCustomersQuery({ includeWalkin: true });
+  const customersQuery = useCustomersQuery({ includeWalkin: false });
   const itemsQuery = useItemsQuery();
-  const createMutation = useCreateDeliveryMemoMutation();
+  const createDraftMutation = useCreateDeliveryMemoDraftMutation();
+  const postMutation = usePostDeliveryMemoMutation();
 
   const [customerSearch, setCustomerSearch] = useState("");
   const [productSearch, setProductSearch] = useState("");
@@ -41,6 +47,9 @@ export function CreateDeliveryMemo() {
   const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
   const [cart, setCart] = useState<SelectedItem[]>([]);
   const [expectedPaymentDate, setExpectedPaymentDate] = useState("");
+  const [deliveryNotes, setDeliveryNotes] = useState("");
+  const [reviewVisible, setReviewVisible] = useState(false);
+  const [serialItemId, setSerialItemId] = useState<string | null>(null);
 
   // Dialog / Picker States
   const [customerPickerVisible, setCustomerPickerVisible] = useState(false);
@@ -92,10 +101,14 @@ export function CreateDeliveryMemo() {
         sku: product.sku || "",
         unit: product.unit || "pcs",
         mrp: Number(product.mrp || 0),
-        minimumPrice: Number(product.minimumPrice || 0),
+        minimumPrice: Number(product.minimumAllowedPrice || 0),
         defaultSellingPrice: Number(product.defaultSellingPrice || 0),
         quantity: 1,
         rate: Number(product.defaultSellingPrice || 0),
+        availableStock: Number(product.availableStock || 0),
+        reservedStock: Number(product.reservedStock || 0),
+        requiresSerialNumber: Boolean(product.requiresSerialNumber),
+        serialNumbers: [],
       },
     ]);
     setProductPickerVisible(false);
@@ -104,7 +117,13 @@ export function CreateDeliveryMemo() {
   const handleUpdateQty = (id: string, qtyStr: string) => {
     const num = Number(qtyStr);
     if (isNaN(num) || num <= 0) return;
-    setCart(cart.map((item) => (item.id === id ? { ...item, quantity: num } : item)));
+    setCart(cart.map((item) => item.id === id
+      ? {
+          ...item,
+          quantity: Math.min(num, item.availableStock),
+          serialNumbers: item.serialNumbers.slice(0, Math.min(num, item.availableStock)),
+        }
+      : item));
   };
 
   const handleUpdateRate = (id: string, rateStr: string) => {
@@ -117,66 +136,112 @@ export function CreateDeliveryMemo() {
     setCart(cart.filter((item) => item.id !== id));
   };
 
-  const handleSave = () => {
+  const validateDraft = (forPosting: boolean) => {
     if (!selectedCustomer) {
       Alert.alert("Validation Error", "Please select a customer.");
-      return;
+      return false;
     }
 
     if (cart.length === 0) {
       Alert.alert("Validation Error", "Please add at least one item to the cart.");
-      return;
+      return false;
     }
 
     // Verify pricing rules for STAFF
-    if (isStaff) {
+    if (forPosting && isStaff) {
       for (const item of cart) {
         if (item.rate < item.minimumPrice) {
           Alert.alert(
             "Pricing Error",
             `${item.name} rate (${money(item.rate)}) is below its minimum price (${money(item.minimumPrice)}). Staff cannot sell below minimum price.`
           );
-          return;
+          return false;
         }
       }
     }
 
+    for (const item of cart) {
+      if (!forPosting) continue;
+      if (item.quantity > item.availableStock) {
+        Alert.alert("Stock Changed", `${item.name} has only ${item.availableStock} ${item.unit} available.`);
+        return false;
+      }
+      if (item.requiresSerialNumber && item.serialNumbers.length !== item.quantity) {
+        Alert.alert("Serial Numbers Required", `Scan exactly ${item.quantity} serial number(s) for ${item.name}.`);
+        return false;
+      }
+    }
+
     // Prepare expected payment date
-    let parsedDate: Date | undefined = undefined;
     if (expectedPaymentDate) {
       const dateVal = Date.parse(expectedPaymentDate);
       if (isNaN(dateVal)) {
         Alert.alert("Validation Error", "Please enter expected date in YYYY-MM-DD format.");
-        return;
+        return false;
       }
-      parsedDate = new Date(dateVal);
     }
 
-    createMutation.mutate(
-      {
-        customerId: selectedCustomer.id,
-        customerName: selectedCustomer.name,
-        customerPhone: selectedCustomer.phone ?? undefined,
-        customerAddress: selectedCustomer.address ?? undefined,
-        expectedPaymentDate: parsedDate,
-        items: cart.map((item) => ({
-          itemId: item.id,
-          quantity: item.quantity,
-          rate: item.rate,
-        })),
-        payments: [], // Direct DM creates in outstanding, payments can be accepted later
-      },
-      {
-        onSuccess: () => {
-          Alert.alert("Success", "Delivery Memo created successfully!");
-          goBack();
-        },
-        onError: (err: any) => {
-          Alert.alert("API Error", err?.message || "Failed to create Delivery Memo.");
-        },
-      }
-    );
+    return true;
   };
+
+  const buildPayload = () => ({
+    customerId: selectedCustomer.id,
+    customerName: selectedCustomer.name,
+    customerPhone: selectedCustomer.phone ?? undefined,
+    customerAddress: selectedCustomer.address ?? undefined,
+    expectedPaymentDate: expectedPaymentDate ? new Date(Date.parse(expectedPaymentDate)) : undefined,
+    documentPurpose: "CREDIT_DELIVERY",
+    deliveryNotes: deliveryNotes.trim() || undefined,
+    items: cart.map((item) => ({
+      itemId: item.id,
+      quantity: item.quantity,
+      rate: item.rate,
+      serialNumbers: item.serialNumbers,
+    })),
+  });
+
+  const handleReview = () => {
+    if (validateDraft(true)) setReviewVisible(true);
+  };
+
+  const handleSaveDraft = async () => {
+    if (!validateDraft(false)) return;
+    try {
+      await createDraftMutation.mutateAsync(buildPayload());
+      Alert.alert("Draft Saved", "No stock or customer balance was changed.");
+      goBack();
+    } catch (err: any) {
+      Alert.alert("Could Not Save Draft", err?.message || "Please try again.");
+    }
+  };
+
+  const handleConfirmPost = async () => {
+    setReviewVisible(false);
+    let createdDraftId: string | null = null;
+    try {
+      const draft = await createDraftMutation.mutateAsync(buildPayload());
+      createdDraftId = draft.id;
+      await postMutation.mutateAsync({ id: draft.id, version: draft.version });
+      Alert.alert("Dispatch Posted", "Stock was deducted and the customer receivable was created.");
+      goBack();
+    } catch (err: any) {
+      if (createdDraftId) {
+        Alert.alert(
+          "Confirm Posting Status",
+          "The server outcome could not be confirmed. Open the DM and refresh before posting again; the server may already have completed it.",
+          [
+            { text: "Stay Here", style: "cancel" },
+            { text: "Open DM", onPress: () => navigate("DeliveryMemoDetail", { id: createdDraftId! }) },
+          ],
+        );
+      } else {
+        Alert.alert("Draft Not Saved", err?.message || "Please check your connection and try again.");
+      }
+    }
+  };
+
+  const activeSerialItem = serialItemId ? cart.find((item) => item.id === serialItemId) : undefined;
+  const isSubmitting = createDraftMutation.isPending || postMutation.isPending;
 
   return (
     <>
@@ -187,11 +252,17 @@ export function CreateDeliveryMemo() {
         footer={
           <StickyFooterActions
             primary={{
-              label: "Generate Delivery Memo",
-              onPress: handleSave,
-              loading: createMutation.isPending,
-              disabled: createMutation.isPending || cart.length === 0,
+              label: "Review Dispatch",
+              onPress: handleReview,
+              loading: isSubmitting,
+              disabled: isSubmitting || cart.length === 0,
               haptic: "medium",
+            }}
+            secondary={{
+              label: "Save Draft",
+              onPress: handleSaveDraft,
+              disabled: isSubmitting || cart.length === 0,
+              variant: "secondary",
             }}
           />
         }
@@ -203,6 +274,12 @@ export function CreateDeliveryMemo() {
               <View style={styles.infoCol}>
                 <Text style={styles.selectedName}>{selectedCustomer.name}</Text>
                 {selectedCustomer.phone && <Text style={styles.selectedPhone}>{selectedCustomer.phone}</Text>}
+                <Text style={styles.selectedPhone}>
+                  Outstanding {money(selectedCustomer.outstandingAmount)} • Advance {money(selectedCustomer.advanceBalance)}
+                </Text>
+                {selectedCustomer.creditLimit != null ? (
+                  <Text style={styles.selectedPhone}>Credit limit {money(selectedCustomer.creditLimit)}</Text>
+                ) : null}
               </View>
               <Button
                 mode="text"
@@ -246,7 +323,9 @@ export function CreateDeliveryMemo() {
                     <View style={styles.cartItemHeader}>
                       <View style={styles.flex1}>
                         <Text style={styles.cartItemName}>{item.name}</Text>
-                        <Text style={styles.cartItemSku}>{item.sku || "No SKU"} • Min: {money(item.minimumPrice)}</Text>
+                        <Text style={styles.cartItemSku}>
+                          {item.sku || "No SKU"} • Available: {item.availableStock} {item.unit} • Reserved: {item.reservedStock}
+                        </Text>
                       </View>
                       <Pressable onPress={() => handleRemoveProduct(item.id)} hitSlop={8}>
                         <Icon source="delete-outline" size={20} color={colors.danger} />
@@ -294,6 +373,15 @@ export function CreateDeliveryMemo() {
                         </Text>
                       </View>
                     )}
+                    {item.requiresSerialNumber ? (
+                      <Button
+                        mode={item.serialNumbers.length === item.quantity ? "outlined" : "contained-tonal"}
+                        icon="barcode-scan"
+                        onPress={() => setSerialItemId(item.id)}
+                      >
+                        Serials {item.serialNumbers.length}/{item.quantity}
+                      </Button>
+                    ) : null}
                     <Divider style={styles.divider} />
                   </View>
                 );
@@ -314,6 +402,13 @@ export function CreateDeliveryMemo() {
             placeholder="e.g. 2026-07-15"
             value={expectedPaymentDate}
             onChangeText={setExpectedPaymentDate}
+          />
+          <FormTextField
+            label="Delivery Notes"
+            placeholder="Receiver, transport or dispatch instructions"
+            value={deliveryNotes}
+            onChangeText={setDeliveryNotes}
+            multiline
           />
         </ScreenSection>
 
@@ -379,7 +474,7 @@ export function CreateDeliveryMemo() {
                   <List.Item
                     key={prod.id}
                     title={prod.name}
-                    description={`${prod.sku || "No SKU"} • Min: ${money(prod.minimumPrice)}`}
+                    description={`${prod.sku || "No SKU"} • Available: ${Number(prod.availableStock || 0)} ${prod.unit || "pcs"} • Min: ${money(prod.minimumAllowedPrice)}`}
                     right={() => <Text style={styles.listPrice}>{money(prod.defaultSellingPrice)}</Text>}
                     onPress={() => handleAddProduct(prod)}
                     style={styles.listItem}
@@ -389,12 +484,50 @@ export function CreateDeliveryMemo() {
             </SearchablePicker>
           </Dialog.Content>
         </Dialog>
+
+        <Dialog visible={reviewVisible} onDismiss={() => setReviewVisible(false)} style={styles.dialog}>
+          <Dialog.Title style={styles.dialogTitle}>Confirm Physical Dispatch</Dialog.Title>
+          <Dialog.Content>
+            <Text style={styles.reviewWarning}>
+              Confirm only after the goods have physically left the shop.
+            </Text>
+            <List.Item title="Customer" description={selectedCustomer?.name || "Not selected"} left={(props) => <List.Icon {...props} icon="account" />} />
+            <List.Item title="Stock decrease" description={`${totals.totalQty} unit(s) across ${cart.length} product(s)`} left={(props) => <List.Icon {...props} icon="package-variant-minus" />} />
+            <List.Item title="Receivable created" description={money(totals.totalAmount)} left={(props) => <List.Icon {...props} icon="account-cash-outline" />} />
+            <List.Item title="Payment now" description="₹0 — collect later from the DM" left={(props) => <List.Icon {...props} icon="clock-outline" />} />
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setReviewVisible(false)}>Go Back</Button>
+            <Button mode="contained" onPress={handleConfirmPost} loading={isSubmitting} disabled={isSubmitting}>
+              Confirm Dispatch
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
       </Portal>
+
+      {activeSerialItem ? (
+        <SerialNumberScannerModal
+          visible
+          itemName={activeSerialItem.name}
+          quantity={activeSerialItem.quantity}
+          serialNumbers={activeSerialItem.serialNumbers}
+          onDismiss={() => setSerialItemId(null)}
+          onSave={(serialNumbers) => {
+            setCart((current) => current.map((item) => item.id === activeSerialItem.id ? { ...item, serialNumbers } : item));
+            setSerialItemId(null);
+          }}
+        />
+      ) : null}
     </>
   );
 }
 
 const styles = StyleSheet.create({
+  reviewWarning: {
+    color: colors.danger,
+    fontWeight: fontWeight.bold,
+    marginBottom: spacing.sm,
+  },
   card: {
     backgroundColor: colors.surface,
     borderRadius: radius.xl,

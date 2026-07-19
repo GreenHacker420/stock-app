@@ -25,6 +25,7 @@ async function cleanDatabase(shopId) {
   await prisma.payment.deleteMany({ where: { shopId } });
   await prisma.saleItem.deleteMany({ where: { sale: { shopId } } });
   await prisma.sale.deleteMany({ where: { shopId } });
+  await prisma.customerLedgerEntry.deleteMany({ where: { shopId } });
   await prisma.deliveryMemoItem.deleteMany({ where: { deliveryMemo: { shopId } } });
   await prisma.deliveryMemo.deleteMany({ where: { shopId } });
   await prisma.dispatchItem.deleteMany({ where: { dispatch: { shopId } } });

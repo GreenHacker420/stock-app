@@ -7,17 +7,24 @@ import { createNotification, notifyShopOwner } from "./notification.service.js";
 
 export async function generateRecordNumber(tx, { shopId, model, field, prefix, date = new Date() }) {
   const { start, end } = getDayRange(date);
-  const count = await tx[model].count({
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`record-number:${shopId}:${model}`}))`;
+  const datePrefix = formatRecordNumber(prefix, date, 0).replace(/000$/, "");
+  const rows = await tx[model].findMany({
     where: {
       shopId,
       createdAt: {
         gte: start,
         lt: end,
       },
+      [field]: { startsWith: datePrefix },
     },
+    select: { [field]: true },
   });
-
-  return formatRecordNumber(prefix, date, count + 1);
+  const maxCounter = rows.reduce((max, row) => {
+    const counter = Number(String(row[field] || "").slice(datePrefix.length));
+    return Number.isFinite(counter) ? Math.max(max, counter) : max;
+  }, 0);
+  return formatRecordNumber(prefix, date, maxCounter + 1);
 }
 
 export async function getCurrentQuantity(tx, shopId, itemId) {
@@ -203,6 +210,21 @@ export async function applyPayments(tx, { user, shopId, saleId, dmId, orderId, c
     // Update Customer outstanding (reduces with payment)
     if (customerId) {
       await decreaseCustomerDebt(tx, customerId, amt);
+      if (dmId) {
+        await tx.customerLedgerEntry.create({
+          data: {
+            shopId,
+            customerId,
+            sourceType: "PAYMENT",
+            sourceId: createdPayment.id,
+            entryType: "PAYMENT_RECEIVED",
+            direction: "CREDIT",
+            amount: amt,
+            createdById: user.id,
+            notes: `Payment allocated to delivery memo ${dmId}`,
+          },
+        });
+      }
     }
 
     // Alert the owner for non-cash payments pending verification
@@ -247,6 +269,26 @@ export async function increaseCustomerDebt(tx, customerId, amount) {
       outstandingAmount: outAmt
     }
   });
+}
+
+export async function postCustomerReceivable(tx, customerId, amount) {
+  if (!customerId) return { advanceApplied: money(0), outstandingCreated: money(0) };
+  const customer = await tx.customer.findUnique({ where: { id: customerId } });
+  if (!customer || customer.type === "WALK_IN") {
+    return { advanceApplied: money(0), outstandingCreated: money(0) };
+  }
+  const total = money(amount);
+  const availableAdvance = money(customer.advanceBalance || 0);
+  const advanceApplied = availableAdvance.lt(total) ? availableAdvance : total;
+  const outstandingCreated = sub(total, advanceApplied);
+  await tx.customer.update({
+    where: { id: customerId },
+    data: {
+      advanceBalance: sub(availableAdvance, advanceApplied),
+      outstandingAmount: add(customer.outstandingAmount, outstandingCreated),
+    },
+  });
+  return { advanceApplied, outstandingCreated };
 }
 
 /**

@@ -11,6 +11,7 @@ const files = testFileArg
   ? [path.resolve(testFileArg)]
   : [
       path.resolve("src/tests/api-contract.test.js"),
+      path.resolve("src/tests/delivery-memo-domain.test.js"),
       path.resolve("src/tests/phase1-security.test.js"),
       path.resolve("src/tests/phase2-core.test.js"),
       path.resolve("src/tests/sale-amendments.test.js"),
@@ -25,6 +26,7 @@ console.log(`Running tests: ${files.map(f => path.basename(f)).join(", ")}...`);
 const stream = run({
   files,
   concurrency: 1,
+  forceExit: true,
 });
 
 stream.on("test:fail", (data) => {

@@ -1,6 +1,6 @@
-import React from "react";
-import { View, StyleSheet, ScrollView, RefreshControl } from "react-native";
-import { Text, Icon } from "react-native-paper";
+import React, { useState } from "react";
+import { View, StyleSheet, ScrollView, RefreshControl, Alert } from "react-native";
+import { Text, Icon, Button, Portal, Dialog, TextInput } from "react-native-paper";
 import { useRoute } from "@react-navigation/native";
 import { ScreenScaffold } from "../../components/layout/ScreenScaffold";
 import { ScreenSection } from "../../components/layout/ScreenSection";
@@ -10,9 +10,16 @@ import { AmountBreakdown } from "../../components/ui/AmountBreakdown";
 import { PaymentCard } from "../../components/domain/payments/PaymentCard";
 import { LoadingState } from "../../components/feedback/LoadingState";
 import { ErrorState } from "../../components/feedback/ErrorState";
-import { useDeliveryMemoQuery } from "../../hooks/useDeliveryMemos";
+import {
+  useDeliveryMemoQuery,
+  useDeliveryMemoTimelineQuery,
+  usePostDeliveryMemoMutation,
+  useConvertDeliveryMemoToSaleMutation,
+  useRequestDeliveryMemoCancellationMutation,
+} from "../../hooks/useDeliveryMemos";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { navigate } from "../navigation-ref";
+import { printDeliveryMemo, shareDeliveryMemoPdf } from "../../utils/pdf";
 
 const money = (value?: string | number | null) => "₹" + Number(value ?? 0).toLocaleString("en-IN");
 
@@ -21,12 +28,19 @@ export function DeliveryMemoDetail() {
   const id = route.params?.id;
 
   const { data: dm, isLoading, isFetching, refetch, error } = useDeliveryMemoQuery(id);
+  const timelineQuery = useDeliveryMemoTimelineQuery(id);
+  const postMutation = usePostDeliveryMemoMutation();
+  const convertMutation = useConvertDeliveryMemoToSaleMutation();
+  const cancellationMutation = useRequestDeliveryMemoCancellationMutation();
+  const [cancelVisible, setCancelVisible] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
+  const [documentAction, setDocumentAction] = useState<"print" | "share" | null>(null);
 
   const getStatusTone = (status?: string) => {
     switch (status) {
       case "PAID":
       case "FULLY_PAID":
-      case "CONVERTED":
+      case "CONVERTED_TO_SALE":
         return "green";
       case "PARTIALLY_PAID":
       case "CREATED":
@@ -47,6 +61,71 @@ export function DeliveryMemoDetail() {
       dmId: dm.id,
       amount: dm.balanceAmount || dm.estimatedAmount,
     });
+  };
+
+  const handlePostDraft = () => {
+    Alert.alert(
+      "Confirm Physical Dispatch",
+      "This will deduct stock and create the customer receivable. Continue only after the goods have left the shop.",
+      [
+        { text: "Not Yet", style: "cancel" },
+        {
+          text: "Confirm Dispatch",
+          onPress: () => postMutation.mutate(
+            { id: dm.id, version: dm.version },
+            { onError: (err: any) => Alert.alert("Could Not Post", err?.message || "Please refresh and try again.") },
+          ),
+        },
+      ],
+    );
+  };
+
+  const handleConvert = () => {
+    Alert.alert(
+      "Generate Sale Invoice?",
+      "The invoice will use the immutable DM quantities and rates. Stock and customer debt will not be posted again.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Generate Invoice",
+          onPress: () => convertMutation.mutate(
+            { id: dm.id },
+            {
+              onSuccess: (sale) => navigate("SaleDetail", { id: sale.id }),
+              onError: (err: any) => Alert.alert("Conversion Failed", err?.message || "Please try again."),
+            },
+          ),
+        },
+      ],
+    );
+  };
+
+  const handleRequestCancellation = () => {
+    const reason = cancelReason.trim();
+    if (!reason) return;
+    cancellationMutation.mutate(
+      { id: dm.id, reason },
+      {
+        onSuccess: () => {
+          setCancelVisible(false);
+          setCancelReason("");
+          Alert.alert("Request Submitted", "A different owner must approve the cancellation.");
+        },
+        onError: (err: any) => Alert.alert("Request Failed", err?.message || "Please try again."),
+      },
+    );
+  };
+
+  const handleDocumentAction = async (action: "print" | "share") => {
+    setDocumentAction(action);
+    try {
+      if (action === "print") await printDeliveryMemo(dm);
+      else await shareDeliveryMemoPdf(dm);
+    } catch (err: any) {
+      Alert.alert("Document Error", err?.message || "Could not create the delivery memo document.");
+    } finally {
+      setDocumentAction(null);
+    }
   };
 
   if (isLoading) {
@@ -90,10 +169,15 @@ export function DeliveryMemoDetail() {
       title={`DM #${dm.dmNumber}`}
       subtitle="Delivery Memo Details"
       showBack
-      footer={balance > 0 ? (
+      footer={dm.allowedActions?.canPost ? (
         <StickyFooterActions
-          primary={{ label: "Collect Payment", onPress: handleCollectPayment, icon: "cash-register" }}
+          primary={{ label: "Confirm Dispatch", onPress: handlePostDraft, icon: "truck-check", loading: postMutation.isPending }}
         />
+      ) : dm.allowedActions?.canCollectPayment || dm.allowedActions?.canConvertToSale ? (
+        <StickyFooterActions actions={[
+          ...(dm.allowedActions?.canCollectPayment ? [{ label: "Collect Payment", onPress: handleCollectPayment, icon: "cash-register" }] : []),
+          ...(dm.allowedActions?.canConvertToSale ? [{ label: "Generate Invoice", onPress: handleConvert, icon: "file-document-check", loading: convertMutation.isPending }] : []),
+        ]} />
       ) : undefined}
     >
       <ScrollView
@@ -114,7 +198,14 @@ export function DeliveryMemoDetail() {
               <Text style={styles.createdAtLabel}>CREATED ON</Text>
               <Text style={styles.createdAtVal}>{dateStr}</Text>
             </View>
-            <StatusPill label={dm.status || "CREATED"} tone={getStatusTone(dm.status)} />
+            <StatusPill label={dm.lifecycleStatus || "DISPATCHED"} tone={dm.lifecycleStatus === "CANCELLED" ? "red" : dm.lifecycleStatus === "DRAFT" ? "neutral" : "green"} />
+          </View>
+
+          <View style={styles.badges}>
+            <StatusPill label={dm.paymentStatus || "UNPAID"} tone={getStatusTone(dm.status)} />
+            <StatusPill label={(dm.dueStatus || "NOT_DUE").replaceAll("_", " ")} tone={dm.dueStatus === "OVERDUE" ? "red" : "blue"} />
+            <StatusPill label={(dm.invoicingStatus || "NOT_INVOICED").replaceAll("_", " ")} tone={dm.invoicingStatus === "FULLY_INVOICED" ? "green" : "neutral"} />
+            <StatusPill label={(dm.returnStatus || "NO_RETURN").replaceAll("_", " ")} tone={dm.returnStatus === "NO_RETURN" ? "neutral" : "amber"} />
           </View>
 
           <AmountBreakdown
@@ -160,12 +251,17 @@ export function DeliveryMemoDetail() {
           {dm.items && dm.items.length > 0 ? (
             dm.items.map((item: any, idx: number) => {
               const lineTotal = Number(item.quantity) * Number(item.rate);
+              const remaining = Number(item.quantity) - Number(item.returnedQty || 0);
               return (
                 <View key={item.id || idx} style={idx > 0 ? styles.itemRowBordered : undefined}>
                   <View style={styles.itemRow}>
                     <View style={styles.itemMainInfo}>
                       <Text style={styles.itemName}>{item.item?.name || "Product SKU"}</Text>
                       <Text style={styles.itemSku}>{item.item?.sku || "N/A"}</Text>
+                      <Text style={styles.itemSku}>Delivered {item.quantity} • Returned {item.returnedQty || 0} • Remaining {remaining}</Text>
+                      {Array.isArray(item.serialNumbers) && item.serialNumbers.length ? (
+                        <Text style={styles.serialText}>S/N: {item.serialNumbers.join(", ")}</Text>
+                      ) : null}
                     </View>
                     <View style={styles.itemPriceCol}>
                       <Text style={styles.itemRateQty}>
@@ -209,7 +305,63 @@ export function DeliveryMemoDetail() {
             </View>
           )}
         </ScreenSection>
+
+        <ScreenSection title="Lifecycle Timeline" card>
+          {timelineQuery.isLoading ? (
+            <Text style={styles.noPaymentsText}>Loading timeline…</Text>
+          ) : timelineQuery.data?.length ? (
+            timelineQuery.data.map((event: any, index: number) => (
+              <View key={`${event.type}-${index}`} style={styles.timelineRow}>
+                <View style={styles.timelineDot} />
+                <View style={styles.flex1}>
+                  <Text style={styles.timelineTitle}>{String(event.type).replaceAll("_", " ")}</Text>
+                  <Text style={styles.itemSku}>{new Date(event.at).toLocaleString("en-IN")}</Text>
+                </View>
+                {event.amount ? <Text style={styles.timelineAmount}>{money(event.amount)}</Text> : null}
+              </View>
+            ))
+          ) : (
+            <Text style={styles.noPaymentsText}>No lifecycle events recorded yet.</Text>
+          )}
+        </ScreenSection>
+
+        {dm.allowedActions?.canPrint || dm.allowedActions?.canShare ? (
+          <View style={styles.documentActions}>
+            {dm.allowedActions?.canPrint ? (
+              <Button mode="outlined" icon="printer" loading={documentAction === "print"} onPress={() => handleDocumentAction("print")} style={styles.documentButton}>
+                Print
+              </Button>
+            ) : null}
+            {dm.allowedActions?.canShare ? (
+              <Button mode="outlined" icon="share-variant" loading={documentAction === "share"} onPress={() => handleDocumentAction("share")} style={styles.documentButton}>
+                Share PDF
+              </Button>
+            ) : null}
+          </View>
+        ) : null}
+
+        {dm.allowedActions?.canRequestCancellation ? (
+          <Button mode="outlined" textColor={colors.danger} icon="cancel" onPress={() => setCancelVisible(true)}>
+            Request Cancellation
+          </Button>
+        ) : null}
       </ScrollView>
+
+      <Portal>
+        <Dialog visible={cancelVisible} onDismiss={() => setCancelVisible(false)}>
+          <Dialog.Title>Request DM Cancellation</Dialog.Title>
+          <Dialog.Content>
+            <Text style={styles.cancelHelp}>Cancellation restores stock and reverses the remaining receivable only after independent owner approval.</Text>
+            <TextInput mode="outlined" label="Reason" value={cancelReason} onChangeText={setCancelReason} multiline />
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button onPress={() => setCancelVisible(false)}>Keep DM</Button>
+            <Button textColor={colors.danger} onPress={handleRequestCancellation} loading={cancellationMutation.isPending} disabled={!cancelReason.trim()}>
+              Submit Request
+            </Button>
+          </Dialog.Actions>
+        </Dialog>
+      </Portal>
     </ScreenScaffold>
   );
 }
@@ -224,6 +376,51 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+  },
+  badges: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.xs,
+    marginTop: spacing.md,
+  },
+  serialText: {
+    marginTop: spacing.xs,
+    color: colors.info,
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.semibold,
+  },
+  timelineRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    paddingVertical: spacing.sm,
+  },
+  timelineDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: colors.primary,
+  },
+  timelineTitle: {
+    color: colors.textPrimary,
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    textTransform: "capitalize",
+  },
+  timelineAmount: {
+    color: colors.primary,
+    fontWeight: fontWeight.bold,
+  },
+  cancelHelp: {
+    color: colors.textSecondary,
+    marginBottom: spacing.md,
+  },
+  documentActions: {
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
+  documentButton: {
+    flex: 1,
   },
   flex1: {
     flex: 1,

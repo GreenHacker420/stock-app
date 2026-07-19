@@ -76,11 +76,26 @@ export async function createCorrectionRequest(user, { entityType, entityId, requ
   const pEntityType = mapEntityType(entityType);
   const pApprovalType = mapApprovalType(entityType, requestedChangeJson);
 
-  const { shopId } = await resolveCorrectionTarget(pEntityType, entityId, entityType);
+  const { shopId, record } = await resolveCorrectionTarget(pEntityType, entityId, entityType);
   await assertShopAccess(user, shopId);
 
+  if (entityType === "DM") {
+    if (record.lifecycleStatus !== "DISPATCHED") {
+      throw new ApiError(409, "Only a dispatched delivery memo can be cancelled", { code: "INVALID_STATE_TRANSITION" });
+    }
+    if (record.invoicingStatus !== "NOT_INVOICED") {
+      throw new ApiError(409, "An invoiced delivery memo cannot be cancelled", { code: "DM_ALREADY_INVOICED" });
+    }
+    const [paymentCount, returnCount] = await Promise.all([
+      prisma.payment.count({ where: { dmId: entityId, status: { not: "CANCELLED" } } }),
+      prisma.inventoryReturn.count({ where: { dmId: entityId, status: { not: "CANCELLED" } } }),
+    ]);
+    if (paymentCount > 0) throw new ApiError(409, "Reverse or refund linked payments before cancellation", { code: "DM_HAS_PAYMENTS" });
+    if (returnCount > 0) throw new ApiError(409, "Complete the return workflow instead of cancelling this memo", { code: "DM_HAS_RETURNS" });
+  }
+
   const approval = await prisma.$transaction(async (tx) => {
-    return createApprovalRequest(tx, {
+    const created = await createApprovalRequest(tx, {
       shopId,
       type: pApprovalType,
       entityType: pEntityType,
@@ -92,6 +107,13 @@ export async function createCorrectionRequest(user, { entityType, entityId, requ
       reason,
       requestedById: user.id,
     });
+    if (entityType === "DM") {
+      await tx.deliveryMemo.update({
+        where: { id: entityId },
+        data: { lifecycleStatus: "CANCELLATION_PENDING", version: { increment: 1 } },
+      });
+    }
+    return created;
   });
 
   return {
@@ -199,10 +221,36 @@ export async function approveCorrectionRequest(user, id) {
         where: { id: approval.entityId },
         data: {
           status: "CANCELLED",
+          lifecycleStatus: "CANCELLED",
+          version: { increment: 1 },
         },
       });
 
       await decreaseCustomerDebt(tx, dm.customerId, dm.balanceAmount);
+
+      await tx.customerLedgerEntry.create({
+        data: {
+          shopId: dm.shopId,
+          customerId: dm.customerId,
+          sourceType: "DELIVERY_MEMO",
+          sourceId: dm.id,
+          entryType: "DM_CANCELLED",
+          direction: "CREDIT",
+          amount: dm.balanceAmount,
+          createdById: user.id,
+          notes: approval.reason,
+        },
+      });
+
+      await tx.deliveryMemoSerialAssignment.updateMany({
+        where: { dmId: dm.id, status: "ACTIVE" },
+        data: {
+          status: "RELEASED",
+          activeKey: null,
+          releasedAt: new Date(),
+          releaseReason: "DM_CANCELLED",
+        },
+      });
 
       const dmItems = await tx.deliveryMemoItem.findMany({ where: { dmId: approval.entityId } });
       for (const item of dmItems) {

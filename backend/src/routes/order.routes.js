@@ -51,6 +51,7 @@ const listSchema = z.object({
       "PACKING",
       "PARTIALLY_PACKED",
       "PACKED",
+      "PARTIALLY_DISPATCHED",
       "DISPATCHED",
       "CANCELLED",
     ]).optional(),
@@ -89,6 +90,7 @@ const dispatchItemSchema = z.object({
   quantity: z.coerce.number().positive(),
   rate: z.coerce.number().positive(),
   discountAmount: z.coerce.number().nonnegative().optional(),
+  serialNumbers: z.array(z.string()).optional(),
 });
 
 router.use(requireAuth);

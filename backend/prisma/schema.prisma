@@ -37,6 +37,7 @@ enum OrderStatus {
   PACKING
   PARTIALLY_PACKED
   PACKED
+  PARTIALLY_DISPATCHED
   DISPATCHED
   CANCELLED
 }
@@ -84,6 +85,47 @@ enum DeliveryMemoStatus {
   RETURNED
   CANCELLED
   OVERDUE
+}
+
+enum DeliveryMemoPurpose {
+  CREDIT_DELIVERY
+  SUPPLY_PENDING_INVOICE
+  GOODS_ON_APPROVAL
+  JOB_WORK
+  STOCK_TRANSFER
+  WARRANTY_REPLACEMENT
+  DEMO_OR_SAMPLE
+}
+
+enum DeliveryMemoLifecycleStatus {
+  DRAFT
+  READY_TO_DISPATCH
+  DISPATCHED
+  CANCELLATION_PENDING
+  CANCELLED
+  CLOSED
+}
+
+enum DeliveryMemoInvoicingStatus {
+  NOT_INVOICED
+  PARTIALLY_INVOICED
+  FULLY_INVOICED
+}
+
+enum DeliveryMemoReturnStatus {
+  NO_RETURN
+  PARTIALLY_RETURNED
+  FULLY_RETURNED
+}
+
+enum CustomerLedgerDirection {
+  DEBIT
+  CREDIT
+}
+
+enum SerialAssignmentStatus {
+  ACTIVE
+  RELEASED
 }
 
 enum PaymentMode {
@@ -360,35 +402,37 @@ model User {
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
-  ownedShops             Shop[]               @relation("ShopOwner")
-  staffOwner             User?                @relation("StaffOwner", fields: [staffOwnerId], references: [id], onDelete: SetNull)
-  ownedStaff             User[]               @relation("StaffOwner")
+  ownedShops             Shop[]                         @relation("ShopOwner")
+  staffOwner             User?                          @relation("StaffOwner", fields: [staffOwnerId], references: [id], onDelete: SetNull)
+  ownedStaff             User[]                         @relation("StaffOwner")
   staffShopAccesses      StaffShopAccess[]
-  customersCreated       Customer[]           @relation("CustomerCreatedBy")
-  stockMovementsCreated  StockLedger[]        @relation("StockCreatedBy")
-  stockMovementsApproved StockLedger[]        @relation("StockApprovedBy")
-  ordersCreated          Order[]              @relation("OrderCreatedBy")
-  ordersAssigned         Order[]              @relation("OrderAssignedStaff")
+  customersCreated       Customer[]                     @relation("CustomerCreatedBy")
+  stockMovementsCreated  StockLedger[]                  @relation("StockCreatedBy")
+  stockMovementsApproved StockLedger[]                  @relation("StockApprovedBy")
+  ordersCreated          Order[]                        @relation("OrderCreatedBy")
+  ordersAssigned         Order[]                        @relation("OrderAssignedStaff")
   orderEvents            OrderEvent[]
   packingTasks           PackingTask[]
-  dispatches             Dispatch[]           @relation("DispatchBy")
-  sales                  Sale[]               @relation("SaleStaff")
-  deliveryMemos          DeliveryMemo[]       @relation("DeliveryMemoStaff")
-  paymentsReceived       Payment[]            @relation("PaymentReceivedBy")
-  paymentsVerified       Payment[]            @relation("PaymentVerifiedBy")
-  cashSessions           CashSession[]        @relation("CashSessionStaff")
-  cashSessionsReviewed   CashSession[]        @relation("CashSessionReviewedBy")
-  approvalRequests       ApprovalRequest[]    @relation("ApprovalRequestedBy")
-  approvalResponses      ApprovalRequest[]    @relation("ApprovalApprovedBy")
+  dispatches             Dispatch[]                     @relation("DispatchBy")
+  sales                  Sale[]                         @relation("SaleStaff")
+  deliveryMemos          DeliveryMemo[]                 @relation("DeliveryMemoStaff")
+  paymentsReceived       Payment[]                      @relation("PaymentReceivedBy")
+  paymentsVerified       Payment[]                      @relation("PaymentVerifiedBy")
+  cashSessions           CashSession[]                  @relation("CashSessionStaff")
+  cashSessionsReviewed   CashSession[]                  @relation("CashSessionReviewedBy")
+  approvalRequests       ApprovalRequest[]              @relation("ApprovalRequestedBy")
+  approvalResponses      ApprovalRequest[]              @relation("ApprovalApprovedBy")
   notifications          Notification[]
   auditLogs              AuditLog[]
-  dailySummariesReviewed DailySummary[]       @relation("SummaryReviewedBy")
+  dailySummariesReviewed DailySummary[]                 @relation("SummaryReviewedBy")
   dailySummaryExports    DailySummaryExport[]
-  returnsCreated         InventoryReturn[]    @relation("ReturnCreatedBy")
-  returnsApproved        InventoryReturn[]    @relation("ReturnApprovedBy")
+  returnsCreated         InventoryReturn[]              @relation("ReturnCreatedBy")
+  returnsApproved        InventoryReturn[]              @relation("ReturnApprovedBy")
+  dmSerialAssignments    DeliveryMemoSerialAssignment[]
+  customerLedgerEntries  CustomerLedgerEntry[]
   expensesCreated        Expense[]
-  expensesVerified       Expense[]            @relation("ExpenseVerifiedBy")
-  amendmentsCreated      SaleAmendment[]      @relation("AmendmentCreator")
+  expensesVerified       Expense[]                      @relation("ExpenseVerifiedBy")
+  amendmentsCreated      SaleAmendment[]                @relation("AmendmentCreator")
   priceChanges           ItemPriceHistory[]
   attendance             Attendance[]
   leaveRequests          LeaveRequest[]
@@ -454,28 +498,30 @@ model Shop {
   createdAt DateTime     @default(now())
   updatedAt DateTime     @updatedAt
 
-  owner            User               @relation("ShopOwner", fields: [ownerId], references: [id])
-  staffAccesses    StaffShopAccess[]
-  customers        Customer[]
-  itemCategories   ItemCategory[]
-  itemBrands       ItemBrand[]
-  items            Item[]
-  stockLedger      StockLedger[]
-  stockBalances    StockBalance[]
-  orders           Order[]
-  packingTasks     PackingTask[]
-  dispatches       Dispatch[]
-  sales            Sale[]
-  deliveryMemos    DeliveryMemo[]
-  payments         Payment[]
-  cashSessions     CashSession[]
-  notifications    Notification[]
-  dailySummaries   DailySummary[]
-  reservations     StockReservation[]
-  inventoryReturns InventoryReturn[]
-  expenses         Expense[]
-  approvalRequests ApprovalRequest[]
-  attendance       Attendance[]
+  owner                 User                           @relation("ShopOwner", fields: [ownerId], references: [id])
+  staffAccesses         StaffShopAccess[]
+  customers             Customer[]
+  itemCategories        ItemCategory[]
+  itemBrands            ItemBrand[]
+  items                 Item[]
+  stockLedger           StockLedger[]
+  stockBalances         StockBalance[]
+  orders                Order[]
+  packingTasks          PackingTask[]
+  dispatches            Dispatch[]
+  sales                 Sale[]
+  deliveryMemos         DeliveryMemo[]
+  payments              Payment[]
+  cashSessions          CashSession[]
+  notifications         Notification[]
+  dailySummaries        DailySummary[]
+  reservations          StockReservation[]
+  inventoryReturns      InventoryReturn[]
+  expenses              Expense[]
+  approvalRequests      ApprovalRequest[]
+  attendance            Attendance[]
+  dmSerialAssignments   DeliveryMemoSerialAssignment[]
+  customerLedgerEntries CustomerLedgerEntry[]
 
   waConversations      WaConversation[]
   waTemplates          WaTemplate[]
@@ -617,6 +663,7 @@ model Customer {
   waConversations       WaConversation[]
   waFlowExecutions      WaFlowExecution[]
   waBroadcastRecipients WaBroadcastRecipient[]
+  ledgerEntries         CustomerLedgerEntry[]
 
   @@index([shopId])
   @@index([shopId, status, createdAt])
@@ -655,28 +702,28 @@ model ItemBrand {
 }
 
 model Item {
-  id                  String                      @id @default(cuid())
-  shopId              String
-  name                String
-  sku                 String?
-  categoryId          String?
-  brandId             String?
-  unit                String
-  defaultSellingPrice Decimal                     @default(0) @db.Decimal(12, 2)
-  minimumAllowedPrice Decimal?                    @db.Decimal(12, 2)
-  purchasePrice       Decimal?                    @db.Decimal(12, 2)
-  mrp                 Decimal?                    @db.Decimal(12, 2)
-  minimumStock        Decimal                     @default(0) @db.Decimal(12, 3)
-  imageUrl            String?
+  id                   String                      @id @default(cuid())
+  shopId               String
+  name                 String
+  sku                  String?
+  categoryId           String?
+  brandId              String?
+  unit                 String
+  defaultSellingPrice  Decimal                     @default(0) @db.Decimal(12, 2)
+  minimumAllowedPrice  Decimal?                    @db.Decimal(12, 2)
+  purchasePrice        Decimal?                    @db.Decimal(12, 2)
+  mrp                  Decimal?                    @db.Decimal(12, 2)
+  minimumStock         Decimal                     @default(0) @db.Decimal(12, 3)
+  imageUrl             String?
   requiresSerialNumber Boolean                     @default(false)
-  status              RecordStatus                @default(ACTIVE)
-  embedding           Unsupported("vector(384)")?
-  createdAt           DateTime                    @default(now())
-  updatedAt           DateTime                    @updatedAt
+  status               RecordStatus                @default(ACTIVE)
+  embedding            Unsupported("vector(384)")?
+  createdAt            DateTime                    @default(now())
+  updatedAt            DateTime                    @updatedAt
 
-  shop                 Shop                  @relation(fields: [shopId], references: [id])
-  category             ItemCategory?         @relation(fields: [categoryId], references: [id])
-  brand                ItemBrand?            @relation(fields: [brandId], references: [id])
+  shop                 Shop                           @relation(fields: [shopId], references: [id])
+  category             ItemCategory?                  @relation(fields: [categoryId], references: [id])
+  brand                ItemBrand?                     @relation(fields: [brandId], references: [id])
   stockLedger          StockLedger[]
   stockBalance         StockBalance?
   orderItems           OrderItem[]
@@ -686,8 +733,9 @@ model Item {
   reservations         StockReservation[]
   inventoryReturnItems InventoryReturnItem[]
   priceHistory         ItemPriceHistory[]
-  bundleComponents     ItemBundleComponent[] @relation("BundleParent")
-  usedInBundles        ItemBundleComponent[] @relation("BundleComponent")
+  bundleComponents     ItemBundleComponent[]          @relation("BundleParent")
+  usedInBundles        ItemBundleComponent[]          @relation("BundleComponent")
+  dmSerialAssignments  DeliveryMemoSerialAssignment[]
 
   @@unique([shopId, sku])
   @@index([shopId, name])
@@ -825,10 +873,11 @@ model OrderItem {
   createdAt          DateTime        @default(now())
   updatedAt          DateTime        @updatedAt
 
-  order         Order             @relation(fields: [orderId], references: [id], onDelete: Cascade)
-  item          Item              @relation(fields: [itemId], references: [id])
-  dispatchItems DispatchItem[]
-  reservations  StockReservation[]
+  order             Order              @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  item              Item               @relation(fields: [itemId], references: [id])
+  dispatchItems     DispatchItem[]
+  reservations      StockReservation[]
+  deliveryMemoItems DeliveryMemoItem[]
 
   @@index([orderId])
   @@index([itemId])
@@ -935,17 +984,18 @@ model Sale {
   cancelReason          String?
   version               Int               @default(1)
 
-  shop             Shop              @relation(fields: [shopId], references: [id], onDelete: Restrict)
-  amendments       SaleAmendment[]
-  invoices         Invoice[]
-  staff            User              @relation("SaleStaff", fields: [staffId], references: [id])
-  customer         Customer          @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  order            Order?            @relation(fields: [orderId], references: [id])
-  deliveryMemo     DeliveryMemo?     @relation(fields: [dmId], references: [id])
-  items            SaleItem[]
-  dispatches       Dispatch[]
-  payments         Payment[]
-  inventoryReturns InventoryReturn[]
+  shop              Shop                           @relation(fields: [shopId], references: [id], onDelete: Restrict)
+  amendments        SaleAmendment[]
+  invoices          Invoice[]
+  staff             User                           @relation("SaleStaff", fields: [staffId], references: [id])
+  customer          Customer                       @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  order             Order?                         @relation(fields: [orderId], references: [id])
+  deliveryMemo      DeliveryMemo?                  @relation(fields: [dmId], references: [id])
+  items             SaleItem[]
+  dispatches        Dispatch[]
+  payments          Payment[]
+  inventoryReturns  InventoryReturn[]
+  serialAssignments DeliveryMemoSerialAssignment[]
 
   @@unique([shopId, saleNumber])
   @@index([shopId, createdAt])
@@ -971,30 +1021,38 @@ model SaleItem {
 }
 
 model DeliveryMemo {
-  id                  String             @id @default(cuid())
+  id                  String                      @id @default(cuid())
   dmNumber            String
   shopId              String
   orderId             String?
   staffId             String
   customerId          String
-  estimatedAmount     Decimal            @default(0) @db.Decimal(12, 2)
-  paidAmount          Decimal            @default(0) @db.Decimal(12, 2)
-  balanceAmount       Decimal            @default(0) @db.Decimal(12, 2)
-  status              DeliveryMemoStatus @default(CREATED)
-  paymentStatus       BillPaymentStatus  @default(UNPAID)
+  estimatedAmount     Decimal                     @default(0) @db.Decimal(12, 2)
+  paidAmount          Decimal                     @default(0) @db.Decimal(12, 2)
+  balanceAmount       Decimal                     @default(0) @db.Decimal(12, 2)
+  status              DeliveryMemoStatus          @default(CREATED)
+  paymentStatus       BillPaymentStatus           @default(UNPAID)
   expectedPaymentDate DateTime?
-  createdAt           DateTime           @default(now())
-  updatedAt           DateTime           @updatedAt
+  documentPurpose     DeliveryMemoPurpose         @default(CREDIT_DELIVERY)
+  lifecycleStatus     DeliveryMemoLifecycleStatus @default(DISPATCHED)
+  invoicingStatus     DeliveryMemoInvoicingStatus @default(NOT_INVOICED)
+  returnStatus        DeliveryMemoReturnStatus    @default(NO_RETURN)
+  postedAt            DateTime?
+  deliveryNotes       String?
+  version             Int                         @default(1)
+  createdAt           DateTime                    @default(now())
+  updatedAt           DateTime                    @updatedAt
 
-  shop             Shop               @relation(fields: [shopId], references: [id], onDelete: Restrict)
-  order            Order?             @relation(fields: [orderId], references: [id])
-  staff            User               @relation("DeliveryMemoStaff", fields: [staffId], references: [id])
-  customer         Customer           @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  items            DeliveryMemoItem[]
-  dispatches       Dispatch[]
-  sales            Sale[]
-  payments         Payment[]
-  inventoryReturns InventoryReturn[]
+  shop                          Shop                           @relation(fields: [shopId], references: [id], onDelete: Restrict)
+  order                         Order?                         @relation(fields: [orderId], references: [id])
+  staff                         User                           @relation("DeliveryMemoStaff", fields: [staffId], references: [id])
+  customer                      Customer                       @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  items                         DeliveryMemoItem[]
+  dispatches                    Dispatch[]
+  sales                         Sale[]
+  payments                      Payment[]
+  inventoryReturns              InventoryReturn[]
+  deliveryMemoSerialAssignments DeliveryMemoSerialAssignment[]
 
   @@unique([shopId, dmNumber])
   @@index([shopId, status])
@@ -1005,6 +1063,7 @@ model DeliveryMemoItem {
   id             String  @id @default(cuid())
   dmId           String
   itemId         String
+  orderItemId    String?
   quantity       Decimal @db.Decimal(12, 3)
   returnedQty    Decimal @default(0) @db.Decimal(12, 3)
   rate           Decimal @db.Decimal(12, 2)
@@ -1015,8 +1074,61 @@ model DeliveryMemoItem {
 
   deliveryMemo DeliveryMemo @relation(fields: [dmId], references: [id], onDelete: Cascade)
   item         Item         @relation(fields: [itemId], references: [id])
+  orderItem    OrderItem?   @relation(fields: [orderItemId], references: [id])
 
   @@index([itemId])
+  @@index([orderItemId])
+}
+
+model DeliveryMemoSerialAssignment {
+  id            String                 @id @default(cuid())
+  shopId        String
+  dmId          String
+  itemId        String
+  serialNumber  String
+  status        SerialAssignmentStatus @default(ACTIVE)
+  activeKey     String?                @unique
+  assignedById  String
+  assignedAt    DateTime               @default(now())
+  releasedAt    DateTime?
+  releaseReason String?
+
+  shop         Shop         @relation(fields: [shopId], references: [id], onDelete: Restrict)
+  deliveryMemo DeliveryMemo @relation(fields: [dmId], references: [id], onDelete: Cascade)
+  item         Item         @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  assignedBy   User         @relation(fields: [assignedById], references: [id], onDelete: Restrict)
+  sale         Sale?        @relation(fields: [saleId], references: [id])
+  saleId       String?
+
+  @@index([shopId, itemId, serialNumber])
+  @@index([dmId, status])
+}
+
+model CustomerLedgerEntry {
+  id             String                  @id @default(cuid())
+  shopId         String
+  customerId     String
+  sourceType     String
+  sourceId       String
+  entryType      String
+  direction      CustomerLedgerDirection
+  amount         Decimal                 @db.Decimal(12, 2)
+  createdById    String
+  reversalOfId   String?
+  idempotencyKey String?
+  notes          String?
+  effectiveAt    DateTime                @default(now())
+  createdAt      DateTime                @default(now())
+
+  shop       Shop                  @relation(fields: [shopId], references: [id], onDelete: Restrict)
+  customer   Customer              @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  createdBy  User                  @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  reversalOf CustomerLedgerEntry?  @relation("CustomerLedgerReversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
+  reversals  CustomerLedgerEntry[] @relation("CustomerLedgerReversal")
+
+  @@unique([sourceType, sourceId, entryType])
+  @@index([shopId, customerId, effectiveAt])
+  @@index([reversalOfId])
 }
 
 model Payment {
@@ -1169,13 +1281,13 @@ model ApprovalRequest {
 }
 
 model Notification {
-  id           String            @id @default(cuid())
-  userId       String
-  shopId       String
-  triggerEvent NotificationEvent
-  entityType   EntityType
-  entityId     String?
-  message      String
+  id            String            @id @default(cuid())
+  userId        String
+  shopId        String
+  triggerEvent  NotificationEvent
+  entityType    EntityType
+  entityId      String?
+  message       String
   isRead        Boolean           @default(false)
   createdAt     DateTime          @default(now())
   domainEventId String?
@@ -1948,8 +2060,8 @@ model SaleAmendment {
   stockDelta       Json
   financialDelta   Json
 
-  sale             Sale @relation(fields: [saleId], references: [id], onDelete: Cascade)
-  createdBy        User @relation("AmendmentCreator", fields: [createdById], references: [id])
+  sale      Sale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  createdBy User @relation("AmendmentCreator", fields: [createdById], references: [id])
 
   @@index([saleId])
 }
@@ -1972,8 +2084,8 @@ model Invoice {
   igstAmount     Decimal       @db.Decimal(12, 2)
   grandTotal     Decimal       @db.Decimal(12, 2)
   version        Int           @default(1)
-  
-  sale           Sale          @relation(fields: [saleId], references: [id], onDelete: Restrict)
+
+  sale Sale @relation(fields: [saleId], references: [id], onDelete: Restrict)
 
   @@index([saleId])
 }

@@ -1420,6 +1420,45 @@ export async function createDeliveryMemo(token: string, data: any, opts: { idemp
   });
 }
 
+export async function createDeliveryMemoDraft(token: string, data: any, opts: { idempotencyKey?: string } = {}) {
+  return apiRequest<any>("/delivery-memos/drafts", {
+    method: "POST",
+    token,
+    headers: opts.idempotencyKey ? { "Idempotency-Key": opts.idempotencyKey } : undefined,
+    body: JSON.stringify(data),
+  });
+}
+
+export async function updateDeliveryMemoDraft(token: string, id: string, data: any) {
+  return apiRequest<any>(`/delivery-memos/${id}/draft`, {
+    method: "PATCH",
+    token,
+    body: JSON.stringify(data),
+  });
+}
+
+export async function postDeliveryMemo(token: string, id: string, data: any = {}, opts: { idempotencyKey?: string } = {}) {
+  return apiRequest<any>(`/delivery-memos/${id}/post`, {
+    method: "POST",
+    token,
+    headers: opts.idempotencyKey ? { "Idempotency-Key": opts.idempotencyKey } : undefined,
+    body: JSON.stringify(data),
+  });
+}
+
+export async function convertDeliveryMemoToSale(token: string, id: string, data: { gstRequired?: boolean } = {}, opts: { idempotencyKey?: string } = {}) {
+  return apiRequest<any>(`/delivery-memos/${id}/convert-to-sale`, {
+    method: "POST",
+    token,
+    headers: opts.idempotencyKey ? { "Idempotency-Key": opts.idempotencyKey } : undefined,
+    body: JSON.stringify(data),
+  });
+}
+
+export async function fetchDeliveryMemoTimeline(token: string, id: string) {
+  return apiRequest<any[]>(`/delivery-memos/${id}/timeline`, { token });
+}
+
 export async function syncDomainEvents(
   token: string,
   shopId: string,
@@ -1577,5 +1616,4 @@ export async function bulkDeleteOrphans(token: string, shopId: string) {
     body: JSON.stringify({ shopId }),
   });
 }
-
 

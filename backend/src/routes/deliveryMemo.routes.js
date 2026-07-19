@@ -35,6 +35,8 @@ const createSchema = z.object({
     customerPhone: z.string().nullish(),
     customerAddress: z.string().nullish(),
     expectedPaymentDate: z.coerce.date().optional(),
+    documentPurpose: z.literal("CREDIT_DELIVERY").optional(),
+    deliveryNotes: z.string().max(2000).optional(),
     items: z.array(itemSchema).min(1),
     payments: z.array(paymentSchema).optional(),
   }),
@@ -46,7 +48,7 @@ const listSchema = z.object({
   query: z.object({
     shopId: z.string().min(1),
     customerId: z.string().optional(),
-    status: z.enum(["CREATED", "PARTIALLY_PAID", "PAID", "CONVERTED", "RETURNED", "CANCELLED", "OVERDUE"]).optional(),
+    status: z.enum(["CREATED", "PARTIALLY_PAID", "FULLY_PAID", "CONVERTED_TO_SALE", "RETURNED", "CANCELLED", "OVERDUE"]).optional(),
     dateFrom: z.string().optional(),
     dateTo: z.string().optional(),
     page: z.coerce.number().int().positive().optional(),
@@ -57,6 +59,20 @@ const listSchema = z.object({
 });
 
 router.use(requireAuth);
+router.post("/drafts", requirePermission(PERMISSIONS.DM_CREATE), validate(createSchema), deliveryMemoController.createDeliveryMemoDraft);
+router.patch("/:id/draft", requirePermission(PERMISSIONS.DM_CREATE), validate(z.object({
+  params: idParams,
+  body: createSchema.shape.body.omit({ shopId: true, customerName: true }).extend({ version: z.number().int().positive().optional() }),
+})), deliveryMemoController.updateDeliveryMemoDraft);
+router.post("/:id/post", requirePermission(PERMISSIONS.DM_CREATE), validate(z.object({
+  params: idParams,
+  body: z.object({ version: z.number().int().positive().optional(), payments: z.array(paymentSchema).optional() }).optional().default({}),
+})), deliveryMemoController.postDeliveryMemo);
+router.post("/:id/convert-to-sale", requirePermission(PERMISSIONS.SALE_CREATE), validate(z.object({
+  params: idParams,
+  body: z.object({ gstRequired: z.boolean().optional() }).optional().default({}),
+})), deliveryMemoController.convertDeliveryMemoToSale);
+router.get("/:id/timeline", requirePermission(PERMISSIONS.DM_VIEW_OWN), validate(z.object({ params: idParams })), deliveryMemoController.getDeliveryMemoTimeline);
 router.get("/", requirePermission(PERMISSIONS.DM_VIEW_OWN), validate(listSchema), deliveryMemoController.listDeliveryMemos);
 router.get("/:id", requirePermission(PERMISSIONS.DM_VIEW_OWN), validate(z.object({ params: idParams })), deliveryMemoController.getDeliveryMemo);
 router.post("/", requirePermission(PERMISSIONS.DM_CREATE), validate(createSchema), deliveryMemoController.createDeliveryMemo);

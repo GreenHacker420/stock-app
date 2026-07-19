@@ -11,6 +11,7 @@ import {
   getBillPaymentStatus,
   prisma,
   increaseCustomerDebt,
+  postCustomerReceivable,
 } from "./transactionHelpers.js";
 import { reserveStockForOrder, expandStockRequirements } from "./stock.service.js";
 import { qty, money } from "../utils/money.js";
@@ -587,25 +588,35 @@ async function createDispatchFromOrder(tx, user, order, items, { saleId, dmId })
   });
 
   for (const item of items) {
-    // Transition StockReservation status to DISPATCHED
-    await tx.stockReservation.updateMany({
-      where: {
-        orderItemId: item.orderItemId,
-        status: "ACTIVE",
-      },
-      data: {
-        status: "DISPATCHED",
-        releasedAt: new Date(),
-        releasedReason: "DISPATCH",
-      },
+    const reservations = await tx.stockReservation.findMany({
+      where: { orderItemId: item.orderItemId, status: "ACTIVE" },
+      orderBy: { createdAt: "asc" },
     });
+    let toRelease = qty(item.quantity);
+    for (const reservation of reservations) {
+      if (toRelease.lte(0)) break;
+      const reserved = qty(reservation.reservedQty);
+      const released = toRelease.gte(reserved) ? reserved : toRelease;
+      const remaining = reserved.minus(released);
+      await tx.stockReservation.update({
+        where: { id: reservation.id },
+        data: remaining.lte(0)
+          ? { reservedQty: 0, status: "DISPATCHED", releasedAt: new Date(), releasedReason: "DISPATCH" }
+          : { reservedQty: remaining },
+      });
+      toRelease = toRelease.minus(released);
+    }
 
+    const orderItem = await tx.orderItem.findUnique({ where: { id: item.orderItemId } });
+    const remainingAfterDispatch = qty(orderItem.quantityOrdered)
+      .minus(qty(orderItem.quantityDispatched))
+      .minus(qty(item.quantity));
     await tx.orderItem.update({
       where: { id: item.orderItemId },
       data: {
         quantityDispatched: { increment: item.quantity },
-        quantityPending: { decrement: item.quantity },
-        status: "DISPATCHED",
+        quantityPending: remainingAfterDispatch.lt(0) ? 0 : remainingAfterDispatch,
+        status: remainingAfterDispatch.lte(0) ? "DISPATCHED" : "PARTIALLY_PACKED",
       },
     });
   }
@@ -618,19 +629,12 @@ export async function createDmFromOrder(user, id, data) {
   if (order.status === "DISPATCHED") {
     throw new ApiError(400, "Order has already been dispatched");
   }
-  const existingDispatch = await prisma.dispatch.findFirst({
-    where: { orderId: id },
-    select: { id: true },
-  });
-  if (existingDispatch) {
-    throw new ApiError(400, "Order has already been dispatched");
-  }
   const selectedItems = data.items?.length
     ? data.items
     : order.items.map((item) => ({
         orderItemId: item.id,
         itemId: item.itemId,
-        quantity: Number(item.quantityPacked) || Number(item.quantityOrdered),
+        quantity: Math.max(0, Number(item.quantityOrdered) - Number(item.quantityDispatched)),
         rate: Number(item.rate),
         discountAmount: Number(item.discountAmount || 0),
       }));
@@ -639,12 +643,20 @@ export async function createDmFromOrder(user, id, data) {
 
   return prisma.$transaction(async (tx) => {
     await tx.$queryRaw`SELECT id FROM "Order" WHERE id = ${id} FOR UPDATE`;
-    const existingDispatchInTx = await tx.dispatch.findFirst({
-      where: { orderId: id },
-      select: { id: true },
-    });
-    if (existingDispatchInTx) {
-      throw new ApiError(400, "Order has already been dispatched");
+    const lockedOrder = await tx.order.findUnique({ where: { id }, include: { items: true } });
+    for (const item of items) {
+      const orderItem = lockedOrder.items.find((line) => line.id === item.orderItemId && line.itemId === item.itemId);
+      if (!orderItem) throw new ApiError(400, "Dispatch item does not belong to this order", { code: "INVALID_ORDER_LINE" });
+      const remaining = qty(orderItem.quantityOrdered).minus(qty(orderItem.quantityDispatched));
+      if (qty(item.quantity).gt(remaining)) {
+        throw new ApiError(409, `Dispatch quantity exceeds the remaining ${remaining.toString()} units`, { code: "ORDER_OVER_DISPATCH" });
+      }
+      const product = await tx.item.findUnique({ where: { id: item.itemId } });
+      const serials = (item.serialNumbers || []).map((value) => String(value).trim().toUpperCase()).filter(Boolean);
+      if (product?.requiresSerialNumber && serials.length !== Number(item.quantity)) {
+        throw new ApiError(400, `${product.name} requires exactly ${item.quantity} serial number(s)`, { code: "SERIAL_COUNT_MISMATCH" });
+      }
+      item.serialNumbers = serials;
     }
 
     const dmNumber = await generateRecordNumber(tx, {
@@ -667,18 +679,41 @@ export async function createDmFromOrder(user, id, data) {
         estimatedAmount: totalAmount,
         balanceAmount: totalAmount,
         expectedPaymentDate: data.expectedPaymentDate,
-        status: "PARTIALLY_PAID", // Default status
+        documentPurpose: "CREDIT_DELIVERY",
+        lifecycleStatus: "DISPATCHED",
+        postedAt: new Date(),
+        status: "CREATED",
         items: {
           create: items.map((item) => ({
             itemId: item.itemId,
+            orderItemId: item.orderItemId,
             quantity: item.quantity,
             rate: item.rate,
             discountAmount: item.discountAmount,
             totalAmount: item.lineTotal,
+            serialNumbers: item.serialNumbers?.length ? item.serialNumbers : null,
           })),
         },
       },
     });
+
+    for (const item of items) {
+      for (const serialNumber of item.serialNumbers || []) {
+        try {
+          await tx.deliveryMemoSerialAssignment.create({ data: {
+            shopId: order.shopId,
+            dmId: dm.id,
+            itemId: item.itemId,
+            serialNumber,
+            activeKey: `${order.shopId}:${item.itemId}:${serialNumber}`,
+            assignedById: user.id,
+          } });
+        } catch (error) {
+          if (error?.code === "P2002") throw new ApiError(409, `Serial ${serialNumber} is already allocated`, { code: "SERIAL_ALREADY_ALLOCATED" });
+          throw error;
+        }
+      }
+    }
 
     const stockRequirements = await expandStockRequirements(tx, order.shopId, items);
     for (const req of stockRequirements) {
@@ -695,10 +730,49 @@ export async function createDmFromOrder(user, id, data) {
     }
     
     // Increase global customer debt
-    await increaseCustomerDebt(tx, order.customerId, totalAmount);
+    const receivable = await postCustomerReceivable(tx, order.customerId, totalAmount);
+    await tx.customerLedgerEntry.create({ data: {
+      shopId: order.shopId,
+      customerId: order.customerId,
+      sourceType: "DELIVERY_MEMO",
+      sourceId: dm.id,
+      entryType: "DM_POSTED",
+      direction: "DEBIT",
+      amount: totalAmount,
+      createdById: user.id,
+      notes: `Posted ${dmNumber} from order ${order.orderNumber}`,
+    } });
+    if (receivable.advanceApplied.gt(0)) {
+      await tx.customerLedgerEntry.create({ data: {
+        shopId: order.shopId,
+        customerId: order.customerId,
+        sourceType: "DELIVERY_MEMO",
+        sourceId: dm.id,
+        entryType: "ADVANCE_APPLIED",
+        direction: "CREDIT",
+        amount: receivable.advanceApplied,
+        createdById: user.id,
+        notes: `Advance applied to ${dmNumber}`,
+      } });
+      await tx.deliveryMemo.update({
+        where: { id: dm.id },
+        data: {
+          paidAmount: receivable.advanceApplied,
+          balanceAmount: receivable.outstandingCreated,
+          paymentStatus: receivable.outstandingCreated.lte(0) ? "PAID" : "PARTIALLY_PAID",
+          status: receivable.outstandingCreated.lte(0) ? "FULLY_PAID" : "PARTIALLY_PAID",
+        },
+      });
+    }
 
     await createDispatchFromOrder(tx, user, order, items, { dmId: dm.id });
-    await tx.order.update({ where: { id }, data: { status: "DISPATCHED" } });
+    const remainingLines = await tx.orderItem.count({
+      where: { orderId: id, status: { not: "DISPATCHED" } },
+    });
+    await tx.order.update({
+      where: { id },
+      data: { status: remainingLines === 0 ? "DISPATCHED" : "PARTIALLY_DISPATCHED" },
+    });
 
     await enqueueManyDomainEvents(tx, [
       createDomainEvent({

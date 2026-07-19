@@ -3,7 +3,7 @@ import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 import { money, qty, ZERO } from "../utils/money.js";
 import { writeAuditLog } from "../utils/auditLog.js";
-import { generateRecordNumber, decreaseCustomerDebt } from "./transactionHelpers.js";
+import { generateRecordNumber, decreaseCustomerDebt, getBillPaymentStatus } from "./transactionHelpers.js";
 import { EntityType, AuditAction } from "../generated/prisma/index.js";
 
 export async function createReturn(user, data) {
@@ -215,7 +215,12 @@ export async function completeReturn(user, id) {
 
     // 2. Adjust Financial Balance
     // Returns reduce customer debt.
-    await decreaseCustomerDebt(tx, invReturn.customerId, invReturn.netAmount);
+    let receivableCredit = money(invReturn.netAmount);
+    if (invReturn.sourceType === "DELIVERY_MEMO") {
+      const sourceDm = await tx.deliveryMemo.findUnique({ where: { id: invReturn.dmId } });
+      receivableCredit = money(Math.min(Number(sourceDm?.balanceAmount || 0), Number(invReturn.netAmount)));
+    }
+    await decreaseCustomerDebt(tx, invReturn.customerId, receivableCredit);
 
     if (invReturn.sourceType === "DELIVERY_MEMO") {
       for (const item of invReturn.items) {
@@ -235,6 +240,38 @@ export async function completeReturn(user, id) {
           }
         }
       }
+
+      const dmItems = await tx.deliveryMemoItem.findMany({ where: { dmId: invReturn.dmId } });
+      const sourceDm = await tx.deliveryMemo.findUnique({ where: { id: invReturn.dmId } });
+      const fullyReturned = dmItems.every((item) => qty(item.returnedQty).gte(qty(item.quantity)));
+      const anyReturned = dmItems.some((item) => qty(item.returnedQty).gt(ZERO));
+      const nextBalance = money(Math.max(0, Number(sourceDm.balanceAmount) - Number(receivableCredit)));
+      const adjustedTotal = money(Math.max(0, Number(sourceDm.estimatedAmount) - Number(invReturn.netAmount)));
+      const nextPaymentStatus = getBillPaymentStatus(adjustedTotal, sourceDm.paidAmount);
+      await tx.deliveryMemo.update({
+        where: { id: invReturn.dmId },
+        data: {
+          returnStatus: fullyReturned ? "FULLY_RETURNED" : anyReturned ? "PARTIALLY_RETURNED" : "NO_RETURN",
+          status: fullyReturned ? "RETURNED" : undefined,
+          balanceAmount: nextBalance,
+          paymentStatus: nextPaymentStatus,
+          version: { increment: 1 },
+        },
+      });
+
+      await tx.customerLedgerEntry.create({
+        data: {
+          shopId: invReturn.shopId,
+          customerId: invReturn.customerId,
+          sourceType: "DELIVERY_MEMO_RETURN",
+          sourceId: invReturn.id,
+          entryType: "RETURN_COMPLETED",
+          direction: "CREDIT",
+          amount: receivableCredit,
+          createdById: user.id,
+          notes: `Return ${invReturn.returnNumber}`,
+        },
+      });
     }
 
     const completed = await tx.inventoryReturn.update({

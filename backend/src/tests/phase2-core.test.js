@@ -56,6 +56,7 @@ async function cleanup() {
     await prisma.saleItem.deleteMany({ where: { sale: { shopId: { in: shopIds } } } });
     await prisma.saleAmendment.deleteMany({ where: { sale: { shopId: { in: shopIds } } } });
     await prisma.invoice.deleteMany({ where: { sale: { shopId: { in: shopIds } } } });
+    await prisma.customerLedgerEntry.deleteMany({ where: { shopId: { in: shopIds } } });
     await prisma.deliveryMemoItem.deleteMany({ where: { deliveryMemo: { shopId: { in: shopIds } } } });
     await prisma.sale.deleteMany({ where: { shopId: { in: shopIds } } });
     await prisma.deliveryMemo.deleteMany({ where: { shopId: { in: shopIds } } });
@@ -171,6 +172,139 @@ test.describe("Phase 2 core business correctness", () => {
       resourceType: "EXPENSE",
       shopId: shop.id,
     }, () => expenseService.createExpense(staff, body)), 409);
+  });
+
+  test("delivery memo draft posts once and converts without duplicate stock or debt", async () => {
+    const customerBefore = await prisma.customer.findUnique({ where: { id: customer.id } });
+    const stockBefore = await prisma.stockLedger.aggregate({
+      where: { shopId: shop.id, itemId: item.id },
+      _sum: { quantityIn: true, quantityOut: true },
+    });
+    const physicalBefore = Number(stockBefore._sum.quantityIn || 0) - Number(stockBefore._sum.quantityOut || 0);
+
+    const draft = await deliveryMemoService.createDeliveryMemoDraft(staff, {
+      shopId: shop.id,
+      customerId: customer.id,
+      customerName: customer.name,
+      documentPurpose: "CREDIT_DELIVERY",
+      expectedPaymentDate: new Date("2026-07-20T00:00:00.000Z"),
+      items: [{ itemId: item.id, quantity: 2, rate: 100 }],
+    });
+
+    assert.strictEqual(draft.lifecycleStatus, "DRAFT");
+    assert.match(draft.dmNumber, /^DRAFT-/);
+    const draftMovements = await prisma.stockLedger.count({ where: { referenceId: draft.id } });
+    assert.strictEqual(draftMovements, 0);
+    const customerAfterDraft = await prisma.customer.findUnique({ where: { id: customer.id } });
+    assert.strictEqual(Number(customerAfterDraft.outstandingAmount), Number(customerBefore.outstandingAmount));
+
+    const posted = await deliveryMemoService.postDeliveryMemo(staff, draft.id, { version: draft.version });
+    assert.strictEqual(posted.lifecycleStatus, "DISPATCHED");
+    assert.strictEqual(posted.paymentStatus, "UNPAID");
+    assert.strictEqual(posted.status, "CREATED");
+    assert.match(posted.dmNumber, /^DM-/);
+
+    const postedAgain = await deliveryMemoService.postDeliveryMemo(staff, draft.id, { version: posted.version });
+    assert.strictEqual(postedAgain.id, posted.id);
+    const dmMovements = await prisma.stockLedger.findMany({ where: { referenceId: draft.id } });
+    assert.strictEqual(dmMovements.length, 1);
+    assert.strictEqual(Number(dmMovements[0].quantityOut), 2);
+    const ledgerEntries = await prisma.customerLedgerEntry.findMany({ where: { sourceId: draft.id } });
+    assert.strictEqual(ledgerEntries.length, 1);
+    assert.strictEqual(ledgerEntries[0].entryType, "DM_POSTED");
+
+    const debtAfterPost = await prisma.customer.findUnique({ where: { id: customer.id } });
+    const conversion = await deliveryMemoService.convertDeliveryMemoToSale(owner, draft.id, { gstRequired: false });
+    assert.strictEqual(conversion.dmId, draft.id);
+    const dmMovementsAfterConversion = await prisma.stockLedger.count({ where: { referenceId: draft.id } });
+    assert.strictEqual(dmMovementsAfterConversion, 1);
+    const saleMovements = await prisma.stockLedger.count({ where: { referenceId: conversion.id } });
+    assert.strictEqual(saleMovements, 0);
+    const debtAfterConversion = await prisma.customer.findUnique({ where: { id: customer.id } });
+    assert.strictEqual(Number(debtAfterConversion.outstandingAmount), Number(debtAfterPost.outstandingAmount));
+
+    const stockAfter = await prisma.stockLedger.aggregate({
+      where: { shopId: shop.id, itemId: item.id },
+      _sum: { quantityIn: true, quantityOut: true },
+    });
+    const physicalAfter = Number(stockAfter._sum.quantityIn || 0) - Number(stockAfter._sum.quantityOut || 0);
+    assert.strictEqual(physicalAfter, physicalBefore - 2);
+  });
+
+  test("delivery memo posting consumes customer advance before creating debt", async () => {
+    const advanceCustomer = await prisma.customer.create({
+      data: {
+        shopId: shop.id,
+        name: "P2 Advance Customer",
+        type: "REGULAR",
+        advanceBalance: 40,
+        outstandingAmount: 10,
+        createdById: owner.id,
+      },
+    });
+    const draft = await deliveryMemoService.createDeliveryMemoDraft(staff, {
+      shopId: shop.id,
+      customerId: advanceCustomer.id,
+      documentPurpose: "CREDIT_DELIVERY",
+      items: [{ itemId: item.id, quantity: 1, rate: 100 }],
+    });
+
+    const posted = await deliveryMemoService.postDeliveryMemo(staff, draft.id, { version: draft.version });
+    assert.strictEqual(Number(posted.paidAmount), 40);
+    assert.strictEqual(Number(posted.balanceAmount), 60);
+    assert.strictEqual(posted.paymentStatus, "PARTIALLY_PAID");
+
+    const account = await prisma.customer.findUnique({ where: { id: advanceCustomer.id } });
+    assert.strictEqual(Number(account.advanceBalance), 0);
+    assert.strictEqual(Number(account.outstandingAmount), 70);
+
+    const entries = await prisma.customerLedgerEntry.findMany({
+      where: { sourceType: "DELIVERY_MEMO", sourceId: draft.id },
+      orderBy: { createdAt: "asc" },
+    });
+    assert.deepStrictEqual(entries.map((entry) => [entry.entryType, entry.direction, Number(entry.amount)]), [
+      ["DM_POSTED", "DEBIT", 100],
+      ["ADVANCE_APPLIED", "CREDIT", 40],
+    ]);
+  });
+
+  test("staff cannot post a delivery memo beyond the customer credit limit", async () => {
+    const limitedCustomer = await prisma.customer.create({
+      data: {
+        shopId: shop.id,
+        name: "P2 Limited Customer",
+        type: "REGULAR",
+        creditLimit: 50,
+        createdById: owner.id,
+      },
+    });
+    const draft = await deliveryMemoService.createDeliveryMemoDraft(staff, {
+      shopId: shop.id,
+      customerId: limitedCustomer.id,
+      documentPurpose: "CREDIT_DELIVERY",
+      items: [{ itemId: item.id, quantity: 1, rate: 100 }],
+    });
+
+    await assertRejectsApi(
+      () => deliveryMemoService.postDeliveryMemo(staff, draft.id, { version: draft.version }),
+      409,
+    );
+
+    const unchangedDraft = await prisma.deliveryMemo.findUnique({ where: { id: draft.id } });
+    assert.strictEqual(unchangedDraft.lifecycleStatus, "DRAFT");
+    assert.strictEqual(await prisma.stockLedger.count({ where: { referenceId: draft.id } }), 0);
+    assert.strictEqual(await prisma.customerLedgerEntry.count({ where: { sourceId: draft.id } }), 0);
+    const account = await prisma.customer.findUnique({ where: { id: limitedCustomer.id } });
+    assert.strictEqual(Number(account.outstandingAmount), 0);
+  });
+
+  test("unimplemented delivery purposes cannot use the credit-delivery posting workflow", async () => {
+    await assertRejectsApi(() => deliveryMemoService.createDeliveryMemoDraft(staff, {
+      shopId: shop.id,
+      customerId: customer.id,
+      documentPurpose: "STOCK_TRANSFER",
+      items: [{ itemId: item.id, quantity: 1, rate: 100 }],
+    }), 400);
   });
 
   test("order initial assignment validates owner scope, active status, and shop assignment", async () => {
@@ -602,6 +736,7 @@ test.describe("Phase 2 core business correctness", () => {
     await prisma.deliveryMemo.deleteMany({ where: { id: dm.id } });
 
     await prisma.stockLedger.deleteMany({ where: { itemId: item1.id } });
+    await prisma.customerLedgerEntry.deleteMany({ where: { customerId: { in: [cust.id, cust2.id] } } });
     await prisma.item.delete({ where: { id: item1.id } });
     await prisma.customer.delete({ where: { id: cust.id } });
     await prisma.customer.delete({ where: { id: cust2.id } });
@@ -693,6 +828,7 @@ test.describe("Phase 2 core business correctness", () => {
     await prisma.deliveryMemoItem.deleteMany({ where: { dmId: dm.id } });
     await prisma.deliveryMemo.delete({ where: { id: dm.id } });
     await prisma.stockLedger.deleteMany({ where: { itemId: dmItem.id } });
+    await prisma.customerLedgerEntry.deleteMany({ where: { customerId: cust.id } });
     await prisma.item.delete({ where: { id: dmItem.id } });
     await prisma.customer.delete({ where: { id: cust.id } });
   });

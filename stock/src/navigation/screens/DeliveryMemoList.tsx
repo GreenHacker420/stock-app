@@ -22,7 +22,8 @@ export function DeliveryMemoList() {
     switch (status) {
       case "PAID":
       case "FULLY_PAID":
-      case "CONVERTED":
+      case "CONVERTED_TO_SALE":
+      case "DISPATCHED":
         return "green";
       case "PARTIALLY_PAID":
       case "CREATED":
@@ -40,7 +41,7 @@ export function DeliveryMemoList() {
     <Screen edges={["top", "left", "right"]}>
       <AppHeader 
         title="Delivery Memos" 
-        subtitle="Manage kachha bills and collections." 
+        subtitle="Dispatch, receivables and invoicing."
         showBack
       />
 
@@ -71,11 +72,11 @@ export function DeliveryMemoList() {
               return (
                 <DeliveryMemoCard
                   key={dm.id}
-                  number={dm.dmNumber}
+                  number={dm.lifecycleStatus === "DRAFT" ? "Draft" : dm.dmNumber}
                   date={dateStr}
                   customerName={dm.customer?.name || "Walk-in Customer"}
-                  status={dm.status || "CREATED"}
-                  statusTone={getStatusTone(dm.status)}
+                  status={dm.lifecycleStatus || "DISPATCHED"}
+                  statusTone={getStatusTone(dm.lifecycleStatus || dm.status)}
                   estimatedAmount={money(dm.estimatedAmount)}
                   paidAmount={money(dm.paidAmount)}
                   balanceAmount={money(dm.balanceAmount)}
@@ -99,7 +100,7 @@ export function DeliveryMemoList() {
         <View style={styles.flex1}>
           <EmptyState 
             title="No Delivery Memos" 
-            subtitle="Create your first kachha bill / delivery memo to get started."
+            subtitle="Prepare a draft, review the consequences, then confirm dispatch."
             icon="truck-delivery"
           />
           <FAB

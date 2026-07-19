@@ -117,14 +117,23 @@ export function OrderDetail() {
     if (disburseMode === "DM") {
       createDmMutation.mutate({
         orderId,
-        customerId: order?.customerId ?? "",
-        shopId: order?.shopId ?? "",
-        items: order?.items.map(i => ({ itemId: i.itemId, quantity: i.quantityPacked || i.quantityOrdered, rate: i.rate })) ?? [],
+        data: {
+          items: order?.items.map((item) => {
+            const remaining = Math.max(0, Number(item.quantityOrdered) - Number(item.quantityDispatched || 0));
+            const packedRemaining = Math.max(0, Number(item.quantityPacked || 0) - Number(item.quantityDispatched || 0));
+            return {
+              orderItemId: item.id,
+              itemId: item.itemId,
+              quantity: packedRemaining > 0 ? Math.min(remaining, packedRemaining) : remaining,
+              rate: item.rate,
+            };
+          }).filter((item) => item.quantity > 0) ?? [],
+        },
       }, {
         onSuccess: () => {
           setDisburseModalVisible(false);
           setSuccessTitle("DM Created");
-          setSuccessMessage("Delivery Memo generated. Goods can be dispatched.");
+          setSuccessMessage("Dispatch posted. Stock and customer receivable were updated.");
           setSuccessVisible(true);
         }
       });
@@ -415,7 +424,7 @@ export function OrderDetail() {
           {disburseMode === 'DM' ? (
             <View style={styles.disburseBody}>
               <Text style={styles.disburseDesc}>
-                This will generate a Delivery Memo (Kachha Bill) for the customer. Items will be deducted from physical stock.
+                This confirms physical dispatch for the currently packed or remaining quantities. Stock will decrease and a customer receivable will be created. Any quantities left on the order can be dispatched in another DM.
               </Text>
             </View>
           ) : (

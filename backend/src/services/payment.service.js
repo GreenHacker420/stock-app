@@ -70,6 +70,12 @@ export async function addPayment(user, data) {
     if (data.dmId) {
       const dm = await tx.deliveryMemo.findUnique({ where: { id: data.dmId } });
       if (!dm || dm.shopId !== data.shopId) throw new ApiError(400, "DM does not belong to this shop");
+      if (dm.lifecycleStatus !== "DISPATCHED") {
+        throw new ApiError(409, "Payments can be collected only for a dispatched delivery memo", { code: "INVALID_STATE_TRANSITION" });
+      }
+      if (money(data.amount).gt(money(dm.balanceAmount))) {
+        throw new ApiError(400, "Payment exceeds the delivery memo balance", { code: "PAYMENT_EXCEEDS_BALANCE" });
+      }
       customerId = dm.customerId || customerId;
     }
 
@@ -376,7 +382,12 @@ export async function attachPayment(user, id, { saleId, dmId, orderId }) {
         where: { dmId, status: { not: "CANCELLED" } }
       });
       const totalPaid = allPayments.reduce((sum, p) => sum + Number(p.amount), 0);
-      const balance = Number(dm.estimatedAmount) - totalPaid;
+      const completedReturns = await tx.inventoryReturn.aggregate({
+        where: { dmId, status: "COMPLETED" },
+        _sum: { netAmount: true },
+      });
+      const returnCredit = Number(completedReturns._sum.netAmount || 0);
+      const balance = Math.max(0, Number(dm.estimatedAmount) - returnCredit - totalPaid);
       const status = balance <= 0 ? "PAID" : (totalPaid > 0 ? "PARTIALLY_PAID" : "UNPAID");
 
       await tx.deliveryMemo.update({
@@ -385,7 +396,7 @@ export async function attachPayment(user, id, { saleId, dmId, orderId }) {
           paidAmount: totalPaid,
           balanceAmount: balance,
           paymentStatus: status,
-          status: status === "PAID" ? "PAID" : dm.status
+          status: status === "PAID" ? "FULLY_PAID" : (status === "PARTIALLY_PAID" ? "PARTIALLY_PAID" : "CREATED")
         }
       });
     }
