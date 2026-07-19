@@ -7,6 +7,8 @@ import { createMMKV } from "react-native-mmkv";
 import { clearDomainEventCursors } from "../realtime/domainEventCursor";
 import { clearDomainReadCacheForUser, destroyDomainReadCache } from "./domain-cache";
 import { clearRuntimeQueryState } from "../query/queryClient";
+import { isJwtExpired } from "./jwt-expiry";
+import { registerUnauthorizedHandler } from "./unauthorized-handler";
 
 const TOKEN_KEY = "shopcontrol_token";
 const QUICK_TOKEN_KEY = "shopcontrol_quick_token";
@@ -94,6 +96,10 @@ function createAuthStore() {
     if (!token) {
       throw new Error("No saved login found. Sign in once with mobile and PIN first.");
     }
+    if (isJwtExpired(token)) {
+      await get().signOut();
+      throw new Error("Your saved login has expired. Please sign in again.");
+    }
     if (pin) {
       const identifier = await getToken(LAST_IDENTIFIER_KEY);
       const savedHash = await getToken(QUICK_PIN_HASH_KEY);
@@ -133,6 +139,10 @@ function createAuthStore() {
       const token = await getToken(TOKEN_KEY);
       if (!token) {
         set({ token: null, user: null, isBootstrapping: false });
+        return;
+      }
+      if (isJwtExpired(token)) {
+        await get().signOut();
         return;
       }
 
@@ -206,6 +216,11 @@ export const userCacheStorage = createMMKV({ id: "shopcontrol_user_cache" });
 export const useAuthStore = globalAuthStore.__shopControlAuthStore ?? createAuthStore();
 
 globalAuthStore.__shopControlAuthStore = useAuthStore;
+
+registerUnauthorizedHandler(async (rejectedToken) => {
+  if (useAuthStore.getState().token !== rejectedToken) return;
+  await useAuthStore.getState().signOut();
+});
 
 // Sync store updates with user cache automatically
 useAuthStore.subscribe((state: AuthState) => {

@@ -1,5 +1,6 @@
 export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? "https://shop-api.evergreenclassic.in";
 import { useNetworkStore } from "../auth/network-store";
+import { reportUnauthorized } from "../auth/unauthorized-handler";
 
 export type PaymentMode = "CASH" | "UPI" | "CARD" | "BANK_TRANSFER" | "CHEQUE";
 export type PaymentStatus = "RECORDED" | "VERIFIED" | "REJECTED" | "CANCELLED";
@@ -327,7 +328,6 @@ export class ApiError extends Error {
   }
 }
 
-
 export async function apiRequest<T>(
   path: string,
   options: RequestInit & { token?: string | null } = {},
@@ -365,6 +365,9 @@ export async function apiRequest<T>(
 
 
   if (!response.ok) {
+    if (response.status === 401 && options.token) {
+      reportUnauthorized(options.token);
+    }
     throw new ApiError(payload.message || "Request failed", response.status, (payload as any).field ?? null);
   }
 
@@ -1616,4 +1619,3 @@ export async function bulkDeleteOrphans(token: string, shopId: string) {
     body: JSON.stringify({ shopId }),
   });
 }
-
