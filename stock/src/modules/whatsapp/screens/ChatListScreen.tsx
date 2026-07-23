@@ -165,7 +165,7 @@ export function ChatListScreen() {
       void whatsappDb.upsertConversations(
         { shopId, integrationId, phoneNumberId },
         [conversation],
-      );
+      ).catch(() => undefined);
       queryClient.invalidateQueries({
         queryKey: ["whatsapp", "conversations", shopId, integrationId],
       });
@@ -180,7 +180,7 @@ export function ChatListScreen() {
       return deleteScopedWaConversation(token, integrationId, id);
     },
     onSuccess: async (_, id) => {
-      await whatsappDb.removeConversation(id);
+      await whatsappDb.removeConversation(id).catch(() => undefined);
       queryClient.invalidateQueries({
         queryKey: ["whatsapp", "conversations", shopId, integrationId],
       });
@@ -214,7 +214,7 @@ export function ChatListScreen() {
       void whatsappDb.upsertConversations(
         { shopId, integrationId, phoneNumberId },
         [conversation],
-      );
+      ).catch(() => undefined);
       queryClient.invalidateQueries({
         queryKey: ["whatsapp", "conversations", shopId, integrationId],
       });

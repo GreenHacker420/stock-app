@@ -69,6 +69,28 @@ type PendingOperationRow = {
 };
 
 let databasePromise: Promise<SQLite.SQLiteDatabase> | null = null;
+let writeQueue: Promise<void> = Promise.resolve();
+
+function serializeWrite<T>(task: () => Promise<T>) {
+  const run = async () => {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await task();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const retryable = /database is locked|cannot start a transaction|cannot rollback/i.test(message);
+        if (!retryable || attempt >= 3) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 25 * (2 ** attempt)));
+      }
+    }
+  };
+  const result = writeQueue.then(run, run);
+  writeQueue = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
 
 async function openDatabase() {
   const database = await SQLite.openDatabaseAsync(DATABASE_NAME);
@@ -247,30 +269,28 @@ export const whatsappDb = {
     conversations: WaConversation[],
   ) {
     const database = await getDatabase();
-    await database.withTransactionAsync(async () => {
-      const statement = await database.prepareAsync(`
-        INSERT INTO wa_conversations (
-          id, shop_id, integration_id, phone_number_id, customer_id, phone,
-          contact_name, unread_count, is_archived, is_pinned, assigned_to_id,
-          entity_version, updated_at, payload_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-          phone_number_id = excluded.phone_number_id,
-          customer_id = excluded.customer_id,
-          phone = excluded.phone,
-          contact_name = excluded.contact_name,
-          unread_count = excluded.unread_count,
-          is_archived = excluded.is_archived,
-          is_pinned = excluded.is_pinned,
-          assigned_to_id = excluded.assigned_to_id,
-          entity_version = excluded.entity_version,
-          updated_at = excluded.updated_at,
-          payload_json = excluded.payload_json
-        WHERE excluded.entity_version >= wa_conversations.entity_version
-      `);
-      try {
-        for (const conversation of conversations) {
-          await statement.executeAsync([
+    await serializeWrite(() => database.withExclusiveTransactionAsync(async (transaction) => {
+      for (const conversation of conversations) {
+        await transaction.runAsync(
+          `INSERT INTO wa_conversations (
+            id, shop_id, integration_id, phone_number_id, customer_id, phone,
+            contact_name, unread_count, is_archived, is_pinned, assigned_to_id,
+            entity_version, updated_at, payload_json
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            phone_number_id = excluded.phone_number_id,
+            customer_id = excluded.customer_id,
+            phone = excluded.phone,
+            contact_name = excluded.contact_name,
+            unread_count = excluded.unread_count,
+            is_archived = excluded.is_archived,
+            is_pinned = excluded.is_pinned,
+            assigned_to_id = excluded.assigned_to_id,
+            entity_version = excluded.entity_version,
+            updated_at = excluded.updated_at,
+            payload_json = excluded.payload_json
+          WHERE excluded.entity_version >= wa_conversations.entity_version`,
+          [
             conversation.id,
             scope.shopId,
             scope.integrationId,
@@ -285,12 +305,10 @@ export const whatsappDb = {
             conversation.entityVersion || 0,
             timestamp(conversation.updatedAt || conversation.lastCustomerMessageAt),
             JSON.stringify(conversation),
-          ]);
-        }
-      } finally {
-        await statement.finalizeAsync();
+          ],
+        );
       }
-    });
+    }));
   },
 
   async getConversations(shopId: string, integrationId: string) {
@@ -310,12 +328,12 @@ export const whatsappDb = {
 
   async removeConversation(conversationId: string) {
     const database = await getDatabase();
-    await database.withTransactionAsync(async () => {
-      await database.runAsync("DELETE FROM wa_messages WHERE conversation_id = ?", conversationId);
-      await database.runAsync("DELETE FROM wa_drafts WHERE conversation_id = ?", conversationId);
-      await database.runAsync("DELETE FROM wa_pending_operations WHERE conversation_id = ?", conversationId);
-      await database.runAsync("DELETE FROM wa_conversations WHERE id = ?", conversationId);
-    });
+    await serializeWrite(() => database.withExclusiveTransactionAsync(async (transaction) => {
+      await transaction.runAsync("DELETE FROM wa_messages WHERE conversation_id = ?", conversationId);
+      await transaction.runAsync("DELETE FROM wa_drafts WHERE conversation_id = ?", conversationId);
+      await transaction.runAsync("DELETE FROM wa_pending_operations WHERE conversation_id = ?", conversationId);
+      await transaction.runAsync("DELETE FROM wa_conversations WHERE id = ?", conversationId);
+    }));
   },
 
   async upsertMessages(
@@ -323,26 +341,24 @@ export const whatsappDb = {
     messages: WaMessage[],
   ) {
     const database = await getDatabase();
-    await database.withTransactionAsync(async () => {
-      const statement = await database.prepareAsync(`
-        INSERT INTO wa_messages (
-          id, shop_id, integration_id, conversation_id, client_message_id,
-          provider_message_id, direction, message_type, operation_state,
-          provider_status, content_state, entity_version, created_at, payload_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-          client_message_id = excluded.client_message_id,
-          provider_message_id = excluded.provider_message_id,
-          operation_state = excluded.operation_state,
-          provider_status = excluded.provider_status,
-          content_state = excluded.content_state,
-          entity_version = excluded.entity_version,
-          payload_json = excluded.payload_json
-        WHERE excluded.entity_version >= wa_messages.entity_version
-      `);
-      try {
-        for (const message of messages) {
-          await statement.executeAsync([
+    await serializeWrite(() => database.withExclusiveTransactionAsync(async (transaction) => {
+      for (const message of messages) {
+        await transaction.runAsync(
+          `INSERT INTO wa_messages (
+            id, shop_id, integration_id, conversation_id, client_message_id,
+            provider_message_id, direction, message_type, operation_state,
+            provider_status, content_state, entity_version, created_at, payload_json
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            client_message_id = excluded.client_message_id,
+            provider_message_id = excluded.provider_message_id,
+            operation_state = excluded.operation_state,
+            provider_status = excluded.provider_status,
+            content_state = excluded.content_state,
+            entity_version = excluded.entity_version,
+            payload_json = excluded.payload_json
+          WHERE excluded.entity_version >= wa_messages.entity_version`,
+          [
             message.id,
             scope.shopId,
             scope.integrationId,
@@ -357,46 +373,44 @@ export const whatsappDb = {
             message.entityVersion || 0,
             timestamp(message.createdAt),
             JSON.stringify(message),
-          ]);
+          ],
+        );
 
-          if (message.providerStatus && message.providerStatusAt) {
-            await database.runAsync(
-              `INSERT OR IGNORE INTO wa_message_status_history (
-                message_id, attempt, provider_status, provider_status_at, entity_version
-              ) VALUES (?, ?, ?, ?, ?)`,
-              [
-                message.id,
-                message.attempt || 1,
-                message.providerStatus,
-                timestamp(message.providerStatusAt),
-                message.entityVersion || 0,
-              ],
+        if (message.providerStatus && message.providerStatusAt) {
+          await transaction.runAsync(
+            `INSERT OR IGNORE INTO wa_message_status_history (
+              message_id, attempt, provider_status, provider_status_at, entity_version
+            ) VALUES (?, ?, ?, ?, ?)`,
+            [
+              message.id,
+              message.attempt || 1,
+              message.providerStatus,
+              timestamp(message.providerStatusAt),
+              message.entityVersion || 0,
+            ],
+          );
+        }
+        const searchableBody = [
+          message.content?.text,
+          message.content?.caption,
+          message.templateName,
+        ].filter((value): value is string => typeof value === "string" && value.length > 0).join(" ");
+        if (searchableBody) {
+          try {
+            await transaction.runAsync(
+              "DELETE FROM wa_message_search WHERE message_id = ?",
+              message.id,
             );
-          }
-          const searchableBody = [
-            message.content?.text,
-            message.content?.caption,
-            message.templateName,
-          ].filter((value): value is string => typeof value === "string" && value.length > 0).join(" ");
-          if (searchableBody) {
-            try {
-              await database.runAsync(
-                "DELETE FROM wa_message_search WHERE message_id = ?",
-                message.id,
-              );
-              await database.runAsync(
-                "INSERT INTO wa_message_search(message_id, conversation_id, body) VALUES (?, ?, ?)",
-                [message.id, scope.conversationId, searchableBody],
-              );
-            } catch {
-              // FTS is optional and may not be compiled into the installed SQLite runtime.
-            }
+            await transaction.runAsync(
+              "INSERT INTO wa_message_search(message_id, conversation_id, body) VALUES (?, ?, ?)",
+              [message.id, scope.conversationId, searchableBody],
+            );
+          } catch {
+            // FTS is optional and may not be compiled into the installed SQLite runtime.
           }
         }
-      } finally {
-        await statement.finalizeAsync();
       }
-    });
+    }));
   },
 
   async getMessages(conversationId: string) {
@@ -421,13 +435,13 @@ export const whatsappDb = {
   ) {
     const database = await getDatabase();
     if (!text.trim() && !replyToMessageId) {
-      await database.runAsync(
+      await serializeWrite(() => database.runAsync(
         "DELETE FROM wa_drafts WHERE shop_id = ? AND integration_id = ? AND conversation_id = ?",
         [scope.shopId, scope.integrationId, scope.conversationId],
-      );
+      ));
       return;
     }
-    await database.runAsync(
+    await serializeWrite(() => database.runAsync(
       `INSERT INTO wa_drafts (
         shop_id, integration_id, conversation_id, text, reply_to_message_id, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?)
@@ -443,7 +457,7 @@ export const whatsappDb = {
         replyToMessageId || null,
         Date.now(),
       ],
-    );
+    ));
   },
 
   async getDraft(shopId: string, integrationId: string, conversationId: string) {
@@ -462,7 +476,7 @@ export const whatsappDb = {
 
   async enqueueOperation(operation: PendingWhatsAppOperation) {
     const database = await getDatabase();
-    await database.runAsync(
+    await serializeWrite(() => database.runAsync(
       `INSERT INTO wa_pending_operations (
         id, shop_id, integration_id, conversation_id, client_message_id,
         operation_type, operation_state, payload_json, attempt,
@@ -490,7 +504,7 @@ export const whatsappDb = {
         operation.createdAt,
         operation.updatedAt,
       ],
-    );
+    ));
   },
 
   async getReadyOperations(shopId: string, integrationId: string) {
@@ -518,7 +532,7 @@ export const whatsappDb = {
     },
   ) {
     const database = await getDatabase();
-    await database.runAsync(
+    await serializeWrite(() => database.runAsync(
       `UPDATE wa_pending_operations
        SET operation_state = ?, attempt = ?, next_attempt_at = ?,
            last_error = ?, updated_at = ?
@@ -531,12 +545,15 @@ export const whatsappDb = {
         Date.now(),
         id,
       ],
-    );
+    ));
   },
 
   async deleteOperation(id: string) {
     const database = await getDatabase();
-    await database.runAsync("DELETE FROM wa_pending_operations WHERE id = ?", id);
+    await serializeWrite(() => database.runAsync(
+      "DELETE FROM wa_pending_operations WHERE id = ?",
+      id,
+    ));
   },
 
   async setSyncState(
@@ -548,7 +565,7 @@ export const whatsappDb = {
     },
   ) {
     const database = await getDatabase();
-    await database.runAsync(
+    await serializeWrite(() => database.runAsync(
       `INSERT INTO wa_sync_state (
         shop_id, integration_id, stream_cursor, conversation_snapshot_cursor, last_reconciled_at
       ) VALUES (?, ?, ?, ?, ?)
@@ -566,20 +583,22 @@ export const whatsappDb = {
         state.conversationSnapshotCursor || null,
         Date.now(),
       ],
-    );
+    ));
   },
 
   async supportsFts5() {
     const database = await getDatabase();
-    try {
-      await database.execAsync(`
-        CREATE VIRTUAL TABLE IF NOT EXISTS wa_message_search
-        USING fts5(message_id UNINDEXED, conversation_id UNINDEXED, body);
-      `);
-      return true;
-    } catch {
-      return false;
-    }
+    return serializeWrite(async () => {
+      try {
+        await database.execAsync(`
+          CREATE VIRTUAL TABLE IF NOT EXISTS wa_message_search
+          USING fts5(message_id UNINDEXED, conversation_id UNINDEXED, body);
+        `);
+        return true;
+      } catch {
+        return false;
+      }
+    });
   },
 
   async searchMessages(
@@ -639,26 +658,26 @@ export const whatsappDb = {
     const database = await getDatabase();
     const day = 86_400_000;
     const now = Date.now();
-    await database.withTransactionAsync(async () => {
+    await serializeWrite(() => database.withExclusiveTransactionAsync(async (transaction) => {
       if (options.messageTextRetentionDays != null) {
-        await database.runAsync(
+        await transaction.runAsync(
           "DELETE FROM wa_messages WHERE created_at < ?",
           now - options.messageTextRetentionDays * day,
         );
       }
-      await database.runAsync(
+      await transaction.runAsync(
         "DELETE FROM wa_drafts WHERE updated_at < ?",
         now - options.draftRetentionDays * day,
       );
-      await database.runAsync(
+      await transaction.runAsync(
         `DELETE FROM wa_pending_operations
          WHERE operation_state = 'TERMINALLY_FAILED' AND updated_at < ?`,
         now - options.failedOperationRetentionDays * day,
       );
-      await database.runAsync(
+      await transaction.runAsync(
         "DELETE FROM wa_media_cache WHERE last_accessed_at < ?",
         now - Math.max(options.mediaFileRetentionDays, options.thumbnailRetentionDays) * day,
       );
-    });
+    }));
   },
 };

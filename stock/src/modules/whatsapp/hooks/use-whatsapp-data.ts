@@ -54,13 +54,19 @@ export function useWhatsAppConversations() {
   useEffect(() => {
     if (!query.data) return;
     const firstPage = query.data.pages[0];
-    void whatsappDb.upsertConversations(
-      { shopId, integrationId, phoneNumberId },
-      conversations,
-    );
-    void whatsappDb.setSyncState(shopId, integrationId, {
-      conversationSnapshotCursor: firstPage?.snapshotCursor,
-    });
+    void (async () => {
+      try {
+        await whatsappDb.upsertConversations(
+          { shopId, integrationId, phoneNumberId },
+          conversations,
+        );
+        await whatsappDb.setSyncState(shopId, integrationId, {
+          conversationSnapshotCursor: firstPage?.snapshotCursor,
+        });
+      } catch {
+        // Network data remains usable when the optional local cache is unavailable.
+      }
+    })();
   }, [conversations, integrationId, phoneNumberId, query.data, shopId]);
 
   return { ...query, conversations };
@@ -100,7 +106,7 @@ export function useWhatsAppMessages(conversationId: string) {
     void whatsappDb.upsertMessages(
       { shopId, integrationId, conversationId },
       messages,
-    );
+    ).catch(() => undefined);
   }, [conversationId, integrationId, messages, query.data, shopId]);
 
   return { ...query, messages };

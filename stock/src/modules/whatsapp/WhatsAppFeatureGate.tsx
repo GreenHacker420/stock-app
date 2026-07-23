@@ -74,8 +74,14 @@ export function whatsappCapabilityScreen<TProps extends RouteProps>(
       if (!allowed || !requestedShopId) return;
       setWhatsAppRuntimeConfig(capability.data?.runtimeConfig);
       if (capability.data?.runtimeConfig.retention) {
-        void whatsappDb.cleanup(capability.data.runtimeConfig.retention);
-        void whatsappDb.supportsFts5();
+        void (async () => {
+          try {
+            await whatsappDb.cleanup(capability.data.runtimeConfig.retention);
+            await whatsappDb.supportsFts5();
+          } catch {
+            // The server remains authoritative when the optional local cache is unavailable.
+          }
+        })();
       }
       if (requestedShopId !== activeShopId) {
         setActiveShopId(requestedShopId, userId);

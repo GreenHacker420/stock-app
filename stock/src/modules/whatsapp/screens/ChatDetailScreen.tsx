@@ -177,17 +177,21 @@ export const ChatDetailScreen = () => {
 
   useEffect(() => {
     draftLoaded.current = false;
-    void whatsappDb.getDraft(activeShopId, integrationId, conversationId).then((draft) => {
-      if (!draft) {
+    void whatsappDb.getDraft(activeShopId, integrationId, conversationId)
+      .then((draft) => {
+        if (!draft) {
+          draftLoaded.current = true;
+          return;
+        }
+        setInputText(draft.text);
+        if (draft.reply_to_message_id) {
+          setReplyingTo(messages.find((message) => message.id === draft.reply_to_message_id) || null);
+        }
         draftLoaded.current = true;
-        return;
-      }
-      setInputText(draft.text);
-      if (draft.reply_to_message_id) {
-        setReplyingTo(messages.find((message) => message.id === draft.reply_to_message_id) || null);
-      }
-      draftLoaded.current = true;
-    });
+      })
+      .catch(() => {
+        draftLoaded.current = true;
+      });
   }, [activeShopId, conversationId, integrationId]);
 
   useEffect(() => {
@@ -197,7 +201,7 @@ export const ChatDetailScreen = () => {
         { shopId: activeShopId, integrationId, conversationId },
         inputText,
         replyingTo?.id,
-      );
+      ).catch(() => undefined);
     }, 350);
     return () => clearTimeout(timer);
   }, [activeShopId, conversationId, inputText, integrationId, replyingTo?.id]);
@@ -393,7 +397,7 @@ export const ChatDetailScreen = () => {
       void whatsappDb.upsertMessages(
         { shopId: activeShopId, integrationId, conversationId },
         [message],
-      );
+      ).catch(() => undefined);
     },
     onError: (error) => Alert.alert("Couldn’t retry message", error.message),
   });
@@ -415,7 +419,7 @@ export const ChatDetailScreen = () => {
     void whatsappDb.saveDraft(
       { shopId: activeShopId, integrationId, conversationId },
       "",
-    );
+    ).catch(() => undefined);
   };
 
   const sendStructuredMessage = (

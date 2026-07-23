@@ -137,6 +137,7 @@ export function TemplateLibraryScreen() {
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
+        style={styles.tabsScrollView}
         contentContainerStyle={styles.tabs}
         keyboardShouldPersistTaps="handled"
       >
@@ -157,7 +158,7 @@ export function TemplateLibraryScreen() {
         <FlashList
           renderScrollComponent={KeyboardAwareListScrollComponent}
           data={query.data?.data || []}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item: WaTemplate) => item.id}
           refreshControl={<RefreshControl refreshing={query.isRefetching} onRefresh={query.refetch} />}
           contentContainerStyle={styles.list}
           ListEmptyComponent={
@@ -178,7 +179,7 @@ export function TemplateLibraryScreen() {
               }
             />
           }
-          renderItem={({ item }) => (
+          renderItem={({ item }: { item: WaTemplate }) => (
             <Pressable
               onPress={() => navigation.navigate("TemplateEditor", { templateId: item.id })}
               onLongPress={() => user?.role === "OWNER" && confirmDelete(item)}
@@ -233,8 +234,8 @@ export function TemplateLibraryScreen() {
             ) : (
               <FlashList
                 data={attributesQuery.data || []}
-                keyExtractor={(item) => item.id}
-                renderItem={({ item }) => (
+                keyExtractor={(item: any) => item.id}
+                renderItem={({ item }: { item: any }) => (
                   <View style={styles.attributeRow}>
                     <View style={styles.attributeBody}>
                       <Text style={styles.attributeLabel}>{item.label}</Text>
@@ -281,9 +282,12 @@ const styles = StyleSheet.create({
   headerActions: { flexDirection: "row", marginRight: -8 },
   search: { margin: 10, height: 44, backgroundColor: waColors.surfaceMuted, borderRadius: 8 },
   searchInput: { minHeight: 44, fontSize: 15 },
-  tabs: { minHeight: 44, paddingHorizontal: 10, paddingBottom: 6, gap: 6 },
-  tab: { minHeight: 38, justifyContent: "center", paddingHorizontal: 14, borderRadius: 19 },
-  tabActive: { backgroundColor: waColors.greenPale },
+  tabsScrollView: {
+    flexGrow: 0,
+  },
+  tabs: { height: 40, flexDirection: "row", alignItems: "center", paddingHorizontal: 10, gap: 6 },
+  tab: { height: 32, justifyContent: "center", alignItems: "center", paddingHorizontal: 14, borderRadius: 16, borderWidth: 1, borderColor: waColors.border },
+  tabActive: { backgroundColor: waColors.greenPale, borderColor: waColors.greenPale },
   tabText: { color: waColors.textSecondary, textTransform: "capitalize", fontSize: 13 },
   tabTextActive: { color: waColors.greenDark, fontWeight: "700" },
   loader: { flex: 1 },
