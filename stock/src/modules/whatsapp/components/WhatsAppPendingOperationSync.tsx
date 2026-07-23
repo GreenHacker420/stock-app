@@ -119,9 +119,16 @@ export function WhatsAppPendingOperationSync() {
     };
 
     void flush();
-    return NetInfo.addEventListener((state) => {
+    const interval = setInterval(() => {
+      void flush();
+    }, 3000);
+    const unsubscribe = NetInfo.addEventListener((state) => {
       if (state.isConnected) void flush();
     });
+    return () => {
+      clearInterval(interval);
+      unsubscribe();
+    };
   }, [integrationId, queryClient, shopId, token]);
 
   return null;

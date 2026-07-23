@@ -21,5 +21,7 @@ export function getCorsOrigin() {
 }
 
 export function isWhatsAppEnabled() {
-  return process.env.WHATSAPP_ENABLED === "true";
+  if (process.env.WHATSAPP_ENABLED === "false") return false;
+  if (process.env.WHATSAPP_ENABLED === "true") return true;
+  return Boolean(process.env.WHATSAPP_ACCESS_TOKEN || process.env.WHATSAPP_APP_ID);
 }

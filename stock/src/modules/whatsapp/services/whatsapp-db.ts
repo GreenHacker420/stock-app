@@ -343,6 +343,32 @@ export const whatsappDb = {
     const database = await getDatabase();
     await serializeWrite(() => database.withExclusiveTransactionAsync(async (transaction) => {
       for (const message of messages) {
+        if (message.clientMessageId) {
+          const replaced = await transaction.getAllAsync<{ id: string }>(
+            `SELECT id FROM wa_messages
+             WHERE integration_id = ? AND client_message_id = ? AND id != ?`,
+            [scope.integrationId, message.clientMessageId, message.id],
+          );
+          for (const local of replaced) {
+            await transaction.runAsync(
+              "DELETE FROM wa_message_status_history WHERE message_id = ?",
+              local.id,
+            );
+            try {
+              await transaction.runAsync(
+                "DELETE FROM wa_message_search WHERE message_id = ?",
+                local.id,
+              );
+            } catch {
+              // FTS is optional.
+            }
+          }
+          await transaction.runAsync(
+            `DELETE FROM wa_messages
+             WHERE integration_id = ? AND client_message_id = ? AND id != ?`,
+            [scope.integrationId, message.clientMessageId, message.id],
+          );
+        }
         await transaction.runAsync(
           `INSERT INTO wa_messages (
             id, shop_id, integration_id, conversation_id, client_message_id,
@@ -417,10 +443,14 @@ export const whatsappDb = {
     const database = await getDatabase();
     const rows = await database.getAllAsync<MessageRow>(
       `SELECT payload_json
-       FROM wa_messages
-       WHERE conversation_id = ?
-       ORDER BY created_at ASC, id ASC
-       LIMIT ?`,
+       FROM (
+         SELECT id, created_at, payload_json
+         FROM wa_messages
+         WHERE conversation_id = ?
+         ORDER BY created_at DESC, id DESC
+         LIMIT ?
+       )
+       ORDER BY created_at ASC, id ASC`,
       [conversationId, LOCAL_PAGE_LIMIT],
     );
     return rows
