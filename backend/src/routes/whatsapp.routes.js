@@ -6,8 +6,7 @@ import { whatsappFlowController } from "../controllers/whatsapp.flow.controller.
 import * as whatsappOnboardingController from "../controllers/whatsapp.onboarding.controller.js";
 import { requireShopAccess } from "../middleware/shopAccess.middleware.js";
 import {
-  requireLegacyWhatsAppConversation,
-  requireLegacyWhatsAppMessage,
+  requireWhatsAppBroadcast,
   requireWhatsAppConversation,
   requireWhatsAppIntegration,
   requireWhatsAppMessage,
@@ -45,6 +44,12 @@ router.get(
   requireShopAccess((req) => req.query.shopId),
   whatsappController.getCapability,
 );
+router.post(
+  "/integrations/:integrationId/conversations",
+  requireAuth,
+  requireWhatsAppIntegration,
+  whatsappController.createScopedConversation,
+);
 router.get(
   "/integrations/:integrationId/conversations",
   requireAuth,
@@ -64,6 +69,43 @@ router.post(
   whatsappController.sendScopedMessage,
 );
 router.post(
+  "/integrations/:integrationId/messages/:messageId/reaction",
+  requireAuth,
+  requireWhatsAppMessage,
+  whatsappController.reactToScopedMessage,
+);
+router.delete(
+  "/integrations/:integrationId/messages/:messageId",
+  requireAuth,
+  requireWhatsAppMessage,
+  whatsappController.deleteScopedMessage,
+);
+router.post(
+  "/integrations/:integrationId/conversations/:conversationId/archive",
+  requireAuth,
+  requireWhatsAppConversation,
+  whatsappController.archiveScopedConversation,
+);
+router.delete(
+  "/integrations/:integrationId/conversations/:conversationId",
+  requireAuth,
+  requireWhatsAppConversation,
+  whatsappController.deleteScopedConversation,
+);
+router.post(
+  "/integrations/:integrationId/media",
+  requireAuth,
+  requireWhatsAppIntegration,
+  mediaUpload.single("file"),
+  whatsappController.uploadMedia,
+);
+router.post(
+  "/integrations/:integrationId/contacts/sync",
+  requireAuth,
+  requireWhatsAppIntegration,
+  whatsappController.syncPhoneContacts,
+);
+router.post(
   "/integrations/:integrationId/conversations/:conversationId/read",
   requireAuth,
   requireWhatsAppConversation,
@@ -80,24 +122,6 @@ router.get(
   requireAuth,
   requireWhatsAppIntegration,
   whatsappController.getScopedHealth,
-);
-router.get(
-  "/conversations",
-  requireAuth,
-  requireShopAccess((req) => req.query.shopId),
-  whatsappController.getConversations,
-);
-router.post(
-  "/conversations",
-  requireAuth,
-  requireShopAccess((req) => req.body.shopId),
-  whatsappController.createConversation,
-);
-router.get(
-  "/conversations/:id/messages",
-  requireAuth,
-  requireLegacyWhatsAppConversation,
-  whatsappController.getMessages,
 );
 router.get(
   "/templates",
@@ -154,60 +178,11 @@ router.post(
   whatsappFlowController.send,
 );
 router.post(
-  "/messages",
-  requireAuth,
-  requireShopAccess((req) => req.body.shopId),
-  whatsappController.sendMessage,
-);
-router.post(
-  "/media",
-  requireAuth,
-  requireShopAccess((req) => req.headers["x-shop-id"]),
-  mediaUpload.single("file"),
-  whatsappController.uploadMedia,
-);
-router.post(
   "/template-media",
   requireAuth,
   requireShopAccess((req) => req.headers["x-shop-id"]),
   mediaUpload.single("file"),
   whatsappController.uploadTemplateExample,
-);
-router.post(
-  "/react",
-  requireAuth,
-  requireLegacyWhatsAppMessage,
-  whatsappController.reactToMessage,
-);
-router.delete(
-  "/messages/:id",
-  requireAuth,
-  requireLegacyWhatsAppMessage,
-  whatsappController.deleteMessage,
-);
-router.post(
-  "/conversations/:id/archive",
-  requireAuth,
-  requireLegacyWhatsAppConversation,
-  whatsappController.archiveConversation,
-);
-router.post(
-  "/conversations/:id/read",
-  requireAuth,
-  requireLegacyWhatsAppConversation,
-  whatsappController.markConversationRead,
-);
-router.delete(
-  "/conversations/:id",
-  requireAuth,
-  requireLegacyWhatsAppConversation,
-  whatsappController.deleteConversation,
-);
-router.post(
-  "/sync-phone-contacts",
-  requireAuth,
-  requireShopAccess((req) => req.body.shopId),
-  whatsappController.syncPhoneContacts,
 );
 
 // Use a simple middleware to check if user is OWNER instead of missing authorize
@@ -381,21 +356,27 @@ router.post(
   requireShopAccess((req) => req.body.shopId),
   whatsappFlowController.registerPublicKey,
 );
-router.post("/sync-contacts", requireAuth, requireOwner, whatsappController.syncContacts);
+router.post(
+  "/sync-contacts",
+  requireAuth,
+  requireOwner,
+  requireShopAccess((req) => req.body.shopId),
+  whatsappController.syncContacts,
+);
 
-router.get("/setup", requireAuth, requireOwner, whatsappController.getSetup);
-router.post("/setup", requireAuth, requireOwner, whatsappController.saveSetup);
-router.delete("/setup", requireAuth, requireOwner, whatsappController.deleteSetup);
-router.post("/rotate-keys", requireAuth, requireOwner, whatsappController.rotateKeys);
+router.get("/setup", requireAuth, requireOwner, requireShopAccess((req) => req.query.shopId), whatsappController.getSetup);
+router.post("/setup", requireAuth, requireOwner, requireShopAccess((req) => req.body.shopId), whatsappController.saveSetup);
+router.delete("/setup", requireAuth, requireOwner, requireShopAccess((req) => req.query.shopId || req.body.shopId), whatsappController.deleteSetup);
+router.post("/rotate-keys", requireAuth, requireOwner, requireShopAccess((req) => req.body.shopId), whatsappController.rotateKeys);
 
 
 // Campaign / Broadcast routes (Owner Only)
-router.get("/broadcasts", requireAuth, requireOwner, whatsappController.getBroadcasts);
-router.post("/broadcasts", requireAuth, requireOwner, whatsappController.createBroadcast);
-router.get("/broadcasts/:id", requireAuth, requireOwner, whatsappController.getBroadcast);
-router.post("/broadcasts/:id/send", requireAuth, requireOwner, whatsappController.sendBroadcast);
-router.post("/broadcasts/:id/schedule", requireAuth, requireOwner, whatsappController.scheduleBroadcast);
-router.post("/broadcasts/:id/cancel", requireAuth, requireOwner, whatsappController.cancelBroadcast);
-router.get("/broadcasts/:id/recipients", requireAuth, requireOwner, whatsappController.getBroadcastRecipients);
+router.get("/broadcasts", requireAuth, requireOwner, requireShopAccess((req) => req.query.shopId), whatsappController.getBroadcasts);
+router.post("/broadcasts", requireAuth, requireOwner, requireShopAccess((req) => req.body.shopId), whatsappController.createBroadcast);
+router.get("/broadcasts/:id", requireAuth, requireOwner, requireWhatsAppBroadcast, whatsappController.getBroadcast);
+router.post("/broadcasts/:id/send", requireAuth, requireOwner, requireWhatsAppBroadcast, whatsappController.sendBroadcast);
+router.post("/broadcasts/:id/schedule", requireAuth, requireOwner, requireWhatsAppBroadcast, whatsappController.scheduleBroadcast);
+router.post("/broadcasts/:id/cancel", requireAuth, requireOwner, requireWhatsAppBroadcast, whatsappController.cancelBroadcast);
+router.get("/broadcasts/:id/recipients", requireAuth, requireOwner, requireWhatsAppBroadcast, whatsappController.getBroadcastRecipients);
 
 export default router;

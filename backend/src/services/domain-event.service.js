@@ -20,6 +20,8 @@ const DEFAULT_QUERY_KEYS = {
   attendance: ["attendance", "dashboard"],
   expense: ["expenses", "dashboard", "cashSession"],
   dailySummary: ["dailySummary", "dashboard"],
+  waMessage: ["whatsappMessages", "whatsappConversations"],
+  waConversation: ["whatsappConversations"],
 };
 
 export function createDomainEvent({

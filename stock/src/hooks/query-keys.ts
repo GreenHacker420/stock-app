@@ -50,6 +50,7 @@ export const queryKeys = {
       ["whatsapp", "messages", shopId, integrationId, conversationId] as const,
     health: (shopId: string, integrationId: string) =>
       ["whatsapp", "health", shopId, integrationId] as const,
-    capability: (shopId: string) => ["whatsapp", "capability", shopId] as const,
+    capability: (shopId: string, integrationId?: string, conversationId?: string) =>
+      ["whatsapp", "capability", shopId, integrationId, conversationId] as const,
   },
 };

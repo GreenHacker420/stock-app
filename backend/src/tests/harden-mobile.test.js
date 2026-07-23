@@ -177,6 +177,27 @@ test.describe("HARDEN-01 WhatsApp mobile capability boundary", () => {
     assert.ok(!realtime.includes("wa:"));
     assert.ok(!realtime.includes("wa-messages"));
   });
+
+  test("background lifecycle cancels heartbeat and reconnect work before grace disconnect", () => {
+    const realtime = readStock("realtime/RealtimeProvider.tsx");
+    assert.ok(realtime.includes("stopHeartbeat();"));
+    assert.ok(realtime.includes("reconnection?.(false)"));
+    assert.ok(realtime.includes("getWhatsAppSocketGraceMs()"));
+    assert.ok(realtime.includes("cancelBackgroundDisconnect();"));
+    assert.ok(realtime.includes('if (currentAppState === "active") socket.connect();'));
+  });
+
+  test("notification taps produce identifier-only links that are re-authorized by the gate", () => {
+    const linking = readStock("notifications/whatsappNotificationLinking.ts");
+    const gate = readStock("modules/whatsapp/WhatsAppFeatureGate.tsx");
+    assert.ok(linking.includes('data.type !== "WHATSAPP_MESSAGE"'));
+    assert.ok(linking.includes("shopId"));
+    assert.ok(linking.includes("integrationId"));
+    assert.ok(linking.includes("conversationId"));
+    assert.ok(!linking.includes("setActiveShopId"));
+    assert.ok(gate.includes("requestedConversationId"));
+    assert.ok(gate.includes("fetchWhatsAppCapability"));
+  });
 });
 
 test.describe("HARDEN-01 partial write protection", () => {

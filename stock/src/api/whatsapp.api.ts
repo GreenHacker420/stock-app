@@ -201,7 +201,7 @@ export interface WaConversation {
 export type WaPage<T> = {
   items: T[];
   nextCursor: string | null;
-  snapshotCursor: string;
+  snapshotCursor: string | null;
 };
 
 export type WhatsAppCapability = {
@@ -401,9 +401,16 @@ export async function fetchWaConversations(token: string, shopId: string) {
   return apiRequest<WaConversation[]>(`/whatsapp/conversations?shopId=${encodeURIComponent(shopId)}`, { token });
 }
 
-export function fetchWhatsAppCapability(token: string, shopId: string) {
+export function fetchWhatsAppCapability(
+  token: string,
+  shopId: string,
+  scope: { integrationId?: string; conversationId?: string } = {},
+) {
+  const query = new URLSearchParams({ shopId });
+  if (scope.integrationId) query.set("integrationId", scope.integrationId);
+  if (scope.conversationId) query.set("conversationId", scope.conversationId);
   return apiRequest<WhatsAppCapability>(
-    `/whatsapp/capability?shopId=${encodeURIComponent(shopId)}`,
+    `/whatsapp/capability?${query.toString()}`,
     { token },
   );
 }

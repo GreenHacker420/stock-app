@@ -11,7 +11,6 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { fetchScopedWaConversations, whatsappApi, WaConversation } from "../../../api/whatsapp.api";
 import { useShopStore } from "../../../auth/shop-store";
 import { useAuthStore } from "../../../auth/auth-store";
-import { useWhatsAppRealtime } from "../hooks/useWhatsAppRealtime";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { initials, waColors } from "../whatsapp-ui";
 import { queryKeys } from "../../../hooks/query-keys";
@@ -48,8 +47,6 @@ export const ChatListScreen = () => {
       ),
     });
   }, [navigation]);
-
-  useWhatsAppRealtime("");
 
   const query = useQuery({
     queryKey: queryKeys.whatsapp.conversations(shopId!, integrationId!, phoneNumberId || "", {}),

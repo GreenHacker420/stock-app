@@ -28,6 +28,8 @@ function invalidateCriticalQueriesForShop(queryClient: QueryClient, shopId: stri
   invalidate(["customers", shopId]);
   invalidate(["owner-dashboard", { shopId }]);
   invalidate(["notifications", { shopId }]);
+  invalidate(["whatsapp", "conversations", shopId]);
+  invalidate(["whatsapp", "messages", shopId]);
 }
 
 // ─── HTTP reconciliation call ─────────────────────────────────────────────────

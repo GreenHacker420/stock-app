@@ -91,40 +91,18 @@ export function requireWhatsAppMessage(req, _res, next) {
     .catch(next);
 }
 
-export function requireLegacyWhatsAppConversation(req, _res, next) {
-  const conversationId = req.params.id || req.params.conversationId;
-  prisma.waConversation.findUnique({ where: { id: conversationId } })
-    .then(async (conversation) => {
-      if (!conversation) throw notFound("WhatsApp conversation");
+export function requireWhatsAppBroadcast(req, _res, next) {
+  prisma.waBroadcast.findUnique({ where: { id: req.params.id } })
+    .then(async (broadcast) => {
+      if (!broadcast) throw notFound("WhatsApp broadcast");
       let shop;
       try {
-        shop = await assertShopAccess(req.user, conversation.shopId);
+        shop = await assertShopAccess(req.user, broadcast.shopId);
       } catch {
-        throw notFound("WhatsApp conversation");
+        throw notFound("WhatsApp broadcast");
       }
       req.shop = shop;
-      req.waScope = { shop, conversation };
-      next();
-    })
-    .catch(next);
-}
-
-export function requireLegacyWhatsAppMessage(req, _res, next) {
-  const messageId = req.params.id || req.body?.messageId;
-  prisma.waMessage.findUnique({
-    where: { id: messageId },
-    include: { conversation: true },
-  })
-    .then(async (message) => {
-      if (!message) throw notFound("WhatsApp message");
-      let shop;
-      try {
-        shop = await assertShopAccess(req.user, message.conversation.shopId);
-      } catch {
-        throw notFound("WhatsApp message");
-      }
-      req.shop = shop;
-      req.waScope = { shop, conversation: message.conversation, message };
+      req.waScope = { shop, broadcast };
       next();
     })
     .catch(next);

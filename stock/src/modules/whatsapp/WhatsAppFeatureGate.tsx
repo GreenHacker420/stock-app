@@ -12,6 +12,7 @@ type RouteProps = {
     params?: {
       shopId?: string;
       integrationId?: string;
+      conversationId?: string;
     };
   };
 };
@@ -24,11 +25,19 @@ export function whatsappCapabilityScreen<TProps extends RouteProps>(Component: C
     const setActiveShopId = useShopStore((state) => state.setActiveShopId);
     const requestedShopId = props.route?.params?.shopId || activeShopId;
     const requestedIntegrationId = props.route?.params?.integrationId;
+    const requestedConversationId = props.route?.params?.conversationId;
 
     const capability = useQuery({
-      queryKey: queryKeys.whatsapp.capability(requestedShopId || "missing"),
+      queryKey: queryKeys.whatsapp.capability(
+        requestedShopId || "missing",
+        requestedIntegrationId,
+        requestedConversationId,
+      ),
       enabled: Boolean(token && requestedShopId),
-      queryFn: () => fetchWhatsAppCapability(token!, requestedShopId!),
+      queryFn: () => fetchWhatsAppCapability(token!, requestedShopId!, {
+        integrationId: requestedIntegrationId,
+        conversationId: requestedConversationId,
+      }),
       staleTime: 60_000,
       retry: false,
     });

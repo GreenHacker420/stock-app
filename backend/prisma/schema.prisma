@@ -1760,7 +1760,7 @@ model WaConversation {
   flowExecutions WaFlowExecution[]
 
   @@unique([shopId, phone])
-  @@index([shopId, updatedAt])
+  @@index([shopId, updatedAt, id])
   @@index([shopId, customerId])
 }
 
@@ -1801,7 +1801,7 @@ model WaMessage {
   asset        Asset?         @relation(fields: [assetId], references: [id], onDelete: SetNull)
 
   @@unique([conversationId, clientMessageId])
-  @@index([conversationId, createdAt])
+  @@index([conversationId, createdAt, id])
   @@index([clientMessageId])
   @@index([operationState, lastRetryAt])
   @@index([assetId])

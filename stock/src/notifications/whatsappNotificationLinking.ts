@@ -36,10 +36,9 @@ export function whatsappNotificationUrl(data: WhatsAppPushData) {
 
 export const notificationLinking = {
   async getInitialURL() {
-    const url = await Linking.getInitialURL();
-    if (url) return url;
-    const response = await Notifications.getLastNotificationResponseAsync();
-    return whatsappNotificationUrl(response?.notification.request.content.data || {});
+    const response = Notifications.getLastNotificationResponse();
+    const notificationUrl = whatsappNotificationUrl(response?.notification.request.content.data || {});
+    return notificationUrl || Linking.getInitialURL();
   },
 
   subscribe(listener: (url: string) => void) {

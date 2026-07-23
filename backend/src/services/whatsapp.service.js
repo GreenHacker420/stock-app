@@ -240,10 +240,21 @@ class WhatsAppService {
           payload: existing.payload?.outboundCommand || logicalPayload,
         });
       }
+      console.log("[WhatsApp Send Trace]", {
+        phase: "http_idempotent_replay",
+        requestId,
+        clientMessageId,
+        messageId: existing.id,
+        queueJobId: queueJobId(existing.id, existing.attempt),
+        shopId,
+        integrationId: integration.id,
+        attempt: existing.attempt,
+      });
       return existing;
     }
 
     let message;
+    let domainEventId;
     try {
       message = await prisma.$transaction(async (tx) => {
         const created = await tx.waMessage.create({
@@ -271,7 +282,7 @@ class WhatsAppService {
             replyToMetaMessageId: resolvedReplyToMetaId,
           },
         });
-        await enqueueWhatsAppDomainEvent(tx, {
+        const event = await enqueueWhatsAppDomainEvent(tx, {
           shopId,
           integration: {
             id: integration.id,
@@ -300,6 +311,7 @@ class WhatsAppService {
             createdAt: created.createdAt,
           },
         });
+        domainEventId = event.eventId;
         return created;
       });
     } catch (error) {
@@ -330,6 +342,17 @@ class WhatsAppService {
           message: outboundMessage,
           replyToMetaMessageId: resolvedReplyToMetaId,
         },
+      });
+      console.log("[WhatsApp Send Trace]", {
+        phase: "queued",
+        requestId,
+        clientMessageId,
+        messageId: message.id,
+        queueJobId: queueJobId(message.id, message.attempt),
+        domainEventId,
+        shopId,
+        integrationId: integration.id,
+        attempt: message.attempt,
       });
     } catch (error) {
       await prisma.$transaction(async (tx) => {
@@ -719,10 +742,28 @@ class WhatsAppService {
   }
 
   // Archives a conversation.
-  async archiveConversation(shopId, conversationId, isArchived = true) {
-    return await prisma.waConversation.update({
-      where: { id: conversationId, shopId },
-      data: { isArchived },
+  async archiveConversation(shopId, conversationId, isArchived = true, context = {}) {
+    return prisma.$transaction(async (tx) => {
+      const conversation = await tx.waConversation.update({
+        where: { id: conversationId, shopId },
+        data: { isArchived, entityVersion: { increment: 1 } },
+      });
+      await enqueueWhatsAppDomainEvent(tx, {
+        shopId,
+        integration: context.integration,
+        entity: "waConversation",
+        entityId: conversation.id,
+        entityVersion: conversation.entityVersion,
+        action: isArchived ? "archived" : "unarchived",
+        conversationId: conversation.id,
+        actorUserId: context.actorUserId || "system:whatsapp",
+        sourceDeviceId: context.sourceDeviceId,
+        patch: {
+          isArchived: conversation.isArchived,
+          entityVersion: conversation.entityVersion,
+        },
+      });
+      return conversation;
     });
   }
 
@@ -862,14 +903,33 @@ class WhatsAppService {
   }
 
   // Deletes (recalls) a conversation and cascades to clean up message logs.
-  async deleteConversation(shopId, conversationId) {
+  async deleteConversation(shopId, conversationId, context = {}) {
     return await prisma.$transaction(async (tx) => {
+      const existing = await tx.waConversation.findUnique({
+        where: { id: conversationId, shopId },
+      });
       await tx.waMessage.deleteMany({
         where: { conversationId }
       });
-      return await tx.waConversation.delete({
+      const deleted = await tx.waConversation.delete({
         where: { id: conversationId, shopId }
       });
+      await enqueueWhatsAppDomainEvent(tx, {
+        shopId,
+        integration: context.integration,
+        entity: "waConversation",
+        entityId: deleted.id,
+        entityVersion: (existing?.entityVersion || deleted.entityVersion) + 1,
+        action: "deleted",
+        conversationId: deleted.id,
+        actorUserId: context.actorUserId || "system:whatsapp",
+        sourceDeviceId: context.sourceDeviceId,
+        patch: {
+          contentState: "DELETED",
+          entityVersion: (existing?.entityVersion || deleted.entityVersion) + 1,
+        },
+      });
+      return deleted;
     });
   }
 

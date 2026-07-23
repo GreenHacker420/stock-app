@@ -40,7 +40,6 @@ import { useCustomersQuery } from "../../../hooks/useCustomers";
 import { colors as Colors } from "../../../theme";
 import { format } from "date-fns";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { useWhatsAppRealtime } from "../hooks/useWhatsAppRealtime";
 import { MessageActionSheet } from "../components/MessageActionSheet";
 import { MediaAttachmentSheet } from "../components/MediaAttachmentSheet";
 import { VoiceRecorderSheet } from "../components/VoiceRecorderSheet";
@@ -154,9 +153,6 @@ export const ChatDetailScreen = () => {
       headerTitleAlign: "left",
     });
   }, [navigation, conversation, phone]);
-
-  // Subscribe to real-time events for this conversation
-  useWhatsAppRealtime(conversationId);
 
   // Fetch messages via React Query (uses offline cache from MMKV)
   const { data: messages = [], isLoading } = useQuery({

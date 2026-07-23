@@ -88,7 +88,7 @@ async function handleStatusUpdate(event, shopId, eventId) {
       });
     }
 
-    await enqueueWhatsAppDomainEvent(tx, {
+    const domainEvent = await enqueueWhatsAppDomainEvent(tx, {
       shopId,
       entity: "waMessage",
       entityId: updatedMessage.id,
@@ -105,6 +105,16 @@ async function handleStatusUpdate(event, shopId, eventId) {
         status: updatedMessage.status,
         errorMessage: updatedMessage.errorMessage,
       },
+    });
+
+    console.log("[WhatsApp Send Trace]", {
+      phase: "provider_callback",
+      messageId: updatedMessage.id,
+      providerMessageId: updatedMessage.metaMessageId,
+      domainEventId: domainEvent.eventId,
+      shopId,
+      attempt: updatedMessage.attempt,
+      providerStatus: updatedMessage.providerStatus,
     });
 
     return updatedMessage;

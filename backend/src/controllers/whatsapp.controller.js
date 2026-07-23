@@ -19,6 +19,7 @@ import {
   whatsappCursorWhere,
 } from "../services/whatsapp.pagination.js";
 import { ApiError } from "../utils/ApiError.js";
+import { enqueueWhatsAppDomainEvent } from "../services/whatsapp.domain-events.js";
 
 function boundedLimit(value, fallback = 50, maximum = 100) {
   const parsed = Number(value);
@@ -89,6 +90,25 @@ class WhatsAppController {
           status: true,
         },
       });
+      if (req.query.integrationId && req.query.integrationId !== integration?.id) {
+        throw new ApiError(404, "WhatsApp resource not found", {
+          code: "WHATSAPP_RESOURCE_NOT_FOUND",
+        });
+      }
+      if (req.query.conversationId) {
+        const conversation = await prisma.waConversation.findFirst({
+          where: {
+            id: req.query.conversationId,
+            shopId: req.shop.id,
+          },
+          select: { id: true },
+        });
+        if (!conversation) {
+          throw new ApiError(404, "WhatsApp resource not found", {
+            code: "WHATSAPP_RESOURCE_NOT_FOUND",
+          });
+        }
+      }
       const socketGraceMs = Math.min(
         Math.max(Number(process.env.WHATSAPP_SOCKET_GRACE_MS || 3000), 0),
         30_000,
@@ -283,6 +303,23 @@ class WhatsAppController {
     }
   }
 
+  async createScopedConversation(req, res, next) {
+    try {
+      const { integration } = req.waScope;
+      assertMatchingWhatsAppScope(req.body, {
+        ...req.waScope,
+        conversation: { id: undefined },
+      });
+      const conversation = await whatsappService.createConversation(
+        integration.shopId,
+        req.body,
+      );
+      res.status(201).json({ success: true, data: { conversation } });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async getScopedMessages(req, res, next) {
     try {
       const { conversation } = req.waScope;
@@ -317,6 +354,26 @@ class WhatsAppController {
     try {
       const { integration, conversation } = req.waScope;
       assertMatchingWhatsAppScope(req.body, req.waScope);
+      if (
+        typeof req.body.clientMessageId !== "string"
+        || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(req.body.clientMessageId)
+      ) {
+        throw new ApiError(400, "A valid clientMessageId is required", {
+          code: "INVALID_CLIENT_MESSAGE_ID",
+        });
+      }
+      if (typeof req.body.sourceDeviceId !== "string" || !req.body.sourceDeviceId.trim()) {
+        throw new ApiError(400, "sourceDeviceId is required", {
+          code: "SOURCE_DEVICE_ID_REQUIRED",
+        });
+      }
+      const expectedIdempotencyKey =
+        `wa-send:${integration.shopId}:${integration.id}:${req.body.clientMessageId}`;
+      if (req.get("Idempotency-Key") !== expectedIdempotencyKey) {
+        throw new ApiError(400, "Invalid Idempotency-Key", {
+          code: "INVALID_IDEMPOTENCY_KEY",
+        });
+      }
       const message = await whatsappService.sendMessage({
         shopId: integration.shopId,
         conversationId: conversation.id,
@@ -352,12 +409,87 @@ class WhatsAppController {
     }
   }
 
+  async reactToScopedMessage(req, res, next) {
+    try {
+      const { integration, conversation, message } = req.waScope;
+      const updated = await whatsappService.sendReaction(integration.shopId, {
+        to: conversation.phone,
+        messageId: message.id,
+        emoji: req.body.emoji,
+      });
+      res.json({ success: true, data: { message: updated } });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async deleteScopedMessage(req, res, next) {
+    try {
+      const { integration, message } = req.waScope;
+      const updated = await whatsappService.deleteMessage(integration.shopId, message.id);
+      res.json({ success: true, data: { message: updated } });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async archiveScopedConversation(req, res, next) {
+    try {
+      const { integration, conversation } = req.waScope;
+      const updated = await whatsappService.archiveConversation(
+        integration.shopId,
+        conversation.id,
+        req.body.isArchived !== false,
+        {
+          integration,
+          actorUserId: req.user.id,
+          sourceDeviceId: req.body.sourceDeviceId,
+        },
+      );
+      res.json({ success: true, data: { conversation: updated } });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async deleteScopedConversation(req, res, next) {
+    try {
+      const { integration, conversation } = req.waScope;
+      await whatsappService.deleteConversation(integration.shopId, conversation.id, {
+        integration,
+        actorUserId: req.user.id,
+        sourceDeviceId: req.body?.sourceDeviceId,
+      });
+      res.json({ success: true, data: { deleted: true } });
+    } catch (error) {
+      next(error);
+    }
+  }
+
   async markScopedConversationRead(req, res, next) {
     try {
-      const { conversation } = req.waScope;
-      const updated = await prisma.waConversation.update({
-        where: { id: conversation.id },
-        data: { unreadCount: 0, entityVersion: { increment: 1 } },
+      const { integration, conversation } = req.waScope;
+      if (conversation.unreadCount === 0) {
+        return res.json({ success: true, data: conversation });
+      }
+      const updated = await prisma.$transaction(async (tx) => {
+        const row = await tx.waConversation.update({
+          where: { id: conversation.id },
+          data: { unreadCount: 0, entityVersion: { increment: 1 } },
+        });
+        await enqueueWhatsAppDomainEvent(tx, {
+          shopId: integration.shopId,
+          integration,
+          entity: "waConversation",
+          entityId: row.id,
+          entityVersion: row.entityVersion,
+          action: "read",
+          conversationId: row.id,
+          actorUserId: req.user.id,
+          sourceDeviceId: req.body?.sourceDeviceId,
+          patch: { unreadCount: 0, entityVersion: row.entityVersion },
+        });
+        return row;
       });
       res.json({ success: true, data: updated });
     } catch (error) {
@@ -391,100 +523,6 @@ class WhatsAppController {
       });
     } catch (error) {
       next(error);
-    }
-  }
-
-  /**
-   * List Conversations (GET /whatsapp/conversations)
-   */
-  async getConversations(req, res) {
-    try {
-      const { shopId } = req.query;
-      if (!shopId) return res.status(400).json({ success: false, message: "shopId required" });
-
-      const conversations = await prisma.waConversation.findMany({
-        where: { shopId },
-        include: {
-          customer: {
-            select: { id: true, name: true, phone: true }
-          },
-          messages: {
-            take: 1,
-            orderBy: { createdAt: "desc" }
-          }
-        },
-        orderBy: { updatedAt: "desc" }
-      });
-
-      res.json({ success: true, data: conversations });
-    } catch (error) {
-      res.status(500).json({ success: false, message: error.message });
-    }
-  }
-
-  /**
-   * Create or reopen a conversation (POST /whatsapp/conversations)
-   */
-  async createConversation(req, res) {
-    try {
-      const conversation = await whatsappService.createConversation(req.shop.id, req.body);
-      res.status(201).json({ success: true, data: conversation });
-    } catch (error) {
-      res.status(400).json({ success: false, message: error.message });
-    }
-  }
-
-  /**
-   * Get Message History (GET /whatsapp/conversations/:id/messages)
-   */
-  async getMessages(req, res) {
-    try {
-      const { id } = req.params;
-      const { limit = 50, cursor } = req.query;
-
-      const messages = await prisma.waMessage.findMany({
-        where: { conversationId: id, conversation: { shopId: req.shop.id } },
-        include: { asset: true },
-        take: Number(limit),
-        skip: cursor ? 1 : 0,
-        cursor: cursor ? { id: cursor } : undefined,
-        orderBy: { createdAt: "desc" }
-      });
-
-      const messagesWithAssets = await Promise.all(messages.map(serializeMessageWithAsset));
-
-      res.json({ success: true, data: messagesWithAssets.reverse() });
-    } catch (error) {
-      res.status(500).json({ success: false, message: error.message });
-    }
-  }
-
-  /**
-   * Send Message (POST /whatsapp/messages)
-   */
-  async sendMessage(req, res) {
-    try {
-      const shopId = req.shop.id;
-      const { to } = req.body;
-      if (!shopId || !to || !req.body.message) {
-        return res.status(400).json({ success: false, message: "Missing required fields" });
-      }
-
-      const message = await whatsappService.sendMessage({
-        ...req.body,
-        shopId,
-        requestId: req.get("X-Request-Id") || crypto.randomUUID(),
-        idempotencyKey: req.get("Idempotency-Key"),
-        actorUserId: req.user.id,
-      });
-
-      res.json({ success: true, data: message });
-    } catch (error) {
-      res.status(400).json({
-        success: false,
-        message: error.issues?.[0]?.message || error.message,
-        details: error.issues || undefined,
-      });
     }
   }
 
@@ -853,9 +891,26 @@ class WhatsAppController {
     try {
       const { id } = req.params;
       const shopId = req.shop.id;
-      const conversation = await prisma.waConversation.update({
-        where: { id, shopId },
-        data: { unreadCount: 0, entityVersion: { increment: 1 } }
+      if (req.waScope?.conversation?.unreadCount === 0) {
+        return res.json({ success: true, data: req.waScope.conversation });
+      }
+      const conversation = await prisma.$transaction(async (tx) => {
+        const row = await tx.waConversation.update({
+          where: { id, shopId },
+          data: { unreadCount: 0, entityVersion: { increment: 1 } }
+        });
+        await enqueueWhatsAppDomainEvent(tx, {
+          shopId,
+          entity: "waConversation",
+          entityId: row.id,
+          entityVersion: row.entityVersion,
+          action: "read",
+          conversationId: row.id,
+          actorUserId: req.user.id,
+          sourceDeviceId: req.body?.sourceDeviceId,
+          patch: { unreadCount: 0, entityVersion: row.entityVersion },
+        });
+        return row;
       });
       res.json({ success: true, data: conversation });
     } catch (error) {
