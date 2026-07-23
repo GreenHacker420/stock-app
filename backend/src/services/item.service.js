@@ -5,7 +5,8 @@ import { deleteS3Object } from "../lib/s3-storage.js";
 import { EntityType, AuditAction, Prisma } from "../generated/prisma/index.js";
 import { generateEmbedding } from "../utils/embeddings.js";
 import { uploadProductImageAsset } from "./upload.service.js";
-import { createDomainEvent, enqueueDomainEvent } from "./domain-event.service.js";
+import { buildMergedItemPatch, getItemMergeCompatibilityIssue } from "./item-merge.js";
+import { createDomainEvent, enqueueDomainEvent, enqueueManyDomainEvents } from "./domain-event.service.js";
 import {
   bestEffortInvalidateForDomainEvent,
   readThroughDomainCache,
@@ -1506,117 +1507,232 @@ export async function batchQuickUpdate(user, shopId, updates) {
   return result.results;
 }
 
+async function runSerializableItemMerge(work) {
+  let lastError;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      return await prisma.$transaction(work, {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      });
+    } catch (error) {
+      lastError = error;
+      if (error?.code !== "P2034" || attempt === 3) throw error;
+    }
+  }
+  throw lastError;
+}
+
 export async function mergeItems(user, { shopId, sourceItemIds, targetItemId }) {
   await assertShopAccess(user, shopId);
   assertCanManageItems(user);
 
-  if (sourceItemIds.includes(targetItemId)) {
+  const uniqueSourceItemIds = [...new Set(sourceItemIds)];
+  if (uniqueSourceItemIds.length !== sourceItemIds.length) {
+    throw new ApiError(400, "A duplicate product can only be selected once", {
+      code: "DUPLICATE_MERGE_SOURCE",
+    });
+  }
+  if (uniqueSourceItemIds.includes(targetItemId)) {
     throw new ApiError(400, "Target item cannot be one of the source items");
   }
 
-  const itemsToMerge = await prisma.item.findMany({
-    where: { id: { in: [...sourceItemIds, targetItemId] }, shopId }
-  });
-
-  if (itemsToMerge.length !== sourceItemIds.length + 1) {
-    throw new ApiError(404, "Some items were not found in this shop");
-  }
-
-  const result = await prisma.$transaction(async (tx) => {
-    // 1. Re-point SaleItem references
-    await tx.saleItem.updateMany({
-      where: { itemId: { in: sourceItemIds } },
-      data: { itemId: targetItemId }
+  const result = await runSerializableItemMerge(async (tx) => {
+    const itemIds = [targetItemId, ...uniqueSourceItemIds];
+    const itemsToMerge = await tx.item.findMany({
+      where: { id: { in: itemIds }, shopId },
     });
+    if (itemsToMerge.length !== itemIds.length) {
+      throw new ApiError(404, "Some products were not found in this shop", {
+        code: "MERGE_ITEM_NOT_FOUND",
+      });
+    }
+
+    const compatibilityIssue = getItemMergeCompatibilityIssue(
+      itemsToMerge,
+      targetItemId,
+      uniqueSourceItemIds,
+    );
+    if (compatibilityIssue) {
+      throw new ApiError(409, compatibilityIssue, { code: "ITEM_MERGE_INCOMPATIBLE" });
+    }
+
+    const bundleDefinitions = await tx.itemBundleComponent.findMany({
+      where: { parentItemId: { in: itemIds } },
+      select: { parentItemId: true },
+    });
+    if (bundleDefinitions.length > 0) {
+      throw new ApiError(
+        409,
+        "Bundle products cannot be merged. Remove their bundle components first, then retry.",
+        { code: "ITEM_MERGE_BUNDLE_DEFINITION" },
+      );
+    }
+
+    const activeSerialAssignments = await tx.deliveryMemoSerialAssignment.findMany({
+      where: { itemId: { in: itemIds }, activeKey: { not: null } },
+      select: { itemId: true, serialNumber: true },
+    });
+    const seenActiveSerials = new Set();
+    for (const assignment of activeSerialAssignments) {
+      const serial = String(assignment.serialNumber || "").trim().toUpperCase();
+      if (seenActiveSerials.has(serial)) {
+        throw new ApiError(
+          409,
+          `Serial ${serial} is active on more than one selected product. Release the duplicate assignment before merging.`,
+          { code: "ITEM_MERGE_SERIAL_CONFLICT" },
+        );
+      }
+      seenActiveSerials.add(serial);
+    }
+
+    const [ledgerTotals, reservationTotals] = await Promise.all([
+      tx.stockLedger.aggregate({
+        where: { shopId, itemId: { in: itemIds } },
+        _sum: { quantityIn: true, quantityOut: true },
+      }),
+      tx.stockReservation.aggregate({
+        where: { shopId, itemId: { in: itemIds }, status: "ACTIVE" },
+        _sum: { reservedQty: true },
+      }),
+    ]);
+    const totalPhysical =
+      Number(ledgerTotals._sum.quantityIn || 0) - Number(ledgerTotals._sum.quantityOut || 0);
+    const totalReserved = Number(reservationTotals._sum.reservedQty || 0);
+    const totalAvailable = Math.max(0, totalPhysical - totalReserved);
+    const mergedItemPatch = buildMergedItemPatch(
+      itemsToMerge,
+      targetItemId,
+      uniqueSourceItemIds,
+    );
+
+    const affected = {};
+
+    // 1. Re-point SaleItem references
+    affected.saleItems = (await tx.saleItem.updateMany({
+      where: { itemId: { in: uniqueSourceItemIds } },
+      data: { itemId: targetItemId }
+    })).count;
 
     // 2. Re-point OrderItem references
-    await tx.orderItem.updateMany({
-      where: { itemId: { in: sourceItemIds } },
+    affected.orderItems = (await tx.orderItem.updateMany({
+      where: { itemId: { in: uniqueSourceItemIds } },
       data: { itemId: targetItemId }
-    });
+    })).count;
 
     // 3. Re-point DeliveryMemoItem references
-    await tx.deliveryMemoItem.updateMany({
-      where: { itemId: { in: sourceItemIds } },
+    affected.deliveryMemoItems = (await tx.deliveryMemoItem.updateMany({
+      where: { itemId: { in: uniqueSourceItemIds } },
       data: { itemId: targetItemId }
-    });
+    })).count;
 
     // 4. Re-point StockLedger references
-    await tx.stockLedger.updateMany({
-      where: { itemId: { in: sourceItemIds } },
+    affected.stockLedgerEntries = (await tx.stockLedger.updateMany({
+      where: { itemId: { in: uniqueSourceItemIds } },
       data: { itemId: targetItemId }
-    });
+    })).count;
 
     // 5. Re-point StockReservation references
-    await tx.stockReservation.updateMany({
-      where: { itemId: { in: sourceItemIds } },
+    affected.stockReservations = (await tx.stockReservation.updateMany({
+      where: { itemId: { in: uniqueSourceItemIds } },
       data: { itemId: targetItemId }
-    });
+    })).count;
 
     // 6. Re-point InventoryReturnItem references
-    await tx.inventoryReturnItem.updateMany({
-      where: { itemId: { in: sourceItemIds } },
+    affected.inventoryReturnItems = (await tx.inventoryReturnItem.updateMany({
+      where: { itemId: { in: uniqueSourceItemIds } },
       data: { itemId: targetItemId }
-    });
+    })).count;
 
     // 7. Re-point ItemPriceHistory references
-    await tx.itemPriceHistory.updateMany({
-      where: { itemId: { in: sourceItemIds } },
+    affected.priceHistoryEntries = (await tx.itemPriceHistory.updateMany({
+      where: { itemId: { in: uniqueSourceItemIds } },
       data: { itemId: targetItemId }
+    })).count;
+
+    // 8. Re-point dispatch lines omitted by the old merge implementation.
+    affected.dispatchItems = (await tx.dispatchItem.updateMany({
+      where: { itemId: { in: uniqueSourceItemIds } },
+      data: { itemId: targetItemId },
+    })).count;
+
+    // 9. Consolidate references where the duplicates are components of a bundle.
+    const bundleReferences = await tx.itemBundleComponent.findMany({
+      where: { componentItemId: { in: uniqueSourceItemIds } },
+      orderBy: { createdAt: "asc" },
     });
-
-    // 8. Update target StockBalance by combining totals
-    const sourceBalances = await tx.stockBalance.findMany({
-      where: { itemId: { in: sourceItemIds } }
-    });
-    const targetBalance = await tx.stockBalance.findUnique({
-      where: { itemId: targetItemId }
-    });
-
-    let totalPhysical = targetBalance ? Number(targetBalance.physicalStock) : 0;
-    let totalReserved = targetBalance ? Number(targetBalance.reservedStock) : 0;
-    let totalAvailable = targetBalance ? Number(targetBalance.availableStock) : 0;
-
-    for (const sb of sourceBalances) {
-      totalPhysical += Number(sb.physicalStock);
-      totalReserved += Number(sb.reservedStock);
-      totalAvailable += Number(sb.availableStock);
-    }
-
-    if (targetBalance) {
-      await tx.stockBalance.update({
-        where: { itemId: targetItemId },
-        data: {
-          physicalStock: totalPhysical,
-          reservedStock: totalReserved,
-          availableStock: totalAvailable,
-        }
+    for (const reference of bundleReferences) {
+      const existingTargetReference = await tx.itemBundleComponent.findUnique({
+        where: {
+          parentItemId_componentItemId: {
+            parentItemId: reference.parentItemId,
+            componentItemId: targetItemId,
+          },
+        },
       });
-    } else {
-      await tx.stockBalance.create({
+      if (existingTargetReference) {
+        await tx.itemBundleComponent.update({
+          where: { id: existingTargetReference.id },
+          data: { quantity: { increment: reference.quantity } },
+        });
+        await tx.itemBundleComponent.delete({ where: { id: reference.id } });
+      } else {
+        await tx.itemBundleComponent.update({
+          where: { id: reference.id },
+          data: { componentItemId: targetItemId },
+        });
+      }
+    }
+    affected.bundleReferences = bundleReferences.length;
+
+    // 10. Re-point serial history and rebuild active uniqueness keys.
+    const serialAssignments = await tx.deliveryMemoSerialAssignment.findMany({
+      where: { itemId: { in: uniqueSourceItemIds } },
+      select: { id: true, serialNumber: true, activeKey: true },
+    });
+    for (const assignment of serialAssignments) {
+      const serial = String(assignment.serialNumber || "").trim().toUpperCase();
+      await tx.deliveryMemoSerialAssignment.update({
+        where: { id: assignment.id },
         data: {
-          shopId,
           itemId: targetItemId,
-          physicalStock: totalPhysical,
-          reservedStock: totalReserved,
-          availableStock: totalAvailable,
-        }
+          activeKey: assignment.activeKey ? `${shopId}:${targetItemId}:${serial}` : null,
+        },
       });
     }
+    affected.serialAssignments = serialAssignments.length;
 
-    // 9. Delete source StockBalances
+    // 11. Replace source balance projections with one ledger-derived target balance.
     await tx.stockBalance.deleteMany({
-      where: { itemId: { in: sourceItemIds } }
+      where: { itemId: { in: uniqueSourceItemIds } }
+    });
+    await tx.stockBalance.upsert({
+      where: { itemId: targetItemId },
+      create: {
+        shopId,
+        itemId: targetItemId,
+        physicalStock: totalPhysical,
+        reservedStock: totalReserved,
+        availableStock: totalAvailable,
+      },
+      update: {
+        physicalStock: totalPhysical,
+        reservedStock: totalReserved,
+        availableStock: totalAvailable,
+      },
     });
 
-    // 10. Soft-delete source items (set status to INACTIVE and clear SKU to prevent constraints clash)
+    // 12. Deactivate sources first so an empty primary can safely inherit a source SKU.
     await tx.item.updateMany({
-      where: { id: { in: sourceItemIds } },
+      where: { id: { in: uniqueSourceItemIds } },
       data: { status: "INACTIVE", sku: null }
     });
+    const targetItem = await tx.item.update({
+      where: { id: targetItemId },
+      data: mergedItemPatch,
+    });
 
-    // Create audit log for each merged item
-    for (const sourceId of sourceItemIds) {
+    // 13. Record both sides of the irreversible merge.
+    for (const sourceId of uniqueSourceItemIds) {
       const orig = itemsToMerge.find(i => i.id === sourceId);
       await tx.auditLog.create({
         data: {
@@ -1630,24 +1746,67 @@ export async function mergeItems(user, { shopId, sourceItemIds, targetItemId }) 
         }
       });
     }
-
-    // Enqueue domain event for real-time synchronization
-    const event = createDomainEvent({
-      shopId,
-      entity: "item",
-      action: "updated",
-      entityId: targetItemId,
-      actorUserId: user.id,
-      actorRole: user.role,
-      visibility: { owners: true, staff: true },
+    const originalTarget = itemsToMerge.find((item) => item.id === targetItemId);
+    await tx.auditLog.create({
+      data: {
+        userId: user.id,
+        shopId,
+        action: AuditAction.UPDATED,
+        entityType: EntityType.ITEM,
+        entityId: targetItemId,
+        oldValueJson: originalTarget || {},
+        newValueJson: {
+          ...targetItem,
+          mergedFrom: uniqueSourceItemIds,
+          affected,
+        },
+      },
     });
-    await enqueueDomainEvent(tx, event);
 
-    return { success: true, event };
+    // 14. Emit explicit source deletions plus the survivor update.
+    const events = [
+      createDomainEvent({
+        shopId,
+        entity: "item",
+        action: "updated",
+        entityId: targetItemId,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true },
+      }),
+      ...uniqueSourceItemIds.map((sourceId) => createDomainEvent({
+        shopId,
+        entity: "item",
+        action: "deleted",
+        entityId: sourceId,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true },
+      })),
+    ];
+    await enqueueManyDomainEvents(tx, events);
+
+    return {
+      summary: {
+        targetItemId,
+        sourceItemIds: uniqueSourceItemIds,
+        combinedStock: {
+          physical: totalPhysical,
+          reserved: totalReserved,
+          available: totalAvailable,
+        },
+        imagesPreserved: mergedItemPatch.imageUrl
+          ? mergedItemPatch.imageUrl.split(",").filter(Boolean).length
+          : 0,
+        affected,
+      },
+      events,
+    };
   });
 
-  // Invalidate caches
-  await bestEffortInvalidateForDomainEvent(result.event);
+  for (const event of result.events) {
+    await bestEffortInvalidateForDomainEvent(event);
+  }
 
-  return { success: true };
+  return result.summary;
 }

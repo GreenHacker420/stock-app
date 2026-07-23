@@ -21,10 +21,11 @@ import { ItemCard } from "../../../components/items/ItemCard";
 import { AllItemsCard, CategoryCard, UncatCard } from "../../../components/items/CategoryCard";
 import { FilterChips, StockFilter } from "../../../components/items/FilterChips";
 import { BrandPickerSheet } from "../../../components/items/BrandPickerSheet";
+import { ProductMergeSheet } from "../../../components/items/ProductMergeSheet";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../../theme";
 import { navigate } from "../../navigation-ref";
-import { triggerLightHaptic } from "../../../utils/haptics";
+import { triggerErrorHaptic, triggerLightHaptic, triggerSuccessHaptic } from "../../../utils/haptics";
 import { STOCK_MOVEMENT_PERMISSION, hasPermission } from "../../../utils/items/permissions";
 import { parseAmount } from "../../../utils/items/validation";
 import { KeyboardAwareListScrollComponent } from "../../../components/keyboard/KeyboardAwareListScrollComponent";
@@ -169,6 +170,7 @@ export function ItemList() {
   // Multi-select / deletion states
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
   const [isSelectMode, setIsSelectMode] = useState(false);
+  const [mergeProducts, setMergeProducts] = useState<Item[]>([]);
 
   const toggleSelectItem = useCallback((itemId: string) => {
     triggerLightHaptic();
@@ -239,30 +241,22 @@ export function ItemList() {
     const itemB = allItems.find((i) => i.id === ids[1]);
     if (!itemA || !itemB) return;
 
-    Alert.alert(
-      "Merge Products",
-      "Which product should be the PRIMARY product to keep? (The other product's history will be merged into it, and the duplicate will be deactivated)",
-      [
-        {
-          text: `${itemA.brand?.name || "Generic"} · ${itemA.name}`,
-          onPress: () => executeMerge([itemB.id], itemA.id),
-        },
-        {
-          text: `${itemB.brand?.name || "Generic"} · ${itemB.name}`,
-          onPress: () => executeMerge([itemA.id], itemB.id),
-        },
-        { text: "Cancel", style: "cancel" },
-      ]
-    );
+    setMergeProducts([itemA, itemB]);
   }, [selectedItemIds, allItems]);
 
   const executeMerge = async (sourceIds: string[], targetId: string) => {
     triggerLightHaptic();
     try {
-      await mergeItemsMutation.mutateAsync({ sourceItemIds: sourceIds, targetItemId: targetId });
-      Alert.alert("Success", "Products merged successfully.");
+      const result = await mergeItemsMutation.mutateAsync({ sourceItemIds: sourceIds, targetItemId: targetId });
+      triggerSuccessHaptic();
+      setMergeProducts([]);
       exitSelectMode();
+      Alert.alert(
+        "Products merged",
+        `The primary product now has ${result.combinedStock.available} available stock and ${result.imagesPreserved} preserved photo${result.imagesPreserved === 1 ? "" : "s"}.`,
+      );
     } catch (err: any) {
+      triggerErrorHaptic();
       Alert.alert("Error", `Failed to merge products: ${err.message}`);
     }
   };
@@ -853,6 +847,16 @@ export function ItemList() {
           setShowBrandPicker(false);
         }}
         onDismiss={() => setShowBrandPicker(false)}
+      />
+
+      <ProductMergeSheet
+        visible={mergeProducts.length > 0}
+        products={mergeProducts}
+        loading={mergeItemsMutation.isPending}
+        onDismiss={() => {
+          if (!mergeItemsMutation.isPending) setMergeProducts([]);
+        }}
+        onConfirm={(targetItemId, sourceItemIds) => executeMerge(sourceItemIds, targetItemId)}
       />
 
       <Modal

@@ -26,6 +26,12 @@ import {
 } from "../../../stock/src/local/read-model/read-model-cache-core.ts";
 import { getReadModelImpact } from "../../../stock/src/local/read-model/read-model-event-policy.ts";
 import { selectCategories, selectCustomers, selectItemCatalog } from "../../../stock/src/local/read-model/read-model-search-core.ts";
+import {
+  MAX_ITEM_IMAGES,
+  buildMergedItemPatch,
+  getItemMergeCompatibilityIssue,
+  mergeItemImageUrls,
+} from "../services/item-merge.js";
 
 const root = path.resolve(import.meta.dirname, "../../..");
 const stockSrc = path.join(root, "stock/src");
@@ -574,6 +580,118 @@ test.describe("Domain event mutation coverage contracts", () => {
 });
 
 test.describe("Product image upload contracts", () => {
+  test("product merge preserves primary and source photos without duplicates", () => {
+    const items = [
+      { id: "source-a", imageUrl: "https://cdn.test/source-a.jpg, https://cdn.test/shared.jpg" },
+      { id: "target", imageUrl: "https://cdn.test/target.jpg,https://cdn.test/shared.jpg" },
+      { id: "source-b", imageUrl: "https://cdn.test/source-b.jpg" },
+    ];
+
+    assert.strictEqual(
+      mergeItemImageUrls(items, "target", ["source-a", "source-b"]),
+      [
+        "https://cdn.test/target.jpg",
+        "https://cdn.test/shared.jpg",
+        "https://cdn.test/source-a.jpg",
+        "https://cdn.test/source-b.jpg",
+      ].join(","),
+    );
+  });
+
+  test("product merge adopts a source photo when the primary has none and caps the gallery", () => {
+    const sourceUrls = Array.from(
+      { length: MAX_ITEM_IMAGES + 2 },
+      (_, index) => `https://cdn.test/source-${index}.jpg`,
+    );
+
+    assert.strictEqual(
+      mergeItemImageUrls(
+        [
+          { id: "target", imageUrl: null },
+          { id: "source", imageUrl: sourceUrls.join(",") },
+        ],
+        "target",
+        ["source"],
+      ),
+      sourceUrls.slice(0, MAX_ITEM_IMAGES).join(","),
+    );
+  });
+
+  test("product merge keeps populated primary fields and fills only empty optional fields", () => {
+    const items = [
+      {
+        id: "target",
+        status: "ACTIVE",
+        unit: "PCS",
+        requiresSerialNumber: false,
+        sku: null,
+        categoryId: "primary-category",
+        brandId: null,
+        mrp: 100,
+        purchasePrice: null,
+        minimumAllowedPrice: 80,
+        imageUrl: "https://cdn.test/target.jpg",
+      },
+      {
+        id: "source",
+        status: "ACTIVE",
+        unit: "pcs",
+        requiresSerialNumber: false,
+        sku: "SOURCE-SKU",
+        categoryId: "source-category",
+        brandId: "source-brand",
+        mrp: 120,
+        purchasePrice: 60,
+        minimumAllowedPrice: 70,
+        imageUrl: "https://cdn.test/source.jpg",
+      },
+    ];
+
+    assert.strictEqual(getItemMergeCompatibilityIssue(items, "target", ["source"]), null);
+    assert.deepStrictEqual(buildMergedItemPatch(items, "target", ["source"]), {
+      sku: "SOURCE-SKU",
+      categoryId: "primary-category",
+      brandId: "source-brand",
+      purchasePrice: 60,
+      mrp: 100,
+      minimumAllowedPrice: 80,
+      imageUrl: "https://cdn.test/target.jpg,https://cdn.test/source.jpg",
+    });
+  });
+
+  test("product merge rejects incompatible units, tracking settings, and inactive records", () => {
+    const target = {
+      id: "target",
+      status: "ACTIVE",
+      unit: "pcs",
+      requiresSerialNumber: false,
+    };
+    assert.match(
+      getItemMergeCompatibilityIssue(
+        [target, { id: "source", status: "ACTIVE", unit: "kg", requiresSerialNumber: false }],
+        "target",
+        ["source"],
+      ),
+      /different units/i,
+    );
+    assert.match(
+      getItemMergeCompatibilityIssue(
+        [target, { id: "source", status: "ACTIVE", unit: "pcs", requiresSerialNumber: true }],
+        "target",
+        ["source"],
+      ),
+      /serial-number tracking/i,
+    );
+    assert.match(
+      getItemMergeCompatibilityIssue(
+        [target, { id: "source", status: "INACTIVE", unit: "pcs", requiresSerialNumber: false }],
+        "target",
+        ["source"],
+      ),
+      /only active/i,
+    );
+  });
+
   test("item images use the generic S3 upload service and tracked internal assets", () => {
     const itemService = readBackend("services/item.service.js");
     const uploadService = readBackend("services/upload.service.js");

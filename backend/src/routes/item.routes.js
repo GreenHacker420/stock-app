@@ -214,7 +214,8 @@ router.get(
 const mergeItemsSchema = z.object({
   body: z.object({
     shopId: z.string().min(1),
-    sourceItemIds: z.array(z.string().min(1)).min(1),
+    sourceItemIds: z.array(z.string().min(1)).min(1).max(20)
+      .refine((ids) => new Set(ids).size === ids.length, "Duplicate source product IDs are not allowed"),
     targetItemId: z.string().min(1),
   }),
   params: z.object({}).optional(),

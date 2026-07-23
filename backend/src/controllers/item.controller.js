@@ -117,8 +117,17 @@ export const batchQuickUpdate = asyncHandler(async (req, res) => {
 });
 
 export const mergeItems = asyncHandler(async (req, res) => {
-  const result = await itemService.mergeItems(req.user, req.validated.body);
-  res.json({ success: true, data: result });
+  const result = await runIdempotentCreate(
+    req,
+    {
+      endpoint: "POST /items/merge",
+      resourceType: "ITEM_MERGE",
+      shopId: req.validated.body.shopId,
+      statusCode: 200,
+    },
+    () => itemService.mergeItems(req.user, req.validated.body),
+  );
+  res.status(result.statusCode).json({ success: true, data: result.data });
 });
 
 export const findDuplicates = asyncHandler(async (req, res) => {

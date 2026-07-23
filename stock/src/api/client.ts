@@ -513,10 +513,25 @@ export async function deleteItem(token: string, id: string) {
   return apiRequest<Item>(`/items/${id}`, { method: "DELETE", token });
 }
 
-export async function mergeItems(token: string, shopId: string, sourceItemIds: string[], targetItemId: string) {
-  return apiRequest<{ success: boolean }>("/items/merge", {
+export type ItemMergeResult = {
+  targetItemId: string;
+  sourceItemIds: string[];
+  combinedStock: { physical: number; reserved: number; available: number };
+  imagesPreserved: number;
+  affected: Record<string, number>;
+};
+
+export async function mergeItems(
+  token: string,
+  shopId: string,
+  sourceItemIds: string[],
+  targetItemId: string,
+  opts: { idempotencyKey?: string } = {},
+) {
+  return apiRequest<ItemMergeResult>("/items/merge", {
     method: "POST",
     token,
+    headers: opts.idempotencyKey ? { "Idempotency-Key": opts.idempotencyKey } : undefined,
     body: JSON.stringify({ shopId, sourceItemIds, targetItemId }),
   });
 }

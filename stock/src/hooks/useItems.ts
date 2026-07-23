@@ -216,7 +216,13 @@ export function useMergeItemsMutation() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (data: { sourceItemIds: string[]; targetItemId: string }) =>
-      mergeItems(token ?? "", activeShopId ?? "", data.sourceItemIds, data.targetItemId),
+      mergeItems(
+        token ?? "",
+        activeShopId ?? "",
+        data.sourceItemIds,
+        data.targetItemId,
+        { idempotencyKey: newIdempotencyKey("ITEM_MERGE") },
+      ),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["items"] });
       if (activeShopId) {

@@ -121,6 +121,88 @@ test.describe("Phase 2 core business correctness", () => {
     await closePushQueue();
   });
 
+  test("product merge preserves stock and media, fills empty fields, and consolidates bundle references", async () => {
+    const target = await prisma.item.create({
+      data: {
+        shopId: shop.id,
+        name: "Merge Primary",
+        unit: "pcs",
+        defaultSellingPrice: 100,
+        minimumStock: 0,
+        imageUrl: "https://cdn.test/primary.jpg",
+      },
+    });
+    const source = await prisma.item.create({
+      data: {
+        shopId: shop.id,
+        name: "Merge Duplicate",
+        sku: "MERGE-SOURCE-SKU",
+        unit: "PCS",
+        defaultSellingPrice: 120,
+        purchasePrice: 60,
+        minimumStock: 0,
+        imageUrl: "https://cdn.test/duplicate.jpg",
+      },
+    });
+    const bundle = await prisma.item.create({
+      data: {
+        shopId: shop.id,
+        name: "Merge Reference Bundle",
+        unit: "set",
+        defaultSellingPrice: 300,
+        minimumStock: 0,
+      },
+    });
+    await prisma.itemBundleComponent.createMany({
+      data: [
+        { parentItemId: bundle.id, componentItemId: target.id, quantity: 2 },
+        { parentItemId: bundle.id, componentItemId: source.id, quantity: 1 },
+      ],
+    });
+    await prisma.stockLedger.createMany({
+      data: [
+        { shopId: shop.id, itemId: target.id, movementType: "OPENING_STOCK", quantityIn: 4, quantityOut: 0, createdById: owner.id },
+        { shopId: shop.id, itemId: source.id, movementType: "OPENING_STOCK", quantityIn: 6, quantityOut: 1, createdById: owner.id },
+      ],
+    });
+
+    const result = await itemService.mergeItems(owner, {
+      shopId: shop.id,
+      sourceItemIds: [source.id],
+      targetItemId: target.id,
+    });
+
+    assert.deepStrictEqual(result.combinedStock, { physical: 9, reserved: 0, available: 9 });
+    assert.strictEqual(result.imagesPreserved, 2);
+    const [mergedTarget, inactiveSource, targetBalance, bundleReference] = await Promise.all([
+      prisma.item.findUnique({ where: { id: target.id } }),
+      prisma.item.findUnique({ where: { id: source.id } }),
+      prisma.stockBalance.findUnique({ where: { itemId: target.id } }),
+      prisma.itemBundleComponent.findUnique({
+        where: {
+          parentItemId_componentItemId: {
+            parentItemId: bundle.id,
+            componentItemId: target.id,
+          },
+        },
+      }),
+    ]);
+    assert.strictEqual(mergedTarget.sku, "MERGE-SOURCE-SKU");
+    assert.strictEqual(mergedTarget.purchasePrice.toString(), "60");
+    assert.strictEqual(
+      mergedTarget.imageUrl,
+      "https://cdn.test/primary.jpg,https://cdn.test/duplicate.jpg",
+    );
+    assert.strictEqual(inactiveSource.status, "INACTIVE");
+    assert.strictEqual(inactiveSource.sku, null);
+    assert.strictEqual(Number(targetBalance.physicalStock), 9);
+    assert.strictEqual(Number(bundleReference.quantity), 3);
+    assert.strictEqual(
+      await prisma.stockLedger.count({ where: { itemId: source.id } }),
+      0,
+    );
+  });
+
   test("cash payments require and attach to the active shop cash session", async () => {
     await assertRejectsApi(() => paymentService.addPayment(staff, {
       shopId: shop.id,
