@@ -14,26 +14,14 @@ import {
 import { resolveOutboundMediaAsset } from "./whatsapp.media.service.js";
 import { ApiError } from "../utils/ApiError.js";
 import { enqueueWhatsAppDomainEvent } from "./whatsapp.domain-events.js";
+import {
+  hashLogicalMessage,
+  queueJobId,
+  resolveIdempotentMessage,
+} from "./whatsapp.idempotency.js";
 
 const API_VERSION = "v25.0";
 const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
-
-function stableStringify(value) {
-  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
-  if (value && typeof value === "object") {
-    return `{${Object.keys(value).sort().map((key) =>
-      `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(",")}}`;
-  }
-  return JSON.stringify(value);
-}
-
-function hashLogicalMessage(value) {
-  return crypto.createHash("sha256").update(stableStringify(value)).digest("hex");
-}
-
-function queueJobId(messageId, attempt) {
-  return `wa-send-${messageId}-attempt-${attempt}`;
-}
 
 async function enqueueOutboundMessage({
   shopId,
@@ -242,12 +230,7 @@ class WhatsAppService {
         },
       },
     });
-    if (existing) {
-      if (existing.clientPayloadHash !== clientPayloadHash) {
-        throw new ApiError(409, "Client message ID reused with different content", {
-          code: "IDEMPOTENCY_CONFLICT",
-        });
-      }
+    if (resolveIdempotentMessage(existing, clientPayloadHash)) {
       if (existing.operationState === "QUEUED" || existing.operationState === "RETRY_SCHEDULED") {
         await enqueueOutboundMessage({
           shopId,

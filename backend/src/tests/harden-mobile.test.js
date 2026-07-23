@@ -157,18 +157,22 @@ test.describe("HARDEN-01 mobile persistence boundary", () => {
   });
 });
 
-test.describe("HARDEN-01 WhatsApp mobile unmounting", () => {
-  test("mounted navigation does not import or register WhatsApp screens", () => {
+test.describe("HARDEN-01 WhatsApp mobile capability boundary", () => {
+  test("navigation registers WhatsApp screens only through the runtime capability gate", () => {
     const navigation = readStock("navigation/index.tsx");
-    assert.ok(!navigation.includes("../modules/whatsapp"));
-    assert.ok(!navigation.includes("WhatsAppSetup"));
-    assert.ok(!navigation.includes("ChatDetailScreen"));
-    assert.ok(!navigation.includes("TemplateLibraryScreen"));
-    assert.ok(!navigation.includes("FlowEditorScreen"));
+    const gate = readStock("modules/whatsapp/WhatsAppFeatureGate.tsx");
+    assert.ok(navigation.includes("whatsappCapabilityScreen(ChatListScreen)"));
+    assert.ok(navigation.includes("whatsappCapabilityScreen(ChatDetailScreen)"));
+    assert.ok(navigation.includes('path: "shops/:shopId/whatsapp/:integrationId/conversations/:conversationId"'));
+    assert.ok(gate.includes("fetchWhatsAppCapability"));
+    assert.ok(gate.includes("requestedIntegrationId === capability.data.integrationId"));
+    assert.ok(gate.indexOf("fetchWhatsAppCapability") < gate.indexOf("setActiveShopId(requestedShopId"));
   });
 
-  test("mounted app realtime provider does not initialize WhatsApp event forwarding", () => {
+  test("gated registration does not initialize screen-local WhatsApp realtime hooks", () => {
+    const navigation = readStock("navigation/index.tsx");
     const realtime = readStock("realtime/RealtimeProvider.tsx");
+    assert.ok(!navigation.includes("useWhatsAppRealtime("));
     assert.ok(!realtime.includes("DeviceEventEmitter"));
     assert.ok(!realtime.includes("wa:"));
     assert.ok(!realtime.includes("wa-messages"));
