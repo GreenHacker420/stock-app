@@ -31,7 +31,6 @@ import { EditSale } from "./screens/EditSale";
 import { AddEditStaff, StaffManagement, StaffDetail } from "./screens/OwnerStaff";
 import {
   GenericPlannedScreen,
-  OwnerAlerts,
   OwnerRecords,
   OwnerStock,
 } from "./screens/PlannedScreens";
@@ -121,8 +120,8 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
             iconName = isFocused ? "warehouse" : "warehouse";
           } else if (route.name === "StaffPayments") {
             iconName = isFocused ? "cash-register" : "cash-register";
-          } else if (route.name === "Notifications" || route.name === "OwnerAlerts") {
-            iconName = isFocused ? "bell" : "bell-outline";
+          } else if (route.name === "WhatsApp") {
+            iconName = isFocused ? "whatsapp" : "whatsapp";
           } else if (route.name === "Profile") {
             iconName = isFocused ? "account-circle" : "account-circle-outline";
           }
@@ -284,10 +283,10 @@ const StaffTabs = createBottomTabNavigator({
         title: "POS",
       },
     },
-    Notifications: {
-      screen: Notifications,
+    WhatsApp: {
+      screen: WhatsAppChats,
       options: {
-        title: "Alerts",
+        title: "WhatsApp",
       },
     },
     Profile: {
@@ -321,10 +320,10 @@ const OwnerTabs = createBottomTabNavigator({
         title: "Stock",
       },
     },
-    OwnerAlerts: {
-      screen: OwnerAlerts,
+    WhatsApp: {
+      screen: WhatsAppChats,
       options: {
-        title: "Alerts",
+        title: "WhatsApp",
       },
     },
     Profile: {
@@ -654,7 +653,7 @@ export type StaffTabParamList = {
   StaffHome: undefined;
   StaffWork: undefined;
   StaffPayments: undefined;
-  Notifications: undefined;
+  WhatsApp: undefined;
   Profile: undefined;
 };
 
@@ -662,7 +661,7 @@ export type OwnerTabParamList = {
   OwnerDashboard: undefined;
   OwnerRecords: undefined;
   OwnerStock: undefined;
-  OwnerAlerts: undefined;
+  WhatsApp: undefined;
   Profile: undefined;
 };
 

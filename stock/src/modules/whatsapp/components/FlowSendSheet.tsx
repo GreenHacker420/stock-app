@@ -9,12 +9,13 @@ import { waColors } from "../whatsapp-ui";
 type Props = {
   visible: boolean;
   shopId?: string | null;
+  integrationId: string;
   conversationId: string;
   to: string;
   onClose: () => void;
 };
 
-export function FlowSendSheet({ visible, shopId, conversationId, to, onClose }: Props) {
+export function FlowSendSheet({ visible, shopId, integrationId, conversationId, to, onClose }: Props) {
   const token = useAuthStore((state) => state.token) || "";
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
@@ -65,8 +66,8 @@ export function FlowSendSheet({ visible, shopId, conversationId, to, onClose }: 
       });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["wa-messages", conversationId] });
-      queryClient.invalidateQueries({ queryKey: ["wa-conversations", shopId] });
+      queryClient.invalidateQueries({ queryKey: ["whatsapp", "messages", shopId, integrationId, conversationId] });
+      queryClient.invalidateQueries({ queryKey: ["whatsapp", "conversations", shopId, integrationId] });
       close();
     },
     onError: (error) => Alert.alert("Flow not sent", error.message),

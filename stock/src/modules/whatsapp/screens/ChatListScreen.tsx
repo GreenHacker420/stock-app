@@ -8,7 +8,12 @@ import { BottomTabBarHeightContext } from "@react-navigation/bottom-tabs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNowStrict } from "date-fns";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { fetchScopedWaConversations, whatsappApi, WaConversation } from "../../../api/whatsapp.api";
+import {
+  archiveScopedWaConversation,
+  deleteScopedWaConversation,
+  fetchScopedWaConversations,
+  WaConversation,
+} from "../../../api/whatsapp.api";
 import { useShopStore } from "../../../auth/shop-store";
 import { useAuthStore } from "../../../auth/auth-store";
 import { EmptyState } from "../../../components/ui/EmptyState";
@@ -55,7 +60,8 @@ export const ChatListScreen = () => {
   });
 
   const archiveMutation = useMutation({
-    mutationFn: ({ id, archive }: { id: string; archive: boolean }) => whatsappApi.archiveConversation(shopId!, id, archive),
+    mutationFn: ({ id, archive }: { id: string; archive: boolean }) =>
+      archiveScopedWaConversation(token!, integrationId!, id, archive),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["whatsapp", "conversations", shopId, integrationId] });
       setSelected(null);
@@ -64,7 +70,7 @@ export const ChatListScreen = () => {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => whatsappApi.deleteConversation(shopId!, id),
+    mutationFn: (id: string) => deleteScopedWaConversation(token!, integrationId!, id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["whatsapp", "conversations", shopId, integrationId] });
       setSelected(null);
@@ -132,7 +138,7 @@ export const ChatListScreen = () => {
         renderItem={({ item }) => {
           const lastMessage = item.messages?.[0];
           const name = item.contactName || item.customer?.name || `+${item.phone}`;
-          const preview = lastMessage?.status === "DELETED"
+          const preview = lastMessage?.contentState === "DELETED"
             ? "This message was deleted"
             : lastMessage?.content?.text
               || lastMessage?.content?.caption
@@ -164,7 +170,7 @@ export const ChatListScreen = () => {
                 </View>
                 <View style={styles.previewRow}>
                   {lastMessage?.direction === "OUTBOUND" && (
-                    <MaterialCommunityIcons name="check-all" size={16} color={lastMessage.status === "READ" ? waColors.blue : waColors.textSecondary} />
+                    <MaterialCommunityIcons name="check-all" size={16} color={lastMessage.providerStatus === "READ" ? waColors.blue : waColors.textSecondary} />
                   )}
                   <Text style={[styles.preview, item.unreadCount > 0 && styles.unreadPreview]} numberOfLines={1}>{preview}</Text>
                   {item.unreadCount > 0 && (

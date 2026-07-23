@@ -313,6 +313,11 @@ class WhatsAppController {
       const conversation = await whatsappService.createConversation(
         integration.shopId,
         req.body,
+        {
+          integration,
+          actorUserId: req.user.id,
+          sourceDeviceId: req.body.sourceDeviceId,
+        },
       );
       res.status(201).json({ success: true, data: { conversation } });
     } catch (error) {
@@ -416,6 +421,8 @@ class WhatsAppController {
         to: conversation.phone,
         messageId: message.id,
         emoji: req.body.emoji,
+        sourceDeviceId: req.body.sourceDeviceId,
+        actorUserId: req.user.id,
       });
       res.json({ success: true, data: { message: updated } });
     } catch (error) {
@@ -426,7 +433,11 @@ class WhatsAppController {
   async deleteScopedMessage(req, res, next) {
     try {
       const { integration, message } = req.waScope;
-      const updated = await whatsappService.deleteMessage(integration.shopId, message.id);
+      const updated = await whatsappService.deleteMessage(integration.shopId, message.id, {
+        integration,
+        sourceDeviceId: req.body?.sourceDeviceId,
+        actorUserId: req.user.id,
+      });
       res.json({ success: true, data: { message: updated } });
     } catch (error) {
       next(error);
@@ -470,7 +481,7 @@ class WhatsAppController {
     try {
       const { integration, conversation } = req.waScope;
       if (conversation.unreadCount === 0) {
-        return res.json({ success: true, data: conversation });
+        return res.json({ success: true, data: { conversation } });
       }
       const updated = await prisma.$transaction(async (tx) => {
         const row = await tx.waConversation.update({
@@ -491,7 +502,7 @@ class WhatsAppController {
         });
         return row;
       });
-      res.json({ success: true, data: updated });
+      res.json({ success: true, data: { conversation: updated } });
     } catch (error) {
       next(error);
     }
@@ -526,9 +537,7 @@ class WhatsAppController {
     }
   }
 
-  /**
-   * Upload Media (POST /whatsapp/media)
-   */
+
   async uploadMedia(req, res) {
     try {
       const result = await uploadWhatsAppMedia({
@@ -838,101 +847,6 @@ class WhatsAppController {
 
 
   /**
-   * React to Message (POST /whatsapp/react)
-   */
-  async reactToMessage(req, res) {
-    try {
-      const shopId = req.shop.id;
-      const { to, messageId, emoji } = req.body;
-      if (!to || !messageId) {
-        return res.status(400).json({ success: false, message: "Missing required fields" });
-      }
-      const message = await whatsappService.sendReaction(shopId, { to, messageId, emoji });
-      res.json({ success: true, data: message });
-    } catch (error) {
-      res.status(400).json({ success: false, message: error.message });
-    }
-  }
-
-  /**
-   * Delete Message (DELETE /whatsapp/messages/:id)
-   */
-  async deleteMessage(req, res) {
-    try {
-      const { id } = req.params;
-      const shopId = req.shop.id;
-      const message = await whatsappService.deleteMessage(shopId, id);
-      res.json({ success: true, data: message });
-    } catch (error) {
-      res.status(400).json({ success: false, message: error.message });
-    }
-  }
-
-  /**
-   * Archive Conversation (POST /whatsapp/conversations/:id/archive)
-   */
-  async archiveConversation(req, res) {
-    try {
-      const { id } = req.params;
-      const shopId = req.shop.id;
-      const { isArchived } = req.body;
-      const isArchivedBool = isArchived !== undefined ? Boolean(isArchived) : true;
-      const conversation = await whatsappService.archiveConversation(shopId, id, isArchivedBool);
-      res.json({ success: true, data: conversation });
-    } catch (error) {
-      res.status(400).json({ success: false, message: error.message });
-    }
-  }
-
-  /**
-   * Mark Conversation as Read (POST /whatsapp/conversations/:id/read)
-   */
-  async markConversationRead(req, res) {
-    try {
-      const { id } = req.params;
-      const shopId = req.shop.id;
-      if (req.waScope?.conversation?.unreadCount === 0) {
-        return res.json({ success: true, data: req.waScope.conversation });
-      }
-      const conversation = await prisma.$transaction(async (tx) => {
-        const row = await tx.waConversation.update({
-          where: { id, shopId },
-          data: { unreadCount: 0, entityVersion: { increment: 1 } }
-        });
-        await enqueueWhatsAppDomainEvent(tx, {
-          shopId,
-          entity: "waConversation",
-          entityId: row.id,
-          entityVersion: row.entityVersion,
-          action: "read",
-          conversationId: row.id,
-          actorUserId: req.user.id,
-          sourceDeviceId: req.body?.sourceDeviceId,
-          patch: { unreadCount: 0, entityVersion: row.entityVersion },
-        });
-        return row;
-      });
-      res.json({ success: true, data: conversation });
-    } catch (error) {
-      res.status(400).json({ success: false, message: error.message });
-    }
-  }
-
-  /**
-   * Delete Conversation (DELETE /whatsapp/conversations/:id)
-   */
-  async deleteConversation(req, res) {
-    try {
-      const { id } = req.params;
-      const shopId = req.shop.id;
-      const result = await whatsappService.deleteConversation(shopId, id);
-      res.json({ success: true, data: result });
-    } catch (error) {
-      res.status(400).json({ success: false, message: error.message });
-    }
-  }
-
-  /**
    * List Broadcasts (GET /whatsapp/broadcasts)
    */
   async getBroadcasts(req, res) {
@@ -1063,9 +977,6 @@ class WhatsAppController {
     }
   }
 
-  /**
-   * Sync Phone Contacts (POST /whatsapp/sync-phone-contacts)
-   */
   async syncPhoneContacts(req, res) {
     try {
       const shopId = req.shop.id;

@@ -6,7 +6,7 @@ const SUCCESS_RANK = {
   READ: 4,
 };
 
-export function mapLegacyMessageStatus(providerStatus, contentState = "VISIBLE") {
+export function projectProviderStatus(providerStatus, contentState = "VISIBLE") {
   if (contentState === "DELETED") return "DELETED";
   if (providerStatus === "FAILED") return "FAILED";
   if (providerStatus === "READ") return "READ";
@@ -54,6 +54,6 @@ export function resolveProviderTransition(current, incoming) {
     apply: true,
     providerStatus: incoming.providerStatus,
     providerStatusAt: new Date(incomingTime),
-    legacyStatus: mapLegacyMessageStatus(incoming.providerStatus, current.contentState),
+    projectedStatus: projectProviderStatus(incoming.providerStatus, current.contentState),
   };
 }

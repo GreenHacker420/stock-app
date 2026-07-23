@@ -3,7 +3,6 @@ import { useAuthStore } from "../auth/auth-store";
 import * as Crypto from "expo-crypto";
 import { getDeviceInstallationId } from "../notifications/device-identity";
 
-export type WaMessageStatus = "QUEUED" | "SENT" | "DELIVERED" | "READ" | "FAILED" | "DELETED";
 export type WaOperationState =
   | "WAITING_FOR_NETWORK"
   | "UPLOADING"
@@ -93,15 +92,6 @@ export type WaOutboundMessage =
       data?: Record<string, unknown>;
     };
 
-export interface WaSendCommand {
-  shopId: string;
-  conversationId?: string;
-  to: string;
-  message: WaOutboundMessage;
-  replyToMessageId?: string;
-  replyToMetaMessageId?: string;
-}
-
 export interface WaMessage {
   id: string;
   clientMessageId?: string;
@@ -109,7 +99,6 @@ export interface WaMessage {
   metaMessageId?: string;
   replyToMetaMessageId?: string;
   direction: WaMessageDirection;
-  status: WaMessageStatus;
   operationState?: WaOperationState;
   providerStatus?: WaProviderStatus;
   contentState?: WaContentState;
@@ -215,7 +204,6 @@ export type WhatsAppCapability = {
 };
 
 export type WaCreateConversationInput = {
-  shopId: string;
   phone: string;
   contactName?: string;
   customerId?: string;
@@ -397,10 +385,6 @@ export type WaTemplate = {
   }>;
 };
 
-export async function fetchWaConversations(token: string, shopId: string) {
-  return apiRequest<WaConversation[]>(`/whatsapp/conversations?shopId=${encodeURIComponent(shopId)}`, { token });
-}
-
 export function fetchWhatsAppCapability(
   token: string,
   shopId: string,
@@ -492,35 +476,74 @@ export function markScopedWaConversationRead(
   );
 }
 
-export async function fetchWaMessages(token: string, conversationId: string, limit = 50, cursor?: string) {
-  const query = new URLSearchParams({ limit: String(limit) });
-  if (cursor) query.set("cursor", cursor);
-  return apiRequest<WaMessage[]>(
-    `/whatsapp/conversations/${conversationId}/messages?${query.toString()}`,
-    { token }
+export async function createScopedWaConversation(
+  token: string,
+  integrationId: string,
+  input: WaCreateConversationInput,
+) {
+  const sourceDeviceId = await getDeviceInstallationId();
+  return apiRequest<{ conversation: WaConversation }>(
+    `/whatsapp/integrations/${encodeURIComponent(integrationId)}/conversations`,
+    { method: "POST", token, body: JSON.stringify({ ...input, sourceDeviceId }) },
   );
 }
 
-export async function sendWaMessage(token: string, payload: WaSendCommand) {
-  return apiRequest<WaMessage>("/whatsapp/messages", {
-    method: "POST",
-    token,
-    body: JSON.stringify(payload),
-  });
+export async function reactToScopedWaMessage(
+  token: string,
+  integrationId: string,
+  messageId: string,
+  emoji: string,
+) {
+  const sourceDeviceId = await getDeviceInstallationId();
+  return apiRequest<{ message: WaMessage }>(
+    `/whatsapp/integrations/${encodeURIComponent(integrationId)}/messages/${encodeURIComponent(messageId)}/reaction`,
+    { method: "POST", token, body: JSON.stringify({ emoji, sourceDeviceId }) },
+  );
+}
+
+export async function deleteScopedWaMessage(token: string, integrationId: string, messageId: string) {
+  const sourceDeviceId = await getDeviceInstallationId();
+  return apiRequest<{ message: WaMessage }>(
+    `/whatsapp/integrations/${encodeURIComponent(integrationId)}/messages/${encodeURIComponent(messageId)}`,
+    { method: "DELETE", token, body: JSON.stringify({ sourceDeviceId }) },
+  );
+}
+
+export async function archiveScopedWaConversation(
+  token: string,
+  integrationId: string,
+  conversationId: string,
+  isArchived = true,
+) {
+  const sourceDeviceId = await getDeviceInstallationId();
+  return apiRequest<{ conversation: WaConversation }>(
+    `/whatsapp/integrations/${encodeURIComponent(integrationId)}/conversations/${encodeURIComponent(conversationId)}/archive`,
+    { method: "POST", token, body: JSON.stringify({ isArchived, sourceDeviceId }) },
+  );
+}
+
+export async function deleteScopedWaConversation(token: string, integrationId: string, conversationId: string) {
+  const sourceDeviceId = await getDeviceInstallationId();
+  return apiRequest<{ deleted: true }>(
+    `/whatsapp/integrations/${encodeURIComponent(integrationId)}/conversations/${encodeURIComponent(conversationId)}`,
+    { method: "DELETE", token, body: JSON.stringify({ sourceDeviceId }) },
+  );
 }
 
 export function uploadWaMedia(
   token: string,
-  shopId: string,
+  integrationId: string,
   media: WaLocalMedia,
   onProgress?: (progress: number) => void,
   signal?: AbortSignal,
 ) {
   return new Promise<WaMediaUpload>((resolve, reject) => {
     const request = new XMLHttpRequest();
-    request.open("POST", `${API_BASE_URL}/whatsapp/media`);
+    request.open(
+      "POST",
+      `${API_BASE_URL}/whatsapp/integrations/${encodeURIComponent(integrationId)}/media`,
+    );
     request.setRequestHeader("Authorization", `Bearer ${token}`);
-    request.setRequestHeader("X-Shop-Id", shopId);
 
     request.upload.onprogress = (event) => {
       if (event.lengthComputable) {
@@ -546,7 +569,6 @@ export function uploadWaMedia(
     };
 
     const form = new FormData();
-    form.append("shopId", shopId);
     form.append("kind", media.kind);
     if (media.width) form.append("width", String(media.width));
     if (media.height) form.append("height", String(media.height));
@@ -603,49 +625,6 @@ export function uploadWaTemplateExample(
       type: media.mimeType,
     } as any);
     request.send(form);
-  });
-}
-
-export async function sendWaReaction(token: string, payload: {
-  shopId: string;
-  to: string;
-  messageId: string;
-  emoji: string;
-}) {
-  return apiRequest<WaMessage>("/whatsapp/react", {
-    method: "POST",
-    token,
-    body: JSON.stringify(payload),
-  });
-}
-
-export async function deleteWaMessage(token: string, shopId: string, messageId: string) {
-  return apiRequest<WaMessage>(`/whatsapp/messages/${messageId}?shopId=${encodeURIComponent(shopId)}`, {
-    method: "DELETE",
-    token,
-  });
-}
-
-export async function archiveWaConversation(token: string, shopId: string, conversationId: string, isArchived = true) {
-  return apiRequest<WaConversation>(`/whatsapp/conversations/${conversationId}/archive`, {
-    method: "POST",
-    token,
-    body: JSON.stringify({ shopId, isArchived }),
-  });
-}
-
-export async function deleteWaConversation(token: string, shopId: string, conversationId: string) {
-  return apiRequest<{ success: boolean }>(`/whatsapp/conversations/${conversationId}?shopId=${encodeURIComponent(shopId)}`, {
-    method: "DELETE",
-    token,
-  });
-}
-
-export async function createWaConversation(token: string, input: WaCreateConversationInput) {
-  return apiRequest<WaConversation>("/whatsapp/conversations", {
-    method: "POST",
-    token,
-    body: JSON.stringify(input),
   });
 }
 
@@ -893,68 +872,20 @@ export async function sendWaTemplate(
   });
 }
 
-export async function markWaConversationRead(token: string, shopId: string, conversationId: string) {
-  return apiRequest<WaConversation>(`/whatsapp/conversations/${conversationId}/read`, {
+export async function syncScopedWaPhoneContacts(
+  token: string,
+  integrationId: string,
+  contacts: any[],
+  mergeStrategy: "MERGE" | "OVERWRITE",
+) {
+  return apiRequest<any>(`/whatsapp/integrations/${encodeURIComponent(integrationId)}/contacts/sync`, {
     method: "POST",
     token,
-    body: JSON.stringify({ shopId }),
-  });
-}
-
-export async function syncWaPhoneContacts(token: string, shopId: string, contacts: any[], mergeStrategy: "MERGE" | "OVERWRITE") {
-  return apiRequest<any>("/whatsapp/sync-phone-contacts", {
-    method: "POST",
-    token,
-    body: JSON.stringify({ shopId, contacts, mergeStrategy }),
+    body: JSON.stringify({ contacts, mergeStrategy }),
   });
 }
 
 export const whatsappApi = {
-  getConversations: async (shopId: string) => {
-    const token = useAuthStore.getState().token || "";
-    const res = await fetchWaConversations(token, shopId);
-    return { data: { success: true, data: res } };
-  },
-  getMessages: async (conversationId: string, limit = 50, cursor?: string) => {
-    const token = useAuthStore.getState().token || "";
-    const res = await fetchWaMessages(token, conversationId, limit, cursor);
-    return { data: { success: true, data: res } };
-  },
-  sendMessage: async (payload: WaSendCommand) => {
-    const token = useAuthStore.getState().token || "";
-    const res = await sendWaMessage(token, payload);
-    return { data: { success: true, data: res } };
-  },
-  sendReaction: async (payload: {
-    shopId: string;
-    to: string;
-    messageId: string;
-    emoji: string;
-  }) => {
-    const token = useAuthStore.getState().token || "";
-    const res = await sendWaReaction(token, payload);
-    return { data: { success: true, data: res } };
-  },
-  deleteMessage: async (shopId: string, messageId: string) => {
-    const token = useAuthStore.getState().token || "";
-    const res = await deleteWaMessage(token, shopId, messageId);
-    return { data: { success: true, data: res } };
-  },
-  archiveConversation: async (shopId: string, conversationId: string, isArchived = true) => {
-    const token = useAuthStore.getState().token || "";
-    const res = await archiveWaConversation(token, shopId, conversationId, isArchived);
-    return { data: { success: true, data: res } };
-  },
-  deleteConversation: async (shopId: string, conversationId: string) => {
-    const token = useAuthStore.getState().token || "";
-    const res = await deleteWaConversation(token, shopId, conversationId);
-    return { data: { success: true, data: res } };
-  },
-  createConversation: async (input: WaCreateConversationInput) => {
-    const token = useAuthStore.getState().token || "";
-    const res = await createWaConversation(token, input);
-    return { data: { success: true, data: res } };
-  },
   syncTemplates: async (shopId: string) => {
     const token = useAuthStore.getState().token || "";
     const res = await syncWaTemplates(token, shopId);
@@ -963,16 +894,6 @@ export const whatsappApi = {
   syncFlows: async (shopId: string) => {
     const token = useAuthStore.getState().token || "";
     const res = await syncWaFlows(token, shopId);
-    return { data: { success: true, data: res } };
-  },
-  markConversationRead: async (shopId: string, conversationId: string) => {
-    const token = useAuthStore.getState().token || "";
-    const res = await markWaConversationRead(token, shopId, conversationId);
-    return { data: { success: true, data: res } };
-  },
-  syncPhoneContacts: async (shopId: string, contacts: any[], mergeStrategy: "MERGE" | "OVERWRITE" = "MERGE") => {
-    const token = useAuthStore.getState().token || "";
-    const res = await syncWaPhoneContacts(token, shopId, contacts, mergeStrategy);
     return { data: { success: true, data: res } };
   },
   getTemplates: async (shopId: string) => {

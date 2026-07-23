@@ -76,11 +76,22 @@ function patchEntity(item: unknown, event: DomainEvent) {
 
 function patchCollection(data: unknown, event: DomainEvent): unknown {
   if (Array.isArray(data)) {
+    if (event.entity === "waConversation" && event.action === "deleted") {
+      return data.filter((item) => (
+        !item
+        || typeof item !== "object"
+        || (item as EntityRecord).id !== event.entityId
+      ));
+    }
     const patched = data.map((item) => patchEntity(item, event));
     const found = patched.some((item) => item !== undefined
       && typeof item === "object"
       && (item as EntityRecord).id === event.entityId);
-    if (!found && event.action === "created" && event.patch) {
+    if (
+      !found
+      && (event.action === "created" || event.action === "created_or_reopened")
+      && event.patch
+    ) {
       return [{ ...event.patch, id: event.entityId, entityVersion: event.entityVersion }, ...patched];
     }
     return patched;
@@ -102,20 +113,12 @@ function patchWhatsAppEvent(queryClient: QueryClient, event: DomainEvent) {
       { queryKey: ["whatsapp", "messages", event.shopId, event.integrationId, event.conversationId] },
       (data) => patchCollection(data, event),
     );
-    queryClient.setQueryData(
-      ["wa-messages", event.conversationId],
-      (data: unknown) => patchCollection(data, event),
-    );
     return;
   }
   if (event.entity === "waConversation") {
     queryClient.setQueriesData(
       { queryKey: ["whatsapp", "conversations", event.shopId, event.integrationId] },
       (data) => patchCollection(data, event),
-    );
-    queryClient.setQueryData(
-      ["wa-conversations", event.shopId],
-      (data: unknown) => patchCollection(data, event),
     );
   }
 }

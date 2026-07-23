@@ -1,15 +1,15 @@
 import { useRef } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { whatsappApi } from "../../../api/whatsapp.api";
+import { syncScopedWaPhoneContacts } from "../../../api/whatsapp.api";
+import { useAuthStore } from "../../../auth/auth-store";
 import { contactsDb } from "../services/contactsDb";
 import { Alert } from "react-native";
 import { useSelectionStore } from "../store/contactSelection.store";
 
-/**
- * Hook to coordinate synchronization of mutated contacts to CRM backend.
- */
-export function useContactsSync(activeShopId: string | null) {
+
+export function useContactsSync(activeShopId: string | null, integrationId?: string) {
   const queryClient = useQueryClient();
+  const token = useAuthStore((state) => state.token);
   const syncLockRef = useRef(false);
   const clearSelection = useSelectionStore((s) => s.clear);
 
@@ -21,7 +21,7 @@ export function useContactsSync(activeShopId: string | null) {
       mergeStrategy: "MERGE" | "OVERWRITE";
       selectedIds: Set<string>;
     }) => {
-      if (!activeShopId) throw new Error("No active shop selected");
+      if (!activeShopId || !integrationId || !token) throw new Error("WhatsApp scope is unavailable");
       if (syncLockRef.current) {
         throw new Error("Synchronization already in progress");
       }
@@ -37,10 +37,7 @@ export function useContactsSync(activeShopId: string | null) {
       syncLockRef.current = true;
 
       try {
-        const res = await whatsappApi.syncPhoneContacts(activeShopId, toSync, mergeStrategy);
-        if (!res.data?.success) {
-          throw new Error("Server responded with failure");
-        }
+        const res = await syncScopedWaPhoneContacts(token, integrationId, toSync, mergeStrategy);
 
         // Mark local contacts as synced in SQLite database
         const syncedIds = toSync.map((t) => t.id);
@@ -48,8 +45,8 @@ export function useContactsSync(activeShopId: string | null) {
 
         return {
           syncedCount: toSync.length,
-          newCustomersCount: res.data.data?.newCustomersCount || 0,
-          mergedCount: res.data.data?.mergedCount || 0,
+          newCustomersCount: res?.newCustomersCount || 0,
+          mergedCount: res?.mergedCount || 0,
           syncedIds,
         };
       } finally {
@@ -58,7 +55,7 @@ export function useContactsSync(activeShopId: string | null) {
     },
     onSuccess: (data) => {
       // Invalidate relevant react queries
-      queryClient.invalidateQueries({ queryKey: ["wa-conversations", activeShopId] });
+      queryClient.invalidateQueries({ queryKey: ["whatsapp", "conversations", activeShopId, integrationId] });
       queryClient.invalidateQueries({ queryKey: ["customers", activeShopId] });
       queryClient.invalidateQueries({ queryKey: ["contacts-local"] });
       queryClient.invalidateQueries({ queryKey: ["contacts-stats"] });

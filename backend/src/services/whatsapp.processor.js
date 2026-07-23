@@ -55,7 +55,7 @@ async function handleStatusUpdate(event, shopId, eventId) {
 
     const nextTimestamp = transition.providerStatusAt;
     const updateData = {
-      status: transition.legacyStatus,
+      status: transition.projectedStatus,
       providerStatus: transition.providerStatus,
       providerStatusAt: nextTimestamp,
       operationState: nextStatus === "FAILED" ? "TERMINALLY_FAILED" : "COMPLETED",

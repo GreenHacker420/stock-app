@@ -26,10 +26,11 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   fetchScopedWaConversations,
   fetchScopedWaMessages,
+  deleteScopedWaMessage,
   markScopedWaConversationRead,
+  reactToScopedWaMessage,
   sendScopedWaMessage,
   uploadWaMedia,
-  whatsappApi,
   WaLocalMedia,
   WaMessage,
   WaOutboundMessage,
@@ -94,7 +95,6 @@ export const ChatDetailScreen = () => {
     }
   }, [activeShopId, conversationId, integrationId, token]);
 
-  // Load wa-conversations cache to find active conversation metadata
   const { data: conversations = [] } = useQuery<any[]>({
     queryKey: queryKeys.whatsapp.conversations(activeShopId!, integrationId, phoneNumberId || "", {}),
     queryFn: async () => token && integrationId
@@ -186,7 +186,6 @@ export const ChatDetailScreen = () => {
         clientMessageId: input.clientMessageId,
         conversationId,
         direction: "OUTBOUND",
-        status: "QUEUED",
         operationState: "SUBMITTING",
         providerStatus: "PENDING",
         contentState: "VISIBLE",
@@ -251,16 +250,11 @@ export const ChatDetailScreen = () => {
   // Send Reaction Mutation
   const reactionMutation = useMutation({
     mutationFn: async ({ messageId, emoji }: { messageId: string; emoji: string }) => {
-      if (!activeShopId) throw new Error("No active shop");
-      return whatsappApi.sendReaction({
-        shopId: activeShopId,
-        to: phone,
-        messageId,
-        emoji,
-      });
+      if (!token || !integrationId) throw new Error("WhatsApp scope is unavailable");
+      return reactToScopedWaMessage(token, integrationId, messageId, emoji);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["wa-messages", conversationId] });
+      queryClient.invalidateQueries({ queryKey: messagesKey });
       setReactionMenuVisible(false);
       setCustomEmojiVisible(false);
       setSelectedMessage(null);
@@ -273,11 +267,11 @@ export const ChatDetailScreen = () => {
   // Delete Message Mutation
   const deleteMutation = useMutation({
     mutationFn: async (messageId: string) => {
-      if (!activeShopId) throw new Error("No active shop");
-      return whatsappApi.deleteMessage(activeShopId, messageId);
+      if (!token || !integrationId) throw new Error("WhatsApp scope is unavailable");
+      return deleteScopedWaMessage(token, integrationId, messageId);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["wa-messages", conversationId] });
+      queryClient.invalidateQueries({ queryKey: messagesKey });
       setReactionMenuVisible(false);
       setSelectedMessage(null);
     },
@@ -445,7 +439,7 @@ export const ChatDetailScreen = () => {
   };
 
   const uploadAndSendMedia = async () => {
-    if (!selectedMedia || !activeShopId || !token || uploadingMedia) return;
+    if (!selectedMedia || !integrationId || !token || uploadingMedia) return;
 
     setUploadingMedia(true);
     setMediaUploadProgress(0);
@@ -454,7 +448,7 @@ export const ChatDetailScreen = () => {
     try {
       const uploaded = await uploadWaMedia(
         token,
-        activeShopId,
+        integrationId,
         selectedMedia,
         setMediaUploadProgress,
         controller.signal,
@@ -490,7 +484,7 @@ export const ChatDetailScreen = () => {
   };
 
   const uploadAndSendVoice = async (media: WaLocalMedia) => {
-    if (!activeShopId || !token || uploadingMedia) return;
+    if (!integrationId || !token || uploadingMedia) return;
 
     setUploadingMedia(true);
     setMediaUploadProgress(0);
@@ -499,7 +493,7 @@ export const ChatDetailScreen = () => {
     try {
       const uploaded = await uploadWaMedia(
         token,
-        activeShopId,
+        integrationId,
         media,
         setMediaUploadProgress,
         controller.signal,
@@ -529,7 +523,7 @@ export const ChatDetailScreen = () => {
   };
 
   const handleLongPress = (message: WaMessage) => {
-    if (message.status === "DELETED") return; // No actions on recalled messages
+    if (message.contentState === "DELETED") return; 
     setSelectedMessage(message);
     setReactionMenuVisible(true);
   };
@@ -601,12 +595,22 @@ export const ChatDetailScreen = () => {
     }
   };
 
-  const renderMessageStatus = (status: string) => {
-    switch (status) {
-      case "SENDING":
-        return <ActivityIndicator size="small" color={Colors.primary} style={{ width: 14, height: 14 }} />;
-      case "QUEUED":
-        return <MaterialCommunityIcons name="clock-outline" size={14} color={Colors.textSecondary} />;
+  const renderMessageStatus = (message: WaMessage) => {
+    if (
+      message.operationState === "SUBMITTING"
+      || message.operationState === "PROCESSING"
+    ) {
+      return <ActivityIndicator size="small" color={Colors.primary} style={{ width: 14, height: 14 }} />;
+    }
+    if (
+      message.operationState === "QUEUED"
+      || message.providerStatus === "PENDING"
+    ) {
+      return <MaterialCommunityIcons name="clock-outline" size={14} color={Colors.textSecondary} />;
+    }
+
+    switch (message.providerStatus) {
+      case "ACCEPTED":
       case "SENT":
         return <MaterialCommunityIcons name="check" size={14} color={Colors.textSecondary} />;
       case "DELIVERED":
@@ -616,13 +620,16 @@ export const ChatDetailScreen = () => {
       case "FAILED":
         return <MaterialCommunityIcons name="alert-circle-outline" size={14} color="#EF4444" />;
       default:
+        if (message.operationState === "TERMINALLY_FAILED") {
+          return <MaterialCommunityIcons name="alert-circle-outline" size={14} color="#EF4444" />;
+        }
         return null;
     }
   };
 
   const renderMessage = ({ item }: { item: WaMessage }) => {
     const isOutbound = item.direction === "OUTBOUND";
-    const isDeleted = item.status === "DELETED";
+    const isDeleted = item.contentState === "DELETED";
 
     // Find parent message for reply rendering
     const parentMessage = item.replyToMetaMessageId
@@ -684,7 +691,7 @@ export const ChatDetailScreen = () => {
             <Text style={styles.messageTime}>{format(new Date(item.createdAt), "hh:mm a")}</Text>
             {isOutbound && (
               <View style={{ marginLeft: 4 }}>
-                {renderMessageStatus(item.status)}
+                {renderMessageStatus(item)}
               </View>
             )}
           </View>
@@ -904,6 +911,7 @@ export const ChatDetailScreen = () => {
       <TemplateSendSheet
         visible={showTemplateSheet}
         shopId={activeShopId}
+        integrationId={integrationId}
         conversationId={conversationId}
         to={phone}
         replyToMessageId={replyingTo?.id}
@@ -912,6 +920,7 @@ export const ChatDetailScreen = () => {
       <FlowSendSheet
         visible={showFlowSheet}
         shopId={activeShopId}
+        integrationId={integrationId}
         conversationId={conversationId}
         to={phone}
         onClose={() => setShowFlowSheet(false)}

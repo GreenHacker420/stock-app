@@ -18,11 +18,12 @@ type AppHeaderProps = {
   showBack?: boolean;
   onBack?: () => void;
   hideAvatar?: boolean;
+  showAlerts?: boolean;
   fallbackRoute?: string;
   onRequestShopSwitch?: (shopId: string, proceed: () => void) => void;
 };
 
-export function AppHeader({ title, subtitle, role, initials, showBack, onBack, hideAvatar, fallbackRoute, onRequestShopSwitch }: AppHeaderProps) {
+export function AppHeader({ title, subtitle, role, initials, showBack, onBack, hideAvatar, showAlerts, fallbackRoute, onRequestShopSwitch }: AppHeaderProps) {
   const user = useAuthStore((state) => state.user);
   const { activeShopId } = useShopStore();
   const switchActiveShop = useSwitchActiveShop();
@@ -128,34 +129,47 @@ export function AppHeader({ title, subtitle, role, initials, showBack, onBack, h
         </View>
       </View>
 
-      {!hideAvatar && (
-        <Pressable
-          onPress={handleProfilePress}
-          style={({ pressed }) => [
-            styles.rightSection,
-            pressed && styles.pressed
-          ]}
-          accessibilityRole="button"
-          accessibilityLabel="Go to Profile"
-        >
-          <View style={[styles.avatarContainer, styles.avatar]}>
-            <Text style={styles.avatarText}>{displayInitials}</Text>
-          </View>
-          {displayRole && (
-            <View style={[
-              styles.roleBadge,
-              { backgroundColor: displayRole === 'OWNER' ? colors.primaryLight : colors.surfaceOffset }
-            ]}>
-              <Text style={[
-                styles.roleText,
-                { color: displayRole === 'OWNER' ? colors.primaryDark : colors.textSecondary }
-              ]}>
-                {displayRole}
-              </Text>
+      <View style={styles.headerActions}>
+        {showAlerts && (
+          <Pressable
+            onPress={() => navigation?.navigate("NotificationHistory")}
+            style={({ pressed }) => [styles.alertButton, pressed && styles.pressed]}
+            accessibilityRole="button"
+            accessibilityLabel="Open alerts"
+            hitSlop={8}
+          >
+            <Icon source="bell-outline" size={23} color={colors.textPrimary} />
+          </Pressable>
+        )}
+        {!hideAvatar && (
+          <Pressable
+            onPress={handleProfilePress}
+            style={({ pressed }) => [
+              styles.rightSection,
+              pressed && styles.pressed
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Go to Profile"
+          >
+            <View style={[styles.avatarContainer, styles.avatar]}>
+              <Text style={styles.avatarText}>{displayInitials}</Text>
             </View>
-          )}
-        </Pressable>
-      )}
+            {displayRole && (
+              <View style={[
+                styles.roleBadge,
+                { backgroundColor: displayRole === 'OWNER' ? colors.primaryLight : colors.surfaceOffset }
+              ]}>
+                <Text style={[
+                  styles.roleText,
+                  { color: displayRole === 'OWNER' ? colors.primaryDark : colors.textSecondary }
+                ]}>
+                  {displayRole}
+                </Text>
+              </View>
+            )}
+          </Pressable>
+        )}
+      </View>
 
       {/* Switch Shop Modal */}
       <Modal
@@ -276,6 +290,20 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     gap: 4,
     flexShrink: 0,
+  },
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    flexShrink: 0,
+  },
+  alertButton: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.full,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surfaceOffset,
   },
   avatarContainer: {
     ...shadow.sm,

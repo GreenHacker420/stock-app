@@ -36,7 +36,6 @@ export function createWhatsAppBenchmarkFixture(): WhatsAppBenchmarkFixture {
       clientMessageId: index % 2 === 0 ? `benchmark-client-${index}` : undefined,
       conversationId: conversations[index % conversations.length].id,
       direction: index % 3 === 0 ? "OUTBOUND" : "INBOUND",
-      status: index % 11 === 0 ? "READ" : "DELIVERED",
       operationState: "COMPLETED",
       providerStatus: index % 11 === 0 ? "READ" : "DELIVERED",
       contentState: "VISIBLE",

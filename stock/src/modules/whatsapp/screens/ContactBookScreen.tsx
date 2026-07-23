@@ -47,9 +47,10 @@ import {
 } from "../hooks/useContactsLocal";
 import { useContactsSync } from "../hooks/useContactsSync";
 import { useDebounce } from "use-debounce";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute } from "@react-navigation/native";
 import { waColors } from "../whatsapp-ui";
-import { whatsappApi, WaConversation } from "../../../api/whatsapp.api";
+import { createScopedWaConversation, WaConversation } from "../../../api/whatsapp.api";
+import { useAuthStore } from "../../../auth/auth-store";
 
 // -------------------------------------------------------------
 // COMPACT BOTTOM SHEET UTILITY COMPONENT
@@ -295,7 +296,11 @@ const EmptyState = ({ type, onAction }: EmptyStateProps) => {
 // -------------------------------------------------------------
 export const ContactBookScreen = () => {
   const navigation = useNavigation<any>();
+  const route = useRoute<any>();
   const activeShopId = useShopStore((state) => state.activeShopId);
+  const token = useAuthStore((state) => state.token);
+  const integrationId = route.params?.integrationId as string | undefined;
+  const phoneNumberId = route.params?.phoneNumberId as string | undefined;
   const queryClient = useQueryClient();
 
   const [searchQuery, setSearchQuery] = useState("");
@@ -408,27 +413,29 @@ export const ContactBookScreen = () => {
   // Local Mutators
   const updateTagMutation = useUpdateContactTagMutation();
   const linkCustomerMutation = useLinkCustomerMutation();
-  const syncMutation = useContactsSync(activeShopId);
+  const syncMutation = useContactsSync(activeShopId, integrationId);
   const createConversationMutation = useMutation<WaConversation, Error, {
     phone: string;
     contactName?: string;
     customerId?: string;
   }>({
     mutationFn: async ({ phone, contactName, customerId }) => {
-      if (!activeShopId) throw new Error("Select a shop before starting a conversation.");
-      const response = await whatsappApi.createConversation({
-        shopId: activeShopId,
+      if (!token || !integrationId) throw new Error("WhatsApp scope is unavailable.");
+      const response = await createScopedWaConversation(token, integrationId, {
         phone,
         contactName,
         customerId,
       });
-      return response.data.data;
+      return response.conversation;
     },
     onSuccess: (conversation) => {
-      queryClient.invalidateQueries({ queryKey: ["wa-conversations", activeShopId] });
+      queryClient.invalidateQueries({ queryKey: ["whatsapp", "conversations", activeShopId, integrationId] });
       setShowOptionsSheet(false);
       setSelectedContact(null);
       navigation.navigate("ChatDetail", {
+        shopId: activeShopId,
+        integrationId,
+        phoneNumberId,
         conversationId: conversation.id,
         phone: conversation.phone,
       });

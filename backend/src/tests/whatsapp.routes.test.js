@@ -53,8 +53,12 @@ test("registers the complete WhatsApp Embedded Signup route contract", async () 
   }
 });
 
-test("registers the WhatsApp conversation creation route", async () => {
+test("registers only integration-scoped WhatsApp messaging routes", async () => {
   const source = await readFile(new URL("../routes/whatsapp.routes.js", import.meta.url), "utf8");
-  assert.match(source, /router\.post\(\s*"\/conversations"/);
-  assert.match(source, /whatsappController\.createConversation/);
+  assert.match(source, /"\/integrations\/:integrationId\/conversations"/);
+  assert.match(source, /"\/integrations\/:integrationId\/conversations\/:conversationId\/messages"/);
+  assert.match(source, /whatsappController\.createScopedConversation/);
+  assert.doesNotMatch(source, /router\.post\(\s*"\/messages"/);
+  assert.doesNotMatch(source, /router\.get\(\s*"\/conversations"/);
+  assert.doesNotMatch(source, /router\.post\(\s*"\/react"/);
 });

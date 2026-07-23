@@ -88,6 +88,7 @@ export function Home() {
         role={user?.role}
         initials={initials}
         showBack={false}
+        showAlerts
       />
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>

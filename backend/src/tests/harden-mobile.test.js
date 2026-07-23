@@ -164,6 +164,9 @@ test.describe("HARDEN-01 WhatsApp mobile capability boundary", () => {
     assert.ok(navigation.includes("whatsappCapabilityScreen(ChatListScreen)"));
     assert.ok(navigation.includes("whatsappCapabilityScreen(ChatDetailScreen)"));
     assert.ok(navigation.includes('path: "shops/:shopId/whatsapp/:integrationId/conversations/:conversationId"'));
+    assert.ok(navigation.includes("WhatsApp: "));
+    assert.ok(!navigation.includes("OwnerAlerts: "));
+    assert.ok(!navigation.includes("Notifications: "));
     assert.ok(gate.includes("fetchWhatsAppCapability"));
     assert.ok(gate.includes("requestedIntegrationId === capability.data.integrationId"));
     assert.ok(gate.indexOf("fetchWhatsAppCapability") < gate.indexOf("setActiveShopId(requestedShopId"));
@@ -197,6 +200,14 @@ test.describe("HARDEN-01 WhatsApp mobile capability boundary", () => {
     assert.ok(!linking.includes("setActiveShopId"));
     assert.ok(gate.includes("requestedConversationId"));
     assert.ok(gate.includes("fetchWhatsAppCapability"));
+  });
+
+  test("alerts move to the home header when WhatsApp occupies the bottom tab", () => {
+    const header = readStock("components/ui/AppHeader.tsx");
+    const home = readStock("navigation/screens/Home.tsx");
+    assert.ok(header.includes('navigation?.navigate("NotificationHistory")'));
+    assert.ok(header.includes('source="bell-outline"'));
+    assert.ok(home.includes("showAlerts"));
   });
 });
 

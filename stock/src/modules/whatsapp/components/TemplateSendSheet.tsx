@@ -19,6 +19,7 @@ import { waColors } from "../whatsapp-ui";
 type Props = {
   visible: boolean;
   shopId?: string | null;
+  integrationId: string;
   conversationId: string;
   to: string;
   replyToMessageId?: string;
@@ -28,6 +29,7 @@ type Props = {
 export function TemplateSendSheet({
   visible,
   shopId,
+  integrationId,
   conversationId,
   to,
   replyToMessageId,
@@ -86,8 +88,8 @@ export function TemplateSendSheet({
       replyToMessageId,
     }),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["wa-messages", conversationId] });
-      queryClient.invalidateQueries({ queryKey: ["wa-conversations", shopId] });
+      queryClient.invalidateQueries({ queryKey: ["whatsapp", "messages", shopId, integrationId, conversationId] });
+      queryClient.invalidateQueries({ queryKey: ["whatsapp", "conversations", shopId, integrationId] });
       close();
     },
     onError: (error) => Alert.alert("Template not sent", error.message),
@@ -154,7 +156,7 @@ export function TemplateSendSheet({
         };
       }
       setUploadingHeader(true);
-      const uploaded = await uploadWaMedia(token, shopId!, media);
+      const uploaded = await uploadWaMedia(token, integrationId, media);
       setHeaderAsset({
         assetId: uploaded.id,
         assetName: uploaded.fileName || "Template header media",
@@ -203,7 +205,7 @@ export function TemplateSendSheet({
       if (result.canceled) return;
       const asset = result.assets[0];
       setUploadingCard(cardIndex);
-      const uploaded = await uploadWaMedia(token, shopId!, {
+      const uploaded = await uploadWaMedia(token, integrationId, {
         kind,
         uri: asset.uri,
         name: asset.fileName || `carousel-${cardIndex + 1}.${kind === "image" ? "jpg" : "mp4"}`,

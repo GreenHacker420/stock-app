@@ -64,7 +64,7 @@ class WhatsAppService {
     throw new Error("Verification failed");
   }
 
-  async createConversation(shopId, { phone, contactName, customerId }) {
+  async createConversation(shopId, { phone, contactName, customerId }, context = {}) {
     await this.getIntegration(shopId);
 
     const normalizedPhone = normalizePhone(phone);
@@ -83,23 +83,46 @@ class WhatsAppService {
       throw new Error("Customer not found for this shop");
     }
 
-    return prisma.waConversation.upsert({
-      where: { shopId_phone: { shopId, phone: normalizedPhone } },
-      create: {
+    return prisma.$transaction(async (tx) => {
+      const conversation = await tx.waConversation.upsert({
+        where: { shopId_phone: { shopId, phone: normalizedPhone } },
+        create: {
+          shopId,
+          phone: normalizedPhone,
+          contactName: contactName?.trim() || customer?.name || null,
+          customerId: customer?.id || null,
+        },
+        update: {
+          isArchived: false,
+          contactName: contactName?.trim() || customer?.name || undefined,
+          customerId: customer?.id || undefined,
+          entityVersion: { increment: 1 },
+        },
+        include: {
+          customer: { select: { id: true, name: true, phone: true } },
+          messages: { take: 1, orderBy: { createdAt: "desc" } },
+        },
+      });
+      await enqueueWhatsAppDomainEvent(tx, {
         shopId,
-        phone: normalizedPhone,
-        contactName: contactName?.trim() || customer?.name || null,
-        customerId: customer?.id || null,
-      },
-      update: {
-        isArchived: false,
-        contactName: contactName?.trim() || customer?.name || undefined,
-        customerId: customer?.id || undefined,
-      },
-      include: {
-        customer: { select: { id: true, name: true, phone: true } },
-        messages: { take: 1, orderBy: { createdAt: "desc" } },
-      },
+        integration: context.integration,
+        entity: "waConversation",
+        entityId: conversation.id,
+        entityVersion: conversation.entityVersion,
+        action: "created_or_reopened",
+        conversationId: conversation.id,
+        actorUserId: context.actorUserId || "system:whatsapp",
+        sourceDeviceId: context.sourceDeviceId,
+        patch: {
+          id: conversation.id,
+          phone: conversation.phone,
+          contactName: conversation.contactName,
+          customerId: conversation.customerId,
+          isArchived: conversation.isArchived,
+          entityVersion: conversation.entityVersion,
+        },
+      });
+      return conversation;
     });
   }
 
@@ -414,7 +437,7 @@ class WhatsAppService {
     }
     const outboundCommand = message.payload?.outboundCommand;
     if (!outboundCommand) {
-      throw new ApiError(409, "This legacy message does not contain retry metadata", {
+      throw new ApiError(409, "This message does not contain retry metadata", {
         code: "MESSAGE_NOT_RETRYABLE",
       });
     }
@@ -599,7 +622,7 @@ class WhatsAppService {
   }
 
   // Sends an emoji reaction via Meta API.
-  async sendReaction(shopId, { to, messageId, emoji }) {
+  async sendReaction(shopId, { to, messageId, emoji, sourceDeviceId, actorUserId }) {
     const integration = await this.getIntegration(shopId);
 
     const targetMessage = await prisma.waMessage.findFirst({
@@ -666,6 +689,8 @@ class WhatsAppService {
           entityVersion: updated.entityVersion,
           action: "reaction_updated",
           conversationId: updated.conversationId,
+          sourceDeviceId,
+          actorUserId: actorUserId || "system:whatsapp",
           patch: { reactions, entityVersion: updated.entityVersion },
         });
         return updated;
@@ -680,7 +705,7 @@ class WhatsAppService {
   }
 
   // Recalls (deletes) a message.
-  async deleteMessage(shopId, messageId) {
+  async deleteMessage(shopId, messageId, context = {}) {
     const integration = await this.getIntegration(shopId);
 
     const message = await prisma.waMessage.findFirst({
@@ -719,12 +744,14 @@ class WhatsAppService {
         });
         await enqueueWhatsAppDomainEvent(tx, {
           shopId,
-          integration,
+          integration: context.integration || integration,
           entity: "waMessage",
           entityId: updated.id,
           entityVersion: updated.entityVersion,
           action: "content_deleted",
           conversationId: updated.conversationId,
+          sourceDeviceId: context.sourceDeviceId,
+          actorUserId: context.actorUserId || "system:whatsapp",
           patch: {
             contentState: updated.contentState,
             entityVersion: updated.entityVersion,
