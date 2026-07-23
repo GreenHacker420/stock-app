@@ -206,12 +206,14 @@ export const ChatDetailScreen = () => {
     return () => clearTimeout(timer);
   }, [activeShopId, conversationId, inputText, integrationId, replyingTo?.id]);
 
-  const messagingWindowOpen = useMemo(() => {
-    if (!conversation?.lastCustomerMessageAt) return false;
-    return Date.now() - new Date(conversation.lastCustomerMessageAt).getTime()
-      < getWhatsAppMessagingWindowHours() * 60 * 60 * 1_000;
-  }, [conversation?.lastCustomerMessageAt]);
+  // const messagingWindowOpen = useMemo(() => {
+  //   if (!conversation?.lastCustomerMessageAt) return false;
+  //   return Date.now() - new Date(conversation.lastCustomerMessageAt).getTime()
+  //     < getWhatsAppMessagingWindowHours() * 60 * 60 * 1_000;
+  // }, [conversation?.lastCustomerMessageAt]);
 
+
+  const messagingWindowOpen = true;
   // Send Message Mutation
   type SendVariables = {
     clientMessageId: string;
@@ -619,10 +621,10 @@ export const ChatDetailScreen = () => {
           clientMessageId,
           replyToMessageId: replyingTo?.id,
           message: {
-          kind: "document",
-          assetId: uploaded.id,
-          filename: uploaded.fileName || selectedMedia.name,
-          caption: mediaCaption.trim() || undefined,
+            kind: "document",
+            assetId: uploaded.id,
+            filename: uploaded.fileName || selectedMedia.name,
+            caption: mediaCaption.trim() || undefined,
           },
         });
       } else {
@@ -733,7 +735,7 @@ export const ChatDetailScreen = () => {
   };
 
   const handleLongPress = (message: WaMessage) => {
-    if (message.contentState === "DELETED") return; 
+    if (message.contentState === "DELETED") return;
     setSelectedMessage(message);
     setReactionMenuVisible(true);
   };
@@ -868,73 +870,73 @@ export const ChatDetailScreen = () => {
           </View>
         )}
         <View style={[styles.messageRow, isOutbound ? { justifyContent: "flex-end" } : { justifyContent: "flex-start" }]}>
-        <TouchableOpacity
-          activeOpacity={0.9}
-          onLongPress={() => handleLongPress(item)}
-          onPress={() => {
-            if (
-              item.operationState === "TERMINALLY_FAILED"
-              || item.providerStatus === "FAILED"
-            ) {
-              retryMutation.mutate(item);
-            }
-          }}
-          style={[
-            styles.bubble,
-            isOutbound ? styles.outboundBubble : styles.inboundBubble,
-            isDeleted && styles.deletedBubble,
-            { marginBottom: uniqueEmojis.length > 0 ? 12 : 6 }
-          ]}
-        >
-          {/* Reply Quote Display */}
-          {!isDeleted && parentMessage && (
-            <TouchableOpacity
-              style={styles.replyQuoteBox}
-              onPress={() => scrollToParent(item.replyToMetaMessageId!)}
-            >
-              <View style={styles.replyQuoteBorder} />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.replyQuoteSender} numberOfLines={1}>
-                  {parentMessage.direction === "OUTBOUND" ? "You" : "Customer"}
-                </Text>
-                <Text style={styles.replyQuoteText} numberOfLines={1}>
-                  {parentMessage.content?.text || "[Media/Attachment]"}
-                </Text>
-              </View>
-            </TouchableOpacity>
-          )}
-
-          {isDeleted ? (
-            <View style={styles.deletedRow}>
-              <MaterialCommunityIcons name="block-helper" size={15} color={Colors.textSecondary} style={{ marginRight: 6 }} />
-              <Text style={styles.deletedText}>This message was deleted</Text>
-            </View>
-          ) : (
-            <MessageContentRenderer message={item} />
-          )}
-
-          <View style={styles.messageFooter}>
-            <Text style={styles.messageTime}>{format(new Date(item.createdAt), "hh:mm a")}</Text>
-            {isOutbound && (
-              <View style={{ marginLeft: 4 }}>
-                {renderMessageStatus(item)}
-              </View>
+          <TouchableOpacity
+            activeOpacity={0.9}
+            onLongPress={() => handleLongPress(item)}
+            onPress={() => {
+              if (
+                item.operationState === "TERMINALLY_FAILED"
+                || item.providerStatus === "FAILED"
+              ) {
+                retryMutation.mutate(item);
+              }
+            }}
+            style={[
+              styles.bubble,
+              isOutbound ? styles.outboundBubble : styles.inboundBubble,
+              isDeleted && styles.deletedBubble,
+              { marginBottom: uniqueEmojis.length > 0 ? 12 : 6 }
+            ]}
+          >
+            {/* Reply Quote Display */}
+            {!isDeleted && parentMessage && (
+              <TouchableOpacity
+                style={styles.replyQuoteBox}
+                onPress={() => scrollToParent(item.replyToMetaMessageId!)}
+              >
+                <View style={styles.replyQuoteBorder} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.replyQuoteSender} numberOfLines={1}>
+                    {parentMessage.direction === "OUTBOUND" ? "You" : "Customer"}
+                  </Text>
+                  <Text style={styles.replyQuoteText} numberOfLines={1}>
+                    {parentMessage.content?.text || "[Media/Attachment]"}
+                  </Text>
+                </View>
+              </TouchableOpacity>
             )}
-          </View>
 
-          {/* Corner Reaction Badges */}
-          {!isDeleted && uniqueEmojis.length > 0 && (
-            <View style={[styles.reactionBadgeContainer, isOutbound ? { right: 8 } : { left: 8 }]}>
-              {uniqueEmojis.map((emoji) => (
-                <Text key={emoji} style={styles.reactionBadgeEmoji}>{emoji}</Text>
-              ))}
-              {reactions.length > 1 && (
-                <Text style={styles.reactionBadgeCount}>{reactions.length}</Text>
+            {isDeleted ? (
+              <View style={styles.deletedRow}>
+                <MaterialCommunityIcons name="block-helper" size={15} color={Colors.textSecondary} style={{ marginRight: 6 }} />
+                <Text style={styles.deletedText}>This message was deleted</Text>
+              </View>
+            ) : (
+              <MessageContentRenderer message={item} />
+            )}
+
+            <View style={styles.messageFooter}>
+              <Text style={styles.messageTime}>{format(new Date(item.createdAt), "hh:mm a")}</Text>
+              {isOutbound && (
+                <View style={{ marginLeft: 4 }}>
+                  {renderMessageStatus(item)}
+                </View>
               )}
             </View>
-          )}
-        </TouchableOpacity>
-      </View>
+
+            {/* Corner Reaction Badges */}
+            {!isDeleted && uniqueEmojis.length > 0 && (
+              <View style={[styles.reactionBadgeContainer, isOutbound ? { right: 8 } : { left: 8 }]}>
+                {uniqueEmojis.map((emoji) => (
+                  <Text key={emoji} style={styles.reactionBadgeEmoji}>{emoji}</Text>
+                ))}
+                {reactions.length > 1 && (
+                  <Text style={styles.reactionBadgeCount}>{reactions.length}</Text>
+                )}
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
       </>
     );
   };
@@ -1291,7 +1293,7 @@ const styles = StyleSheet.create({
   messageTime: { fontSize: 10, color: Colors.textSecondary },
   deletedRow: { flexDirection: "row", alignItems: "center" },
   deletedText: { fontStyle: "italic", color: Colors.textSecondary, fontSize: 14 },
-  
+
   // Reply Quote Box Inside Message Bubble
   replyQuoteBox: {
     flexDirection: "row",
