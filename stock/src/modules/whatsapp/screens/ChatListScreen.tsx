@@ -3,20 +3,22 @@ import { Alert, Modal, Pressable, RefreshControl, StyleSheet, View } from "react
 import { FlashList } from "@shopify/flash-list";
 import { FAB, IconButton, Searchbar, Text } from "react-native-paper";
 import { KeyboardAwareListScrollComponent } from "../../../components/keyboard/KeyboardAwareListScrollComponent";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute } from "@react-navigation/native";
 import { BottomTabBarHeightContext } from "@react-navigation/bottom-tabs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNowStrict } from "date-fns";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { fetchWaConversations, whatsappApi, WaConversation } from "../../../api/whatsapp.api";
+import { fetchScopedWaConversations, whatsappApi, WaConversation } from "../../../api/whatsapp.api";
 import { useShopStore } from "../../../auth/shop-store";
 import { useAuthStore } from "../../../auth/auth-store";
 import { useWhatsAppRealtime } from "../hooks/useWhatsAppRealtime";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { initials, waColors } from "../whatsapp-ui";
+import { queryKeys } from "../../../hooks/query-keys";
 
 export const ChatListScreen = () => {
   const navigation = useNavigation<any>();
+  const route = useRoute<any>();
   const tabBarHeight = useContext(BottomTabBarHeightContext) ?? 0;
   const shopId = useShopStore((state) => state.activeShopId);
   const token = useAuthStore((state) => state.token);
@@ -26,6 +28,8 @@ export const ChatListScreen = () => {
   const [filter, setFilter] = useState<"ALL" | "UNREAD" | "ME">("ALL");
   const [showArchived, setShowArchived] = useState(false);
   const [selected, setSelected] = useState<WaConversation | null>(null);
+  const integrationId = route.params?.integrationId as string | undefined;
+  const phoneNumberId = route.params?.phoneNumberId as string | undefined;
 
   useEffect(() => {
     navigation.setOptions({
@@ -48,15 +52,15 @@ export const ChatListScreen = () => {
   useWhatsAppRealtime("");
 
   const query = useQuery({
-    queryKey: ["wa-conversations", shopId],
-    enabled: Boolean(shopId && token),
-    queryFn: () => fetchWaConversations(token!, shopId!),
+    queryKey: queryKeys.whatsapp.conversations(shopId!, integrationId!, phoneNumberId || "", {}),
+    enabled: Boolean(shopId && token && integrationId),
+    queryFn: async () => (await fetchScopedWaConversations(token!, integrationId!)).items,
   });
 
   const archiveMutation = useMutation({
     mutationFn: ({ id, archive }: { id: string; archive: boolean }) => whatsappApi.archiveConversation(shopId!, id, archive),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["wa-conversations", shopId] });
+      queryClient.invalidateQueries({ queryKey: ["whatsapp", "conversations", shopId, integrationId] });
       setSelected(null);
     },
     onError: (error) => Alert.alert("Archive failed", error.message),
@@ -65,7 +69,7 @@ export const ChatListScreen = () => {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => whatsappApi.deleteConversation(shopId!, id),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["wa-conversations", shopId] });
+      queryClient.invalidateQueries({ queryKey: ["whatsapp", "conversations", shopId, integrationId] });
       setSelected(null);
     },
     onError: (error) => Alert.alert("Delete failed", error.message),
@@ -139,7 +143,13 @@ export const ChatListScreen = () => {
               || "No messages yet";
           return (
             <Pressable
-              onPress={() => navigation.navigate("ChatDetail", { conversationId: item.id, phone: item.phone })}
+              onPress={() => navigation.navigate("ChatDetail", {
+                shopId,
+                integrationId,
+                phoneNumberId,
+                conversationId: item.id,
+                phone: item.phone,
+              })}
               onLongPress={() => setSelected(item)}
               style={styles.chatRow}
             >

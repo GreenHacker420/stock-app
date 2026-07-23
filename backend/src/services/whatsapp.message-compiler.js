@@ -177,11 +177,17 @@ export const outboundMessageSchema = z.discriminatedUnion("kind", [
 
 export const outboundCommandSchema = z.object({
   shopId: z.string().min(1),
+  integrationId: z.string().min(1).optional(),
   conversationId: z.string().min(1).optional(),
   to: z.string().trim().min(5),
   message: outboundMessageSchema,
   replyToMessageId: z.string().min(1).optional(),
   replyToMetaMessageId: z.string().min(1).optional(),
+  clientMessageId: z.string().uuid().optional(),
+  sourceDeviceId: z.string().min(1).max(200).optional(),
+  requestId: z.string().min(1).max(200).optional(),
+  idempotencyKey: z.string().min(1).max(500).optional(),
+  actorUserId: z.string().min(1).optional(),
 });
 
 const TYPE_BY_KIND = {

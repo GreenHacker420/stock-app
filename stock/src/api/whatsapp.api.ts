@@ -1,7 +1,20 @@
 import { API_BASE_URL, apiRequest } from "./client";
 import { useAuthStore } from "../auth/auth-store";
+import * as Crypto from "expo-crypto";
+import { getDeviceInstallationId } from "../notifications/device-identity";
 
 export type WaMessageStatus = "QUEUED" | "SENT" | "DELIVERED" | "READ" | "FAILED" | "DELETED";
+export type WaOperationState =
+  | "WAITING_FOR_NETWORK"
+  | "UPLOADING"
+  | "SUBMITTING"
+  | "QUEUED"
+  | "PROCESSING"
+  | "RETRY_SCHEDULED"
+  | "TERMINALLY_FAILED"
+  | "COMPLETED";
+export type WaProviderStatus = "PENDING" | "ACCEPTED" | "SENT" | "DELIVERED" | "READ" | "FAILED";
+export type WaContentState = "VISIBLE" | "DELETED";
 export type WaMessageType =
   | "TEXT"
   | "IMAGE"
@@ -91,11 +104,18 @@ export interface WaSendCommand {
 
 export interface WaMessage {
   id: string;
+  clientMessageId?: string;
   conversationId: string;
   metaMessageId?: string;
   replyToMetaMessageId?: string;
   direction: WaMessageDirection;
   status: WaMessageStatus;
+  operationState?: WaOperationState;
+  providerStatus?: WaProviderStatus;
+  contentState?: WaContentState;
+  attempt?: number;
+  entityVersion?: number;
+  providerStatusAt?: string;
   type: WaMessageType;
   content: any;
   payload?: {
@@ -175,7 +195,24 @@ export interface WaConversation {
   };
   assignedToId?: string | null;
   messages?: WaMessage[];
+  entityVersion?: number;
 }
+
+export type WaPage<T> = {
+  items: T[];
+  nextCursor: string | null;
+  snapshotCursor: string;
+};
+
+export type WhatsAppCapability = {
+  enabled: boolean;
+  integrationId: string | null;
+  phoneNumberId: string | null;
+  runtimeConfig: {
+    socketGraceMs: number;
+    notificationPreviewsEnabled: boolean;
+  };
+};
 
 export type WaCreateConversationInput = {
   shopId: string;
@@ -362,6 +399,90 @@ export type WaTemplate = {
 
 export async function fetchWaConversations(token: string, shopId: string) {
   return apiRequest<WaConversation[]>(`/whatsapp/conversations?shopId=${encodeURIComponent(shopId)}`, { token });
+}
+
+export function fetchWhatsAppCapability(token: string, shopId: string) {
+  return apiRequest<WhatsAppCapability>(
+    `/whatsapp/capability?shopId=${encodeURIComponent(shopId)}`,
+    { token },
+  );
+}
+
+export function fetchScopedWaConversations(
+  token: string,
+  integrationId: string,
+  options: { limit?: number; cursor?: string } = {},
+) {
+  const query = new URLSearchParams({ limit: String(options.limit ?? 50) });
+  if (options.cursor) query.set("cursor", options.cursor);
+  return apiRequest<WaPage<WaConversation>>(
+    `/whatsapp/integrations/${encodeURIComponent(integrationId)}/conversations?${query.toString()}`,
+    { token },
+  );
+}
+
+export function fetchScopedWaMessages(
+  token: string,
+  integrationId: string,
+  conversationId: string,
+  options: { limit?: number; cursor?: string } = {},
+) {
+  const query = new URLSearchParams({ limit: String(options.limit ?? 50) });
+  if (options.cursor) query.set("cursor", options.cursor);
+  return apiRequest<WaPage<WaMessage>>(
+    `/whatsapp/integrations/${encodeURIComponent(integrationId)}/conversations/${encodeURIComponent(conversationId)}/messages?${query.toString()}`,
+    { token },
+  );
+}
+
+export async function sendScopedWaMessage(
+  token: string,
+  scope: { shopId: string; integrationId: string; conversationId: string },
+  input: {
+    clientMessageId?: string;
+    message: WaOutboundMessage;
+    replyToMessageId?: string;
+  },
+) {
+  const clientMessageId = input.clientMessageId || Crypto.randomUUID();
+  const sourceDeviceId = await getDeviceInstallationId();
+  const requestId = Crypto.randomUUID();
+  const idempotencyKey = `wa-send:${scope.shopId}:${scope.integrationId}:${clientMessageId}`;
+  return apiRequest<{ message: WaMessage }>(
+    `/whatsapp/integrations/${encodeURIComponent(scope.integrationId)}/conversations/${encodeURIComponent(scope.conversationId)}/messages`,
+    {
+      method: "POST",
+      token,
+      headers: {
+        "Idempotency-Key": idempotencyKey,
+        "X-Request-Id": requestId,
+      },
+      body: JSON.stringify({
+        clientMessageId,
+        message: input.message,
+        replyToMessageId: input.replyToMessageId,
+        sourceDeviceId,
+      }),
+    },
+  );
+}
+
+export function retryScopedWaMessage(token: string, integrationId: string, messageId: string) {
+  return apiRequest<{ message: WaMessage }>(
+    `/whatsapp/integrations/${encodeURIComponent(integrationId)}/messages/${encodeURIComponent(messageId)}/retry`,
+    { method: "POST", token },
+  );
+}
+
+export function markScopedWaConversationRead(
+  token: string,
+  integrationId: string,
+  conversationId: string,
+) {
+  return apiRequest<{ conversation: WaConversation }>(
+    `/whatsapp/integrations/${encodeURIComponent(integrationId)}/conversations/${encodeURIComponent(conversationId)}/read`,
+    { method: "POST", token },
+  );
 }
 
 export async function fetchWaMessages(token: string, conversationId: string, limit = 50, cursor?: string) {

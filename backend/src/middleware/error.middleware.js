@@ -5,7 +5,7 @@ export function notFoundHandler(req, _res, next) {
   next(new ApiError(404, `Route not found: ${req.method} ${req.originalUrl}`));
 }
 
-export function errorHandler(error, _req, res, _next) {
+export function errorHandler(error, req, res, _next) {
   // Prisma unique constraint violation → 409 Conflict
   if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
     const fields = error.meta?.target ?? [];
@@ -19,6 +19,12 @@ export function errorHandler(error, _req, res, _next) {
       message: `${fieldLabel} already exists. Please use a different value.`,
       field: fieldList[0] ?? null,
       details: null,
+      error: {
+        code: "CONFLICT",
+        message: `${fieldLabel} already exists. Please use a different value.`,
+        retryable: false,
+        requestId: req.requestId,
+      },
     });
   }
 
@@ -33,5 +39,12 @@ export function errorHandler(error, _req, res, _next) {
     success: false,
     message,
     details: error.details || null,
+    error: {
+      code: error.details?.code || (statusCode === 500 ? "INTERNAL_ERROR" : "REQUEST_FAILED"),
+      message,
+      retryable: statusCode === 429 || statusCode === 502 || statusCode === 503 || statusCode === 504,
+      requestId: req.requestId,
+      details: error.details || undefined,
+    },
   });
 }

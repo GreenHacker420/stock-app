@@ -360,7 +360,7 @@ export async function apiRequest<T>(
     }
   }
   const payload = responseText
-    ? JSON.parse(responseText) as ApiResponse<T>
+    ? JSON.parse(responseText) as ApiResponse<T> & { error?: { message?: string; requestId?: string } }
     : { success: response.ok, data: undefined as T };
 
 
@@ -368,10 +368,12 @@ export async function apiRequest<T>(
     if (response.status === 401 && options.token) {
       reportUnauthorized(options.token);
     }
-    throw new ApiError(payload.message || "Request failed", response.status, (payload as any).field ?? null);
+    throw new ApiError(payload.error?.message || payload.message || "Request failed", response.status, (payload as any).field ?? null);
   }
 
-  return payload.data;
+  return Object.prototype.hasOwnProperty.call(payload, "data")
+    ? payload.data
+    : payload as unknown as T;
 }
 
 // AUTH

@@ -2,15 +2,12 @@ import { Worker } from "bullmq";
 import Redis from "ioredis";
 import prisma from "../../lib/db.js";
 import { whatsappService } from "../../services/whatsapp.service.js";
-import { publishWhatsAppEvent } from "../../utils/realtime.js";
+import { enqueueWhatsAppDomainEvent } from "../../services/whatsapp.domain-events.js";
 
 const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
 const connection = new Redis(REDIS_URL, { maxRetriesPerRequest: null });
 
-/**
- * Checks and registers rate limiting for the shop.
- * Retries up to 3 times with 200ms delay. Returns false if limit is exceeded.
- */
+
 async function checkRateLimit(shopId, jobId) {
   const key = `wa:rate:${shopId}`;
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -38,8 +35,17 @@ export function startOutboundWorker() {
   const worker = new Worker(
     "whatsapp-outbound",
     async (job) => {
-      const { shopId, payload, messageId } = job.data;
-      console.log(`[WhatsApp Outbound Worker] Processing job ${job.id} for message ${messageId} in shop ${shopId}`);
+      const { shopId, payload, messageId, attempt, clientMessageId, requestId } = job.data;
+      const startedAt = Date.now();
+      console.log("[WhatsApp Send Trace]", {
+        phase: "queue_processing",
+        requestId,
+        clientMessageId,
+        messageId,
+        queueJobId: job.id,
+        shopId,
+        attempt,
+      });
 
       // 1. Sliding window rate limiting
       const allowed = await checkRateLimit(shopId, job.id);
@@ -50,7 +56,18 @@ export function startOutboundWorker() {
 
       // 2. Process outbound message sending
       try {
-        const result = await whatsappService._sendDirect(shopId, { messageId, payload });
+        const result = await whatsappService._sendDirect(shopId, { messageId, attempt, payload });
+        console.log("[WhatsApp Send Trace]", {
+          phase: "provider_accepted",
+          requestId,
+          clientMessageId,
+          messageId,
+          queueJobId: job.id,
+          providerMessageId: result.metaMessageId,
+          shopId,
+          attempt,
+          durationMs: Date.now() - startedAt,
+        });
         return result;
       } catch (error) {
         console.error(`[WhatsApp Outbound Worker] Send failed for message ${messageId}:`, error.message);
@@ -72,32 +89,49 @@ export function startOutboundWorker() {
 
     if (!job) return;
 
-    const { shopId, messageId } = job.data;
+    const { shopId, messageId, attempt, requestId, clientMessageId } = job.data;
 
     // Check if attempts are exhausted (this is going to the DLQ)
     const attemptsMade = job.attemptsMade;
     const maxAttempts = job.opts.attempts || 3;
 
-    if (attemptsMade >= maxAttempts) {
+    const exhausted = attemptsMade >= maxAttempts;
+    if (exhausted) {
       console.error(`[WhatsApp Outbound Worker] DLQ triggered for job ${job.id} (message ${messageId})`);
 
       try {
         // Update message status to FAILED in the database
-        const updatedMessage = await prisma.waMessage.update({
-          where: { id: messageId },
-          data: {
-            status: "FAILED",
-            errorMessage: err.message || "Failed after maximum retries",
-            failedAt: new Date(),
-          },
-        });
-
-        // Notify client-side UI
-        await publishWhatsAppEvent(shopId, "wa:status_updated", {
-          messageId: updatedMessage.id,
-          conversationId: updatedMessage.conversationId,
-          status: "FAILED",
-          error: updatedMessage.errorMessage,
+        const updatedMessage = await prisma.$transaction(async (tx) => {
+          const updated = await tx.waMessage.update({
+            where: { id: messageId },
+            data: {
+              status: "FAILED",
+              operationState: "TERMINALLY_FAILED",
+              providerStatus: "FAILED",
+              providerStatusAt: new Date(),
+              errorMessage: err.message || "Failed after maximum retries",
+              failedAt: new Date(),
+              entityVersion: { increment: 1 },
+            },
+          });
+          await enqueueWhatsAppDomainEvent(tx, {
+            shopId,
+            entity: "waMessage",
+            entityId: updated.id,
+            entityVersion: updated.entityVersion,
+            action: "terminally_failed",
+            conversationId: updated.conversationId,
+            sourceDeviceId: updated.sourceDeviceId,
+            patch: {
+              operationState: updated.operationState,
+              providerStatus: updated.providerStatus,
+              providerStatusAt: updated.providerStatusAt,
+              attempt: updated.attempt,
+              entityVersion: updated.entityVersion,
+              errorMessage: updated.errorMessage,
+            },
+          });
+          return updated;
         });
 
         // Get owners of the shop to trigger alert notifications
@@ -119,15 +153,53 @@ export function startOutboundWorker() {
             },
           });
 
-          // Emit notification event to socket
-          await publishWhatsAppEvent(shopId, "notification:created", {
-            message: `WhatsApp message failed to deliver permanently.`,
-          });
         }
       } catch (dbErr) {
         console.error(`[WhatsApp Outbound Worker] Failed to update DLQ status in database:`, dbErr.message);
       }
+    } else {
+      try {
+        await prisma.$transaction(async (tx) => {
+          const current = await tx.waMessage.findUnique({ where: { id: messageId } });
+          if (!current || current.attempt !== attempt) return;
+          const updated = await tx.waMessage.update({
+            where: { id: messageId },
+            data: {
+              operationState: "RETRY_SCHEDULED",
+              errorMessage: err.message,
+              entityVersion: { increment: 1 },
+            },
+          });
+          await enqueueWhatsAppDomainEvent(tx, {
+            shopId,
+            entity: "waMessage",
+            entityId: updated.id,
+            entityVersion: updated.entityVersion,
+            action: "retry_scheduled",
+            conversationId: updated.conversationId,
+            sourceDeviceId: updated.sourceDeviceId,
+            patch: {
+              operationState: updated.operationState,
+              providerStatus: updated.providerStatus,
+              attempt: updated.attempt,
+              entityVersion: updated.entityVersion,
+            },
+          });
+        });
+      } catch (dbErr) {
+        console.error("[WhatsApp Outbound Worker] Failed to persist retry state:", dbErr.message);
+      }
     }
+
+    console.log("[WhatsApp Send Trace]", {
+      phase: exhausted ? "terminal_failure" : "retry_scheduled",
+      requestId,
+      clientMessageId,
+      messageId,
+      queueJobId: job.id,
+      shopId,
+      attempt,
+    });
   });
 
   return worker;

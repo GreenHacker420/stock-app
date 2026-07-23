@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import morgan from "morgan";
+import crypto from "node:crypto";
 
 import { errorHandler, notFoundHandler } from "./middleware/error.middleware.js";
 import { mountAppRoutes } from "./routes/index.js";
@@ -34,6 +35,15 @@ function requestMetrics(req, res, next) {
   next();
 }
 
+function requestContext(req, res, next) {
+  const requestedId = req.get("X-Request-Id");
+  req.requestId = requestedId && requestedId.length <= 128
+    ? requestedId
+    : crypto.randomUUID();
+  res.setHeader("X-Request-Id", req.requestId);
+  next();
+}
+
 export function createApp() {
   const app = express();
 
@@ -52,6 +62,7 @@ export function createApp() {
     app.use(morgan("dev"));
   }
   app.use(requestMetrics);
+  app.use(requestContext);
 
   app.get("/", (_req, res) => {
     res.json({

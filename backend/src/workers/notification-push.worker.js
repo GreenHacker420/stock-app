@@ -110,7 +110,20 @@ async function checkExpoPushReceipts() {
   }
 }
 
-async function deliverNotification(notificationId) {
+function whatsappPushData(notification, event) {
+  if (!event || event.entity !== "waMessage") return null;
+  return {
+    type: "WHATSAPP_MESSAGE",
+    shopId: notification.shopId,
+    integrationId: event.integrationId,
+    phoneNumberId: event.phoneNumberId,
+    conversationId: event.conversationId,
+    messageId: event.entityId,
+    eventId: event.eventId,
+  };
+}
+
+export async function deliverNotification(notificationId) {
   const notification = await prisma.notification.findUnique({
     where: { id: notificationId },
     include: {
@@ -129,6 +142,13 @@ async function deliverNotification(notificationId) {
     },
   });
   if (!notification) return { skipped: "NOT_FOUND" };
+  const outbox = notification.domainEventId
+    ? await prisma.domainEventOutbox.findUnique({
+        where: { id: notification.domainEventId },
+        select: { eventJson: true },
+      })
+    : null;
+  const whatsappData = whatsappPushData(notification, outbox?.eventJson);
   const devices = notification.user.devices.filter((device) => isExpoPushToken(device.pushToken));
   if (!devices.length) return { skipped: "NO_PUSH_DEVICES" };
 
@@ -149,12 +169,13 @@ async function deliverNotification(notificationId) {
     title: notification.shop?.name || "ShopControl",
     body: notification.message,
     channelId: "default",
-    data: {
+    data: whatsappData || {
       notificationId: notification.id,
       shopId: notification.shopId,
       triggerEvent: notification.triggerEvent,
       entityType: notification.entityType,
       entityId: notification.entityId,
+      eventId: notification.domainEventId,
     },
   })));
 

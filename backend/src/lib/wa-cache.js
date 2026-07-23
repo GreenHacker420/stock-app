@@ -40,7 +40,7 @@ export async function getWaCredentials(shopId) {
   // 3. Database Fallback
   const integration = await prisma.waIntegration.findUnique({
     where: { shopId },
-    select: { accessToken: true, phoneNumberId: true, appSecret: true, businessAccountId: true, status: true },
+    select: { id: true, shopId: true, accessToken: true, phoneNumberId: true, appSecret: true, businessAccountId: true, status: true },
   });
   
   if (!integration || integration.status !== "CONNECTED") {
@@ -48,6 +48,8 @@ export async function getWaCredentials(shopId) {
   }
   
   const credentials = {
+    id: integration.id,
+    shopId: integration.shopId,
     accessToken: decrypt(integration.accessToken),
     phoneNumberId: integration.phoneNumberId,
     appSecret: integration.appSecret,
@@ -138,7 +140,7 @@ export async function warmTenantCache() {
   try {
     const integrations = await prisma.waIntegration.findMany({
       where: { status: "CONNECTED" },
-      select: { shopId: true, phoneNumberId: true, accessToken: true, appSecret: true, businessAccountId: true },
+      select: { id: true, shopId: true, phoneNumberId: true, accessToken: true, appSecret: true, businessAccountId: true },
     });
     
     console.log(`[WhatsApp Cache] Pre-warming credentials cache for ${integrations.length} shops...`);
@@ -148,6 +150,8 @@ export async function warmTenantCache() {
       const tenantKey = `wa:tenant:${integration.phoneNumberId}`;
       
       const credentials = {
+        id: integration.id,
+        shopId: integration.shopId,
         accessToken: decrypt(integration.accessToken),
         phoneNumberId: integration.phoneNumberId,
         appSecret: integration.appSecret,

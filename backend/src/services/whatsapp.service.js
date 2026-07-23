@@ -1,6 +1,5 @@
 import axios from "axios";
 import prisma from "../lib/db.js";
-import { publishWhatsAppEvent } from "../utils/realtime.js";
 import { getWaCredentials } from "../lib/wa-cache.js";
 import { connection as redis } from "./whatsapp.queue.js";
 import crypto from "crypto";
@@ -13,9 +12,48 @@ import {
   requiresServiceWindow,
 } from "./whatsapp.message-compiler.js";
 import { resolveOutboundMediaAsset } from "./whatsapp.media.service.js";
+import { ApiError } from "../utils/ApiError.js";
+import { enqueueWhatsAppDomainEvent } from "./whatsapp.domain-events.js";
 
 const API_VERSION = "v25.0";
 const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
+
+function stableStringify(value) {
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value).sort().map((key) =>
+      `${JSON.stringify(key)}:${stableStringify(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function hashLogicalMessage(value) {
+  return crypto.createHash("sha256").update(stableStringify(value)).digest("hex");
+}
+
+function queueJobId(messageId, attempt) {
+  return `wa-send-${messageId}-attempt-${attempt}`;
+}
+
+async function enqueueOutboundMessage({
+  shopId,
+  message,
+  requestId,
+  clientMessageId,
+  payload,
+}) {
+  const { whatsappQueue } = await import("./whatsapp.queue.js");
+  await whatsappQueue.add("send-message", {
+    shopId,
+    messageId: message.id,
+    attempt: message.attempt,
+    requestId: requestId || message.requestId,
+    clientMessageId: clientMessageId || message.clientMessageId,
+    payload,
+  }, {
+    jobId: queueJobId(message.id, message.attempt),
+  });
+}
 
 class WhatsAppService {
   // Fetches the WhatsApp integration details for a shop (Cache-backed).
@@ -115,15 +153,27 @@ class WhatsAppService {
     const command = outboundCommandSchema.parse(input);
     const {
       shopId,
+      integrationId,
       conversationId,
       to,
       message: requestedMessage,
       replyToMetaMessageId,
       replyToMessageId,
+      sourceDeviceId,
+      requestId,
+      actorUserId,
     } = command;
+    const clientMessageId = command.clientMessageId || crypto.randomUUID();
+    const idempotencyKey = command.idempotencyKey
+      || `wa-send:${shopId}:${integrationId || "primary"}:${clientMessageId}`;
 
     // Ensure integration exists before queuing
-    await this.getIntegration(shopId);
+    const integration = await this.getIntegration(shopId);
+    if (integrationId && integration.id !== integrationId) {
+      throw new ApiError(404, "WhatsApp integration not found", {
+        code: "WHATSAPP_RESOURCE_NOT_FOUND",
+      });
+    }
 
     const normalizedPhone = normalizePhone(to);
     let resolvedConversationId = conversationId;
@@ -160,8 +210,8 @@ class WhatsAppService {
 
     let resolvedReplyToMetaId = replyToMetaMessageId;
     if (replyToMessageId && !resolvedReplyToMetaId) {
-      const parentMsg = await prisma.waMessage.findUnique({
-        where: { id: replyToMessageId },
+      const parentMsg = await prisma.waMessage.findFirst({
+        where: { id: replyToMessageId, conversationId: resolvedConversationId },
         select: { metaMessageId: true }
       });
       resolvedReplyToMetaId = parentMsg?.metaMessageId || null;
@@ -176,29 +226,121 @@ class WhatsAppService {
       ...requestedMessage,
       ...(resolvedMedia.assetId ? { assetId: resolvedMedia.assetId } : {}),
     });
+    const logicalPayload = {
+      conversationId: resolvedConversationId,
+      to: normalizedPhone,
+      message: outboundMessage,
+      replyToMetaMessageId: resolvedReplyToMetaId || null,
+    };
+    const clientPayloadHash = hashLogicalMessage(logicalPayload);
 
-    // 1. Initial local record
-    const message = await prisma.waMessage.create({
-      data: {
-        conversationId: resolvedConversationId,
-        direction: "OUTBOUND",
-        status: "QUEUED",
-        type: projection.type,
-        content: projection.content,
-        payload: projection.payload,
-        assetId: projection.assetId,
-        templateName: projection.templateName,
-        templateLanguage: projection.templateLanguage,
-        replyToMetaMessageId: resolvedReplyToMetaId,
+    const existing = await prisma.waMessage.findUnique({
+      where: {
+        conversationId_clientMessageId: {
+          conversationId: resolvedConversationId,
+          clientMessageId,
+        },
       },
     });
+    if (existing) {
+      if (existing.clientPayloadHash !== clientPayloadHash) {
+        throw new ApiError(409, "Client message ID reused with different content", {
+          code: "IDEMPOTENCY_CONFLICT",
+        });
+      }
+      if (existing.operationState === "QUEUED" || existing.operationState === "RETRY_SCHEDULED") {
+        await enqueueOutboundMessage({
+          shopId,
+          message: existing,
+          requestId,
+          clientMessageId,
+          payload: existing.payload?.outboundCommand || logicalPayload,
+        });
+      }
+      return existing;
+    }
+
+    let message;
+    try {
+      message = await prisma.$transaction(async (tx) => {
+        const created = await tx.waMessage.create({
+          data: {
+            conversationId: resolvedConversationId,
+            clientMessageId,
+            clientPayloadHash,
+            sourceDeviceId,
+            requestId,
+            direction: "OUTBOUND",
+            status: "QUEUED",
+            operationState: "QUEUED",
+            providerStatus: "PENDING",
+            contentState: "VISIBLE",
+            attempt: 1,
+            type: projection.type,
+            content: projection.content,
+            payload: {
+              ...(projection.payload || {}),
+              outboundCommand: logicalPayload,
+            },
+            assetId: projection.assetId,
+            templateName: projection.templateName,
+            templateLanguage: projection.templateLanguage,
+            replyToMetaMessageId: resolvedReplyToMetaId,
+          },
+        });
+        await enqueueWhatsAppDomainEvent(tx, {
+          shopId,
+          integration: {
+            id: integration.id,
+            phoneNumberId: integration.phoneNumberId,
+          },
+          entity: "waMessage",
+          entityId: created.id,
+          entityVersion: created.entityVersion,
+          action: "created",
+          conversationId: resolvedConversationId,
+          sourceDeviceId,
+          actorUserId: actorUserId || "system:whatsapp",
+          idempotencyKey,
+          patch: {
+            id: created.id,
+            clientMessageId,
+            conversationId: resolvedConversationId,
+            operationState: created.operationState,
+            providerStatus: created.providerStatus,
+            contentState: created.contentState,
+            attempt: created.attempt,
+            entityVersion: created.entityVersion,
+            direction: created.direction,
+            type: created.type,
+            content: created.content,
+            createdAt: created.createdAt,
+          },
+        });
+        return created;
+      });
+    } catch (error) {
+      if (error?.code === "P2002") {
+        const raced = await prisma.waMessage.findUnique({
+          where: {
+            conversationId_clientMessageId: {
+              conversationId: resolvedConversationId,
+              clientMessageId,
+            },
+          },
+        });
+        if (raced?.clientPayloadHash === clientPayloadHash) return raced;
+      }
+      throw error;
+    }
 
     // 2. Add to queue
     try {
-      const { whatsappQueue } = await import("./whatsapp.queue.js");
-      await whatsappQueue.add("send-message", {
+      await enqueueOutboundMessage({
         shopId,
-        messageId: message.id,
+        message,
+        requestId,
+        clientMessageId,
         payload: {
           conversationId: resolvedConversationId,
           to: normalizedPhone,
@@ -207,13 +349,38 @@ class WhatsAppService {
         },
       });
     } catch (error) {
-      await prisma.waMessage.update({
-        where: { id: message.id },
-        data: {
-          status: "FAILED",
-          failedAt: new Date(),
-          errorMessage: error.message,
-        },
+      await prisma.$transaction(async (tx) => {
+        const failed = await tx.waMessage.update({
+          where: { id: message.id },
+          data: {
+            status: "FAILED",
+            operationState: "TERMINALLY_FAILED",
+            providerStatus: "FAILED",
+            providerStatusAt: new Date(),
+            entityVersion: { increment: 1 },
+            failedAt: new Date(),
+            errorMessage: error.message,
+          },
+        });
+        await enqueueWhatsAppDomainEvent(tx, {
+          shopId,
+          integration,
+          entity: "waMessage",
+          entityId: failed.id,
+          entityVersion: failed.entityVersion,
+          action: "terminally_failed",
+          conversationId: failed.conversationId,
+          sourceDeviceId,
+          actorUserId: actorUserId || "system:whatsapp",
+          patch: {
+            operationState: failed.operationState,
+            providerStatus: failed.providerStatus,
+            providerStatusAt: failed.providerStatusAt,
+            attempt: failed.attempt,
+            entityVersion: failed.entityVersion,
+            errorMessage: failed.errorMessage,
+          },
+        });
       });
       throw error;
     }
@@ -221,13 +388,127 @@ class WhatsAppService {
     return message;
   }
 
+  async retryMessage({ shopId, integrationId, messageId, sourceDeviceId, requestId }) {
+    const integration = await this.getIntegration(shopId);
+    if (integrationId && integration.id !== integrationId) {
+      throw new ApiError(404, "WhatsApp integration not found", {
+        code: "WHATSAPP_RESOURCE_NOT_FOUND",
+      });
+    }
+    const message = await prisma.waMessage.findFirst({
+      where: { id: messageId, conversation: { shopId } },
+    });
+    if (!message) {
+      throw new ApiError(404, "WhatsApp message not found");
+    }
+    if (message.operationState !== "TERMINALLY_FAILED") {
+      throw new ApiError(409, "Only terminally failed messages can be retried", {
+        code: "MESSAGE_NOT_RETRYABLE",
+      });
+    }
+    const outboundCommand = message.payload?.outboundCommand;
+    if (!outboundCommand) {
+      throw new ApiError(409, "This legacy message does not contain retry metadata", {
+        code: "MESSAGE_NOT_RETRYABLE",
+      });
+    }
+    const updated = await prisma.$transaction(async (tx) => {
+      const claimed = await tx.waMessage.updateMany({
+        where: {
+          id: message.id,
+          operationState: "TERMINALLY_FAILED",
+          attempt: message.attempt,
+        },
+        data: {
+          attempt: { increment: 1 },
+          operationState: "RETRY_SCHEDULED",
+          providerStatus: "PENDING",
+          providerStatusAt: null,
+          metaMessageId: null,
+          sourceDeviceId: sourceDeviceId || message.sourceDeviceId,
+          requestId,
+          status: "QUEUED",
+          errorMessage: null,
+          failedAt: null,
+          retryCount: { increment: 1 },
+          lastRetryAt: new Date(),
+          entityVersion: { increment: 1 },
+        },
+      });
+      if (claimed.count !== 1) {
+        throw new ApiError(409, "Message retry is already in progress", {
+          code: "MESSAGE_RETRY_IN_PROGRESS",
+        });
+      }
+      const row = await tx.waMessage.findUnique({ where: { id: message.id } });
+      await enqueueWhatsAppDomainEvent(tx, {
+        shopId,
+        integration,
+        entity: "waMessage",
+        entityId: row.id,
+        entityVersion: row.entityVersion,
+        action: "retry_scheduled",
+        conversationId: row.conversationId,
+        sourceDeviceId,
+        patch: {
+          operationState: row.operationState,
+          providerStatus: row.providerStatus,
+          attempt: row.attempt,
+          entityVersion: row.entityVersion,
+        },
+      });
+      return row;
+    });
+    await enqueueOutboundMessage({
+      shopId,
+      message: updated,
+      requestId,
+      clientMessageId: updated.clientMessageId,
+      payload: outboundCommand,
+    });
+    return updated;
+  }
+
 
   // Low-level method called by worker to actually hit Meta API.
-  async _sendDirect(shopId, { messageId, payload: p }) {
+  async _sendDirect(shopId, { messageId, attempt, payload: p }) {
     const { conversationId, to, message, replyToMetaMessageId } = p;
     const integration = await this.getIntegration(shopId);
+    const current = await prisma.waMessage.findFirst({
+      where: { id: messageId, conversation: { shopId } },
+    });
+    if (!current) throw new Error("WhatsApp message not found");
+    if (attempt && current.attempt !== attempt) {
+      return current;
+    }
 
     try {
+      await prisma.$transaction(async (tx) => {
+        const processing = await tx.waMessage.update({
+          where: { id: messageId },
+          data: {
+            operationState: "PROCESSING",
+            entityVersion: { increment: 1 },
+          },
+        });
+        await enqueueWhatsAppDomainEvent(tx, {
+          shopId,
+          integration,
+          entity: "waMessage",
+          entityId: processing.id,
+          entityVersion: processing.entityVersion,
+          action: "processing",
+          conversationId,
+          sourceDeviceId: processing.sourceDeviceId,
+          patch: {
+            operationState: processing.operationState,
+            providerStatus: processing.providerStatus,
+            attempt: processing.attempt,
+            entityVersion: processing.entityVersion,
+          },
+        });
+      });
+
       if (requiresServiceWindow(message)) {
         const isWithinWindow = await this.canSendFreeText(conversationId);
         if (!isWithinWindow) {
@@ -250,12 +531,38 @@ class WhatsAppService {
 
       const metaMessageId = response.data.messages?.[0]?.id;
 
-      const updatedMessage = await prisma.waMessage.update({
-        where: { id: messageId },
-        data: {
-          metaMessageId,
-          status: "SENT",
-        },
+      const updatedMessage = await prisma.$transaction(async (tx) => {
+        const updated = await tx.waMessage.update({
+          where: { id: messageId },
+          data: {
+            metaMessageId,
+            status: "SENT",
+            operationState: "COMPLETED",
+            providerStatus: "ACCEPTED",
+            providerStatusAt: new Date(),
+            entityVersion: { increment: 1 },
+          },
+        });
+        await enqueueWhatsAppDomainEvent(tx, {
+          shopId,
+          integration,
+          entity: "waMessage",
+          entityId: updated.id,
+          entityVersion: updated.entityVersion,
+          action: "provider_status_changed",
+          conversationId,
+          sourceDeviceId: updated.sourceDeviceId,
+          patch: {
+            providerMessageId: updated.metaMessageId,
+            operationState: updated.operationState,
+            providerStatus: updated.providerStatus,
+            providerStatusAt: updated.providerStatusAt,
+            attempt: updated.attempt,
+            entityVersion: updated.entityVersion,
+            status: updated.status,
+          },
+        });
+        return updated;
       });
       if (message.kind === "flow" && message.executionId) {
         await prisma.waFlowExecution.updateMany({
@@ -268,24 +575,9 @@ class WhatsAppService {
         });
       }
 
-      await publishWhatsAppEvent(shopId, "wa:status_updated", {
-        messageId: updatedMessage.id,
-        conversationId,
-        status: "SENT",
-      });
-
       return updatedMessage;
     } catch (error) {
       const errorMessage = error.response?.data?.error?.message || error.message;
-
-      const failedMessage = await prisma.waMessage.update({
-        where: { id: messageId },
-        data: {
-          status: "FAILED",
-          errorMessage,
-          failedAt: new Date(),
-        },
-      });
       if (message.kind === "flow" && message.executionId) {
         await prisma.waFlowExecution.updateMany({
           where: { id: message.executionId, shopId },
@@ -296,13 +588,6 @@ class WhatsAppService {
         });
       }
 
-      await publishWhatsAppEvent(shopId, "wa:status_updated", {
-        messageId: failedMessage.id,
-        conversationId,
-        status: "FAILED",
-        error: errorMessage
-      });
-
       throw new Error(errorMessage);
     }
   }
@@ -311,8 +596,8 @@ class WhatsAppService {
   async sendReaction(shopId, { to, messageId, emoji }) {
     const integration = await this.getIntegration(shopId);
 
-    const targetMessage = await prisma.waMessage.findUnique({
-      where: { id: messageId },
+    const targetMessage = await prisma.waMessage.findFirst({
+      where: { id: messageId, conversation: { shopId } },
     });
 
     if (!targetMessage || !targetMessage.metaMessageId) {
@@ -362,16 +647,22 @@ class WhatsAppService {
         reactions,
       };
 
-      const updatedMessage = await prisma.waMessage.update({
-        where: { id: messageId },
-        data: { payload: updatedPayload },
-      });
-
-      // Broadcast reaction updates
-      await publishWhatsAppEvent(shopId, "wa:reaction_updated", {
-        messageId: updatedMessage.id,
-        conversationId: updatedMessage.conversationId,
-        reactions,
+      const updatedMessage = await prisma.$transaction(async (tx) => {
+        const updated = await tx.waMessage.update({
+          where: { id: messageId },
+          data: { payload: updatedPayload, entityVersion: { increment: 1 } },
+        });
+        await enqueueWhatsAppDomainEvent(tx, {
+          shopId,
+          integration,
+          entity: "waMessage",
+          entityId: updated.id,
+          entityVersion: updated.entityVersion,
+          action: "reaction_updated",
+          conversationId: updated.conversationId,
+          patch: { reactions, entityVersion: updated.entityVersion },
+        });
+        return updated;
       });
 
       return updatedMessage;
@@ -386,8 +677,8 @@ class WhatsAppService {
   async deleteMessage(shopId, messageId) {
     const integration = await this.getIntegration(shopId);
 
-    const message = await prisma.waMessage.findUnique({
-      where: { id: messageId },
+    const message = await prisma.waMessage.findFirst({
+      where: { id: messageId, conversation: { shopId } },
     });
 
     if (!message || !message.metaMessageId) {
@@ -410,19 +701,30 @@ class WhatsAppService {
         }
       );
 
-      const updatedMessage = await prisma.waMessage.update({
-        where: { id: messageId },
-        data: {
-          status: "DELETED",
-          content: { text: "This message was deleted", isDeleted: true },
-        },
-      });
-
-      // Broadcast status updates
-      await publishWhatsAppEvent(shopId, "wa:status_updated", {
-        messageId: updatedMessage.id,
-        conversationId: updatedMessage.conversationId,
-        status: "DELETED",
+      const updatedMessage = await prisma.$transaction(async (tx) => {
+        const updated = await tx.waMessage.update({
+          where: { id: messageId },
+          data: {
+            status: "DELETED",
+            contentState: "DELETED",
+            content: { text: "This message was deleted", isDeleted: true },
+            entityVersion: { increment: 1 },
+          },
+        });
+        await enqueueWhatsAppDomainEvent(tx, {
+          shopId,
+          integration,
+          entity: "waMessage",
+          entityId: updated.id,
+          entityVersion: updated.entityVersion,
+          action: "content_deleted",
+          conversationId: updated.conversationId,
+          patch: {
+            contentState: updated.contentState,
+            entityVersion: updated.entityVersion,
+          },
+        });
+        return updated;
       });
 
       return updatedMessage;

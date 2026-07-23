@@ -20,11 +20,20 @@ export type DomainEvent = {
     | "staff"
     | "attendance"
     | "expense"
-    | "dailySummary";
+    | "dailySummary"
+    | "waMessage"
+    | "waConversation";
   action: string;
   entityId: string;
   actorUserId: string;
   sourceDeviceId?: string | null;
+  sequence?: string;
+  eventVersion?: number;
+  entityVersion?: number;
+  integrationId?: string | null;
+  phoneNumberId?: string | null;
+  conversationId?: string | null;
+  occurredAt?: string;
   createdAt?: string;
   updatedAt?: string;
   queryKeys?: string[];
@@ -46,6 +55,71 @@ export type DomainEvent = {
 const seenEventIds = new Map<string, number>();
 const SEEN_LIMIT = 300;
 
+type EntityRecord = Record<string, unknown> & {
+  id?: string;
+  clientMessageId?: string;
+  entityVersion?: number;
+};
+
+function patchEntity(item: unknown, event: DomainEvent) {
+  if (!item || typeof item !== "object") return item;
+  const entity = item as EntityRecord;
+  const patch = event.patch || {};
+  const patchClientId = typeof patch.clientMessageId === "string" ? patch.clientMessageId : undefined;
+  if (entity.id !== event.entityId && (!patchClientId || entity.clientMessageId !== patchClientId)) {
+    return item;
+  }
+  const incomingVersion = event.entityVersion ?? Number(patch.entityVersion || 0);
+  if ((entity.entityVersion ?? 0) >= incomingVersion) return item;
+  return { ...entity, ...patch, id: event.entityId, entityVersion: incomingVersion };
+}
+
+function patchCollection(data: unknown, event: DomainEvent): unknown {
+  if (Array.isArray(data)) {
+    const patched = data.map((item) => patchEntity(item, event));
+    const found = patched.some((item) => item !== undefined
+      && typeof item === "object"
+      && (item as EntityRecord).id === event.entityId);
+    if (!found && event.action === "created" && event.patch) {
+      return [{ ...event.patch, id: event.entityId, entityVersion: event.entityVersion }, ...patched];
+    }
+    return patched;
+  }
+  if (!data || typeof data !== "object") return data;
+  const value = data as Record<string, unknown>;
+  if (Array.isArray(value.items)) return { ...value, items: patchCollection(value.items, event) };
+  if (Array.isArray(value.pages)) return {
+    ...value,
+    pages: value.pages.map((page) => patchCollection(page, event)),
+  };
+  return patchEntity(data, event);
+}
+
+function patchWhatsAppEvent(queryClient: QueryClient, event: DomainEvent) {
+  if (!event.integrationId) return;
+  if (event.entity === "waMessage" && event.conversationId) {
+    queryClient.setQueriesData(
+      { queryKey: ["whatsapp", "messages", event.shopId, event.integrationId, event.conversationId] },
+      (data) => patchCollection(data, event),
+    );
+    queryClient.setQueryData(
+      ["wa-messages", event.conversationId],
+      (data: unknown) => patchCollection(data, event),
+    );
+    return;
+  }
+  if (event.entity === "waConversation") {
+    queryClient.setQueriesData(
+      { queryKey: ["whatsapp", "conversations", event.shopId, event.integrationId] },
+      (data) => patchCollection(data, event),
+    );
+    queryClient.setQueryData(
+      ["wa-conversations", event.shopId],
+      (data: unknown) => patchCollection(data, event),
+    );
+  }
+}
+
 export function hasSeenDomainEvent(eventId?: string | null) {
   if (!eventId) return false;
   if (seenEventIds.has(eventId)) return true;
@@ -60,6 +134,11 @@ export function hasSeenDomainEvent(eventId?: string | null) {
 export function invalidateForDomainEvent(queryClient: QueryClient, event: DomainEvent) {
   const shopId = event.shopId;
   const invalidate = (queryKey: unknown[]) => queryClient.invalidateQueries({ queryKey });
+
+  if (event.entity === "waMessage" || event.entity === "waConversation") {
+    patchWhatsAppEvent(queryClient, event);
+    return;
+  }
 
   if (event.entity === "sale") {
     invalidate(["sales", shopId]);
@@ -160,7 +239,12 @@ export function handleDomainEvent(queryClient: QueryClient, event: DomainEvent, 
   if (!event?.eventId || hasSeenDomainEvent(event.eventId)) return false;
 
   // Skip processing if event was originated by the current device to avoid duplicate local updates
-  if (currentDeviceId && event.sourceDeviceId === currentDeviceId) {
+  if (
+    currentDeviceId
+    && event.sourceDeviceId === currentDeviceId
+    && event.entity !== "waMessage"
+    && event.entity !== "waConversation"
+  ) {
     console.log(`[domainEvents] Ignoring event ${event.eventId} because it originated from the current device ${currentDeviceId}`);
     return false;
   }

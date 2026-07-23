@@ -1,20 +1,10 @@
 import crypto from "crypto";
 import prisma from "../lib/db.js";
-import { publishWhatsAppEvent } from "../utils/realtime.js";
 import { mapEventTypeToMessageType, parseWebhookPayload } from "./whatsapp.webhook-parser.js";
+import { resolveProviderTransition } from "./whatsapp.status-state.js";
+import { enqueueWhatsAppDomainEvent } from "./whatsapp.domain-events.js";
 
-const MESSAGE_STATUS_RANK = {
-  QUEUED: 0,
-  SENT: 1,
-  DELIVERED: 2,
-  READ: 3,
-  FAILED: 4,
-  DELETED: 5,
-};
-/**
- * Processes a single normalized event.
- * Handles database saving, idempotency, and Socket.IO emission.
- */
+
 export async function processWhatsAppEvent(event, shopId) {
   // 1. Idempotency Check (Event level)
   const hashedEventId = crypto
@@ -54,16 +44,23 @@ async function handleStatusUpdate(event, shopId, eventId) {
     if (!message) return null;
 
     const nextStatus = event.status.toUpperCase();
-    const currentStatusRank = MESSAGE_STATUS_RANK[message.status] || 0;
-    const nextStatusRank = MESSAGE_STATUS_RANK[nextStatus] || 0;
-
-    // Prevent status regression
-    if (nextStatusRank <= currentStatusRank && message.status !== "FAILED") {
+    const transition = resolveProviderTransition(message, {
+      attempt: message.attempt,
+      providerStatus: nextStatus,
+      providerTimestamp: new Date(Number(event.timestamp) * 1000),
+    });
+    if (!transition.apply) {
       return null;
     }
 
-    const nextTimestamp = new Date(Number(event.timestamp) * 1000);
-    const updateData = { status: nextStatus };
+    const nextTimestamp = transition.providerStatusAt;
+    const updateData = {
+      status: transition.legacyStatus,
+      providerStatus: transition.providerStatus,
+      providerStatusAt: nextTimestamp,
+      operationState: nextStatus === "FAILED" ? "TERMINALLY_FAILED" : "COMPLETED",
+      entityVersion: { increment: 1 },
+    };
 
     if (nextStatus === "DELIVERED") updateData.deliveredAt = nextTimestamp;
     if (nextStatus === "READ") updateData.readAt = nextTimestamp;
@@ -91,12 +88,23 @@ async function handleStatusUpdate(event, shopId, eventId) {
       });
     }
 
-    // Notify UI via Pub/Sub socket bridge
-    await publishWhatsAppEvent(shopId, "wa:status_updated", {
-      messageId: updatedMessage.id,
+    await enqueueWhatsAppDomainEvent(tx, {
+      shopId,
+      entity: "waMessage",
+      entityId: updatedMessage.id,
+      entityVersion: updatedMessage.entityVersion,
+      action: "provider_status_changed",
       conversationId: updatedMessage.conversationId,
-      status: nextStatus,
-      timestamp: nextTimestamp,
+      patch: {
+        providerStatus: updatedMessage.providerStatus,
+        operationState: updatedMessage.operationState,
+        contentState: updatedMessage.contentState,
+        providerStatusAt: updatedMessage.providerStatusAt,
+        attempt: updatedMessage.attempt,
+        entityVersion: updatedMessage.entityVersion,
+        status: updatedMessage.status,
+        errorMessage: updatedMessage.errorMessage,
+      },
     });
 
     return updatedMessage;
@@ -147,14 +155,20 @@ async function handleInboundReaction(event, shopId, eventId) {
 
     const updatedMessage = await tx.waMessage.update({
       where: { id: targetMessage.id },
-      data: { payload: updatedPayload },
+      data: { payload: updatedPayload, entityVersion: { increment: 1 } },
     });
 
-    // Broadcast reaction updates
-    await publishWhatsAppEvent(shopId, "wa:reaction_updated", {
-      messageId: updatedMessage.id,
+    await enqueueWhatsAppDomainEvent(tx, {
+      shopId,
+      entity: "waMessage",
+      entityId: updatedMessage.id,
+      entityVersion: updatedMessage.entityVersion,
+      action: "reaction_updated",
       conversationId: updatedMessage.conversationId,
-      reactions,
+      patch: {
+        reactions,
+        entityVersion: updatedMessage.entityVersion,
+      },
     });
 
     return updatedMessage;
@@ -182,14 +196,23 @@ async function handleInboundMessage(event, shopId, eventId) {
           where: { id: targetMessage.id },
           data: {
             status: "DELETED",
+            contentState: "DELETED",
+            entityVersion: { increment: 1 },
             content: { text: "This message was deleted", isDeleted: true }
           }
         });
 
-        await publishWhatsAppEvent(shopId, "wa:status_updated", {
-          messageId: updatedMessage.id,
+        await enqueueWhatsAppDomainEvent(tx, {
+          shopId,
+          entity: "waMessage",
+          entityId: updatedMessage.id,
+          entityVersion: updatedMessage.entityVersion,
+          action: "content_deleted",
           conversationId: updatedMessage.conversationId,
-          status: "DELETED",
+          patch: {
+            contentState: updatedMessage.contentState,
+            entityVersion: updatedMessage.entityVersion,
+          },
         });
 
         return updatedMessage;
@@ -211,6 +234,7 @@ async function handleInboundMessage(event, shopId, eventId) {
         contactName: event.contactName || undefined,
         lastCustomerMessageAt: new Date(Number(event.timestamp) * 1000),
         unreadCount: { increment: 1 },
+        entityVersion: { increment: 1 },
         updatedAt: new Date(),
       },
       create: {
@@ -292,6 +316,10 @@ async function handleInboundMessage(event, shopId, eventId) {
         replyToMetaMessageId: event.replyToMetaMessageId,
         direction: "INBOUND",
         status: "SENT",
+        operationState: "COMPLETED",
+        providerStatus: "SENT",
+        providerStatusAt: new Date(Number(event.timestamp) * 1000),
+        contentState: "VISIBLE",
         type: messageType,
         content: event.content ? { text: event.content } : (event.payload || event.raw || {}),
         payload: messagePayload,
@@ -356,10 +384,54 @@ async function handleInboundMessage(event, shopId, eventId) {
       console.error(`[WhatsApp Processor] Failed to set 24h window key:`, err.message);
     }
 
-    // 6. Notify UI via Pub/Sub socket bridge
-    await publishWhatsAppEvent(shopId, "wa:message_received", {
-      message,
+    await enqueueWhatsAppDomainEvent(tx, {
+      shopId,
+      entity: "waMessage",
+      entityId: message.id,
+      entityVersion: message.entityVersion,
+      action: "created",
       conversationId: conversation.id,
+      patch: {
+        id: message.id,
+        conversationId: conversation.id,
+        providerMessageId: message.metaMessageId,
+        operationState: message.operationState,
+        providerStatus: message.providerStatus,
+        contentState: message.contentState,
+        attempt: message.attempt,
+        entityVersion: message.entityVersion,
+        direction: message.direction,
+        type: message.type,
+        content: message.content,
+        payload: message.payload,
+        assetId: message.assetId,
+        createdAt: message.createdAt,
+      },
+      notification: {
+        title: "New WhatsApp message",
+        body: "Open ShopControl to view the message.",
+        severity: "info",
+        sendPush: true,
+        data: {
+          type: "WHATSAPP_MESSAGE",
+          conversationId: conversation.id,
+          messageId: message.id,
+        },
+      },
+    });
+    await enqueueWhatsAppDomainEvent(tx, {
+      shopId,
+      entity: "waConversation",
+      entityId: conversation.id,
+      entityVersion: conversation.entityVersion,
+      action: "updated",
+      conversationId: conversation.id,
+      patch: {
+        unreadCount: conversation.unreadCount,
+        lastCustomerMessageAt: conversation.lastCustomerMessageAt,
+        contactName: conversation.contactName,
+        entityVersion: conversation.entityVersion,
+      },
     });
 
     return message;

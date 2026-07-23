@@ -21,6 +21,7 @@ import { SelectShop } from './navigation/screens/SelectShop';
 import { RealtimeProvider } from './realtime/RealtimeProvider';
 import { navigationThemes, paperLightTheme } from './theme/paper';
 import { useNotificationSetup } from './notifications/FCMManager';
+import { notificationLinking } from './notifications/whatsappNotificationLinking';
 import { useEnsureActiveShop } from './hooks/useActiveShop';
 import { queryClient } from './query/queryClient';
 import NetInfo from '@react-native-community/netinfo';
@@ -182,6 +183,8 @@ function AuthenticatedApp({ theme, prefix }: { theme: typeof navigationThemes.Li
       linking={{
         enabled: "auto",
         prefixes: [prefix],
+        getInitialURL: notificationLinking.getInitialURL,
+        subscribe: notificationLinking.subscribe,
       }}
       onReady={() => {
         SplashScreen.hideAsync();

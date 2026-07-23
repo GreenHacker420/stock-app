@@ -5,6 +5,13 @@ import { whatsappFlowEndpointController } from "../controllers/whatsapp.flow-end
 import { whatsappFlowController } from "../controllers/whatsapp.flow.controller.js";
 import * as whatsappOnboardingController from "../controllers/whatsapp.onboarding.controller.js";
 import { requireShopAccess } from "../middleware/shopAccess.middleware.js";
+import {
+  requireLegacyWhatsAppConversation,
+  requireLegacyWhatsAppMessage,
+  requireWhatsAppConversation,
+  requireWhatsAppIntegration,
+  requireWhatsAppMessage,
+} from "../services/whatsapp.authorization.js";
 import { validate } from "../middleware/validate.js";
 import { z } from "zod";
 import multer from "multer";
@@ -33,6 +40,48 @@ router.post("/onboarding/sessions/:sessionId/complete", whatsappOnboardingContro
 
 // Protected UI routes
 router.get(
+  "/capability",
+  requireAuth,
+  requireShopAccess((req) => req.query.shopId),
+  whatsappController.getCapability,
+);
+router.get(
+  "/integrations/:integrationId/conversations",
+  requireAuth,
+  requireWhatsAppIntegration,
+  whatsappController.getScopedConversations,
+);
+router.get(
+  "/integrations/:integrationId/conversations/:conversationId/messages",
+  requireAuth,
+  requireWhatsAppConversation,
+  whatsappController.getScopedMessages,
+);
+router.post(
+  "/integrations/:integrationId/conversations/:conversationId/messages",
+  requireAuth,
+  requireWhatsAppConversation,
+  whatsappController.sendScopedMessage,
+);
+router.post(
+  "/integrations/:integrationId/conversations/:conversationId/read",
+  requireAuth,
+  requireWhatsAppConversation,
+  whatsappController.markScopedConversationRead,
+);
+router.post(
+  "/integrations/:integrationId/messages/:messageId/retry",
+  requireAuth,
+  requireWhatsAppMessage,
+  whatsappController.retryScopedMessage,
+);
+router.get(
+  "/integrations/:integrationId/health",
+  requireAuth,
+  requireWhatsAppIntegration,
+  whatsappController.getScopedHealth,
+);
+router.get(
   "/conversations",
   requireAuth,
   requireShopAccess((req) => req.query.shopId),
@@ -44,7 +93,12 @@ router.post(
   requireShopAccess((req) => req.body.shopId),
   whatsappController.createConversation,
 );
-router.get("/conversations/:id/messages", requireAuth, whatsappController.getMessages);
+router.get(
+  "/conversations/:id/messages",
+  requireAuth,
+  requireLegacyWhatsAppConversation,
+  whatsappController.getMessages,
+);
 router.get(
   "/templates",
   requireAuth,
@@ -99,7 +153,12 @@ router.post(
   requireShopAccess((req) => req.body.shopId),
   whatsappFlowController.send,
 );
-router.post("/messages", requireAuth, whatsappController.sendMessage);
+router.post(
+  "/messages",
+  requireAuth,
+  requireShopAccess((req) => req.body.shopId),
+  whatsappController.sendMessage,
+);
 router.post(
   "/media",
   requireAuth,
@@ -114,12 +173,42 @@ router.post(
   mediaUpload.single("file"),
   whatsappController.uploadTemplateExample,
 );
-router.post("/react", requireAuth, whatsappController.reactToMessage);
-router.delete("/messages/:id", requireAuth, whatsappController.deleteMessage);
-router.post("/conversations/:id/archive", requireAuth, whatsappController.archiveConversation);
-router.post("/conversations/:id/read", requireAuth, whatsappController.markConversationRead);
-router.delete("/conversations/:id", requireAuth, whatsappController.deleteConversation);
-router.post("/sync-phone-contacts", requireAuth, whatsappController.syncPhoneContacts);
+router.post(
+  "/react",
+  requireAuth,
+  requireLegacyWhatsAppMessage,
+  whatsappController.reactToMessage,
+);
+router.delete(
+  "/messages/:id",
+  requireAuth,
+  requireLegacyWhatsAppMessage,
+  whatsappController.deleteMessage,
+);
+router.post(
+  "/conversations/:id/archive",
+  requireAuth,
+  requireLegacyWhatsAppConversation,
+  whatsappController.archiveConversation,
+);
+router.post(
+  "/conversations/:id/read",
+  requireAuth,
+  requireLegacyWhatsAppConversation,
+  whatsappController.markConversationRead,
+);
+router.delete(
+  "/conversations/:id",
+  requireAuth,
+  requireLegacyWhatsAppConversation,
+  whatsappController.deleteConversation,
+);
+router.post(
+  "/sync-phone-contacts",
+  requireAuth,
+  requireShopAccess((req) => req.body.shopId),
+  whatsappController.syncPhoneContacts,
+);
 
 // Use a simple middleware to check if user is OWNER instead of missing authorize
 const requireOwner = (req, res, next) => {

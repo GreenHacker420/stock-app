@@ -62,6 +62,15 @@ import { DeliveryMemoDetail } from "./screens/DeliveryMemoDetail";
 import { ManageCategories } from "./screens/ManageCategories";
 import { ManageBrands } from "./screens/ManageBrands";
 import { CopyCatalog } from "./screens/CopyCatalog";
+import { ChatListScreen } from "../modules/whatsapp/screens/ChatListScreen";
+import { ChatDetailScreen } from "../modules/whatsapp/screens/ChatDetailScreen";
+import { ContactBookScreen } from "../modules/whatsapp/screens/ContactBookScreen";
+import { TemplateLibraryScreen } from "../modules/whatsapp/screens/TemplateLibraryScreen";
+import { TemplateEditorScreen } from "../modules/whatsapp/screens/TemplateEditorScreen";
+import { FlowLibraryScreen } from "../modules/whatsapp/screens/FlowLibraryScreen";
+import { FlowEditorScreen } from "../modules/whatsapp/screens/FlowEditorScreen";
+import { WhatsAppSetupScreen } from "../modules/whatsapp/screens/WhatsAppSetupScreen";
+import { whatsappCapabilityScreen } from "../modules/whatsapp/WhatsAppFeatureGate";
 // import { colors } from "../theme";
 
 import { shadow } from "../theme";
@@ -226,6 +235,15 @@ const floatingTabOptions = {
   tabBarHideOnKeyboard: true,
 };
 
+const WhatsAppChats = whatsappCapabilityScreen(ChatListScreen);
+const WhatsAppChatDetail = whatsappCapabilityScreen(ChatDetailScreen);
+const WhatsAppContacts = whatsappCapabilityScreen(ContactBookScreen);
+const WhatsAppTemplates = whatsappCapabilityScreen(TemplateLibraryScreen);
+const WhatsAppTemplateEditor = whatsappCapabilityScreen(TemplateEditorScreen);
+const WhatsAppFlows = whatsappCapabilityScreen(FlowLibraryScreen);
+const WhatsAppFlowEditor = whatsappCapabilityScreen(FlowEditorScreen);
+const WhatsAppSetup = whatsappCapabilityScreen(WhatsAppSetupScreen);
+
 function AccessDeniedScreen() {
   return (
     <View style={styles.accessDenied}>
@@ -319,6 +337,40 @@ const OwnerTabs = createBottomTabNavigator({
 });
 
 const sharedStackScreens = {
+  WhatsAppChats: {
+    screen: WhatsAppChats,
+    options: { title: "WhatsApp" },
+    linking: { path: "shops/:shopId/whatsapp/:integrationId" },
+  },
+  ChatDetail: {
+    screen: WhatsAppChatDetail,
+    options: { title: "Conversation" },
+    linking: { path: "shops/:shopId/whatsapp/:integrationId/conversations/:conversationId" },
+  },
+  ContactBook: {
+    screen: WhatsAppContacts,
+    options: { title: "WhatsApp contacts" },
+  },
+  TemplateLibrary: {
+    screen: WhatsAppTemplates,
+    options: { title: "WhatsApp templates" },
+  },
+  TemplateEditor: {
+    screen: WhatsAppTemplateEditor,
+    options: { title: "Template editor" },
+  },
+  FlowLibrary: {
+    screen: WhatsAppFlows,
+    options: { title: "WhatsApp Flows" },
+  },
+  FlowEditor: {
+    screen: WhatsAppFlowEditor,
+    options: { title: "Flow editor" },
+  },
+  WhatsAppSetup: {
+    screen: WhatsAppSetup,
+    options: { title: "WhatsApp settings" },
+  },
   EditSale: {
     screen: EditSale,
     options: { title: "Edit Sale Workspace" },
@@ -689,6 +741,22 @@ export type RootStackParamList = {
   ManageCategories: undefined;
   ManageBrands: undefined;
   CopyCatalog: undefined;
+  WhatsAppChats: { shopId?: string; integrationId?: string };
+  ChatDetail: {
+    shopId?: string;
+    integrationId?: string;
+    phoneNumberId?: string;
+    conversationId: string;
+    phone?: string;
+    messageId?: string;
+    eventId?: string;
+  };
+  ContactBook: { shopId?: string; integrationId?: string } | undefined;
+  TemplateLibrary: { shopId?: string; integrationId?: string } | undefined;
+  TemplateEditor: { shopId?: string; integrationId?: string; templateId?: string } | undefined;
+  FlowLibrary: { shopId?: string; integrationId?: string } | undefined;
+  FlowEditor: { shopId?: string; integrationId?: string; flowId?: string } | undefined;
+  WhatsAppSetup: { shopId?: string; integrationId?: string } | undefined;
 };
 
 export type StaffStackParamList = RootStackParamList;

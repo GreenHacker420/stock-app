@@ -35,4 +35,21 @@ export const queryKeys = {
   attendance: (filters: { shopId?: string; staffId?: string; dateFrom?: string; dateTo?: string }) => ["attendance", filters] as const,
   storageObjects: (shopId: string, filter?: any) => ["storage-objects", shopId, filter] as const,
   storageObjectsInfinite: (shopId: string, filter?: any) => ["storage-objects", "infinite", shopId, filter] as const,
+  whatsapp: {
+    integration: (shopId: string, integrationId: string) =>
+      ["whatsapp", "integration", shopId, integrationId] as const,
+    conversations: (
+      shopId: string,
+      integrationId: string,
+      phoneNumberId: string,
+      filters: Record<string, unknown> = {},
+    ) => ["whatsapp", "conversations", shopId, integrationId, phoneNumberId, filters] as const,
+    conversation: (shopId: string, integrationId: string, conversationId: string) =>
+      ["whatsapp", "conversation", shopId, integrationId, conversationId] as const,
+    messages: (shopId: string, integrationId: string, conversationId: string) =>
+      ["whatsapp", "messages", shopId, integrationId, conversationId] as const,
+    health: (shopId: string, integrationId: string) =>
+      ["whatsapp", "health", shopId, integrationId] as const,
+    capability: (shopId: string) => ["whatsapp", "capability", shopId] as const,
+  },
 };

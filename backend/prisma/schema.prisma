@@ -316,6 +316,7 @@ enum NotificationEvent {
   LOW_STOCK
   PAYMENT_MISMATCH
   WHATSAPP_DLQ
+  WHATSAPP_MESSAGE
   TEST_NOTIFICATION
 }
 
@@ -1529,6 +1530,28 @@ enum WaMessageStatus {
   DELETED
 }
 
+enum WaOperationState {
+  QUEUED
+  PROCESSING
+  RETRY_SCHEDULED
+  TERMINALLY_FAILED
+  COMPLETED
+}
+
+enum WaProviderStatus {
+  PENDING
+  ACCEPTED
+  SENT
+  DELIVERED
+  READ
+  FAILED
+}
+
+enum WaContentState {
+  VISIBLE
+  DELETED
+}
+
 enum WaMessageType {
   TEXT
   IMAGE
@@ -1726,6 +1749,7 @@ model WaConversation {
   isArchived            Boolean   @default(false)
   isPinned              Boolean   @default(false)
   assignedToId          String?
+  entityVersion         Int       @default(1)
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
@@ -1743,10 +1767,20 @@ model WaConversation {
 model WaMessage {
   id                   String             @id @default(cuid())
   conversationId       String
+  clientMessageId      String?
+  clientPayloadHash    String?
+  sourceDeviceId       String?
+  requestId            String?
   metaMessageId        String?            @unique
   replyToMetaMessageId String?
   direction            WaMessageDirection
   status               WaMessageStatus    @default(QUEUED)
+  operationState       WaOperationState   @default(QUEUED)
+  providerStatus       WaProviderStatus   @default(PENDING)
+  contentState         WaContentState     @default(VISIBLE)
+  attempt              Int                @default(1)
+  providerStatusAt     DateTime?
+  entityVersion        Int                @default(1)
   type                 WaMessageType      @default(TEXT)
   content              Json? // Text content or media metadata
   payload              Json?
@@ -1766,7 +1800,10 @@ model WaMessage {
   conversation WaConversation @relation(fields: [conversationId], references: [id])
   asset        Asset?         @relation(fields: [assetId], references: [id], onDelete: SetNull)
 
+  @@unique([conversationId, clientMessageId])
   @@index([conversationId, createdAt])
+  @@index([clientMessageId])
+  @@index([operationState, lastRetryAt])
   @@index([assetId])
 }
 

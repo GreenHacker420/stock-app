@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { FlashList } from "@shopify/flash-list";
+import * as Crypto from "expo-crypto";
 
 const FlashListAny = FlashList as any;
 
@@ -23,15 +24,15 @@ import * as Location from "expo-location";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  fetchWaConversations,
-  fetchWaMessages,
-  sendWaMessage,
+  fetchScopedWaConversations,
+  fetchScopedWaMessages,
+  markScopedWaConversationRead,
+  sendScopedWaMessage,
   uploadWaMedia,
   whatsappApi,
   WaLocalMedia,
   WaMessage,
   WaOutboundMessage,
-  WaSendCommand,
 } from "../../../api/whatsapp.api";
 import { useShopStore } from "../../../auth/shop-store";
 import { useAuthStore } from "../../../auth/auth-store";
@@ -47,13 +48,14 @@ import { MessageContentRenderer } from "../components/MessageContentRenderer";
 import { TemplateSendSheet } from "../components/TemplateSendSheet";
 import { FlowSendSheet } from "../components/FlowSendSheet";
 import { initialsFor, waColors } from "../whatsapp-ui";
+import { queryKeys } from "../../../hooks/query-keys";
 
 const STANDARD_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
 
 export const ChatDetailScreen = () => {
   const route = useRoute<any>();
   const navigation = useNavigation();
-  const { conversationId, phone } = route.params;
+  const { conversationId, phone, integrationId, phoneNumberId } = route.params;
   const activeShopId = useShopStore((state) => state.activeShopId);
   const token = useAuthStore((state) => state.token);
   const queryClient = useQueryClient();
@@ -82,23 +84,23 @@ export const ChatDetailScreen = () => {
   // Mark conversation as read on focus / load
   useEffect(() => {
     if (activeShopId && conversationId) {
-      whatsappApi.markConversationRead(activeShopId, conversationId)
+      if (!integrationId || !token) return;
+      markScopedWaConversationRead(token, integrationId, conversationId)
         .then(() => {
-          queryClient.invalidateQueries({ queryKey: ["wa-conversations", activeShopId] });
+          queryClient.invalidateQueries({ queryKey: ["whatsapp", "conversations", activeShopId, integrationId] });
         })
         .catch((err) => {
           console.warn("Failed to mark conversation read", err);
         });
     }
-  }, [activeShopId, conversationId]);
+  }, [activeShopId, conversationId, integrationId, token]);
 
   // Load wa-conversations cache to find active conversation metadata
   const { data: conversations = [] } = useQuery<any[]>({
-    queryKey: ["wa-conversations", activeShopId],
-    queryFn: () => {
-      if (!token || !activeShopId) return [];
-      return fetchWaConversations(token, activeShopId);
-    },
+    queryKey: queryKeys.whatsapp.conversations(activeShopId!, integrationId, phoneNumberId || "", {}),
+    queryFn: async () => token && integrationId
+      ? (await fetchScopedWaConversations(token, integrationId)).items
+      : [],
     enabled: false,
   });
 
@@ -158,63 +160,71 @@ export const ChatDetailScreen = () => {
 
   // Fetch messages via React Query (uses offline cache from MMKV)
   const { data: messages = [], isLoading } = useQuery({
-    queryKey: ["wa-messages", conversationId],
+    queryKey: queryKeys.whatsapp.messages(activeShopId!, integrationId, conversationId),
     queryFn: async () => {
-      if (!token) return [];
-      const res = await fetchWaMessages(token, conversationId);
-      return res;
+      if (!token || !integrationId) return [];
+      return (await fetchScopedWaMessages(token, integrationId, conversationId)).items;
     },
-    enabled: !!conversationId && !!token,
+    enabled: Boolean(conversationId && token && integrationId && activeShopId),
   });
 
-
-
   // Send Message Mutation
+  type SendVariables = {
+    clientMessageId: string;
+    message: WaOutboundMessage;
+    replyToMessageId?: string;
+  };
+  const messagesKey = queryKeys.whatsapp.messages(activeShopId!, integrationId, conversationId);
   const sendMutation = useMutation({
-    mutationFn: async (payload: WaSendCommand) => {
-      if (!token) throw new Error("No auth token");
-      return sendWaMessage(token, payload);
+    mutationFn: async (input: SendVariables) => {
+      if (!token || !activeShopId || !integrationId) throw new Error("WhatsApp scope is unavailable");
+      return sendScopedWaMessage(token, {
+        shopId: activeShopId,
+        integrationId,
+        conversationId,
+      }, input);
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["wa-messages", conversationId] });
-      queryClient.invalidateQueries({ queryKey: ["wa-conversations", activeShopId] });
+    onMutate: async (input) => {
+      const optimistic: WaMessage = {
+        id: `local:${input.clientMessageId}`,
+        clientMessageId: input.clientMessageId,
+        conversationId,
+        direction: "OUTBOUND",
+        status: "QUEUED",
+        operationState: "SUBMITTING",
+        providerStatus: "PENDING",
+        contentState: "VISIBLE",
+        attempt: 0,
+        entityVersion: 0,
+        type: input.message.kind === "text" ? "TEXT" : input.message.kind.toUpperCase() as WaMessage["type"],
+        content: input.message.kind === "text"
+          ? { text: input.message.text }
+          : input.message,
+        createdAt: new Date().toISOString(),
+      };
+      queryClient.setQueryData<WaMessage[]>(messagesKey, (current = []) => [...current, optimistic]);
+    },
+    onSuccess: ({ message }, input) => {
+      queryClient.setQueryData<WaMessage[]>(messagesKey, (current = []) =>
+        current.map((item) => item.clientMessageId === input.clientMessageId ? message : item));
+      queryClient.invalidateQueries({ queryKey: ["whatsapp", "conversations", activeShopId, integrationId] });
       setReplyingTo(null);
     },
-    onError: (err: any) => {
+    onError: (err: any, input) => {
+      queryClient.setQueryData<WaMessage[]>(messagesKey, (current = []) =>
+        current.map((item) => item.clientMessageId === input.clientMessageId
+          ? {
+              ...item,
+              operationState: "TERMINALLY_FAILED",
+              providerStatus: "FAILED",
+              errorMessage: err.message || "Failed to send message",
+            }
+          : item));
       Alert.alert("Send Error", err.message || "Failed to send message");
     }
   });
 
-  const displayedMessages = useMemo(() => {
-    if (sendMutation.isPending && sendMutation.variables) {
-      const vars = sendMutation.variables as any;
-      if (vars.type === "TEXT" && vars.content?.text) {
-        const tempMsg: WaMessage = {
-          id: "pending-send-msg",
-          conversationId,
-          metaMessageId: "pending-meta",
-          replyToMetaMessageId: vars.replyToMessageId || undefined,
-          direction: "OUTBOUND",
-          status: "SENDING" as any,
-          type: "TEXT",
-          content: { text: vars.content.text },
-          payload: {},
-          createdAt: new Date().toISOString(),
-          assetId: undefined,
-          templateId: undefined,
-          templateName: undefined,
-          templateLanguage: undefined,
-          broadcastRecipientId: undefined,
-          deliveredAt: undefined,
-          readAt: undefined,
-          failedAt: undefined,
-          errorMessage: undefined,
-        };
-        return [...messages, tempMsg];
-      }
-    }
-    return messages;
-  }, [messages, sendMutation.isPending, sendMutation.variables, conversationId]);
+  const displayedMessages = messages;
 
   // Automatically scroll to end on load or when new messages arrive
   useEffect(() => {
@@ -230,16 +240,17 @@ export const ChatDetailScreen = () => {
     if (messages.length > 0) {
       const lastMsg = messages[messages.length - 1];
       if (lastMsg && lastMsg.direction === "INBOUND" && activeShopId && conversationId) {
-        whatsappApi.markConversationRead(activeShopId, conversationId)
+        if (!integrationId || !token) return;
+        markScopedWaConversationRead(token, integrationId, conversationId)
           .then(() => {
-            queryClient.invalidateQueries({ queryKey: ["wa-conversations", activeShopId] });
+            queryClient.invalidateQueries({ queryKey: ["whatsapp", "conversations", activeShopId, integrationId] });
           })
           .catch((err) => {
             console.warn("Failed to mark conversation read on new message", err);
           });
       }
     }
-  }, [messages.length, activeShopId, conversationId]);
+  }, [messages.length, activeShopId, conversationId, integrationId, token]);
 
   // Send Reaction Mutation
   const reactionMutation = useMutation({
@@ -283,9 +294,7 @@ export const ChatDetailScreen = () => {
     if (!inputText.trim() || !activeShopId || !token) return;
 
     sendMutation.mutate({
-      shopId: activeShopId,
-      conversationId,
-      to: phone,
+      clientMessageId: Crypto.randomUUID(),
       message: {
         kind: "text",
         text: inputText.trim(),
@@ -300,9 +309,7 @@ export const ChatDetailScreen = () => {
   const sendStructuredMessage = (message: WaOutboundMessage) => {
     if (!activeShopId) return;
     sendMutation.mutate({
-      shopId: activeShopId,
-      conversationId,
-      to: phone,
+      clientMessageId: Crypto.randomUUID(),
       message,
       replyToMessageId: replyingTo?.id,
     });

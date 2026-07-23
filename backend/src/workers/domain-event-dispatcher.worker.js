@@ -31,6 +31,8 @@ const ENTITY_TYPE_MAP = {
   attendance: "USER",
   expense: "EXPENSE",
   dailySummary: "SHOP",
+  waMessage: "WHATSAPP",
+  waConversation: "WHATSAPP",
 };
 
 function notificationTriggerFor(event) {
@@ -41,6 +43,7 @@ function notificationTriggerFor(event) {
   if (event.entity === "approval" && event.action === "created") return "APPROVAL_REQUESTED";
   if (event.entity === "approval") return "APPROVAL_RESOLVED";
   if (event.entity === "order" && event.action === "assigned") return "ORDER_ASSIGNED";
+  if (event.entity === "waMessage") return "WHATSAPP_MESSAGE";
   return "TEST_NOTIFICATION";
 }
 
@@ -152,7 +155,11 @@ async function queuePushNotifications(event) {
         triggerEvent: notificationTriggerFor(event),
         entityType: ENTITY_TYPE_MAP[event.entity] || "SHOP",
         entityId: event.entityId,
-        message: event.notification.body || event.notification.title || "New activity",
+        // Message content is intentionally excluded from the persisted notification.
+        // A privacy-aware preview can be added later from a user preference.
+        message: event.entity === "waMessage"
+          ? "New WhatsApp message"
+          : event.notification.body || event.notification.title || "New activity",
         domainEventId: event.eventId,
       });
     } catch (error) {

@@ -34,6 +34,11 @@ export function createDomainEvent({
   sourceDeviceId = null,
   idempotencyKey = null,
   serverVersion,
+  eventVersion = 1,
+  entityVersion,
+  integrationId = null,
+  phoneNumberId = null,
+  conversationId = null,
   visibility = { owners: true, staff: true },
   queryKeys,
   patch,
@@ -57,6 +62,12 @@ export function createDomainEvent({
     sourceDeviceId,
     idempotencyKey,
     serverVersion,
+    eventVersion,
+    entityVersion,
+    integrationId,
+    phoneNumberId,
+    conversationId,
+    occurredAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     visibility: {
       owners: visibility.owners !== false,
@@ -82,20 +93,24 @@ export async function allocateShopEventSequence(tx, shopId) {
 export async function enqueueDomainEvent(tx, eventInput) {
   const event = eventInput.eventId ? eventInput : createDomainEvent(eventInput);
   const sequence = await allocateShopEventSequence(tx, event.shopId);
+  const sequencedEvent = {
+    ...event,
+    sequence: sequence.toString(),
+  };
   await tx.domainEventOutbox.create({
     data: {
-      id: event.eventId,
-      tenantId: event.tenantId || null,
-      shopId: event.shopId,
-      entity: event.entity,
-      action: event.action,
-      entityId: event.entityId,
-      eventJson: event,
+      id: sequencedEvent.eventId,
+      tenantId: sequencedEvent.tenantId || null,
+      shopId: sequencedEvent.shopId,
+      entity: sequencedEvent.entity,
+      action: sequencedEvent.action,
+      entityId: sequencedEvent.entityId,
+      eventJson: sequencedEvent,
       status: "pending",
       sequence,
     },
   });
-  return event;
+  return sequencedEvent;
 }
 
 export async function enqueueManyDomainEvents(tx, events) {

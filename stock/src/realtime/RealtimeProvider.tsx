@@ -15,11 +15,9 @@ import {
   deactivateReadModelContext,
   hydrateReadModelForShop,
 } from "../local/read-model/read-model-coordinator";
+import { getWhatsAppSocketGraceMs } from "../modules/whatsapp/whatsapp-runtime-config";
 
-/**
- * Legacy Socket.IO events for non-migrated core paths.
- * All primary domain state changes travel via the `domain:event` channel.
- */
+
 const legacyEvents: RealtimeEvent[] = [
   "order:updated",
   "sale:updated",
@@ -102,6 +100,8 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
     let cancelled = false;
     let socket: Socket | null = null;
     let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+    let backgroundDisconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let currentAppState: AppStateStatus = AppState.currentState;
     let deviceIdResolved = "";
 
     activateReadModelContext(userId, activeShopId);
@@ -110,6 +110,7 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
     });
 
     const reconcile = () => {
+      if (currentAppState !== "active") return;
       if (!token || !activeShopId || !deviceIdResolved) return;
       void reconcileDomainEventsForShop(userId, activeShopId, token, queryClient, deviceIdResolved);
     };
@@ -129,12 +130,51 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
       });
     };
 
+    const stopHeartbeat = () => {
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+    };
+
+    const startHeartbeat = () => {
+      stopHeartbeat();
+      if (currentAppState !== "active") return;
+      heartbeatTimer = setInterval(() => emitPresence("active"), 25_000);
+    };
+
+    const cancelBackgroundDisconnect = () => {
+      if (backgroundDisconnectTimer) clearTimeout(backgroundDisconnectTimer);
+      backgroundDisconnectTimer = null;
+    };
+
     const handleAppStateChange = (nextAppState: AppStateStatus) => {
-      emitPresence(nextAppState);
+      currentAppState = nextAppState;
       if (nextAppState === "active") {
-        // App returned to foreground — request missed events from both paths
-        void requestSocketSync();
-        reconcile();
+        cancelBackgroundDisconnect();
+        (socket?.io as any)?.reconnection?.(true);
+        if (socket) {
+          socket.auth = { token, deviceId: deviceIdResolved };
+          if (!socket.connected) socket.connect();
+          else {
+            emitPresence("active");
+            startHeartbeat();
+            void requestSocketSync();
+            reconcile();
+          }
+        }
+        return;
+      }
+
+      // Presence and retry work stop as soon as the app leaves the foreground.
+      emitPresence(nextAppState);
+      stopHeartbeat();
+      (socket?.io as any)?.reconnection?.(false);
+      cancelBackgroundDisconnect();
+
+      if (nextAppState === "background") {
+        backgroundDisconnectTimer = setTimeout(() => {
+          backgroundDisconnectTimer = null;
+          socket?.disconnect();
+        }, getWhatsAppSocketGraceMs());
       }
     };
 
@@ -147,8 +187,13 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
       socketRef.current = socket;
 
       socket.on("connect", () => {
+        if (currentAppState !== "active") {
+          socket?.disconnect();
+          return;
+        }
         socket?.emit("shop:join", { shopId: activeShopId });
         emitPresence();
+        startHeartbeat();
         void requestSocketSync();
         reconcile();
       });
@@ -209,14 +254,15 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
         });
       }
 
-      heartbeatTimer = setInterval(() => emitPresence(), 25_000);
-      socket.connect();
+      if (currentAppState === "active") socket.connect();
     });
 
     return () => {
       cancelled = true;
       appStateSubscription.remove();
-      if (heartbeatTimer) clearInterval(heartbeatTimer);
+      stopHeartbeat();
+      cancelBackgroundDisconnect();
+      (socket?.io as any)?.reconnection?.(false);
       socket?.emit("shop:leave", { shopId: activeShopId });
       socket?.off("domain:event");
       socket?.off("sync:complete");
