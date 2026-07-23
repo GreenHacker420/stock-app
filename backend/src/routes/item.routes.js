@@ -166,6 +166,23 @@ router.post(
   itemController.batchQuickUpdate,
 );
 
+const batchDeleteItemsSchema = z.object({
+  body: z.object({
+    shopId: z.string().min(1),
+    itemIds: z.array(z.string().min(1)).min(1).max(100)
+      .refine((ids) => new Set(ids).size === ids.length, "Duplicate product IDs are not allowed"),
+  }),
+  params: z.object({}).optional(),
+  query: z.object({}).optional(),
+});
+
+router.post(
+  "/batch-delete",
+  requirePermission(PERMISSIONS.ITEM_UPDATE),
+  validate(batchDeleteItemsSchema),
+  itemController.batchDeleteItems,
+);
+
 const findDuplicatesSchema = z.object({
   query: z.object({
     shopId:        z.string().min(1),

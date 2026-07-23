@@ -9,7 +9,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Item, ItemCategory, ItemBrand } from "../../../api/client";
 import { useAuthStore } from "../../../auth/auth-store";
 import { useShopStore } from "../../../auth/shop-store";
-import { useItemsQuery, useCategoriesQuery, useBrandsQuery, useItemSummaryQuery, useBatchQuickUpdateMutation, useDeleteItemMutation, useMergeItemsMutation } from "../../../hooks/useItems";
+import { useItemsQuery, useCategoriesQuery, useBrandsQuery, useItemSummaryQuery, useBatchQuickUpdateMutation, useBatchDeleteItemsMutation, useMergeItemsMutation } from "../../../hooks/useItems";
 import { Screen } from "../../../components/Screen";
 import { AppHeader } from "../../../components/ui/AppHeader";
 import { SkeletonList } from "../../../components/ui/SkeletonCard";
@@ -29,6 +29,7 @@ import { triggerErrorHaptic, triggerLightHaptic, triggerSuccessHaptic } from "..
 import { STOCK_MOVEMENT_PERMISSION, hasPermission } from "../../../utils/items/permissions";
 import { parseAmount } from "../../../utils/items/validation";
 import { KeyboardAwareListScrollComponent } from "../../../components/keyboard/KeyboardAwareListScrollComponent";
+import { MutationOverlay } from "../../../components/feedback/MutationOverlay";
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 const FlashListAny = FlashList as any;
@@ -164,7 +165,7 @@ export function ItemList() {
 
   const token = useAuthStore((s) => s.token);
   const batchQuickUpdateMutation = useBatchQuickUpdateMutation();
-  const deleteItemMutation = useDeleteItemMutation();
+  const batchDeleteItemsMutation = useBatchDeleteItemsMutation();
   const [isSavingBatch, setIsSavingBatch] = useState(false);
 
   // Multi-select / deletion states
@@ -205,7 +206,7 @@ export function ItemList() {
     if (selectedItemIds.size === 0) return;
     Alert.alert(
       "Delete Products",
-      `Are you sure you want to delete the ${selectedItemIds.size} selected product(s)? This action is permanent.`,
+      `Deactivate ${selectedItemIds.size} selected product(s)? They will be removed from the active catalog, while historical transactions remain intact.`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -215,19 +216,22 @@ export function ItemList() {
             triggerLightHaptic();
             try {
               const ids = Array.from(selectedItemIds);
-              for (const id of ids) {
-                await deleteItemMutation.mutateAsync(id);
-              }
-              Alert.alert("Success", "Selected products deleted successfully.");
+              const result = await batchDeleteItemsMutation.mutateAsync(ids);
+              triggerSuccessHaptic();
+              Alert.alert(
+                "Products deleted",
+                `${result.deletedItemIds.length} product${result.deletedItemIds.length === 1 ? "" : "s"} removed from the active catalog.`,
+              );
               exitSelectMode();
             } catch (err: any) {
+              triggerErrorHaptic();
               Alert.alert("Error", `Failed to delete some products: ${err.message}`);
             }
           },
         },
       ]
     );
-  }, [selectedItemIds, deleteItemMutation, exitSelectMode]);
+  }, [selectedItemIds, batchDeleteItemsMutation, exitSelectMode]);
 
   const mergeItemsMutation = useMergeItemsMutation();
 
@@ -857,6 +861,11 @@ export function ItemList() {
           if (!mergeItemsMutation.isPending) setMergeProducts([]);
         }}
         onConfirm={(targetItemId, sourceItemIds) => executeMerge(sourceItemIds, targetItemId)}
+      />
+
+      <MutationOverlay
+        visible={batchDeleteItemsMutation.isPending}
+        label={`Deleting ${selectedItemIds.size} product${selectedItemIds.size === 1 ? "" : "s"}...`}
       />
 
       <Modal

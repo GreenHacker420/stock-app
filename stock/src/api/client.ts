@@ -513,6 +513,25 @@ export async function deleteItem(token: string, id: string) {
   return apiRequest<Item>(`/items/${id}`, { method: "DELETE", token });
 }
 
+export type BatchDeleteItemsResult = {
+  deletedItemIds: string[];
+  alreadyInactiveItemIds: string[];
+};
+
+export async function batchDeleteItems(
+  token: string,
+  shopId: string,
+  itemIds: string[],
+  opts: { idempotencyKey?: string } = {},
+) {
+  return apiRequest<BatchDeleteItemsResult>("/items/batch-delete", {
+    method: "POST",
+    token,
+    headers: opts.idempotencyKey ? { "Idempotency-Key": opts.idempotencyKey } : undefined,
+    body: JSON.stringify({ shopId, itemIds }),
+  });
+}
+
 export type ItemMergeResult = {
   targetItemId: string;
   sourceItemIds: string[];

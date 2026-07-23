@@ -1,5 +1,3 @@
-export const MAX_ITEM_IMAGES = 5;
-
 function splitImageUrls(imageUrl) {
   if (!imageUrl) return [];
   return String(imageUrl)
@@ -23,9 +21,6 @@ export function mergeItemImageUrls(items, targetItemId, sourceItemIds) {
       if (seen.has(url)) continue;
       seen.add(url);
       uniqueUrls.push(url);
-      if (uniqueUrls.length === MAX_ITEM_IMAGES) {
-        return uniqueUrls.join(",");
-      }
     }
   }
 

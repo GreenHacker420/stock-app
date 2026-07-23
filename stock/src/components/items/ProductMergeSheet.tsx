@@ -216,13 +216,13 @@ export function ProductMergeSheet({
           <View style={styles.previewGrid}>
             <PreviewCell label="Available stock" value={`${combinedAvailable} ${target.unit}`} icon="warehouse" />
             <PreviewCell label="Physical stock" value={`${combinedPhysical} ${target.unit}`} icon="package-variant-closed" />
-            <PreviewCell label="Photos preserved" value={`${Math.min(imageCount, 5)} of 5 max`} icon="image-multiple-outline" />
+            <PreviewCell label="Photos preserved" value={`${imageCount} unique`} icon="image-multiple-outline" />
             <PreviewCell label="Products removed" value={`${sources.length}`} icon="archive-arrow-down-outline" />
           </View>
 
           <View style={styles.detailCard}>
             <MergeDetail icon="swap-horizontal" text="Sales, orders, dispatches, delivery memos, returns, stock history, and reservations move to the primary product." />
-            <MergeDetail icon="image-multiple-outline" text="Primary photos stay first; unique duplicate photos fill the remaining gallery slots." />
+            <MergeDetail icon="image-multiple-outline" text="Primary photos stay first and every unique duplicate photo is preserved." />
             <MergeDetail icon="tag-outline" text="The primary name, SKU, prices, category, and brand win. Empty optional fields can be filled from a duplicate." />
             <MergeDetail icon="archive-outline" text={`${sources.map((item) => item.name).join(", ")} will be deactivated and removed from the active catalog.`} />
           </View>

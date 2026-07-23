@@ -27,7 +27,6 @@ import {
 import { getReadModelImpact } from "../../../stock/src/local/read-model/read-model-event-policy.ts";
 import { selectCategories, selectCustomers, selectItemCatalog } from "../../../stock/src/local/read-model/read-model-search-core.ts";
 import {
-  MAX_ITEM_IMAGES,
   buildMergedItemPatch,
   getItemMergeCompatibilityIssue,
   mergeItemImageUrls,
@@ -598,9 +597,9 @@ test.describe("Product image upload contracts", () => {
     );
   });
 
-  test("product merge adopts a source photo when the primary has none and caps the gallery", () => {
+  test("product merge adopts every source photo when the primary has none", () => {
     const sourceUrls = Array.from(
-      { length: MAX_ITEM_IMAGES + 2 },
+      { length: 7 },
       (_, index) => `https://cdn.test/source-${index}.jpg`,
     );
 
@@ -613,7 +612,7 @@ test.describe("Product image upload contracts", () => {
         "target",
         ["source"],
       ),
-      sourceUrls.slice(0, MAX_ITEM_IMAGES).join(","),
+      sourceUrls.join(","),
     );
   });
 

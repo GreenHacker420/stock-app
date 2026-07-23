@@ -7,6 +7,7 @@ import {
   createItem,
   updateItem,
   deleteItem,
+  batchDeleteItems,
   mergeItems,
   fetchCurrentStock,
   createStockMovement,
@@ -204,6 +205,58 @@ export function useDeleteItemMutation() {
         queryClient.invalidateQueries({ queryKey: ["current-stock", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["stock-movements", activeShopId] });
         refreshCatalogReadModelAfterMutation({ userId, shopId: activeShopId, token, queryClient, domains: ["items"] });
+      }
+    },
+  });
+}
+
+export function useBatchDeleteItemsMutation() {
+  const token = useAuthStore((state) => state.token);
+  const userId = useAuthStore((state) => state.user?.id);
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (itemIds: string[]) =>
+      batchDeleteItems(
+        token ?? "",
+        requireActiveShopId(activeShopId),
+        itemIds,
+        { idempotencyKey: newIdempotencyKey("ITEM_BATCH_DELETE") },
+      ),
+    onMutate: async (itemIds) => {
+      const queryKey = ["items", activeShopId] as const;
+      await queryClient.cancelQueries({ queryKey });
+      const previousQueries = queryClient.getQueriesData<{ items: Item[]; total: number }>({ queryKey });
+      const deletedIds = new Set(itemIds);
+      queryClient.setQueriesData<{ items: Item[]; total: number }>({ queryKey }, (previous) => {
+        if (!previous?.items) return previous;
+        const items = previous.items.filter((item) => !deletedIds.has(item.id));
+        return {
+          ...previous,
+          items,
+          total: Math.max(0, Number(previous.total || 0) - (previous.items.length - items.length)),
+        };
+      });
+      return { previousQueries };
+    },
+    onError: (_error, _itemIds, context) => {
+      for (const [key, data] of context?.previousQueries ?? []) {
+        queryClient.setQueryData(key, data);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["items", activeShopId] });
+      if (activeShopId) {
+        queryClient.invalidateQueries({ queryKey: ["item-summary", activeShopId] });
+        queryClient.invalidateQueries({ queryKey: ["current-stock", activeShopId] });
+        refreshCatalogReadModelAfterMutation({
+          userId,
+          shopId: activeShopId,
+          token,
+          queryClient,
+          domains: ["items"],
+        });
       }
     },
   });

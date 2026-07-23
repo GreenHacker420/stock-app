@@ -1067,6 +1067,103 @@ export async function deleteItem(user, id) {
   return result.item;
 }
 
+export async function batchDeleteItems(user, { shopId, itemIds }) {
+  await assertShopAccess(user, shopId);
+  assertCanManageItems(user);
+
+  const uniqueItemIds = [...new Set(itemIds)];
+  if (uniqueItemIds.length !== itemIds.length) {
+    throw new ApiError(400, "A product can only be selected once");
+  }
+
+  const result = await prisma.$transaction(async (tx) => {
+    const items = await tx.item.findMany({
+      where: { id: { in: uniqueItemIds }, shopId },
+    });
+    if (items.length !== uniqueItemIds.length) {
+      throw new ApiError(404, "One or more selected products were not found in this shop");
+    }
+
+    const activeItems = items.filter((item) => item.status === "ACTIVE");
+    const activeIds = activeItems.map((item) => item.id);
+    if (activeIds.length === 0) {
+      return { deletedItemIds: [], alreadyInactiveItemIds: uniqueItemIds, events: [] };
+    }
+
+    const [reservedRows, bundleRows] = await Promise.all([
+      tx.stockReservation.findMany({
+        where: { itemId: { in: activeIds }, shopId, status: "ACTIVE" },
+        select: { itemId: true },
+        distinct: ["itemId"],
+      }),
+      tx.itemBundleComponent.findMany({
+        where: { componentItemId: { in: activeIds }, parentItem: { status: "ACTIVE" } },
+        select: { componentItemId: true },
+        distinct: ["componentItemId"],
+      }),
+    ]);
+    const blockedIds = new Set([
+      ...reservedRows.map((row) => row.itemId),
+      ...bundleRows.map((row) => row.componentItemId),
+    ]);
+    if (blockedIds.size > 0) {
+      const blockedNames = activeItems
+        .filter((item) => blockedIds.has(item.id))
+        .map((item) => item.name)
+        .slice(0, 3);
+      throw new ApiError(
+        409,
+        `Cannot delete ${blockedNames.join(", ")} because stock is reserved or the product is used by an active bundle.`,
+        { code: "ITEM_BATCH_DELETE_BLOCKED" },
+      );
+    }
+
+    await tx.item.updateMany({
+      where: { id: { in: activeIds }, shopId, status: "ACTIVE" },
+      data: { status: "INACTIVE" },
+    });
+
+    await tx.auditLog.createMany({
+      data: activeItems.map((item) => ({
+        userId: user.id,
+        shopId,
+        action: AuditAction.DELETED,
+        entityType: EntityType.ITEM,
+        entityId: item.id,
+        oldValueJson: JSON.parse(JSON.stringify(item)),
+        newValueJson: JSON.parse(JSON.stringify({ ...item, status: "INACTIVE" })),
+      })),
+    });
+    const event = createDomainEvent({
+      shopId,
+      entity: "item",
+      action: "batch_deleted",
+      entityId: activeIds[0],
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: true, staff: true },
+      patch: { deletedItemIds: activeIds },
+    });
+    await enqueueDomainEvent(tx, event);
+
+    return {
+      deletedItemIds: activeIds,
+      alreadyInactiveItemIds: items
+        .filter((item) => item.status === "INACTIVE")
+        .map((item) => item.id),
+      events: [event],
+    };
+  });
+
+  if (result.events[0]) {
+    await bestEffortInvalidateForDomainEvent(result.events[0]);
+  }
+  return {
+    deletedItemIds: result.deletedItemIds,
+    alreadyInactiveItemIds: result.alreadyInactiveItemIds,
+  };
+}
+
 export async function uploadItemImage(user, data, file) {
   await assertShopAccess(user, data.shopId);
   assertCanManageItems(user);

@@ -48,6 +48,20 @@ export const deleteItem = asyncHandler(async (req, res) => {
   res.json({ success: true, data: item });
 });
 
+export const batchDeleteItems = asyncHandler(async (req, res) => {
+  const result = await runIdempotentCreate(
+    req,
+    {
+      endpoint: "POST /items/batch-delete",
+      resourceType: "ITEM_BATCH_DELETE",
+      shopId: req.validated.body.shopId,
+      statusCode: 200,
+    },
+    () => itemService.batchDeleteItems(req.user, req.validated.body),
+  );
+  res.status(result.statusCode).json({ success: true, data: result.data });
+});
+
 export const uploadItemImage = asyncHandler(async (req, res) => {
   const upload = await itemService.uploadItemImage(req.user, req.validated.body, req.file);
   res.status(201).json({ success: true, data: upload });

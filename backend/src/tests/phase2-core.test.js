@@ -121,6 +121,43 @@ test.describe("Phase 2 core business correctness", () => {
     await closePushQueue();
   });
 
+  test("batch product delete deactivates all selected products in one operation", async () => {
+    const products = await Promise.all([
+      prisma.item.create({
+        data: {
+          shopId: shop.id,
+          name: "Batch Delete One",
+          unit: "pcs",
+          defaultSellingPrice: 10,
+          minimumStock: 0,
+        },
+      }),
+      prisma.item.create({
+        data: {
+          shopId: shop.id,
+          name: "Batch Delete Two",
+          unit: "pcs",
+          defaultSellingPrice: 20,
+          minimumStock: 0,
+        },
+      }),
+    ]);
+    const itemIds = products.map((product) => product.id);
+
+    const result = await itemService.batchDeleteItems(owner, { shopId: shop.id, itemIds });
+
+    assert.deepStrictEqual(new Set(result.deletedItemIds), new Set(itemIds));
+    const inactiveCount = await prisma.item.count({
+      where: { id: { in: itemIds }, status: "INACTIVE" },
+    });
+    assert.strictEqual(inactiveCount, 2);
+    const batchEvent = await prisma.domainEventOutbox.findFirst({
+      where: { shopId: shop.id, entity: "item", action: "batch_deleted" },
+      orderBy: { createdAt: "desc" },
+    });
+    assert.deepStrictEqual(new Set(batchEvent.eventJson.patch.deletedItemIds), new Set(itemIds));
+  });
+
   test("product merge preserves stock and media, fills empty fields, and consolidates bundle references", async () => {
     const target = await prisma.item.create({
       data: {
