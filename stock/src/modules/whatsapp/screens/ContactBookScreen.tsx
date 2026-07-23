@@ -5,7 +5,7 @@ import {
   TouchableOpacity,
   Alert,
   ActivityIndicator,
-  Modal,
+  ScrollView,
 } from "react-native";
 import {
   Text,
@@ -17,12 +17,10 @@ import {
   Portal,
   RadioButton,
   Checkbox,
-  SegmentedButtons,
   Dialog,
 } from "react-native-paper";
-import * as Contacts from "expo-contacts/legacy";
+import * as Contacts from "expo-contacts";
 import { FlashList } from "@shopify/flash-list";
-const FlashListAny = FlashList as any;
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -31,7 +29,6 @@ import Animated, {
 } from "react-native-reanimated";
 import { contactsDb, LocalContact } from "../services/contactsDb";
 import { useCustomersQuery } from "../../../hooks/useCustomers";
-import { useShopStore } from "../../../auth/shop-store";
 import { colors as Colors, spacing, radius, fontSize, fontWeight } from "../../../theme";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Screen } from "../../../components/Screen";
@@ -46,48 +43,13 @@ import {
   useLinkCustomerMutation,
 } from "../hooks/useContactsLocal";
 import { useContactsSync } from "../hooks/useContactsSync";
+import { useWhatsAppScope } from "../whatsapp-scope";
 import { useDebounce } from "use-debounce";
-import { useNavigation, useRoute } from "@react-navigation/native";
-import { waColors } from "../whatsapp-ui";
+import { useNavigation } from "@react-navigation/native";
+import { formatWhatsAppPhone, waColors } from "../whatsapp-ui";
 import { createScopedWaConversation, WaConversation } from "../../../api/whatsapp.api";
 import { useAuthStore } from "../../../auth/auth-store";
-
-// -------------------------------------------------------------
-// COMPACT BOTTOM SHEET UTILITY COMPONENT
-// -------------------------------------------------------------
-interface BottomSheetProps {
-  visible: boolean;
-  onClose: () => void;
-  title: string;
-  children: React.ReactNode;
-}
-
-const BottomSheet = ({ visible, onClose, title, children }: BottomSheetProps) => {
-  return (
-    <Portal>
-      <Modal
-        visible={visible}
-        transparent
-        animationType="slide"
-        onRequestClose={onClose}
-      >
-        <TouchableOpacity style={styles.sheetOverlay} activeOpacity={1} onPress={onClose}>
-          <View style={styles.sheetContent} onStartShouldSetResponder={() => true}>
-            <View style={styles.sheetHeader}>
-              <View style={styles.sheetHandle} />
-              <View style={styles.sheetTitleRow}>
-                <Text style={styles.sheetTitle}>{title}</Text>
-                <IconButton icon="close" size={18} onPress={onClose} style={{ margin: 0 }} />
-              </View>
-            </View>
-            <Divider style={{ marginBottom: spacing.sm }} />
-            {children}
-          </View>
-        </TouchableOpacity>
-      </Modal>
-    </Portal>
-  );
-};
+import { AppBottomSheetModal } from "../../../components/overlays/AppBottomSheetModal";
 
 // -------------------------------------------------------------
 // MEMOIZED COMPACT CONTACT CARD COMPONENT
@@ -110,8 +72,13 @@ const ContactCard = memo(({
   const isSelected = useSelectionStore(
     useCallback((state) => state.selectedIds.has(item.id), [item.id])
   );
+  const selectionMode = useSelectionStore((state) => state.selectedIds.size > 0);
   const toggle = useSelectionStore((state) => state.toggle);
   const isMutated = item.syncState === "MUTATED" || item.syncState === "UNSYNCED";
+  const resolvedName = manuallyLinkedCustomer?.name
+    || matchedCustomer?.name
+    || item.name
+    || formatWhatsAppPhone(item.phone);
 
   const selectedShared = useSharedValue(0);
 
@@ -161,22 +128,25 @@ const ContactCard = memo(({
         styles.contactCard,
         animatedCardStyle,
       ]}
+      onPress={() => onOpenOptions(item)}
       onLongPress={() => toggle(item.id)}
     >
       <Card.Content style={styles.cardLayout}>
-        <TouchableOpacity onPress={() => toggle(item.id)} style={styles.checkboxTouch}>
-          <Animated.View style={[styles.customCheckbox, animatedCheckboxStyle]}>
-            {isSelected && (
-              <MaterialCommunityIcons name="check" size={10} color="#fff" />
-            )}
-          </Animated.View>
-        </TouchableOpacity>
+        {selectionMode && (
+          <TouchableOpacity onPress={() => toggle(item.id)} style={styles.checkboxTouch}>
+            <Animated.View style={[styles.customCheckbox, animatedCheckboxStyle]}>
+              {isSelected && (
+                <MaterialCommunityIcons name="check" size={10} color="#fff" />
+              )}
+            </Animated.View>
+          </TouchableOpacity>
+        )}
 
         <View style={styles.contactInfo}>
           {/* Primary Row: Name & Tag Badges */}
           <View style={styles.primaryRow}>
             <Text style={styles.contactName} numberOfLines={1}>
-              {item.name || `+${item.phone}`}
+              {resolvedName}
             </Text>
             
             <View style={styles.badgeWrapper}>
@@ -203,11 +173,7 @@ const ContactCard = memo(({
 
           {/* Secondary Row: Phone / Unnamed & Connection Badge */}
           <View style={styles.secondaryRow}>
-            {item.name ? (
-              <Text style={styles.contactPhone}>{`+${item.phone}`}</Text>
-            ) : (
-              <Text style={styles.noNameLabel}>No contact name</Text>
-            )}
+            <Text style={styles.contactPhone}>{formatWhatsAppPhone(item.phone)}</Text>
 
             {manuallyLinkedCustomer ? (
               <View style={[styles.linkBadge, styles.linkedBadge]}>
@@ -296,18 +262,17 @@ const EmptyState = ({ type, onAction }: EmptyStateProps) => {
 // -------------------------------------------------------------
 export const ContactBookScreen = () => {
   const navigation = useNavigation<any>();
-  const route = useRoute<any>();
-  const activeShopId = useShopStore((state) => state.activeShopId);
+  const {
+    shopId: activeShopId,
+    integrationId,
+    phoneNumberId,
+  } = useWhatsAppScope();
   const token = useAuthStore((state) => state.token);
-  const integrationId = route.params?.integrationId as string | undefined;
-  const phoneNumberId = route.params?.phoneNumberId as string | undefined;
   const queryClient = useQueryClient();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch] = useDebounce(searchQuery, 200);
 
-  // Grouped Filter Controls
-  const [activeFilterCategory, setActiveFilterCategory] = useState<"status" | "link" | "tag">("status");
   const [syncFilter, setSyncFilter] = useState<"ALL" | "UNSYNCED" | "SYNCED">("ALL");
   const [linkFilter, setLinkFilter] = useState<"ALL" | "LINKED" | "UNLINKED">("ALL");
   const [tagFilter, setTagFilter] = useState<"ALL" | "REGULAR" | "BUSINESS" | "NONE">("ALL");
@@ -413,14 +378,14 @@ export const ContactBookScreen = () => {
   // Local Mutators
   const updateTagMutation = useUpdateContactTagMutation();
   const linkCustomerMutation = useLinkCustomerMutation();
-  const syncMutation = useContactsSync(activeShopId, integrationId);
+  const syncMutation = useContactsSync();
   const createConversationMutation = useMutation<WaConversation, Error, {
     phone: string;
     contactName?: string;
     customerId?: string;
   }>({
     mutationFn: async ({ phone, contactName, customerId }) => {
-      if (!token || !integrationId) throw new Error("WhatsApp scope is unavailable.");
+      if (!token) throw new Error("Your session expired. Sign in again.");
       const response = await createScopedWaConversation(token, integrationId, {
         phone,
         contactName,
@@ -443,7 +408,6 @@ export const ContactBookScreen = () => {
     onError: (error) => Alert.alert("Unable to start conversation", error.message),
   });
 
-  // Import mutation using expo-contacts/legacy
   const importMutation = useMutation<number, Error, void>({
     mutationFn: async () => {
       const { status } = await Contacts.requestPermissionsAsync();
@@ -451,20 +415,13 @@ export const ContactBookScreen = () => {
         throw new Error("This screen requires access to your device contacts to sync with CRM.");
       }
 
-      const { data } = await Contacts.getContactsAsync({
-        fields: [
-          Contacts.Fields.Name,
-          Contacts.Fields.FirstName,
-          Contacts.Fields.LastName,
-          Contacts.Fields.PhoneNumbers,
-          Contacts.Fields.Emails,
-        ],
-      });
-
-      console.log(`[Contacts Diagnostics] Total raw contacts read from device: ${data ? data.length : 0}`);
-      if (data && data.length > 0) {
-        console.log(`[Contacts Diagnostics] Sample raw contact record:`, JSON.stringify(data[0]));
-      }
+      const data = await Contacts.Contact.getAllDetails([
+        Contacts.ContactField.FULL_NAME,
+        Contacts.ContactField.GIVEN_NAME,
+        Contacts.ContactField.FAMILY_NAME,
+        Contacts.ContactField.PHONES,
+        Contacts.ContactField.EMAILS,
+      ] as const);
 
       if (!data || data.length === 0) {
         throw new Error("No contact cards were found on this device.");
@@ -472,12 +429,12 @@ export const ContactBookScreen = () => {
 
       const formatted = data
         .map((c) => {
-          const phone = c.phoneNumbers?.[0]?.number || "";
+          const phone = c.phones?.[0]?.number || "";
           const cleanPhone = phone.replace(/\D/g, "");
 
-          const firstName = c.firstName || "";
-          const lastName = c.lastName || "";
-          const nameField = c.name || "";
+          const firstName = c.givenName || "";
+          const lastName = c.familyName || "";
+          const nameField = c.fullName || "";
 
           const compoundName = [firstName, lastName].filter(Boolean).join(" ");
           const resolvedName = (nameField || compoundName || "").trim();
@@ -486,7 +443,7 @@ export const ContactBookScreen = () => {
             id: c.id || "",
             name: resolvedName,
             phone: cleanPhone,
-            email: c.emails?.[0]?.email || undefined,
+            email: c.emails?.[0]?.address || undefined,
           };
         })
         .filter((c) => c.phone.length >= 10);
@@ -504,13 +461,6 @@ export const ContactBookScreen = () => {
       Alert.alert("Import Failed", err.message || "Failed to import contacts");
     },
   });
-
-  useEffect(() => {
-    const hasImported = mmkvStorage.getItem("whatsapp_has_imported_device_contacts");
-    if (hasImported !== "true") {
-      importMutation.mutate();
-    }
-  }, []);
 
   const isSearching = searchQuery !== debouncedSearch;
 
@@ -662,88 +612,30 @@ export const ContactBookScreen = () => {
           />
         </View>
 
-        {/* Compact CRM Stats Summary Strip */}
-        <View style={styles.statsSummaryStrip}>
-          <View style={styles.stripItem}>
-            <Text style={styles.stripCount}>{stats?.total || 0}</Text>
-            <Text style={styles.stripLabel}>Total</Text>
-          </View>
-          <View style={styles.stripDivider} />
-          <View style={styles.stripItem}>
-            <Text style={[styles.stripCount, { color: "#d97706" }]}>{stats?.unsynced || 0}</Text>
-            <Text style={styles.stripLabel}>Unsynced</Text>
-          </View>
-          <View style={styles.stripDivider} />
-          <View style={styles.stripItem}>
-            <Text style={[styles.stripCount, { color: "#16a34a" }]}>{stats?.linked || 0}</Text>
-            <Text style={styles.stripLabel}>Linked</Text>
-          </View>
-          <View style={styles.stripDivider} />
-          <View style={styles.stripItem}>
-            <Text style={[styles.stripCount, { color: "#1d4ed8" }]}>{stats?.business || 0}</Text>
-            <Text style={styles.stripLabel}>Biz</Text>
-          </View>
-          <View style={styles.stripDivider} />
-          <View style={styles.stripItem}>
-            <Text style={[styles.stripCount, { color: "#10b981" }]}>{stats?.regular || 0}</Text>
-            <Text style={styles.stripLabel}>Regular</Text>
-          </View>
-        </View>
-
-        {/* Double-Row Segmented CRM Filter Panel */}
-        <View style={styles.filterControlPanel}>
-          <SegmentedButtons
-            value={activeFilterCategory}
-            onValueChange={(val) => setActiveFilterCategory(val as any)}
-            buttons={[
-              { value: "status", label: `Status (${stats?.unsynced || 0})`, style: styles.segmentBtn, labelStyle: styles.segmentBtnLabel },
-              { value: "link", label: `Link (${stats?.linked || 0})`, style: styles.segmentBtn, labelStyle: styles.segmentBtnLabel },
-              { value: "tag", label: `Type (${(stats?.business || 0) + (stats?.regular || 0)})`, style: styles.segmentBtn, labelStyle: styles.segmentBtnLabel },
-            ]}
-            density="small"
-            style={styles.categorySegment}
-          />
-
-          <View style={styles.valueSegmentWrapper}>
-            {activeFilterCategory === "status" && (
-              <SegmentedButtons
-                value={syncFilter}
-                onValueChange={(val) => setSyncFilter(val as any)}
-                buttons={[
-                  { value: "ALL", label: "All Status", style: styles.valueSegmentBtn, labelStyle: styles.valueSegmentBtnLabel },
-                  { value: "UNSYNCED", label: "Unsynced", style: styles.valueSegmentBtn, labelStyle: styles.valueSegmentBtnLabel },
-                  { value: "SYNCED", label: "Synced", style: styles.valueSegmentBtn, labelStyle: styles.valueSegmentBtnLabel },
-                ]}
-                density="small"
-              />
-            )}
-            {activeFilterCategory === "link" && (
-              <SegmentedButtons
-                value={linkFilter}
-                onValueChange={(val) => setLinkFilter(val as any)}
-                buttons={[
-                  { value: "ALL", label: "All Links", style: styles.valueSegmentBtn, labelStyle: styles.valueSegmentBtnLabel },
-                  { value: "LINKED", label: "Linked", style: styles.valueSegmentBtn, labelStyle: styles.valueSegmentBtnLabel },
-                  { value: "UNLINKED", label: "Unlinked", style: styles.valueSegmentBtn, labelStyle: styles.valueSegmentBtnLabel },
-                ]}
-                density="small"
-              />
-            )}
-            {activeFilterCategory === "tag" && (
-              <SegmentedButtons
-                value={tagFilter}
-                onValueChange={(val) => setTagFilter(val as any)}
-                buttons={[
-                  { value: "ALL", label: "All Types", style: styles.valueSegmentBtn, labelStyle: styles.valueSegmentBtnLabel },
-                  { value: "REGULAR", label: "Regular", style: styles.valueSegmentBtn, labelStyle: styles.valueSegmentBtnLabel },
-                  { value: "BUSINESS", label: "Business", style: styles.valueSegmentBtn, labelStyle: styles.valueSegmentBtnLabel },
-                  { value: "NONE", label: "No Tag", style: styles.valueSegmentBtn, labelStyle: styles.valueSegmentBtnLabel },
-                ]}
-                density="small"
-              />
-            )}
-          </View>
-        </View>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.quickFiltersScrollView}
+          contentContainerStyle={styles.quickFilters}
+        >
+          {[
+            { label: `All ${stats?.total || 0}`, active: syncFilter === "ALL" && linkFilter === "ALL" && tagFilter === "ALL", apply: handleClearFilters },
+            { label: `Linked ${stats?.linked || 0}`, active: linkFilter === "LINKED", apply: () => { handleClearFilters(); setLinkFilter("LINKED"); } },
+            { label: `Unsynced ${stats?.unsynced || 0}`, active: syncFilter === "UNSYNCED", apply: () => { handleClearFilters(); setSyncFilter("UNSYNCED"); } },
+            { label: `Business ${stats?.business || 0}`, active: tagFilter === "BUSINESS", apply: () => { handleClearFilters(); setTagFilter("BUSINESS"); } },
+            { label: `Regular ${stats?.regular || 0}`, active: tagFilter === "REGULAR", apply: () => { handleClearFilters(); setTagFilter("REGULAR"); } },
+          ].map((filter) => (
+            <TouchableOpacity
+              key={filter.label}
+              onPress={filter.apply}
+              style={[styles.quickFilter, filter.active && styles.quickFilterActive]}
+            >
+              <Text style={[styles.quickFilterText, filter.active && styles.quickFilterTextActive]}>
+                {filter.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
 
         {/* Selection Details Header */}
         <View style={styles.listHeaderRow}>
@@ -757,12 +649,10 @@ export const ContactBookScreen = () => {
                 Showing {flattenedContacts.length} of {filteredIds.length} filtered
               </Text>
             )}
-            <Text style={styles.selectionSubText}>
-              Total contact entries: {stats?.total || 0}
-            </Text>
+            <Text style={styles.selectionSubText}>Tap a contact menu to message or link it</Text>
           </View>
 
-          <View style={styles.headerRightActions}>
+          {selectedCount > 0 && <View style={styles.headerRightActions}>
             <TouchableOpacity onPress={handleToggleSelectAll} style={styles.selectAllWrapper}>
               <Checkbox.Android
                 status={isAllFilteredSelected ? "checked" : "unchecked"}
@@ -776,16 +666,15 @@ export const ContactBookScreen = () => {
                 <Text style={styles.clearSelectionText}>Clear</Text>
               </TouchableOpacity>
             )}
-          </View>
+          </View>}
         </View>
 
         {/* Paginated Virtualized Contacts List */}
-        <FlashListAny
+        <FlashList
           data={flattenedContacts}
           renderItem={renderItem}
           keyExtractor={(item: LocalContact) => item.id}
           contentContainerStyle={styles.listContent}
-          estimatedItemSize={56}
           onEndReached={() => {
             if (hasNextPage && !isFetchingNextPage) {
               fetchNextPage();
@@ -826,10 +715,10 @@ export const ContactBookScreen = () => {
         )}
 
         {/* 1. Bottom Sheet for Contact Context Options */}
-        <BottomSheet
+        <AppBottomSheetModal
           visible={showOptionsSheet}
-          onClose={() => setShowOptionsSheet(false)}
-          title={selectedContact?.name || `+${selectedContact?.phone}` || "Contact Options"}
+          onDismiss={() => setShowOptionsSheet(false)}
+          title={selectedContact?.name || formatWhatsAppPhone(selectedContact?.phone) || "Contact options"}
         >
           <View style={styles.actionsList}>
             <TouchableOpacity
@@ -882,13 +771,14 @@ export const ContactBookScreen = () => {
               </TouchableOpacity>
             )}
           </View>
-        </BottomSheet>
+        </AppBottomSheetModal>
 
         {/* 2. Bottom Sheet for Customer Linking */}
-        <BottomSheet
+        <AppBottomSheetModal
           visible={showLinkSheet}
-          onClose={() => setShowLinkSheet(false)}
-          title={`Link Customer Record`}
+          onDismiss={() => setShowLinkSheet(false)}
+          title="Link customer"
+          maxHeight={0.85}
         >
           <View style={styles.linkSheetContent}>
             <Searchbar
@@ -902,11 +792,10 @@ export const ContactBookScreen = () => {
               inputStyle={styles.searchInput}
             />
 
-            <FlashListAny
+            <FlashList
               data={visibleCustomers}
               keyExtractor={(item: any) => item.id}
               style={styles.customerScroll}
-              estimatedItemSize={60}
               onEndReached={() => {
                 if (customerLimit < filteredCustomersForLink.length) {
                   setCustomerLimit((prev) => prev + 50);
@@ -942,7 +831,7 @@ export const ContactBookScreen = () => {
               }
             />
           </View>
-        </BottomSheet>
+        </AppBottomSheetModal>
 
         {/* Sync Strategy Dialog */}
         <Portal>
@@ -1042,65 +931,37 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
 
-  // Stats Summary Strip
-  statsSummaryStrip: {
+  quickFiltersScrollView: {
+    flexGrow: 0,
+  },
+  quickFilters: {
     flexDirection: "row",
-    backgroundColor: waColors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: waColors.border,
-    paddingVertical: spacing.xs,
-    paddingHorizontal: spacing.md,
-    justifyContent: "space-between",
     alignItems: "center",
-  },
-  stripItem: {
-    flex: 1,
-    alignItems: "center",
-  },
-  stripCount: {
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.bold,
-    color: Colors.textPrimary,
-  },
-  stripLabel: {
-    fontSize: 9,
-    color: Colors.textSecondary,
-    fontWeight: fontWeight.semibold,
-    marginTop: 1,
-  },
-  stripDivider: {
-    width: 1,
-    height: 16,
-    backgroundColor: Colors.border,
-  },
-
-  // Double-Row Segmented Filters Panel
-  filterControlPanel: {
-    backgroundColor: waColors.surface,
+    gap: spacing.xs,
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.xs,
-    borderBottomWidth: 1,
-    borderBottomColor: waColors.border,
+    paddingVertical: spacing.sm,
   },
-  categorySegment: {
-    marginBottom: spacing.xs,
+  quickFilter: {
+    height: 32,
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.full,
+    borderWidth: 1,
+    borderColor: waColors.border,
+    backgroundColor: waColors.surface,
   },
-  segmentBtn: {
-    borderRadius: radius.sm,
+  quickFilterActive: {
+    borderColor: waColors.green,
+    backgroundColor: waColors.greenPale,
   },
-  segmentBtnLabel: {
-    fontSize: 9,
+  quickFilterText: {
+    color: waColors.textSecondary,
+    fontSize: fontSize.xs,
     fontWeight: fontWeight.semibold,
   },
-  valueSegmentWrapper: {
-    marginTop: 2,
-  },
-  valueSegmentBtn: {
-    borderRadius: radius.sm,
-  },
-  valueSegmentBtnLabel: {
-    fontSize: 9,
-    fontWeight: fontWeight.semibold,
+  quickFilterTextActive: {
+    color: waColors.greenDark,
   },
 
   // Selection Info Header Row
@@ -1349,43 +1210,6 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     textAlign: "center",
     marginBottom: spacing.sm,
-  },
-
-  // Bottom Sheets & Overlays
-  sheetOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.4)",
-    justifyContent: "flex-end",
-  },
-  sheetContent: {
-    backgroundColor: "#fff",
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    paddingHorizontal: spacing.md,
-    paddingBottom: spacing.xl,
-    maxHeight: "80%",
-  },
-  sheetHeader: {
-    alignItems: "center",
-    paddingVertical: spacing.sm,
-  },
-  sheetHandle: {
-    width: 36,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "#e5e7eb",
-    marginBottom: spacing.xs,
-  },
-  sheetTitleRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    width: "100%",
-  },
-  sheetTitle: {
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.bold,
-    color: Colors.textPrimary,
   },
 
   // Actions sheet content

@@ -1748,6 +1748,8 @@ model WaConversation {
   unreadCount           Int       @default(0)
   isArchived            Boolean   @default(false)
   isPinned              Boolean   @default(false)
+  isMuted               Boolean   @default(false)
+  mutedUntil             DateTime?
   assignedToId          String?
   entityVersion         Int       @default(1)
   createdAt             DateTime  @default(now())

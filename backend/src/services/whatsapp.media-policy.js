@@ -40,6 +40,18 @@ const MEDIA_RULES = {
   },
 };
 
+export function getWhatsAppMediaPolicy() {
+  return Object.fromEntries(
+    Object.entries(MEDIA_RULES).map(([kind, rule]) => [
+      kind,
+      {
+        maxBytes: rule.maxBytes,
+        mimeTypes: [...rule.mimeTypes],
+      },
+    ]),
+  );
+}
+
 export function validateWhatsAppMedia({ kind, file }) {
   const parsedKind = mediaKindSchema.parse(kind);
   if (!file?.buffer || !file.mimetype || !file.originalname) {
@@ -56,4 +68,3 @@ export function validateWhatsAppMedia({ kind, file }) {
 
   return parsedKind;
 }
-

@@ -50,7 +50,9 @@ export function parseWebhookPayload(payload) {
 
       const contactMap = new Map();
       for (const contact of value.contacts || []) {
-        contactMap.set(contact.wa_id, contact.profile?.name);
+        const phone = normalizePhone(contact.wa_id);
+        const name = contact.profile?.name?.trim();
+        if (phone && name) contactMap.set(phone, name);
       }
 
       for (const message of value.messages || []) {
@@ -59,7 +61,7 @@ export function parseWebhookPayload(payload) {
           metaMessageId: message.id,
           from: normalizePhone(from),
           timestamp: message.timestamp,
-          contactName: contactMap.get(from),
+          contactName: contactMap.get(normalizePhone(from)),
           replyToMetaMessageId: message.context?.id,
           forwarded: message.context?.forwarded === true,
           frequentlyForwarded: message.context?.frequently_forwarded === true,
@@ -94,14 +96,39 @@ export function parseWebhookPayload(payload) {
           } else if (interactive.type === "nfm_reply") {
             events.push({ ...baseEvent, type: "flow_reply", payload: interactive.nfm_reply });
           } else {
-            events.push({ ...baseEvent, type: "unsupported", raw: message });
+            events.push({
+              ...baseEvent,
+              type: "unsupported",
+              payload: { type: `interactive:${interactive.type || "unknown"}` },
+            });
           }
         } else if (message.order) {
           events.push({ ...baseEvent, type: "order", payload: message.order });
         } else if (message.system) {
           events.push({ ...baseEvent, type: "system", payload: message.system });
+        } else if (message.referral) {
+          events.push({
+            ...baseEvent,
+            type: "system",
+            payload: {
+              type: "referral",
+              body: message.referral.body || message.referral.headline || "Conversation started from an ad",
+              sourceUrl: message.referral.source_url,
+              sourceType: message.referral.source_type,
+            },
+          });
+        } else if (message.type === "request_welcome") {
+          events.push({
+            ...baseEvent,
+            type: "system",
+            payload: { type: "request_welcome", body: "Customer started a conversation" },
+          });
         } else {
-          events.push({ ...baseEvent, type: "unsupported", raw: message });
+          events.push({
+            ...baseEvent,
+            type: "unsupported",
+            payload: { type: message.type || "unknown" },
+          });
         }
       }
     }

@@ -178,6 +178,8 @@ export interface WaConversation {
   unreadCount: number;
   isArchived: boolean;
   isPinned: boolean;
+  isMuted?: boolean;
+  mutedUntil?: string | null;
   customer?: {
     name: string;
     phone: string;
@@ -185,6 +187,8 @@ export interface WaConversation {
   assignedToId?: string | null;
   messages?: WaMessage[];
   entityVersion?: number;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export type WaPage<T> = {
@@ -200,6 +204,18 @@ export type WhatsAppCapability = {
   runtimeConfig: {
     socketGraceMs: number;
     notificationPreviewsEnabled: boolean;
+    messagingWindowHours: number;
+    mediaPolicy: Record<WaMediaKind, {
+      maxBytes: number;
+      mimeTypes: string[];
+    }>;
+    retention: {
+      messageTextRetentionDays: number | null;
+      mediaFileRetentionDays: number;
+      thumbnailRetentionDays: number;
+      failedOperationRetentionDays: number;
+      draftRetentionDays: number;
+    };
   };
 };
 
@@ -519,6 +535,32 @@ export async function archiveScopedWaConversation(
   return apiRequest<{ conversation: WaConversation }>(
     `/whatsapp/integrations/${encodeURIComponent(integrationId)}/conversations/${encodeURIComponent(conversationId)}/archive`,
     { method: "POST", token, body: JSON.stringify({ isArchived, sourceDeviceId }) },
+  );
+}
+
+export async function pinScopedWaConversation(
+  token: string,
+  integrationId: string,
+  conversationId: string,
+  isPinned: boolean,
+) {
+  const sourceDeviceId = await getDeviceInstallationId();
+  return apiRequest<{ conversation: WaConversation }>(
+    `/whatsapp/integrations/${encodeURIComponent(integrationId)}/conversations/${encodeURIComponent(conversationId)}/pin`,
+    { method: "POST", token, body: JSON.stringify({ isPinned, sourceDeviceId }) },
+  );
+}
+
+export async function muteScopedWaConversation(
+  token: string,
+  integrationId: string,
+  conversationId: string,
+  input: { isMuted: boolean; mutedUntil?: string },
+) {
+  const sourceDeviceId = await getDeviceInstallationId();
+  return apiRequest<{ conversation: WaConversation }>(
+    `/whatsapp/integrations/${encodeURIComponent(integrationId)}/conversations/${encodeURIComponent(conversationId)}/mute`,
+    { method: "POST", token, body: JSON.stringify({ ...input, sourceDeviceId }) },
   );
 }
 

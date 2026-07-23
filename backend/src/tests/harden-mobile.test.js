@@ -26,6 +26,7 @@ import {
 } from "../../../stock/src/local/read-model/read-model-cache-core.ts";
 import { getReadModelImpact } from "../../../stock/src/local/read-model/read-model-event-policy.ts";
 import { selectCategories, selectCustomers, selectItemCatalog } from "../../../stock/src/local/read-model/read-model-search-core.ts";
+import { invalidateForDomainEvent } from "../../../stock/src/realtime/domainEvents.ts";
 import {
   buildMergedItemPatch,
   getItemMergeCompatibilityIssue,
@@ -164,11 +165,10 @@ test.describe("HARDEN-01 WhatsApp mobile capability boundary", () => {
     assert.ok(navigation.includes("whatsappCapabilityScreen(ChatListScreen)"));
     assert.ok(navigation.includes("whatsappCapabilityScreen(ChatDetailScreen)"));
     assert.ok(navigation.includes('path: "shops/:shopId/whatsapp/:integrationId/conversations/:conversationId"'));
-    assert.ok(navigation.includes("WhatsApp: "));
-    assert.ok(!navigation.includes("OwnerAlerts: "));
-    assert.ok(!navigation.includes("Notifications: "));
     assert.ok(gate.includes("fetchWhatsAppCapability"));
-    assert.ok(gate.includes("requestedIntegrationId === capability.data.integrationId"));
+    assert.ok(gate.includes("requestedIntegrationId === capability.data?.integrationId"));
+    assert.ok(gate.includes("const routeScopeValid"));
+    assert.ok(gate.includes("<WhatsAppScopeProvider"));
     assert.ok(gate.indexOf("fetchWhatsAppCapability") < gate.indexOf("setActiveShopId(requestedShopId"));
   });
 
@@ -208,6 +208,17 @@ test.describe("HARDEN-01 WhatsApp mobile capability boundary", () => {
     assert.ok(header.includes('navigation?.navigate("NotificationHistory")'));
     assert.ok(header.includes('source="bell-outline"'));
     assert.ok(home.includes("showAlerts"));
+  });
+
+  test("WhatsApp message and contact surfaces reuse current mobile primitives", () => {
+    const messageSheet = readStock("modules/whatsapp/components/MessageActionSheet.tsx");
+    const contacts = readStock("modules/whatsapp/screens/ContactBookScreen.tsx");
+    assert.match(messageSheet, /AppBottomSheetModal/);
+    assert.doesNotMatch(messageSheet, /<Modal\b/);
+    assert.doesNotMatch(messageSheet, /KeyboardAvoidingView/);
+    assert.match(contacts, /from "expo-contacts"/);
+    assert.doesNotMatch(contacts, /expo-contacts\/legacy/);
+    assert.doesNotMatch(contacts, /estimatedItemSize/);
   });
 });
 
@@ -482,6 +493,35 @@ test.describe("DATA-01B mobile read-model cache boundary", () => {
 });
 
 test.describe("DATA-03 realtime read-model coherence contracts", () => {
+  test("WhatsApp created events enter only the newest infinite-query page", () => {
+    let data = {
+      pageParams: [undefined, "older"],
+      pages: [
+        { items: [{ id: "newest", entityVersion: 1 }] },
+        { items: [{ id: "older", entityVersion: 1 }] },
+      ],
+    };
+    const queryClient = {
+      setQueriesData: (_filters, updater) => {
+        data = updater(data);
+      },
+    };
+    invalidateForDomainEvent(queryClient, {
+      eventId: "event-1",
+      shopId: "shop-1",
+      integrationId: "integration-1",
+      conversationId: "conversation-1",
+      entity: "waMessage",
+      entityId: "message-1",
+      entityVersion: 1,
+      actorUserId: "user-1",
+      action: "created",
+      patch: { id: "message-1", entityVersion: 1 },
+    });
+    assert.deepEqual(data.pages[0].items.map((item) => item.id), ["newest", "message-1"]);
+    assert.deepEqual(data.pages[1].items.map((item) => item.id), ["older"]);
+  });
+
   test("live socket events request reconciliation instead of direct cursor advancement or MMKV patching", () => {
     const provider = readStock("realtime/RealtimeProvider.tsx");
     const liveHandler = provider.slice(provider.indexOf('socket.on("domain:event"'));

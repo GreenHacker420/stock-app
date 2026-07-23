@@ -149,6 +149,15 @@ export async function deliverNotification(notificationId) {
       })
     : null;
   const whatsappData = whatsappPushData(notification, outbox?.eventJson);
+  if (whatsappData?.conversationId) {
+    const conversation = await prisma.waConversation.findUnique({
+      where: { id: whatsappData.conversationId },
+      select: { isMuted: true, mutedUntil: true },
+    });
+    const muteIsActive = conversation?.isMuted
+      && (!conversation.mutedUntil || conversation.mutedUntil > new Date());
+    if (muteIsActive) return { skipped: "WHATSAPP_CONVERSATION_MUTED" };
+  }
   const devices = notification.user.devices.filter((device) => isExpoPushToken(device.pushToken));
   if (!devices.length) return { skipped: "NO_PUSH_DEVICES" };
 

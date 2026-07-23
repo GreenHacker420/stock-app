@@ -61,4 +61,6 @@ test("registers only integration-scoped WhatsApp messaging routes", async () => 
   assert.doesNotMatch(source, /router\.post\(\s*"\/messages"/);
   assert.doesNotMatch(source, /router\.get\(\s*"\/conversations"/);
   assert.doesNotMatch(source, /router\.post\(\s*"\/react"/);
+  assert.match(source, /router\.post\(\s*"\/webhook"/);
+  assert.doesNotMatch(source, /"\/webhook\/:shopId"/);
 });

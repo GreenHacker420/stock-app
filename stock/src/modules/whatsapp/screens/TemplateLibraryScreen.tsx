@@ -1,6 +1,7 @@
 import { useContext, useEffect, useRef, useState } from "react";
-import { Alert, Pressable, RefreshControl, StyleSheet, View } from "react-native";
+import { Alert, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import { FlashList } from "@shopify/flash-list";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { KeyboardAwareListScrollComponent } from "../../../components/keyboard/KeyboardAwareListScrollComponent";
 import { ActivityIndicator, Button, Dialog, FAB, IconButton, Portal, Searchbar, Text } from "react-native-paper";
 import { useNavigation } from "@react-navigation/native";
@@ -16,10 +17,10 @@ import {
   WaTemplate,
 } from "../../../api/whatsapp.api";
 import { useAuthStore } from "../../../auth/auth-store";
-import { useShopStore } from "../../../auth/shop-store";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { ErrorState } from "../../../components/feedback/ErrorState";
 import { waColors, waScreen } from "../whatsapp-ui";
+import { useWhatsAppScope } from "../whatsapp-scope";
 
 const STATUS_TABS = ["ALL", "APPROVED", "PENDING", "REJECTED", "PAUSED"] as const;
 
@@ -28,7 +29,7 @@ export function TemplateLibraryScreen() {
   const tabBarHeight = useContext(BottomTabBarHeightContext) ?? 0;
   const token = useAuthStore((state) => state.token) || "";
   const user = useAuthStore((state) => state.user);
-  const shopId = useShopStore((state) => state.activeShopId);
+  const { shopId } = useWhatsAppScope();
   const queryClient = useQueryClient();
   const [status, setStatus] = useState<(typeof STATUS_TABS)[number]>("ALL");
   const [search, setSearch] = useState("");
@@ -133,7 +134,12 @@ export function TemplateLibraryScreen() {
         style={styles.search}
         inputStyle={styles.searchInput}
       />
-      <View style={styles.tabs}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.tabs}
+        keyboardShouldPersistTaps="handled"
+      >
         {STATUS_TABS.map((tab) => (
           <Pressable key={tab} onPress={() => setStatus(tab)} style={[styles.tab, status === tab && styles.tabActive]}>
             <Text style={[styles.tabText, status === tab && styles.tabTextActive]}>
@@ -141,7 +147,7 @@ export function TemplateLibraryScreen() {
             </Text>
           </Pressable>
         ))}
-      </View>
+      </ScrollView>
 
       {query.isLoading || (syncMutation.isPending && query.data?.meta.total === 0) ? (
         <ActivityIndicator style={styles.loader} color={waColors.green} />
@@ -179,7 +185,7 @@ export function TemplateLibraryScreen() {
               style={styles.row}
             >
               <View style={styles.templateIcon}>
-                <Text style={styles.templateIconText}>{item.category[0]}</Text>
+                <MaterialCommunityIcons name="card-text-outline" size={23} color="#fff" />
               </View>
               <View style={styles.rowBody}>
                 <View style={styles.rowTitle}>
@@ -275,8 +281,8 @@ const styles = StyleSheet.create({
   headerActions: { flexDirection: "row", marginRight: -8 },
   search: { margin: 10, height: 44, backgroundColor: waColors.surfaceMuted, borderRadius: 8 },
   searchInput: { minHeight: 44, fontSize: 15 },
-  tabs: { height: 42, flexDirection: "row", paddingHorizontal: 10, gap: 6 },
-  tab: { justifyContent: "center", paddingHorizontal: 12, borderRadius: 18 },
+  tabs: { minHeight: 44, paddingHorizontal: 10, paddingBottom: 6, gap: 6 },
+  tab: { minHeight: 38, justifyContent: "center", paddingHorizontal: 14, borderRadius: 19 },
   tabActive: { backgroundColor: waColors.greenPale },
   tabText: { color: waColors.textSecondary, textTransform: "capitalize", fontSize: 13 },
   tabTextActive: { color: waColors.greenDark, fontWeight: "700" },
@@ -291,7 +297,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: waColors.green,
   },
-  templateIconText: { color: "#fff", fontSize: 20, fontWeight: "700" },
   rowBody: { flex: 1, marginLeft: 12, paddingBottom: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: waColors.border },
   rowTitle: { flexDirection: "row", justifyContent: "space-between", gap: 8 },
   name: { flex: 1, color: waColors.text, fontSize: 16, fontWeight: "600" },

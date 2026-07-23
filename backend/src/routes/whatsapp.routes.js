@@ -24,12 +24,8 @@ const mediaUpload = multer({
   },
 });
 
-// Public Webhook routes (called by Meta)
-// shopId is passed as path param or query param for multi-tenancy
 router.get("/webhook", whatsappController.verifyWebhook);
 router.post("/webhook", whatsappController.handleWebhook);
-router.get("/webhook/:shopId", whatsappController.verifyWebhook);
-router.post("/webhook/:shopId", whatsappController.handleWebhook);
 
 // Flows E2EE Endpoints (Public, called by Meta)
 router.get("/flow-endpoint/:shopId", whatsappFlowEndpointController.verifyWebhook);
@@ -85,6 +81,18 @@ router.post(
   requireAuth,
   requireWhatsAppConversation,
   whatsappController.archiveScopedConversation,
+);
+router.post(
+  "/integrations/:integrationId/conversations/:conversationId/pin",
+  requireAuth,
+  requireWhatsAppConversation,
+  whatsappController.pinScopedConversation,
+);
+router.post(
+  "/integrations/:integrationId/conversations/:conversationId/mute",
+  requireAuth,
+  requireWhatsAppConversation,
+  whatsappController.muteScopedConversation,
 );
 router.delete(
   "/integrations/:integrationId/conversations/:conversationId",

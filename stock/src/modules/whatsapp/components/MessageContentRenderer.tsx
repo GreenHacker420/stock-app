@@ -262,11 +262,12 @@ function ReactionRenderer({ message }: RendererProps) {
 }
 
 function UnsupportedRenderer({ message }: RendererProps) {
+  const sourceType = message.content?.type || message.payload?.subtype || "unknown";
   return (
     <InfoRow
-      icon="alert-circle-outline"
-      text="Unsupported WhatsApp message"
-      detail={message.payload?.subtype ? `Type: ${message.payload.subtype}` : undefined}
+      icon="message-question-outline"
+      text="New WhatsApp message type"
+      detail={`Type: ${sourceType}`}
       muted
     />
   );
@@ -409,4 +410,3 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
   },
 });
-

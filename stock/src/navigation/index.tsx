@@ -241,7 +241,7 @@ const WhatsAppTemplates = whatsappCapabilityScreen(TemplateLibraryScreen);
 const WhatsAppTemplateEditor = whatsappCapabilityScreen(TemplateEditorScreen);
 const WhatsAppFlows = whatsappCapabilityScreen(FlowLibraryScreen);
 const WhatsAppFlowEditor = whatsappCapabilityScreen(FlowEditorScreen);
-const WhatsAppSetup = whatsappCapabilityScreen(WhatsAppSetupScreen);
+const WhatsAppSetup = whatsappCapabilityScreen(WhatsAppSetupScreen, { requireConnected: false });
 
 function AccessDeniedScreen() {
   return (

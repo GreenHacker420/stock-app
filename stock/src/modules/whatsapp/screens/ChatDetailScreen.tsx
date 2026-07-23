@@ -9,33 +9,31 @@ import {
   Modal,
   Alert,
   ActivityIndicator,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
 } from "react-native";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { FlashList } from "@shopify/flash-list";
 import * as Crypto from "expo-crypto";
-
-const FlashListAny = FlashList as any;
-
-// Temporarily using FlashList directly to see error
 import * as Clipboard from "expo-clipboard";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
+import NetInfo from "@react-native-community/netinfo";
 import { useRoute, useNavigation } from "@react-navigation/native";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  fetchScopedWaConversations,
-  fetchScopedWaMessages,
   deleteScopedWaMessage,
   markScopedWaConversationRead,
   reactToScopedWaMessage,
+  retryScopedWaMessage,
   sendScopedWaMessage,
   uploadWaMedia,
   WaLocalMedia,
   WaMessage,
   WaOutboundMessage,
 } from "../../../api/whatsapp.api";
-import { useShopStore } from "../../../auth/shop-store";
 import { useAuthStore } from "../../../auth/auth-store";
 import { useCustomersQuery } from "../../../hooks/useCustomers";
 import { colors as Colors } from "../../../theme";
@@ -47,18 +45,41 @@ import { VoiceRecorderSheet } from "../components/VoiceRecorderSheet";
 import { MessageContentRenderer } from "../components/MessageContentRenderer";
 import { TemplateSendSheet } from "../components/TemplateSendSheet";
 import { FlowSendSheet } from "../components/FlowSendSheet";
-import { initialsFor, waColors } from "../whatsapp-ui";
+import { formatWhatsAppPhone, initialsFor, waColors } from "../whatsapp-ui";
 import { queryKeys } from "../../../hooks/query-keys";
+import { useWhatsAppScope } from "../whatsapp-scope";
+import {
+  useWhatsAppConversations,
+  useWhatsAppMessages,
+} from "../hooks/use-whatsapp-data";
+import { whatsappDb } from "../services/whatsapp-db";
+import {
+  appendWhatsAppMessage,
+  replaceWhatsAppMessage,
+  type WhatsAppMessagePages,
+} from "../whatsapp-query-cache";
+import {
+  getWhatsAppMediaRule,
+  getWhatsAppMessagingWindowHours,
+} from "../whatsapp-runtime-config";
+import {
+  persistWhatsAppMedia,
+  removePersistedWhatsAppMedia,
+} from "../services/whatsapp-media-files";
 
 const STANDARD_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
 
 export const ChatDetailScreen = () => {
   const route = useRoute<any>();
   const navigation = useNavigation();
-  const { conversationId, phone, integrationId, phoneNumberId } = route.params;
-  const activeShopId = useShopStore((state) => state.activeShopId);
+  const { conversationId, phone } = route.params;
+  const {
+    shopId: activeShopId,
+    integrationId,
+  } = useWhatsAppScope();
   const token = useAuthStore((state) => state.token);
   const queryClient = useQueryClient();
+  const insets = useSafeAreaInsets();
 
   const [inputText, setInputText] = useState("");
   const [replyingTo, setReplyingTo] = useState<WaMessage | null>(null);
@@ -72,6 +93,8 @@ export const ChatDetailScreen = () => {
   const [mediaCaption, setMediaCaption] = useState("");
   const [mediaUploadProgress, setMediaUploadProgress] = useState(0);
   const [uploadingMedia, setUploadingMedia] = useState(false);
+  const [newMessageCount, setNewMessageCount] = useState(0);
+  const [isNearBottom, setIsNearBottom] = useState(true);
 
   // Template Picker State
   const [showTemplateSheet, setShowTemplateSheet] = useState(false);
@@ -84,7 +107,7 @@ export const ChatDetailScreen = () => {
   // Mark conversation as read on focus / load
   useEffect(() => {
     if (activeShopId && conversationId) {
-      if (!integrationId || !token) return;
+      if (!token) return;
       markScopedWaConversationRead(token, integrationId, conversationId)
         .then(() => {
           queryClient.invalidateQueries({ queryKey: ["whatsapp", "conversations", activeShopId, integrationId] });
@@ -95,15 +118,8 @@ export const ChatDetailScreen = () => {
     }
   }, [activeShopId, conversationId, integrationId, token]);
 
-  const { data: conversations = [] } = useQuery<any[]>({
-    queryKey: queryKeys.whatsapp.conversations(activeShopId!, integrationId, phoneNumberId || "", {}),
-    queryFn: async () => token && integrationId
-      ? (await fetchScopedWaConversations(token, integrationId)).items
-      : [],
-    enabled: false,
-  });
-
-  const conversation = conversations.find((c: any) => c.id === conversationId);
+  const conversationQuery = useWhatsAppConversations();
+  const conversation = conversationQuery.conversations.find((item) => item.id === conversationId);
 
   // Load server-side customers to resolve dynamic variables (e.g. outstandingAmount)
   const { data: customers = [] } = useCustomersQuery();
@@ -111,7 +127,7 @@ export const ChatDetailScreen = () => {
 
   // Set custom header with contact name, avatar, and linked customer shortcut
   useEffect(() => {
-    const contactName = conversation?.contactName || `+${phone}`;
+    const contactName = conversation?.contactName || formatWhatsAppPhone(phone);
     const initials = initialsFor(conversation?.contactName || phone);
 
     navigation.setOptions({
@@ -137,7 +153,7 @@ export const ChatDetailScreen = () => {
               {contactName}
             </Text>
             <Text style={{ fontSize: 11, color: "rgba(255,255,255,0.78)" }} numberOfLines={1}>
-              {conversation?.customer ? "Linked Customer" : `+${phone}`}
+              {conversation?.customer ? "Linked customer" : formatWhatsAppPhone(phone)}
             </Text>
           </View>
         </View>
@@ -154,15 +170,43 @@ export const ChatDetailScreen = () => {
     });
   }, [navigation, conversation, phone]);
 
-  // Fetch messages via React Query (uses offline cache from MMKV)
-  const { data: messages = [], isLoading } = useQuery({
-    queryKey: queryKeys.whatsapp.messages(activeShopId!, integrationId, conversationId),
-    queryFn: async () => {
-      if (!token || !integrationId) return [];
-      return (await fetchScopedWaMessages(token, integrationId, conversationId)).items;
-    },
-    enabled: Boolean(conversationId && token && integrationId && activeShopId),
-  });
+  const messageQuery = useWhatsAppMessages(conversationId);
+  const messages = messageQuery.messages;
+  const isLoading = messageQuery.isPending;
+  const draftLoaded = useRef(false);
+
+  useEffect(() => {
+    draftLoaded.current = false;
+    void whatsappDb.getDraft(activeShopId, integrationId, conversationId).then((draft) => {
+      if (!draft) {
+        draftLoaded.current = true;
+        return;
+      }
+      setInputText(draft.text);
+      if (draft.reply_to_message_id) {
+        setReplyingTo(messages.find((message) => message.id === draft.reply_to_message_id) || null);
+      }
+      draftLoaded.current = true;
+    });
+  }, [activeShopId, conversationId, integrationId]);
+
+  useEffect(() => {
+    if (!draftLoaded.current) return;
+    const timer = setTimeout(() => {
+      void whatsappDb.saveDraft(
+        { shopId: activeShopId, integrationId, conversationId },
+        inputText,
+        replyingTo?.id,
+      );
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [activeShopId, conversationId, inputText, integrationId, replyingTo?.id]);
+
+  const messagingWindowOpen = useMemo(() => {
+    if (!conversation?.lastCustomerMessageAt) return false;
+    return Date.now() - new Date(conversation.lastCustomerMessageAt).getTime()
+      < getWhatsAppMessagingWindowHours() * 60 * 60 * 1_000;
+  }, [conversation?.lastCustomerMessageAt]);
 
   // Send Message Mutation
   type SendVariables = {
@@ -171,64 +215,121 @@ export const ChatDetailScreen = () => {
     replyToMessageId?: string;
   };
   const messagesKey = queryKeys.whatsapp.messages(activeShopId!, integrationId, conversationId);
+  const buildOptimisticMessage = (
+    input: SendVariables,
+    operationState: WaMessage["operationState"],
+  ): WaMessage => ({
+    id: `local:${input.clientMessageId}`,
+    clientMessageId: input.clientMessageId,
+    conversationId,
+    direction: "OUTBOUND",
+    operationState,
+    providerStatus: "PENDING",
+    contentState: "VISIBLE",
+    attempt: 0,
+    entityVersion: 0,
+    type: input.message.kind === "text"
+      ? "TEXT"
+      : input.message.kind.toUpperCase() as WaMessage["type"],
+    content: input.message.kind === "text"
+      ? { text: input.message.text }
+      : input.message,
+    createdAt: new Date().toISOString(),
+  });
+
+  const queueOfflineSend = async (input: SendVariables) => {
+    const now = Date.now();
+    const optimistic = buildOptimisticMessage(input, "WAITING_FOR_NETWORK");
+    await whatsappDb.upsertMessages(
+      { shopId: activeShopId, integrationId, conversationId },
+      [optimistic],
+    );
+    await whatsappDb.enqueueOperation({
+      id: `send:${input.clientMessageId}`,
+      shopId: activeShopId,
+      integrationId,
+      conversationId,
+      clientMessageId: input.clientMessageId,
+      operationType: "SEND_MESSAGE",
+      operationState: "WAITING_FOR_NETWORK",
+      payload: {
+        message: input.message,
+        replyToMessageId: input.replyToMessageId,
+      },
+      attempt: 0,
+      nextAttemptAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+    return { message: optimistic };
+  };
+
   const sendMutation = useMutation({
     mutationFn: async (input: SendVariables) => {
-      if (!token || !activeShopId || !integrationId) throw new Error("WhatsApp scope is unavailable");
-      return sendScopedWaMessage(token, {
-        shopId: activeShopId,
-        integrationId,
-        conversationId,
-      }, input);
+      if (!token) throw new Error("Your session expired. Sign in again.");
+      const network = await NetInfo.fetch();
+      if (network.isConnected === false) return queueOfflineSend(input);
+      try {
+        return await sendScopedWaMessage(token, {
+          shopId: activeShopId,
+          integrationId,
+          conversationId,
+        }, input);
+      } catch (error) {
+        const latestNetwork = await NetInfo.fetch();
+        if (latestNetwork.isConnected === false) return queueOfflineSend(input);
+        throw error;
+      }
     },
     onMutate: async (input) => {
-      const optimistic: WaMessage = {
-        id: `local:${input.clientMessageId}`,
-        clientMessageId: input.clientMessageId,
-        conversationId,
-        direction: "OUTBOUND",
-        operationState: "SUBMITTING",
-        providerStatus: "PENDING",
-        contentState: "VISIBLE",
-        attempt: 0,
-        entityVersion: 0,
-        type: input.message.kind === "text" ? "TEXT" : input.message.kind.toUpperCase() as WaMessage["type"],
-        content: input.message.kind === "text"
-          ? { text: input.message.text }
-          : input.message,
-        createdAt: new Date().toISOString(),
-      };
-      queryClient.setQueryData<WaMessage[]>(messagesKey, (current = []) => [...current, optimistic]);
+      const optimistic = buildOptimisticMessage(input, "SUBMITTING");
+      queryClient.setQueryData<WhatsAppMessagePages>(
+        messagesKey,
+        (current) => appendWhatsAppMessage(current, optimistic),
+      );
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 30);
     },
-    onSuccess: ({ message }, input) => {
-      queryClient.setQueryData<WaMessage[]>(messagesKey, (current = []) =>
-        current.map((item) => item.clientMessageId === input.clientMessageId ? message : item));
+    onSuccess: async ({ message }, input) => {
+      queryClient.setQueryData<WhatsAppMessagePages>(
+        messagesKey,
+        (current) => replaceWhatsAppMessage(current, input.clientMessageId, message),
+      );
+      await whatsappDb.upsertMessages(
+        { shopId: activeShopId, integrationId, conversationId },
+        [message],
+      );
       queryClient.invalidateQueries({ queryKey: ["whatsapp", "conversations", activeShopId, integrationId] });
       setReplyingTo(null);
     },
     onError: (err: any, input) => {
-      queryClient.setQueryData<WaMessage[]>(messagesKey, (current = []) =>
-        current.map((item) => item.clientMessageId === input.clientMessageId
-          ? {
-              ...item,
-              operationState: "TERMINALLY_FAILED",
-              providerStatus: "FAILED",
-              errorMessage: err.message || "Failed to send message",
-            }
-          : item));
-      Alert.alert("Send Error", err.message || "Failed to send message");
+      queryClient.setQueryData<WhatsAppMessagePages>(
+        messagesKey,
+        (current) => replaceWhatsAppMessage(current, input.clientMessageId, (message) => ({
+          ...message,
+          operationState: "TERMINALLY_FAILED",
+          providerStatus: "FAILED",
+          errorMessage: err.message || "Failed to send message",
+        })),
+      );
+      Alert.alert("Message not sent", err.message || "Tap the failed message to retry.");
     }
   });
 
   const displayedMessages = messages;
 
-  // Automatically scroll to end on load or when new messages arrive
+  const previousLastMessageId = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (displayedMessages.length > 0) {
-      setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: true });
-      }, 300);
+    const lastMessage = displayedMessages.at(-1);
+    if (!lastMessage || previousLastMessageId.current === lastMessage.id) return;
+    const isInitialLoad = !previousLastMessageId.current;
+    previousLastMessageId.current = lastMessage.id;
+    if (isInitialLoad || isNearBottom || lastMessage.direction === "OUTBOUND") {
+      setNewMessageCount(0);
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: !isInitialLoad }), 50);
+      return;
     }
-  }, [displayedMessages.length]);
+    setNewMessageCount((count) => count + 1);
+  }, [displayedMessages, isNearBottom]);
 
   // Auto-mark as read when new inbound messages arrive while viewing
   useEffect(() => {
@@ -250,7 +351,7 @@ export const ChatDetailScreen = () => {
   // Send Reaction Mutation
   const reactionMutation = useMutation({
     mutationFn: async ({ messageId, emoji }: { messageId: string; emoji: string }) => {
-      if (!token || !integrationId) throw new Error("WhatsApp scope is unavailable");
+      if (!token) throw new Error("Your session expired. Sign in again.");
       return reactToScopedWaMessage(token, integrationId, messageId, emoji);
     },
     onSuccess: () => {
@@ -267,7 +368,7 @@ export const ChatDetailScreen = () => {
   // Delete Message Mutation
   const deleteMutation = useMutation({
     mutationFn: async (messageId: string) => {
-      if (!token || !integrationId) throw new Error("WhatsApp scope is unavailable");
+      if (!token) throw new Error("Your session expired. Sign in again.");
       return deleteScopedWaMessage(token, integrationId, messageId);
     },
     onSuccess: () => {
@@ -280,8 +381,25 @@ export const ChatDetailScreen = () => {
     }
   });
 
+  const retryMutation = useMutation({
+    mutationFn: async (message: WaMessage) => {
+      if (!token || message.id.startsWith("local:")) {
+        throw new Error("Reconnect to send this queued message.");
+      }
+      return retryScopedWaMessage(token, integrationId, message.id);
+    },
+    onSuccess: ({ message }) => {
+      queryClient.invalidateQueries({ queryKey: messagesKey });
+      void whatsappDb.upsertMessages(
+        { shopId: activeShopId, integrationId, conversationId },
+        [message],
+      );
+    },
+    onError: (error) => Alert.alert("Couldn’t retry message", error.message),
+  });
+
   const handleSend = () => {
-    if (!inputText.trim() || !activeShopId || !token) return;
+    if (!inputText.trim() || !activeShopId || !token || !messagingWindowOpen) return;
 
     sendMutation.mutate({
       clientMessageId: Crypto.randomUUID(),
@@ -294,12 +412,19 @@ export const ChatDetailScreen = () => {
     });
 
     setInputText("");
+    void whatsappDb.saveDraft(
+      { shopId: activeShopId, integrationId, conversationId },
+      "",
+    );
   };
 
-  const sendStructuredMessage = (message: WaOutboundMessage) => {
+  const sendStructuredMessage = (
+    message: WaOutboundMessage,
+    clientMessageId = Crypto.randomUUID(),
+  ) => {
     if (!activeShopId) return;
     sendMutation.mutate({
-      clientMessageId: Crypto.randomUUID(),
+      clientMessageId,
       message,
       replyToMessageId: replyingTo?.id,
     });
@@ -374,17 +499,21 @@ export const ChatDetailScreen = () => {
         });
         if (result.canceled) return;
         const asset = result.assets[0];
-        if (asset.size && asset.size > 100 * 1024 * 1024) {
-          Alert.alert("File too large", "WhatsApp documents must be 100 MB or smaller.");
+        const documentRule = getWhatsAppMediaRule("document");
+        if (asset.size && asset.size > documentRule.maxBytes) {
+          Alert.alert(
+            "File too large",
+            `WhatsApp documents must be ${Math.floor(documentRule.maxBytes / 1024 / 1024)} MB or smaller.`,
+          );
           return;
         }
-        setSelectedMedia({
+        setSelectedMedia(await persistWhatsAppMedia(integrationId, {
           kind,
           uri: asset.uri,
           name: asset.name,
           mimeType: asset.mimeType || "application/octet-stream",
           size: asset.size,
-        });
+        }));
         return;
       }
 
@@ -405,7 +534,7 @@ export const ChatDetailScreen = () => {
       if (result.canceled) return;
 
       const asset = result.assets[0];
-      const maxBytes = kind === "image" ? 5 * 1024 * 1024 : 16 * 1024 * 1024;
+      const maxBytes = getWhatsAppMediaRule(kind).maxBytes;
       if (asset.fileSize && asset.fileSize > maxBytes) {
         Alert.alert(
           "File too large",
@@ -414,7 +543,7 @@ export const ChatDetailScreen = () => {
         return;
       }
       const defaultExtension = kind === "image" ? "jpg" : "mp4";
-      setSelectedMedia({
+      setSelectedMedia(await persistWhatsAppMedia(integrationId, {
         kind,
         uri: asset.uri,
         name: asset.fileName || `whatsapp-${Date.now()}.${defaultExtension}`,
@@ -422,7 +551,7 @@ export const ChatDetailScreen = () => {
         size: asset.fileSize,
         width: asset.width,
         height: asset.height,
-      });
+      }));
     } catch (error) {
       Alert.alert(
         "Attachment unavailable",
@@ -433,6 +562,7 @@ export const ChatDetailScreen = () => {
 
   const closeMediaPreview = () => {
     if (uploadingMedia) return;
+    removePersistedWhatsAppMedia(selectedMedia?.uri);
     setSelectedMedia(null);
     setMediaCaption("");
     setMediaUploadProgress(0);
@@ -441,6 +571,32 @@ export const ChatDetailScreen = () => {
   const uploadAndSendMedia = async () => {
     if (!selectedMedia || !integrationId || !token || uploadingMedia) return;
 
+    const clientMessageId = Crypto.randomUUID();
+    const operationId = `upload:${clientMessageId}`;
+    const now = Date.now();
+    const mediaMessage = {
+      kind: selectedMedia.kind,
+      caption: mediaCaption.trim() || undefined,
+      filename: selectedMedia.kind === "document" ? selectedMedia.name : undefined,
+    } as const;
+    await whatsappDb.enqueueOperation({
+      id: operationId,
+      shopId: activeShopId,
+      integrationId,
+      conversationId,
+      clientMessageId,
+      operationType: "UPLOAD_MEDIA",
+      operationState: "UPLOADING",
+      payload: {
+        replyToMessageId: replyingTo?.id,
+        media: selectedMedia,
+        mediaMessage,
+      },
+      attempt: 0,
+      nextAttemptAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
     setUploadingMedia(true);
     setMediaUploadProgress(0);
     const controller = new AbortController();
@@ -455,27 +611,43 @@ export const ChatDetailScreen = () => {
       );
 
       if (selectedMedia.kind === "document") {
-        sendStructuredMessage({
+        await sendMutation.mutateAsync({
+          clientMessageId,
+          replyToMessageId: replyingTo?.id,
+          message: {
           kind: "document",
           assetId: uploaded.id,
           filename: uploaded.fileName || selectedMedia.name,
           caption: mediaCaption.trim() || undefined,
+          },
         });
       } else {
-        sendStructuredMessage({
-          kind: selectedMedia.kind,
-          assetId: uploaded.id,
-          caption: mediaCaption.trim() || undefined,
+        await sendMutation.mutateAsync({
+          clientMessageId,
+          replyToMessageId: replyingTo?.id,
+          message: {
+            kind: selectedMedia.kind,
+            assetId: uploaded.id,
+            caption: mediaCaption.trim() || undefined,
+          },
         });
       }
+      await whatsappDb.deleteOperation(operationId);
+      removePersistedWhatsAppMedia(selectedMedia.uri);
       setSelectedMedia(null);
       setMediaCaption("");
       setMediaUploadProgress(0);
     } catch (error) {
       if (controller.signal.aborted) return;
+      await whatsappDb.updateOperation(operationId, {
+        operationState: "RETRY_SCHEDULED",
+        attempt: 1,
+        nextAttemptAt: Date.now() + 2_000,
+        lastError: error instanceof Error ? error.message : "Media upload failed",
+      });
       Alert.alert(
         "Upload failed",
-        error instanceof Error ? error.message : "Could not upload this attachment.",
+        "The attachment is saved and will retry when the connection is available.",
       );
     } finally {
       mediaUploadControllerRef.current = null;
@@ -486,6 +658,28 @@ export const ChatDetailScreen = () => {
   const uploadAndSendVoice = async (media: WaLocalMedia) => {
     if (!integrationId || !token || uploadingMedia) return;
 
+    const persistedMedia = await persistWhatsAppMedia(integrationId, media);
+    const clientMessageId = Crypto.randomUUID();
+    const operationId = `upload:${clientMessageId}`;
+    const now = Date.now();
+    await whatsappDb.enqueueOperation({
+      id: operationId,
+      shopId: activeShopId,
+      integrationId,
+      conversationId,
+      clientMessageId,
+      operationType: "UPLOAD_MEDIA",
+      operationState: "UPLOADING",
+      payload: {
+        replyToMessageId: replyingTo?.id,
+        media: persistedMedia,
+        mediaMessage: { kind: "audio", voice: true },
+      },
+      attempt: 0,
+      nextAttemptAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
     setUploadingMedia(true);
     setMediaUploadProgress(0);
     const controller = new AbortController();
@@ -494,22 +688,34 @@ export const ChatDetailScreen = () => {
       const uploaded = await uploadWaMedia(
         token,
         integrationId,
-        media,
+        persistedMedia,
         setMediaUploadProgress,
         controller.signal,
       );
-      sendStructuredMessage({
-        kind: "audio",
-        assetId: uploaded.id,
-        voice: true,
+      await sendMutation.mutateAsync({
+        clientMessageId,
+        replyToMessageId: replyingTo?.id,
+        message: {
+          kind: "audio",
+          assetId: uploaded.id,
+          voice: true,
+        },
       });
+      await whatsappDb.deleteOperation(operationId);
       setShowVoiceRecorder(false);
       setMediaUploadProgress(0);
+      removePersistedWhatsAppMedia(persistedMedia.uri);
     } catch (error) {
       if (controller.signal.aborted) return;
+      await whatsappDb.updateOperation(operationId, {
+        operationState: "RETRY_SCHEDULED",
+        attempt: 1,
+        nextAttemptAt: Date.now() + 2_000,
+        lastError: error instanceof Error ? error.message : "Voice upload failed",
+      });
       Alert.alert(
         "Upload failed",
-        error instanceof Error ? error.message : "Could not upload this voice message.",
+        "The voice note is saved and will retry when the connection is available.",
       );
     } finally {
       mediaUploadControllerRef.current = null;
@@ -627,9 +833,12 @@ export const ChatDetailScreen = () => {
     }
   };
 
-  const renderMessage = ({ item }: { item: WaMessage }) => {
+  const renderMessage = ({ item, index }: { item: WaMessage; index: number }) => {
     const isOutbound = item.direction === "OUTBOUND";
     const isDeleted = item.contentState === "DELETED";
+    const previous = displayedMessages[index - 1];
+    const showDate = !previous
+      || format(new Date(previous.createdAt), "yyyy-MM-dd") !== format(new Date(item.createdAt), "yyyy-MM-dd");
 
     // Find parent message for reply rendering
     const parentMessage = item.replyToMetaMessageId
@@ -646,12 +855,25 @@ export const ChatDetailScreen = () => {
     const uniqueEmojis = Object.keys(reactionSummary);
 
     return (
-      <View style={[styles.messageRow, isOutbound ? { justifyContent: "flex-end" } : { justifyContent: "flex-start" }]}>
+      <>
+        {showDate && (
+          <View style={styles.dateSeparator}>
+            <Text style={styles.dateSeparatorText}>
+              {format(new Date(item.createdAt), "EEE, d MMM")}
+            </Text>
+          </View>
+        )}
+        <View style={[styles.messageRow, isOutbound ? { justifyContent: "flex-end" } : { justifyContent: "flex-start" }]}>
         <TouchableOpacity
           activeOpacity={0.9}
           onLongPress={() => handleLongPress(item)}
           onPress={() => {
-            // Tapping a deleted message does nothing
+            if (
+              item.operationState === "TERMINALLY_FAILED"
+              || item.providerStatus === "FAILED"
+            ) {
+              retryMutation.mutate(item);
+            }
           }}
           style={[
             styles.bubble,
@@ -709,25 +931,84 @@ export const ChatDetailScreen = () => {
           )}
         </TouchableOpacity>
       </View>
+      </>
     );
+  };
+
+  const handleTimelineScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
+    const distanceFromBottom = contentSize.height - layoutMeasurement.height - contentOffset.y;
+    const nearBottom = distanceFromBottom < 110;
+    setIsNearBottom(nearBottom);
+    if (nearBottom && newMessageCount) setNewMessageCount(0);
   };
 
   return (
     <KeyboardAvoidingView
       automaticOffset
       style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 80}
     >
-      <FlashListAny
+      <FlashList
         ref={flatListRef}
         data={displayedMessages}
         renderItem={renderMessage}
-        keyExtractor={(item: any) => item.id}
-        estimatedItemSize={100}
+        keyExtractor={(item) => item.clientMessageId || item.id}
+        contentInsetAdjustmentBehavior="automatic"
+        keyboardDismissMode="interactive"
+        keyboardShouldPersistTaps="handled"
         contentContainerStyle={styles.listContent}
-        onLayout={() => flatListRef.current?.scrollToEnd({ animated: false })}
+        maintainVisibleContentPosition={{
+          startRenderingFromBottom: true,
+          autoscrollToBottomThreshold: 0.15,
+          animateAutoScrollToBottom: true,
+        }}
+        onScroll={handleTimelineScroll}
+        scrollEventThrottle={32}
+        onStartReached={() => {
+          if (messageQuery.hasNextPage && !messageQuery.isFetchingNextPage) {
+            void messageQuery.fetchNextPage();
+          }
+        }}
+        onStartReachedThreshold={0.25}
+        ListHeaderComponent={
+          messageQuery.isFetchingNextPage
+            ? <ActivityIndicator color={waColors.green} style={{ paddingVertical: 12 }} />
+            : null
+        }
+        ListEmptyComponent={
+          isLoading ? (
+            <View style={styles.timelineState}>
+              <ActivityIndicator color={waColors.green} />
+              <Text style={styles.timelineStateText}>Loading messages…</Text>
+            </View>
+          ) : (
+            <View style={styles.timelineState}>
+              <View style={styles.emptyConversationIcon}>
+                <MaterialCommunityIcons name="message-text-outline" size={34} color={waColors.green} />
+              </View>
+              <Text style={styles.timelineStateTitle}>Start the conversation</Text>
+              <Text style={styles.timelineStateText}>
+                Messages are securely synchronized with your business WhatsApp account.
+              </Text>
+            </View>
+          )
+        }
       />
+
+      {newMessageCount > 0 && (
+        <TouchableOpacity
+          style={styles.newMessageButton}
+          onPress={() => {
+            setNewMessageCount(0);
+            flatListRef.current?.scrollToEnd({ animated: true });
+          }}
+        >
+          <MaterialCommunityIcons name="chevron-down" size={20} color={waColors.greenDark} />
+          <Text style={styles.newMessageText}>
+            {newMessageCount} new {newMessageCount === 1 ? "message" : "messages"}
+          </Text>
+        </TouchableOpacity>
+      )}
 
       {/* Reply Quoting Bar (if replying) */}
       {replyingTo && (
@@ -747,28 +1028,58 @@ export const ChatDetailScreen = () => {
         </View>
       )}
 
+      {!messagingWindowOpen && (
+        <View style={styles.windowNotice}>
+          <View style={styles.windowNoticeIcon}>
+            <MaterialCommunityIcons name="clock-alert-outline" size={20} color="#9a6700" />
+          </View>
+          <View style={styles.windowNoticeBody}>
+            <Text style={styles.windowNoticeTitle}>24-hour reply window closed</Text>
+            <Text style={styles.windowNoticeText}>Send an approved template to restart the conversation.</Text>
+          </View>
+          <TouchableOpacity style={styles.windowTemplateButton} onPress={() => setShowTemplateSheet(true)}>
+            <Text style={styles.windowTemplateText}>Templates</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* Message Input Bar */}
-      <View style={styles.inputToolbar}>
+      <View style={[styles.inputToolbar, { paddingBottom: Math.max(insets.bottom, 7) }]}>
         <TouchableOpacity
           style={styles.templateToolbarBtn}
           onPress={() => setShowMessageActions(true)}
+          accessibilityLabel="Add attachment or structured message"
         >
-          <MaterialCommunityIcons name="plus" size={26} color={waColors.textSecondary} />
+          <MaterialCommunityIcons name="plus-circle" size={27} color={waColors.green} />
         </TouchableOpacity>
-        <TextInput
-          style={styles.input}
-          placeholder="Type a message..."
-          placeholderTextColor={waColors.textMuted}
-          value={inputText}
-          onChangeText={setInputText}
-          multiline
-        />
+        <View style={styles.composer}>
+          <TextInput
+            style={styles.input}
+            placeholder={messagingWindowOpen ? "Message" : "Use a template to reply"}
+            placeholderTextColor={waColors.textMuted}
+            value={inputText}
+            onChangeText={setInputText}
+            multiline
+            editable={messagingWindowOpen}
+            maxLength={4096}
+          />
+          {messagingWindowOpen && !inputText.trim() && (
+            <TouchableOpacity
+              style={styles.cameraButton}
+              accessibilityLabel="Attach a photo"
+              onPress={() => pickMedia("image")}
+            >
+              <MaterialCommunityIcons name="camera-outline" size={22} color={waColors.textSecondary} />
+            </TouchableOpacity>
+          )}
+        </View>
         <TouchableOpacity
-          style={[styles.sendButton, !inputText.trim() && styles.sendButtonDisabled]}
-          onPress={handleSend}
-          disabled={!inputText.trim()}
+          style={[styles.sendButton, !messagingWindowOpen && styles.sendButtonDisabled]}
+          onPress={inputText.trim() ? handleSend : () => setShowVoiceRecorder(true)}
+          disabled={!messagingWindowOpen}
+          accessibilityLabel={inputText.trim() ? "Send message" : "Record voice message"}
         >
-          <MaterialCommunityIcons name="send" size={20} color={"#fff"} />
+          <MaterialCommunityIcons name={inputText.trim() ? "send" : "microphone"} size={21} color="#fff" />
         </TouchableOpacity>
       </View>
 
@@ -930,18 +1241,47 @@ export const ChatDetailScreen = () => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: waColors.chatBackground },
-  listContent: { paddingHorizontal: 8, paddingVertical: 10, paddingBottom: 14 },
-  messageRow: { flexDirection: "row", width: "100%" },
-  bubble: {
-    paddingHorizontal: 9,
-    paddingVertical: 7,
-    borderRadius: 8,
-    marginVertical: 2,
-    maxWidth: "82%",
+  container: { flex: 1, backgroundColor: "#e9efec" },
+  listContent: { paddingHorizontal: 10, paddingTop: 12, paddingBottom: 16 },
+  timelineState: {
+    minHeight: 420,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 36,
+    gap: 9,
   },
-  inboundBubble: { backgroundColor: "#fff" },
-  outboundBubble: { backgroundColor: waColors.greenPale },
+  emptyConversationIcon: {
+    width: 66,
+    height: 66,
+    borderRadius: 23,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#dff3e8",
+  },
+  timelineStateTitle: { marginTop: 5, color: waColors.text, fontSize: 17, fontWeight: "800" },
+  timelineStateText: { color: waColors.textSecondary, fontSize: 13, lineHeight: 19, textAlign: "center" },
+  dateSeparator: { alignItems: "center", paddingVertical: 9 },
+  dateSeparatorText: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
+    overflow: "hidden",
+    color: "#52615d",
+    fontSize: 11,
+    fontWeight: "700",
+    backgroundColor: "rgba(255,255,255,0.84)",
+  },
+  messageRow: { flexDirection: "row", width: "100%", paddingHorizontal: 1 },
+  bubble: {
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 14,
+    marginVertical: 3,
+    maxWidth: "84%",
+    boxShadow: "0 1px 2px rgba(15, 23, 42, 0.08)",
+  },
+  inboundBubble: { backgroundColor: "#fff", borderTopLeftRadius: 5 },
+  outboundBubble: { backgroundColor: "#d9fdd3", borderTopRightRadius: 5 },
   deletedBubble: { backgroundColor: waColors.surfaceMuted, borderStyle: "dashed" },
   messageFooter: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", marginTop: 4 },
   messageTime: { fontSize: 10, color: Colors.textSecondary },
@@ -978,11 +1318,7 @@ const styles = StyleSheet.create({
     paddingVertical: 1.5,
     borderWidth: 1,
     borderColor: Colors.border,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.15,
-    shadowRadius: 1,
-    elevation: 2,
+    boxShadow: "0 1px 3px rgba(15, 23, 42, 0.16)",
   },
   reactionBadgeEmoji: { fontSize: 12, marginHorizontal: 0.5 },
   reactionBadgeCount: { fontSize: 10, fontWeight: "600", marginLeft: 2, color: Colors.textSecondary },
@@ -993,40 +1329,96 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderTopWidth: 1,
     borderTopColor: Colors.border,
+    marginHorizontal: 8,
     padding: 10,
     alignItems: "center",
+    borderTopLeftRadius: 14,
+    borderTopRightRadius: 14,
   },
   replyingBorder: { width: 4, height: "100%", backgroundColor: waColors.green, borderRadius: 2 },
   replyingTitle: { fontSize: 12, fontWeight: "bold", color: waColors.greenDark },
   replyingText: { fontSize: 13, color: Colors.textSecondary },
   replyingClose: { padding: 4 },
 
+  newMessageButton: {
+    position: "absolute",
+    right: 14,
+    bottom: 82,
+    minHeight: 40,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#fff",
+    boxShadow: "0 4px 14px rgba(15, 23, 42, 0.16)",
+  },
+  newMessageText: { color: waColors.greenDark, fontSize: 12, fontWeight: "800" },
+  windowNotice: {
+    marginHorizontal: 8,
+    marginBottom: 4,
+    minHeight: 62,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    borderRadius: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 9,
+    borderWidth: 1,
+    borderColor: "#f2d38b",
+    backgroundColor: "#fff8e7",
+  },
+  windowNoticeIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#feefc3",
+  },
+  windowNoticeBody: { flex: 1, minWidth: 0 },
+  windowNoticeTitle: { color: "#6b4f00", fontSize: 12, fontWeight: "800" },
+  windowNoticeText: { marginTop: 2, color: "#806617", fontSize: 11, lineHeight: 15 },
+  windowTemplateButton: { paddingHorizontal: 10, paddingVertical: 8, borderRadius: 11, backgroundColor: "#fce7a8" },
+  windowTemplateText: { color: "#6b4f00", fontSize: 11, fontWeight: "800" },
+
   // Input Toolbar
   inputToolbar: {
     flexDirection: "row",
-    paddingHorizontal: 7,
-    paddingVertical: 6,
-    backgroundColor: waColors.chatBackground,
-    alignItems: "center",
+    paddingHorizontal: 6,
+    paddingTop: 5,
+    backgroundColor: "#e9efec",
+    alignItems: "flex-end",
+  },
+  composer: {
+    flex: 1,
+    minHeight: 44,
+    maxHeight: 116,
+    borderRadius: 22,
+    flexDirection: "row",
+    alignItems: "flex-end",
+    backgroundColor: "#fff",
   },
   input: {
     flex: 1,
-    backgroundColor: "#fff",
-    borderRadius: 24,
-    paddingHorizontal: 15,
-    paddingVertical: 9,
-    fontSize: 16,
-    maxHeight: 100,
+    minHeight: 44,
+    maxHeight: 116,
+    paddingLeft: 15,
+    paddingRight: 6,
+    paddingTop: 11,
+    paddingBottom: 10,
+    fontSize: 15,
     color: waColors.textPrimary,
   },
+  cameraButton: { width: 40, height: 44, alignItems: "center", justifyContent: "center" },
   sendButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: waColors.green,
     justifyContent: "center",
     alignItems: "center",
-    marginLeft: 7,
+    marginLeft: 6,
   },
   sendButtonDisabled: { backgroundColor: waColors.textMuted },
 
@@ -1038,8 +1430,8 @@ const styles = StyleSheet.create({
   },
   reactionBarContainer: {
     backgroundColor: "#fff",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
     padding: 20,
     paddingBottom: Platform.OS === "ios" ? 40 : 20,
   },
@@ -1056,11 +1448,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: "#F9FAFB",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 1,
-    elevation: 1,
+    boxShadow: "0 1px 3px rgba(15, 23, 42, 0.12)",
   },
   reactionText: { fontSize: 24 },
   actionMenu: {

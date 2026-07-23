@@ -20,6 +20,7 @@ import {
 } from "../services/whatsapp.pagination.js";
 import { ApiError } from "../utils/ApiError.js";
 import { enqueueWhatsAppDomainEvent } from "../services/whatsapp.domain-events.js";
+import { getWhatsAppMediaPolicy } from "../services/whatsapp.media-policy.js";
 
 function boundedLimit(value, fallback = 50, maximum = 100) {
   const parsed = Number(value);
@@ -120,6 +121,15 @@ class WhatsAppController {
         runtimeConfig: {
           socketGraceMs,
           notificationPreviewsEnabled: false,
+          messagingWindowHours: 24,
+          mediaPolicy: getWhatsAppMediaPolicy(),
+          retention: {
+            messageTextRetentionDays: null,
+            mediaFileRetentionDays: 30,
+            thumbnailRetentionDays: 60,
+            failedOperationRetentionDays: 14,
+            draftRetentionDays: 30,
+          },
         },
       });
     } catch (error) {
@@ -176,14 +186,6 @@ class WhatsAppController {
         return res.status(400).send("Invalid verification request");
       }
 
-      // Try legacy path-based verification if shopId is provided
-      const shopId = req.params.shopId || req.query.shopId;
-      if (shopId) {
-        const result = await whatsappService.verifyWebhook(shopId, mode, token, challenge);
-        return res.status(200).send(result);
-      }
-
-      // Unified single-webhook URL: search database/cache for matching verifyToken
       const integration = await prisma.waIntegration.findFirst({
         where: { verifyToken: token, status: "CONNECTED" },
         select: { shopId: true },
@@ -202,7 +204,7 @@ class WhatsAppController {
   }
 
   /**
-   * Meta Webhook Payload (POST /whatsapp/webhook or /whatsapp/webhook/:shopId)
+   * Meta Webhook Payload (POST /whatsapp/webhook)
    */
   async handleWebhook(req, res) {
     try {
@@ -457,6 +459,81 @@ class WhatsAppController {
           sourceDeviceId: req.body.sourceDeviceId,
         },
       );
+      res.json({ success: true, data: { conversation: updated } });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async pinScopedConversation(req, res, next) {
+    try {
+      const { integration, conversation } = req.waScope;
+      const isPinned = req.body.isPinned !== false;
+      const updated = await prisma.$transaction(async (tx) => {
+        const row = await tx.waConversation.update({
+          where: { id: conversation.id },
+          data: { isPinned, entityVersion: { increment: 1 } },
+        });
+        await enqueueWhatsAppDomainEvent(tx, {
+          shopId: integration.shopId,
+          integration,
+          entity: "waConversation",
+          entityId: row.id,
+          entityVersion: row.entityVersion,
+          action: isPinned ? "pinned" : "unpinned",
+          conversationId: row.id,
+          actorUserId: req.user.id,
+          sourceDeviceId: req.body.sourceDeviceId,
+          patch: {
+            isPinned: row.isPinned,
+            entityVersion: row.entityVersion,
+            updatedAt: row.updatedAt,
+          },
+        });
+        return row;
+      });
+      res.json({ success: true, data: { conversation: updated } });
+    } catch (error) {
+      next(error);
+    }
+  }
+
+  async muteScopedConversation(req, res, next) {
+    try {
+      const { integration, conversation } = req.waScope;
+      const isMuted = req.body.isMuted !== false;
+      const mutedUntil = isMuted && req.body.mutedUntil
+        ? new Date(req.body.mutedUntil)
+        : null;
+      if (mutedUntil && !Number.isFinite(mutedUntil.getTime())) {
+        throw new ApiError(400, "mutedUntil must be a valid timestamp", {
+          code: "INVALID_MUTE_EXPIRY",
+        });
+      }
+      const updated = await prisma.$transaction(async (tx) => {
+        const row = await tx.waConversation.update({
+          where: { id: conversation.id },
+          data: { isMuted, mutedUntil, entityVersion: { increment: 1 } },
+        });
+        await enqueueWhatsAppDomainEvent(tx, {
+          shopId: integration.shopId,
+          integration,
+          entity: "waConversation",
+          entityId: row.id,
+          entityVersion: row.entityVersion,
+          action: isMuted ? "muted" : "unmuted",
+          conversationId: row.id,
+          actorUserId: req.user.id,
+          sourceDeviceId: req.body.sourceDeviceId,
+          patch: {
+            isMuted: row.isMuted,
+            mutedUntil: row.mutedUntil,
+            entityVersion: row.entityVersion,
+            updatedAt: row.updatedAt,
+          },
+        });
+        return row;
+      });
       res.json({ success: true, data: { conversation: updated } });
     } catch (error) {
       next(error);

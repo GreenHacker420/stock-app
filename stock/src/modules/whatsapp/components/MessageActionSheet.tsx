@@ -1,16 +1,13 @@
 import { useEffect, useState } from "react";
 import {
-  Modal,
-  Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   View,
 } from "react-native";
-import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { Button, IconButton, Text, TextInput } from "react-native-paper";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { colors as Colors } from "../../../theme";
+import { AppBottomSheetModal } from "../../../components/overlays/AppBottomSheetModal";
 import type { WaOutboundMessage } from "../../../api/whatsapp.api";
 
 type SheetMode = "menu" | "buttons" | "list";
@@ -157,26 +154,23 @@ export function MessageActionSheet({
     && rows.some((row) => row.title.trim());
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView
-        automaticOffset
-        style={styles.overlay}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-      >
-        <Pressable style={styles.dismissArea} onPress={onClose} />
-        <View style={styles.sheet}>
-          <View style={styles.grabber} />
-
+    <AppBottomSheetModal
+      visible={visible}
+      title={mode === "menu" ? "Send message" : mode === "buttons" ? "Quick replies" : "List message"}
+      subtitle={
+        mode === "menu"
+          ? "Choose a WhatsApp message type"
+          : mode === "buttons"
+            ? "Add up to three reply choices"
+            : "Add up to ten selectable rows"
+      }
+      onDismiss={onClose}
+      isBusy={sending}
+      maxHeight={0.9}
+      scrollable
+    >
           {mode === "menu" ? (
             <>
-              <View style={styles.header}>
-                <View>
-                  <Text variant="titleMedium" style={styles.title}>Send message</Text>
-                  <Text variant="bodySmall" style={styles.subtitle}>Choose a structured WhatsApp message</Text>
-                </View>
-                <IconButton icon="close" onPress={onClose} />
-              </View>
-
               <View style={styles.actionGrid}>
                 {MENU_ACTIONS.map((action) => {
                   const disabled = (action.id === "contact" && !canShareContact)
@@ -212,21 +206,10 @@ export function MessageActionSheet({
               )}
             </>
           ) : (
-            <ScrollView
-              keyboardShouldPersistTaps="handled"
-              contentContainerStyle={styles.formContent}
-            >
-              <View style={styles.header}>
+            <View style={styles.formContent}>
+              <View style={styles.modeHeader}>
                 <IconButton icon="arrow-left" onPress={() => setMode("menu")} />
-                <View style={styles.formHeaderText}>
-                  <Text variant="titleMedium" style={styles.title}>
-                    {mode === "buttons" ? "Quick replies" : "List message"}
-                  </Text>
-                  <Text variant="bodySmall" style={styles.subtitle}>
-                    {mode === "buttons" ? "Add up to three reply choices" : "Add up to ten selectable rows"}
-                  </Text>
-                </View>
-                <IconButton icon="close" onPress={onClose} />
+                <Text style={styles.backLabel}>Back to message types</Text>
               </View>
 
               <TextInput
@@ -322,55 +305,21 @@ export function MessageActionSheet({
                   </Button>
                 </>
               )}
-            </ScrollView>
+            </View>
           )}
-        </View>
-      </KeyboardAvoidingView>
-    </Modal>
+    </AppBottomSheetModal>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    justifyContent: "flex-end",
-    backgroundColor: "rgba(15, 23, 42, 0.35)",
-  },
-  dismissArea: {
-    flex: 1,
-  },
-  sheet: {
-    maxHeight: "86%",
-    backgroundColor: Colors.surface,
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
-    paddingHorizontal: 16,
-    paddingBottom: 24,
-  },
-  grabber: {
-    width: 38,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: Colors.borderStrong,
-    alignSelf: "center",
-    marginTop: 8,
-    marginBottom: 6,
-  },
-  header: {
-    minHeight: 58,
+  modeHeader: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    marginLeft: -12,
   },
-  formHeaderText: {
-    flex: 1,
-  },
-  title: {
-    color: Colors.textPrimary,
-    fontWeight: "700",
-  },
-  subtitle: {
-    color: Colors.textSecondary,
+  backLabel: {
+    color: Colors.primary,
+    fontWeight: "600",
   },
   actionGrid: {
     flexDirection: "row",

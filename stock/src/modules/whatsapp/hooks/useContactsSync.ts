@@ -5,11 +5,13 @@ import { useAuthStore } from "../../../auth/auth-store";
 import { contactsDb } from "../services/contactsDb";
 import { Alert } from "react-native";
 import { useSelectionStore } from "../store/contactSelection.store";
+import { useWhatsAppScope } from "../whatsapp-scope";
 
 
-export function useContactsSync(activeShopId: string | null, integrationId?: string) {
+export function useContactsSync() {
   const queryClient = useQueryClient();
   const token = useAuthStore((state) => state.token);
+  const { shopId: activeShopId, integrationId } = useWhatsAppScope();
   const syncLockRef = useRef(false);
   const clearSelection = useSelectionStore((s) => s.clear);
 
@@ -21,7 +23,7 @@ export function useContactsSync(activeShopId: string | null, integrationId?: str
       mergeStrategy: "MERGE" | "OVERWRITE";
       selectedIds: Set<string>;
     }) => {
-      if (!activeShopId || !integrationId || !token) throw new Error("WhatsApp scope is unavailable");
+      if (!token) throw new Error("Your session expired. Sign in again.");
       if (syncLockRef.current) {
         throw new Error("Synchronization already in progress");
       }

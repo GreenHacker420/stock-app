@@ -74,7 +74,7 @@ function patchEntity(item: unknown, event: DomainEvent) {
   return { ...entity, ...patch, id: event.entityId, entityVersion: incomingVersion };
 }
 
-function patchCollection(data: unknown, event: DomainEvent): unknown {
+function patchCollection(data: unknown, event: DomainEvent, allowInsert = true): unknown {
   if (Array.isArray(data)) {
     if (event.entity === "waConversation" && event.action === "deleted") {
       return data.filter((item) => (
@@ -91,17 +91,27 @@ function patchCollection(data: unknown, event: DomainEvent): unknown {
       !found
       && (event.action === "created" || event.action === "created_or_reopened")
       && event.patch
+      && allowInsert
     ) {
-      return [{ ...event.patch, id: event.entityId, entityVersion: event.entityVersion }, ...patched];
+      const inserted = {
+        ...event.patch,
+        id: event.entityId,
+        entityVersion: event.entityVersion,
+      };
+      return event.entity === "waMessage"
+        ? [...patched, inserted]
+        : [inserted, ...patched];
     }
     return patched;
   }
   if (!data || typeof data !== "object") return data;
   const value = data as Record<string, unknown>;
-  if (Array.isArray(value.items)) return { ...value, items: patchCollection(value.items, event) };
+  if (Array.isArray(value.items)) {
+    return { ...value, items: patchCollection(value.items, event, allowInsert) };
+  }
   if (Array.isArray(value.pages)) return {
     ...value,
-    pages: value.pages.map((page) => patchCollection(page, event)),
+    pages: value.pages.map((page, index) => patchCollection(page, event, index === 0)),
   };
   return patchEntity(data, event);
 }

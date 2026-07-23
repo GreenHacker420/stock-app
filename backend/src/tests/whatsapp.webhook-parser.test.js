@@ -74,7 +74,7 @@ test("preserves voice-note, forwarding, and reply metadata", () => {
   assert.equal(events[0].contactName, "Customer");
 });
 
-test("keeps order, system, and unsupported messages semantically distinct", () => {
+test("keeps order, system, referral, and unsupported messages semantically distinct", () => {
   const base = {
     from: "919876543210",
     timestamp: "1710000000",
@@ -82,15 +82,31 @@ test("keeps order, system, and unsupported messages semantically distinct", () =
   const events = parseWebhookPayload(messagePayload([
     { ...base, id: "wamid.order", order: { catalog_id: "catalog-1", product_items: [] } },
     { ...base, id: "wamid.system", system: { type: "customer_changed_number" } },
-    { ...base, id: "wamid.unknown", referral: { source_type: "ad" } },
+    { ...base, id: "wamid.referral", referral: { source_type: "ad", headline: "Summer offer" } },
+    { ...base, id: "wamid.unknown", type: "future_message" },
   ]));
 
-  assert.deepEqual(events.map((event) => event.type), ["order", "system", "unsupported"]);
+  assert.deepEqual(events.map((event) => event.type), ["order", "system", "system", "unsupported"]);
   assert.deepEqual(
     events.map((event) => mapEventTypeToMessageType(event.type)),
-    ["ORDER", "SYSTEM", "UNSUPPORTED"],
+    ["ORDER", "SYSTEM", "SYSTEM", "UNSUPPORTED"],
   );
-  assert.equal(events[2].raw.id, "wamid.unknown");
+  assert.equal(events[2].payload.body, "Summer offer");
+  assert.equal(events[3].payload.type, "future_message");
+});
+
+test("matches Meta profile names using normalized phone numbers", () => {
+  const payload = messagePayload([{
+    id: "wamid.name",
+    from: "+91 98765 43210",
+    timestamp: "1710000000",
+    text: { body: "Hello" },
+  }]);
+  payload.entry[0].changes[0].value.contacts[0].profile.name = "  Customer Name  ";
+
+  const [event] = parseWebhookPayload(payload);
+  assert.equal(event.from, "+919876543210");
+  assert.equal(event.contactName, "Customer Name");
 });
 
 test("normalizes statuses and interactive replies", () => {

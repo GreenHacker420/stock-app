@@ -27,6 +27,11 @@ export function initials(name?: string) {
 
 export const initialsFor = initials;
 
+export function formatWhatsAppPhone(phone?: string | null) {
+  const digits = (phone || "").replace(/\D/g, "");
+  return digits ? `+${digits}` : "";
+}
+
 export const waScreen = {
   backgroundColor: waColors.surface,
   flex: 1,
