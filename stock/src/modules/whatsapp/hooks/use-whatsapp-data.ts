@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import NetInfo from "@react-native-community/netinfo";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import {
@@ -22,6 +22,26 @@ const EMPTY_PAGE = <T,>(items: T[]): WaPage<T> => ({
 export function useWhatsAppConversations() {
   const token = useAuthStore((state) => state.token);
   const { shopId, integrationId, phoneNumberId } = useWhatsAppScope();
+  const localCacheKey = `${shopId}:${integrationId}`;
+  const [localCache, setLocalCache] = useState<{
+    key: string;
+    items: WaConversation[];
+  } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void whatsappDb.getConversations(shopId, integrationId)
+      .then((items) => {
+        if (!cancelled) setLocalCache({ key: localCacheKey, items });
+      })
+      .catch(() => {
+        if (!cancelled) setLocalCache({ key: localCacheKey, items: [] });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [integrationId, localCacheKey, shopId]);
+
   const query = useInfiniteQuery({
     queryKey: queryKeys.whatsapp.conversations(
       shopId,
@@ -60,17 +80,48 @@ export function useWhatsAppConversations() {
     staleTime: 20_000,
   });
 
-  const conversations = useMemo(
-    () => query.data?.pages.flatMap((page) => page.items) ?? [],
-    [query.data],
-  );
+  const conversations = useMemo(() => {
+    const cachedItems =
+      localCache?.key === localCacheKey ? localCache.items : [];
+    const remoteItems = query.data?.pages.flatMap((page) => page.items);
+    if (remoteItems?.length === 0 && cachedItems.length > 0 && query.isFetching) {
+      return cachedItems;
+    }
+    return remoteItems ?? cachedItems;
+  }, [localCache, localCacheKey, query.data, query.isFetching]);
+  const localCacheHydrated = localCache?.key === localCacheKey;
 
-  return { ...query, conversations };
+  return {
+    ...query,
+    isLoading: query.isLoading && !localCacheHydrated,
+    isPending: query.isPending && !localCacheHydrated,
+    conversations,
+  };
 }
 
 export function useWhatsAppMessages(conversationId: string) {
   const token = useAuthStore((state) => state.token);
   const { shopId, integrationId } = useWhatsAppScope();
+  const localCacheKey = `${integrationId}:${conversationId}`;
+  const [localCache, setLocalCache] = useState<{
+    key: string;
+    items: WaMessage[];
+  } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void whatsappDb.getMessages(conversationId)
+      .then((items) => {
+        if (!cancelled) setLocalCache({ key: localCacheKey, items });
+      })
+      .catch(() => {
+        if (!cancelled) setLocalCache({ key: localCacheKey, items: [] });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [conversationId, localCacheKey]);
+
   const query = useInfiniteQuery({
     queryKey: queryKeys.whatsapp.messages(shopId, integrationId, conversationId),
     initialPageParam: undefined as string | undefined,
@@ -96,11 +147,25 @@ export function useWhatsAppMessages(conversationId: string) {
   });
 
   const messages = useMemo(() => {
-    if (!query.data) return [];
-    return [...query.data.pages]
+    const cachedItems =
+      localCache?.key === localCacheKey ? localCache.items : [];
+    if (!query.data) {
+      return cachedItems;
+    }
+    const remoteItems = [...query.data.pages]
       .reverse()
       .flatMap((page) => page.items);
-  }, [query.data]);
+    if (remoteItems.length === 0 && cachedItems.length > 0 && query.isFetching) {
+      return cachedItems;
+    }
+    return remoteItems;
+  }, [localCache, localCacheKey, query.data, query.isFetching]);
+  const localCacheHydrated = localCache?.key === localCacheKey;
 
-  return { ...query, messages };
+  return {
+    ...query,
+    isLoading: query.isLoading && !localCacheHydrated,
+    isPending: query.isPending && !localCacheHydrated,
+    messages,
+  };
 }

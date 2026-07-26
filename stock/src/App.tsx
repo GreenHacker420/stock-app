@@ -28,6 +28,7 @@ import NetInfo from '@react-native-community/netinfo';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { OfflineBanner } from './components/OfflineBanner';
 import { checkAppUpdatesBackground } from './utils/inAppUpdates';
+import { whatsappDb } from './modules/whatsapp/services/whatsapp-db';
 
 Asset.loadAsync([
   ...NavigationAssets,
@@ -88,6 +89,7 @@ export function App() {
   useEffect(() => {
     runDataHardeningStorageMigration();
     runEventSequenceCursorMigration();
+    void whatsappDb.initialize().catch(() => undefined);
     restoreSession();
   }, [restoreSession]);
 

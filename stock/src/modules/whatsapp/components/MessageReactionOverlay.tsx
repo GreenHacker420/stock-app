@@ -1,5 +1,5 @@
 
-import { Modal, Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
+import { Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import Animated, { FadeIn, FadeOut, ZoomIn, ZoomOut } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -50,16 +50,10 @@ export function MessageReactionOverlay({
     : 12;
   const myReaction = message?.payload?.reactions?.find((reaction) => reaction.from === "me")?.emoji;
 
+  if (!visible) return null;
+
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="none"
-      statusBarTranslucent
-      navigationBarTranslucent
-      onRequestClose={onDismiss}
-    >
-      <View style={styles.root}>
+      <View pointerEvents="box-none" style={styles.root}>
         <Animated.View
           entering={FadeIn.duration(110)}
           exiting={FadeOut.duration(90)}
@@ -136,7 +130,6 @@ export function MessageReactionOverlay({
           )}
         </Animated.View>
       </View>
-    </Modal>
   );
 }
 
@@ -173,7 +166,9 @@ function ActionRow({
 
 const styles = StyleSheet.create({
   root: {
-    flex: 1,
+    position: "absolute",
+    inset: 0,
+    zIndex: 100,
   },
   backdrop: {
     position: "absolute",

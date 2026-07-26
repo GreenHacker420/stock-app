@@ -1,4 +1,11 @@
-import { type ReactNode, useEffect, useState, useRef, useMemo } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useState,
+  useRef,
+  useMemo,
+} from "react";
 import {
   View,
   Text,
@@ -27,6 +34,7 @@ import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import NetInfo from "@react-native-community/netinfo";
 import { useRoute, useNavigation, useIsFocused, type RouteProp } from "@react-navigation/native";
+import { useHeaderHeight } from "@react-navigation/elements";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -126,12 +134,14 @@ function getReplyPreview(message: WaMessage) {
 }
 
 function SwipeReplyRow({
+  messageId,
   replyEnabled,
   actionsEnabled,
   children,
   onReply,
   onLongPress,
 }: {
+  messageId: string;
   replyEnabled: boolean;
   actionsEnabled: boolean;
   children: ReactNode;
@@ -140,27 +150,44 @@ function SwipeReplyRow({
 }) {
   const translateX = useSharedValue(0);
   const crossedThreshold = useSharedValue(false);
+  const onReplyRef = useRef(onReply);
+  const onLongPressRef = useRef(onLongPress);
+  onReplyRef.current = onReply;
+  onLongPressRef.current = onLongPress;
+
+  const replyFromGesture = useCallback(() => {
+    onReplyRef.current();
+  }, []);
+
+  const longPressFromGesture = useCallback((x: number, y: number) => {
+    onLongPressRef.current(x, y);
+  }, []);
+
+  useEffect(() => {
+    translateX.value = 0;
+    crossedThreshold.value = false;
+  }, [crossedThreshold, messageId, translateX]);
 
   const swipeGesture = useMemo(
     () => Gesture.Pan()
       .enabled(replyEnabled)
-      .activeOffsetX(8)
-      .failOffsetY([-12, 12])
+      .activeOffsetX([-8, 8])
+      .failOffsetY([-16, 16])
       .shouldCancelWhenOutside(false)
       .onBegin(() => {
         crossedThreshold.value = false;
       })
       .onUpdate((event) => {
-        const distance = Math.max(0, event.translationX);
-        translateX.value = Math.min(distance, 72);
-        if (distance >= 46 && !crossedThreshold.value) {
+        const distance = Math.min(Math.abs(event.translationX), 82);
+        translateX.value = event.translationX < 0 ? -distance : distance;
+        if (distance >= 38 && !crossedThreshold.value) {
           crossedThreshold.value = true;
           scheduleOnRN(triggerSelectionHaptic);
         }
       })
       .onEnd((event) => {
-        if (event.translationX >= 46 || event.velocityX >= 650) {
-          scheduleOnRN(onReply);
+        if (Math.abs(event.translationX) >= 38 || Math.abs(event.velocityX) >= 600) {
+          scheduleOnRN(replyFromGesture);
         }
         translateX.value = withSpring(0, {
           damping: 22,
@@ -176,19 +203,19 @@ function SwipeReplyRow({
           overshootClamping: true,
         });
       }),
-    [crossedThreshold, onReply, replyEnabled, translateX],
+    [crossedThreshold, replyEnabled, replyFromGesture, translateX],
   );
 
   const longPressGesture = useMemo(
     () => Gesture.LongPress()
       .enabled(actionsEnabled)
-      .minDuration(280)
-      .maxDistance(12)
+      .minDuration(240)
+      .maxDistance(28)
       .onStart((event) => {
         scheduleOnRN(triggerMediumHaptic);
-        scheduleOnRN(onLongPress, event.absoluteX, event.absoluteY);
+        scheduleOnRN(longPressFromGesture, event.absoluteX, event.absoluteY);
       }),
-    [actionsEnabled, onLongPress],
+    [actionsEnabled, longPressFromGesture],
   );
 
   const messageGesture = useMemo(
@@ -200,18 +227,36 @@ function SwipeReplyRow({
     transform: [{ translateX: translateX.value }],
   }));
 
-  const replyActionStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(translateX.value, [8, 42], [0, 1], "clamp"),
+  const leftReplyActionStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(translateX.value, [8, 38], [0, 1], "clamp"),
     transform: [{
-      scale: interpolate(translateX.value, [8, 46], [0.72, 1], "clamp"),
+      scale: interpolate(translateX.value, [8, 38], [0.72, 1], "clamp"),
+    }],
+  }));
+
+  const rightReplyActionStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(translateX.value, [-38, -8], [1, 0], "clamp"),
+    transform: [{
+      scale: interpolate(translateX.value, [-38, -8], [1, 0.72], "clamp"),
     }],
   }));
 
   return (
     <View style={styles.swipeableMessage}>
-      <Animated.View pointerEvents="none" style={[styles.swipeReplyAction, replyActionStyle]}>
+      <Animated.View
+        pointerEvents="none"
+        style={[styles.swipeReplyAction, styles.swipeReplyActionLeft, leftReplyActionStyle]}
+      >
         <View style={styles.swipeReplyIcon}>
             <MaterialCommunityIcons name="reply" size={20} color="#fff" />
+        </View>
+      </Animated.View>
+      <Animated.View
+        pointerEvents="none"
+        style={[styles.swipeReplyAction, styles.swipeReplyActionRight, rightReplyActionStyle]}
+      >
+        <View style={styles.swipeReplyIcon}>
+          <MaterialCommunityIcons name="reply" size={20} color="#fff" />
         </View>
       </Animated.View>
       <GestureDetector gesture={messageGesture}>
@@ -235,6 +280,7 @@ export const ChatDetailScreen = () => {
   const token = useAuthStore((state) => state.token);
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
+  const headerHeight = useHeaderHeight();
   const isFocused = useIsFocused();
 
   const [inputText, setInputText] = useState("");
@@ -1029,7 +1075,7 @@ export const ChatDetailScreen = () => {
   const handleLongPress = (message: WaMessage, x: number, y: number) => {
     if (message.contentState === "DELETED") return;
     setSelectedMessage(message);
-    setReactionAnchor({ x, y });
+    setReactionAnchor({ x, y: Math.max(0, y - headerHeight) });
     setReactionMenuVisible(true);
   };
 
@@ -1170,6 +1216,7 @@ export const ChatDetailScreen = () => {
           </View>
         )}
         <SwipeReplyRow
+          messageId={item.id}
           replyEnabled={!isDeleted && isServerMessage(item)}
           actionsEnabled={!isDeleted}
           onReply={() => beginReply(item)}
@@ -1263,6 +1310,7 @@ export const ChatDetailScreen = () => {
         renderItem={renderMessage}
         keyExtractor={(item) => item.clientMessageId || item.id}
         renderScrollComponent={KeyboardChatListScrollComponent}
+        scrollEnabled={!reactionMenuVisible}
         contentInsetAdjustmentBehavior="automatic"
         keyboardDismissMode="interactive"
         keyboardShouldPersistTaps="handled"
@@ -1570,12 +1618,17 @@ const styles = StyleSheet.create({
   },
   swipeReplyAction: {
     position: "absolute",
-    left: 5,
     top: 0,
     bottom: 0,
     width: 62,
     justifyContent: "center",
     alignItems: "center",
+  },
+  swipeReplyActionLeft: {
+    left: 5,
+  },
+  swipeReplyActionRight: {
+    right: 5,
   },
   swipeReplyIcon: {
     width: 38,
