@@ -1,4 +1,4 @@
-import * as SQLite from "expo-sqlite";
+import { sqliteClient } from "../../../database/sqlite-client";
 
 export interface LocalContact {
   id: string;
@@ -11,32 +11,28 @@ export interface LocalContact {
   updatedAt: number;
 }
 
-let dbPromise: Promise<SQLite.SQLiteDatabase> | null = null;
+let schemaPromise: Promise<void> | null = null;
 
-function getDb(): Promise<SQLite.SQLiteDatabase> {
-  if (!dbPromise) {
-    dbPromise = (async () => {
-      const db = await SQLite.openDatabaseAsync("whatsapp_platform.db");
-      // Initialize schema
-      await db.execAsync(`
-        PRAGMA journal_mode = WAL;
-        CREATE TABLE IF NOT EXISTS local_contacts (
-          id TEXT PRIMARY KEY NOT NULL,
-          name TEXT,
-          phone TEXT,
-          email TEXT,
-          tag TEXT DEFAULT 'NONE',
-          customerId TEXT,
-          syncState TEXT DEFAULT 'UNSYNCED',
-          updatedAt INTEGER
-        );
-        CREATE INDEX IF NOT EXISTS idx_contacts_phone ON local_contacts (phone);
-        CREATE INDEX IF NOT EXISTS idx_contacts_sync ON local_contacts (syncState);
-      `);
-      return db;
-    })();
+function initializeDatabase() {
+  if (!schemaPromise) {
+    schemaPromise = sqliteClient.write((database) =>
+      database.exec(`
+          CREATE TABLE IF NOT EXISTS local_contacts (
+            id TEXT PRIMARY KEY NOT NULL,
+            name TEXT,
+            phone TEXT,
+            email TEXT,
+            tag TEXT DEFAULT 'NONE',
+            customerId TEXT,
+            syncState TEXT DEFAULT 'UNSYNCED',
+            updatedAt INTEGER
+          );
+          CREATE INDEX IF NOT EXISTS idx_contacts_phone ON local_contacts (phone);
+          CREATE INDEX IF NOT EXISTS idx_contacts_sync ON local_contacts (syncState);
+        `),
+    );
   }
-  return dbPromise;
+  return schemaPromise;
 }
 
 export const contactsDb = {
@@ -45,11 +41,11 @@ export const contactsDb = {
    * Keeps existing user modifications (tag, customerId, syncState === 'MUTATED') unchanged.
    */
   upsertDeviceContacts: async (contacts: Array<{ id: string; name: string; phone: string; email?: string }>) => {
-    const db = await getDb();
+    await initializeDatabase();
     const now = Date.now();
     
-    await db.withTransactionAsync(async () => {
-      const statement = await db.prepareAsync(`
+    await sqliteClient.transaction(async (transaction) => {
+      const statement = await transaction.prepare(`
         INSERT INTO local_contacts (id, name, phone, email, tag, customerId, syncState, updatedAt)
         VALUES (?, ?, ?, ?, 'NONE', NULL, 'UNSYNCED', ?)
         ON CONFLICT(id) DO UPDATE SET
@@ -60,10 +56,10 @@ export const contactsDb = {
       `);
       try {
         for (const c of contacts) {
-          await statement.executeAsync([c.id, c.name, c.phone, c.email || null, now]);
+          await statement.execute([c.id, c.name, c.phone, c.email || null, now]);
         }
       } finally {
-        await statement.finalizeAsync();
+        await statement.finalize();
       }
     });
   },
@@ -80,7 +76,7 @@ export const contactsDb = {
     tagFilter: "ALL" | "REGULAR" | "BUSINESS" | "NONE";
     customerPhonesStr: string; // Comma separated string like ",phone1,phone2,"
   }): Promise<LocalContact[]> => {
-    const db = await getDb();
+    await initializeDatabase();
     const { searchQuery = "", limit, offset, syncFilter, linkFilter, tagFilter, customerPhonesStr } = params;
 
     let query = "SELECT * FROM local_contacts WHERE 1=1";
@@ -114,7 +110,7 @@ export const contactsDb = {
     query += " ORDER BY name ASC LIMIT ? OFFSET ?";
     sqlParams.push(limit, offset);
 
-    return await db.getAllAsync<LocalContact>(query, sqlParams);
+    return sqliteClient.read((database) => database.all<LocalContact>(query, sqlParams));
   },
 
   /**
@@ -128,7 +124,7 @@ export const contactsDb = {
     tagFilter: "ALL" | "REGULAR" | "BUSINESS" | "NONE";
     customerPhonesStr: string;
   }): Promise<string[]> => {
-    const db = await getDb();
+    await initializeDatabase();
     const { searchQuery = "", syncFilter, linkFilter, tagFilter, customerPhonesStr } = params;
 
     let query = "SELECT id FROM local_contacts WHERE 1=1";
@@ -160,7 +156,9 @@ export const contactsDb = {
     }
 
     query += " ORDER BY name ASC";
-    const rows = await db.getAllAsync<{ id: string }>(query, sqlParams);
+    const rows = await sqliteClient.read((database) =>
+      database.all<{ id: string }>(query, sqlParams),
+    );
     return rows.map((r) => r.id);
   },
 
@@ -174,7 +172,7 @@ export const contactsDb = {
     tagFilter: "ALL" | "REGULAR" | "BUSINESS" | "NONE";
     customerPhonesStr: string;
   }): Promise<number> => {
-    const db = await getDb();
+    await initializeDatabase();
     const { searchQuery = "", syncFilter, linkFilter, tagFilter, customerPhonesStr } = params;
 
     let query = "SELECT COUNT(*) as count FROM local_contacts WHERE 1=1";
@@ -205,7 +203,9 @@ export const contactsDb = {
       sqlParams.push(customerPhonesStr, customerPhonesStr);
     }
 
-    const row = await db.getFirstAsync<{ count: number }>(query, sqlParams);
+    const row = await sqliteClient.read((database) =>
+      database.first<{ count: number }>(query, sqlParams),
+    );
     return row?.count || 0;
   },
 
@@ -213,8 +213,14 @@ export const contactsDb = {
    * Fetches statistics counts in one SQLite query.
    */
   getContactStats: async (customerPhonesStr = ""): Promise<{ total: number; unsynced: number; linked: number; unlinked: number; regular: number; business: number }> => {
-    const db = await getDb();
-    const row = await db.getFirstAsync<{ total: number; unsynced: number; linked: number; regular: number; business: number }>(
+    await initializeDatabase();
+    const row = await sqliteClient.read((database) => database.first<{
+      total: number;
+      unsynced: number;
+      linked: number;
+      regular: number;
+      business: number;
+    }>(
       `SELECT 
         COUNT(*) as total,
         SUM(CASE WHEN syncState != 'SYNCED' THEN 1 ELSE 0 END) as unsynced,
@@ -223,7 +229,7 @@ export const contactsDb = {
         SUM(CASE WHEN tag = 'BUSINESS' THEN 1 ELSE 0 END) as business
        FROM local_contacts`,
       [customerPhonesStr, customerPhonesStr]
-    );
+    ));
 
     const total = row?.total || 0;
     const unsynced = row?.unsynced || 0;
@@ -239,47 +245,51 @@ export const contactsDb = {
    * Updates contact tag state.
    */
   updateTag: async (id: string, tag: "REGULAR" | "BUSINESS" | "NONE") => {
-    const db = await getDb();
-    await db.runAsync(
+    await initializeDatabase();
+    await sqliteClient.write((database) => database.run(
       "UPDATE local_contacts SET tag = ?, syncState = 'MUTATED', updatedAt = ? WHERE id = ?",
       [tag, Date.now(), id]
-    );
+    ));
   },
 
   /**
    * Links contact to an existing customer manually.
    */
   linkCustomer: async (id: string, customerId: string | null) => {
-    const db = await getDb();
-    await db.runAsync(
+    await initializeDatabase();
+    await sqliteClient.write((database) => database.run(
       "UPDATE local_contacts SET customerId = ?, syncState = 'MUTATED', updatedAt = ? WHERE id = ?",
       [customerId, Date.now(), id]
-    );
+    ));
   },
 
   /**
    * Fetches all mutated contacts that need to be synced to the backend.
    */
   getMutatedContacts: async (): Promise<LocalContact[]> => {
-    const db = await getDb();
-    return await db.getAllAsync<LocalContact>("SELECT * FROM local_contacts WHERE syncState = 'MUTATED' OR syncState = 'UNSYNCED'");
+    await initializeDatabase();
+    return sqliteClient.read((database) =>
+      database.all<LocalContact>(
+        "SELECT * FROM local_contacts WHERE syncState = 'MUTATED' OR syncState = 'UNSYNCED'",
+      ),
+    );
   },
 
   /**
    * Marks contacts as synced after successful API post.
    */
   markAsSynced: async (ids: string[]) => {
-    const db = await getDb();
-    await db.withTransactionAsync(async () => {
-      const statement = await db.prepareAsync(
+    await initializeDatabase();
+    await sqliteClient.transaction(async (transaction) => {
+      const statement = await transaction.prepare(
         "UPDATE local_contacts SET syncState = 'SYNCED' WHERE id = ?"
       );
       try {
         for (const id of ids) {
-          await statement.executeAsync([id]);
+          await statement.execute([id]);
         }
       } finally {
-        await statement.finalizeAsync();
+        await statement.finalize();
       }
     });
   },
@@ -288,7 +298,7 @@ export const contactsDb = {
    * Resets local database
    */
   clearAll: async () => {
-    const db = await getDb();
-    await db.runAsync("DELETE FROM local_contacts");
+    await initializeDatabase();
+    await sqliteClient.write((database) => database.run("DELETE FROM local_contacts"));
   }
 };

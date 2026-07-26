@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import NetInfo from "@react-native-community/netinfo";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import {
@@ -37,10 +37,24 @@ export function useWhatsAppConversations() {
         return EMPTY_PAGE(await whatsappDb.getConversations(shopId, integrationId));
       }
       if (!token) throw new Error("Your session expired. Sign in again.");
-      return fetchScopedWaConversations(token, integrationId, {
+      const page = await fetchScopedWaConversations(token, integrationId, {
         cursor: pageParam,
         limit: 50,
       });
+      try {
+        await whatsappDb.upsertConversations(
+          { shopId, integrationId, phoneNumberId },
+          page.items,
+        );
+        if (!pageParam) {
+          await whatsappDb.setSyncState(shopId, integrationId, {
+            conversationSnapshotCursor: page.snapshotCursor,
+          });
+        }
+      } catch {
+        // Network data remains usable when the optional local cache is unavailable.
+      }
+      return page;
     },
     getNextPageParam: (page) => page.nextCursor || undefined,
     staleTime: 20_000,
@@ -50,24 +64,6 @@ export function useWhatsAppConversations() {
     () => query.data?.pages.flatMap((page) => page.items) ?? [],
     [query.data],
   );
-
-  useEffect(() => {
-    if (!query.data) return;
-    const firstPage = query.data.pages[0];
-    void (async () => {
-      try {
-        await whatsappDb.upsertConversations(
-          { shopId, integrationId, phoneNumberId },
-          conversations,
-        );
-        await whatsappDb.setSyncState(shopId, integrationId, {
-          conversationSnapshotCursor: firstPage?.snapshotCursor,
-        });
-      } catch {
-        // Network data remains usable when the optional local cache is unavailable.
-      }
-    })();
-  }, [conversations, integrationId, phoneNumberId, query.data, shopId]);
 
   return { ...query, conversations };
 }
@@ -85,10 +81,15 @@ export function useWhatsAppMessages(conversationId: string) {
         return EMPTY_PAGE(await whatsappDb.getMessages(conversationId));
       }
       if (!token) throw new Error("Your session expired. Sign in again.");
-      return fetchScopedWaMessages(token, integrationId, conversationId, {
+      const page = await fetchScopedWaMessages(token, integrationId, conversationId, {
         cursor: pageParam,
         limit: 75,
       });
+      await whatsappDb.upsertMessages(
+        { shopId, integrationId, conversationId },
+        page.items,
+      ).catch(() => undefined);
+      return page;
     },
     getNextPageParam: (page) => page.nextCursor || undefined,
     staleTime: 10_000,
@@ -100,14 +101,6 @@ export function useWhatsAppMessages(conversationId: string) {
       .reverse()
       .flatMap((page) => page.items);
   }, [query.data]);
-
-  useEffect(() => {
-    if (!query.data) return;
-    void whatsappDb.upsertMessages(
-      { shopId, integrationId, conversationId },
-      messages,
-    ).catch(() => undefined);
-  }, [conversationId, integrationId, messages, query.data, shopId]);
 
   return { ...query, messages };
 }

@@ -1,12 +1,11 @@
-import * as SQLite from "expo-sqlite";
 import type {
   WaConversation,
   WaMessage,
   WaOperationState,
   WaOutboundMessage,
 } from "../../../api/whatsapp.api";
+import { sqliteClient } from "../../../database/sqlite-client";
 
-const DATABASE_NAME = "whatsapp_platform.db";
 const LOCAL_PAGE_LIMIT = 1_000;
 
 export type PendingWhatsAppOperation = {
@@ -68,36 +67,11 @@ type PendingOperationRow = {
   updated_at: number;
 };
 
-let databasePromise: Promise<SQLite.SQLiteDatabase> | null = null;
-let writeQueue: Promise<void> = Promise.resolve();
+let schemaPromise: Promise<void> | null = null;
 
-function serializeWrite<T>(task: () => Promise<T>) {
-  const run = async () => {
-    for (let attempt = 0; ; attempt += 1) {
-      try {
-        return await task();
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        const retryable = /database is locked|cannot start a transaction|cannot rollback/i.test(message);
-        if (!retryable || attempt >= 3) throw error;
-        await new Promise((resolve) => setTimeout(resolve, 25 * (2 ** attempt)));
-      }
-    }
-  };
-  const result = writeQueue.then(run, run);
-  writeQueue = result.then(
-    () => undefined,
-    () => undefined,
-  );
-  return result;
-}
-
-async function openDatabase() {
-  const database = await SQLite.openDatabaseAsync(DATABASE_NAME);
-  await database.execAsync(`
-    PRAGMA journal_mode = WAL;
-    PRAGMA foreign_keys = ON;
-
+function initializeDatabase() {
+  if (!schemaPromise) {
+    schemaPromise = sqliteClient.write((database) => database.exec(`
     CREATE TABLE IF NOT EXISTS wa_conversations (
       id TEXT PRIMARY KEY NOT NULL,
       shop_id TEXT NOT NULL,
@@ -219,13 +193,9 @@ async function openDatabase() {
       ON wa_pending_operations(operation_state, next_attempt_at);
     CREATE INDEX IF NOT EXISTS wa_contact_index_search_idx
       ON wa_contact_index(shop_id, integration_id, normalized_search);
-  `);
-  return database;
-}
-
-function getDatabase() {
-  if (!databasePromise) databasePromise = openDatabase();
-  return databasePromise;
+  `));
+  }
+  return schemaPromise;
 }
 
 function timestamp(value?: string | null) {
@@ -262,16 +232,16 @@ function mapPendingOperation(row: PendingOperationRow): PendingWhatsAppOperation
 }
 
 export const whatsappDb = {
-  initialize: getDatabase,
+  initialize: initializeDatabase,
 
   async upsertConversations(
     scope: { shopId: string; integrationId: string; phoneNumberId?: string },
     conversations: WaConversation[],
   ) {
-    const database = await getDatabase();
-    await serializeWrite(() => database.withExclusiveTransactionAsync(async (transaction) => {
+    await initializeDatabase();
+    await sqliteClient.transaction(async (transaction) => {
       for (const conversation of conversations) {
-        await transaction.runAsync(
+        await transaction.run(
           `INSERT INTO wa_conversations (
             id, shop_id, integration_id, phone_number_id, customer_id, phone,
             contact_name, unread_count, is_archived, is_pinned, assigned_to_id,
@@ -308,68 +278,68 @@ export const whatsappDb = {
           ],
         );
       }
-    }));
+    });
   },
 
   async getConversations(shopId: string, integrationId: string) {
-    const database = await getDatabase();
-    const rows = await database.getAllAsync<ConversationRow>(
+    await initializeDatabase();
+    const rows = await sqliteClient.read((database) => database.all<ConversationRow>(
       `SELECT payload_json
        FROM wa_conversations
        WHERE shop_id = ? AND integration_id = ?
-       ORDER BY updated_at DESC, id DESC
+      ORDER BY updated_at DESC, id DESC
        LIMIT ?`,
       [shopId, integrationId, LOCAL_PAGE_LIMIT],
-    );
+    ));
     return rows
       .map((row) => parseJson<WaConversation>(row.payload_json))
       .filter((row): row is WaConversation => Boolean(row));
   },
 
   async removeConversation(conversationId: string) {
-    const database = await getDatabase();
-    await serializeWrite(() => database.withExclusiveTransactionAsync(async (transaction) => {
-      await transaction.runAsync("DELETE FROM wa_messages WHERE conversation_id = ?", conversationId);
-      await transaction.runAsync("DELETE FROM wa_drafts WHERE conversation_id = ?", conversationId);
-      await transaction.runAsync("DELETE FROM wa_pending_operations WHERE conversation_id = ?", conversationId);
-      await transaction.runAsync("DELETE FROM wa_conversations WHERE id = ?", conversationId);
-    }));
+    await initializeDatabase();
+    await sqliteClient.transaction(async (transaction) => {
+      await transaction.run("DELETE FROM wa_messages WHERE conversation_id = ?", [conversationId]);
+      await transaction.run("DELETE FROM wa_drafts WHERE conversation_id = ?", [conversationId]);
+      await transaction.run("DELETE FROM wa_pending_operations WHERE conversation_id = ?", [conversationId]);
+      await transaction.run("DELETE FROM wa_conversations WHERE id = ?", [conversationId]);
+    });
   },
 
   async upsertMessages(
     scope: { shopId: string; integrationId: string; conversationId: string },
     messages: WaMessage[],
   ) {
-    const database = await getDatabase();
-    await serializeWrite(() => database.withExclusiveTransactionAsync(async (transaction) => {
+    await initializeDatabase();
+    await sqliteClient.transaction(async (transaction) => {
       for (const message of messages) {
         if (message.clientMessageId) {
-          const replaced = await transaction.getAllAsync<{ id: string }>(
+          const replaced = await transaction.all<{ id: string }>(
             `SELECT id FROM wa_messages
              WHERE integration_id = ? AND client_message_id = ? AND id != ?`,
             [scope.integrationId, message.clientMessageId, message.id],
           );
           for (const local of replaced) {
-            await transaction.runAsync(
+            await transaction.run(
               "DELETE FROM wa_message_status_history WHERE message_id = ?",
-              local.id,
+              [local.id],
             );
             try {
-              await transaction.runAsync(
+              await transaction.run(
                 "DELETE FROM wa_message_search WHERE message_id = ?",
-                local.id,
+                [local.id],
               );
             } catch {
               // FTS is optional.
             }
           }
-          await transaction.runAsync(
+          await transaction.run(
             `DELETE FROM wa_messages
              WHERE integration_id = ? AND client_message_id = ? AND id != ?`,
             [scope.integrationId, message.clientMessageId, message.id],
           );
         }
-        await transaction.runAsync(
+        await transaction.run(
           `INSERT INTO wa_messages (
             id, shop_id, integration_id, conversation_id, client_message_id,
             provider_message_id, direction, message_type, operation_state,
@@ -403,7 +373,7 @@ export const whatsappDb = {
         );
 
         if (message.providerStatus && message.providerStatusAt) {
-          await transaction.runAsync(
+          await transaction.run(
             `INSERT OR IGNORE INTO wa_message_status_history (
               message_id, attempt, provider_status, provider_status_at, entity_version
             ) VALUES (?, ?, ?, ?, ?)`,
@@ -423,11 +393,11 @@ export const whatsappDb = {
         ].filter((value): value is string => typeof value === "string" && value.length > 0).join(" ");
         if (searchableBody) {
           try {
-            await transaction.runAsync(
+            await transaction.run(
               "DELETE FROM wa_message_search WHERE message_id = ?",
-              message.id,
+              [message.id],
             );
-            await transaction.runAsync(
+            await transaction.run(
               "INSERT INTO wa_message_search(message_id, conversation_id, body) VALUES (?, ?, ?)",
               [message.id, scope.conversationId, searchableBody],
             );
@@ -436,12 +406,12 @@ export const whatsappDb = {
           }
         }
       }
-    }));
+    });
   },
 
   async getMessages(conversationId: string) {
-    const database = await getDatabase();
-    const rows = await database.getAllAsync<MessageRow>(
+    await initializeDatabase();
+    const rows = await sqliteClient.read((database) => database.all<MessageRow>(
       `SELECT payload_json
        FROM (
          SELECT id, created_at, payload_json
@@ -452,7 +422,7 @@ export const whatsappDb = {
        )
        ORDER BY created_at ASC, id ASC`,
       [conversationId, LOCAL_PAGE_LIMIT],
-    );
+    ));
     return rows
       .map((row) => parseJson<WaMessage>(row.payload_json))
       .filter((row): row is WaMessage => Boolean(row));
@@ -463,15 +433,15 @@ export const whatsappDb = {
     text: string,
     replyToMessageId?: string,
   ) {
-    const database = await getDatabase();
+    await initializeDatabase();
     if (!text.trim() && !replyToMessageId) {
-      await serializeWrite(() => database.runAsync(
+      await sqliteClient.write((database) => database.run(
         "DELETE FROM wa_drafts WHERE shop_id = ? AND integration_id = ? AND conversation_id = ?",
         [scope.shopId, scope.integrationId, scope.conversationId],
       ));
       return;
     }
-    await serializeWrite(() => database.runAsync(
+    await sqliteClient.write((database) => database.run(
       `INSERT INTO wa_drafts (
         shop_id, integration_id, conversation_id, text, reply_to_message_id, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?)
@@ -491,8 +461,8 @@ export const whatsappDb = {
   },
 
   async getDraft(shopId: string, integrationId: string, conversationId: string) {
-    const database = await getDatabase();
-    return database.getFirstAsync<{
+    await initializeDatabase();
+    return sqliteClient.read((database) => database.first<{
       text: string;
       reply_to_message_id: string | null;
       updated_at: number;
@@ -501,12 +471,12 @@ export const whatsappDb = {
        FROM wa_drafts
        WHERE shop_id = ? AND integration_id = ? AND conversation_id = ?`,
       [shopId, integrationId, conversationId],
-    );
+    ));
   },
 
   async enqueueOperation(operation: PendingWhatsAppOperation) {
-    const database = await getDatabase();
-    await serializeWrite(() => database.runAsync(
+    await initializeDatabase();
+    await sqliteClient.write((database) => database.run(
       `INSERT INTO wa_pending_operations (
         id, shop_id, integration_id, conversation_id, client_message_id,
         operation_type, operation_state, payload_json, attempt,
@@ -538,8 +508,8 @@ export const whatsappDb = {
   },
 
   async getReadyOperations(shopId: string, integrationId: string) {
-    const database = await getDatabase();
-    const rows = await database.getAllAsync<PendingOperationRow>(
+    await initializeDatabase();
+    const rows = await sqliteClient.read((database) => database.all<PendingOperationRow>(
       `SELECT *
        FROM wa_pending_operations
        WHERE shop_id = ?
@@ -549,7 +519,7 @@ export const whatsappDb = {
        ORDER BY created_at ASC
        LIMIT 25`,
       [shopId, integrationId, Date.now()],
-    );
+    ));
     return rows
       .map(mapPendingOperation)
       .filter((row): row is PendingWhatsAppOperation => Boolean(row));
@@ -561,8 +531,8 @@ export const whatsappDb = {
       lastError?: string;
     },
   ) {
-    const database = await getDatabase();
-    await serializeWrite(() => database.runAsync(
+    await initializeDatabase();
+    await sqliteClient.write((database) => database.run(
       `UPDATE wa_pending_operations
        SET operation_state = ?, attempt = ?, next_attempt_at = ?,
            last_error = ?, updated_at = ?
@@ -579,10 +549,10 @@ export const whatsappDb = {
   },
 
   async deleteOperation(id: string) {
-    const database = await getDatabase();
-    await serializeWrite(() => database.runAsync(
+    await initializeDatabase();
+    await sqliteClient.write((database) => database.run(
       "DELETE FROM wa_pending_operations WHERE id = ?",
-      id,
+      [id],
     ));
   },
 
@@ -594,8 +564,8 @@ export const whatsappDb = {
       conversationSnapshotCursor?: string | null;
     },
   ) {
-    const database = await getDatabase();
-    await serializeWrite(() => database.runAsync(
+    await initializeDatabase();
+    await sqliteClient.write((database) => database.run(
       `INSERT INTO wa_sync_state (
         shop_id, integration_id, stream_cursor, conversation_snapshot_cursor, last_reconciled_at
       ) VALUES (?, ?, ?, ?, ?)
@@ -617,10 +587,10 @@ export const whatsappDb = {
   },
 
   async supportsFts5() {
-    const database = await getDatabase();
-    return serializeWrite(async () => {
+    await initializeDatabase();
+    return sqliteClient.write(async (database) => {
       try {
-        await database.execAsync(`
+        await database.exec(`
           CREATE VIRTUAL TABLE IF NOT EXISTS wa_message_search
           USING fts5(message_id UNINDEXED, conversation_id UNINDEXED, body);
         `);
@@ -637,7 +607,7 @@ export const whatsappDb = {
     query: string,
     limit = 100,
   ) {
-    const database = await getDatabase();
+    await initializeDatabase();
     const tokens = query
       .trim()
       .split(/\s+/)
@@ -646,7 +616,7 @@ export const whatsappDb = {
     if (tokens.length === 0) return [] as WaMessage[];
     try {
       const match = tokens.map((token) => `"${token}"*`).join(" AND ");
-      const rows = await database.getAllAsync<MessageRow>(
+      const rows = await sqliteClient.read((database) => database.all<MessageRow>(
         `SELECT messages.payload_json
          FROM wa_message_search AS search
          JOIN wa_messages AS messages ON messages.id = search.message_id
@@ -656,13 +626,13 @@ export const whatsappDb = {
          ORDER BY messages.created_at DESC
          LIMIT ?`,
         [match, shopId, integrationId, limit],
-      );
+      ));
       return rows
         .map((row) => parseJson<WaMessage>(row.payload_json))
         .filter((row): row is WaMessage => Boolean(row));
     } catch {
       const pattern = `%${query.trim()}%`;
-      const rows = await database.getAllAsync<MessageRow>(
+      const rows = await sqliteClient.read((database) => database.all<MessageRow>(
         `SELECT payload_json
          FROM wa_messages
          WHERE shop_id = ?
@@ -671,7 +641,7 @@ export const whatsappDb = {
          ORDER BY created_at DESC
          LIMIT ?`,
         [shopId, integrationId, pattern, limit],
-      );
+      ));
       return rows
         .map((row) => parseJson<WaMessage>(row.payload_json))
         .filter((row): row is WaMessage => Boolean(row));
@@ -685,29 +655,29 @@ export const whatsappDb = {
     failedOperationRetentionDays: number;
     draftRetentionDays: number;
   }) {
-    const database = await getDatabase();
+    await initializeDatabase();
     const day = 86_400_000;
     const now = Date.now();
-    await serializeWrite(() => database.withExclusiveTransactionAsync(async (transaction) => {
+    await sqliteClient.transaction(async (transaction) => {
       if (options.messageTextRetentionDays != null) {
-        await transaction.runAsync(
+        await transaction.run(
           "DELETE FROM wa_messages WHERE created_at < ?",
-          now - options.messageTextRetentionDays * day,
+          [now - options.messageTextRetentionDays * day],
         );
       }
-      await transaction.runAsync(
+      await transaction.run(
         "DELETE FROM wa_drafts WHERE updated_at < ?",
-        now - options.draftRetentionDays * day,
+        [now - options.draftRetentionDays * day],
       );
-      await transaction.runAsync(
+      await transaction.run(
         `DELETE FROM wa_pending_operations
          WHERE operation_state = 'TERMINALLY_FAILED' AND updated_at < ?`,
-        now - options.failedOperationRetentionDays * day,
+        [now - options.failedOperationRetentionDays * day],
       );
-      await transaction.runAsync(
+      await transaction.run(
         "DELETE FROM wa_media_cache WHERE last_accessed_at < ?",
-        now - Math.max(options.mediaFileRetentionDays, options.thumbnailRetentionDays) * day,
+        [now - Math.max(options.mediaFileRetentionDays, options.thumbnailRetentionDays) * day],
       );
-    }));
+    });
   },
 };
