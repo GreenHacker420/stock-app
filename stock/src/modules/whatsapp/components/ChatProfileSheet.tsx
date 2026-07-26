@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   View,
   StyleSheet,
@@ -17,7 +17,7 @@ import { formatWhatsAppPhone, initials, waColors } from "../whatsapp-ui";
 import { type WaConversation, type WaMessage } from "../../../api/whatsapp.api";
 import { navigate } from "../../../navigation/navigation-ref";
 import { triggerLightHaptic, triggerMediumHaptic } from "../../../utils/haptics";
-import { useCustomersQuery } from "../../../hooks/useCustomers";
+import { useCustomersQuery, useCustomerDetailQuery } from "../../../hooks/useCustomers";
 import { whatsappDb } from "../services/whatsapp-db";
 import { contactsDb } from "../services/contactsDb";
 import { KeyboardAwareScreen } from "../../../components/keyboard/KeyboardAwareScreen";
@@ -30,6 +30,7 @@ interface ChatProfileSheetProps {
   messages?: WaMessage[];
   onToggleMute?: (muted: boolean) => void;
   onOpenLinkCustomer?: () => void;
+  onCustomerLinked?: (customer: any) => void;
   onDeleteChat?: () => void;
 }
 
@@ -41,6 +42,7 @@ export function ChatProfileSheet({
   messages = [],
   onToggleMute,
   onOpenLinkCustomer,
+  onCustomerLinked,
   onDeleteChat,
 }: ChatProfileSheetProps) {
   const [activeMediaTab, setActiveMediaTab] = useState<"media" | "docs" | "links">("media");
@@ -48,16 +50,33 @@ export function ChatProfileSheet({
   const [showCustomerPicker, setShowCustomerPicker] = useState(false);
   const [pickerSearch, setPickerSearch] = useState("");
   const [linkingId, setLinkingId] = useState<string | null>(null);
-  const [linkedCustomer, setLinkedCustomer] = useState<any>(customerRecord || null);
+  const [manuallyLinkedCustomer, setManuallyLinkedCustomer] = useState<any>(null);
 
   const queryClient = useQueryClient();
-  const customersQuery = useCustomersQuery({ includeWalkin: false });
 
-  useMemo(() => {
-    if (customerRecord) {
-      setLinkedCustomer(customerRecord);
+  // ONLY fetch customer search list when customer picker modal is actually open
+  const customersQuery = useCustomersQuery({
+    enabled: visible && showCustomerPicker,
+    includeWalkin: false,
+  });
+
+  // Determine target customer ID
+  const linkedCustomerId = manuallyLinkedCustomer?.id || customerRecord?.id || conversation?.customerId || "";
+  const { data: latestCustomerDetail } = useCustomerDetailQuery(linkedCustomerId);
+
+  // Compute activeCustomer combining manually linked customer, latest detail, or prop
+  const activeCustomer = useMemo(() => {
+    if (manuallyLinkedCustomer) {
+      return { ...manuallyLinkedCustomer, ...latestCustomerDetail };
     }
-  }, [customerRecord]);
+    if (latestCustomerDetail) {
+      return latestCustomerDetail;
+    }
+    if (customerRecord) {
+      return customerRecord;
+    }
+    return null;
+  }, [manuallyLinkedCustomer, latestCustomerDetail, customerRecord]);
 
   const filteredCustomers = useMemo(() => {
     const list = customersQuery.data || [];
@@ -72,20 +91,22 @@ export function ChatProfileSheet({
     if (!conversation) return;
     
     // 1. INSTANT OPTIMISTIC UI UPDATE (0ms)
-    setLinkedCustomer(customer);
+    setManuallyLinkedCustomer(customer);
     setShowCustomerPicker(false);
     triggerMediumHaptic();
+    onCustomerLinked?.(customer);
 
-    // 2. ASYNC BACKGROUND PERSISTENCE
+    // 2. ASYNC BACKGROUND PERSISTENCE & IMMEDIATE REFETCH
     try {
       await whatsappDb.linkCustomerToConversation(conversation.id, customer.id);
       const contact = await contactsDb.getContactByPhone(conversation.phone);
       if (contact) {
         await contactsDb.linkCustomer(contact.id, customer.id);
       }
-      queryClient.invalidateQueries({ queryKey: ["whatsapp", "conversations"] });
+      queryClient.invalidateQueries({ queryKey: ["whatsapp"] });
       queryClient.invalidateQueries({ queryKey: ["customers"] });
       queryClient.invalidateQueries({ queryKey: ["customer", customer.id] });
+      void queryClient.refetchQueries({ queryKey: ["customer", customer.id] });
     } catch (err: any) {
       console.warn("Background linking error:", err);
     }
@@ -309,7 +330,7 @@ export function ChatProfileSheet({
               <MaterialCommunityIcons name="storefront-outline" size={20} color={waColors.greenDark} />
               <Text style={styles.sectionTitle}>ShopControl CRM Profile</Text>
             </View>
-            {linkedCustomer && (
+            {activeCustomer && (
               <View style={styles.linkedBadge}>
                 <MaterialCommunityIcons name="check-circle" size={12} color={waColors.greenDark} />
                 <Text style={styles.linkedBadgeText}>Linked</Text>
@@ -317,22 +338,22 @@ export function ChatProfileSheet({
             )}
           </View>
 
-          {linkedCustomer ? (
+          {activeCustomer ? (
             <View style={styles.crmDetails}>
               <View style={styles.crmMetricRow}>
                 <View style={styles.crmMetricBox}>
                   <Text style={styles.crmMetricLabel}>Outstanding</Text>
-                  <Text style={[styles.crmMetricValue, { color: Number(linkedCustomer.outstandingAmount) > 0 ? Colors.danger : waColors.greenDark }]}>
-                    {money(linkedCustomer.outstandingAmount)}
+                  <Text style={[styles.crmMetricValue, { color: Number((activeCustomer as any).outstandingAmount) > 0 ? Colors.danger : waColors.greenDark }]}>
+                    {money((activeCustomer as any).outstandingAmount)}
                   </Text>
                 </View>
                 <View style={styles.crmMetricBox}>
                   <Text style={styles.crmMetricLabel}>Total Sales</Text>
-                  <Text style={styles.crmMetricValue}>{money(linkedCustomer.totalSales)}</Text>
+                  <Text style={styles.crmMetricValue}>{money((activeCustomer as any).totalSales)}</Text>
                 </View>
                 <View style={styles.crmMetricBox}>
                   <Text style={styles.crmMetricLabel}>Credit Limit</Text>
-                  <Text style={styles.crmMetricValue}>{money(linkedCustomer.creditLimit)}</Text>
+                  <Text style={styles.crmMetricValue}>{money((activeCustomer as any).creditLimit)}</Text>
                 </View>
               </View>
 
@@ -340,7 +361,7 @@ export function ChatProfileSheet({
                 mode="contained-tonal"
                 onPress={() => {
                   onDismiss();
-                  navigate("CustomerDetail", { customerId: linkedCustomer.id });
+                  navigate("CustomerDetail", { customerId: activeCustomer.id });
                 }}
                 icon="account-details"
                 style={styles.crmActionBtn}

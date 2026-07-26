@@ -1637,6 +1637,11 @@ export const ChatDetailScreen = () => {
         conversation={conversation || null}
         customerRecord={customerRecord}
         messages={messages}
+        onCustomerLinked={(customer) => {
+          if (conversation) {
+            conversation.customerId = customer.id;
+          }
+        }}
         onDeleteChat={() => navigation.goBack()}
       />
 
