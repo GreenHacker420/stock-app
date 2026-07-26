@@ -1,10 +1,11 @@
-import { memo, type ComponentType, useRef, useState } from "react";
+import { memo, useEffect, useState, type ComponentProps, type ComponentType } from "react";
 import {
   Alert,
   Linking,
   Modal,
   Pressable,
   StyleSheet,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { ActivityIndicator, IconButton, Text } from "react-native-paper";
@@ -13,6 +14,8 @@ import { Image } from "expo-image";
 import { VideoView, useVideoPlayer } from "expo-video";
 import { colors as Colors } from "../../../theme";
 import type { WaContact, WaMessage, WaMessageType } from "../../../api/whatsapp.api";
+import { formatWhatsAppPhone } from "../whatsapp-ui";
+import { parseCoordinate, sanitizeEmail } from "../../../utils/validation";
 import { AudioMessagePlayer } from "./AudioMessagePlayer";
 
 type RendererProps = {
@@ -20,30 +23,77 @@ type RendererProps = {
   onOpenImage?: (url: string) => void;
 };
 
-function openUrl(url?: string, failureMessage = "This item cannot be opened.") {
-  if (!url) {
+type MaterialIconName = ComponentProps<typeof MaterialCommunityIcons>["name"];
+
+const ALLOWED_SCHEMES = new Set(["https:", "http:", "tel:", "sms:", "mailto:"]);
+
+function openUrl(rawUrl?: string, failureMessage = "This item cannot be opened.") {
+  if (!rawUrl) {
     Alert.alert("Unavailable", failureMessage);
     return;
   }
-  Linking.openURL(url).catch(() => Alert.alert("Open failed", failureMessage));
+  try {
+    const parsed = new URL(rawUrl);
+    if (!ALLOWED_SCHEMES.has(parsed.protocol)) {
+      throw new Error("Unsupported URL scheme");
+    }
+    Linking.openURL(rawUrl).catch(() => Alert.alert("Open failed", failureMessage));
+  } catch {
+    Alert.alert("Open failed", failureMessage);
+  }
 }
 
 function AssetUnavailable({ message }: RendererProps) {
-  const failed = message.asset?.status === "FAILED";
-  const label = failed
-    ? "Media processing failed"
-    : "Preparing media…";
+  const assetStatus = message.asset?.status;
+  const processing =
+    assetStatus === "UPLOADING" ||
+    assetStatus === "DELETED" ? false : (
+      message.operationState === "SUBMITTING" ||
+      message.operationState === "QUEUED" ||
+      message.operationState === "PROCESSING" ||
+      message.operationState === "UPLOADING" ||
+      message.operationState === "WAITING_FOR_NETWORK"
+    );
+
+  if (processing) {
+    return (
+      <View style={styles.processingRow}>
+        <ActivityIndicator size={20} color={Colors.primary} />
+        <View style={styles.infoText}>
+          <Text style={[styles.infoTitle, styles.muted]}>Preparing media…</Text>
+          <Text style={styles.infoDetail}>This will update automatically.</Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (assetStatus === "FAILED" || message.operationState === "TERMINALLY_FAILED") {
+    return (
+      <View style={styles.processingRow}>
+        <MaterialCommunityIcons name="cloud-alert-outline" size={24} color={Colors.danger} />
+        <View style={styles.infoText}>
+          <Text style={[styles.infoTitle, styles.muted]}>Media processing failed</Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (assetStatus === "DELETED") {
+    return (
+      <View style={styles.processingRow}>
+        <MaterialCommunityIcons name="delete-outline" size={24} color={Colors.textSecondary} />
+        <View style={styles.infoText}>
+          <Text style={[styles.infoTitle, styles.muted]}>Media no longer available</Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.processingRow}>
-      {failed ? (
-        <MaterialCommunityIcons name="cloud-alert-outline" size={24} color={Colors.danger} />
-      ) : (
-        <ActivityIndicator size={20} color={Colors.primary} />
-      )}
+      <MaterialCommunityIcons name="cloud-off-outline" size={24} color={Colors.textSecondary} />
       <View style={styles.infoText}>
-        <Text style={[styles.infoTitle, styles.muted]}>{label}</Text>
-        {!failed && <Text style={styles.infoDetail}>This will update automatically.</Text>}
+        <Text style={[styles.infoTitle, styles.muted]}>Media unavailable</Text>
       </View>
     </View>
   );
@@ -53,12 +103,19 @@ function TextRenderer({ message }: RendererProps) {
   return <Text selectable style={styles.messageText}>{message.content?.text || ""}</Text>;
 }
 
-const loadedImageCache = new Set<string>();
-
 function ImageRenderer({ message, onOpenImage }: RendererProps) {
   const [visible, setVisible] = useState(false);
   const url = message.asset?.url;
-  const [loading, setLoading] = useState(() => Boolean(url && !loadedImageCache.has(url)));
+  const [loading, setLoading] = useState(true);
+  const [failed, setFailed] = useState(false);
+  const { width: screenWidth } = useWindowDimensions();
+  const mediaWidth = Math.min(240, screenWidth * 0.82 - 32);
+
+  useEffect(() => {
+    setVisible(false);
+    setLoading(Boolean(url));
+    setFailed(false);
+  }, [message.id, url]);
 
   if (!url) return <AssetUnavailable message={message} />;
 
@@ -73,11 +130,12 @@ function ImageRenderer({ message, onOpenImage }: RendererProps) {
   return (
     <>
       <Pressable
+        disabled={failed}
         accessibilityRole="button"
         accessibilityLabel="Open image"
         onPress={handlePress}
       >
-        <View style={styles.imageFrame}>
+        <View style={[styles.imageFrame, { width: mediaWidth, height: mediaWidth }]}>
           <Image
             source={{ uri: url }}
             style={styles.image}
@@ -86,19 +144,27 @@ function ImageRenderer({ message, onOpenImage }: RendererProps) {
             recyclingKey={message.id}
             transition={0}
             onLoadStart={() => {
-              if (url && !loadedImageCache.has(url)) {
-                setLoading(true);
-              }
+              setFailed(false);
+              setLoading(true);
             }}
             onLoad={() => {
-              if (url) loadedImageCache.add(url);
+              setFailed(false);
               setLoading(false);
             }}
-            onError={() => setLoading(false)}
+            onError={() => {
+              setFailed(true);
+              setLoading(false);
+            }}
           />
           {loading && (
             <View style={styles.imageLoading}>
               <ActivityIndicator size={22} color={Colors.primary} />
+            </View>
+          )}
+          {failed && !loading && (
+            <View style={styles.imageLoading}>
+              <MaterialCommunityIcons name="image-off-outline" size={28} color={Colors.textSecondary} />
+              <Text style={styles.infoDetail}>Image unavailable</Text>
             </View>
           )}
         </View>
@@ -133,20 +199,44 @@ function ImageRenderer({ message, onOpenImage }: RendererProps) {
   );
 }
 
+function MountedVideoPlayer({ url, mediaWidth }: { url: string; mediaWidth: number }) {
+  const player = useVideoPlayer({ uri: url });
+  return (
+    <VideoView
+      player={player}
+      style={[styles.video, { width: mediaWidth, aspectRatio: 16 / 9 }]}
+      nativeControls
+      contentFit="contain"
+      fullscreenOptions={{ enable: true }}
+    />
+  );
+}
+
 function VideoRenderer({ message }: RendererProps) {
+  const [opened, setOpened] = useState(false);
   const url = message.asset?.url;
-  const player = useVideoPlayer(url ? { uri: url } : null);
+  const { width: screenWidth } = useWindowDimensions();
+  const mediaWidth = Math.min(250, screenWidth * 0.82 - 32);
+
+  useEffect(() => {
+    setOpened(false);
+  }, [message.id, url]);
+
   if (!url) return <AssetUnavailable message={message} />;
 
   return (
     <>
-      <VideoView
-        player={player}
-        style={styles.video}
-        nativeControls
-        contentFit="contain"
-        fullscreenOptions={{ enable: true }}
-      />
+      {!opened ? (
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Play video"
+          onPress={() => setOpened(true)}
+        >
+          <InfoRow icon="video-outline" text="Tap to play video" actionIcon="play-circle-outline" />
+        </Pressable>
+      ) : (
+        <MountedVideoPlayer key={url} url={url} mediaWidth={mediaWidth} />
+      )}
       {!!message.content?.caption && (
         <Text selectable style={styles.messageText}>{message.content.caption}</Text>
       )}
@@ -155,17 +245,18 @@ function VideoRenderer({ message }: RendererProps) {
 }
 
 function DocumentRenderer({ message }: RendererProps) {
+  if (!message.asset?.url) return <AssetUnavailable message={message} />;
   return (
     <>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Open document"
-        onPress={() => openUrl(message.asset?.url, "This document is not available.")}
+        onPress={() => openUrl(message.asset!.url, "This document is not available.")}
       >
         <InfoRow
           icon="file-document-outline"
-          text={message.asset?.fileName || message.content?.filename || "Document"}
-          detail={message.asset?.size ? formatFileSize(message.asset.size) : undefined}
+          text={message.asset.fileName || message.content?.filename || "Document"}
+          detail={message.asset.size ? formatFileSize(message.asset.size) : undefined}
           actionIcon="open-in-new"
         />
       </Pressable>
@@ -190,19 +281,20 @@ function StickerRenderer({ message }: RendererProps) {
 }
 
 function AudioRenderer({ message }: RendererProps) {
+  if (!message.asset?.url) return <AssetUnavailable message={message} />;
   return (
     <AudioMessagePlayer
-      url={message.asset?.url}
-      voice={message.payload?.voice}
-      fallbackDurationMs={message.asset?.durationMs}
+      url={message.asset.url}
+      voice={Boolean(message.payload?.voice ?? message.content?.voice)}
+      fallbackDurationMs={message.asset.durationMs}
     />
   );
 }
 
 function LocationRenderer({ message }: RendererProps) {
-  const latitude = Number(message.content?.latitude);
-  const longitude = Number(message.content?.longitude);
-  const hasCoordinates = Number.isFinite(latitude) && Number.isFinite(longitude);
+  const latitude = parseCoordinate(message.content?.latitude, -90, 90);
+  const longitude = parseCoordinate(message.content?.longitude, -180, 180);
+  const hasCoordinates = latitude !== null && longitude !== null;
   const label = message.content?.name || message.content?.address || "Shared location";
   const mapUrl = hasCoordinates
     ? `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`
@@ -224,24 +316,57 @@ function LocationRenderer({ message }: RendererProps) {
   );
 }
 
+function isRecord(val: unknown): val is Record<string, any> {
+  return typeof val === "object" && val !== null;
+}
+
 function normalizeContacts(content: unknown): WaContact[] {
-  if (Array.isArray(content)) return content as WaContact[];
-  if (Array.isArray((content as any)?.contacts)) return (content as any).contacts;
-  return [];
+  const candidate = Array.isArray(content)
+    ? content
+    : isRecord(content) && Array.isArray(content.contacts)
+      ? content.contacts
+      : [];
+
+  return candidate.filter(
+    (item): item is WaContact => isRecord(item) && isRecord(item.name),
+  );
 }
 
 function ContactRenderer({ message }: RendererProps) {
   const contacts = normalizeContacts(message.content);
+
+  if (contacts.length === 0) {
+    return (
+      <InfoRow
+        icon="account-alert-outline"
+        text="Contact unavailable"
+        muted
+      />
+    );
+  }
+
+  if (contacts.length > 1) {
+    return (
+      <InfoRow
+        icon="account-multiple-outline"
+        text={`${contacts.length} shared contacts`}
+        detail="Shared contact list"
+      />
+    );
+  }
+
   const contact = contacts[0];
-  const phone = contact?.phones?.[0]?.phone;
-  const email = contact?.emails?.[0]?.email;
+  const rawPhone = contact?.phones?.[0]?.phone;
+  const phone = formatWhatsAppPhone(rawPhone);
+  const rawEmail = contact?.emails?.[0]?.email;
+  const email = sanitizeEmail(rawEmail);
 
   return (
     <View style={styles.contact}>
       <InfoRow
         icon="account-box-outline"
-        text={contact?.name?.formatted_name || (contacts.length > 1 ? `${contacts.length} contacts` : "Shared contact")}
-        detail={phone || email}
+        text={contact?.name?.formatted_name || "Shared contact"}
+        detail={rawPhone || rawEmail}
       />
       {(phone || email) && (
         <View style={styles.contactActions}>
@@ -351,16 +476,16 @@ function InfoRow({
   actionIcon,
   muted,
 }: {
-  icon: string;
+  icon: MaterialIconName;
   text: string;
   detail?: string;
-  actionIcon?: string;
+  actionIcon?: MaterialIconName;
   muted?: boolean;
 }) {
   return (
     <View style={styles.infoRow}>
       <MaterialCommunityIcons
-        name={icon as any}
+        name={icon}
         size={28}
         color={muted ? Colors.textSecondary : Colors.primary}
       />
@@ -373,7 +498,7 @@ function InfoRow({
         )}
       </View>
       {!!actionIcon && (
-        <MaterialCommunityIcons name={actionIcon as any} size={18} color={Colors.textSecondary} />
+        <MaterialCommunityIcons name={actionIcon} size={18} color={Colors.textSecondary} />
       )}
     </View>
   );
@@ -402,21 +527,13 @@ const RENDERERS: Record<WaMessageType, ComponentType<RendererProps>> = {
   UNSUPPORTED: UnsupportedRenderer,
 };
 
+// ponytail: identity equality ensures React Query immutable message updates re-render properly
 export const MessageContentRenderer = memo(
   function MessageContentRenderer({ message, onOpenImage }: RendererProps) {
     const Renderer = RENDERERS[message.type] || UnsupportedRenderer;
     return <Renderer message={message} onOpenImage={onOpenImage} />;
   },
-  (prev, next) => {
-    return (
-      prev.message.id === next.message.id &&
-      prev.message.createdAt === next.message.createdAt &&
-      prev.message.operationState === next.message.operationState &&
-      prev.message.providerStatus === next.message.providerStatus &&
-      prev.message.contentState === next.message.contentState &&
-      prev.onOpenImage === next.onOpenImage
-    );
-  }
+  (prev, next) => prev.message === next.message && prev.onOpenImage === next.onOpenImage
 );
 
 const styles = StyleSheet.create({
@@ -425,8 +542,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   imageFrame: {
-    width: 230,
-    height: 230,
     borderRadius: 8,
     marginBottom: 6,
     backgroundColor: Colors.surfaceOffset,
@@ -437,27 +552,64 @@ const styles = StyleSheet.create({
     height: "100%",
   },
   imageLoading: {
-    position: "absolute",
-    inset: 0,
+    ...StyleSheet.absoluteFill,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "rgba(243, 244, 246, 0.7)",
+  },
+  video: {
+    borderRadius: 8,
+    marginBottom: 6,
     backgroundColor: Colors.surfaceOffset,
   },
   sticker: {
-    width: 180,
-    height: 180,
+    width: 150,
+    height: 150,
   },
-  video: {
-    width: 250,
-    height: 180,
-    borderRadius: 8,
-    backgroundColor: "#000",
+  infoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+    maxWidth: "100%",
+  },
+  infoText: {
+    flex: 1,
+  },
+  infoTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#1F2937",
+  },
+  infoDetail: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
+  muted: {
+    color: Colors.textSecondary,
+  },
+  processingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 8,
+    maxWidth: "100%",
+  },
+  contact: {
+    gap: 6,
+    maxWidth: "100%",
+  },
+  contactActions: {
+    flexDirection: "row",
+    gap: 4,
   },
   viewer: {
     flex: 1,
     backgroundColor: "#000",
-    alignItems: "center",
     justifyContent: "center",
+    alignItems: "center",
   },
   viewerImage: {
     width: "100%",
@@ -466,52 +618,6 @@ const styles = StyleSheet.create({
   viewerClose: {
     position: "absolute",
     top: 48,
-    right: 12,
-    backgroundColor: "rgba(0,0,0,0.55)",
-  },
-  infoRow: {
-    width: 240,
-    minHeight: 54,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    padding: 9,
-    borderRadius: 8,
-    backgroundColor: "rgba(0,0,0,0.05)",
-  },
-  processingRow: {
-    width: 240,
-    minHeight: 64,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    padding: 10,
-    borderRadius: 10,
-    backgroundColor: "rgba(0,0,0,0.05)",
-  },
-  infoText: {
-    flex: 1,
-    gap: 2,
-  },
-  infoTitle: {
-    color: Colors.textPrimary,
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  infoDetail: {
-    color: Colors.textSecondary,
-    fontSize: 11,
-  },
-  muted: {
-    color: Colors.textSecondary,
-    fontWeight: "500",
-  },
-  contact: {
-    gap: 2,
-  },
-  contactActions: {
-    height: 38,
-    flexDirection: "row",
-    justifyContent: "flex-end",
+    right: 16,
   },
 });
