@@ -259,6 +259,19 @@ export function ChatListScreen() {
 
   const openConversation = (conversation: WaConversation) => {
     triggerLightHaptic();
+    const msgKey = queryKeys.whatsapp.messages(shopId, integrationId, conversation.id);
+    if (!queryClient.getQueryState(msgKey)?.data) {
+      const fastMsgs = whatsappDb.getFastMessages(conversation.id);
+      if (fastMsgs.length > 0) {
+        queryClient.setQueryData(msgKey, {
+          pages: [{ items: fastMsgs, nextCursor: null, snapshotCursor: null }],
+          pageParams: [undefined],
+        });
+      }
+    }
+    void whatsappDb.getMessages(conversation.id).then((items) => {
+      whatsappDb.saveFastMessages(conversation.id, items);
+    }).catch(() => undefined);
     navigation.navigate("ChatDetail", {
       shopId,
       integrationId,
@@ -277,6 +290,18 @@ export function ChatListScreen() {
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${displayName}, ${item.unreadCount} unread messages`}
+        onPressIn={() => {
+          const msgKey = queryKeys.whatsapp.messages(shopId, integrationId, item.id);
+          if (!queryClient.getQueryState(msgKey)?.data) {
+            const fastMsgs = whatsappDb.getFastMessages(item.id);
+            if (fastMsgs.length > 0) {
+              queryClient.setQueryData(msgKey, {
+                pages: [{ items: fastMsgs, nextCursor: null, snapshotCursor: null }],
+                pageParams: [undefined],
+              });
+            }
+          }
+        }}
         onPress={() => openConversation(item)}
         onLongPress={() => {
           triggerLightHaptic();

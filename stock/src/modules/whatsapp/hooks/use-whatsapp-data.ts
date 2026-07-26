@@ -112,7 +112,10 @@ export function useWhatsAppMessages(conversationId: string) {
   const [localCache, setLocalCache] = useState<{
     key: string;
     items: WaMessage[];
-  } | null>(null);
+  } | null>(() => {
+    const fastItems = whatsappDb.getFastMessages(conversationId);
+    return fastItems.length > 0 ? { key: localCacheKey, items: fastItems } : null;
+  });
 
   useEffect(() => {
     let cancelled = false;

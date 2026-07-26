@@ -293,6 +293,24 @@ export const whatsappDb = {
     return [];
   },
 
+  getFastMessages(conversationId: string): WaMessage[] {
+    try {
+      const cached = mmkvStorage.getItem(`wa_fast_msgs_${conversationId}`) as string | null;
+      if (cached && typeof cached === "string") {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed)) return parsed as WaMessage[];
+      }
+    } catch {}
+    return [];
+  },
+
+  saveFastMessages(conversationId: string, messages: WaMessage[]) {
+    try {
+      const recent = messages.slice(-75);
+      mmkvStorage.setItem(`wa_fast_msgs_${conversationId}`, JSON.stringify(recent));
+    } catch {}
+  },
+
   async getConversations(shopId: string, integrationId: string) {
     await initializeDatabase();
     const rows = await sqliteClient.read((database) => database.all<ConversationRow>(
@@ -447,6 +465,10 @@ export const whatsappDb = {
         }
       }
     });
+    // Update MMKV fast cache after each upsert for instant next-open render
+    void whatsappDb.getMessages(scope.conversationId).then((all) => {
+      whatsappDb.saveFastMessages(scope.conversationId, all);
+    }).catch(() => undefined);
   },
 
   async getMessages(conversationId: string) {
