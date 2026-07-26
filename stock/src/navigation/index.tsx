@@ -747,6 +747,7 @@ export type RootStackParamList = {
     phoneNumberId?: string;
     conversationId: string;
     phone?: string;
+    conversation?: import("../api/whatsapp.api").WaConversation;
     messageId?: string;
     eventId?: string;
   };

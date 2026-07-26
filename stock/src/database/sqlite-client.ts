@@ -116,11 +116,20 @@ class SqliteClient {
   transaction<T>(task: (transaction: SqliteExecutor) => Promise<T>) {
     return this.enqueue(async () => {
       const database = await this.getDatabase();
-      let result!: T;
-      await database.withExclusiveTransactionAsync(async (transaction) => {
-        result = await task(new ExpoSqliteExecutor(transaction));
-      });
-      return result;
+      const transaction = new ExpoSqliteExecutor(database);
+      await database.execAsync("BEGIN IMMEDIATE");
+      try {
+        const result = await task(transaction);
+        await database.execAsync("COMMIT");
+        return result;
+      } catch (error) {
+        try {
+          await database.execAsync("ROLLBACK");
+        } catch {
+          // Preserve the operation error when rollback also fails.
+        }
+        throw error;
+      }
     });
   }
 }

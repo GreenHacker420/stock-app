@@ -254,6 +254,7 @@ export function ChatListScreen() {
       phoneNumberId,
       conversationId: conversation.id,
       phone: conversation.phone,
+      conversation,
     });
   };
 

@@ -48,10 +48,7 @@ import { FlowSendSheet } from "../components/FlowSendSheet";
 import { formatWhatsAppPhone, initialsFor, waColors } from "../whatsapp-ui";
 import { queryKeys } from "../../../hooks/query-keys";
 import { useWhatsAppScope } from "../whatsapp-scope";
-import {
-  useWhatsAppConversations,
-  useWhatsAppMessages,
-} from "../hooks/use-whatsapp-data";
+import { useWhatsAppMessages } from "../hooks/use-whatsapp-data";
 import { whatsappDb } from "../services/whatsapp-db";
 import {
   appendWhatsAppMessage,
@@ -72,7 +69,7 @@ const STANDARD_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
 export const ChatDetailScreen = () => {
   const route = useRoute<any>();
   const navigation = useNavigation();
-  const { conversationId, phone } = route.params;
+  const { conversationId, phone, conversation } = route.params;
   const {
     shopId: activeShopId,
     integrationId,
@@ -110,16 +107,29 @@ export const ChatDetailScreen = () => {
       if (!token) return;
       markScopedWaConversationRead(token, integrationId, conversationId)
         .then(() => {
-          queryClient.invalidateQueries({ queryKey: ["whatsapp", "conversations", activeShopId, integrationId] });
+          queryClient.setQueriesData<any>(
+            { queryKey: ["whatsapp", "conversations", activeShopId, integrationId] },
+            (current: any) => {
+              if (!current?.pages) return current;
+              return {
+                ...current,
+                pages: current.pages.map((page: any) => ({
+                  ...page,
+                  items: page.items.map((conversation: any) =>
+                    conversation.id === conversationId
+                      ? { ...conversation, unreadCount: 0 }
+                      : conversation,
+                  ),
+                })),
+              };
+            },
+          );
         })
         .catch((err) => {
           console.warn("Failed to mark conversation read", err);
         });
     }
   }, [activeShopId, conversationId, integrationId, token]);
-
-  const conversationQuery = useWhatsAppConversations();
-  const conversation = conversationQuery.conversations.find((item) => item.id === conversationId);
 
   // Load server-side customers to resolve dynamic variables (e.g. outstandingAmount)
   const { data: customers = [] } = useCustomersQuery();
