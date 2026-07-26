@@ -23,6 +23,13 @@ import {
 const API_VERSION = "v25.0";
 const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
 
+function shouldEnforceServiceWindow() {
+  const configured = String(
+    process.env.WHATSAPP_ENFORCE_SERVICE_WINDOW ?? "true",
+  ).trim().toLowerCase();
+  return !["0", "false", "no", "off"].includes(configured);
+}
+
 async function enqueueOutboundMessage({
   shopId,
   message,
@@ -538,7 +545,7 @@ class WhatsAppService {
         });
       });
 
-      if (requiresServiceWindow(message)) {
+      if (requiresServiceWindow(message) && shouldEnforceServiceWindow()) {
         const isWithinWindow = await this.canSendFreeText(conversationId);
         if (!isWithinWindow) {
           throw new Error("Outside 24-hour window. Please use a template.");
