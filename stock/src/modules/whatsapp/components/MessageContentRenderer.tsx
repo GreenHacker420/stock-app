@@ -1,4 +1,4 @@
-import { memo, useEffect, useState, type ComponentProps, type ComponentType } from "react";
+import { memo, useEffect, useState, useMemo, type ComponentProps, type ComponentType } from "react";
 import {
   Alert,
   Linking,
@@ -103,65 +103,51 @@ function TextRenderer({ message }: RendererProps) {
   return <Text selectable style={styles.messageText}>{message.content?.text || ""}</Text>;
 }
 
-function ImageRenderer({ message, onOpenImage }: RendererProps) {
-  const [visible, setVisible] = useState(false);
+const ImageRenderer = memo(function ImageRenderer({ message, onOpenImage }: RendererProps) {
   const url = message.asset?.url;
-  const [loading, setLoading] = useState(true);
   const [failed, setFailed] = useState(false);
-  const { width: screenWidth } = useWindowDimensions();
-  const mediaWidth = Math.min(240, screenWidth * 0.82 - 32);
 
-  useEffect(() => {
-    setVisible(false);
-    setLoading(Boolean(url));
-    setFailed(false);
-  }, [message.id, url]);
+  const rawWidth = message.asset?.width;
+  const rawHeight = message.asset?.height;
+  const { width: frameWidth, height: frameHeight } = useMemo(() => {
+    const MAX_W = 240;
+    const MAX_H = 320;
+    if (!rawWidth || !rawHeight || rawWidth <= 0 || rawHeight <= 0) {
+      return { width: 220, height: 220 };
+    }
+    const ratio = rawWidth / rawHeight;
+    if (ratio >= 1) {
+      const w = Math.min(MAX_W, rawWidth);
+      return { width: w, height: Math.max(120, Math.round(w / ratio)) };
+    }
+    const h = Math.min(MAX_H, rawHeight);
+    return { width: Math.max(120, Math.round(h * ratio)), height: h };
+  }, [rawWidth, rawHeight]);
 
   if (!url) return <AssetUnavailable message={message} />;
 
-  const handlePress = () => {
-    if (onOpenImage) {
-      onOpenImage(url);
-    } else {
-      setVisible(true);
-    }
-  };
+  const caption = message.content?.caption || message.content?.text;
 
   return (
-    <>
+    <View>
       <Pressable
         disabled={failed}
         accessibilityRole="button"
         accessibilityLabel="Open image"
-        onPress={handlePress}
+        onPress={() => onOpenImage?.(url)}
       >
-        <View style={[styles.imageFrame, { width: mediaWidth, height: mediaWidth }]}>
+        <View style={[styles.imageFrame, { width: frameWidth, height: frameHeight }]}>
           <Image
             source={{ uri: url }}
             style={styles.image}
             contentFit="cover"
             cachePolicy="memory-disk"
             recyclingKey={message.id}
+            priority="high"
             transition={0}
-            onLoadStart={() => {
-              setFailed(false);
-              setLoading(true);
-            }}
-            onLoad={() => {
-              setFailed(false);
-              setLoading(false);
-            }}
-            onError={() => {
-              setFailed(true);
-              setLoading(false);
-            }}
+            onError={() => setFailed(true)}
           />
-          {loading && (
-            <View style={styles.imageLoading}>
-              <ActivityIndicator size={22} color={Colors.primary} />
-            </View>
-          )}
-          {failed && !loading && (
+          {failed && (
             <View style={styles.imageLoading}>
               <MaterialCommunityIcons name="image-off-outline" size={28} color={Colors.textSecondary} />
               <Text style={styles.infoDetail}>Image unavailable</Text>
@@ -169,35 +155,18 @@ function ImageRenderer({ message, onOpenImage }: RendererProps) {
           )}
         </View>
       </Pressable>
-      {!!(message.content?.caption || message.content?.text) && (
+      {Boolean(caption) && (
         <Text selectable style={styles.messageText}>
-          {message.content.caption || message.content.text}
+          {caption}
         </Text>
       )}
-      {!onOpenImage && (
-        <Modal visible={visible} transparent animationType="fade" onRequestClose={() => setVisible(false)}>
-          <View style={styles.viewer}>
-            <Image
-              source={{ uri: url }}
-              style={styles.viewerImage}
-              contentFit="contain"
-              cachePolicy="memory-disk"
-              recyclingKey={`viewer:${message.id}`}
-            />
-            <IconButton
-              icon="close"
-              iconColor="#fff"
-              size={28}
-              accessibilityLabel="Close image"
-              onPress={() => setVisible(false)}
-              style={styles.viewerClose}
-            />
-          </View>
-        </Modal>
-      )}
-    </>
+    </View>
   );
-}
+}, (prev, next) => (
+  prev.message.id === next.message.id &&
+  prev.message.asset?.url === next.message.asset?.url &&
+  prev.onOpenImage === next.onOpenImage
+));
 
 function MountedVideoPlayer({ url, mediaWidth }: { url: string; mediaWidth: number }) {
   const player = useVideoPlayer({ uri: url });
@@ -212,11 +181,10 @@ function MountedVideoPlayer({ url, mediaWidth }: { url: string; mediaWidth: numb
   );
 }
 
-function VideoRenderer({ message }: RendererProps) {
+const VideoRenderer = memo(function VideoRenderer({ message }: RendererProps) {
   const [opened, setOpened] = useState(false);
   const url = message.asset?.url;
-  const { width: screenWidth } = useWindowDimensions();
-  const mediaWidth = Math.min(250, screenWidth * 0.82 - 32);
+  const mediaWidth = 250;
 
   useEffect(() => {
     setOpened(false);
@@ -242,7 +210,7 @@ function VideoRenderer({ message }: RendererProps) {
       )}
     </>
   );
-}
+});
 
 function DocumentRenderer({ message }: RendererProps) {
   if (!message.asset?.url) return <AssetUnavailable message={message} />;
@@ -542,6 +510,8 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
   imageFrame: {
+    width: 220,
+    height: 220,
     borderRadius: 8,
     marginBottom: 6,
     backgroundColor: Colors.surfaceOffset,

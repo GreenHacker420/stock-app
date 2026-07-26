@@ -5,9 +5,10 @@ import {
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   fetchWhatsAppCapability,
+  type WhatsAppCapability,
 } from "../../api/whatsapp.api";
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
@@ -17,6 +18,7 @@ import { waColors } from "./whatsapp-ui";
 import { WhatsAppPendingOperationSync } from "./components/WhatsAppPendingOperationSync";
 import { WhatsAppScopeProvider } from "./whatsapp-scope";
 import { whatsappDb } from "./services/whatsapp-db";
+import { markWhatsAppOpenMeasurement } from "./whatsapp-open-performance";
 
 type RouteProps = {
   route?: {
@@ -24,6 +26,9 @@ type RouteProps = {
       shopId?: string;
       integrationId?: string;
       conversationId?: string;
+      conversation?: {
+        id: string;
+      };
     };
   };
 };
@@ -39,6 +44,7 @@ export function whatsappCapabilityScreen<TProps extends RouteProps>(
   const requireConnected = options.requireConnected ?? true;
   return function WhatsAppCapabilityScreen(props: TProps) {
     const navigation = useNavigation<any>();
+    const queryClient = useQueryClient();
     const token = useAuthStore((state) => state.token);
     const userId = useAuthStore((state) => state.user?.id);
     const role = useAuthStore((state) => state.user?.role);
@@ -47,6 +53,8 @@ export function whatsappCapabilityScreen<TProps extends RouteProps>(
     const requestedShopId = props.route?.params?.shopId || activeShopId;
     const requestedIntegrationId = props.route?.params?.integrationId;
     const requestedConversationId = props.route?.params?.conversationId;
+    const internalConversation =
+      props.route?.params?.conversation?.id === requestedConversationId;
 
     const capability = useQuery({
       queryKey: queryKeys.whatsapp.capability(
@@ -59,7 +67,23 @@ export function whatsappCapabilityScreen<TProps extends RouteProps>(
         integrationId: requestedIntegrationId,
         conversationId: requestedConversationId,
       }),
-      staleTime: 60_000,
+      placeholderData: (previousData) => {
+        if (previousData) return previousData;
+        const fast = whatsappDb.getFastCapability(requestedShopId);
+        if (fast) return fast;
+        if (!internalConversation || !requestedShopId) return undefined;
+        const candidates = queryClient.getQueriesData<WhatsAppCapability>({
+          queryKey: ["whatsapp", "capability", requestedShopId],
+        });
+        return candidates
+          .map(([, data]) => data)
+          .find((data) => (
+            data?.enabled
+            && Boolean(data.integrationId)
+            && (!requestedIntegrationId || data.integrationId === requestedIntegrationId)
+          ));
+      },
+      staleTime: 5 * 60 * 1000,
       retry: false,
     });
 
@@ -71,7 +95,23 @@ export function whatsappCapabilityScreen<TProps extends RouteProps>(
     const allowed = routeScopeValid && (!requireConnected || connectedScope);
 
     useEffect(() => {
+      if (!requestedConversationId || capability.isPending) return;
+      markWhatsAppOpenMeasurement(
+        requestedConversationId,
+        "capability-ready",
+        `placeholder=${capability.isPlaceholderData}`,
+      );
+    }, [
+      capability.isPending,
+      capability.isPlaceholderData,
+      requestedConversationId,
+    ]);
+
+    useEffect(() => {
       if (!allowed || !requestedShopId) return;
+      if (capability.data) {
+        whatsappDb.saveFastCapability(requestedShopId, capability.data);
+      }
       setWhatsAppRuntimeConfig(capability.data?.runtimeConfig);
       if (capability.data?.runtimeConfig.retention) {
         void (async () => {

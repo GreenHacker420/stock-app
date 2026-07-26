@@ -3,6 +3,7 @@ import type {
   WaMessage,
   WaOperationState,
   WaOutboundMessage,
+  WhatsAppCapability,
 } from "../../../api/whatsapp.api";
 import { sqliteClient } from "../../../database/sqlite-client";
 import { mmkvStorage } from "../../../auth/mmkv-storage";
@@ -291,6 +292,24 @@ export const whatsappDb = {
       }
     } catch (e) {}
     return [];
+  },
+
+  getFastCapability(shopId?: string | null): WhatsAppCapability | null {
+    if (!shopId) return null;
+    try {
+      const cached = mmkvStorage.getItem(`wa_fast_cap_${shopId}`) as string | null;
+      if (cached && typeof cached === "string") {
+        const parsed = JSON.parse(cached);
+        if (parsed && typeof parsed === "object") return parsed as WhatsAppCapability;
+      }
+    } catch {}
+    return null;
+  },
+
+  saveFastCapability(shopId: string, capability: WhatsAppCapability) {
+    try {
+      mmkvStorage.setItem(`wa_fast_cap_${shopId}`, JSON.stringify(capability));
+    } catch {}
   },
 
   getFastMessages(conversationId: string): WaMessage[] {

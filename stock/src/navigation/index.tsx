@@ -74,6 +74,7 @@ import { whatsappCapabilityScreen } from "../modules/whatsapp/WhatsAppFeatureGat
 
 import { shadow } from "../theme";
 import { triggerLightHaptic } from "../utils/haptics";
+import { startWhatsAppListMeasurement } from "../modules/whatsapp/whatsapp-open-performance";
 
 export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const { width } = useWindowDimensions();
@@ -90,6 +91,9 @@ export function CustomTabBar({ state, descriptors, navigation }: BottomTabBarPro
           const isFocused = state.index === index;
 
           const onPress = () => {
+            if (route.name === "WhatsApp" && !isFocused) {
+              startWhatsAppListMeasurement();
+            }
             const event = navigation.emit({
               type: 'tabPress',
               target: route.key,
@@ -232,6 +236,7 @@ const styles = StyleSheet.create({
 const floatingTabOptions = {
   headerShown: false,
   tabBarHideOnKeyboard: true,
+  lazy: false,
 };
 
 const WhatsAppChats = whatsappCapabilityScreen(ChatListScreen);
@@ -287,6 +292,7 @@ const StaffTabs = createBottomTabNavigator({
       screen: WhatsAppChats,
       options: {
         title: "WhatsApp",
+        lazy: false,
       },
     },
     Profile: {
@@ -324,6 +330,7 @@ const OwnerTabs = createBottomTabNavigator({
       screen: WhatsAppChats,
       options: {
         title: "WhatsApp",
+        lazy: false,
       },
     },
     Profile: {
@@ -343,6 +350,8 @@ const sharedStackScreens = {
   },
   ChatDetail: {
     screen: WhatsAppChatDetail,
+    getId: ({ params }: { params?: { conversationId?: string } }) =>
+      params?.conversationId,
     options: { title: "Conversation" },
     linking: { path: "shops/:shopId/whatsapp/:integrationId/conversations/:conversationId" },
   },

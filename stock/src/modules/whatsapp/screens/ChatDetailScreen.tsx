@@ -53,7 +53,6 @@ import {
 import { useAuthStore } from "../../../auth/auth-store";
 import { useCustomerDetailQuery } from "../../../hooks/useCustomers";
 import { KeyboardAwareFooter } from "../../../components/keyboard/KeyboardAwareFooter";
-import { KeyboardChatListScrollComponent } from "../../../components/keyboard/KeyboardChatListScrollComponent";
 import { AppBottomSheetModal } from "../../../components/overlays/AppBottomSheetModal";
 import type { RootStackParamList } from "../../../navigation";
 import { colors as Colors } from "../../../theme";
@@ -86,6 +85,7 @@ import {
   persistWhatsAppMedia,
   removePersistedWhatsAppMedia,
 } from "../services/whatsapp-media-files";
+import { markWhatsAppOpenMeasurement } from "../whatsapp-open-performance";
 
 function toMessageType(message: WaOutboundMessage): WaMessage["type"] {
   switch (message.kind) {
@@ -168,7 +168,7 @@ function SwipeReplyRow({
   const swipeGesture = useMemo(
     () => Gesture.Pan()
       .enabled(replyEnabled)
-      .activeOffsetX([-8, 8])
+      .activeOffsetX([-12, 12])
       .failOffsetY([-16, 16])
       .shouldCancelWhenOutside(false)
       .onBegin(() => {
@@ -203,23 +203,6 @@ function SwipeReplyRow({
     [crossedThreshold, replyEnabled, replyFromGesture, translateX],
   );
 
-  const longPressGesture = useMemo(
-    () => Gesture.LongPress()
-      .enabled(actionsEnabled)
-      .minDuration(240)
-      .maxDistance(28)
-      .onStart((event) => {
-        scheduleOnRN(triggerMediumHaptic);
-        scheduleOnRN(longPressFromGesture, event.absoluteX, event.absoluteY);
-      }),
-    [actionsEnabled, longPressFromGesture],
-  );
-
-  const messageGesture = useMemo(
-    () => Gesture.Race(swipeGesture, longPressGesture),
-    [longPressGesture, swipeGesture],
-  );
-
   const messageStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: translateX.value }],
   }));
@@ -245,7 +228,7 @@ function SwipeReplyRow({
         style={[styles.swipeReplyAction, styles.swipeReplyActionLeft, leftReplyActionStyle]}
       >
         <View style={styles.swipeReplyIcon}>
-            <MaterialCommunityIcons name="reply" size={20} color="#fff" />
+          <MaterialCommunityIcons name="reply" size={20} color="#fff" />
         </View>
       </Animated.View>
       <Animated.View
@@ -256,7 +239,7 @@ function SwipeReplyRow({
           <MaterialCommunityIcons name="reply" size={20} color="#fff" />
         </View>
       </Animated.View>
-      <GestureDetector gesture={messageGesture}>
+      <GestureDetector gesture={swipeGesture}>
         <Animated.View style={messageStyle}>
           {children}
         </Animated.View>
@@ -307,6 +290,29 @@ export const ChatDetailScreen = () => {
   const emojiInputRef = useRef<TextInput>(null);
   const mediaUploadControllerRef = useRef<AbortController | null>(null);
   const activeUploadRef = useRef<{ operationId: string; mediaUri: string } | null>(null);
+  const didMarkInitialRender = useRef(false);
+  const mountedOverlays = useRef({
+    actions: false,
+    media: false,
+    voice: false,
+    reactions: false,
+    customEmoji: false,
+    templates: false,
+    flows: false,
+    profile: false,
+  }).current;
+  if (showMessageActions) mountedOverlays.actions = true;
+  if (selectedMedia) mountedOverlays.media = true;
+  if (showVoiceRecorder) mountedOverlays.voice = true;
+  if (reactionMenuVisible) mountedOverlays.reactions = true;
+  if (customEmojiVisible) mountedOverlays.customEmoji = true;
+  if (showTemplateSheet) mountedOverlays.templates = true;
+  if (showFlowSheet) mountedOverlays.flows = true;
+  if (showProfileSheet) mountedOverlays.profile = true;
+  if (!didMarkInitialRender.current) {
+    didMarkInitialRender.current = true;
+    markWhatsAppOpenMeasurement(conversationId, "detail-render");
+  }
 
   const { data: customerRecord } = useCustomerDetailQuery(conversation?.customerId || "");
 
@@ -315,47 +321,49 @@ export const ChatDetailScreen = () => {
     const contactName = conversation?.contactName || formatWhatsAppPhone(recipientPhone);
     const initials = initialsFor(conversation?.contactName || recipientPhone);
 
-    navigation.setOptions({
-      headerShown: !showProfileSheet,
-      headerStyle: { backgroundColor: waColors.greenDark },
-      headerTintColor: "#fff",
-      headerShadowVisible: false,
-      headerTitle: () => (
-        <TouchableOpacity
-          onPress={() => setShowProfileSheet(true)}
-          style={{ flexDirection: "row", alignItems: "center" }}
-        >
-          <View style={{
-            width: 36,
-            height: 36,
-            borderRadius: 18,
-            backgroundColor: "rgba(255,255,255,0.2)",
-            justifyContent: "center",
-            alignItems: "center",
-            marginRight: 10,
-          }}>
-            <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>{initials}</Text>
-          </View>
-          <View style={{ maxWidth: 190 }}>
-            <Text style={{ fontWeight: "700", fontSize: 16, color: "#fff" }} numberOfLines={1}>
-              {contactName}
-            </Text>
-            <Text style={{ fontSize: 11, color: "rgba(255,255,255,0.78)" }} numberOfLines={1}>
-              {conversation?.customerId ? "Linked customer" : formatWhatsAppPhone(recipientPhone)}
-            </Text>
-          </View>
-        </TouchableOpacity>
-      ),
-      headerRight: () => conversation?.customerId ? (
-        <TouchableOpacity
-          onPress={() => navigation.navigate("CustomerDetail", { customerId: conversation.customerId! })}
-          style={{ marginRight: 12, padding: 4 }}
-        >
-          <MaterialCommunityIcons name="account-details" size={23} color="#fff" />
-        </TouchableOpacity>
-      ) : null,
-      headerTitleAlign: "left",
-    });
+    try {
+      navigation.setOptions({
+        headerShown: !showProfileSheet,
+        headerStyle: { backgroundColor: waColors.greenDark },
+        headerTintColor: "#fff",
+        headerShadowVisible: false,
+        headerTitle: () => (
+          <TouchableOpacity
+            onPress={() => setShowProfileSheet(true)}
+            style={{ flexDirection: "row", alignItems: "center" }}
+          >
+            <View style={{
+              width: 36,
+              height: 36,
+              borderRadius: 18,
+              backgroundColor: "rgba(255,255,255,0.2)",
+              justifyContent: "center",
+              alignItems: "center",
+              marginRight: 10,
+            }}>
+              <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>{initials}</Text>
+            </View>
+            <View style={{ maxWidth: 190 }}>
+              <Text style={{ fontWeight: "700", fontSize: 16, color: "#fff" }} numberOfLines={1}>
+                {contactName}
+              </Text>
+              <Text style={{ fontSize: 11, color: "rgba(255,255,255,0.78)" }} numberOfLines={1}>
+                {conversation?.customerId ? "Linked customer" : formatWhatsAppPhone(recipientPhone)}
+              </Text>
+            </View>
+          </TouchableOpacity>
+        ),
+        headerRight: () => conversation?.customerId ? (
+          <TouchableOpacity
+            onPress={() => navigation.navigate("CustomerDetail", { customerId: conversation.customerId! })}
+            style={{ marginRight: 12, padding: 4 }}
+          >
+            <MaterialCommunityIcons name="account-details" size={23} color="#fff" />
+          </TouchableOpacity>
+        ) : null,
+        headerTitleAlign: "left",
+      });
+    } catch {}
   }, [navigation, conversation, recipientPhone, showProfileSheet]);
 
   const messageQuery = useWhatsAppMessages(conversationId);
@@ -587,7 +595,23 @@ export const ChatDetailScreen = () => {
     }
   });
 
-  const displayedMessages = messages;
+  const [isFullyHydrated, setIsFullyHydrated] = useState(false);
+
+  useEffect(() => {
+    setIsFullyHydrated(false);
+    const timer = setTimeout(() => {
+      setIsFullyHydrated(true);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [conversationId]);
+
+  const displayedMessages = useMemo(() => {
+    if (!isFullyHydrated && messages.length > 20) {
+      return messages.slice(-20);
+    }
+    return messages;
+  }, [isFullyHydrated, messages]);
+
   const maintainVisibleContentConfig = useMemo(() => ({
     startRenderingFromBottom: true,
     autoscrollToBottomThreshold: 0.15,
@@ -646,27 +670,35 @@ export const ChatDetailScreen = () => {
 
   useEffect(() => {
     if (!isFocused || !lastInboundMessageId || !activeShopId || !integrationId || !token) return;
-    markScopedWaConversationRead(token, integrationId, conversationId)
-      .then(() => {
-        queryClient.setQueriesData<any>(
-          { queryKey: ["whatsapp", "conversations", activeShopId, integrationId] },
-          (current: any) => {
-            if (!current?.pages) return current;
-            return {
-              ...current,
-              pages: current.pages.map((page: any) => ({
-                ...page,
-                items: page.items.map((item: any) =>
-                  item.id === conversationId ? { ...item, unreadCount: 0 } : item,
-                ),
-              })),
-            };
-          },
-        );
-      })
-      .catch((err) => {
-        console.warn("Failed to mark conversation read", err);
-      });
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      if (cancelled) return;
+      void markScopedWaConversationRead(token, integrationId, conversationId)
+        .then(() => {
+          if (cancelled) return;
+          queryClient.setQueriesData<any>(
+            { queryKey: ["whatsapp", "conversations", activeShopId, integrationId] },
+            (current: any) => {
+              if (!current?.pages) return current;
+              return {
+                ...current,
+                pages: current.pages.map((page: any) => ({
+                  ...page,
+                  items: page.items.map((item: any) =>
+                    item.id === conversationId ? { ...item, unreadCount: 0 } : item,
+                  ),
+                })),
+              };
+            },
+          );
+        })
+        .catch(() => undefined);
+    }, 600);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [
     activeShopId,
     conversationId,
@@ -1252,7 +1284,8 @@ export const ChatDetailScreen = () => {
   };
 
   const getItemType = useCallback((item: WaMessage) => {
-    return item.type || "TEXT";
+    if (item.contentState === "DELETED") return "DELETED";
+    return `${item.direction || "IN"}_${item.type || "TEXT"}`;
   }, []);
 
   const renderMessage = useCallback(({ item, index }: { item: WaMessage; index: number }) => {
@@ -1301,6 +1334,12 @@ export const ChatDetailScreen = () => {
                   || item.providerStatus === "FAILED"
                 ) {
                   retryMutation.mutate(item);
+                }
+              }}
+              onLongPress={(e) => {
+                if (!isDeleted) {
+                  triggerMediumHaptic();
+                  handleLongPress(item, e.nativeEvent.pageX, e.nativeEvent.pageY);
                 }
               }}
               style={[
@@ -1381,7 +1420,6 @@ export const ChatDetailScreen = () => {
         getItemType={getItemType}
         drawDistance={1000}
         keyExtractor={(item) => item.clientMessageId || item.id}
-        renderScrollComponent={KeyboardChatListScrollComponent}
         scrollEnabled={!reactionMenuVisible}
         contentInsetAdjustmentBehavior="never"
         keyboardDismissMode="interactive"
@@ -1389,6 +1427,13 @@ export const ChatDetailScreen = () => {
         contentContainerStyle={styles.listContent}
         maintainVisibleContentPosition={maintainVisibleContentConfig}
         onScroll={handleTimelineScroll}
+        onLoad={({ elapsedTimeInMs }) => {
+          markWhatsAppOpenMeasurement(
+            conversationId,
+            "timeline-drawn",
+            `flashList=${Math.round(elapsedTimeInMs)}`,
+          );
+        }}
         scrollEventThrottle={32}
         onStartReached={() => {
           if (messageQuery.hasNextPage && !messageQuery.isFetchingNextPage) {
@@ -1526,7 +1571,7 @@ export const ChatDetailScreen = () => {
         </View>
       </KeyboardAwareFooter>
 
-      <MessageActionSheet
+      {mountedOverlays.actions && <MessageActionSheet
         visible={showMessageActions}
         canShareContact={Boolean(customerRecord?.name && customerRecord?.phone)}
         locating={locating}
@@ -1539,9 +1584,9 @@ export const ChatDetailScreen = () => {
         onShareContact={shareLinkedContact}
         onShareLocation={shareCurrentLocation}
         onSend={sendStructuredMessage}
-      />
+      />}
 
-      <MediaAttachmentSheet
+      {mountedOverlays.media && <MediaAttachmentSheet
         media={selectedMedia}
         caption={mediaCaption}
         progress={mediaUploadProgress}
@@ -1550,9 +1595,9 @@ export const ChatDetailScreen = () => {
         onCancelUpload={cancelMediaUpload}
         onClose={closeMediaPreview}
         onSend={uploadAndSendMedia}
-      />
+      />}
 
-      <VoiceRecorderSheet
+      {mountedOverlays.voice && <VoiceRecorderSheet
         visible={showVoiceRecorder}
         uploading={uploadingMedia}
         uploadProgress={mediaUploadProgress}
@@ -1561,9 +1606,9 @@ export const ChatDetailScreen = () => {
         }}
         onCancelUpload={cancelMediaUpload}
         onSend={uploadAndSendVoice}
-      />
+      />}
 
-      <MessageReactionOverlay
+      {mountedOverlays.reactions && <MessageReactionOverlay
         visible={reactionMenuVisible}
         message={selectedMessage}
         anchor={reactionAnchor}
@@ -1588,9 +1633,9 @@ export const ChatDetailScreen = () => {
             ? handleDeleteMessage
             : undefined
         }
-      />
+      />}
 
-      <AppBottomSheetModal
+      {mountedOverlays.customEmoji && <AppBottomSheetModal
         visible={customEmojiVisible}
         title="React with emoji"
         subtitle="Choose any emoji from your keyboard"
@@ -1615,9 +1660,9 @@ export const ChatDetailScreen = () => {
           />
           <Text style={styles.nativeEmojiSub}>Tap the emoji key on your keyboard, then choose a reaction.</Text>
         </View>
-      </AppBottomSheetModal>
+      </AppBottomSheetModal>}
 
-      <TemplateSendSheet
+      {mountedOverlays.templates && <TemplateSendSheet
         visible={showTemplateSheet}
         shopId={activeShopId}
         integrationId={integrationId}
@@ -1628,16 +1673,16 @@ export const ChatDetailScreen = () => {
           setShowTemplateSheet(false);
           setTemplateReplyToMessageId(undefined);
         }}
-      />
-      <FlowSendSheet
+      />}
+      {mountedOverlays.flows && <FlowSendSheet
         visible={showFlowSheet}
         shopId={activeShopId}
         integrationId={integrationId}
         conversationId={conversationId}
         to={recipientPhone}
         onClose={() => setShowFlowSheet(false)}
-      />
-      <ChatProfileSheet
+      />}
+      {mountedOverlays.profile && <ChatProfileSheet
         visible={showProfileSheet}
         onDismiss={() => setShowProfileSheet(false)}
         conversation={conversation || null}
@@ -1649,7 +1694,7 @@ export const ChatDetailScreen = () => {
           }
         }}
         onDeleteChat={() => navigation.goBack()}
-      />
+      />}
 
       {/* Absolute Fullscreen Image Viewer — Zero Native Modal Window Resize, Zero Scroll Jump */}
       {!!viewerImageUrl && (

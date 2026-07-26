@@ -1,4 +1,4 @@
-import { useContext, useEffect, useMemo, useState } from "react";
+import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -11,7 +11,7 @@ import {
 } from "react-native";
 import { FlashList } from "@shopify/flash-list";
 import { BottomTabBarHeightContext } from "@react-navigation/bottom-tabs";
-import { useNavigation } from "@react-navigation/native";
+import { useIsFocused, useNavigation } from "@react-navigation/native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format, isToday, isYesterday } from "date-fns";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
@@ -33,6 +33,10 @@ import { useWhatsAppConversations } from "../hooks/use-whatsapp-data";
 import { whatsappDb } from "../services/whatsapp-db";
 import { useWhatsAppScope } from "../whatsapp-scope";
 import { formatWhatsAppPhone, initials, waColors } from "../whatsapp-ui";
+import {
+  markWhatsAppListMeasurement,
+  startWhatsAppOpenMeasurement,
+} from "../whatsapp-open-performance";
 
 type Filter = "ALL" | "UNREAD" | "ASSIGNED";
 
@@ -108,12 +112,21 @@ export function ChatListScreen() {
   const { shopId, integrationId, phoneNumberId } = useWhatsAppScope();
   const queryClient = useQueryClient();
   const query = useWhatsAppConversations();
+  const isFocused = useIsFocused();
 
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<Filter>("ALL");
   const [showArchived, setShowArchived] = useState(false);
   const [selected, setSelected] = useState<WaConversation | null>(null);
   const [showTools, setShowTools] = useState(false);
+
+  useEffect(() => {
+    if (!isFocused || query.isPending) return;
+    markWhatsAppListMeasurement(
+      "list-ready",
+      `conversations=${query.conversations.length}`,
+    );
+  }, [isFocused, query.conversations.length, query.isPending]);
   const messageSearch = useQuery({
     queryKey: ["whatsapp", "local-search", shopId, integrationId, search.trim()],
     enabled: search.trim().length >= 2,
@@ -258,6 +271,7 @@ export function ChatListScreen() {
   }, [currentUser?.id, filter, matchedConversationIds, query.conversations, search, showArchived]);
 
   const openConversation = (conversation: WaConversation) => {
+    startWhatsAppOpenMeasurement(conversation.id);
     triggerLightHaptic();
     const msgKey = queryKeys.whatsapp.messages(shopId, integrationId, conversation.id);
     if (!queryClient.getQueryState(msgKey)?.data) {
@@ -282,7 +296,18 @@ export function ChatListScreen() {
     });
   };
 
-  const renderConversation = ({ item }: { item: WaConversation }) => {
+  const preloadConversation = useCallback((conversation: WaConversation) => {
+    navigation.preload?.("ChatDetail", {
+      shopId,
+      integrationId,
+      phoneNumberId,
+      conversationId: conversation.id,
+      phone: conversation.phone,
+      conversation,
+    });
+  }, [integrationId, navigation, phoneNumberId, shopId]);
+
+  const renderConversation = useCallback(({ item }: { item: WaConversation }) => {
     const lastMessage = item.messages?.[0];
     const displayName = item.contactName || item.customer?.name || formatWhatsAppPhone(item.phone);
     const active = item.unreadCount > 0;
@@ -301,6 +326,7 @@ export function ChatListScreen() {
               });
             }
           }
+          preloadConversation(item);
         }}
         onPress={() => openConversation(item)}
         onLongPress={() => {
@@ -346,7 +372,7 @@ export function ChatListScreen() {
         </View>
       </Pressable>
     );
-  };
+  }, [integrationId, openConversation, preloadConversation, queryClient, shopId]);
 
   return (
     <View style={styles.screen}>
@@ -444,6 +470,14 @@ export function ChatListScreen() {
           keyExtractor={(item) => item.id}
           keyboardShouldPersistTaps="handled"
           contentInsetAdjustmentBehavior="automatic"
+          onLoad={({ elapsedTimeInMs }) => {
+            if (isFocused) {
+              markWhatsAppListMeasurement(
+                "list-drawn",
+                `flashList=${Math.round(elapsedTimeInMs)}`,
+              );
+            }
+          }}
           refreshControl={
             <RefreshControl
               refreshing={query.isRefetching && !query.isFetchingNextPage}

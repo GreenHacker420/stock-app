@@ -55,30 +55,32 @@ export function useWhatsAppConversations() {
     ),
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam }) => {
-      const network = await NetInfo.fetch();
-      if (network.isConnected === false) {
-        if (pageParam) return EMPTY_PAGE<WaConversation>([]);
-        return EMPTY_PAGE(await whatsappDb.getConversations(shopId, integrationId));
-      }
       if (!token) throw new Error("Your session expired. Sign in again.");
-      const page = await fetchScopedWaConversations(token, integrationId, {
-        cursor: pageParam,
-        limit: 50,
-      });
       try {
-        await whatsappDb.upsertConversations(
-          { shopId, integrationId, phoneNumberId },
-          page.items,
-        );
-        if (!pageParam) {
-          await whatsappDb.setSyncState(shopId, integrationId, {
-            conversationSnapshotCursor: page.snapshotCursor,
-          });
+        const page = await fetchScopedWaConversations(token, integrationId, {
+          cursor: pageParam,
+          limit: 50,
+        });
+        try {
+          await whatsappDb.upsertConversations(
+            { shopId, integrationId, phoneNumberId },
+            page.items,
+          );
+          if (!pageParam) {
+            await whatsappDb.setSyncState(shopId, integrationId, {
+              conversationSnapshotCursor: page.snapshotCursor,
+            });
+          }
+        } catch {
+          // Local cache write is non-blocking fallback
         }
-      } catch {
-        // Network data remains usable when the optional local cache is unavailable.
+        return page;
+      } catch (error) {
+        if (pageParam) return EMPTY_PAGE<WaConversation>([]);
+        const local = await whatsappDb.getConversations(shopId, integrationId);
+        if (local.length > 0) return EMPTY_PAGE(local);
+        throw error;
       }
-      return page;
     },
     getNextPageParam: (page) => page.nextCursor || undefined,
     staleTime: 20_000,
@@ -135,21 +137,23 @@ export function useWhatsAppMessages(conversationId: string) {
     queryKey: queryKeys.whatsapp.messages(shopId, integrationId, conversationId),
     initialPageParam: undefined as string | undefined,
     queryFn: async ({ pageParam }) => {
-      const network = await NetInfo.fetch();
-      if (network.isConnected === false) {
-        if (pageParam) return EMPTY_PAGE<WaMessage>([]);
-        return EMPTY_PAGE(await whatsappDb.getMessages(conversationId));
-      }
       if (!token) throw new Error("Your session expired. Sign in again.");
-      const page = await fetchScopedWaMessages(token, integrationId, conversationId, {
-        cursor: pageParam,
-        limit: 75,
-      });
-      await whatsappDb.upsertMessages(
-        { shopId, integrationId, conversationId },
-        page.items,
-      ).catch(() => undefined);
-      return page;
+      try {
+        const page = await fetchScopedWaMessages(token, integrationId, conversationId, {
+          cursor: pageParam,
+          limit: 75,
+        });
+        void whatsappDb.upsertMessages(
+          { shopId, integrationId, conversationId },
+          page.items,
+        ).catch(() => undefined);
+        return page;
+      } catch (error) {
+        if (pageParam) return EMPTY_PAGE<WaMessage>([]);
+        const local = await whatsappDb.getMessages(conversationId);
+        if (local.length > 0) return EMPTY_PAGE(local);
+        throw error;
+      }
     },
     getNextPageParam: (page) => page.nextCursor || undefined,
     staleTime: 10_000,
@@ -175,15 +179,22 @@ export function useWhatsAppMessages(conversationId: string) {
   useEffect(() => {
     if (!messages || messages.length === 0) return;
     const imageUrls = messages
-      .filter((m) => m.type === "IMAGE" && Boolean(m.asset?.url))
-      .map((m) => m.asset!.url);
-    if (imageUrls.length > 0) {
-      for (const url of imageUrls) {
-        if (url) {
-          void ExpoImage.prefetch(url, "memory-disk").catch(() => undefined);
-        }
-      }
-    }
+      .slice(-12)
+      .filter((message) => message.type === "IMAGE")
+      .map((message) => message.asset?.url)
+      .filter((url): url is string => Boolean(url));
+    if (imageUrls.length === 0) return;
+
+    let cancelled = false;
+    const idleTask = requestIdleCallback(() => {
+      if (cancelled) return;
+      void ExpoImage.prefetch(imageUrls, "memory-disk").catch(() => undefined);
+    }, { timeout: 1_500 });
+
+    return () => {
+      cancelled = true;
+      cancelIdleCallback(idleTask);
+    };
   }, [messages]);
 
   return {

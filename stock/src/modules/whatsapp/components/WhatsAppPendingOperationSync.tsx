@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import NetInfo from "@react-native-community/netinfo";
+import { useIsFocused } from "@react-navigation/native";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   sendScopedWaMessage,
@@ -20,8 +21,10 @@ export function WhatsAppPendingOperationSync() {
   const { shopId, integrationId } = useWhatsAppScope();
   const queryClient = useQueryClient();
   const flushing = useRef(false);
+  const isFocused = useIsFocused();
 
   useEffect(() => {
+    if (!isFocused) return;
     const flush = async () => {
       if (!token || flushing.current) return;
       const network = await NetInfo.fetch();
@@ -152,7 +155,7 @@ export function WhatsAppPendingOperationSync() {
       clearInterval(interval);
       unsubscribe();
     };
-  }, [integrationId, queryClient, shopId, token]);
+  }, [integrationId, isFocused, queryClient, shopId, token]);
 
   return null;
 }
