@@ -6,7 +6,7 @@ export interface ContactsQueryParams {
   syncFilter: "ALL" | "UNSYNCED" | "SYNCED";
   linkFilter: "ALL" | "LINKED" | "UNLINKED";
   tagFilter: "ALL" | "REGULAR" | "BUSINESS" | "NONE";
-  customerPhonesStr: string;
+  customerPhoneSuffixes?: string[];
 }
 
 const LIMIT = 100;
@@ -23,7 +23,7 @@ export function useContactsLocalQuery(params: ContactsQueryParams) {
         syncFilter: params.syncFilter,
         linkFilter: params.linkFilter,
         tagFilter: params.tagFilter,
-        customerPhonesStr: params.customerPhonesStr,
+        customerPhoneSuffixes: params.customerPhoneSuffixes,
         limit: LIMIT,
         offset: pageParam * LIMIT,
       });
@@ -36,19 +36,17 @@ export function useContactsLocalQuery(params: ContactsQueryParams) {
   });
 }
 
-/**
- * Hook for local database filtered contact IDs (for Select All bulk action).
- */
-export function useContactsFilteredIdsQuery(params: Omit<ContactsQueryParams, "">) {
+export function useContactsFilteredIdsQuery(params: ContactsQueryParams, enabled = true) {
   return useQuery({
     queryKey: ["contacts-filtered-ids", params],
+    enabled,
     queryFn: async () => {
       return contactsDb.getFilteredContactIds({
         searchQuery: params.searchQuery,
         syncFilter: params.syncFilter,
         linkFilter: params.linkFilter,
         tagFilter: params.tagFilter,
-        customerPhonesStr: params.customerPhonesStr,
+        customerPhoneSuffixes: params.customerPhoneSuffixes,
       });
     },
   });
@@ -57,11 +55,11 @@ export function useContactsFilteredIdsQuery(params: Omit<ContactsQueryParams, ""
 /**
  * Hook for contact statistics.
  */
-export function useContactsStatsQuery(customerPhonesStr: string) {
+export function useContactsStatsQuery(customerPhoneSuffixes?: string[]) {
   return useQuery({
-    queryKey: ["contacts-stats", customerPhonesStr],
+    queryKey: ["contacts-stats", customerPhoneSuffixes],
     queryFn: async () => {
-      return contactsDb.getContactStats(customerPhonesStr);
+      return contactsDb.getContactStats(customerPhoneSuffixes);
     },
   });
 }

@@ -287,7 +287,7 @@ export const whatsappDb = {
       `SELECT payload_json
        FROM wa_conversations
        WHERE shop_id = ? AND integration_id = ?
-      ORDER BY updated_at DESC, id DESC
+       ORDER BY is_pinned DESC, updated_at DESC, id DESC
        LIMIT ?`,
       [shopId, integrationId, LOCAL_PAGE_LIMIT],
     ));
@@ -605,7 +605,7 @@ export const whatsappDb = {
   async getReadyOperations(shopId: string, integrationId: string) {
     await initializeDatabase();
     const now = Date.now();
-    const staleUploadCutoff = now - 60_000;
+    const staleActiveCutoff = now - 60_000;
     const rows = await sqliteClient.read((database) => database.all<PendingOperationRow>(
       `SELECT *
        FROM wa_pending_operations
@@ -613,10 +613,13 @@ export const whatsappDb = {
          AND integration_id = ?
          AND operation_state IN ('WAITING_FOR_NETWORK', 'UPLOADING', 'RETRY_SCHEDULED', 'SUBMITTING')
          AND next_attempt_at <= ?
-         AND (operation_state != 'UPLOADING' OR updated_at <= ?)
+         AND (
+           operation_state NOT IN ('UPLOADING', 'SUBMITTING')
+           OR updated_at <= ?
+         )
        ORDER BY created_at ASC
        LIMIT 25`,
-      [shopId, integrationId, now, staleUploadCutoff],
+      [shopId, integrationId, now, staleActiveCutoff],
     ));
     return rows
       .map(mapPendingOperation)
@@ -627,19 +630,21 @@ export const whatsappDb = {
     id: string,
     update: Pick<PendingWhatsAppOperation, "operationState" | "attempt" | "nextAttemptAt"> & {
       lastError?: string;
+      payload?: PendingWhatsAppOperation["payload"];
     },
   ) {
     await initializeDatabase();
     await sqliteClient.write((database) => database.run(
       `UPDATE wa_pending_operations
        SET operation_state = ?, attempt = ?, next_attempt_at = ?,
-           last_error = ?, updated_at = ?
+           last_error = ?, payload_json = COALESCE(?, payload_json), updated_at = ?
        WHERE id = ?`,
       [
         update.operationState,
         update.attempt,
         update.nextAttemptAt,
         update.lastError || null,
+        update.payload === undefined ? null : JSON.stringify(update.payload),
         Date.now(),
         id,
       ],

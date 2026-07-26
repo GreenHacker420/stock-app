@@ -40,6 +40,7 @@ export function WhatsAppPendingOperationSync() {
             let outboundMessage = operation.payload.message;
             if (
               operation.operationType === "UPLOAD_MEDIA"
+              && !outboundMessage
               && operation.payload.media
               && operation.payload.mediaMessage
             ) {
@@ -63,6 +64,17 @@ export function WhatsAppPendingOperationSync() {
                       assetId: uploaded.id,
                       caption: media.caption,
                     };
+              await whatsappDb.updateOperation(operation.id, {
+                operationState: "SUBMITTING",
+                attempt,
+                nextAttemptAt: Date.now() + 60_000,
+                payload: {
+                  message: outboundMessage as WaOutboundMessage,
+                  replyToMessageId: operation.payload.replyToMessageId,
+                  media: operation.payload.media,
+                  mediaMessage: operation.payload.mediaMessage,
+                },
+              });
             }
             if (!outboundMessage) {
               throw new Error("Pending WhatsApp operation has no outbound message");
@@ -80,11 +92,22 @@ export function WhatsAppPendingOperationSync() {
                 replyToMessageId: operation.payload.replyToMessageId,
               },
             );
+            await whatsappDb.updateOperation(operation.id, {
+              operationState: "COMPLETED",
+              attempt,
+              nextAttemptAt: Date.now(),
+            }).catch((error) => {
+              console.warn("Could not complete local WhatsApp operation", error);
+            });
+            await whatsappDb.deleteOperation(operation.id).catch((error) => {
+              console.warn("Could not remove completed WhatsApp operation", error);
+            });
             await whatsappDb.upsertMessages(
               { shopId, integrationId, conversationId: operation.conversationId },
               [response.message],
-            );
-            await whatsappDb.deleteOperation(operation.id);
+            ).catch((error) => {
+              console.warn("Could not persist accepted WhatsApp message", error);
+            });
             if (operation.payload.media?.uri) {
               removePersistedWhatsAppMedia(operation.payload.media.uri);
             }

@@ -29,6 +29,8 @@ function initializeDatabase() {
           );
           CREATE INDEX IF NOT EXISTS idx_contacts_phone ON local_contacts (phone);
           CREATE INDEX IF NOT EXISTS idx_contacts_sync ON local_contacts (syncState);
+          CREATE INDEX IF NOT EXISTS idx_contacts_tag ON local_contacts (tag);
+          CREATE INDEX IF NOT EXISTS idx_contacts_customer ON local_contacts (customerId);
         `),
     );
   }
@@ -74,10 +76,10 @@ export const contactsDb = {
     syncFilter: "ALL" | "UNSYNCED" | "SYNCED";
     linkFilter: "ALL" | "LINKED" | "UNLINKED";
     tagFilter: "ALL" | "REGULAR" | "BUSINESS" | "NONE";
-    customerPhonesStr: string; // Comma separated string like ",phone1,phone2,"
+    customerPhoneSuffixes?: string[];
   }): Promise<LocalContact[]> => {
     await initializeDatabase();
-    const { searchQuery = "", limit, offset, syncFilter, linkFilter, tagFilter, customerPhonesStr } = params;
+    const { searchQuery = "", limit, offset, syncFilter, linkFilter, tagFilter, customerPhoneSuffixes = [] } = params;
 
     let query = "SELECT * FROM local_contacts WHERE 1=1";
     const sqlParams: any[] = [];
@@ -100,11 +102,21 @@ export const contactsDb = {
     }
 
     if (linkFilter === "LINKED") {
-      query += " AND (customerId IS NOT NULL OR (length(?) > 0 AND instr(?, ',' || substr(phone, -10) || ',') > 0))";
-      sqlParams.push(customerPhonesStr, customerPhonesStr);
+      if (customerPhoneSuffixes.length > 0) {
+        const placeholders = customerPhoneSuffixes.map(() => "?").join(",");
+        query += ` AND (customerId IS NOT NULL OR substr(phone, -10) IN (${placeholders}))`;
+        sqlParams.push(...customerPhoneSuffixes);
+      } else {
+        query += " AND customerId IS NOT NULL";
+      }
     } else if (linkFilter === "UNLINKED") {
-      query += " AND customerId IS NULL AND (length(?) = 0 OR instr(?, ',' || substr(phone, -10) || ',') = 0)";
-      sqlParams.push(customerPhonesStr, customerPhonesStr);
+      if (customerPhoneSuffixes.length > 0) {
+        const placeholders = customerPhoneSuffixes.map(() => "?").join(",");
+        query += ` AND customerId IS NULL AND substr(phone, -10) NOT IN (${placeholders})`;
+        sqlParams.push(...customerPhoneSuffixes);
+      } else {
+        query += " AND customerId IS NULL";
+      }
     }
 
     query += " ORDER BY name ASC LIMIT ? OFFSET ?";
@@ -122,10 +134,10 @@ export const contactsDb = {
     syncFilter: "ALL" | "UNSYNCED" | "SYNCED";
     linkFilter: "ALL" | "LINKED" | "UNLINKED";
     tagFilter: "ALL" | "REGULAR" | "BUSINESS" | "NONE";
-    customerPhonesStr: string;
+    customerPhoneSuffixes?: string[];
   }): Promise<string[]> => {
     await initializeDatabase();
-    const { searchQuery = "", syncFilter, linkFilter, tagFilter, customerPhonesStr } = params;
+    const { searchQuery = "", syncFilter, linkFilter, tagFilter, customerPhoneSuffixes = [] } = params;
 
     let query = "SELECT id FROM local_contacts WHERE 1=1";
     const sqlParams: any[] = [];
@@ -148,11 +160,21 @@ export const contactsDb = {
     }
 
     if (linkFilter === "LINKED") {
-      query += " AND (customerId IS NOT NULL OR (length(?) > 0 AND instr(?, ',' || substr(phone, -10) || ',') > 0))";
-      sqlParams.push(customerPhonesStr, customerPhonesStr);
+      if (customerPhoneSuffixes.length > 0) {
+        const placeholders = customerPhoneSuffixes.map(() => "?").join(",");
+        query += ` AND (customerId IS NOT NULL OR substr(phone, -10) IN (${placeholders}))`;
+        sqlParams.push(...customerPhoneSuffixes);
+      } else {
+        query += " AND customerId IS NOT NULL";
+      }
     } else if (linkFilter === "UNLINKED") {
-      query += " AND customerId IS NULL AND (length(?) = 0 OR instr(?, ',' || substr(phone, -10) || ',') = 0)";
-      sqlParams.push(customerPhonesStr, customerPhonesStr);
+      if (customerPhoneSuffixes.length > 0) {
+        const placeholders = customerPhoneSuffixes.map(() => "?").join(",");
+        query += ` AND customerId IS NULL AND substr(phone, -10) NOT IN (${placeholders})`;
+        sqlParams.push(...customerPhoneSuffixes);
+      } else {
+        query += " AND customerId IS NULL";
+      }
     }
 
     query += " ORDER BY name ASC";
@@ -170,10 +192,10 @@ export const contactsDb = {
     syncFilter: "ALL" | "UNSYNCED" | "SYNCED";
     linkFilter: "ALL" | "LINKED" | "UNLINKED";
     tagFilter: "ALL" | "REGULAR" | "BUSINESS" | "NONE";
-    customerPhonesStr: string;
+    customerPhoneSuffixes?: string[];
   }): Promise<number> => {
     await initializeDatabase();
-    const { searchQuery = "", syncFilter, linkFilter, tagFilter, customerPhonesStr } = params;
+    const { searchQuery = "", syncFilter, linkFilter, tagFilter, customerPhoneSuffixes = [] } = params;
 
     let query = "SELECT COUNT(*) as count FROM local_contacts WHERE 1=1";
     const sqlParams: any[] = [];
@@ -196,11 +218,21 @@ export const contactsDb = {
     }
 
     if (linkFilter === "LINKED") {
-      query += " AND (customerId IS NOT NULL OR (length(?) > 0 AND instr(?, ',' || substr(phone, -10) || ',') > 0))";
-      sqlParams.push(customerPhonesStr, customerPhonesStr);
+      if (customerPhoneSuffixes.length > 0) {
+        const placeholders = customerPhoneSuffixes.map(() => "?").join(",");
+        query += ` AND (customerId IS NOT NULL OR substr(phone, -10) IN (${placeholders}))`;
+        sqlParams.push(...customerPhoneSuffixes);
+      } else {
+        query += " AND customerId IS NOT NULL";
+      }
     } else if (linkFilter === "UNLINKED") {
-      query += " AND customerId IS NULL AND (length(?) = 0 OR instr(?, ',' || substr(phone, -10) || ',') = 0)";
-      sqlParams.push(customerPhonesStr, customerPhonesStr);
+      if (customerPhoneSuffixes.length > 0) {
+        const placeholders = customerPhoneSuffixes.map(() => "?").join(",");
+        query += ` AND customerId IS NULL AND substr(phone, -10) NOT IN (${placeholders})`;
+        sqlParams.push(...customerPhoneSuffixes);
+      } else {
+        query += " AND customerId IS NULL";
+      }
     }
 
     const row = await sqliteClient.read((database) =>
@@ -210,33 +242,48 @@ export const contactsDb = {
   },
 
   /**
-   * Fetches statistics counts in one SQLite query.
+   * Fetches statistics counts in fast SQLite queries.
    */
-  getContactStats: async (customerPhonesStr = ""): Promise<{ total: number; unsynced: number; linked: number; unlinked: number; regular: number; business: number }> => {
+  getContactStats: async (customerPhoneSuffixes: string[] = []): Promise<{ total: number; unsynced: number; linked: number; unlinked: number; regular: number; business: number }> => {
     await initializeDatabase();
     const row = await sqliteClient.read((database) => database.first<{
       total: number;
       unsynced: number;
-      linked: number;
+      directLinked: number;
       regular: number;
       business: number;
     }>(
       `SELECT 
         COUNT(*) as total,
         SUM(CASE WHEN syncState != 'SYNCED' THEN 1 ELSE 0 END) as unsynced,
-        SUM(CASE WHEN customerId IS NOT NULL OR (length(?) > 0 AND instr(?, ',' || substr(phone, -10) || ',') > 0) THEN 1 ELSE 0 END) as linked,
+        SUM(CASE WHEN customerId IS NOT NULL THEN 1 ELSE 0 END) as directLinked,
         SUM(CASE WHEN tag = 'REGULAR' THEN 1 ELSE 0 END) as regular,
         SUM(CASE WHEN tag = 'BUSINESS' THEN 1 ELSE 0 END) as business
-       FROM local_contacts`,
-      [customerPhonesStr, customerPhonesStr]
+       FROM local_contacts`
     ));
 
     const total = row?.total || 0;
     const unsynced = row?.unsynced || 0;
-    const linked = row?.linked || 0;
-    const unlinked = total - linked;
+    const directLinked = row?.directLinked || 0;
     const regular = row?.regular || 0;
     const business = row?.business || 0;
+
+    let matchedPhoneCount = 0;
+    if (customerPhoneSuffixes.length > 0) {
+      const uniqueSuffixes = Array.from(new Set(customerPhoneSuffixes));
+      for (let i = 0; i < uniqueSuffixes.length; i += 500) {
+        const chunk = uniqueSuffixes.slice(i, i + 500);
+        const placeholders = chunk.map(() => "?").join(",");
+        const matchRow = await sqliteClient.read((database) => database.first<{ count: number }>(
+          `SELECT COUNT(*) as count FROM local_contacts WHERE customerId IS NULL AND substr(phone, -10) IN (${placeholders})`,
+          chunk
+        ));
+        matchedPhoneCount += matchRow?.count || 0;
+      }
+    }
+
+    const linked = directLinked + matchedPhoneCount;
+    const unlinked = total - linked;
 
     return { total, unsynced, linked, unlinked, regular, business };
   },

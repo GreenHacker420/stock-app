@@ -9,6 +9,7 @@
     "ios": "expo run:ios",
     "typecheck": "tsc --noEmit",
     "test:sales": "tsx --test src/features/sales/create/core/*.test.ts",
+    "test:whatsapp": "tsx --test src/modules/whatsapp/whatsapp-query-cache.test.ts",
     "doctor": "expo-doctor",
     "build:android:preview": "npx eas-cli build --platform android --profile preview",
     "build:android:preview:local": "npx eas-cli build --platform android --profile preview --local",

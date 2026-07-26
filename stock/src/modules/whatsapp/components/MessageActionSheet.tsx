@@ -2,11 +2,13 @@ import { useEffect, useRef, useState } from "react";
 import {
   Pressable,
   StyleSheet,
+  TouchableOpacity,
   View,
 } from "react-native";
 import { Button, IconButton, Text, TextInput } from "react-native-paper";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { colors as Colors } from "../../../theme";
+import { waColors } from "../whatsapp-ui";
 import { AppBottomSheetModal } from "../../../components/overlays/AppBottomSheetModal";
 import { triggerSelectionHaptic } from "../../../utils/haptics";
 import type { WaOutboundMessage } from "../../../api/whatsapp.api";
@@ -325,22 +327,37 @@ export function MessageActionSheet({
                 <>
                   <TextInput
                     mode="outlined"
-                    label="Open button"
+                    label="Open button label"
                     value={listButton}
                     onChangeText={setListButton}
                     maxLength={20}
+                    outlineColor="#cbd5e1"
+                    activeOutlineColor={waColors.greenDark}
+                    style={styles.inputField}
                   />
 
+                  <View style={styles.sectionHeaderRow}>
+                    <Text style={styles.sectionTitle}>Selectable Rows</Text>
+                    <View style={styles.countBadge}>
+                      <Text style={styles.countBadgeText}>{`${rows.length} / 10`}</Text>
+                    </View>
+                  </View>
+
                   {rows.map((row, index) => (
-                    <View key={index} style={styles.rowEditor}>
-                      <View style={styles.rowHeader}>
-                        <Text style={styles.rowLabel}>Row {index + 1}</Text>
+                    <View key={index} style={styles.rowCard}>
+                      <View style={styles.rowCardHeader}>
+                        <View style={styles.rowBadge}>
+                          <MaterialCommunityIcons name="format-list-bulleted" size={14} color={waColors.greenDark} />
+                          <Text style={styles.rowBadgeText}>Row {index + 1}</Text>
+                        </View>
                         {rows.length > 1 && (
-                          <IconButton
-                            icon="trash-can-outline"
-                            size={18}
+                          <TouchableOpacity
                             onPress={() => setRows((current) => current.filter((_, rowIndex) => rowIndex !== index))}
-                          />
+                            style={styles.deleteBtn}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                          >
+                            <MaterialCommunityIcons name="trash-can-outline" size={16} color="#ef4444" />
+                          </TouchableOpacity>
                         )}
                       </View>
                       <TextInput
@@ -349,6 +366,9 @@ export function MessageActionSheet({
                         value={row.title}
                         onChangeText={(value) => updateRow(index, "title", value)}
                         maxLength={24}
+                        outlineColor="#e2e8f0"
+                        activeOutlineColor={waColors.greenDark}
+                        style={styles.inputField}
                       />
                       <TextInput
                         mode="outlined"
@@ -356,18 +376,21 @@ export function MessageActionSheet({
                         value={row.description}
                         onChangeText={(value) => updateRow(index, "description", value)}
                         maxLength={72}
+                        outlineColor="#e2e8f0"
+                        activeOutlineColor={waColors.greenDark}
+                        style={styles.inputField}
                       />
                     </View>
                   ))}
 
                   {rows.length < 10 && (
-                    <Button
-                      mode="outlined"
-                      icon="plus"
+                    <TouchableOpacity
+                      style={styles.addRowBtn}
                       onPress={() => setRows((current) => [...current, { title: "", description: "" }])}
                     >
-                      Add row
-                    </Button>
+                      <MaterialCommunityIcons name="plus" size={18} color={waColors.greenDark} />
+                      <Text style={styles.addRowBtnText}>Add row</Text>
+                    </TouchableOpacity>
                   )}
 
                   <Button
@@ -376,6 +399,10 @@ export function MessageActionSheet({
                     disabled={!canSendList || sending}
                     loading={sending}
                     onPress={sendList}
+                    buttonColor={waColors.greenDark}
+                    textColor="#ffffff"
+                    style={styles.sendBtn}
+                    contentStyle={{ height: 48 }}
                   >
                     Send list
                   </Button>
@@ -486,24 +513,90 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   formContent: {
-    gap: 12,
-    paddingBottom: 8,
+    gap: 14,
+    paddingBottom: 12,
   },
-  rowEditor: {
-    gap: 8,
-    padding: 12,
+  inputField: {
+    backgroundColor: "#ffffff",
+  },
+  sectionHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 4,
+  },
+  sectionTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: Colors.textPrimary,
+  },
+  countBadge: {
+    backgroundColor: "#e2e8f0",
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  countBadgeText: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: Colors.textSecondary,
+  },
+  rowCard: {
+    gap: 10,
+    padding: 14,
     borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: 8,
+    borderColor: "#e2e8f0",
+    borderRadius: 14,
+    backgroundColor: "#f8fafc",
   },
-  rowHeader: {
-    height: 28,
+  rowCardHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-  rowLabel: {
-    color: Colors.textSecondary,
-    fontWeight: "600",
+  rowBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#ecfdf5",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#a7f3d0",
+  },
+  rowBadgeText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: waColors.greenDark,
+  },
+  deleteBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "#fef2f2",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  addRowBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    height: 44,
+    borderWidth: 1.5,
+    borderStyle: "dashed",
+    borderColor: waColors.greenDark,
+    borderRadius: 12,
+    backgroundColor: "#f0fdf4",
+  },
+  addRowBtnText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: waColors.greenDark,
+  },
+  sendBtn: {
+    borderRadius: 12,
+    marginTop: 6,
   },
 });

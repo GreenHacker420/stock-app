@@ -231,7 +231,7 @@ export function ChatListScreen() {
 
   const conversations = useMemo(() => {
     const needle = search.trim().toLocaleLowerCase();
-    return query.conversations.filter((conversation) => {
+    const filtered = query.conversations.filter((conversation) => {
       if (conversation.isArchived !== showArchived) return false;
       if (filter === "UNREAD" && conversation.unreadCount === 0) return false;
       if (filter === "ASSIGNED" && conversation.assignedToId !== currentUser?.id) return false;
@@ -243,6 +243,17 @@ export function ChatListScreen() {
         conversation.messages?.[0]?.content?.text,
       ].filter(Boolean).join(" ").toLocaleLowerCase();
       return haystack.includes(needle) || matchedConversationIds.has(conversation.id);
+    });
+
+    return [...filtered].sort((a, b) => {
+      const aPinned = a.isPinned ? 1 : 0;
+      const bPinned = b.isPinned ? 1 : 0;
+      if (aPinned !== bPinned) {
+        return bPinned - aPinned;
+      }
+      const aTime = new Date(a.updatedAt || a.lastCustomerMessageAt || 0).getTime();
+      const bTime = new Date(b.updatedAt || b.lastCustomerMessageAt || 0).getTime();
+      return bTime - aTime;
     });
   }, [currentUser?.id, filter, matchedConversationIds, query.conversations, search, showArchived]);
 

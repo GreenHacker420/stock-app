@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, ScrollView, StyleSheet, View } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import {
   Button,
   Dialog,
@@ -349,59 +350,94 @@ export function TemplateEditorScreen() {
               name: name.toLowerCase().replace(/[^a-z0-9_]+/g, "_"),
             }))}
           />
-          <View style={styles.row}>
-            <View style={styles.flex}>
-              <Text style={styles.label}>Category</Text>
-              <SegmentedButtons
-                value={definition.category}
-                onValueChange={(category) => setDefinition((current) => {
-                  const nextCategory = category as WaTemplateDefinition["category"];
-                  if (nextCategory === "AUTHENTICATION") {
-                    return {
-                      ...current,
-                      category: nextCategory,
-                      header: { format: "NONE" },
-                      body: { ...current.body, text: "{{1}}" },
-                      buttons: [{ type: "COPY_CODE", text: "Copy code" }],
-                      authentication: current.authentication || { otpType: "COPY_CODE" },
-                      carousel: undefined,
-                      callPermissionRequest: false,
-                    };
-                  }
-                  return {
-                    ...current,
-                    category: nextCategory,
-                    authentication: undefined,
-                  };
-                })}
-                buttons={[
-                  { value: "MARKETING", label: "Marketing" },
-                  { value: "UTILITY", label: "Utility" },
-                  { value: "AUTHENTICATION", label: "Auth" },
-                ]}
-              />
+          <View style={styles.formGroup}>
+            <Text style={styles.label}>Category</Text>
+            <View style={styles.chipRow}>
+              {[
+                { value: "MARKETING", label: "Marketing", icon: "bullhorn-outline" },
+                { value: "UTILITY", label: "Utility", icon: "cog-outline" },
+                { value: "AUTHENTICATION", label: "Auth", icon: "shield-key-outline" },
+              ].map((cat) => {
+                const active = definition.category === cat.value;
+                return (
+                  <Pressable
+                    key={cat.value}
+                    onPress={() => setDefinition((current) => {
+                      const nextCategory = cat.value as WaTemplateDefinition["category"];
+                      if (nextCategory === "AUTHENTICATION") {
+                        return {
+                          ...current,
+                          category: nextCategory,
+                          header: { format: "NONE" },
+                          body: { ...current.body, text: "{{1}}" },
+                          buttons: [{ type: "COPY_CODE", text: "Copy code" }],
+                          authentication: current.authentication || { otpType: "COPY_CODE" },
+                          carousel: undefined,
+                          callPermissionRequest: false,
+                        };
+                      }
+                      return {
+                        ...current,
+                        category: nextCategory,
+                        authentication: undefined,
+                      };
+                    })}
+                    style={[styles.pillChip, active && styles.pillChipActive]}
+                  >
+                    <MaterialCommunityIcons
+                      name={cat.icon as any}
+                      size={15}
+                      color={active ? "#ffffff" : waColors.textSecondary}
+                    />
+                    <Text style={[styles.pillChipText, active && styles.pillChipTextActive]}>
+                      {cat.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
             </View>
           </View>
+
           <TextInput
             mode="outlined"
             label="Language"
             value={definition.language}
             disabled={Boolean(templateId)}
+            outlineColor="#cbd5e1"
+            activeOutlineColor={waColors.greenDark}
             onChangeText={(language) => setDefinition((current) => ({ ...current, language }))}
+            style={styles.inputField}
           />
+
           {definition.category !== "AUTHENTICATION" && (
-            <>
-              <Text style={styles.label}>Template type</Text>
-              <SegmentedButtons
-                value={templateMode}
-                onValueChange={setTemplateMode}
-                buttons={[
-                  { value: "STANDARD", label: "Standard" },
-                  { value: "CAROUSEL", label: "Carousel" },
-                  { value: "CALL_PERMISSION", label: "Call request" },
-                ]}
-              />
-            </>
+            <View style={styles.formGroup}>
+              <Text style={styles.label}>Template Type</Text>
+              <View style={styles.chipRow}>
+                {[
+                  { value: "STANDARD", label: "Standard", icon: "text-box-outline" },
+                  { value: "CAROUSEL", label: "Carousel", icon: "view-carousel-outline" },
+                  { value: "CALL_PERMISSION", label: "Call Request", icon: "phone-outgoing-outline" },
+                ].map((type) => {
+                  const active = templateMode === type.value;
+                  return (
+                    <Pressable
+                      key={type.value}
+                      onPress={() => setTemplateMode(type.value as any)}
+                      style={[styles.pillChip, active && styles.pillChipActive]}
+                    >
+                      <MaterialCommunityIcons
+                        name={type.icon as any}
+                        size={15}
+                        color={active ? "#ffffff" : waColors.textSecondary}
+                      />
+                      <Text style={[styles.pillChipText, active && styles.pillChipTextActive]}>
+                        {type.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
           )}
         </Section>
 
@@ -437,10 +473,13 @@ export function TemplateEditorScreen() {
               label="Code expiration minutes"
               keyboardType="number-pad"
               value={String(definition.footer?.codeExpirationMinutes || "")}
+              outlineColor="#cbd5e1"
+              activeOutlineColor={waColors.greenDark}
               onChangeText={(value) => setDefinition((current) => ({
                 ...current,
                 footer: { ...current.footer, codeExpirationMinutes: Number(value) || undefined },
               }))}
+              style={styles.inputField}
             />
             {definition.authentication?.otpType !== "COPY_CODE" && (
               <>
@@ -448,19 +487,25 @@ export function TemplateEditorScreen() {
                   mode="outlined"
                   label="Android package name"
                   value={definition.authentication?.packageName || ""}
+                  outlineColor="#cbd5e1"
+                  activeOutlineColor={waColors.greenDark}
                   onChangeText={(packageName) => setDefinition((current) => ({
                     ...current,
                     authentication: { ...current.authentication!, packageName },
                   }))}
+                  style={styles.inputField}
                 />
                 <TextInput
                   mode="outlined"
                   label="App signature hash"
                   value={definition.authentication?.signatureHash || ""}
+                  outlineColor="#cbd5e1"
+                  activeOutlineColor={waColors.greenDark}
                   onChangeText={(signatureHash) => setDefinition((current) => ({
                     ...current,
                     authentication: { ...current.authentication!, signatureHash },
                   }))}
+                  style={styles.inputField}
                 />
               </>
             )}
@@ -469,64 +514,79 @@ export function TemplateEditorScreen() {
           <>
             {templateMode === "STANDARD" && (
               <Section title="Header">
-              <SegmentedButtons
-                value={definition.header?.format || "NONE"}
-                onValueChange={(format) => setDefinition((current) => ({
-                  ...current,
-                  header: { ...current.header, format: format as any },
-                }))}
-                buttons={[
-                  { value: "NONE", label: "None" },
-                  { value: "TEXT", label: "Text" },
-                  { value: "IMAGE", label: "Image" },
-                ]}
-              />
-              <SegmentedButtons
-                value={definition.header?.format || "NONE"}
-                onValueChange={(format) => setDefinition((current) => ({
-                  ...current,
-                  header: { ...current.header, format: format as any },
-                }))}
-                buttons={[
-                  { value: "VIDEO", label: "Video" },
-                  { value: "DOCUMENT", label: "File" },
-                  { value: "LOCATION", label: "Location" },
-                ]}
-              />
-              {definition.header?.format === "TEXT" && (
-                <TextInput
-                  mode="outlined"
-                  label="Header text"
-                  value={definition.header.text || ""}
-                  maxLength={60}
-                  onChangeText={(text) => setDefinition((current) => ({
-                    ...current,
-                    header: { ...current.header!, text },
-                  }))}
-                />
-              )}
-              {definition.header && ["IMAGE", "VIDEO", "DOCUMENT"].includes(definition.header.format) && (
-                <>
+                <Text style={styles.label}>Header Format</Text>
+                <View style={styles.headerGrid}>
+                  {[
+                    { value: "NONE", label: "None", icon: "close-circle-outline" },
+                    { value: "TEXT", label: "Text", icon: "text-short" },
+                    { value: "IMAGE", label: "Image", icon: "image-outline" },
+                    { value: "VIDEO", label: "Video", icon: "video-outline" },
+                    { value: "DOCUMENT", label: "File", icon: "file-document-outline" },
+                    { value: "LOCATION", label: "Location", icon: "map-marker-outline" },
+                  ].map((fmt) => {
+                    const active = (definition.header?.format || "NONE") === fmt.value;
+                    return (
+                      <Pressable
+                        key={fmt.value}
+                        onPress={() => setDefinition((current) => ({
+                          ...current,
+                          header: { ...current.header, format: fmt.value as any },
+                        }))}
+                        style={[styles.headerCardBtn, active && styles.headerCardBtnActive]}
+                      >
+                        <MaterialCommunityIcons
+                          name={fmt.icon as any}
+                          size={20}
+                          color={active ? waColors.greenDark : waColors.textSecondary}
+                        />
+                        <Text style={[styles.headerCardBtnText, active && styles.headerCardBtnTextActive]}>
+                          {fmt.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                {definition.header?.format === "TEXT" && (
                   <TextInput
                     mode="outlined"
-                    label="Meta example handle"
-                    value={definition.header.exampleHandle || ""}
-                    onChangeText={(exampleHandle) => setDefinition((current) => ({
+                    label="Header text"
+                    value={definition.header.text || ""}
+                    maxLength={60}
+                    outlineColor="#cbd5e1"
+                    activeOutlineColor={waColors.greenDark}
+                    onChangeText={(text) => setDefinition((current) => ({
                       ...current,
-                      header: { ...current.header!, exampleHandle },
+                      header: { ...current.header!, text },
                     }))}
+                    style={styles.inputField}
                   />
-                  <Button
-                    mode="outlined"
-                    icon="upload"
-                    loading={uploadingExample === "HEADER"}
-                    disabled={uploadingExample != null}
-                    onPress={() => pickTemplateExample(definition.header!.format as "IMAGE" | "VIDEO" | "DOCUMENT")}
-                  >
-                    Upload review example
-                  </Button>
-                </>
-              )}
+                )}
+                {definition.header && ["IMAGE", "VIDEO", "DOCUMENT"].includes(definition.header.format) && (
+                  <>
+                    <TextInput
+                      mode="outlined"
+                      label="Meta example handle"
+                      value={definition.header.exampleHandle || ""}
+                      outlineColor="#cbd5e1"
+                      activeOutlineColor={waColors.greenDark}
+                      onChangeText={(exampleHandle) => setDefinition((current) => ({
+                        ...current,
+                        header: { ...current.header!, exampleHandle },
+                      }))}
+                      style={styles.inputField}
+                    />
+                    <Button
+                      mode="outlined"
+                      icon="upload"
+                      loading={uploadingExample === "HEADER"}
+                      disabled={uploadingExample != null}
+                      onPress={() => pickTemplateExample(definition.header!.format as "IMAGE" | "VIDEO" | "DOCUMENT")}
+                    >
+                      Upload review example
+                    </Button>
+                  </>
+                )}
               </Section>
             )}
 
@@ -951,4 +1011,63 @@ const styles = StyleSheet.create({
   error: { color: waColors.danger, textAlign: "center" },
   submit: { backgroundColor: waColors.green },
   dialogContent: { gap: 12, paddingHorizontal: 4, paddingVertical: 8 },
+  formGroup: { gap: 6 },
+  chipRow: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+  pillChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    backgroundColor: "#f8fafc",
+  },
+  pillChipActive: {
+    backgroundColor: waColors.greenDark,
+    borderColor: waColors.greenDark,
+  },
+  pillChipText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: waColors.textSecondary,
+  },
+  pillChipTextActive: {
+    color: "#ffffff",
+  },
+  headerGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  headerCardBtn: {
+    width: "31%",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    backgroundColor: "#ffffff",
+  },
+  headerCardBtnActive: {
+    backgroundColor: "#ecfdf5",
+    borderColor: waColors.greenDark,
+  },
+  headerCardBtnText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: waColors.textSecondary,
+  },
+  headerCardBtnTextActive: {
+    color: waColors.greenDark,
+    fontWeight: "700",
+  },
+  inputField: {
+    backgroundColor: "#ffffff",
+  },
 });

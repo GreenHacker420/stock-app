@@ -46,7 +46,7 @@ import { useContactsSync } from "../hooks/useContactsSync";
 import { useWhatsAppScope } from "../whatsapp-scope";
 import { useDebounce } from "use-debounce";
 import { useNavigation } from "@react-navigation/native";
-import { formatWhatsAppPhone, waColors } from "../whatsapp-ui";
+import { formatWhatsAppPhone, initials, waColors } from "../whatsapp-ui";
 import { createScopedWaConversation, WaConversation } from "../../../api/whatsapp.api";
 import { useAuthStore } from "../../../auth/auth-store";
 import { AppBottomSheetModal } from "../../../components/overlays/AppBottomSheetModal";
@@ -75,10 +75,15 @@ const ContactCard = memo(({
   const selectionMode = useSelectionStore((state) => state.selectedIds.size > 0);
   const toggle = useSelectionStore((state) => state.toggle);
   const isMutated = item.syncState === "MUTATED" || item.syncState === "UNSYNCED";
-  const resolvedName = manuallyLinkedCustomer?.name
+
+  const hasDistinctName = Boolean(manuallyLinkedCustomer?.name || matchedCustomer?.name || (item.name && item.name.trim() !== item.phone));
+  const displayName = manuallyLinkedCustomer?.name
     || matchedCustomer?.name
-    || item.name
-    || formatWhatsAppPhone(item.phone);
+    || (item.name && item.name.trim() !== item.phone ? item.name : formatWhatsAppPhone(item.phone));
+
+  const subText = hasDistinctName
+    ? formatWhatsAppPhone(item.phone)
+    : "Device contact";
 
   const selectedShared = useSharedValue(0);
 
@@ -90,12 +95,12 @@ const ContactCard = memo(({
     const backgroundColor = interpolateColor(
       selectedShared.value,
       [0, 1],
-      [isMutated ? "#FFFBEB" : "#ffffff", "#F0FDF4"]
+      ["#ffffff", "#f0fdf4"]
     );
     const borderColor = interpolateColor(
       selectedShared.value,
       [0, 1],
-      [isMutated ? Colors.warningLight : Colors.border, Colors.primary]
+      ["#e2e8f0", waColors.greenDark]
     );
     return {
       backgroundColor,
@@ -108,12 +113,12 @@ const ContactCard = memo(({
     const backgroundColor = interpolateColor(
       selectedShared.value,
       [0, 1],
-      ["transparent", Colors.primary]
+      ["transparent", waColors.greenDark]
     );
     const borderColor = interpolateColor(
       selectedShared.value,
       [0, 1],
-      [Colors.borderStrong, Colors.primary]
+      ["#94a3b8", waColors.greenDark]
     );
     return {
       transform: [{ scale: 0.85 + scale * 0.15 }],
@@ -121,6 +126,8 @@ const ContactCard = memo(({
       borderColor,
     };
   });
+
+  const displayInitials = hasDistinctName ? initials(displayName) : "📱";
 
   return (
     <AnimatedCard
@@ -142,11 +149,15 @@ const ContactCard = memo(({
           </TouchableOpacity>
         )}
 
+        <View style={styles.avatarContainer}>
+          <Text style={styles.avatarText}>{displayInitials}</Text>
+        </View>
+
         <View style={styles.contactInfo}>
           {/* Primary Row: Name & Tag Badges */}
           <View style={styles.primaryRow}>
             <Text style={styles.contactName} numberOfLines={1}>
-              {resolvedName}
+              {displayName}
             </Text>
             
             <View style={styles.badgeWrapper}>
@@ -157,7 +168,7 @@ const ContactCard = memo(({
                 ]}>
                   <Text style={[
                     styles.tagBadgeText,
-                    item.tag === "REGULAR" ? { color: Colors.primaryDark } : { color: "#1e3a8a" }
+                    item.tag === "REGULAR" ? { color: waColors.greenDark } : { color: "#1e40af" }
                   ]}>
                     {item.tag === "REGULAR" ? "Regular" : "Business"}
                   </Text>
@@ -171,9 +182,9 @@ const ContactCard = memo(({
             </View>
           </View>
 
-          {/* Secondary Row: Phone / Unnamed & Connection Badge */}
+          {/* Secondary Row: Phone / Subtitle & Connection Badge */}
           <View style={styles.secondaryRow}>
-            <Text style={styles.contactPhone}>{formatWhatsAppPhone(item.phone)}</Text>
+            <Text style={styles.contactPhone}>{subText}</Text>
 
             {manuallyLinkedCustomer ? (
               <View style={[styles.linkBadge, styles.linkedBadge]}>
@@ -184,15 +195,14 @@ const ContactCard = memo(({
               </View>
             ) : matchedCustomer ? (
               <View style={[styles.linkBadge, styles.matchedBadge]}>
-                <MaterialCommunityIcons name="check-decagram" size={10} color={Colors.primary} />
+                <MaterialCommunityIcons name="check-decagram" size={10} color={waColors.greenDark} />
                 <Text style={styles.linkBadgeText} numberOfLines={1}>
                   {`Matched: ${matchedCustomer.name}`}
                 </Text>
               </View>
             ) : (
               <View style={[styles.linkBadge, styles.notLinkedBadge]}>
-                <MaterialCommunityIcons name="link-variant" size={10} color="#d97706" />
-                <Text style={[styles.linkBadgeText, { color: "#d97706" }]}>Unlinked</Text>
+                <Text style={[styles.linkBadgeText, { color: "#64748b" }]}>Unlinked</Text>
               </View>
             )}
           </View>
@@ -256,6 +266,23 @@ const EmptyState = ({ type, onAction }: EmptyStateProps) => {
     </View>
   );
 };
+
+// -------------------------------------------------------------
+// SKELETON LOADER FOR FAST INITIAL RENDER
+// -------------------------------------------------------------
+const ContactSkeletonLoader = () => (
+  <View style={styles.skeletonContainer}>
+    {[1, 2, 3, 4, 5, 6].map((key) => (
+      <View key={key} style={styles.skeletonCard}>
+        <View style={styles.skeletonAvatar} />
+        <View style={styles.skeletonContent}>
+          <View style={styles.skeletonLinePrimary} />
+          <View style={styles.skeletonLineSecondary} />
+        </View>
+      </View>
+    ))}
+  </View>
+);
 
 // -------------------------------------------------------------
 // MAIN CONTACT BOOK SCREEN
@@ -326,20 +353,26 @@ export const ContactBookScreen = () => {
     return map;
   }, [customers]);
 
-  const customerPhonesStr = useMemo(() => {
-    if (!customers || customers.length === 0) return "";
-    const suffixList = customers
+  const customerPhoneSuffixes = useMemo(() => {
+    if (!customers || customers.length === 0) return [];
+    return customers
       .map((c) => {
         if (!c.phone) return null;
         const clean = c.phone.replace(/\D/g, "");
         return clean.length >= 10 ? clean.slice(-10) : null;
       })
-      .filter(Boolean);
-    return `,${suffixList.join(",")},`;
+      .filter((s): s is string => Boolean(s));
   }, [customers]);
 
+  // Zustand selection states
+  const selectedIds = useSelectionStore((s) => s.selectedIds);
+  const selectMany = useSelectionStore((s) => s.selectMany);
+  const deselectMany = useSelectionStore((s) => s.deselectMany);
+  const clearSelection = useSelectionStore((s) => s.clear);
+  const selectedCount = selectedIds.size;
+
   // Query Stats & paginated Local Lists
-  const { data: stats } = useContactsStatsQuery(customerPhonesStr);
+  const { data: stats } = useContactsStatsQuery(customerPhoneSuffixes);
 
   const {
     data,
@@ -352,7 +385,7 @@ export const ContactBookScreen = () => {
     syncFilter,
     linkFilter,
     tagFilter,
-    customerPhonesStr,
+    customerPhoneSuffixes,
   });
 
   const { data: filteredIds = [] } = useContactsFilteredIdsQuery({
@@ -360,15 +393,8 @@ export const ContactBookScreen = () => {
     syncFilter,
     linkFilter,
     tagFilter,
-    customerPhonesStr,
-  });
-
-  // Zustand selection states
-  const selectedIds = useSelectionStore((s) => s.selectedIds);
-  const selectMany = useSelectionStore((s) => s.selectMany);
-  const deselectMany = useSelectionStore((s) => s.deselectMany);
-  const clearSelection = useSelectionStore((s) => s.clear);
-  const selectedCount = selectedIds.size;
+    customerPhoneSuffixes,
+  }, selectedCount > 0);
 
   const isAllFilteredSelected = useMemo(() => {
     if (filteredIds.length === 0) return false;
@@ -564,11 +590,7 @@ export const ContactBookScreen = () => {
 
   const renderEmptyComponent = () => {
     if (loadingLocal || importMutation.isPending) {
-      return (
-        <View style={styles.loaderCenter}>
-          <ActivityIndicator size="large" color={Colors.primary} />
-        </View>
-      );
+      return <ContactSkeletonLoader />;
     }
     const hasSearch = searchQuery.trim().length > 0;
     const hasFilters = syncFilter !== "ALL" || linkFilter !== "ALL" || tagFilter !== "ALL";
@@ -599,7 +621,7 @@ export const ContactBookScreen = () => {
             value={searchQuery}
             style={styles.searchbar}
             inputStyle={styles.searchInput}
-            loading={isSearching || loadingLocal}
+            loading={isSearching}
             iconColor={Colors.textSecondary}
           />
           <IconButton
@@ -607,7 +629,7 @@ export const ContactBookScreen = () => {
             onPress={() => importMutation.mutate()}
             disabled={importMutation.isPending}
             size={22}
-            iconColor={Colors.primary}
+            iconColor={waColors.greenDark}
             style={styles.headerActionBtn}
           />
         </View>
@@ -619,11 +641,11 @@ export const ContactBookScreen = () => {
           contentContainerStyle={styles.quickFilters}
         >
           {[
-            { label: `All ${stats?.total || 0}`, active: syncFilter === "ALL" && linkFilter === "ALL" && tagFilter === "ALL", apply: handleClearFilters },
-            { label: `Linked ${stats?.linked || 0}`, active: linkFilter === "LINKED", apply: () => { handleClearFilters(); setLinkFilter("LINKED"); } },
-            { label: `Unsynced ${stats?.unsynced || 0}`, active: syncFilter === "UNSYNCED", apply: () => { handleClearFilters(); setSyncFilter("UNSYNCED"); } },
-            { label: `Business ${stats?.business || 0}`, active: tagFilter === "BUSINESS", apply: () => { handleClearFilters(); setTagFilter("BUSINESS"); } },
-            { label: `Regular ${stats?.regular || 0}`, active: tagFilter === "REGULAR", apply: () => { handleClearFilters(); setTagFilter("REGULAR"); } },
+            { label: "All", count: stats?.total || 0, active: syncFilter === "ALL" && linkFilter === "ALL" && tagFilter === "ALL", apply: handleClearFilters },
+            { label: "Linked", count: stats?.linked || 0, active: linkFilter === "LINKED", apply: () => { handleClearFilters(); setLinkFilter("LINKED"); } },
+            { label: "Unsynced", count: stats?.unsynced || 0, active: syncFilter === "UNSYNCED", apply: () => { handleClearFilters(); setSyncFilter("UNSYNCED"); } },
+            { label: "Business", count: stats?.business || 0, active: tagFilter === "BUSINESS", apply: () => { handleClearFilters(); setTagFilter("BUSINESS"); } },
+            { label: "Regular", count: stats?.regular || 0, active: tagFilter === "REGULAR", apply: () => { handleClearFilters(); setTagFilter("REGULAR"); } },
           ].map((filter) => (
             <TouchableOpacity
               key={filter.label}
@@ -633,6 +655,11 @@ export const ContactBookScreen = () => {
               <Text style={[styles.quickFilterText, filter.active && styles.quickFilterTextActive]}>
                 {filter.label}
               </Text>
+              <View style={[styles.filterBadge, filter.active && styles.filterBadgeActive]}>
+                <Text style={[styles.filterBadgeText, filter.active && styles.filterBadgeTextActive]}>
+                  {filter.count}
+                </Text>
+              </View>
             </TouchableOpacity>
           ))}
         </ScrollView>
@@ -642,11 +669,11 @@ export const ContactBookScreen = () => {
           <View style={{ flex: 1 }}>
             {selectedCount > 0 ? (
               <Text style={styles.selectionLabelText}>
-                {selectedCount} selected <Text style={{ color: Colors.textMuted }}>of</Text> {filteredIds.length} filtered
+                {selectedCount} selected <Text style={{ color: Colors.textMuted }}>of</Text> {(stats?.total || flattenedContacts.length).toLocaleString()}
               </Text>
             ) : (
               <Text style={styles.selectionLabelText}>
-                Showing {flattenedContacts.length} of {filteredIds.length} filtered
+                Showing {flattenedContacts.length} of {(stats?.total || flattenedContacts.length).toLocaleString()} contacts
               </Text>
             )}
             <Text style={styles.selectionSubText}>Tap a contact menu to message or link it</Text>
@@ -932,36 +959,37 @@ const styles = StyleSheet.create({
   },
 
   quickFiltersScrollView: {
-    flexGrow: 0,
+    maxHeight: 50,
   },
   quickFilters: {
     flexDirection: "row",
     alignItems: "center",
-    gap: spacing.xs,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
   },
   quickFilter: {
-    height: 32,
-    justifyContent: "center",
+    flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: spacing.md,
-    borderRadius: radius.full,
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: waColors.border,
-    backgroundColor: waColors.surface,
+    borderColor: "#cbd5e1",
+    backgroundColor: "#ffffff",
   },
   quickFilterActive: {
-    borderColor: waColors.green,
-    backgroundColor: waColors.greenPale,
+    borderColor: waColors.greenDark,
+    backgroundColor: waColors.greenDark,
   },
   quickFilterText: {
-    color: waColors.textSecondary,
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.semibold,
+    color: "#475569",
+    fontSize: 12,
+    fontWeight: "600",
   },
   quickFilterTextActive: {
-    color: waColors.greenDark,
+    color: "#ffffff",
   },
 
   // Selection Info Header Row
@@ -1017,30 +1045,45 @@ const styles = StyleSheet.create({
     paddingBottom: 120, // Space for sticky sync footer
   },
 
-  // Compact Contact Card (Vertical height reduced by 45%)
+  // Contact Card
   contactCard: {
-    marginBottom: 0,
-    backgroundColor: waColors.surface,
-    borderRadius: 0,
-    borderWidth: 0,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: waColors.border,
-    elevation: 0,
-    shadowOpacity: 0,
+    marginHorizontal: 12,
+    marginVertical: 4,
+    backgroundColor: "#ffffff",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    elevation: 1,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 2,
+  },
+  avatarContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#ecfdf5",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
+    borderWidth: 1,
+    borderColor: "#a7f3d0",
+  },
+  avatarText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: waColors.greenDark,
   },
   selectedCard: {
     borderColor: waColors.green,
     backgroundColor: waColors.greenPale,
   },
-  mutatedCard: {
-    borderColor: Colors.warningLight,
-    backgroundColor: "#FFFBEB", // Yellow warning tint
-  },
   cardLayout: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: spacing.md,
-    paddingVertical: 9,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   checkboxTouch: {
     padding: 6,
@@ -1296,5 +1339,63 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xs,
     color: Colors.textSecondary,
     marginTop: 2,
+  },
+
+  // Skeleton Loader Styles
+  skeletonContainer: {
+    padding: spacing.md,
+    gap: 10,
+  },
+  skeletonCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 12,
+    borderRadius: 14,
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    gap: 12,
+  },
+  skeletonAvatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: "#e2e8f0",
+  },
+  skeletonContent: {
+    flex: 1,
+    gap: 6,
+  },
+  skeletonLinePrimary: {
+    height: 14,
+    width: "60%",
+    borderRadius: 6,
+    backgroundColor: "#e2e8f0",
+  },
+  skeletonLineSecondary: {
+    height: 10,
+    width: "40%",
+    borderRadius: 4,
+    backgroundColor: "#f1f5f9",
+  },
+
+  // Filter Badge Styles
+  filterBadge: {
+    backgroundColor: "#e2e8f0",
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 10,
+    marginLeft: 6,
+  },
+  filterBadgeActive: {
+    backgroundColor: "rgba(255, 255, 255, 0.25)",
+  },
+  filterBadgeText: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: Colors.textSecondary,
+  },
+  filterBadgeTextActive: {
+    color: "#ffffff",
   },
 });

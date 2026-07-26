@@ -66,11 +66,15 @@ import { MessageContentRenderer } from "../components/MessageContentRenderer";
 import { MessageReactionOverlay } from "../components/MessageReactionOverlay";
 import { TemplateSendSheet } from "../components/TemplateSendSheet";
 import { FlowSendSheet } from "../components/FlowSendSheet";
+import { ChatProfileSheet } from "../components/ChatProfileSheet";
 import { formatWhatsAppPhone, initialsFor, waColors } from "../whatsapp-ui";
 import { queryKeys } from "../../../hooks/query-keys";
 import { useWhatsAppScope } from "../whatsapp-scope";
 import { useWhatsAppMessages } from "../hooks/use-whatsapp-data";
-import { whatsappDb } from "../services/whatsapp-db";
+import {
+  whatsappDb,
+  type PendingWhatsAppOperation,
+} from "../services/whatsapp-db";
 import {
   appendWhatsAppMessage,
   replaceWhatsAppMessage,
@@ -81,14 +85,6 @@ import {
   persistWhatsAppMedia,
   removePersistedWhatsAppMedia,
 } from "../services/whatsapp-media-files";
-
-const MEDIA_MESSAGE_TYPES = new Set<WaMessage["type"]>([
-  "IMAGE",
-  "VIDEO",
-  "AUDIO",
-  "DOCUMENT",
-  "STICKER",
-]);
 
 function toMessageType(message: WaOutboundMessage): WaMessage["type"] {
   switch (message.kind) {
@@ -301,43 +297,14 @@ export const ChatDetailScreen = () => {
 
   // Template Picker State
   const [showTemplateSheet, setShowTemplateSheet] = useState(false);
+  const [templateReplyToMessageId, setTemplateReplyToMessageId] = useState<string>();
   const [showFlowSheet, setShowFlowSheet] = useState(false);
+  const [showProfileSheet, setShowProfileSheet] = useState(false);
 
   const flatListRef = useRef<any>(null);
   const emojiInputRef = useRef<TextInput>(null);
   const mediaUploadControllerRef = useRef<AbortController | null>(null);
-  const openCustomEmojiAfterReactionRef = useRef(false);
   const activeUploadRef = useRef<{ operationId: string; mediaUri: string } | null>(null);
-
-  // Mark conversation as read on focus / load
-  useEffect(() => {
-    if (isFocused && activeShopId && conversationId) {
-      if (!token) return;
-      markScopedWaConversationRead(token, integrationId, conversationId)
-        .then(() => {
-          queryClient.setQueriesData<any>(
-            { queryKey: ["whatsapp", "conversations", activeShopId, integrationId] },
-            (current: any) => {
-              if (!current?.pages) return current;
-              return {
-                ...current,
-                pages: current.pages.map((page: any) => ({
-                  ...page,
-                  items: page.items.map((conversation: any) =>
-                    conversation.id === conversationId
-                      ? { ...conversation, unreadCount: 0 }
-                      : conversation,
-                  ),
-                })),
-              };
-            },
-          );
-        })
-        .catch((err) => {
-          console.warn("Failed to mark conversation read", err);
-        });
-    }
-  }, [activeShopId, conversationId, integrationId, isFocused, queryClient, token]);
 
   const { data: customerRecord } = useCustomerDetailQuery(conversation?.customerId || "");
 
@@ -352,7 +319,10 @@ export const ChatDetailScreen = () => {
       headerTintColor: "#fff",
       headerShadowVisible: false,
       headerTitle: () => (
-        <View style={{ flexDirection: "row", alignItems: "center" }}>
+        <TouchableOpacity
+          onPress={() => setShowProfileSheet(true)}
+          style={{ flexDirection: "row", alignItems: "center" }}
+        >
           <View style={{
             width: 36,
             height: 36,
@@ -372,7 +342,7 @@ export const ChatDetailScreen = () => {
               {conversation?.customerId ? "Linked customer" : formatWhatsAppPhone(recipientPhone)}
             </Text>
           </View>
-        </View>
+        </TouchableOpacity>
       ),
       headerRight: () => conversation?.customerId ? (
         <TouchableOpacity
@@ -399,16 +369,9 @@ export const ChatDetailScreen = () => {
   const draftLoaded = useRef(false);
   const pendingDraftReplyId = useRef<string | null>(null);
 
-  const hasProcessingMedia = messages.some((message) => (
-    message.asset?.status === "UPLOADING"
-    || message.operationState === "PROCESSING"
-    || (
-      MEDIA_MESSAGE_TYPES.has(message.type)
-      && !message.asset?.url
-      && message.asset?.status !== "FAILED"
-      && message.asset?.status !== "DELETED"
-    )
-  ));
+  const hasProcessingMedia = messages.some(
+    (message) => message.asset?.status === "UPLOADING",
+  );
 
   useEffect(() => {
     if (!isFocused || !hasProcessingMedia) return;
@@ -475,6 +438,9 @@ export const ChatDetailScreen = () => {
     clientMessageId: string;
     message: WaOutboundMessage;
     replyToMessageId?: string;
+    operationId?: string;
+    operationType?: PendingWhatsAppOperation["operationType"];
+    operationPayload?: PendingWhatsAppOperation["payload"];
   };
   const messagesKey = queryKeys.whatsapp.messages(activeShopId!, integrationId, conversationId);
   const buildOptimisticMessage = (
@@ -495,12 +461,13 @@ export const ChatDetailScreen = () => {
     createdAt: new Date().toISOString(),
   });
 
-  const persistQueuedSend = async (
+  const persistSendIntent = async (
     input: SendVariables,
-    operationState: "WAITING_FOR_NETWORK" | "TERMINALLY_FAILED",
+    operationState: NonNullable<WaMessage["operationState"]>,
     errorMessage?: string,
   ) => {
     const now = Date.now();
+    const operationId = input.operationId || `send:${input.clientMessageId}`;
     const optimistic = {
       ...buildOptimisticMessage(input, operationState),
       providerStatus: operationState === "TERMINALLY_FAILED" ? "FAILED" as const : "PENDING" as const,
@@ -510,81 +477,101 @@ export const ChatDetailScreen = () => {
       { shopId: activeShopId, integrationId, conversationId },
       optimistic,
       {
-        id: `send:${input.clientMessageId}`,
+        id: operationId,
         shopId: activeShopId,
         integrationId,
         conversationId,
         clientMessageId: input.clientMessageId,
-        operationType: "SEND_MESSAGE",
+        operationType: input.operationType || "SEND_MESSAGE",
         operationState,
-        payload: {
+        payload: input.operationPayload || {
           message: input.message,
           replyToMessageId: input.replyToMessageId,
         },
         attempt: 0,
-        nextAttemptAt: now,
+        nextAttemptAt: operationState === "SUBMITTING" ? now + 60_000 : now,
         lastError: errorMessage,
         createdAt: now,
         updatedAt: now,
       },
     );
-    return { message: optimistic };
+    return { message: optimistic, operationId };
   };
 
   const sendMutation = useMutation({
     mutationFn: async (input: SendVariables) => {
       if (!token) throw new Error("Your session expired. Sign in again.");
       const network = await NetInfo.fetch();
-      if (network.isConnected === false) return persistQueuedSend(input, "WAITING_FOR_NETWORK");
-      try {
-        return await sendScopedWaMessage(token, {
+      if (network.isConnected === false) {
+        return {
+          message: buildOptimisticMessage(input, "WAITING_FOR_NETWORK"),
+          queued: true,
+        };
+      }
+      const response = await sendScopedWaMessage(token, {
           shopId: activeShopId,
           integrationId,
           conversationId,
         }, input);
-      } catch (error) {
-        const latestNetwork = await NetInfo.fetch();
-        if (latestNetwork.isConnected === false) {
-          return persistQueuedSend(input, "WAITING_FOR_NETWORK");
-        }
-        throw error;
-      }
+      return { ...response, queued: false };
     },
     onMutate: async (input) => {
       await queryClient.cancelQueries({ queryKey: messagesKey });
       const previous = queryClient.getQueryData<WhatsAppMessagePages>(messagesKey);
-      const optimistic = buildOptimisticMessage(input, "SUBMITTING");
+      const persisted = await persistSendIntent(input, "SUBMITTING");
       queryClient.setQueryData<WhatsAppMessagePages>(
         messagesKey,
-        (current) => appendWhatsAppMessage(current, optimistic),
+        (current) => appendWhatsAppMessage(current, persisted.message),
       );
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 30);
-      return { previous };
+      return { previous, operationId: persisted.operationId };
     },
-    onSuccess: async ({ message }, input) => {
+    onSuccess: ({ message, queued }, input, context) => {
       queryClient.setQueryData<WhatsAppMessagePages>(
         messagesKey,
         (current) => replaceWhatsAppMessage(current, input.clientMessageId, message),
       );
-      await whatsappDb.upsertMessages(
+      if (queued) {
+        void persistSendIntent(input, "WAITING_FOR_NETWORK").catch((error) => {
+          console.warn("Could not queue WhatsApp message locally", error);
+        });
+        return;
+      }
+      if (context?.operationId) {
+        void whatsappDb.updateOperation(context.operationId, {
+          operationState: "COMPLETED",
+          attempt: 0,
+          nextAttemptAt: Date.now(),
+        }).then(() => whatsappDb.deleteOperation(context.operationId))
+          .catch((error) => {
+            console.warn("Could not complete local WhatsApp operation", error);
+          });
+      }
+      void whatsappDb.upsertMessages(
         { shopId: activeShopId, integrationId, conversationId },
         [message],
-      );
+      ).catch((error) => {
+        console.warn("Could not persist accepted WhatsApp message", error);
+      });
       queryClient.invalidateQueries({ queryKey: ["whatsapp", "conversations", activeShopId, integrationId] });
     },
     onError: async (err: Error, input, context) => {
       const message = err.message || "Failed to send message";
+      const network = await NetInfo.fetch();
+      const operationState = network.isConnected === false
+        ? "WAITING_FOR_NETWORK" as const
+        : "TERMINALLY_FAILED" as const;
       queryClient.setQueryData<WhatsAppMessagePages>(
         messagesKey,
         (current) => replaceWhatsAppMessage(current, input.clientMessageId, (failed) => ({
           ...failed,
-          operationState: "TERMINALLY_FAILED",
-          providerStatus: "FAILED",
+          operationState,
+          providerStatus: operationState === "TERMINALLY_FAILED" ? "FAILED" : "PENDING",
           errorMessage: message,
         })),
       );
       try {
-        await persistQueuedSend(input, "TERMINALLY_FAILED", message);
+        await persistSendIntent(input, operationState, message);
       } catch {
         if (context?.previous) {
           queryClient.setQueryData(messagesKey, context.previous);
@@ -592,7 +579,9 @@ export const ChatDetailScreen = () => {
         Alert.alert("Message not saved", "The message could not be saved locally. Please try again.");
         return;
       }
-      Alert.alert("Message not sent", `${message}\n\nTap the failed message to retry.`);
+      if (operationState === "TERMINALLY_FAILED") {
+        Alert.alert("Message not sent", `${message}\n\nTap the failed message to retry.`);
+      }
     }
   });
 
@@ -609,9 +598,22 @@ export const ChatDetailScreen = () => {
   const previousLastMessageId = useRef<string | undefined>(undefined);
   const previousMessageCount = useRef(0);
   useEffect(() => {
+    previousLastMessageId.current = undefined;
+    previousMessageCount.current = 0;
+    setNewMessageCount(0);
+  }, [conversationId]);
+
+  useEffect(() => {
     const lastMessage = displayedMessages.at(-1);
     const stableMessageKey = lastMessage?.clientMessageId || lastMessage?.id;
-    if (!lastMessage || previousLastMessageId.current === stableMessageKey) return;
+    if (!lastMessage) {
+      previousMessageCount.current = 0;
+      return;
+    }
+    if (previousLastMessageId.current === stableMessageKey) {
+      previousMessageCount.current = displayedMessages.length;
+      return;
+    }
     const isInitialLoad = !previousLastMessageId.current;
     const addedCount = Math.max(1, displayedMessages.length - previousMessageCount.current);
     previousLastMessageId.current = stableMessageKey;
@@ -631,15 +633,34 @@ export const ChatDetailScreen = () => {
 
   useEffect(() => {
     if (!isFocused || !lastInboundMessageId || !activeShopId || !integrationId || !token) return;
-    markScopedWaConversationRead(token, integrationId, conversationId).catch((err) => {
-      console.warn("Failed to mark conversation read on new message", err);
-    });
+    markScopedWaConversationRead(token, integrationId, conversationId)
+      .then(() => {
+        queryClient.setQueriesData<any>(
+          { queryKey: ["whatsapp", "conversations", activeShopId, integrationId] },
+          (current: any) => {
+            if (!current?.pages) return current;
+            return {
+              ...current,
+              pages: current.pages.map((page: any) => ({
+                ...page,
+                items: page.items.map((item: any) =>
+                  item.id === conversationId ? { ...item, unreadCount: 0 } : item,
+                ),
+              })),
+            };
+          },
+        );
+      })
+      .catch((err) => {
+        console.warn("Failed to mark conversation read", err);
+      });
   }, [
     activeShopId,
     conversationId,
     integrationId,
     isFocused,
     lastInboundMessageId,
+    queryClient,
     token,
   ]);
 
@@ -691,12 +712,18 @@ export const ChatDetailScreen = () => {
       return retryScopedWaMessage(token, integrationId, message.id);
     },
     onSuccess: ({ message }) => {
-      queryClient.setQueryData<WhatsAppMessagePages>(
-        messagesKey,
-        (current) => message.clientMessageId
-          ? replaceWhatsAppMessage(current, message.clientMessageId, message)
-          : current,
-      );
+      if (message.clientMessageId) {
+        queryClient.setQueryData<WhatsAppMessagePages>(
+          messagesKey,
+          (current) => replaceWhatsAppMessage(
+            current,
+            message.clientMessageId!,
+            message,
+          ),
+        );
+      } else {
+        void queryClient.invalidateQueries({ queryKey: messagesKey });
+      }
       void whatsappDb.upsertMessages(
         { shopId: activeShopId, integrationId, conversationId },
         [message],
@@ -739,6 +766,12 @@ export const ChatDetailScreen = () => {
       message,
       replyToMessageId,
     });
+  };
+
+  const openTemplateSheet = () => {
+    setTemplateReplyToMessageId(replyingTo?.id);
+    setReplyingTo(null);
+    setShowTemplateSheet(true);
   };
 
   const shareLinkedContact = () => {
@@ -902,17 +935,21 @@ export const ChatDetailScreen = () => {
     if (!selectedMedia || !integrationId || !token || uploadingMedia) return;
 
     const media = selectedMedia;
+    const replyToMessageId = replyingTo?.id;
+    const caption = mediaCaption.trim() || undefined;
     const clientMessageId = Crypto.randomUUID();
     const operationId = `upload:${clientMessageId}`;
     const now = Date.now();
     const mediaMessage = {
       kind: media.kind,
-      caption: mediaCaption.trim() || undefined,
+      caption,
       filename: media.kind === "document" ? media.name : undefined,
     } as const;
+    setReplyingTo(null);
     setUploadingMedia(true);
     setMediaUploadProgress(0);
     const controller = new AbortController();
+    let sendStarted = false;
     mediaUploadControllerRef.current = controller;
     activeUploadRef.current = { operationId, mediaUri: media.uri };
     try {
@@ -925,7 +962,7 @@ export const ChatDetailScreen = () => {
         operationType: "UPLOAD_MEDIA",
         operationState: "UPLOADING",
         payload: {
-          replyToMessageId: replyingTo?.id,
+          replyToMessageId,
           media,
           mediaMessage,
         },
@@ -942,35 +979,41 @@ export const ChatDetailScreen = () => {
         controller.signal,
       );
 
-      if (media.kind === "document") {
-        await sendMutation.mutateAsync({
-          clientMessageId,
-          replyToMessageId: replyingTo?.id,
-          message: {
+      const message: WaOutboundMessage = media.kind === "document"
+        ? {
             kind: "document",
             assetId: uploaded.id,
             filename: uploaded.fileName || media.name,
-            caption: mediaCaption.trim() || undefined,
-          },
-        });
-      } else {
-        await sendMutation.mutateAsync({
-          clientMessageId,
-          replyToMessageId: replyingTo?.id,
-          message: {
+            caption,
+          }
+        : {
             kind: media.kind,
             assetId: uploaded.id,
-            caption: mediaCaption.trim() || undefined,
-          },
-        });
-      }
-      await whatsappDb.deleteOperation(operationId);
+            caption,
+          };
+      mediaUploadControllerRef.current = null;
+      activeUploadRef.current = null;
+      sendStarted = true;
+      await sendMutation.mutateAsync({
+        clientMessageId,
+        replyToMessageId,
+        message,
+        operationId,
+        operationType: "UPLOAD_MEDIA",
+        operationPayload: {
+          message,
+          replyToMessageId,
+          media,
+          mediaMessage,
+        },
+      });
       removePersistedWhatsAppMedia(media.uri);
       setSelectedMedia(null);
       setMediaCaption("");
       setMediaUploadProgress(0);
     } catch (error) {
       if (controller.signal.aborted) return;
+      if (sendStarted) return;
       await whatsappDb.updateOperation(operationId, {
         operationState: "RETRY_SCHEDULED",
         attempt: 1,
@@ -991,12 +1034,15 @@ export const ChatDetailScreen = () => {
   const uploadAndSendVoice = async (media: WaLocalMedia) => {
     if (!integrationId || !token || uploadingMedia) return;
 
+    const replyToMessageId = replyingTo?.id;
     const clientMessageId = Crypto.randomUUID();
     const operationId = `upload:${clientMessageId}`;
     const now = Date.now();
+    setReplyingTo(null);
     setUploadingMedia(true);
     setMediaUploadProgress(0);
     const controller = new AbortController();
+    let sendStarted = false;
     mediaUploadControllerRef.current = controller;
     try {
       const persistedMedia = await persistWhatsAppMedia(integrationId, media);
@@ -1010,7 +1056,7 @@ export const ChatDetailScreen = () => {
         operationType: "UPLOAD_MEDIA",
         operationState: "UPLOADING",
         payload: {
-          replyToMessageId: replyingTo?.id,
+          replyToMessageId,
           media: persistedMedia,
           mediaMessage: { kind: "audio", voice: true },
         },
@@ -1026,21 +1072,33 @@ export const ChatDetailScreen = () => {
         setMediaUploadProgress,
         controller.signal,
       );
+      mediaUploadControllerRef.current = null;
+      activeUploadRef.current = null;
+      sendStarted = true;
+      const message: WaOutboundMessage = {
+        kind: "audio",
+        assetId: uploaded.id,
+        voice: true,
+      };
       await sendMutation.mutateAsync({
         clientMessageId,
-        replyToMessageId: replyingTo?.id,
-        message: {
-          kind: "audio",
-          assetId: uploaded.id,
-          voice: true,
+        replyToMessageId,
+        message,
+        operationId,
+        operationType: "UPLOAD_MEDIA",
+        operationPayload: {
+          message,
+          replyToMessageId,
+          media: persistedMedia,
+          mediaMessage: { kind: "audio", voice: true },
         },
       });
-      await whatsappDb.deleteOperation(operationId);
       setShowVoiceRecorder(false);
       setMediaUploadProgress(0);
       removePersistedWhatsAppMedia(persistedMedia.uri);
     } catch (error) {
       if (controller.signal.aborted) return;
+      if (sendStarted) return;
       await whatsappDb.updateOperation(operationId, {
         operationState: "RETRY_SCHEDULED",
         attempt: 1,
@@ -1061,7 +1119,6 @@ export const ChatDetailScreen = () => {
   const cancelMediaUpload = async () => {
     mediaUploadControllerRef.current?.abort();
     const activeUpload = activeUploadRef.current;
-    activeUploadRef.current = null;
     if (activeUpload) {
       await whatsappDb.deleteOperation(activeUpload.operationId).catch(() => undefined);
       removePersistedWhatsAppMedia(activeUpload.mediaUri);
@@ -1069,7 +1126,6 @@ export const ChatDetailScreen = () => {
     setSelectedMedia(null);
     setShowVoiceRecorder(false);
     setMediaUploadProgress(0);
-    setUploadingMedia(false);
   };
 
   const handleLongPress = (message: WaMessage, x: number, y: number) => {
@@ -1405,7 +1461,7 @@ export const ChatDetailScreen = () => {
               <Text style={styles.windowNoticeTitle}>24-hour reply window closed</Text>
               <Text style={styles.windowNoticeText}>Send an approved template to restart the conversation.</Text>
             </View>
-            <TouchableOpacity style={styles.windowTemplateButton} onPress={() => setShowTemplateSheet(true)}>
+            <TouchableOpacity style={styles.windowTemplateButton} onPress={openTemplateSheet}>
               <Text style={styles.windowTemplateText}>Templates</Text>
             </TouchableOpacity>
           </View>
@@ -1441,7 +1497,7 @@ export const ChatDetailScreen = () => {
               <TouchableOpacity
                 style={styles.cameraButton}
                 accessibilityLabel="Attach a photo"
-                onPress={() => pickMedia("image")}
+                onPress={() => pickMedia("image", "camera")}
               >
                 <MaterialCommunityIcons name="camera-outline" size={22} color={waColors.textSecondary} />
               </TouchableOpacity>
@@ -1464,7 +1520,7 @@ export const ChatDetailScreen = () => {
         locating={locating}
         sending={sendMutation.isPending}
         onClose={() => setShowMessageActions(false)}
-        onOpenTemplates={() => setShowTemplateSheet(true)}
+        onOpenTemplates={openTemplateSheet}
         onOpenFlows={() => setShowFlowSheet(true)}
         onPickMedia={pickMedia}
         onRecordVoice={() => setShowVoiceRecorder(true)}
@@ -1506,12 +1562,8 @@ export const ChatDetailScreen = () => {
         }}
         onReaction={handleReactionPress}
         onMoreReactions={() => {
-          openCustomEmojiAfterReactionRef.current = true;
           setReactionMenuVisible(false);
-          setTimeout(() => {
-            openCustomEmojiAfterReactionRef.current = false;
-            setCustomEmojiVisible(true);
-          }, 120);
+          setCustomEmojiVisible(true);
         }}
         onReply={
           selectedMessage && isServerMessage(selectedMessage)
@@ -1530,7 +1582,10 @@ export const ChatDetailScreen = () => {
         visible={customEmojiVisible}
         title="React with emoji"
         subtitle="Choose any emoji from your keyboard"
-        onDismiss={() => setCustomEmojiVisible(false)}
+        onDismiss={() => {
+          setCustomEmojiVisible(false);
+          setSelectedMessage(null);
+        }}
         maxHeight={0.5}
       >
         <View style={styles.nativeEmojiContainer}>
@@ -1538,7 +1593,6 @@ export const ChatDetailScreen = () => {
             ref={emojiInputRef}
             style={styles.nativeEmojiInput}
             placeholder="😊"
-            maxLength={4}
             onChangeText={(text) => {
               if (text.trim()) {
                 handleCustomEmojiSelect(text.trim());
@@ -1557,8 +1611,11 @@ export const ChatDetailScreen = () => {
         integrationId={integrationId}
         conversationId={conversationId}
         to={recipientPhone}
-        replyToMessageId={replyingTo?.id}
-        onClose={() => setShowTemplateSheet(false)}
+        replyToMessageId={templateReplyToMessageId}
+        onClose={() => {
+          setShowTemplateSheet(false);
+          setTemplateReplyToMessageId(undefined);
+        }}
       />
       <FlowSendSheet
         visible={showFlowSheet}
@@ -1567,6 +1624,14 @@ export const ChatDetailScreen = () => {
         conversationId={conversationId}
         to={recipientPhone}
         onClose={() => setShowFlowSheet(false)}
+      />
+      <ChatProfileSheet
+        visible={showProfileSheet}
+        onDismiss={() => setShowProfileSheet(false)}
+        conversation={conversation || null}
+        customerRecord={customerRecord}
+        messages={messages}
+        onDeleteChat={() => navigation.goBack()}
       />
     </View>
   );
