@@ -381,13 +381,7 @@ export const AppBottomSheetModal = forwardRef<
     : screenH * safeMaxHeight - headerHeight;
 
   return (
-    <Modal
-      visible={renderModal}
-      transparent
-      animationType="none"
-      onRequestClose={beginDismiss}
-      statusBarTranslucent
-    >
+    <View style={styles.overlayRoot}>
       <GestureHandlerRootView style={styles.gestureRoot}>
         <KeyboardGestureArea
           style={styles.gestureRoot}
@@ -521,7 +515,7 @@ export const AppBottomSheetModal = forwardRef<
           </View>
         </KeyboardGestureArea>
       </GestureHandlerRootView>
-    </Modal>
+    </View>
   );
 });
 

@@ -17,6 +17,7 @@ import { formatWhatsAppPhone, initials, waColors } from "../whatsapp-ui";
 import { type WaConversation, type WaMessage } from "../../../api/whatsapp.api";
 import { navigate } from "../../../navigation/navigation-ref";
 import { triggerLightHaptic, triggerMediumHaptic } from "../../../utils/haptics";
+import { Image as ExpoImage } from "expo-image";
 import { useCustomersQuery, useCustomerDetailQuery } from "../../../hooks/useCustomers";
 import { whatsappDb } from "../services/whatsapp-db";
 import { contactsDb } from "../services/contactsDb";
@@ -268,7 +269,13 @@ export function ChatProfileSheet({
                 {mediaItems.map((item) => (
                   <View key={item.id} style={styles.mediaItemCard}>
                     {item.asset?.url ? (
-                      <Image source={{ uri: item.asset.url }} style={styles.mediaThumbnail} />
+                      <ExpoImage
+                        source={{ uri: item.asset.url }}
+                        style={styles.mediaThumbnail}
+                        contentFit="cover"
+                        cachePolicy="memory-disk"
+                        transition={0}
+                      />
                     ) : (
                       <View style={styles.mediaPlaceholder}>
                         <MaterialCommunityIcons name="file-image-outline" size={28} color={waColors.greenDark} />

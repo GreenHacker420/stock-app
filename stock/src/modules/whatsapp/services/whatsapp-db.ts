@@ -5,6 +5,7 @@ import type {
   WaOutboundMessage,
 } from "../../../api/whatsapp.api";
 import { sqliteClient } from "../../../database/sqlite-client";
+import { mmkvStorage } from "../../../auth/mmkv-storage";
 
 const LOCAL_PAGE_LIMIT = 1_000;
 
@@ -281,6 +282,17 @@ export const whatsappDb = {
     });
   },
 
+  getFastConversations(shopId: string): WaConversation[] {
+    try {
+      const cached = mmkvStorage.getItem(`wa_fast_convs_${shopId}`) as string | null;
+      if (cached && typeof cached === "string") {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch (e) {}
+    return [];
+  },
+
   async getConversations(shopId: string, integrationId: string) {
     await initializeDatabase();
     const rows = await sqliteClient.read((database) => database.all<ConversationRow>(
@@ -291,9 +303,13 @@ export const whatsappDb = {
        LIMIT ?`,
       [shopId, integrationId, LOCAL_PAGE_LIMIT],
     ));
-    return rows
+    const convs = rows
       .map((row) => parseJson<WaConversation>(row.payload_json))
       .filter((row): row is WaConversation => Boolean(row));
+    try {
+      mmkvStorage.setItem(`wa_fast_convs_${shopId}`, JSON.stringify(convs));
+    } catch (e) {}
+    return convs;
   },
 
   async linkCustomerToConversation(conversationId: string, customerId: string | null) {

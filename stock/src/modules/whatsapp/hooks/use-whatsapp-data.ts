@@ -12,6 +12,7 @@ import { useAuthStore } from "../../../auth/auth-store";
 import { queryKeys } from "../../../hooks/query-keys";
 import { useWhatsAppScope } from "../whatsapp-scope";
 import { whatsappDb } from "../services/whatsapp-db";
+import { Image as ExpoImage } from "expo-image";
 
 const EMPTY_PAGE = <T,>(items: T[]): WaPage<T> => ({
   items,
@@ -26,7 +27,10 @@ export function useWhatsAppConversations() {
   const [localCache, setLocalCache] = useState<{
     key: string;
     items: WaConversation[];
-  } | null>(null);
+  } | null>(() => {
+    const fastItems = whatsappDb.getFastConversations(shopId);
+    return fastItems.length > 0 ? { key: localCacheKey, items: fastItems } : null;
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -78,6 +82,7 @@ export function useWhatsAppConversations() {
     },
     getNextPageParam: (page) => page.nextCursor || undefined,
     staleTime: 20_000,
+    maxPages: 6,
   });
 
   const conversations = useMemo(() => {
@@ -98,6 +103,7 @@ export function useWhatsAppConversations() {
     conversations,
   };
 }
+
 
 export function useWhatsAppMessages(conversationId: string) {
   const token = useAuthStore((state) => state.token);
@@ -144,6 +150,7 @@ export function useWhatsAppMessages(conversationId: string) {
     },
     getNextPageParam: (page) => page.nextCursor || undefined,
     staleTime: 10_000,
+    maxPages: 10,
   });
 
   const messages = useMemo(() => {
@@ -161,6 +168,20 @@ export function useWhatsAppMessages(conversationId: string) {
     return remoteItems;
   }, [localCache, localCacheKey, query.data, query.isFetching]);
   const localCacheHydrated = localCache?.key === localCacheKey;
+
+  useEffect(() => {
+    if (!messages || messages.length === 0) return;
+    const imageUrls = messages
+      .filter((m) => m.type === "IMAGE" && Boolean(m.asset?.url))
+      .map((m) => m.asset!.url);
+    if (imageUrls.length > 0) {
+      for (const url of imageUrls) {
+        if (url) {
+          void ExpoImage.prefetch(url, "memory-disk").catch(() => undefined);
+        }
+      }
+    }
+  }, [messages]);
 
   return {
     ...query,

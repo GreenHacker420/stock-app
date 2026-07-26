@@ -1,4 +1,4 @@
-import { type ComponentType, useRef, useState } from "react";
+import { memo, type ComponentType, useRef, useState } from "react";
 import {
   Alert,
   Linking,
@@ -53,10 +53,13 @@ function TextRenderer({ message }: RendererProps) {
   return <Text selectable style={styles.messageText}>{message.content?.text || ""}</Text>;
 }
 
+const loadedImageCache = new Set<string>();
+
 function ImageRenderer({ message, onOpenImage }: RendererProps) {
   const [visible, setVisible] = useState(false);
-  const [loading, setLoading] = useState(true);
   const url = message.asset?.url;
+  const [loading, setLoading] = useState(() => Boolean(url && !loadedImageCache.has(url)));
+
   if (!url) return <AssetUnavailable message={message} />;
 
   const handlePress = () => {
@@ -81,9 +84,16 @@ function ImageRenderer({ message, onOpenImage }: RendererProps) {
             contentFit="cover"
             cachePolicy="memory-disk"
             recyclingKey={message.id}
-            transition={120}
-            onLoadStart={() => setLoading(true)}
-            onLoad={() => setLoading(false)}
+            transition={0}
+            onLoadStart={() => {
+              if (url && !loadedImageCache.has(url)) {
+                setLoading(true);
+              }
+            }}
+            onLoad={() => {
+              if (url) loadedImageCache.add(url);
+              setLoading(false);
+            }}
             onError={() => setLoading(false)}
           />
           {loading && (
@@ -392,10 +402,22 @@ const RENDERERS: Record<WaMessageType, ComponentType<RendererProps>> = {
   UNSUPPORTED: UnsupportedRenderer,
 };
 
-export function MessageContentRenderer({ message, onOpenImage }: RendererProps) {
-  const Renderer = RENDERERS[message.type] || UnsupportedRenderer;
-  return <Renderer message={message} onOpenImage={onOpenImage} />;
-}
+export const MessageContentRenderer = memo(
+  function MessageContentRenderer({ message, onOpenImage }: RendererProps) {
+    const Renderer = RENDERERS[message.type] || UnsupportedRenderer;
+    return <Renderer message={message} onOpenImage={onOpenImage} />;
+  },
+  (prev, next) => {
+    return (
+      prev.message.id === next.message.id &&
+      prev.message.createdAt === next.message.createdAt &&
+      prev.message.operationState === next.message.operationState &&
+      prev.message.providerStatus === next.message.providerStatus &&
+      prev.message.contentState === next.message.contentState &&
+      prev.onOpenImage === next.onOpenImage
+    );
+  }
+);
 
 const styles = StyleSheet.create({
   messageText: {

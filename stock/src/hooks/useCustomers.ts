@@ -7,6 +7,7 @@ import { newIdempotencyKey } from "@/utils/idempotency";
 import { requireActiveShopId } from "@/hooks/useActiveShop";
 import { useCustomerReadModel, useReadModelRefresh } from "@/local/read-model/read-model-selectors";
 import { refreshReadModelDomains } from "@/local/read-model/read-model-coordinator";
+import { mmkvStorage } from "@/auth/mmkv-storage";
 
 function refreshCustomerReadModelAfterMutation({
   userId,
@@ -69,20 +70,42 @@ export function useCustomerDetailQuery(id: string) {
     queryKey: queryKeys.customer(id),
     queryFn: () => fetchCustomer(token ?? "", id),
     enabled: !!token && !!id,
-    staleTime: 15 * 60 * 1000, // 15 mins
+    staleTime: 5 * 60 * 1000, // 5 mins
     initialData: () => {
+      if (!id) return undefined;
+      // 1. Try MMKV storage for 0ms instant load
+      try {
+        const cached = mmkvStorage.getItem(`cust_snapshot_${id}`) as string | null;
+        if (cached && typeof cached === "string") {
+          const parsed = JSON.parse(cached);
+          if (parsed && parsed.id === id) return parsed;
+        }
+      } catch (err) {
+        // ignore parse error
+      }
+      // 2. Search in customers queries cache
       if (!activeShopId) return undefined;
-      // Search in customers queries cache
       const queries = queryClient.getQueriesData<any>({
         queryKey: ["customers", activeShopId],
       });
       for (const [_, queryData] of queries) {
-        if (Array.isArray(queryData)) {
-          const found = queryData.find((c: any) => c.id === id);
+        const list = Array.isArray(queryData) ? queryData : (queryData?.items || queryData?.customers);
+        if (Array.isArray(list)) {
+          const found = list.find((c: any) => c.id === id);
           if (found) return found;
         }
       }
       return undefined;
+    },
+    select: (data) => {
+      if (data && id) {
+        try {
+          mmkvStorage.setItem(`cust_snapshot_${id}`, JSON.stringify(data));
+        } catch (err) {
+          // ignore
+        }
+      }
+      return data;
     },
     initialDataUpdatedAt: () => {
       if (!activeShopId) return undefined;

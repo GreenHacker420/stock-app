@@ -316,7 +316,7 @@ export const ChatDetailScreen = () => {
     const initials = initialsFor(conversation?.contactName || recipientPhone);
 
     navigation.setOptions({
-      headerShown: true,
+      headerShown: !showProfileSheet,
       headerStyle: { backgroundColor: waColors.greenDark },
       headerTintColor: "#fff",
       headerShadowVisible: false,
@@ -356,7 +356,7 @@ export const ChatDetailScreen = () => {
       ) : null,
       headerTitleAlign: "left",
     });
-  }, [navigation, conversation, recipientPhone]);
+  }, [navigation, conversation, recipientPhone, showProfileSheet]);
 
   const messageQuery = useWhatsAppMessages(conversationId);
   const messages = messageQuery.messages;
@@ -1251,7 +1251,11 @@ export const ChatDetailScreen = () => {
     }
   };
 
-  const renderMessage = ({ item, index }: { item: WaMessage; index: number }) => {
+  const getItemType = useCallback((item: WaMessage) => {
+    return item.type || "TEXT";
+  }, []);
+
+  const renderMessage = useCallback(({ item, index }: { item: WaMessage; index: number }) => {
     const isOutbound = item.direction === "OUTBOUND";
     const isDeleted = item.contentState === "DELETED";
     const previous = displayedMessages[index - 1];
@@ -1358,7 +1362,7 @@ export const ChatDetailScreen = () => {
         </SwipeReplyRow>
       </>
     );
-  };
+  }, [displayedMessages, messagesByMetaId, retryMutation]);
 
   const handleTimelineScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
@@ -1374,6 +1378,8 @@ export const ChatDetailScreen = () => {
         ref={flatListRef}
         data={displayedMessages}
         renderItem={renderMessage}
+        getItemType={getItemType}
+        drawDistance={1000}
         keyExtractor={(item) => item.clientMessageId || item.id}
         renderScrollComponent={KeyboardChatListScrollComponent}
         scrollEnabled={!reactionMenuVisible}
