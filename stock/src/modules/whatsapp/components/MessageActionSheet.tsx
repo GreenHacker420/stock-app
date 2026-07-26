@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Pressable,
   StyleSheet,
@@ -8,9 +8,12 @@ import { Button, IconButton, Text, TextInput } from "react-native-paper";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { colors as Colors } from "../../../theme";
 import { AppBottomSheetModal } from "../../../components/overlays/AppBottomSheetModal";
+import { triggerSelectionHaptic } from "../../../utils/haptics";
 import type { WaOutboundMessage } from "../../../api/whatsapp.api";
 
-type SheetMode = "menu" | "buttons" | "list";
+type SheetMode = "menu" | "media" | "buttons" | "list";
+type MediaKind = "image" | "video";
+type MediaSource = "camera" | "library";
 
 type Props = {
   visible: boolean;
@@ -20,7 +23,7 @@ type Props = {
   onClose: () => void;
   onOpenTemplates: () => void;
   onOpenFlows: () => void;
-  onPickMedia: (kind: "image" | "video" | "document") => void;
+  onPickMedia: (kind: "image" | "video" | "document", source?: MediaSource) => void;
   onRecordVoice: () => void;
   onShareContact: () => void;
   onShareLocation: () => Promise<boolean>;
@@ -55,6 +58,7 @@ export function MessageActionSheet({
   onSend,
 }: Props) {
   const [mode, setMode] = useState<SheetMode>("menu");
+  const [mediaKind, setMediaKind] = useState<MediaKind>("image");
   const [body, setBody] = useState("");
   const [buttonTitles, setButtonTitles] = useState(["", "", ""]);
   const [listButton, setListButton] = useState("Choose");
@@ -62,10 +66,12 @@ export function MessageActionSheet({
     { title: "", description: "" },
     { title: "", description: "" },
   ]);
+  const pendingAfterDismissRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     if (!visible) {
       setMode("menu");
+      setMediaKind("image");
       setBody("");
       setButtonTitles(["", "", ""]);
       setListButton("Choose");
@@ -76,36 +82,50 @@ export function MessageActionSheet({
     }
   }, [visible]);
 
+  const dismissThen = (next?: () => void) => {
+    pendingAfterDismissRef.current = next || null;
+    onClose();
+  };
+
+  const handleSheetDismiss = () => {
+    onClose();
+    const next = pendingAfterDismissRef.current;
+    pendingAfterDismissRef.current = null;
+    next?.();
+  };
+
   const handleMenuAction = async (id: typeof MENU_ACTIONS[number]["id"]) => {
-    if (id === "image" || id === "video" || id === "document") {
-      onClose();
-      onPickMedia(id);
+    triggerSelectionHaptic();
+    if (id === "image" || id === "video") {
+      setMediaKind(id);
+      setMode("media");
+      return;
+    }
+    if (id === "document") {
+      dismissThen(() => onPickMedia(id));
       return;
     }
     if (id === "voice") {
-      onClose();
-      onRecordVoice();
+      dismissThen(onRecordVoice);
       return;
     }
     if (id === "template") {
-      onClose();
-      onOpenTemplates();
+      dismissThen(onOpenTemplates);
       return;
     }
     if (id === "flow") {
-      onClose();
-      onOpenFlows();
+      dismissThen(onOpenFlows);
       return;
     }
     if (id === "contact") {
       if (!canShareContact) return;
       onShareContact();
-      onClose();
+      dismissThen();
       return;
     }
     if (id === "location") {
       const shared = await onShareLocation();
-      if (shared) onClose();
+      if (shared) dismissThen();
       return;
     }
     setMode(id);
@@ -153,20 +173,36 @@ export function MessageActionSheet({
     && listButton.trim().length > 0
     && rows.some((row) => row.title.trim());
 
+  const chooseMediaSource = (source: MediaSource) => {
+    triggerSelectionHaptic();
+    dismissThen(() => onPickMedia(mediaKind, source));
+  };
+
+  const title = mode === "menu"
+    ? "Send message"
+    : mode === "media"
+      ? mediaKind === "image" ? "Add a photo" : "Add a video"
+      : mode === "buttons"
+        ? "Quick replies"
+        : "List message";
+  const subtitle = mode === "menu"
+    ? "Choose a WhatsApp message type"
+    : mode === "media"
+      ? "Capture something new or choose from your gallery"
+      : mode === "buttons"
+        ? "Add up to three reply choices"
+        : "Add up to ten selectable rows";
+
   return (
     <AppBottomSheetModal
       visible={visible}
-      title={mode === "menu" ? "Send message" : mode === "buttons" ? "Quick replies" : "List message"}
-      subtitle={
-        mode === "menu"
-          ? "Choose a WhatsApp message type"
-          : mode === "buttons"
-            ? "Add up to three reply choices"
-            : "Add up to ten selectable rows"
-      }
-      onDismiss={onClose}
+      title={title}
+      subtitle={subtitle}
+      onDismiss={handleSheetDismiss}
+      onBack={mode === "menu" ? undefined : () => setMode("menu")}
+      backAccessibilityLabel="Back to message types"
       isBusy={sending}
-      maxHeight={0.9}
+      maxHeight={mode === "menu" ? 0.72 : 0.92}
       scrollable
     >
           {mode === "menu" ? (
@@ -202,16 +238,56 @@ export function MessageActionSheet({
               </View>
 
               {!canShareContact && (
-                <Text style={styles.helper}>Link this conversation to a customer to share their contact.</Text>
+                <View style={styles.helper}>
+                  <MaterialCommunityIcons name="information-outline" size={18} color={Colors.textSecondary} />
+                  <Text style={styles.helperText}>
+                    Link this conversation to a customer to share their contact.
+                  </Text>
+                </View>
               )}
             </>
+          ) : mode === "media" ? (
+            <View style={styles.mediaSourceRow}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Open camera for ${mediaKind === "image" ? "photo" : "video"}`}
+                onPress={() => chooseMediaSource("camera")}
+                style={({ pressed }) => [styles.mediaSource, pressed && styles.mediaSourcePressed]}
+              >
+                <View style={[styles.mediaSourceIcon, styles.cameraSourceIcon]}>
+                  <MaterialCommunityIcons
+                    name={mediaKind === "image" ? "camera-outline" : "video-outline"}
+                    size={30}
+                    color="#fff"
+                  />
+                </View>
+                <View style={styles.mediaSourceText}>
+                  <Text style={styles.mediaSourceTitle}>Camera</Text>
+                  <Text style={styles.mediaSourceSubtitle}>
+                    {mediaKind === "image" ? "Take a new photo" : "Record a new video"}
+                  </Text>
+                </View>
+                <MaterialCommunityIcons name="chevron-right" size={22} color={Colors.textMuted} />
+              </Pressable>
+
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Choose ${mediaKind === "image" ? "photo" : "video"} from gallery`}
+                onPress={() => chooseMediaSource("library")}
+                style={({ pressed }) => [styles.mediaSource, pressed && styles.mediaSourcePressed]}
+              >
+                <View style={[styles.mediaSourceIcon, styles.gallerySourceIcon]}>
+                  <MaterialCommunityIcons name="image-multiple-outline" size={29} color={Colors.primary} />
+                </View>
+                <View style={styles.mediaSourceText}>
+                  <Text style={styles.mediaSourceTitle}>Gallery</Text>
+                  <Text style={styles.mediaSourceSubtitle}>Choose an existing file</Text>
+                </View>
+                <MaterialCommunityIcons name="chevron-right" size={22} color={Colors.textMuted} />
+              </Pressable>
+            </View>
           ) : (
             <View style={styles.formContent}>
-              <View style={styles.modeHeader}>
-                <IconButton icon="arrow-left" onPress={() => setMode("menu")} />
-                <Text style={styles.backLabel}>Back to message types</Text>
-              </View>
-
               <TextInput
                 mode="outlined"
                 label="Message"
@@ -312,29 +388,20 @@ export function MessageActionSheet({
 }
 
 const styles = StyleSheet.create({
-  modeHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginLeft: -12,
-  },
-  backLabel: {
-    color: Colors.primary,
-    fontWeight: "600",
-  },
   actionGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 10,
-    paddingVertical: 12,
+    paddingVertical: 6,
   },
   action: {
-    width: "48%",
-    minHeight: 96,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    borderRadius: 8,
-    justifyContent: "space-between",
+    width: "25%",
+    minHeight: 92,
+    alignItems: "center",
+    justifyContent: "flex-start",
+    gap: 8,
+    paddingHorizontal: 3,
+    paddingVertical: 8,
+    borderRadius: 14,
   },
   actionPressed: {
     backgroundColor: Colors.surfaceOffset,
@@ -343,23 +410,80 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   actionIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 8,
+    width: 54,
+    height: 54,
+    borderRadius: 27,
     alignItems: "center",
     justifyContent: "center",
   },
   actionTitle: {
     color: Colors.textPrimary,
-    fontWeight: "600",
+    fontSize: 12,
+    lineHeight: 15,
+    fontWeight: "500",
+    textAlign: "center",
   },
   disabledText: {
     color: Colors.textMuted,
   },
   helper: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    marginTop: 4,
+    padding: 12,
+    borderRadius: 12,
+    backgroundColor: Colors.surfaceOffset,
+  },
+  helperText: {
+    flex: 1,
     color: Colors.textSecondary,
     fontSize: 12,
-    paddingBottom: 8,
+    lineHeight: 17,
+  },
+  mediaSourceRow: {
+    gap: 10,
+    paddingVertical: 4,
+  },
+  mediaSource: {
+    minHeight: 78,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    padding: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: Colors.border,
+    borderRadius: 16,
+    backgroundColor: Colors.surface,
+  },
+  mediaSourcePressed: {
+    backgroundColor: Colors.surfaceOffset,
+  },
+  mediaSourceIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 18,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cameraSourceIcon: {
+    backgroundColor: Colors.primary,
+  },
+  gallerySourceIcon: {
+    backgroundColor: Colors.primaryLight,
+  },
+  mediaSourceText: {
+    flex: 1,
+    gap: 2,
+  },
+  mediaSourceTitle: {
+    color: Colors.textPrimary,
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  mediaSourceSubtitle: {
+    color: Colors.textSecondary,
+    fontSize: 12,
   },
   formContent: {
     gap: 12,

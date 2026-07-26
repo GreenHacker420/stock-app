@@ -507,8 +507,105 @@ export const whatsappDb = {
     ));
   },
 
+  async persistPendingMessageAndOperation(
+    scope: { shopId: string; integrationId: string; conversationId: string },
+    message: WaMessage,
+    operation: PendingWhatsAppOperation,
+  ) {
+    await initializeDatabase();
+    await sqliteClient.transaction(async (transaction) => {
+      await transaction.run(
+        `INSERT INTO wa_messages (
+          id, shop_id, integration_id, conversation_id, client_message_id,
+          provider_message_id, direction, message_type, operation_state,
+          provider_status, content_state, entity_version, created_at, payload_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          operation_state = excluded.operation_state,
+          provider_status = excluded.provider_status,
+          content_state = excluded.content_state,
+          payload_json = excluded.payload_json`,
+        [
+          message.id,
+          scope.shopId,
+          scope.integrationId,
+          scope.conversationId,
+          message.clientMessageId || null,
+          message.metaMessageId || null,
+          message.direction,
+          message.type,
+          message.operationState || null,
+          message.providerStatus || null,
+          message.contentState || null,
+          message.entityVersion || 0,
+          timestamp(message.createdAt),
+          JSON.stringify(message),
+        ],
+      );
+      await transaction.run(
+        `INSERT INTO wa_pending_operations (
+          id, shop_id, integration_id, conversation_id, client_message_id,
+          operation_type, operation_state, payload_json, attempt,
+          next_attempt_at, last_error, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+          operation_state = excluded.operation_state,
+          payload_json = excluded.payload_json,
+          attempt = excluded.attempt,
+          next_attempt_at = excluded.next_attempt_at,
+          last_error = excluded.last_error,
+          updated_at = excluded.updated_at`,
+        [
+          operation.id,
+          operation.shopId,
+          operation.integrationId,
+          operation.conversationId,
+          operation.clientMessageId,
+          operation.operationType,
+          operation.operationState,
+          JSON.stringify(operation.payload),
+          operation.attempt,
+          operation.nextAttemptAt,
+          operation.lastError || null,
+          operation.createdAt,
+          operation.updatedAt,
+        ],
+      );
+    });
+  },
+
+  async requeueOperationByClientMessageId(
+    integrationId: string,
+    clientMessageId: string,
+  ) {
+    await initializeDatabase();
+    const operation = await sqliteClient.read((database) =>
+      database.first<{ id: string; attempt: number }>(
+        `SELECT id, attempt
+         FROM wa_pending_operations
+         WHERE integration_id = ? AND client_message_id = ?
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [integrationId, clientMessageId],
+      ),
+    );
+    if (!operation) return false;
+    await sqliteClient.write((database) => database.run(
+      `UPDATE wa_pending_operations
+       SET operation_state = 'RETRY_SCHEDULED',
+           next_attempt_at = ?,
+           last_error = NULL,
+           updated_at = ?
+       WHERE id = ?`,
+      [Date.now(), Date.now(), operation.id],
+    ));
+    return true;
+  },
+
   async getReadyOperations(shopId: string, integrationId: string) {
     await initializeDatabase();
+    const now = Date.now();
+    const staleUploadCutoff = now - 60_000;
     const rows = await sqliteClient.read((database) => database.all<PendingOperationRow>(
       `SELECT *
        FROM wa_pending_operations
@@ -516,9 +613,10 @@ export const whatsappDb = {
          AND integration_id = ?
          AND operation_state IN ('WAITING_FOR_NETWORK', 'UPLOADING', 'RETRY_SCHEDULED', 'SUBMITTING')
          AND next_attempt_at <= ?
+         AND (operation_state != 'UPLOADING' OR updated_at <= ?)
        ORDER BY created_at ASC
        LIMIT 25`,
-      [shopId, integrationId, Date.now()],
+      [shopId, integrationId, now, staleUploadCutoff],
     ));
     return rows
       .map(mapPendingOperation)

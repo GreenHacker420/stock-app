@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Alert, Modal, Pressable, StyleSheet, View } from "react-native";
+import { Alert, StyleSheet, View } from "react-native";
 import { Button, IconButton, ProgressBar, Text } from "react-native-paper";
 import {
   RecordingPresets,
@@ -9,6 +9,7 @@ import {
   useAudioRecorderState,
 } from "expo-audio";
 import { colors as Colors } from "../../../theme";
+import { AppBottomSheetModal } from "../../../components/overlays/AppBottomSheetModal";
 import type { WaLocalMedia } from "../../../api/whatsapp.api";
 
 type Props = {
@@ -113,90 +114,56 @@ export function VoiceRecorderSheet({
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={close}>
-      <View style={styles.overlay}>
-        <Pressable style={styles.dismissArea} onPress={uploading ? undefined : close} />
-        <View style={styles.sheet}>
-          <View style={styles.grabber} />
-          <View style={styles.header}>
-            <View>
-              <Text variant="titleMedium" style={styles.title}>Voice message</Text>
-              <Text variant="bodySmall" style={styles.subtitle}>
-                {recordedUri ? "Ready to send" : recorderState.isRecording ? "Recording" : "Tap to begin"}
-              </Text>
-            </View>
-            <IconButton icon="close" disabled={uploading} onPress={close} />
+    <AppBottomSheetModal
+      visible={visible}
+      title="Voice message"
+      subtitle={recordedUri ? "Ready to send" : recorderState.isRecording ? "Recording" : "Tap to begin"}
+      onDismiss={() => void close()}
+      isBusy={uploading}
+      maxHeight={0.68}
+    >
+      <View style={styles.content}>
+        <View style={styles.recorder}>
+          <View style={[styles.pulse, recorderState.isRecording && styles.pulseActive]}>
+            <IconButton
+              icon={recorderState.isRecording ? "stop" : recordedUri ? "microphone-check" : "microphone"}
+              iconColor="#fff"
+              size={34}
+              disabled={uploading || Boolean(recordedUri)}
+              onPress={recorderState.isRecording ? stopRecording : startRecording}
+            />
           </View>
-
-          <View style={styles.recorder}>
-            <View style={[styles.pulse, recorderState.isRecording && styles.pulseActive]}>
-              <IconButton
-                icon={recorderState.isRecording ? "stop" : recordedUri ? "microphone-check" : "microphone"}
-                iconColor="#fff"
-                size={34}
-                disabled={uploading || Boolean(recordedUri)}
-                onPress={recorderState.isRecording ? stopRecording : startRecording}
-              />
-            </View>
-            <Text style={styles.time}>
-              {formatDuration(recordedUri ? recordedDuration : recorderState.durationMillis)}
-            </Text>
-          </View>
-
-          {uploading && (
-            <View style={styles.progressRow}>
-              <ProgressBar progress={uploadProgress} color={Colors.primary} style={styles.progress} />
-              <Text style={styles.progressText}>{Math.round(uploadProgress * 100)}%</Text>
-            </View>
-          )}
-
-          {uploading ? (
-            <Button mode="outlined" icon="close" onPress={onCancelUpload}>Cancel upload</Button>
-          ) : recordedUri ? (
-            <View style={styles.actions}>
-              <Button mode="outlined" icon="delete-outline" onPress={discard}>Discard</Button>
-              <Button mode="contained" icon="send" onPress={send}>Send voice note</Button>
-            </View>
-          ) : (
-            <Text style={styles.helper}>Maximum recording length is 15 minutes.</Text>
-          )}
+          <Text style={styles.time}>
+            {formatDuration(recordedUri ? recordedDuration : recorderState.durationMillis)}
+          </Text>
         </View>
+
+        {uploading && (
+          <View style={styles.progressRow}>
+            <ProgressBar progress={uploadProgress} color={Colors.primary} style={styles.progress} />
+            <Text style={styles.progressText}>{Math.round(uploadProgress * 100)}%</Text>
+          </View>
+        )}
+
+        {uploading ? (
+          <Button mode="outlined" icon="close" onPress={onCancelUpload}>Cancel upload</Button>
+        ) : recordedUri ? (
+          <View style={styles.actions}>
+            <Button mode="outlined" icon="delete-outline" onPress={discard}>Discard</Button>
+            <Button mode="contained" icon="send" onPress={send}>Send voice note</Button>
+          </View>
+        ) : (
+          <Text style={styles.helper}>Maximum recording length is 15 minutes.</Text>
+        )}
       </View>
-    </Modal>
+    </AppBottomSheetModal>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    justifyContent: "flex-end",
-    backgroundColor: "rgba(15, 23, 42, 0.35)",
-  },
-  dismissArea: { flex: 1 },
-  sheet: {
+  content: {
     gap: 16,
-    paddingHorizontal: 16,
-    paddingBottom: 24,
-    backgroundColor: Colors.surface,
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
   },
-  grabber: {
-    width: 38,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: Colors.borderStrong,
-    alignSelf: "center",
-    marginTop: 8,
-  },
-  header: {
-    minHeight: 54,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  title: { color: Colors.textPrimary, fontWeight: "700" },
-  subtitle: { color: Colors.textSecondary },
   recorder: {
     height: 150,
     alignItems: "center",
@@ -239,4 +206,3 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
 });
-

@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { Alert, Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
-import { ActivityIndicator, Button, IconButton, Searchbar, Text, TextInput } from "react-native-paper";
+import { Alert, Pressable, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Button, Searchbar, Text, TextInput } from "react-native-paper";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
@@ -13,6 +13,7 @@ import {
   WaTemplateDefinition,
 } from "../../../api/whatsapp.api";
 import { useAuthStore } from "../../../auth/auth-store";
+import { AppBottomSheetModal } from "../../../components/overlays/AppBottomSheetModal";
 import { WhatsAppTemplatePreview } from "./WhatsAppTemplatePreview";
 import { waColors } from "../whatsapp-ui";
 
@@ -228,23 +229,19 @@ export function TemplateSendSheet({
   };
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={close}>
-      <View style={styles.overlay}>
-        <Pressable style={styles.dismiss} onPress={close} />
-        <View style={styles.sheet}>
-          <View style={styles.grabber} />
-          <View style={styles.header}>
-            {selected ? (
-              <IconButton icon="arrow-left" onPress={() => { setSelected(null); setValues({}); }} />
-            ) : <View style={styles.headerSpacer} />}
-            <Text variant="titleMedium" style={styles.title}>
-              {selected ? selected.name : "Message template"}
-            </Text>
-            <IconButton icon="close" onPress={close} />
-          </View>
-
+    <AppBottomSheetModal
+      visible={visible}
+      title={selected?.name || "Message template"}
+      subtitle={selected ? `${selected.language} · ${selected.category}` : "Choose an approved WhatsApp template"}
+      onDismiss={close}
+      onBack={selected ? () => { setSelected(null); setValues({}); } : undefined}
+      backAccessibilityLabel="Back to templates"
+      isBusy={sendMutation.isPending || uploadingHeader || uploadingCard != null}
+      maxHeight={0.94}
+      scrollable
+    >
           {selected ? (
-            <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+            <View style={styles.content}>
               <WhatsAppTemplatePreview definition={selected.draftDefinition || {
                 name: selected.name,
                 language: selected.language,
@@ -383,9 +380,9 @@ export function TemplateSendSheet({
               {selected.mappingStatus !== "VALID" && (
                 <Text style={styles.warning}>Complete this template’s attribute mappings before sending.</Text>
               )}
-            </ScrollView>
+            </View>
           ) : (
-            <>
+            <View style={styles.browser}>
               <Searchbar
                 value={search}
                 onChangeText={setSearch}
@@ -395,7 +392,7 @@ export function TemplateSendSheet({
               {query.isLoading ? (
                 <ActivityIndicator style={styles.loader} color={waColors.green} />
               ) : (
-                <ScrollView contentContainerStyle={styles.list}>
+                <View style={styles.list}>
                   {(query.data?.data || []).map((template) => (
                     <Pressable
                       key={template.id}
@@ -416,13 +413,11 @@ export function TemplateSendSheet({
                       </View>
                     </Pressable>
                   ))}
-                </ScrollView>
+                </View>
               )}
-            </>
+            </View>
           )}
-        </View>
-      </View>
-    </Modal>
+    </AppBottomSheetModal>
   );
 }
 
@@ -482,21 +477,10 @@ function carouselCardsReady(template: WaTemplate, cards: Array<{
 }
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.35)" },
-  dismiss: { flex: 1 },
-  sheet: {
-    height: "88%",
-    backgroundColor: waColors.surface,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-  },
-  grabber: { width: 36, height: 4, borderRadius: 2, backgroundColor: "#CDD2D5", alignSelf: "center", marginTop: 8 },
-  header: { height: 58, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  headerSpacer: { width: 48 },
-  title: { color: waColors.text, fontWeight: "700" },
-  search: { marginHorizontal: 12, marginBottom: 8, backgroundColor: waColors.surfaceMuted, borderRadius: 8 },
-  loader: { flex: 1 },
-  list: { paddingBottom: 30 },
+  browser: { gap: 10 },
+  search: { backgroundColor: waColors.surfaceMuted, borderRadius: 14 },
+  loader: { height: 180, justifyContent: "center" },
+  list: { paddingBottom: 12 },
   templateRow: { minHeight: 88, flexDirection: "row", padding: 12 },
   templateIcon: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center", backgroundColor: waColors.green },
   templateIconText: { color: "#fff", fontWeight: "700", fontSize: 18 },
@@ -505,15 +489,15 @@ const styles = StyleSheet.create({
   templatePreview: { color: waColors.textSecondary, fontSize: 13, paddingTop: 3 },
   ready: { color: waColors.green, fontSize: 11, paddingTop: 4 },
   warning: { color: "#B7791F", fontSize: 11, paddingTop: 4 },
-  content: { padding: 14, gap: 14, paddingBottom: 40 },
-  mapping: { gap: 7 },
+  content: { gap: 14, paddingBottom: 12 },
+  mapping: { gap: 7, padding: 12, borderRadius: 14, backgroundColor: waColors.surfaceMuted },
   mappingHeader: { flexDirection: "row", justifyContent: "space-between" },
   mappingTitle: { color: waColors.greenDark, fontWeight: "700" },
   attribute: { color: waColors.textSecondary, fontSize: 12 },
   send: { backgroundColor: waColors.green },
   carouselInputs: { gap: 10 },
   carouselTitle: { color: waColors.text, fontSize: 14, fontWeight: "700" },
-  cardInput: { gap: 8, padding: 10, borderWidth: StyleSheet.hairlineWidth, borderColor: waColors.border, borderRadius: 8 },
+  cardInput: { gap: 8, padding: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: waColors.border, borderRadius: 14 },
   cardTitle: { color: waColors.greenDark, fontSize: 12, fontWeight: "700" },
   locationRow: { flexDirection: "row", gap: 8 },
   locationCoordinate: { flex: 1 },

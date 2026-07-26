@@ -6,16 +6,13 @@ import {
   Text,
   useWindowDimensions,
   Pressable,
-  Platform,
   AccessibilityInfo,
 } from "react-native";
 import {
   GestureHandlerRootView,
   GestureDetector,
   Gesture,
-  ScrollView,
 } from "react-native-gesture-handler";
-import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -27,6 +24,8 @@ import { scheduleOnRN } from "react-native-worklets";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Icon } from "react-native-paper";
 import { colors, spacing, radius, shadow, fontWeight, fontSize } from "../../theme";
+import { triggerMediumHaptic } from "../../utils/haptics";
+import { KeyboardAwareScreen } from "../keyboard/KeyboardAwareScreen";
 
 const OPEN_SPRING_CONFIG = {
   damping: 26,
@@ -48,7 +47,10 @@ interface AppBottomSheetModalProps {
   subtitle?: string;
   children: React.ReactNode;
   onDismiss: () => void;
+  onBack?: () => void;
+  backAccessibilityLabel?: string;
   isBusy?: boolean;
+  minHeight?: number;
   maxHeight?: number;
   fullBleed?: boolean;
   scrollable?: boolean;
@@ -64,7 +66,10 @@ export const AppBottomSheetModal = forwardRef<
     subtitle,
     children,
     onDismiss,
+    onBack,
+    backAccessibilityLabel = "Go back",
     isBusy = false,
+    minHeight,
     maxHeight = 0.85,
     fullBleed = false,
     scrollable = false,
@@ -86,8 +91,13 @@ export const AppBottomSheetModal = forwardRef<
   const backdropOpacity = useSharedValue(0);
   const sheetHeight = useSharedValue(0);
   const closing = useSharedValue(false);
+  const contentScrollY = useSharedValue(0);
+  const dragStartedAtTop = useSharedValue(true);
 
   const safeMaxHeight = Math.min(0.95, Math.max(0.4, maxHeight));
+  const safeMinHeight = minHeight === undefined
+    ? undefined
+    : Math.min(safeMaxHeight, Math.max(0.4, minHeight));
 
   const finalizeDismiss = useCallback(() => {
     hasOpenedRef.current = false;
@@ -207,19 +217,30 @@ export const AppBottomSheetModal = forwardRef<
     setDismissing(true);
   }, []);
 
-  // Pan gesture scoped to the drag handle area only
+  const contentNativeGesture = useMemo(() => Gesture.Native(), []);
+
+  // The entire sheet can be pulled down. Scrollable children retain upward
+  // scrolling and only hand a downward pull to the sheet when they are at top.
   const panGesture = useMemo(
     () => Gesture.Pan()
       .enabled(!isBusy && !dismissing)
       .activeOffsetY(10)
       .failOffsetX([-15, 15])
+      .cancelsTouchesInView(false)
+      .simultaneousWithExternalGesture(contentNativeGesture)
+      .onBegin(() => {
+        dragStartedAtTop.value = !scrollable || contentScrollY.value <= 1;
+      })
       .onUpdate((event) => {
+        if (!dragStartedAtTop.value) return;
         translateY.value = Math.max(0, event.translationY);
       })
       .onEnd((event) => {
+        if (!dragStartedAtTop.value) return;
         if (event.translationY > 100 || event.velocityY > 500) {
           closing.value = true;
           scheduleOnRN(markGestureDismissStarted);
+          scheduleOnRN(triggerMediumHaptic);
           const hiddenTranslateY = Math.max(sheetHeight.value, screenH);
           translateY.value = withTiming(hiddenTranslateY, {
             duration: CLOSE_DURATION,
@@ -240,11 +261,26 @@ export const AppBottomSheetModal = forwardRef<
         }
       })
       .onFinalize((_event, success) => {
-        if (!success && !closing.value) {
+        if ((!success || !dragStartedAtTop.value) && !closing.value) {
           translateY.value = withSpring(0, OPEN_SPRING_CONFIG);
         }
       }),
-    [backdropOpacity, isBusy, closing, dismissing, finalizeDismiss, markGestureDismissStarted, recoverInterruptedDismiss, sheetHeight, translateY, screenH]
+    [
+      backdropOpacity,
+      closing,
+      contentNativeGesture,
+      contentScrollY,
+      dismissing,
+      dragStartedAtTop,
+      finalizeDismiss,
+      isBusy,
+      markGestureDismissStarted,
+      recoverInterruptedDismiss,
+      scrollable,
+      sheetHeight,
+      screenH,
+      translateY,
+    ]
   );
 
   const backdropStyle = useAnimatedStyle(() => {
@@ -290,21 +326,23 @@ export const AppBottomSheetModal = forwardRef<
           </Animated.View>
 
           {/* Sheet */}
-          <Animated.View
-            style={[
-              styles.sheetContainer,
-              { maxHeight: screenH * safeMaxHeight },
-              sheetStyle,
-            ]}
-            onLayout={(e) => {
-              sheetHeight.value = e.nativeEvent.layout.height;
-            }}
-            accessibilityViewIsModal
-            accessibilityLabel={`${title} sheet`}
-            onAccessibilityEscape={beginDismiss}
-          >
-            {/* Drag handle — GestureDetector scoped here only, not over content */}
-            <GestureDetector gesture={panGesture}>
+          <GestureDetector gesture={panGesture}>
+            <Animated.View
+              style={[
+                styles.sheetContainer,
+                {
+                  minHeight: safeMinHeight ? screenH * safeMinHeight : undefined,
+                  maxHeight: screenH * safeMaxHeight,
+                },
+                sheetStyle,
+              ]}
+              onLayout={(e) => {
+                sheetHeight.value = e.nativeEvent.layout.height;
+              }}
+              accessibilityViewIsModal
+              accessibilityLabel={`${title} sheet`}
+              onAccessibilityEscape={beginDismiss}
+            >
               <View 
                 style={styles.dragHeader}
                 onLayout={(e) => {
@@ -315,6 +353,21 @@ export const AppBottomSheetModal = forwardRef<
 
                 {/* Header: title block + close button */}
                 <View style={styles.headerRow}>
+                  {onBack ? (
+                    <Pressable
+                      onPress={onBack}
+                      disabled={interactionsDisabled}
+                      accessibilityRole="button"
+                      accessibilityLabel={backAccessibilityLabel}
+                      hitSlop={8}
+                      style={({ pressed }) => [
+                        styles.headerAction,
+                        pressed && styles.headerActionPressed,
+                      ]}
+                    >
+                      <Icon source="arrow-left" size={22} color={colors.textPrimary} />
+                    </Pressable>
+                  ) : null}
                   <View
                     style={styles.headerTextBlock}
                     ref={headerRef}
@@ -335,43 +388,49 @@ export const AppBottomSheetModal = forwardRef<
                     accessibilityRole="button"
                     accessibilityLabel={`Close ${title}`}
                     hitSlop={8}
-                    style={styles.closeBtn}
+                    style={({ pressed }) => [
+                      styles.headerAction,
+                      pressed && styles.headerActionPressed,
+                    ]}
                   >
                     <Icon source="close" size={20} color={colors.textSecondary} />
                   </Pressable>
                 </View>
               </View>
-            </GestureDetector>
 
-            {/* Content area */}
-            {scrollable ? (
-              <KeyboardAvoidingView
-                behavior={Platform.OS === "ios" ? "padding" : "height"}
-                style={{ maxHeight: maxContentHeight }}
-              >
-                <ScrollView
-                  keyboardShouldPersistTaps="handled"
-                  keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
-                  style={styles.scrollView}
-                  contentContainerStyle={[
+              <GestureDetector gesture={contentNativeGesture}>
+                {scrollable ? (
+                  <KeyboardAwareScreen
+                    mode="insets"
+                    bottomOffset={spacing.lg}
+                    style={[
+                      styles.scrollView,
+                      Boolean(safeMinHeight) && styles.scrollViewFill,
+                      { maxHeight: maxContentHeight },
+                    ]}
+                    contentContainerStyle={[
+                      !fullBleed && styles.contentWrapPadded,
+                      { paddingBottom: contentPaddingBottom },
+                    ]}
+                    onScroll={(event) => {
+                      contentScrollY.value = event.nativeEvent.contentOffset.y;
+                    }}
+                    scrollEventThrottle={16}
+                  >
+                    {children}
+                  </KeyboardAwareScreen>
+                ) : (
+                  <View style={[
+                    styles.contentWrap,
                     !fullBleed && styles.contentWrapPadded,
                     { paddingBottom: contentPaddingBottom },
-                  ]}
-                  showsVerticalScrollIndicator={false}
-                >
-                  {children}
-                </ScrollView>
-              </KeyboardAvoidingView>
-            ) : (
-              <View style={[
-                styles.contentWrap,
-                !fullBleed && styles.contentWrapPadded,
-                { paddingBottom: contentPaddingBottom },
-              ]}>
-                {children}
-              </View>
-            )}
-          </Animated.View>
+                  ]}>
+                    {children}
+                  </View>
+                )}
+              </GestureDetector>
+            </Animated.View>
+          </GestureDetector>
         </View>
       </GestureHandlerRootView>
     </Modal>
@@ -423,32 +482,40 @@ const styles = StyleSheet.create({
   },
   headerRow: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: spacing.sm,
+    alignItems: "center",
+    gap: spacing.md,
   },
   headerTextBlock: {
     flex: 1,
     gap: 4,
   },
   title: {
-    fontSize: fontSize.lg,
+    fontSize: fontSize.xl,
     fontWeight: fontWeight.bold,
     color: colors.textPrimary,
   },
   subtitle: {
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.semibold,
-    color: colors.textMuted,
-    textTransform: "uppercase",
-    letterSpacing: 1,
+    fontSize: fontSize.sm,
+    lineHeight: 18,
+    fontWeight: fontWeight.regular,
+    color: colors.textSecondary,
   },
-  closeBtn: {
-    padding: spacing.xs,
-    borderRadius: radius.sm,
-    marginTop: -spacing.xs,
+  headerAction: {
+    width: 38,
+    height: 38,
+    borderRadius: radius.full,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surfaceOffset,
+  },
+  headerActionPressed: {
+    opacity: 0.65,
   },
   scrollView: {
     flexGrow: 0,
+  },
+  scrollViewFill: {
+    flexGrow: 1,
   },
   contentWrap: {
     paddingBottom: spacing.md,

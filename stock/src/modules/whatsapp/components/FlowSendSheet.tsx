@@ -1,9 +1,10 @@
 import { useState } from "react";
-import { Alert, Modal, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Alert, Pressable, StyleSheet, View } from "react-native";
 import { ActivityIndicator, Button, IconButton, Searchbar, Text, TextInput } from "react-native-paper";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchWaFlows, sendWaFlow, WaFlow } from "../../../api/whatsapp.api";
 import { useAuthStore } from "../../../auth/auth-store";
+import { AppBottomSheetModal } from "../../../components/overlays/AppBottomSheetModal";
 import { waColors } from "../whatsapp-ui";
 
 type Props = {
@@ -74,19 +75,19 @@ export function FlowSendSheet({ visible, shopId, integrationId, conversationId, 
   });
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={close}>
-      <View style={styles.overlay}>
-        <Pressable style={styles.dismiss} onPress={close} />
-        <View style={styles.sheet}>
-          <View style={styles.grabber} />
-          <View style={styles.headerRow}>
-            {selected ? <IconButton icon="arrow-left" onPress={() => setSelected(null)} /> : <View style={styles.spacer} />}
-            <Text variant="titleMedium" style={styles.title}>{selected?.name || "Send Flow"}</Text>
-            <IconButton icon="close" onPress={close} />
-          </View>
-
+    <AppBottomSheetModal
+      visible={visible}
+      title={selected?.name || "Send a flow"}
+      subtitle={selected ? "Customize the message and launch action" : "Choose a published WhatsApp flow"}
+      onDismiss={close}
+      onBack={selected ? () => setSelected(null) : undefined}
+      backAccessibilityLabel="Back to flows"
+      isBusy={mutation.isPending}
+      maxHeight={0.94}
+      scrollable
+    >
           {selected ? (
-            <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
+            <View style={styles.content}>
               <View style={styles.flowPreview}>
                 <View style={styles.previewIcon}>
                   <IconButton icon="form-select" iconColor="#fff" />
@@ -127,14 +128,14 @@ export function FlowSendSheet({ visible, shopId, integrationId, conversationId, 
               >
                 Send Flow
               </Button>
-            </ScrollView>
+            </View>
           ) : (
-            <>
+            <View style={styles.browser}>
               <Searchbar value={search} onChangeText={setSearch} placeholder="Search published Flows" style={styles.search} />
               {query.isLoading ? (
                 <ActivityIndicator style={styles.loader} color={waColors.green} />
               ) : (
-                <ScrollView contentContainerStyle={styles.list}>
+                <View style={styles.list}>
                   {(query.data?.data || []).map((flow) => (
                     <Pressable key={flow.id} onPress={() => setSelected(flow)} style={styles.row}>
                       <View style={styles.rowIcon}><IconButton icon="form-select" iconColor="#fff" /></View>
@@ -147,34 +148,26 @@ export function FlowSendSheet({ visible, shopId, integrationId, conversationId, 
                       </View>
                     </Pressable>
                   ))}
-                </ScrollView>
+                </View>
               )}
-            </>
+            </View>
           )}
-        </View>
-      </View>
-    </Modal>
+    </AppBottomSheetModal>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.35)" },
-  dismiss: { flex: 1 },
-  sheet: { height: "88%", borderTopLeftRadius: 16, borderTopRightRadius: 16, backgroundColor: waColors.surface },
-  grabber: { width: 36, height: 4, borderRadius: 2, alignSelf: "center", marginTop: 8, backgroundColor: "#CDD2D5" },
-  headerRow: { height: 58, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  spacer: { width: 48 },
-  title: { color: waColors.text, fontWeight: "700" },
-  search: { marginHorizontal: 12, marginBottom: 8, backgroundColor: waColors.surfaceMuted },
-  loader: { flex: 1 },
-  list: { paddingBottom: 30 },
-  row: { minHeight: 72, flexDirection: "row", alignItems: "center", paddingHorizontal: 14 },
+  browser: { gap: 10 },
+  search: { backgroundColor: waColors.surfaceMuted, borderRadius: 14 },
+  loader: { height: 180, justifyContent: "center" },
+  list: { paddingBottom: 12 },
+  row: { minHeight: 72, flexDirection: "row", alignItems: "center" },
   rowIcon: { width: 44, height: 44, borderRadius: 22, alignItems: "center", justifyContent: "center", backgroundColor: waColors.green },
   rowBody: { flex: 1, minWidth: 0, marginLeft: 12, paddingVertical: 14, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: waColors.border },
   rowName: { color: waColors.text, fontSize: 15, fontWeight: "600" },
   rowMeta: { color: waColors.textSecondary, fontSize: 11, paddingTop: 3 },
-  content: { gap: 12, padding: 14, paddingBottom: 40 },
-  flowPreview: { overflow: "hidden", borderRadius: 8, backgroundColor: waColors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: waColors.border },
+  content: { gap: 12, paddingBottom: 12 },
+  flowPreview: { overflow: "hidden", borderRadius: 16, backgroundColor: waColors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: waColors.border },
   previewIcon: { height: 72, alignItems: "center", justifyContent: "center", backgroundColor: waColors.green },
   previewBody: { gap: 4, padding: 10 },
   previewHeader: { color: waColors.text, fontSize: 14, fontWeight: "700" },

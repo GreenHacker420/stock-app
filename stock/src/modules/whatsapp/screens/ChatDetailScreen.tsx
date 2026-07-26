@@ -5,14 +5,11 @@ import {
   StyleSheet,
   TextInput,
   TouchableOpacity,
-  Platform,
-  Modal,
   Alert,
   ActivityIndicator,
   NativeScrollEvent,
   NativeSyntheticEvent,
 } from "react-native";
-import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 import { FlashList } from "@shopify/flash-list";
 import * as Crypto from "expo-crypto";
 import * as Clipboard from "expo-clipboard";
@@ -20,7 +17,8 @@ import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
 import NetInfo from "@react-native-community/netinfo";
-import { useRoute, useNavigation } from "@react-navigation/native";
+import { useRoute, useNavigation, useIsFocused, type RouteProp } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -35,7 +33,11 @@ import {
   WaOutboundMessage,
 } from "../../../api/whatsapp.api";
 import { useAuthStore } from "../../../auth/auth-store";
-import { useCustomersQuery } from "../../../hooks/useCustomers";
+import { useCustomerDetailQuery } from "../../../hooks/useCustomers";
+import { KeyboardAwareFooter } from "../../../components/keyboard/KeyboardAwareFooter";
+import { KeyboardChatListScrollComponent } from "../../../components/keyboard/KeyboardChatListScrollComponent";
+import { AppBottomSheetModal } from "../../../components/overlays/AppBottomSheetModal";
+import type { RootStackParamList } from "../../../navigation";
 import { colors as Colors } from "../../../theme";
 import { format } from "date-fns";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
@@ -55,10 +57,7 @@ import {
   replaceWhatsAppMessage,
   type WhatsAppMessagePages,
 } from "../whatsapp-query-cache";
-import {
-  getWhatsAppMediaRule,
-  getWhatsAppMessagingWindowHours,
-} from "../whatsapp-runtime-config";
+import { getWhatsAppMediaRule } from "../whatsapp-runtime-config";
 import {
   persistWhatsAppMedia,
   removePersistedWhatsAppMedia,
@@ -66,10 +65,38 @@ import {
 
 const STANDARD_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
 
+function toMessageType(message: WaOutboundMessage): WaMessage["type"] {
+  switch (message.kind) {
+    case "text": return "TEXT";
+    case "image": return "IMAGE";
+    case "video": return "VIDEO";
+    case "document": return "DOCUMENT";
+    case "audio": return "AUDIO";
+    case "sticker": return "STICKER";
+    case "location": return "LOCATION";
+    case "contacts": return "CONTACT_CARD";
+    case "template": return "TEMPLATE";
+    case "flow": return "FLOW";
+    case "reply_buttons":
+    case "list":
+      return "INTERACTIVE";
+  }
+}
+
+function toMessageContent(message: WaOutboundMessage) {
+  const { kind: _kind, ...content } = message;
+  return content;
+}
+
+function isServerMessage(message: WaMessage) {
+  return !message.id.startsWith("local:") && Boolean(message.metaMessageId);
+}
+
 export const ChatDetailScreen = () => {
-  const route = useRoute<any>();
-  const navigation = useNavigation();
+  const route = useRoute<RouteProp<RootStackParamList, "ChatDetail">>();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { conversationId, phone, conversation } = route.params;
+  const recipientPhone = conversation?.phone || phone || "";
   const {
     shopId: activeShopId,
     integrationId,
@@ -77,6 +104,7 @@ export const ChatDetailScreen = () => {
   const token = useAuthStore((state) => state.token);
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
+  const isFocused = useIsFocused();
 
   const [inputText, setInputText] = useState("");
   const [replyingTo, setReplyingTo] = useState<WaMessage | null>(null);
@@ -100,10 +128,12 @@ export const ChatDetailScreen = () => {
   const flatListRef = useRef<any>(null);
   const emojiInputRef = useRef<TextInput>(null);
   const mediaUploadControllerRef = useRef<AbortController | null>(null);
+  const openCustomEmojiAfterReactionRef = useRef(false);
+  const activeUploadRef = useRef<{ operationId: string; mediaUri: string } | null>(null);
 
   // Mark conversation as read on focus / load
   useEffect(() => {
-    if (activeShopId && conversationId) {
+    if (isFocused && activeShopId && conversationId) {
       if (!token) return;
       markScopedWaConversationRead(token, integrationId, conversationId)
         .then(() => {
@@ -129,16 +159,14 @@ export const ChatDetailScreen = () => {
           console.warn("Failed to mark conversation read", err);
         });
     }
-  }, [activeShopId, conversationId, integrationId, token]);
+  }, [activeShopId, conversationId, integrationId, isFocused, queryClient, token]);
 
-  // Load server-side customers to resolve dynamic variables (e.g. outstandingAmount)
-  const { data: customers = [] } = useCustomersQuery();
-  const customerRecord = customers.find((c: any) => c.id === conversation?.customerId);
+  const { data: customerRecord } = useCustomerDetailQuery(conversation?.customerId || "");
 
   // Set custom header with contact name, avatar, and linked customer shortcut
   useEffect(() => {
-    const contactName = conversation?.contactName || formatWhatsAppPhone(phone);
-    const initials = initialsFor(conversation?.contactName || phone);
+    const contactName = conversation?.contactName || formatWhatsAppPhone(recipientPhone);
+    const initials = initialsFor(conversation?.contactName || recipientPhone);
 
     navigation.setOptions({
       headerShown: true,
@@ -163,14 +191,14 @@ export const ChatDetailScreen = () => {
               {contactName}
             </Text>
             <Text style={{ fontSize: 11, color: "rgba(255,255,255,0.78)" }} numberOfLines={1}>
-              {conversation?.customer ? "Linked customer" : formatWhatsAppPhone(phone)}
+              {conversation?.customerId ? "Linked customer" : formatWhatsAppPhone(recipientPhone)}
             </Text>
           </View>
         </View>
       ),
       headerRight: () => conversation?.customerId ? (
         <TouchableOpacity
-          onPress={() => (navigation as any).navigate("CustomerDetail", { customerId: conversation.customerId })}
+          onPress={() => navigation.navigate("CustomerDetail", { customerId: conversation.customerId! })}
           style={{ marginRight: 12, padding: 4 }}
         >
           <MaterialCommunityIcons name="account-details" size={23} color="#fff" />
@@ -178,31 +206,44 @@ export const ChatDetailScreen = () => {
       ) : null,
       headerTitleAlign: "left",
     });
-  }, [navigation, conversation, phone]);
+  }, [navigation, conversation, recipientPhone]);
 
   const messageQuery = useWhatsAppMessages(conversationId);
   const messages = messageQuery.messages;
   const isLoading = messageQuery.isPending;
   const draftLoaded = useRef(false);
+  const pendingDraftReplyId = useRef<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
+    setInputText("");
+    setReplyingTo(null);
+    pendingDraftReplyId.current = null;
     draftLoaded.current = false;
     void whatsappDb.getDraft(activeShopId, integrationId, conversationId)
       .then((draft) => {
-        if (!draft) {
-          draftLoaded.current = true;
-          return;
-        }
-        setInputText(draft.text);
-        if (draft.reply_to_message_id) {
-          setReplyingTo(messages.find((message) => message.id === draft.reply_to_message_id) || null);
-        }
+        if (cancelled) return;
+        setInputText(draft?.text ?? "");
+        pendingDraftReplyId.current = draft?.reply_to_message_id ?? null;
         draftLoaded.current = true;
       })
       .catch(() => {
-        draftLoaded.current = true;
+        if (!cancelled) draftLoaded.current = true;
       });
+    return () => {
+      cancelled = true;
+    };
   }, [activeShopId, conversationId, integrationId]);
+
+  useEffect(() => {
+    const replyId = pendingDraftReplyId.current;
+    if (!replyId) return;
+    const message = messages.find((item) => item.id === replyId);
+    if (message) {
+      setReplyingTo(message);
+      pendingDraftReplyId.current = null;
+    }
+  }, [messages]);
 
   useEffect(() => {
     if (!draftLoaded.current) return;
@@ -216,13 +257,7 @@ export const ChatDetailScreen = () => {
     return () => clearTimeout(timer);
   }, [activeShopId, conversationId, inputText, integrationId, replyingTo?.id]);
 
-  // const messagingWindowOpen = useMemo(() => {
-  //   if (!conversation?.lastCustomerMessageAt) return false;
-  //   return Date.now() - new Date(conversation.lastCustomerMessageAt).getTime()
-  //     < getWhatsAppMessagingWindowHours() * 60 * 60 * 1_000;
-  // }, [conversation?.lastCustomerMessageAt]);
-
-
+  // Intentionally disabled by product policy. The backend remains authoritative.
   const messagingWindowOpen = true;
   // Send Message Mutation
   type SendVariables = {
@@ -244,39 +279,44 @@ export const ChatDetailScreen = () => {
     contentState: "VISIBLE",
     attempt: 0,
     entityVersion: 0,
-    type: input.message.kind === "text"
-      ? "TEXT"
-      : input.message.kind.toUpperCase() as WaMessage["type"],
-    content: input.message.kind === "text"
-      ? { text: input.message.text }
-      : input.message,
+    type: toMessageType(input.message),
+    content: toMessageContent(input.message),
     createdAt: new Date().toISOString(),
   });
 
-  const queueOfflineSend = async (input: SendVariables) => {
+  const persistQueuedSend = async (
+    input: SendVariables,
+    operationState: "WAITING_FOR_NETWORK" | "TERMINALLY_FAILED",
+    errorMessage?: string,
+  ) => {
     const now = Date.now();
-    const optimistic = buildOptimisticMessage(input, "WAITING_FOR_NETWORK");
-    await whatsappDb.upsertMessages(
+    const optimistic = {
+      ...buildOptimisticMessage(input, operationState),
+      providerStatus: operationState === "TERMINALLY_FAILED" ? "FAILED" as const : "PENDING" as const,
+      errorMessage,
+    };
+    await whatsappDb.persistPendingMessageAndOperation(
       { shopId: activeShopId, integrationId, conversationId },
-      [optimistic],
-    );
-    await whatsappDb.enqueueOperation({
-      id: `send:${input.clientMessageId}`,
-      shopId: activeShopId,
-      integrationId,
-      conversationId,
-      clientMessageId: input.clientMessageId,
-      operationType: "SEND_MESSAGE",
-      operationState: "WAITING_FOR_NETWORK",
-      payload: {
-        message: input.message,
-        replyToMessageId: input.replyToMessageId,
+      optimistic,
+      {
+        id: `send:${input.clientMessageId}`,
+        shopId: activeShopId,
+        integrationId,
+        conversationId,
+        clientMessageId: input.clientMessageId,
+        operationType: "SEND_MESSAGE",
+        operationState,
+        payload: {
+          message: input.message,
+          replyToMessageId: input.replyToMessageId,
+        },
+        attempt: 0,
+        nextAttemptAt: now,
+        lastError: errorMessage,
+        createdAt: now,
+        updatedAt: now,
       },
-      attempt: 0,
-      nextAttemptAt: now,
-      createdAt: now,
-      updatedAt: now,
-    });
+    );
     return { message: optimistic };
   };
 
@@ -284,7 +324,7 @@ export const ChatDetailScreen = () => {
     mutationFn: async (input: SendVariables) => {
       if (!token) throw new Error("Your session expired. Sign in again.");
       const network = await NetInfo.fetch();
-      if (network.isConnected === false) return queueOfflineSend(input);
+      if (network.isConnected === false) return persistQueuedSend(input, "WAITING_FOR_NETWORK");
       try {
         return await sendScopedWaMessage(token, {
           shopId: activeShopId,
@@ -293,17 +333,22 @@ export const ChatDetailScreen = () => {
         }, input);
       } catch (error) {
         const latestNetwork = await NetInfo.fetch();
-        if (latestNetwork.isConnected === false) return queueOfflineSend(input);
+        if (latestNetwork.isConnected === false) {
+          return persistQueuedSend(input, "WAITING_FOR_NETWORK");
+        }
         throw error;
       }
     },
     onMutate: async (input) => {
+      await queryClient.cancelQueries({ queryKey: messagesKey });
+      const previous = queryClient.getQueryData<WhatsAppMessagePages>(messagesKey);
       const optimistic = buildOptimisticMessage(input, "SUBMITTING");
       queryClient.setQueryData<WhatsAppMessagePages>(
         messagesKey,
         (current) => appendWhatsAppMessage(current, optimistic),
       );
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 30);
+      return { previous };
     },
     onSuccess: async ({ message }, input) => {
       queryClient.setQueryData<WhatsAppMessagePages>(
@@ -315,54 +360,77 @@ export const ChatDetailScreen = () => {
         [message],
       );
       queryClient.invalidateQueries({ queryKey: ["whatsapp", "conversations", activeShopId, integrationId] });
-      setReplyingTo(null);
     },
-    onError: (err: any, input) => {
+    onError: async (err: Error, input, context) => {
+      const message = err.message || "Failed to send message";
       queryClient.setQueryData<WhatsAppMessagePages>(
         messagesKey,
-        (current) => replaceWhatsAppMessage(current, input.clientMessageId, (message) => ({
-          ...message,
+        (current) => replaceWhatsAppMessage(current, input.clientMessageId, (failed) => ({
+          ...failed,
           operationState: "TERMINALLY_FAILED",
           providerStatus: "FAILED",
-          errorMessage: err.message || "Failed to send message",
+          errorMessage: message,
         })),
       );
-      Alert.alert("Message not sent", err.message || "Tap the failed message to retry.");
+      try {
+        await persistQueuedSend(input, "TERMINALLY_FAILED", message);
+      } catch {
+        if (context?.previous) {
+          queryClient.setQueryData(messagesKey, context.previous);
+        }
+        Alert.alert("Message not saved", "The message could not be saved locally. Please try again.");
+        return;
+      }
+      Alert.alert("Message not sent", `${message}\n\nTap the failed message to retry.`);
     }
   });
 
   const displayedMessages = messages;
+  const messagesByMetaId = useMemo(
+    () => new Map(
+      messages
+        .filter((message) => Boolean(message.metaMessageId))
+        .map((message) => [message.metaMessageId!, message]),
+    ),
+    [messages],
+  );
 
   const previousLastMessageId = useRef<string | undefined>(undefined);
+  const previousMessageCount = useRef(0);
   useEffect(() => {
     const lastMessage = displayedMessages.at(-1);
-    if (!lastMessage || previousLastMessageId.current === lastMessage.id) return;
+    const stableMessageKey = lastMessage?.clientMessageId || lastMessage?.id;
+    if (!lastMessage || previousLastMessageId.current === stableMessageKey) return;
     const isInitialLoad = !previousLastMessageId.current;
-    previousLastMessageId.current = lastMessage.id;
+    const addedCount = Math.max(1, displayedMessages.length - previousMessageCount.current);
+    previousLastMessageId.current = stableMessageKey;
+    previousMessageCount.current = displayedMessages.length;
     if (isInitialLoad || isNearBottom || lastMessage.direction === "OUTBOUND") {
       setNewMessageCount(0);
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: !isInitialLoad }), 50);
       return;
     }
-    setNewMessageCount((count) => count + 1);
+    setNewMessageCount((count) => count + addedCount);
   }, [displayedMessages, isNearBottom]);
 
-  // Auto-mark as read when new inbound messages arrive while viewing
+  const lastInboundMessageId = useMemo(
+    () => [...messages].reverse().find((message) => message.direction === "INBOUND")?.id,
+    [messages],
+  );
+
   useEffect(() => {
-    if (messages.length > 0) {
-      const lastMsg = messages[messages.length - 1];
-      if (lastMsg && lastMsg.direction === "INBOUND" && activeShopId && conversationId) {
-        if (!integrationId || !token) return;
-        markScopedWaConversationRead(token, integrationId, conversationId)
-          .then(() => {
-            queryClient.invalidateQueries({ queryKey: ["whatsapp", "conversations", activeShopId, integrationId] });
-          })
-          .catch((err) => {
-            console.warn("Failed to mark conversation read on new message", err);
-          });
-      }
-    }
-  }, [messages.length, activeShopId, conversationId, integrationId, token]);
+    if (!isFocused || !lastInboundMessageId || !activeShopId || !integrationId || !token) return;
+    markScopedWaConversationRead(token, integrationId, conversationId).catch((err) => {
+      console.warn("Failed to mark conversation read on new message", err);
+    });
+  }, [
+    activeShopId,
+    conversationId,
+    integrationId,
+    isFocused,
+    lastInboundMessageId,
+    token,
+  ]);
 
   // Send Reaction Mutation
   const reactionMutation = useMutation({
@@ -399,13 +467,25 @@ export const ChatDetailScreen = () => {
 
   const retryMutation = useMutation({
     mutationFn: async (message: WaMessage) => {
-      if (!token || message.id.startsWith("local:")) {
-        throw new Error("Reconnect to send this queued message.");
+      if (!token) throw new Error("Your session expired. Sign in again.");
+      if (message.id.startsWith("local:")) {
+        if (!message.clientMessageId) throw new Error("This local message cannot be retried.");
+        const requeued = await whatsappDb.requeueOperationByClientMessageId(
+          integrationId,
+          message.clientMessageId,
+        );
+        if (!requeued) throw new Error("The saved send operation is missing.");
+        return { message: { ...message, operationState: "RETRY_SCHEDULED" as const, providerStatus: "PENDING" as const } };
       }
       return retryScopedWaMessage(token, integrationId, message.id);
     },
     onSuccess: ({ message }) => {
-      queryClient.invalidateQueries({ queryKey: messagesKey });
+      queryClient.setQueryData<WhatsAppMessagePages>(
+        messagesKey,
+        (current) => message.clientMessageId
+          ? replaceWhatsAppMessage(current, message.clientMessageId, message)
+          : current,
+      );
       void whatsappDb.upsertMessages(
         { shopId: activeShopId, integrationId, conversationId },
         [message],
@@ -417,6 +497,8 @@ export const ChatDetailScreen = () => {
   const handleSend = () => {
     if (!inputText.trim() || !activeShopId || !token || !messagingWindowOpen) return;
 
+    const replyToMessageId = replyingTo?.id;
+    setReplyingTo(null);
     sendMutation.mutate({
       clientMessageId: Crypto.randomUUID(),
       message: {
@@ -424,7 +506,7 @@ export const ChatDetailScreen = () => {
         text: inputText.trim(),
         previewUrl: /https?:\/\/\S+/i.test(inputText),
       },
-      replyToMessageId: replyingTo?.id,
+      replyToMessageId,
     });
 
     setInputText("");
@@ -439,10 +521,12 @@ export const ChatDetailScreen = () => {
     clientMessageId = Crypto.randomUUID(),
   ) => {
     if (!activeShopId) return;
+    const replyToMessageId = replyingTo?.id;
+    setReplyingTo(null);
     sendMutation.mutate({
       clientMessageId,
       message,
-      replyToMessageId: replyingTo?.id,
+      replyToMessageId,
     });
   };
 
@@ -496,7 +580,10 @@ export const ChatDetailScreen = () => {
     }
   };
 
-  const pickMedia = async (kind: "image" | "video" | "document") => {
+  const pickMedia = async (
+    kind: "image" | "video" | "document",
+    source: "camera" | "library" = "library",
+  ) => {
     try {
       if (kind === "document") {
         const result = await DocumentPicker.getDocumentAsync({
@@ -533,20 +620,35 @@ export const ChatDetailScreen = () => {
         return;
       }
 
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) {
-        Alert.alert(
-          "Photo access required",
-          "Allow photo library access to select WhatsApp attachments.",
-        );
-        return;
+      if (source === "camera") {
+        const permission = await ImagePicker.requestCameraPermissionsAsync();
+        if (!permission.granted) {
+          Alert.alert(
+            "Camera access required",
+            `Allow camera access to ${kind === "image" ? "take photos" : "record videos"}.`,
+          );
+          return;
+        }
+      } else {
+        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!permission.granted) {
+          Alert.alert(
+            "Photo access required",
+            "Allow photo library access to select WhatsApp attachments.",
+          );
+          return;
+        }
       }
 
-      const result = await ImagePicker.launchImageLibraryAsync({
+      const pickerOptions: ImagePicker.ImagePickerOptions = {
         mediaTypes: [kind === "image" ? "images" : "videos"],
         allowsMultipleSelection: false,
         quality: 1,
-      });
+        ...(kind === "video" ? { videoMaxDuration: 5 * 60 } : {}),
+      };
+      const result = source === "camera"
+        ? await ImagePicker.launchCameraAsync(pickerOptions)
+        : await ImagePicker.launchImageLibraryAsync(pickerOptions);
       if (result.canceled) return;
 
       const asset = result.assets[0];
@@ -567,6 +669,7 @@ export const ChatDetailScreen = () => {
         size: asset.fileSize,
         width: asset.width,
         height: asset.height,
+        durationMs: asset.duration ? Math.round(asset.duration) : undefined,
       }));
     } catch (error) {
       Alert.alert(
@@ -587,53 +690,55 @@ export const ChatDetailScreen = () => {
   const uploadAndSendMedia = async () => {
     if (!selectedMedia || !integrationId || !token || uploadingMedia) return;
 
+    const media = selectedMedia;
     const clientMessageId = Crypto.randomUUID();
     const operationId = `upload:${clientMessageId}`;
     const now = Date.now();
     const mediaMessage = {
-      kind: selectedMedia.kind,
+      kind: media.kind,
       caption: mediaCaption.trim() || undefined,
-      filename: selectedMedia.kind === "document" ? selectedMedia.name : undefined,
+      filename: media.kind === "document" ? media.name : undefined,
     } as const;
-    await whatsappDb.enqueueOperation({
-      id: operationId,
-      shopId: activeShopId,
-      integrationId,
-      conversationId,
-      clientMessageId,
-      operationType: "UPLOAD_MEDIA",
-      operationState: "UPLOADING",
-      payload: {
-        replyToMessageId: replyingTo?.id,
-        media: selectedMedia,
-        mediaMessage,
-      },
-      attempt: 0,
-      nextAttemptAt: now,
-      createdAt: now,
-      updatedAt: now,
-    });
     setUploadingMedia(true);
     setMediaUploadProgress(0);
     const controller = new AbortController();
     mediaUploadControllerRef.current = controller;
+    activeUploadRef.current = { operationId, mediaUri: media.uri };
     try {
+      await whatsappDb.enqueueOperation({
+        id: operationId,
+        shopId: activeShopId,
+        integrationId,
+        conversationId,
+        clientMessageId,
+        operationType: "UPLOAD_MEDIA",
+        operationState: "UPLOADING",
+        payload: {
+          replyToMessageId: replyingTo?.id,
+          media,
+          mediaMessage,
+        },
+        attempt: 0,
+        nextAttemptAt: now,
+        createdAt: now,
+        updatedAt: now,
+      });
       const uploaded = await uploadWaMedia(
         token,
         integrationId,
-        selectedMedia,
+        media,
         setMediaUploadProgress,
         controller.signal,
       );
 
-      if (selectedMedia.kind === "document") {
+      if (media.kind === "document") {
         await sendMutation.mutateAsync({
           clientMessageId,
           replyToMessageId: replyingTo?.id,
           message: {
             kind: "document",
             assetId: uploaded.id,
-            filename: uploaded.fileName || selectedMedia.name,
+            filename: uploaded.fileName || media.name,
             caption: mediaCaption.trim() || undefined,
           },
         });
@@ -642,14 +747,14 @@ export const ChatDetailScreen = () => {
           clientMessageId,
           replyToMessageId: replyingTo?.id,
           message: {
-            kind: selectedMedia.kind,
+            kind: media.kind,
             assetId: uploaded.id,
             caption: mediaCaption.trim() || undefined,
           },
         });
       }
       await whatsappDb.deleteOperation(operationId);
-      removePersistedWhatsAppMedia(selectedMedia.uri);
+      removePersistedWhatsAppMedia(media.uri);
       setSelectedMedia(null);
       setMediaCaption("");
       setMediaUploadProgress(0);
@@ -660,12 +765,13 @@ export const ChatDetailScreen = () => {
         attempt: 1,
         nextAttemptAt: Date.now() + 2_000,
         lastError: error instanceof Error ? error.message : "Media upload failed",
-      });
+      }).catch(() => undefined);
       Alert.alert(
         "Upload failed",
         "The attachment is saved and will retry when the connection is available.",
       );
     } finally {
+      activeUploadRef.current = null;
       mediaUploadControllerRef.current = null;
       setUploadingMedia(false);
     }
@@ -674,33 +780,34 @@ export const ChatDetailScreen = () => {
   const uploadAndSendVoice = async (media: WaLocalMedia) => {
     if (!integrationId || !token || uploadingMedia) return;
 
-    const persistedMedia = await persistWhatsAppMedia(integrationId, media);
     const clientMessageId = Crypto.randomUUID();
     const operationId = `upload:${clientMessageId}`;
     const now = Date.now();
-    await whatsappDb.enqueueOperation({
-      id: operationId,
-      shopId: activeShopId,
-      integrationId,
-      conversationId,
-      clientMessageId,
-      operationType: "UPLOAD_MEDIA",
-      operationState: "UPLOADING",
-      payload: {
-        replyToMessageId: replyingTo?.id,
-        media: persistedMedia,
-        mediaMessage: { kind: "audio", voice: true },
-      },
-      attempt: 0,
-      nextAttemptAt: now,
-      createdAt: now,
-      updatedAt: now,
-    });
     setUploadingMedia(true);
     setMediaUploadProgress(0);
     const controller = new AbortController();
     mediaUploadControllerRef.current = controller;
     try {
+      const persistedMedia = await persistWhatsAppMedia(integrationId, media);
+      activeUploadRef.current = { operationId, mediaUri: persistedMedia.uri };
+      await whatsappDb.enqueueOperation({
+        id: operationId,
+        shopId: activeShopId,
+        integrationId,
+        conversationId,
+        clientMessageId,
+        operationType: "UPLOAD_MEDIA",
+        operationState: "UPLOADING",
+        payload: {
+          replyToMessageId: replyingTo?.id,
+          media: persistedMedia,
+          mediaMessage: { kind: "audio", voice: true },
+        },
+        attempt: 0,
+        nextAttemptAt: now,
+        createdAt: now,
+        updatedAt: now,
+      });
       const uploaded = await uploadWaMedia(
         token,
         integrationId,
@@ -728,20 +835,30 @@ export const ChatDetailScreen = () => {
         attempt: 1,
         nextAttemptAt: Date.now() + 2_000,
         lastError: error instanceof Error ? error.message : "Voice upload failed",
-      });
+      }).catch(() => undefined);
       Alert.alert(
         "Upload failed",
         "The voice note is saved and will retry when the connection is available.",
       );
     } finally {
+      activeUploadRef.current = null;
       mediaUploadControllerRef.current = null;
       setUploadingMedia(false);
     }
   };
 
-  const cancelMediaUpload = () => {
+  const cancelMediaUpload = async () => {
     mediaUploadControllerRef.current?.abort();
+    const activeUpload = activeUploadRef.current;
+    activeUploadRef.current = null;
+    if (activeUpload) {
+      await whatsappDb.deleteOperation(activeUpload.operationId).catch(() => undefined);
+      removePersistedWhatsAppMedia(activeUpload.mediaUri);
+    }
+    setSelectedMedia(null);
+    setShowVoiceRecorder(false);
     setMediaUploadProgress(0);
+    setUploadingMedia(false);
   };
 
   const handleLongPress = (message: WaMessage) => {
@@ -759,7 +876,7 @@ export const ChatDetailScreen = () => {
   };
 
   const handleReplyPress = () => {
-    if (selectedMessage) {
+    if (selectedMessage && isServerMessage(selectedMessage)) {
       setReplyingTo(selectedMessage);
     }
     setReactionMenuVisible(false);
@@ -767,7 +884,7 @@ export const ChatDetailScreen = () => {
   };
 
   const handleReactionPress = (emoji: string) => {
-    if (!selectedMessage) return;
+    if (!selectedMessage || !isServerMessage(selectedMessage)) return;
     // Toggle reaction off if tapping the same one
     const myExistingReaction = selectedMessage.payload?.reactions?.find(r => r.from === "me");
     const resolvedEmoji = myExistingReaction?.emoji === emoji ? "" : emoji;
@@ -779,7 +896,7 @@ export const ChatDetailScreen = () => {
   };
 
   const handleCustomEmojiSelect = (emoji: string) => {
-    if (!selectedMessage) return;
+    if (!selectedMessage || !isServerMessage(selectedMessage)) return;
     reactionMutation.mutate({
       messageId: selectedMessage.id,
       emoji,
@@ -787,7 +904,7 @@ export const ChatDetailScreen = () => {
   };
 
   const handleDeleteMessage = () => {
-    if (!selectedMessage) return;
+    if (!selectedMessage || !isServerMessage(selectedMessage)) return;
     Alert.alert(
       "Recall Message",
       "Are you sure you want to recall/delete this message? It will be deleted for everyone.",
@@ -858,8 +975,8 @@ export const ChatDetailScreen = () => {
 
     // Find parent message for reply rendering
     const parentMessage = item.replyToMetaMessageId
-      ? messages.find((m) => m.metaMessageId === item.replyToMetaMessageId)
-      : null;
+      ? messagesByMetaId.get(item.replyToMetaMessageId)
+      : undefined;
 
     // Aggregate reaction emojis and counts
     const reactions = item.payload?.reactions || [];
@@ -960,15 +1077,13 @@ export const ChatDetailScreen = () => {
   };
 
   return (
-    <KeyboardAvoidingView
-      automaticOffset
-      style={styles.container}
-    >
+    <View style={styles.container}>
       <FlashList
         ref={flatListRef}
         data={displayedMessages}
         renderItem={renderMessage}
         keyExtractor={(item) => item.clientMessageId || item.id}
+        renderScrollComponent={KeyboardChatListScrollComponent}
         contentInsetAdjustmentBehavior="automatic"
         keyboardDismissMode="interactive"
         keyboardShouldPersistTaps="handled"
@@ -996,6 +1111,15 @@ export const ChatDetailScreen = () => {
             <View style={styles.timelineState}>
               <ActivityIndicator color={waColors.green} />
               <Text style={styles.timelineStateText}>Loading messages…</Text>
+            </View>
+          ) : messageQuery.isError ? (
+            <View style={styles.timelineState}>
+              <MaterialCommunityIcons name="cloud-alert-outline" size={38} color={waColors.danger} />
+              <Text style={styles.timelineStateTitle}>Messages couldn’t be loaded</Text>
+              <Text style={styles.timelineStateText}>{messageQuery.error.message}</Text>
+              <TouchableOpacity style={styles.retryButton} onPress={() => messageQuery.refetch()}>
+                <Text style={styles.retryButtonText}>Try again</Text>
+              </TouchableOpacity>
             </View>
           ) : (
             <View style={styles.timelineState}>
@@ -1026,78 +1150,80 @@ export const ChatDetailScreen = () => {
         </TouchableOpacity>
       )}
 
-      {/* Reply Quoting Bar (if replying) */}
-      {replyingTo && (
-        <View style={styles.replyingBar}>
-          <View style={styles.replyingBorder} />
-          <View style={{ flex: 1, paddingHorizontal: 10 }}>
-            <Text style={styles.replyingTitle}>
-              Replying to {replyingTo.direction === "OUTBOUND" ? "You" : "Customer"}
-            </Text>
-            <Text style={styles.replyingText} numberOfLines={1}>
-              {replyingTo.content?.text || "[Media/Attachment]"}
-            </Text>
-          </View>
-          <TouchableOpacity onPress={() => setReplyingTo(null)} style={styles.replyingClose}>
-            <MaterialCommunityIcons name="close" size={20} color={waColors.textSecondary} />
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {!messagingWindowOpen && (
-        <View style={styles.windowNotice}>
-          <View style={styles.windowNoticeIcon}>
-            <MaterialCommunityIcons name="clock-alert-outline" size={20} color="#9a6700" />
-          </View>
-          <View style={styles.windowNoticeBody}>
-            <Text style={styles.windowNoticeTitle}>24-hour reply window closed</Text>
-            <Text style={styles.windowNoticeText}>Send an approved template to restart the conversation.</Text>
-          </View>
-          <TouchableOpacity style={styles.windowTemplateButton} onPress={() => setShowTemplateSheet(true)}>
-            <Text style={styles.windowTemplateText}>Templates</Text>
-          </TouchableOpacity>
-        </View>
-      )}
-
-      {/* Message Input Bar */}
-      <View style={[styles.inputToolbar, { paddingBottom: Math.max(insets.bottom, 7) }]}>
-        <TouchableOpacity
-          style={styles.templateToolbarBtn}
-          onPress={() => setShowMessageActions(true)}
-          accessibilityLabel="Add attachment or structured message"
-        >
-          <MaterialCommunityIcons name="plus-circle" size={27} color={waColors.green} />
-        </TouchableOpacity>
-        <View style={styles.composer}>
-          <TextInput
-            style={styles.input}
-            placeholder={messagingWindowOpen ? "Message" : "Use a template to reply"}
-            placeholderTextColor={waColors.textMuted}
-            value={inputText}
-            onChangeText={setInputText}
-            multiline
-            editable={messagingWindowOpen}
-            maxLength={4096}
-          />
-          {messagingWindowOpen && !inputText.trim() && (
-            <TouchableOpacity
-              style={styles.cameraButton}
-              accessibilityLabel="Attach a photo"
-              onPress={() => pickMedia("image")}
-            >
-              <MaterialCommunityIcons name="camera-outline" size={22} color={waColors.textSecondary} />
+      <KeyboardAwareFooter>
+        {/* Reply Quoting Bar (if replying) */}
+        {replyingTo && (
+          <View style={styles.replyingBar}>
+            <View style={styles.replyingBorder} />
+            <View style={{ flex: 1, paddingHorizontal: 10 }}>
+              <Text style={styles.replyingTitle}>
+                Replying to {replyingTo.direction === "OUTBOUND" ? "You" : "Customer"}
+              </Text>
+              <Text style={styles.replyingText} numberOfLines={1}>
+                {replyingTo.content?.text || "[Media/Attachment]"}
+              </Text>
+            </View>
+            <TouchableOpacity onPress={() => setReplyingTo(null)} style={styles.replyingClose}>
+              <MaterialCommunityIcons name="close" size={20} color={waColors.textSecondary} />
             </TouchableOpacity>
-          )}
+          </View>
+        )}
+
+        {!messagingWindowOpen && (
+          <View style={styles.windowNotice}>
+            <View style={styles.windowNoticeIcon}>
+              <MaterialCommunityIcons name="clock-alert-outline" size={20} color="#9a6700" />
+            </View>
+            <View style={styles.windowNoticeBody}>
+              <Text style={styles.windowNoticeTitle}>24-hour reply window closed</Text>
+              <Text style={styles.windowNoticeText}>Send an approved template to restart the conversation.</Text>
+            </View>
+            <TouchableOpacity style={styles.windowTemplateButton} onPress={() => setShowTemplateSheet(true)}>
+              <Text style={styles.windowTemplateText}>Templates</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Message Input Bar */}
+        <View style={[styles.inputToolbar, { paddingBottom: Math.max(insets.bottom, 7) }]}>
+          <TouchableOpacity
+            style={styles.templateToolbarBtn}
+            onPress={() => setShowMessageActions(true)}
+            accessibilityLabel="Add attachment or structured message"
+          >
+            <MaterialCommunityIcons name="plus-circle" size={27} color={waColors.green} />
+          </TouchableOpacity>
+          <View style={styles.composer}>
+            <TextInput
+              style={styles.input}
+              placeholder={messagingWindowOpen ? "Message" : "Use a template to reply"}
+              placeholderTextColor={waColors.textMuted}
+              value={inputText}
+              onChangeText={setInputText}
+              multiline
+              editable={messagingWindowOpen}
+              maxLength={4096}
+            />
+            {messagingWindowOpen && !inputText.trim() && (
+              <TouchableOpacity
+                style={styles.cameraButton}
+                accessibilityLabel="Attach a photo"
+                onPress={() => pickMedia("image")}
+              >
+                <MaterialCommunityIcons name="camera-outline" size={22} color={waColors.textSecondary} />
+              </TouchableOpacity>
+            )}
+          </View>
+          <TouchableOpacity
+            style={[styles.sendButton, !messagingWindowOpen && styles.sendButtonDisabled]}
+            onPress={inputText.trim() ? handleSend : () => setShowVoiceRecorder(true)}
+            disabled={!messagingWindowOpen}
+            accessibilityLabel={inputText.trim() ? "Send message" : "Record voice message"}
+          >
+            <MaterialCommunityIcons name={inputText.trim() ? "send" : "microphone"} size={21} color="#fff" />
+          </TouchableOpacity>
         </View>
-        <TouchableOpacity
-          style={[styles.sendButton, !messagingWindowOpen && styles.sendButtonDisabled]}
-          onPress={inputText.trim() ? handleSend : () => setShowVoiceRecorder(true)}
-          disabled={!messagingWindowOpen}
-          accessibilityLabel={inputText.trim() ? "Send message" : "Record voice message"}
-        >
-          <MaterialCommunityIcons name={inputText.trim() ? "send" : "microphone"} size={21} color="#fff" />
-        </TouchableOpacity>
-      </View>
+      </KeyboardAwareFooter>
 
       <MessageActionSheet
         visible={showMessageActions}
@@ -1136,111 +1262,101 @@ export const ChatDetailScreen = () => {
         onSend={uploadAndSendVoice}
       />
 
-      {/* Long Press Reaction Overlay Modal */}
-      <Modal
+      <AppBottomSheetModal
         visible={reactionMenuVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setReactionMenuVisible(false)}
+        title="Message actions"
+        subtitle="React, reply, copy, or recall"
+        onDismiss={() => {
+          setReactionMenuVisible(false);
+          if (openCustomEmojiAfterReactionRef.current) {
+            openCustomEmojiAfterReactionRef.current = false;
+            setCustomEmojiVisible(true);
+          }
+        }}
+        maxHeight={0.52}
       >
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setReactionMenuVisible(false)}
-        >
-          <View style={styles.reactionBarContainer}>
-            {/* Quick Reactions */}
-            <View style={styles.quickReactionsRow}>
-              {STANDARD_REACTIONS.map((emoji) => (
-                <TouchableOpacity
-                  key={emoji}
-                  onPress={() => handleReactionPress(emoji)}
-                  style={styles.reactionPill}
-                >
-                  <Text style={styles.reactionText}>{emoji}</Text>
-                </TouchableOpacity>
-              ))}
-              {/* + Icon for Custom Emoji Grid */}
+        <View style={styles.reactionBarContainer}>
+          <View style={styles.quickReactionsRow}>
+            {selectedMessage && isServerMessage(selectedMessage) && STANDARD_REACTIONS.map((emoji) => (
               <TouchableOpacity
-                onPress={() => setCustomEmojiVisible(true)}
+                key={emoji}
+                onPress={() => handleReactionPress(emoji)}
+                style={styles.reactionPill}
+              >
+                <Text style={styles.reactionText}>{emoji}</Text>
+              </TouchableOpacity>
+            ))}
+            {selectedMessage && isServerMessage(selectedMessage) && (
+              <TouchableOpacity
+                onPress={() => {
+                  openCustomEmojiAfterReactionRef.current = true;
+                  setReactionMenuVisible(false);
+                }}
                 style={[styles.reactionPill, { backgroundColor: "#F3F4F6" }]}
               >
                 <MaterialCommunityIcons name="plus" size={22} color={Colors.textPrimary} />
               </TouchableOpacity>
-            </View>
+            )}
+          </View>
 
-            {/* Actions Menu */}
-            <View style={styles.actionMenu}>
+          <View style={styles.actionMenu}>
+            {selectedMessage && isServerMessage(selectedMessage) && (
               <TouchableOpacity style={styles.menuItem} onPress={handleReplyPress}>
                 <MaterialCommunityIcons name="reply" size={22} color={Colors.textPrimary} />
                 <Text style={styles.menuItemText}>Reply</Text>
               </TouchableOpacity>
+            )}
 
-              {selectedMessage?.content?.text && (
-                <TouchableOpacity style={styles.menuItem} onPress={handleCopyText}>
-                  <MaterialCommunityIcons name="content-copy" size={22} color={Colors.textPrimary} />
-                  <Text style={styles.menuItemText}>Copy Text</Text>
-                </TouchableOpacity>
-              )}
+            {selectedMessage?.content?.text && (
+              <TouchableOpacity style={styles.menuItem} onPress={handleCopyText}>
+                <MaterialCommunityIcons name="content-copy" size={22} color={Colors.textPrimary} />
+                <Text style={styles.menuItemText}>Copy text</Text>
+              </TouchableOpacity>
+            )}
 
-              {selectedMessage?.direction === "OUTBOUND" && (
-                <TouchableOpacity style={styles.menuItem} onPress={handleDeleteMessage}>
-                  <MaterialCommunityIcons name="trash-can-outline" size={22} color="#DC2626" />
-                  <Text style={[styles.menuItemText, { color: "#DC2626" }]}>Recall Message</Text>
-                </TouchableOpacity>
-              )}
-            </View>
+            {selectedMessage?.direction === "OUTBOUND"
+              && isServerMessage(selectedMessage)
+              && (
+              <TouchableOpacity style={styles.menuItem} onPress={handleDeleteMessage}>
+                <MaterialCommunityIcons name="trash-can-outline" size={22} color="#DC2626" />
+                <Text style={[styles.menuItemText, { color: "#DC2626" }]}>Recall message</Text>
+              </TouchableOpacity>
+            )}
           </View>
-        </TouchableOpacity>
-      </Modal>
+        </View>
+      </AppBottomSheetModal>
 
-      {/* Native Emoji Picker Input Modal */}
-      <Modal
+      <AppBottomSheetModal
         visible={customEmojiVisible}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setCustomEmojiVisible(false)}
-        onShow={() => {
-          setTimeout(() => emojiInputRef.current?.focus(), 150);
-        }}
+        title="React with emoji"
+        subtitle="Choose any emoji from your keyboard"
+        onDismiss={() => setCustomEmojiVisible(false)}
+        maxHeight={0.5}
       >
-        <TouchableOpacity
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => setCustomEmojiVisible(false)}
-        >
-          <View style={styles.nativeEmojiContainer}>
-            <Text style={styles.nativeEmojiHeader}>React with Emoji</Text>
-            <Text style={styles.nativeEmojiSub}>Use your system keyboard's emoji key to select any emoji</Text>
-            <TextInput
-              ref={emojiInputRef}
-              style={styles.nativeEmojiInput}
-              placeholder="😊"
-              maxLength={4}
-              onChangeText={(text) => {
-                if (text.trim()) {
-                  handleCustomEmojiSelect(text.trim());
-                  setCustomEmojiVisible(false);
-                }
-              }}
-              autoFocus
-            />
-            <TouchableOpacity
-              style={styles.nativeEmojiCloseBtn}
-              onPress={() => setCustomEmojiVisible(false)}
-            >
-              <Text style={styles.nativeEmojiCloseBtnText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      </Modal>
+        <View style={styles.nativeEmojiContainer}>
+          <TextInput
+            ref={emojiInputRef}
+            style={styles.nativeEmojiInput}
+            placeholder="😊"
+            maxLength={4}
+            onChangeText={(text) => {
+              if (text.trim()) {
+                handleCustomEmojiSelect(text.trim());
+                setCustomEmojiVisible(false);
+              }
+            }}
+            autoFocus
+          />
+          <Text style={styles.nativeEmojiSub}>Tap the emoji key on your keyboard, then choose a reaction.</Text>
+        </View>
+      </AppBottomSheetModal>
 
       <TemplateSendSheet
         visible={showTemplateSheet}
         shopId={activeShopId}
         integrationId={integrationId}
         conversationId={conversationId}
-        to={phone}
+        to={recipientPhone}
         replyToMessageId={replyingTo?.id}
         onClose={() => setShowTemplateSheet(false)}
       />
@@ -1249,10 +1365,10 @@ export const ChatDetailScreen = () => {
         shopId={activeShopId}
         integrationId={integrationId}
         conversationId={conversationId}
-        to={phone}
+        to={recipientPhone}
         onClose={() => setShowFlowSheet(false)}
       />
-    </KeyboardAvoidingView>
+    </View>
   );
 };
 
@@ -1276,6 +1392,14 @@ const styles = StyleSheet.create({
   },
   timelineStateTitle: { marginTop: 5, color: waColors.text, fontSize: 17, fontWeight: "800" },
   timelineStateText: { color: waColors.textSecondary, fontSize: 13, lineHeight: 19, textAlign: "center" },
+  retryButton: {
+    marginTop: 8,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 10,
+    backgroundColor: waColors.green,
+  },
+  retryButtonText: { color: "#fff", fontSize: 13, fontWeight: "800" },
   dateSeparator: { alignItems: "center", paddingVertical: 9 },
   dateSeparatorText: {
     paddingHorizontal: 12,
@@ -1438,24 +1562,13 @@ const styles = StyleSheet.create({
   },
   sendButtonDisabled: { backgroundColor: waColors.textMuted },
 
-  // Modal Overlays
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.3)",
-    justifyContent: "flex-end",
-  },
   reactionBarContainer: {
-    backgroundColor: "#fff",
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    padding: 20,
-    paddingBottom: Platform.OS === "ios" ? 40 : 20,
+    gap: 14,
   },
   quickReactionsRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 20,
   },
   reactionPill: {
     width: 44,
@@ -1470,7 +1583,7 @@ const styles = StyleSheet.create({
   actionMenu: {
     borderTopWidth: 1,
     borderTopColor: Colors.border,
-    paddingTop: 10,
+    paddingTop: 6,
   },
   menuItem: {
     flexDirection: "row",
@@ -1484,25 +1597,14 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
 
-  // Native Emoji Picker Input
   nativeEmojiContainer: {
-    backgroundColor: "#fff",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    padding: 20,
     alignItems: "center",
-    paddingBottom: Platform.OS === "ios" ? 40 : 20,
-  },
-  nativeEmojiHeader: {
-    fontSize: 18,
-    fontWeight: "bold",
-    marginBottom: 5,
-    color: Colors.textPrimary,
+    gap: 14,
   },
   nativeEmojiSub: {
-    fontSize: 14,
+    fontSize: 13,
+    lineHeight: 18,
     color: Colors.textSecondary,
-    marginBottom: 20,
     textAlign: "center",
   },
   nativeEmojiInput: {
@@ -1513,16 +1615,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
     fontSize: 40,
     color: "#000",
-    marginBottom: 20,
-  },
-  nativeEmojiCloseBtn: {
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-  },
-  nativeEmojiCloseBtnText: {
-    color: Colors.textSecondary,
-    fontSize: 16,
-    fontWeight: "600",
   },
   templateToolbarBtn: {
     padding: 6,
