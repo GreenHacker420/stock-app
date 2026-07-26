@@ -68,7 +68,6 @@ export function MessageActionSheet({
     { title: "", description: "" },
     { title: "", description: "" },
   ]);
-  const pendingAfterDismissRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     if (!visible) {
@@ -84,18 +83,6 @@ export function MessageActionSheet({
     }
   }, [visible]);
 
-  const dismissThen = (next?: () => void) => {
-    pendingAfterDismissRef.current = next || null;
-    onClose();
-  };
-
-  const handleSheetDismiss = () => {
-    onClose();
-    const next = pendingAfterDismissRef.current;
-    pendingAfterDismissRef.current = null;
-    next?.();
-  };
-
   const handleMenuAction = async (id: typeof MENU_ACTIONS[number]["id"]) => {
     triggerSelectionHaptic();
     if (id === "image" || id === "video") {
@@ -104,30 +91,34 @@ export function MessageActionSheet({
       return;
     }
     if (id === "document") {
-      dismissThen(() => onPickMedia(id));
+      onClose();
+      onPickMedia(id);
       return;
     }
     if (id === "voice") {
-      dismissThen(onRecordVoice);
+      onClose();
+      onRecordVoice();
       return;
     }
     if (id === "template") {
-      dismissThen(onOpenTemplates);
+      onClose();
+      onOpenTemplates();
       return;
     }
     if (id === "flow") {
-      dismissThen(onOpenFlows);
+      onClose();
+      onOpenFlows();
       return;
     }
     if (id === "contact") {
       if (!canShareContact) return;
       onShareContact();
-      dismissThen();
+      onClose();
       return;
     }
     if (id === "location") {
       const shared = await onShareLocation();
-      if (shared) dismissThen();
+      if (shared) onClose();
       return;
     }
     setMode(id);
@@ -177,7 +168,8 @@ export function MessageActionSheet({
 
   const chooseMediaSource = (source: MediaSource) => {
     triggerSelectionHaptic();
-    dismissThen(() => onPickMedia(mediaKind, source));
+    onClose();
+    onPickMedia(mediaKind, source);
   };
 
   const title = mode === "menu"
@@ -200,7 +192,7 @@ export function MessageActionSheet({
       visible={visible}
       title={title}
       subtitle={subtitle}
-      onDismiss={handleSheetDismiss}
+      onDismiss={onClose}
       onBack={mode === "menu" ? undefined : () => setMode("menu")}
       backAccessibilityLabel="Back to message types"
       isBusy={sending}

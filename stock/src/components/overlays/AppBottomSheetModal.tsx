@@ -1,4 +1,4 @@
-import React, { forwardRef, useEffect, useImperativeHandle, useCallback, useState, useRef, useMemo } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useCallback, useState, useRef, useMemo } from "react";
 import {
   Modal,
   Platform,
@@ -262,37 +262,60 @@ export const AppBottomSheetModal = forwardRef<
         const velocityY = event.velocityY;
 
         if (expandable) {
-          // From collapsed -> swipe UP expands to 100% full screen page!
-          if (snapStage.value === 1 && (translationY < -30 || velocityY < -300)) {
-            snapStage.value = 0;
-            translateY.value = withSpring(0, OPEN_SPRING_CONFIG);
-            scheduleOnRN(triggerLightHaptic);
-            return;
+          // From 100% full screen (snapStage === 0)
+          if (snapStage.value === 0) {
+            // Fast or long drag down -> Dismiss completely!
+            if (translationY > 150 || velocityY > 600) {
+              closing.value = true;
+              scheduleOnRN(markGestureDismissStarted);
+              scheduleOnRN(triggerMediumHaptic);
+              const hiddenTranslateY = Math.max(sheetHeight.value, screenH);
+              translateY.value = withTiming(hiddenTranslateY, {
+                duration: CLOSE_DURATION,
+                reduceMotion: ReduceMotion.System,
+              }, (finished) => {
+                if (finished) scheduleOnRN(finalizeDismiss);
+                else scheduleOnRN(recoverInterruptedDismiss);
+              });
+              backdropOpacity.value = withTiming(0, { duration: BACKDROP_DURATION });
+              return;
+            }
+
+            // Moderate drag down -> Collapse to ~65% stage
+            if (translationY > 30 || velocityY > 100) {
+              snapStage.value = 1;
+              translateY.value = withSpring(collapsedOffsetY, OPEN_SPRING_CONFIG);
+              scheduleOnRN(triggerLightHaptic);
+              return;
+            }
           }
 
-          // From expanded -> swipe DOWN collapses back to ~65%!
-          if (snapStage.value === 0 && translationY > 40 && velocityY > 100 && contentScrollY.value <= 1) {
-            snapStage.value = 1;
-            translateY.value = withSpring(collapsedOffsetY, OPEN_SPRING_CONFIG);
-            scheduleOnRN(triggerLightHaptic);
-            return;
-          }
+          // From collapsed ~65% stage (snapStage === 1)
+          if (snapStage.value === 1) {
+            // Swipe UP -> expand to 100% full screen!
+            if (translationY < -30 || velocityY < -300) {
+              snapStage.value = 0;
+              translateY.value = withSpring(0, OPEN_SPRING_CONFIG);
+              scheduleOnRN(triggerLightHaptic);
+              return;
+            }
 
-          // From collapsed -> drag down past threshold dismisses!
-          if (snapStage.value === 1 && (translationY > 80 || velocityY > 500)) {
-            closing.value = true;
-            scheduleOnRN(markGestureDismissStarted);
-            scheduleOnRN(triggerMediumHaptic);
-            const hiddenTranslateY = Math.max(sheetHeight.value, screenH);
-            translateY.value = withTiming(hiddenTranslateY, {
-              duration: CLOSE_DURATION,
-              reduceMotion: ReduceMotion.System,
-            }, (finished) => {
-              if (finished) scheduleOnRN(finalizeDismiss);
-              else scheduleOnRN(recoverInterruptedDismiss);
-            });
-            backdropOpacity.value = withTiming(0, { duration: BACKDROP_DURATION });
-            return;
+            // Swipe DOWN -> dismiss completely!
+            if (translationY > 60 || velocityY > 300) {
+              closing.value = true;
+              scheduleOnRN(markGestureDismissStarted);
+              scheduleOnRN(triggerMediumHaptic);
+              const hiddenTranslateY = Math.max(sheetHeight.value, screenH);
+              translateY.value = withTiming(hiddenTranslateY, {
+                duration: CLOSE_DURATION,
+                reduceMotion: ReduceMotion.System,
+              }, (finished) => {
+                if (finished) scheduleOnRN(finalizeDismiss);
+                else scheduleOnRN(recoverInterruptedDismiss);
+              });
+              backdropOpacity.value = withTiming(0, { duration: BACKDROP_DURATION });
+              return;
+            }
           }
 
           // Snap back to current stage
@@ -381,7 +404,13 @@ export const AppBottomSheetModal = forwardRef<
     : screenH * safeMaxHeight - headerHeight;
 
   return (
-    <View style={styles.overlayRoot}>
+    <Modal
+      visible={renderModal}
+      transparent
+      animationType="none"
+      statusBarTranslucent
+      onRequestClose={beginDismiss}
+    >
       <GestureHandlerRootView style={styles.gestureRoot}>
         <KeyboardGestureArea
           style={styles.gestureRoot}
@@ -515,15 +544,12 @@ export const AppBottomSheetModal = forwardRef<
           </View>
         </KeyboardGestureArea>
       </GestureHandlerRootView>
-    </View>
+    </Modal>
   );
 });
 
 const styles = StyleSheet.create({
   overlayRoot: {
-    ...StyleSheet.absoluteFill,
-    zIndex: 999999,
-    elevation: 999999,
   },
   gestureRoot: {
     flex: 1,

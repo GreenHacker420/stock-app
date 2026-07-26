@@ -30,12 +30,14 @@ export function FlowSendSheet({ visible, shopId, integrationId, conversationId, 
 
   const query = useQuery({
     queryKey: ["wa-flow-send", shopId, search],
-    enabled: Boolean(visible && shopId),
+    enabled: Boolean(shopId),
     queryFn: () => fetchWaFlows(token, shopId!, {
       status: "PUBLISHED",
       search: search.trim() || undefined,
       pageSize: 100,
     }),
+    staleTime: 10 * 60 * 1000,
+    gcTime: 60 * 60 * 1000,
   });
 
   const close = () => {

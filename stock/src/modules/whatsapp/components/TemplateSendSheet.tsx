@@ -60,12 +60,14 @@ export function TemplateSendSheet({
 
   const query = useQuery({
     queryKey: ["wa-template-send", shopId, search],
-    enabled: Boolean(visible && shopId),
+    enabled: Boolean(shopId),
     queryFn: () => fetchWaTemplates(token, shopId!, {
       status: "APPROVED",
       search: search.trim() || undefined,
       pageSize: 100,
     }),
+    staleTime: 10 * 60 * 1000,
+    gcTime: 60 * 60 * 1000,
   });
 
   const sendMutation = useMutation({
