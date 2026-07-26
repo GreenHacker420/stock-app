@@ -27,6 +27,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 import { KeyboardController } from "react-native-keyboard-controller";
+import { Image as ExpoImage } from "expo-image";
 import * as Crypto from "expo-crypto";
 import * as Clipboard from "expo-clipboard";
 import * as DocumentPicker from "expo-document-picker";
@@ -300,6 +301,7 @@ export const ChatDetailScreen = () => {
   const [templateReplyToMessageId, setTemplateReplyToMessageId] = useState<string>();
   const [showFlowSheet, setShowFlowSheet] = useState(false);
   const [showProfileSheet, setShowProfileSheet] = useState(false);
+  const [viewerImageUrl, setViewerImageUrl] = useState<string | null>(null);
 
   const flatListRef = useRef<any>(null);
   const emojiInputRef = useRef<TextInput>(null);
@@ -586,6 +588,12 @@ export const ChatDetailScreen = () => {
   });
 
   const displayedMessages = messages;
+  const maintainVisibleContentConfig = useMemo(() => ({
+    startRenderingFromBottom: true,
+    autoscrollToBottomThreshold: 0.15,
+    animateAutoScrollToBottom: false,
+  }), []);
+
   const messagesByMetaId = useMemo(
     () => new Map(
       messages
@@ -603,6 +611,11 @@ export const ChatDetailScreen = () => {
     setNewMessageCount(0);
   }, [conversationId]);
 
+  const isNearBottomRef = useRef(isNearBottom);
+  useEffect(() => {
+    isNearBottomRef.current = isNearBottom;
+  }, [isNearBottom]);
+
   useEffect(() => {
     const lastMessage = displayedMessages.at(-1);
     const stableMessageKey = lastMessage?.clientMessageId || lastMessage?.id;
@@ -618,13 +631,13 @@ export const ChatDetailScreen = () => {
     const addedCount = Math.max(1, displayedMessages.length - previousMessageCount.current);
     previousLastMessageId.current = stableMessageKey;
     previousMessageCount.current = displayedMessages.length;
-    if (isInitialLoad || isNearBottom || lastMessage.direction === "OUTBOUND") {
+
+    if (!isInitialLoad && !isNearBottomRef.current && lastMessage.direction !== "OUTBOUND") {
+      setNewMessageCount((count) => count + addedCount);
+    } else {
       setNewMessageCount(0);
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: !isInitialLoad }), 50);
-      return;
     }
-    setNewMessageCount((count) => count + addedCount);
-  }, [displayedMessages, isNearBottom]);
+  }, [displayedMessages]);
 
   const lastInboundMessageId = useMemo(
     () => [...messages].reverse().find((message) => message.direction === "INBOUND")?.id,
@@ -1145,9 +1158,6 @@ export const ChatDetailScreen = () => {
 
   const beginReply = (message: WaMessage) => {
     setReplyingTo(message);
-    if (isNearBottom) {
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 40);
-    }
   };
 
   const handleReplyPress = () => {
@@ -1320,7 +1330,7 @@ export const ChatDetailScreen = () => {
                 <Text style={styles.deletedText}>This message was deleted</Text>
               </View>
             ) : (
-              <MessageContentRenderer message={item} />
+              <MessageContentRenderer message={item} onOpenImage={(url) => setViewerImageUrl(url)} />
             )}
 
             <View style={styles.messageFooter}>
@@ -1367,15 +1377,11 @@ export const ChatDetailScreen = () => {
         keyExtractor={(item) => item.clientMessageId || item.id}
         renderScrollComponent={KeyboardChatListScrollComponent}
         scrollEnabled={!reactionMenuVisible}
-        contentInsetAdjustmentBehavior="automatic"
+        contentInsetAdjustmentBehavior="never"
         keyboardDismissMode="interactive"
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={styles.listContent}
-        maintainVisibleContentPosition={{
-          startRenderingFromBottom: true,
-          autoscrollToBottomThreshold: 0.15,
-          animateAutoScrollToBottom: true,
-        }}
+        maintainVisibleContentPosition={maintainVisibleContentConfig}
         onScroll={handleTimelineScroll}
         scrollEventThrottle={32}
         onStartReached={() => {
@@ -1633,6 +1639,25 @@ export const ChatDetailScreen = () => {
         messages={messages}
         onDeleteChat={() => navigation.goBack()}
       />
+
+      {/* Absolute Fullscreen Image Viewer — Zero Native Modal Window Resize, Zero Scroll Jump */}
+      {!!viewerImageUrl && (
+        <View style={styles.fullScreenImageViewer}>
+          <ExpoImage
+            source={{ uri: viewerImageUrl }}
+            style={styles.fullScreenImage}
+            contentFit="contain"
+            cachePolicy="memory-disk"
+          />
+          <TouchableOpacity
+            style={styles.fullScreenCloseBtn}
+            onPress={() => setViewerImageUrl(null)}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          >
+            <MaterialCommunityIcons name="close" size={28} color="#ffffff" />
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 };
@@ -2029,5 +2054,28 @@ const styles = StyleSheet.create({
   templateItemPreview: {
     fontSize: 13,
     color: Colors.textSecondary,
+  },
+  fullScreenImageViewer: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: "#000000",
+    zIndex: 99999,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  fullScreenImage: {
+    width: "100%",
+    height: "100%",
+  },
+  fullScreenCloseBtn: {
+    position: "absolute",
+    top: 50,
+    right: 16,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 100000,
   },
 });

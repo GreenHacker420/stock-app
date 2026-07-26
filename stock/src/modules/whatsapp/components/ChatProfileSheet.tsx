@@ -8,14 +8,19 @@ import {
   Linking,
   Alert,
 } from "react-native";
-import { Text, IconButton, Switch, Divider, Button } from "react-native-paper";
+import { Text, IconButton, Switch, Divider, Button, Searchbar, ActivityIndicator } from "react-native-paper";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { useQueryClient } from "@tanstack/react-query";
 import { AppBottomSheetModal } from "../../../components/overlays/AppBottomSheetModal";
 import { colors as Colors, spacing, radius, fontSize, fontWeight } from "../../../theme";
 import { formatWhatsAppPhone, initials, waColors } from "../whatsapp-ui";
 import { type WaConversation, type WaMessage } from "../../../api/whatsapp.api";
 import { navigate } from "../../../navigation/navigation-ref";
 import { triggerLightHaptic, triggerMediumHaptic } from "../../../utils/haptics";
+import { useCustomersQuery } from "../../../hooks/useCustomers";
+import { whatsappDb } from "../services/whatsapp-db";
+import { contactsDb } from "../services/contactsDb";
+import { KeyboardAwareScreen } from "../../../components/keyboard/KeyboardAwareScreen";
 
 interface ChatProfileSheetProps {
   visible: boolean;
@@ -40,6 +45,51 @@ export function ChatProfileSheet({
 }: ChatProfileSheetProps) {
   const [activeMediaTab, setActiveMediaTab] = useState<"media" | "docs" | "links">("media");
   const [isMuted, setIsMuted] = useState(conversation?.isMuted ?? false);
+  const [showCustomerPicker, setShowCustomerPicker] = useState(false);
+  const [pickerSearch, setPickerSearch] = useState("");
+  const [linkingId, setLinkingId] = useState<string | null>(null);
+  const [linkedCustomer, setLinkedCustomer] = useState<any>(customerRecord || null);
+
+  const queryClient = useQueryClient();
+  const customersQuery = useCustomersQuery({ includeWalkin: false });
+
+  useMemo(() => {
+    if (customerRecord) {
+      setLinkedCustomer(customerRecord);
+    }
+  }, [customerRecord]);
+
+  const filteredCustomers = useMemo(() => {
+    const list = customersQuery.data || [];
+    if (!pickerSearch.trim()) return list;
+    const q = pickerSearch.toLowerCase().trim();
+    return list.filter(
+      (c: any) => c.name?.toLowerCase().includes(q) || c.phone?.includes(q)
+    );
+  }, [customersQuery.data, pickerSearch]);
+
+  const handleLinkCustomer = async (customer: any) => {
+    if (!conversation) return;
+    
+    // 1. INSTANT OPTIMISTIC UI UPDATE (0ms)
+    setLinkedCustomer(customer);
+    setShowCustomerPicker(false);
+    triggerMediumHaptic();
+
+    // 2. ASYNC BACKGROUND PERSISTENCE
+    try {
+      await whatsappDb.linkCustomerToConversation(conversation.id, customer.id);
+      const contact = await contactsDb.getContactByPhone(conversation.phone);
+      if (contact) {
+        await contactsDb.linkCustomer(contact.id, customer.id);
+      }
+      queryClient.invalidateQueries({ queryKey: ["whatsapp", "conversations"] });
+      queryClient.invalidateQueries({ queryKey: ["customers"] });
+      queryClient.invalidateQueries({ queryKey: ["customer", customer.id] });
+    } catch (err: any) {
+      console.warn("Background linking error:", err);
+    }
+  };
 
   const phone = conversation?.phone ?? "";
   const contactName = conversation?.contactName
@@ -92,12 +142,12 @@ export function ChatProfileSheet({
       visible={visible}
       onDismiss={onDismiss}
       title="Contact Info"
-      maxHeight={0.92}
+      maxHeight={1.0}
+      fullBleed
+      scrollable
+      expandable
     >
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-      >
+      <View style={styles.scrollContent}>
         {/* 1. HERO PROFILE HEADER */}
         <View style={styles.heroSection}>
           <View style={styles.avatarLarge}>
@@ -259,7 +309,7 @@ export function ChatProfileSheet({
               <MaterialCommunityIcons name="storefront-outline" size={20} color={waColors.greenDark} />
               <Text style={styles.sectionTitle}>ShopControl CRM Profile</Text>
             </View>
-            {customerRecord && (
+            {linkedCustomer && (
               <View style={styles.linkedBadge}>
                 <MaterialCommunityIcons name="check-circle" size={12} color={waColors.greenDark} />
                 <Text style={styles.linkedBadgeText}>Linked</Text>
@@ -267,22 +317,22 @@ export function ChatProfileSheet({
             )}
           </View>
 
-          {customerRecord ? (
+          {linkedCustomer ? (
             <View style={styles.crmDetails}>
               <View style={styles.crmMetricRow}>
                 <View style={styles.crmMetricBox}>
                   <Text style={styles.crmMetricLabel}>Outstanding</Text>
-                  <Text style={[styles.crmMetricValue, { color: Number(customerRecord.outstandingAmount) > 0 ? Colors.danger : waColors.greenDark }]}>
-                    {money(customerRecord.outstandingAmount)}
+                  <Text style={[styles.crmMetricValue, { color: Number(linkedCustomer.outstandingAmount) > 0 ? Colors.danger : waColors.greenDark }]}>
+                    {money(linkedCustomer.outstandingAmount)}
                   </Text>
                 </View>
                 <View style={styles.crmMetricBox}>
                   <Text style={styles.crmMetricLabel}>Total Sales</Text>
-                  <Text style={styles.crmMetricValue}>{money(customerRecord.totalSales)}</Text>
+                  <Text style={styles.crmMetricValue}>{money(linkedCustomer.totalSales)}</Text>
                 </View>
                 <View style={styles.crmMetricBox}>
                   <Text style={styles.crmMetricLabel}>Credit Limit</Text>
-                  <Text style={styles.crmMetricValue}>{money(customerRecord.creditLimit)}</Text>
+                  <Text style={styles.crmMetricValue}>{money(linkedCustomer.creditLimit)}</Text>
                 </View>
               </View>
 
@@ -290,7 +340,7 @@ export function ChatProfileSheet({
                 mode="contained-tonal"
                 onPress={() => {
                   onDismiss();
-                  navigate("CustomerDetail", { customerId: customerRecord.id });
+                  navigate("CustomerDetail", { customerId: linkedCustomer.id });
                 }}
                 icon="account-details"
                 style={styles.crmActionBtn}
@@ -308,8 +358,11 @@ export function ChatProfileSheet({
               <Button
                 mode="outlined"
                 onPress={() => {
-                  onDismiss();
-                  onOpenLinkCustomer?.();
+                  if (onOpenLinkCustomer) {
+                    onOpenLinkCustomer();
+                  } else {
+                    setShowCustomerPicker(true);
+                  }
                 }}
                 icon="link-variant"
                 style={styles.linkCrmBtn}
@@ -328,7 +381,7 @@ export function ChatProfileSheet({
               <MaterialCommunityIcons name="bell-outline" size={22} color={Colors.textSecondary} />
               <View style={{ marginLeft: 14 }}>
                 <Text style={styles.settingTitle}>Mute notifications</Text>
-                <Text style={styles.settingSub}>{isMuted ? "Muted" : "Off"}</Text>
+                <Text style={styles.settingSub}>{isMuted ? "On" : "Off"}</Text>
               </View>
             </View>
             <Switch value={isMuted} onValueChange={handleToggleMuteSwitch} color={waColors.greenDark} />
@@ -344,7 +397,7 @@ export function ChatProfileSheet({
                 <Text style={styles.settingSub}>None</Text>
               </View>
             </View>
-            <MaterialCommunityIcons name="chevron-right" size={22} color={Colors.textMuted} />
+            <MaterialCommunityIcons name="chevron-right" size={20} color={Colors.textSecondary} />
           </TouchableOpacity>
 
           <Divider style={styles.rowDivider} />
@@ -400,7 +453,57 @@ export function ChatProfileSheet({
             <Text style={styles.dangerTitle}>Clear & Delete Chat</Text>
           </TouchableOpacity>
         </View>
-      </ScrollView>
+      </View>
+
+      {/* 6. CUSTOMER LINK PICKER MODAL */}
+      <AppBottomSheetModal
+        visible={showCustomerPicker}
+        onDismiss={() => setShowCustomerPicker(false)}
+        title="Link to ShopControl Customer"
+        subtitle={`Select a customer account for ${contactName}`}
+        maxHeight={0.85}
+        scrollable
+      >
+        <KeyboardAwareScreen extraKeyboardSpace={20} style={{ padding: 12 }}>
+          <Searchbar
+            placeholder="Search by name or phone..."
+            value={pickerSearch}
+            onChangeText={setPickerSearch}
+            style={{ marginBottom: 12, backgroundColor: Colors.surfaceOffset, elevation: 0 }}
+          />
+          {customersQuery.isLoading ? (
+            <ActivityIndicator color={waColors.greenDark} style={{ padding: 20 }} />
+          ) : filteredCustomers.length === 0 ? (
+            <Text style={{ textAlign: "center", color: Colors.textSecondary, padding: 20 }}>
+              No customers found matching "{pickerSearch}"
+            </Text>
+          ) : (
+            filteredCustomers.map((cust: any) => (
+              <TouchableOpacity
+                key={cust.id}
+                style={styles.customerSelectItem}
+                onPress={() => handleLinkCustomer(cust)}
+                disabled={Boolean(linkingId)}
+              >
+                <View style={styles.customerAvatarCircle}>
+                  <Text style={styles.customerAvatarText}>{initials(cust.name || "C")}</Text>
+                </View>
+                <View style={{ flex: 1, marginLeft: 12 }}>
+                  <Text style={styles.customerSelectName}>{cust.name}</Text>
+                  <Text style={styles.customerSelectSub}>
+                    {cust.phone || "No phone"} • Outstanding: {money(cust.outstandingAmount)}
+                  </Text>
+                </View>
+                {linkingId === cust.id ? (
+                  <ActivityIndicator size="small" color={waColors.greenDark} />
+                ) : (
+                  <MaterialCommunityIcons name="chevron-right" size={20} color={Colors.textSecondary} />
+                )}
+              </TouchableOpacity>
+            ))
+          )}
+        </KeyboardAwareScreen>
+      </AppBottomSheetModal>
     </AppBottomSheetModal>
   );
 }
@@ -677,5 +780,36 @@ const styles = StyleSheet.create({
     fontWeight: fontWeight.semibold,
     color: Colors.danger,
     marginLeft: 14,
+  },
+  customerSelectItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: "#e2e8f0",
+  },
+  customerAvatarCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: "#e0f2fe",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  customerAvatarText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#0369a1",
+  },
+  customerSelectName: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: Colors.textPrimary,
+  },
+  customerSelectSub: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    marginTop: 2,
   },
 });

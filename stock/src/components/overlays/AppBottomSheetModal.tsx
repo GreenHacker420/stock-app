@@ -8,6 +8,7 @@ import {
   useWindowDimensions,
   Pressable,
   AccessibilityInfo,
+  BackHandler,
 } from "react-native";
 import {
   KeyboardGestureArea,
@@ -17,19 +18,21 @@ import {
   GestureHandlerRootView,
   GestureDetector,
   Gesture,
+  ScrollView as GHScrollView,
 } from "react-native-gesture-handler";
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withSpring,
   withTiming,
+  interpolate,
   ReduceMotion,
 } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Icon } from "react-native-paper";
 import { colors, spacing, radius, shadow, fontWeight, fontSize } from "../../theme";
-import { triggerMediumHaptic } from "../../utils/haptics";
+import { triggerLightHaptic, triggerMediumHaptic } from "../../utils/haptics";
 import { KeyboardAwareScreen } from "../keyboard/KeyboardAwareScreen";
 
 const OPEN_SPRING_CONFIG = {
@@ -59,6 +62,7 @@ interface AppBottomSheetModalProps {
   maxHeight?: number;
   fullBleed?: boolean;
   scrollable?: boolean;
+  expandable?: boolean;
 }
 
 export const AppBottomSheetModal = forwardRef<
@@ -78,6 +82,7 @@ export const AppBottomSheetModal = forwardRef<
     maxHeight = 0.85,
     fullBleed = false,
     scrollable = false,
+    expandable = false,
   },
   ref
 ) {
@@ -99,8 +104,11 @@ export const AppBottomSheetModal = forwardRef<
   const closing = useSharedValue(false);
   const contentScrollY = useSharedValue(0);
   const dragStartedAtTop = useSharedValue(true);
+  const startOffsetY = useSharedValue(0);
+  const snapStage = useSharedValue<0 | 1>(1);
 
-  const safeMaxHeight = Math.min(0.95, Math.max(0.4, maxHeight));
+  const collapsedOffsetY = expandable ? Math.round(screenH * 0.35) : 0;
+  const safeMaxHeight = Math.min(1.0, Math.max(0.4, maxHeight));
   const safeMinHeight = minHeight === undefined
     ? undefined
     : Math.min(safeMaxHeight, Math.max(0.4, minHeight));
@@ -120,7 +128,8 @@ export const AppBottomSheetModal = forwardRef<
     closing.value = false;
 
     if (visible) {
-      translateY.value = withSpring(0, OPEN_SPRING_CONFIG);
+      const targetY = expandable && snapStage.value === 1 ? collapsedOffsetY : 0;
+      translateY.value = withSpring(targetY, OPEN_SPRING_CONFIG);
       backdropOpacity.value = withTiming(1, {
         duration: BACKDROP_DURATION,
         reduceMotion: ReduceMotion.System,
@@ -128,7 +137,7 @@ export const AppBottomSheetModal = forwardRef<
     } else {
       finalizeDismiss();
     }
-  }, [visible, closing, translateY, backdropOpacity, finalizeDismiss]);
+  }, [visible, closing, translateY, backdropOpacity, finalizeDismiss, expandable, snapStage, collapsedOffsetY]);
 
   const beginDismiss = useCallback(() => {
     if (isBusy || dismissingRef.current) return;
@@ -163,7 +172,8 @@ export const AppBottomSheetModal = forwardRef<
       setDismissing(false);
       closing.value = false;
 
-      translateY.value = withSpring(0, OPEN_SPRING_CONFIG);
+      const targetY = expandable && snapStage.value === 1 ? collapsedOffsetY : 0;
+      translateY.value = withSpring(targetY, OPEN_SPRING_CONFIG);
       backdropOpacity.value = withTiming(1, {
         duration: 200,
         reduceMotion: ReduceMotion.System,
@@ -174,9 +184,9 @@ export const AppBottomSheetModal = forwardRef<
     if (!renderModal) {
       setRenderModal(true);
     }
-  }, [visible, renderModal, closing, translateY, backdropOpacity]);
+  }, [visible, renderModal, closing, translateY, backdropOpacity, expandable, snapStage, collapsedOffsetY]);
 
-  // Effect 2: Opening animation — runs exactly once per open (guarded by hasOpenedRef)
+  // Effect 2: Opening animation — runs exactly once per open
   useEffect(() => {
     if (!renderModal || !visible || hasOpenedRef.current) return;
 
@@ -189,7 +199,9 @@ export const AppBottomSheetModal = forwardRef<
     backdropOpacity.value = 0;
 
     requestAnimationFrame(() => {
-      translateY.value = withSpring(0, OPEN_SPRING_CONFIG);
+      const targetY = expandable ? collapsedOffsetY : 0;
+      snapStage.value = expandable ? 1 : 0;
+      translateY.value = withSpring(targetY, OPEN_SPRING_CONFIG);
       backdropOpacity.value = withTiming(1, {
         duration: 200,
         reduceMotion: ReduceMotion.System,
@@ -202,14 +214,17 @@ export const AppBottomSheetModal = forwardRef<
       }
     }, 250);
     return () => clearTimeout(focusTimer);
-  }, [renderModal, visible, screenH, sheetHeight, translateY, backdropOpacity, closing]);
+  }, [renderModal, visible, screenH, sheetHeight, translateY, backdropOpacity, closing, expandable, collapsedOffsetY]);
 
-  // Effect 3: Closing — reacts only to visible becoming false
+  // Effect 4: Hardware back press handler
   useEffect(() => {
-    if (!visible && renderModal) {
+    if (!renderModal || !visible) return;
+    const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
       beginDismiss();
-    }
-  }, [visible, renderModal, beginDismiss]);
+      return true;
+    });
+    return () => subscription.remove();
+  }, [renderModal, visible, beginDismiss]);
 
   useImperativeHandle(ref, () => ({
     dismiss: () => {
@@ -225,25 +240,68 @@ export const AppBottomSheetModal = forwardRef<
 
   const contentNativeGesture = useMemo(() => Gesture.Native(), []);
 
-  // The entire sheet can be pulled down. Scrollable children retain upward
-  // scrolling and only hand a downward pull to the sheet when they are at top.
   const panGesture = useMemo(
     () => Gesture.Pan()
       .enabled(!isBusy && !dismissing && !keyboardVisible)
-      .activeOffsetY(10)
+      .activeOffsetY([-5, 10])
       .failOffsetX([-15, 15])
       .cancelsTouchesInView(false)
       .simultaneousWithExternalGesture(contentNativeGesture)
       .onBegin(() => {
         dragStartedAtTop.value = !scrollable || contentScrollY.value <= 1;
+        startOffsetY.value = translateY.value;
       })
       .onUpdate((event) => {
         if (!dragStartedAtTop.value) return;
-        translateY.value = Math.max(0, event.translationY);
+        const currentTarget = startOffsetY.value + event.translationY;
+        translateY.value = Math.max(0, currentTarget);
       })
       .onEnd((event) => {
         if (!dragStartedAtTop.value) return;
-        if (event.translationY > 100 || event.velocityY > 500) {
+        const translationY = event.translationY;
+        const velocityY = event.velocityY;
+
+        if (expandable) {
+          // From collapsed -> swipe UP expands to 100% full screen page!
+          if (snapStage.value === 1 && (translationY < -30 || velocityY < -300)) {
+            snapStage.value = 0;
+            translateY.value = withSpring(0, OPEN_SPRING_CONFIG);
+            scheduleOnRN(triggerLightHaptic);
+            return;
+          }
+
+          // From expanded -> swipe DOWN collapses back to ~65%!
+          if (snapStage.value === 0 && translationY > 40 && velocityY > 100 && contentScrollY.value <= 1) {
+            snapStage.value = 1;
+            translateY.value = withSpring(collapsedOffsetY, OPEN_SPRING_CONFIG);
+            scheduleOnRN(triggerLightHaptic);
+            return;
+          }
+
+          // From collapsed -> drag down past threshold dismisses!
+          if (snapStage.value === 1 && (translationY > 80 || velocityY > 500)) {
+            closing.value = true;
+            scheduleOnRN(markGestureDismissStarted);
+            scheduleOnRN(triggerMediumHaptic);
+            const hiddenTranslateY = Math.max(sheetHeight.value, screenH);
+            translateY.value = withTiming(hiddenTranslateY, {
+              duration: CLOSE_DURATION,
+              reduceMotion: ReduceMotion.System,
+            }, (finished) => {
+              if (finished) scheduleOnRN(finalizeDismiss);
+              else scheduleOnRN(recoverInterruptedDismiss);
+            });
+            backdropOpacity.value = withTiming(0, { duration: BACKDROP_DURATION });
+            return;
+          }
+
+          // Snap back to current stage
+          const targetSnapY = snapStage.value === 0 ? 0 : collapsedOffsetY;
+          translateY.value = withSpring(targetSnapY, OPEN_SPRING_CONFIG);
+          return;
+        }
+
+        if (translationY > 100 || velocityY > 500) {
           closing.value = true;
           scheduleOnRN(markGestureDismissStarted);
           scheduleOnRN(triggerMediumHaptic);
@@ -268,16 +326,19 @@ export const AppBottomSheetModal = forwardRef<
       })
       .onFinalize((_event, success) => {
         if ((!success || !dragStartedAtTop.value) && !closing.value) {
-          translateY.value = withSpring(0, OPEN_SPRING_CONFIG);
+          const targetSnapY = expandable && snapStage.value === 1 ? collapsedOffsetY : 0;
+          translateY.value = withSpring(targetSnapY, OPEN_SPRING_CONFIG);
         }
       }),
     [
       backdropOpacity,
       closing,
+      collapsedOffsetY,
       contentNativeGesture,
       contentScrollY,
       dismissing,
       dragStartedAtTop,
+      expandable,
       finalizeDismiss,
       isBusy,
       keyboardVisible,
@@ -286,6 +347,8 @@ export const AppBottomSheetModal = forwardRef<
       scrollable,
       sheetHeight,
       screenH,
+      snapStage,
+      startOffsetY,
       translateY,
     ]
   );
@@ -298,15 +361,24 @@ export const AppBottomSheetModal = forwardRef<
     };
   });
 
-  const sheetStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: translateY.value }],
-  }));
+  const sheetStyle = useAnimatedStyle(() => {
+    const radiusVal = expandable
+      ? interpolate(translateY.value, [0, Math.max(1, collapsedOffsetY)], [0, 24], "clamp")
+      : 24;
+    return {
+      transform: [{ translateY: translateY.value }],
+      borderTopLeftRadius: radiusVal,
+      borderTopRightRadius: radiusVal,
+    };
+  });
 
   if (!renderModal) return null;
 
   const interactionsDisabled = isBusy || dismissing;
   const contentPaddingBottom = Math.max(insets.bottom, spacing.xl);
-  const maxContentHeight = screenH * safeMaxHeight - headerHeight;
+  const maxContentHeight = expandable
+    ? screenH - headerHeight
+    : screenH * safeMaxHeight - headerHeight;
 
   return (
     <Modal
@@ -315,7 +387,6 @@ export const AppBottomSheetModal = forwardRef<
       animationType="none"
       onRequestClose={beginDismiss}
       statusBarTranslucent
-      navigationBarTranslucent
     >
       <GestureHandlerRootView style={styles.gestureRoot}>
         <KeyboardGestureArea
@@ -345,7 +416,7 @@ export const AppBottomSheetModal = forwardRef<
                 styles.sheetContainer,
                 {
                   minHeight: safeMinHeight ? screenH * safeMinHeight : undefined,
-                  maxHeight: screenH * safeMaxHeight,
+                  maxHeight: expandable ? screenH : screenH * safeMaxHeight,
                 },
                 sheetStyle,
               ]}
@@ -413,9 +484,7 @@ export const AppBottomSheetModal = forwardRef<
 
               <GestureDetector gesture={contentNativeGesture}>
                 {scrollable ? (
-                  <KeyboardAwareScreen
-                    mode="insets"
-                    bottomOffset={spacing.lg}
+                  <GHScrollView
                     style={[
                       styles.scrollView,
                       Boolean(safeMinHeight) && styles.scrollViewFill,
@@ -429,10 +498,14 @@ export const AppBottomSheetModal = forwardRef<
                       contentScrollY.value = event.nativeEvent.contentOffset.y;
                     }}
                     scrollEventThrottle={16}
+                    showsVerticalScrollIndicator={false}
+                    nestedScrollEnabled
+                    overScrollMode="never"
+                    keyboardShouldPersistTaps="handled"
                     keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "none"}
                   >
                     {children}
-                  </KeyboardAwareScreen>
+                  </GHScrollView>
                 ) : (
                   <View style={[
                     styles.contentWrap,
@@ -453,6 +526,11 @@ export const AppBottomSheetModal = forwardRef<
 });
 
 const styles = StyleSheet.create({
+  overlayRoot: {
+    ...StyleSheet.absoluteFill,
+    zIndex: 999999,
+    elevation: 999999,
+  },
   gestureRoot: {
     flex: 1,
   },

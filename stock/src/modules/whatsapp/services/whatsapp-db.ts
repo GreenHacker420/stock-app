@@ -296,6 +296,30 @@ export const whatsappDb = {
       .filter((row): row is WaConversation => Boolean(row));
   },
 
+  async linkCustomerToConversation(conversationId: string, customerId: string | null) {
+    await initializeDatabase();
+    await sqliteClient.write(async (database) => {
+      await database.run(
+        `UPDATE wa_conversations SET customer_id = ? WHERE id = ?`,
+        [customerId, conversationId],
+      );
+      const row = await database.first<ConversationRow>(
+        `SELECT payload_json FROM wa_conversations WHERE id = ?`,
+        [conversationId],
+      );
+      if (row?.payload_json) {
+        const parsed = parseJson<WaConversation>(row.payload_json);
+        if (parsed) {
+          parsed.customerId = customerId || undefined;
+          await database.run(
+            `UPDATE wa_conversations SET payload_json = ? WHERE id = ?`,
+            [JSON.stringify(parsed), conversationId],
+          );
+        }
+      }
+    });
+  },
+
   async removeConversation(conversationId: string) {
     await initializeDatabase();
     await sqliteClient.transaction(async (transaction) => {

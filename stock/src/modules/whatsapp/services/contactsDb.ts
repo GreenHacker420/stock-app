@@ -310,6 +310,16 @@ export const contactsDb = {
     ));
   },
 
+  getContactByPhone: async (phone: string): Promise<LocalContact | null> => {
+    await initializeDatabase();
+    return sqliteClient.read((database) =>
+      database.first<LocalContact>(
+        "SELECT * FROM local_contacts WHERE phone = ? LIMIT 1",
+        [phone]
+      ),
+    );
+  },
+
   /**
    * Fetches all mutated contacts that need to be synced to the backend.
    */

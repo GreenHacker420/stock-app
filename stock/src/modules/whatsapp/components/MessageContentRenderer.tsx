@@ -17,6 +17,7 @@ import { AudioMessagePlayer } from "./AudioMessagePlayer";
 
 type RendererProps = {
   message: WaMessage;
+  onOpenImage?: (url: string) => void;
 };
 
 function openUrl(url?: string, failureMessage = "This item cannot be opened.") {
@@ -52,18 +53,26 @@ function TextRenderer({ message }: RendererProps) {
   return <Text selectable style={styles.messageText}>{message.content?.text || ""}</Text>;
 }
 
-function ImageRenderer({ message }: RendererProps) {
+function ImageRenderer({ message, onOpenImage }: RendererProps) {
   const [visible, setVisible] = useState(false);
   const [loading, setLoading] = useState(true);
   const url = message.asset?.url;
   if (!url) return <AssetUnavailable message={message} />;
+
+  const handlePress = () => {
+    if (onOpenImage) {
+      onOpenImage(url);
+    } else {
+      setVisible(true);
+    }
+  };
 
   return (
     <>
       <Pressable
         accessibilityRole="button"
         accessibilityLabel="Open image"
-        onPress={() => setVisible(true)}
+        onPress={handlePress}
       >
         <View style={styles.imageFrame}>
           <Image
@@ -89,25 +98,27 @@ function ImageRenderer({ message }: RendererProps) {
           {message.content.caption || message.content.text}
         </Text>
       )}
-      <Modal visible={visible} transparent animationType="fade" onRequestClose={() => setVisible(false)}>
-        <View style={styles.viewer}>
-          <Image
-            source={{ uri: url }}
-            style={styles.viewerImage}
-            contentFit="contain"
-            cachePolicy="memory-disk"
-            recyclingKey={`viewer:${message.id}`}
-          />
-          <IconButton
-            icon="close"
-            iconColor="#fff"
-            size={28}
-            accessibilityLabel="Close image"
-            onPress={() => setVisible(false)}
-            style={styles.viewerClose}
-          />
-        </View>
-      </Modal>
+      {!onOpenImage && (
+        <Modal visible={visible} transparent animationType="fade" onRequestClose={() => setVisible(false)}>
+          <View style={styles.viewer}>
+            <Image
+              source={{ uri: url }}
+              style={styles.viewerImage}
+              contentFit="contain"
+              cachePolicy="memory-disk"
+              recyclingKey={`viewer:${message.id}`}
+            />
+            <IconButton
+              icon="close"
+              iconColor="#fff"
+              size={28}
+              accessibilityLabel="Close image"
+              onPress={() => setVisible(false)}
+              style={styles.viewerClose}
+            />
+          </View>
+        </Modal>
+      )}
     </>
   );
 }
@@ -381,9 +392,9 @@ const RENDERERS: Record<WaMessageType, ComponentType<RendererProps>> = {
   UNSUPPORTED: UnsupportedRenderer,
 };
 
-export function MessageContentRenderer({ message }: RendererProps) {
+export function MessageContentRenderer({ message, onOpenImage }: RendererProps) {
   const Renderer = RENDERERS[message.type] || UnsupportedRenderer;
-  return <Renderer message={message} />;
+  return <Renderer message={message} onOpenImage={onOpenImage} />;
 }
 
 const styles = StyleSheet.create({
