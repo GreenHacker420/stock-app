@@ -1,15 +1,15 @@
 import { type ComponentType, useRef, useState } from "react";
 import {
   Alert,
-  Image,
   Linking,
   Modal,
   Pressable,
   StyleSheet,
   View,
 } from "react-native";
-import { IconButton, Text } from "react-native-paper";
+import { ActivityIndicator, IconButton, Text } from "react-native-paper";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import { VideoView, useVideoPlayer } from "expo-video";
 import { colors as Colors } from "../../../theme";
 import type { WaContact, WaMessage, WaMessageType } from "../../../api/whatsapp.api";
@@ -28,10 +28,24 @@ function openUrl(url?: string, failureMessage = "This item cannot be opened.") {
 }
 
 function AssetUnavailable({ message }: RendererProps) {
-  const label = message.asset?.status === "FAILED"
+  const failed = message.asset?.status === "FAILED";
+  const label = failed
     ? "Media processing failed"
-    : "Media is still processing";
-  return <InfoRow icon="cloud-alert" text={label} muted />;
+    : "Preparing media…";
+
+  return (
+    <View style={styles.processingRow}>
+      {failed ? (
+        <MaterialCommunityIcons name="cloud-alert-outline" size={24} color={Colors.danger} />
+      ) : (
+        <ActivityIndicator size={20} color={Colors.primary} />
+      )}
+      <View style={styles.infoText}>
+        <Text style={[styles.infoTitle, styles.muted]}>{label}</Text>
+        {!failed && <Text style={styles.infoDetail}>This will update automatically.</Text>}
+      </View>
+    </View>
+  );
 }
 
 function TextRenderer({ message }: RendererProps) {
@@ -40,13 +54,35 @@ function TextRenderer({ message }: RendererProps) {
 
 function ImageRenderer({ message }: RendererProps) {
   const [visible, setVisible] = useState(false);
+  const [loading, setLoading] = useState(true);
   const url = message.asset?.url;
   if (!url) return <AssetUnavailable message={message} />;
 
   return (
     <>
-      <Pressable accessibilityRole="button" accessibilityLabel="Open image" onPress={() => setVisible(true)}>
-        <Image source={{ uri: url }} style={styles.image} resizeMode="cover" />
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel="Open image"
+        onPress={() => setVisible(true)}
+      >
+        <View style={styles.imageFrame}>
+          <Image
+            source={{ uri: url }}
+            style={styles.image}
+            contentFit="cover"
+            cachePolicy="memory-disk"
+            recyclingKey={message.id}
+            transition={120}
+            onLoadStart={() => setLoading(true)}
+            onLoad={() => setLoading(false)}
+            onError={() => setLoading(false)}
+          />
+          {loading && (
+            <View style={styles.imageLoading}>
+              <ActivityIndicator size={22} color={Colors.primary} />
+            </View>
+          )}
+        </View>
       </Pressable>
       {!!(message.content?.caption || message.content?.text) && (
         <Text selectable style={styles.messageText}>
@@ -55,7 +91,13 @@ function ImageRenderer({ message }: RendererProps) {
       )}
       <Modal visible={visible} transparent animationType="fade" onRequestClose={() => setVisible(false)}>
         <View style={styles.viewer}>
-          <Image source={{ uri: url }} style={styles.viewerImage} resizeMode="contain" />
+          <Image
+            source={{ uri: url }}
+            style={styles.viewerImage}
+            contentFit="contain"
+            cachePolicy="memory-disk"
+            recyclingKey={`viewer:${message.id}`}
+          />
           <IconButton
             icon="close"
             iconColor="#fff"
@@ -115,7 +157,15 @@ function DocumentRenderer({ message }: RendererProps) {
 
 function StickerRenderer({ message }: RendererProps) {
   if (!message.asset?.url) return <AssetUnavailable message={message} />;
-  return <Image source={{ uri: message.asset.url }} style={styles.sticker} resizeMode="contain" />;
+  return (
+    <Image
+      source={{ uri: message.asset.url }}
+      style={styles.sticker}
+      contentFit="contain"
+      cachePolicy="memory-disk"
+      recyclingKey={message.id}
+    />
+  );
 }
 
 function AudioRenderer({ message }: RendererProps) {
@@ -341,11 +391,23 @@ const styles = StyleSheet.create({
     color: "#1F2937",
     fontSize: 16,
   },
-  image: {
+  imageFrame: {
     width: 230,
     height: 230,
     borderRadius: 8,
     marginBottom: 6,
+    backgroundColor: Colors.surfaceOffset,
+    overflow: "hidden",
+  },
+  image: {
+    width: "100%",
+    height: "100%",
+  },
+  imageLoading: {
+    position: "absolute",
+    inset: 0,
+    alignItems: "center",
+    justifyContent: "center",
     backgroundColor: Colors.surfaceOffset,
   },
   sticker: {
@@ -382,6 +444,16 @@ const styles = StyleSheet.create({
     gap: 10,
     padding: 9,
     borderRadius: 8,
+    backgroundColor: "rgba(0,0,0,0.05)",
+  },
+  processingRow: {
+    width: 240,
+    minHeight: 64,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 10,
+    borderRadius: 10,
     backgroundColor: "rgba(0,0,0,0.05)",
   },
   infoText: {

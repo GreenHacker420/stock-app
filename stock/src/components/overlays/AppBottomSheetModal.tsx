@@ -1,6 +1,7 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useCallback, useState, useRef, useMemo } from "react";
 import {
   Modal,
+  Platform,
   StyleSheet,
   View,
   Text,
@@ -8,6 +9,10 @@ import {
   Pressable,
   AccessibilityInfo,
 } from "react-native";
+import {
+  KeyboardGestureArea,
+  useKeyboardState,
+} from "react-native-keyboard-controller";
 import {
   GestureHandlerRootView,
   GestureDetector,
@@ -78,6 +83,7 @@ export const AppBottomSheetModal = forwardRef<
 ) {
   const { height: screenH } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const keyboardVisible = useKeyboardState((state) => state.isVisible);
 
   const [renderModal, setRenderModal] = useState(false);
   const [dismissing, setDismissing] = useState(false);
@@ -223,7 +229,7 @@ export const AppBottomSheetModal = forwardRef<
   // scrolling and only hand a downward pull to the sheet when they are at top.
   const panGesture = useMemo(
     () => Gesture.Pan()
-      .enabled(!isBusy && !dismissing)
+      .enabled(!isBusy && !dismissing && !keyboardVisible)
       .activeOffsetY(10)
       .failOffsetX([-15, 15])
       .cancelsTouchesInView(false)
@@ -274,6 +280,7 @@ export const AppBottomSheetModal = forwardRef<
       dragStartedAtTop,
       finalizeDismiss,
       isBusy,
+      keyboardVisible,
       markGestureDismissStarted,
       recoverInterruptedDismiss,
       scrollable,
@@ -311,7 +318,13 @@ export const AppBottomSheetModal = forwardRef<
       navigationBarTranslucent
     >
       <GestureHandlerRootView style={styles.gestureRoot}>
-        <View style={styles.modalRoot}>
+        <KeyboardGestureArea
+          style={styles.gestureRoot}
+          interpolator="linear"
+          enableSwipeToDismiss
+          showOnSwipeUp={false}
+        >
+          <View style={styles.modalRoot}>
           {/* Backdrop */}
           <Animated.View
             accessible={false}
@@ -416,6 +429,7 @@ export const AppBottomSheetModal = forwardRef<
                       contentScrollY.value = event.nativeEvent.contentOffset.y;
                     }}
                     scrollEventThrottle={16}
+                    keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "none"}
                   >
                     {children}
                   </KeyboardAwareScreen>
@@ -431,7 +445,8 @@ export const AppBottomSheetModal = forwardRef<
               </GestureDetector>
             </Animated.View>
           </GestureDetector>
-        </View>
+          </View>
+        </KeyboardGestureArea>
       </GestureHandlerRootView>
     </Modal>
   );

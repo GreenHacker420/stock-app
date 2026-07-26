@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useMemo } from "react";
+import { type ReactNode, useEffect, useState, useRef, useMemo } from "react";
 import {
   View,
   Text,
@@ -11,6 +11,15 @@ import {
   NativeSyntheticEvent,
 } from "react-native";
 import { FlashList } from "@shopify/flash-list";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Animated, {
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from "react-native-reanimated";
+import { scheduleOnRN } from "react-native-worklets";
+import { KeyboardController } from "react-native-keyboard-controller";
 import * as Crypto from "expo-crypto";
 import * as Clipboard from "expo-clipboard";
 import * as DocumentPicker from "expo-document-picker";
@@ -39,12 +48,14 @@ import { KeyboardChatListScrollComponent } from "../../../components/keyboard/Ke
 import { AppBottomSheetModal } from "../../../components/overlays/AppBottomSheetModal";
 import type { RootStackParamList } from "../../../navigation";
 import { colors as Colors } from "../../../theme";
+import { triggerMediumHaptic, triggerSelectionHaptic } from "../../../utils/haptics";
 import { format } from "date-fns";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { MessageActionSheet } from "../components/MessageActionSheet";
 import { MediaAttachmentSheet } from "../components/MediaAttachmentSheet";
 import { VoiceRecorderSheet } from "../components/VoiceRecorderSheet";
 import { MessageContentRenderer } from "../components/MessageContentRenderer";
+import { MessageReactionOverlay } from "../components/MessageReactionOverlay";
 import { TemplateSendSheet } from "../components/TemplateSendSheet";
 import { FlowSendSheet } from "../components/FlowSendSheet";
 import { formatWhatsAppPhone, initialsFor, waColors } from "../whatsapp-ui";
@@ -63,7 +74,13 @@ import {
   removePersistedWhatsAppMedia,
 } from "../services/whatsapp-media-files";
 
-const STANDARD_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
+const MEDIA_MESSAGE_TYPES = new Set<WaMessage["type"]>([
+  "IMAGE",
+  "VIDEO",
+  "AUDIO",
+  "DOCUMENT",
+  "STICKER",
+]);
 
 function toMessageType(message: WaOutboundMessage): WaMessage["type"] {
   switch (message.kind) {
@@ -92,6 +109,120 @@ function isServerMessage(message: WaMessage) {
   return !message.id.startsWith("local:") && Boolean(message.metaMessageId);
 }
 
+function getReplyPreview(message: WaMessage) {
+  const text = message.content?.text || message.content?.caption;
+  if (text) return text;
+
+  switch (message.type) {
+    case "IMAGE": return "📷 Photo";
+    case "VIDEO": return "🎥 Video";
+    case "AUDIO": return "🎤 Voice message";
+    case "DOCUMENT": return `📄 ${message.asset?.fileName || "Document"}`;
+    case "LOCATION": return "📍 Location";
+    case "CONTACT_CARD": return "👤 Contact";
+    case "STICKER": return "Sticker";
+    default: return "Message";
+  }
+}
+
+function SwipeReplyRow({
+  replyEnabled,
+  actionsEnabled,
+  children,
+  onReply,
+  onLongPress,
+}: {
+  replyEnabled: boolean;
+  actionsEnabled: boolean;
+  children: ReactNode;
+  onReply: () => void;
+  onLongPress: (x: number, y: number) => void;
+}) {
+  const translateX = useSharedValue(0);
+  const crossedThreshold = useSharedValue(false);
+
+  const swipeGesture = useMemo(
+    () => Gesture.Pan()
+      .enabled(replyEnabled)
+      .activeOffsetX(8)
+      .failOffsetY([-12, 12])
+      .shouldCancelWhenOutside(false)
+      .onBegin(() => {
+        crossedThreshold.value = false;
+      })
+      .onUpdate((event) => {
+        const distance = Math.max(0, event.translationX);
+        translateX.value = Math.min(distance, 72);
+        if (distance >= 46 && !crossedThreshold.value) {
+          crossedThreshold.value = true;
+          scheduleOnRN(triggerSelectionHaptic);
+        }
+      })
+      .onEnd((event) => {
+        if (event.translationX >= 46 || event.velocityX >= 650) {
+          scheduleOnRN(onReply);
+        }
+        translateX.value = withSpring(0, {
+          damping: 22,
+          stiffness: 260,
+          overshootClamping: true,
+        });
+      })
+      .onFinalize(() => {
+        crossedThreshold.value = false;
+        translateX.value = withSpring(0, {
+          damping: 22,
+          stiffness: 260,
+          overshootClamping: true,
+        });
+      }),
+    [crossedThreshold, onReply, replyEnabled, translateX],
+  );
+
+  const longPressGesture = useMemo(
+    () => Gesture.LongPress()
+      .enabled(actionsEnabled)
+      .minDuration(280)
+      .maxDistance(12)
+      .onStart((event) => {
+        scheduleOnRN(triggerMediumHaptic);
+        scheduleOnRN(onLongPress, event.absoluteX, event.absoluteY);
+      }),
+    [actionsEnabled, onLongPress],
+  );
+
+  const messageGesture = useMemo(
+    () => Gesture.Race(swipeGesture, longPressGesture),
+    [longPressGesture, swipeGesture],
+  );
+
+  const messageStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: translateX.value }],
+  }));
+
+  const replyActionStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(translateX.value, [8, 42], [0, 1], "clamp"),
+    transform: [{
+      scale: interpolate(translateX.value, [8, 46], [0.72, 1], "clamp"),
+    }],
+  }));
+
+  return (
+    <View style={styles.swipeableMessage}>
+      <Animated.View pointerEvents="none" style={[styles.swipeReplyAction, replyActionStyle]}>
+        <View style={styles.swipeReplyIcon}>
+            <MaterialCommunityIcons name="reply" size={20} color="#fff" />
+        </View>
+      </Animated.View>
+      <GestureDetector gesture={messageGesture}>
+        <Animated.View style={messageStyle}>
+          {children}
+        </Animated.View>
+      </GestureDetector>
+    </View>
+  );
+}
+
 export const ChatDetailScreen = () => {
   const route = useRoute<RouteProp<RootStackParamList, "ChatDetail">>();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -110,6 +241,7 @@ export const ChatDetailScreen = () => {
   const [replyingTo, setReplyingTo] = useState<WaMessage | null>(null);
   const [selectedMessage, setSelectedMessage] = useState<WaMessage | null>(null);
   const [reactionMenuVisible, setReactionMenuVisible] = useState(false);
+  const [reactionAnchor, setReactionAnchor] = useState({ x: 180, y: 320 });
   const [customEmojiVisible, setCustomEmojiVisible] = useState(false);
   const [showMessageActions, setShowMessageActions] = useState(false);
   const [locating, setLocating] = useState(false);
@@ -211,8 +343,41 @@ export const ChatDetailScreen = () => {
   const messageQuery = useWhatsAppMessages(conversationId);
   const messages = messageQuery.messages;
   const isLoading = messageQuery.isPending;
+  const inboundReplyName = conversation?.contactName
+    || customerRecord?.name
+    || formatWhatsAppPhone(recipientPhone)
+    || "Customer";
+  const replySenderName = (message: WaMessage) => (
+    message.direction === "OUTBOUND" ? "You" : inboundReplyName
+  );
   const draftLoaded = useRef(false);
   const pendingDraftReplyId = useRef<string | null>(null);
+
+  const hasProcessingMedia = messages.some((message) => (
+    message.asset?.status === "UPLOADING"
+    || message.operationState === "PROCESSING"
+    || (
+      MEDIA_MESSAGE_TYPES.has(message.type)
+      && !message.asset?.url
+      && message.asset?.status !== "FAILED"
+      && message.asset?.status !== "DELETED"
+    )
+  ));
+
+  useEffect(() => {
+    if (!isFocused || !hasProcessingMedia) return;
+    let attempts = 1;
+    void messageQuery.refetch();
+    const timer = setInterval(() => {
+      if (attempts >= 24) {
+        clearInterval(timer);
+        return;
+      }
+      attempts += 1;
+      void messageQuery.refetch();
+    }, 2_500);
+    return () => clearInterval(timer);
+  }, [hasProcessingMedia, isFocused, messageQuery.refetch]);
 
   useEffect(() => {
     let cancelled = false;
@@ -861,9 +1026,10 @@ export const ChatDetailScreen = () => {
     setUploadingMedia(false);
   };
 
-  const handleLongPress = (message: WaMessage) => {
+  const handleLongPress = (message: WaMessage, x: number, y: number) => {
     if (message.contentState === "DELETED") return;
     setSelectedMessage(message);
+    setReactionAnchor({ x, y });
     setReactionMenuVisible(true);
   };
 
@@ -875,9 +1041,16 @@ export const ChatDetailScreen = () => {
     setSelectedMessage(null);
   };
 
+  const beginReply = (message: WaMessage) => {
+    setReplyingTo(message);
+    if (isNearBottom) {
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: false }), 40);
+    }
+  };
+
   const handleReplyPress = () => {
     if (selectedMessage && isServerMessage(selectedMessage)) {
-      setReplyingTo(selectedMessage);
+      beginReply(selectedMessage);
     }
     setReactionMenuVisible(false);
     setSelectedMessage(null);
@@ -996,25 +1169,30 @@ export const ChatDetailScreen = () => {
             </Text>
           </View>
         )}
-        <View style={[styles.messageRow, isOutbound ? { justifyContent: "flex-end" } : { justifyContent: "flex-start" }]}>
-          <TouchableOpacity
-            activeOpacity={0.9}
-            onLongPress={() => handleLongPress(item)}
-            onPress={() => {
-              if (
-                item.operationState === "TERMINALLY_FAILED"
-                || item.providerStatus === "FAILED"
-              ) {
-                retryMutation.mutate(item);
-              }
-            }}
-            style={[
-              styles.bubble,
-              isOutbound ? styles.outboundBubble : styles.inboundBubble,
-              isDeleted && styles.deletedBubble,
-              { marginBottom: uniqueEmojis.length > 0 ? 12 : 6 }
-            ]}
-          >
+        <SwipeReplyRow
+          replyEnabled={!isDeleted && isServerMessage(item)}
+          actionsEnabled={!isDeleted}
+          onReply={() => beginReply(item)}
+          onLongPress={(x, y) => handleLongPress(item, x, y)}
+        >
+          <View style={[styles.messageRow, isOutbound ? { justifyContent: "flex-end" } : { justifyContent: "flex-start" }]}>
+            <TouchableOpacity
+              activeOpacity={0.9}
+              onPress={() => {
+                if (
+                  item.operationState === "TERMINALLY_FAILED"
+                  || item.providerStatus === "FAILED"
+                ) {
+                  retryMutation.mutate(item);
+                }
+              }}
+              style={[
+                styles.bubble,
+                isOutbound ? styles.outboundBubble : styles.inboundBubble,
+                isDeleted && styles.deletedBubble,
+                { marginBottom: uniqueEmojis.length > 0 ? 12 : 6 }
+              ]}
+            >
             {/* Reply Quote Display */}
             {!isDeleted && parentMessage && (
               <TouchableOpacity
@@ -1024,10 +1202,10 @@ export const ChatDetailScreen = () => {
                 <View style={styles.replyQuoteBorder} />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.replyQuoteSender} numberOfLines={1}>
-                    {parentMessage.direction === "OUTBOUND" ? "You" : "Customer"}
+                    {replySenderName(parentMessage)}
                   </Text>
                   <Text style={styles.replyQuoteText} numberOfLines={1}>
-                    {parentMessage.content?.text || "[Media/Attachment]"}
+                    {getReplyPreview(parentMessage)}
                   </Text>
                 </View>
               </TouchableOpacity>
@@ -1062,8 +1240,9 @@ export const ChatDetailScreen = () => {
                 )}
               </View>
             )}
-          </TouchableOpacity>
-        </View>
+            </TouchableOpacity>
+          </View>
+        </SwipeReplyRow>
       </>
     );
   };
@@ -1157,10 +1336,10 @@ export const ChatDetailScreen = () => {
             <View style={styles.replyingBorder} />
             <View style={{ flex: 1, paddingHorizontal: 10 }}>
               <Text style={styles.replyingTitle}>
-                Replying to {replyingTo.direction === "OUTBOUND" ? "You" : "Customer"}
+                Replying to {replySenderName(replyingTo)}
               </Text>
               <Text style={styles.replyingText} numberOfLines={1}>
-                {replyingTo.content?.text || "[Media/Attachment]"}
+                {getReplyPreview(replyingTo)}
               </Text>
             </View>
             <TouchableOpacity onPress={() => setReplyingTo(null)} style={styles.replyingClose}>
@@ -1188,7 +1367,13 @@ export const ChatDetailScreen = () => {
         <View style={[styles.inputToolbar, { paddingBottom: Math.max(insets.bottom, 7) }]}>
           <TouchableOpacity
             style={styles.templateToolbarBtn}
-            onPress={() => setShowMessageActions(true)}
+            onPress={() => {
+              if (KeyboardController.isVisible()) {
+                void KeyboardController.dismiss().then(() => setShowMessageActions(true));
+                return;
+              }
+              setShowMessageActions(true);
+            }}
             accessibilityLabel="Add attachment or structured message"
           >
             <MaterialCommunityIcons name="plus-circle" size={27} color={waColors.green} />
@@ -1262,69 +1447,36 @@ export const ChatDetailScreen = () => {
         onSend={uploadAndSendVoice}
       />
 
-      <AppBottomSheetModal
+      <MessageReactionOverlay
         visible={reactionMenuVisible}
-        title="Message actions"
-        subtitle="React, reply, copy, or recall"
+        message={selectedMessage}
+        anchor={reactionAnchor}
+        busy={reactionMutation.isPending || deleteMutation.isPending}
         onDismiss={() => {
           setReactionMenuVisible(false);
-          if (openCustomEmojiAfterReactionRef.current) {
+          setSelectedMessage(null);
+        }}
+        onReaction={handleReactionPress}
+        onMoreReactions={() => {
+          openCustomEmojiAfterReactionRef.current = true;
+          setReactionMenuVisible(false);
+          setTimeout(() => {
             openCustomEmojiAfterReactionRef.current = false;
             setCustomEmojiVisible(true);
-          }
+          }, 120);
         }}
-        maxHeight={0.52}
-      >
-        <View style={styles.reactionBarContainer}>
-          <View style={styles.quickReactionsRow}>
-            {selectedMessage && isServerMessage(selectedMessage) && STANDARD_REACTIONS.map((emoji) => (
-              <TouchableOpacity
-                key={emoji}
-                onPress={() => handleReactionPress(emoji)}
-                style={styles.reactionPill}
-              >
-                <Text style={styles.reactionText}>{emoji}</Text>
-              </TouchableOpacity>
-            ))}
-            {selectedMessage && isServerMessage(selectedMessage) && (
-              <TouchableOpacity
-                onPress={() => {
-                  openCustomEmojiAfterReactionRef.current = true;
-                  setReactionMenuVisible(false);
-                }}
-                style={[styles.reactionPill, { backgroundColor: "#F3F4F6" }]}
-              >
-                <MaterialCommunityIcons name="plus" size={22} color={Colors.textPrimary} />
-              </TouchableOpacity>
-            )}
-          </View>
-
-          <View style={styles.actionMenu}>
-            {selectedMessage && isServerMessage(selectedMessage) && (
-              <TouchableOpacity style={styles.menuItem} onPress={handleReplyPress}>
-                <MaterialCommunityIcons name="reply" size={22} color={Colors.textPrimary} />
-                <Text style={styles.menuItemText}>Reply</Text>
-              </TouchableOpacity>
-            )}
-
-            {selectedMessage?.content?.text && (
-              <TouchableOpacity style={styles.menuItem} onPress={handleCopyText}>
-                <MaterialCommunityIcons name="content-copy" size={22} color={Colors.textPrimary} />
-                <Text style={styles.menuItemText}>Copy text</Text>
-              </TouchableOpacity>
-            )}
-
-            {selectedMessage?.direction === "OUTBOUND"
-              && isServerMessage(selectedMessage)
-              && (
-              <TouchableOpacity style={styles.menuItem} onPress={handleDeleteMessage}>
-                <MaterialCommunityIcons name="trash-can-outline" size={22} color="#DC2626" />
-                <Text style={[styles.menuItemText, { color: "#DC2626" }]}>Recall message</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
-      </AppBottomSheetModal>
+        onReply={
+          selectedMessage && isServerMessage(selectedMessage)
+            ? handleReplyPress
+            : undefined
+        }
+        onCopy={selectedMessage?.content?.text ? handleCopyText : undefined}
+        onRecall={
+          selectedMessage?.direction === "OUTBOUND" && isServerMessage(selectedMessage)
+            ? handleDeleteMessage
+            : undefined
+        }
+      />
 
       <AppBottomSheetModal
         visible={customEmojiVisible}
@@ -1412,6 +1564,27 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.84)",
   },
   messageRow: { flexDirection: "row", width: "100%", paddingHorizontal: 1 },
+  swipeableMessage: {
+    width: "100%",
+    position: "relative",
+  },
+  swipeReplyAction: {
+    position: "absolute",
+    left: 5,
+    top: 0,
+    bottom: 0,
+    width: 62,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  swipeReplyIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: waColors.green,
+  },
   bubble: {
     paddingHorizontal: 10,
     paddingVertical: 8,
@@ -1561,41 +1734,6 @@ const styles = StyleSheet.create({
     marginLeft: 6,
   },
   sendButtonDisabled: { backgroundColor: waColors.textMuted },
-
-  reactionBarContainer: {
-    gap: 14,
-  },
-  quickReactionsRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  reactionPill: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#F9FAFB",
-    boxShadow: "0 1px 3px rgba(15, 23, 42, 0.12)",
-  },
-  reactionText: { fontSize: 24 },
-  actionMenu: {
-    borderTopWidth: 1,
-    borderTopColor: Colors.border,
-    paddingTop: 6,
-  },
-  menuItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 14,
-  },
-  menuItemText: {
-    fontSize: 16,
-    marginLeft: 15,
-    color: Colors.textPrimary,
-    fontWeight: "500",
-  },
 
   nativeEmojiContainer: {
     alignItems: "center",
