@@ -288,13 +288,6 @@ const StaffTabs = createBottomTabNavigator({
         title: "POS",
       },
     },
-    WhatsApp: {
-      screen: WhatsAppChats,
-      options: {
-        title: "WhatsApp",
-        lazy: false,
-      },
-    },
     Profile: {
       screen: Profile,
       options: {

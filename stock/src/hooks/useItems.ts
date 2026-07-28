@@ -319,6 +319,10 @@ export function useAddStockMutation() {
         queryClient.invalidateQueries({ queryKey: ["stock-movements", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["item-stock"] });
         queryClient.invalidateQueries({ queryKey: ["items"] });
+        queryClient.invalidateQueries({ queryKey: ["notifications"] });
+        queryClient.invalidateQueries({ queryKey: ["staff-verifications"] });
+        queryClient.invalidateQueries({ queryKey: ["verifications"] });
+        queryClient.invalidateQueries({ queryKey: ["owner-dashboard"] });
       }
     },
   });

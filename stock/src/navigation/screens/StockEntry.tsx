@@ -47,17 +47,21 @@ const ItemRow = memo(
     item,
     qty,
     currentStock,
+    isStaff,
     onChange,
     onFocusScrollTo,
   }: {
     item: Item;
     qty: string;
     currentStock?: { physicalStock: number };
+    isStaff?: boolean;
     onChange: (val: string) => void;
     onFocusScrollTo: () => void;
   }) {
     const inputRef = useRef<TextInput>(null);
     const num = Number(qty) || 0;
+    const currentPhys = currentStock !== undefined ? currentStock.physicalStock : 0;
+    const proposedStock = currentPhys + num;
 
     const accentColor =
       num > 0 ? colors.success :
@@ -94,13 +98,27 @@ const ItemRow = memo(
                 <Text style={styles.catTagText}>{item.category.name}</Text>
               </View>
             )}
+            
+            {/* Current Stock Tag */}
             <View style={styles.stockTag}>
               <Icon source="cube-outline" size={10} color={colors.textMuted} />
               <Text style={styles.stockTagText}>
-                {currentStock !== undefined ? currentStock.physicalStock : "—"}
-                {" "}{item.unit}
+                Current: {currentStock !== undefined ? currentStock.physicalStock : "—"} {item.unit}
               </Text>
             </View>
+
+            {/* Proposed Stock Tag (rendered when quantity is entered) */}
+            {num !== 0 && (
+              <View style={[
+                styles.proposedTag,
+                num > 0 ? styles.proposedTagAdd : styles.proposedTagSub
+              ]}>
+                <Icon source="clock-outline" size={10} color={num > 0 ? colors.success : colors.danger} />
+                <Text style={[styles.proposedTagText, { color: num > 0 ? colors.success : colors.danger }]}>
+                  {isStaff ? "Proposed" : "New Level"}: {proposedStock} {item.unit} ({num > 0 ? `+${num}` : num})
+                </Text>
+              </View>
+            )}
           </View>
         </View>
 
@@ -152,6 +170,7 @@ const ItemRow = memo(
   (p, n) =>
     p.item.id === n.item.id &&
     p.qty === n.qty &&
+    p.isStaff === n.isStaff &&
     p.currentStock?.physicalStock === n.currentStock?.physicalStock
 );
 
@@ -397,6 +416,7 @@ export function StockEntry() {
                       item={item}
                       qty={entries[item.id] ?? ""}
                       currentStock={stockMap.get(item.id)}
+                      isStaff={isStaff}
                       onChange={(val) => updateEntry(item, val)}
                       onFocusScrollTo={() => {
                         setTimeout(() => {
@@ -646,6 +666,28 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: fontWeight.semibold,
     color: colors.textMuted,
+  },
+  proposedTag: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    borderRadius: radius.sm,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderWidth: 1,
+    borderStyle: "dashed",
+  },
+  proposedTagAdd: {
+    backgroundColor: "rgba(22, 163, 74, 0.08)",
+    borderColor: colors.success,
+  },
+  proposedTagSub: {
+    backgroundColor: "rgba(220, 38, 38, 0.08)",
+    borderColor: colors.danger,
+  },
+  proposedTagText: {
+    fontSize: 9,
+    fontWeight: fontWeight.bold,
   },
 
   // Stepper
