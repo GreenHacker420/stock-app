@@ -110,28 +110,20 @@ export function useWhatsAppConversations() {
 export function useWhatsAppMessages(conversationId: string) {
   const token = useAuthStore((state) => state.token);
   const { shopId, integrationId } = useWhatsAppScope();
-  const localCacheKey = `${integrationId}:${conversationId}`;
   const [localCache, setLocalCache] = useState<{
-    key: string;
+    conversationId: string;
     items: WaMessage[];
   } | null>(() => {
     const fastItems = whatsappDb.getFastMessages(conversationId);
-    return fastItems.length > 0 ? { key: localCacheKey, items: fastItems } : null;
+    return fastItems.length > 0 ? { conversationId, items: fastItems } : null;
   });
 
   useEffect(() => {
-    let cancelled = false;
-    void whatsappDb.getMessages(conversationId)
-      .then((items) => {
-        if (!cancelled) setLocalCache({ key: localCacheKey, items });
-      })
-      .catch(() => {
-        if (!cancelled) setLocalCache({ key: localCacheKey, items: [] });
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [conversationId, localCacheKey]);
+    const fastItems = whatsappDb.getFastMessages(conversationId);
+    if (fastItems.length > 0) {
+      setLocalCache({ conversationId, items: fastItems });
+    }
+  }, [conversationId]);
 
   const query = useInfiniteQuery({
     queryKey: queryKeys.whatsapp.messages(shopId, integrationId, conversationId),
@@ -147,6 +139,7 @@ export function useWhatsAppMessages(conversationId: string) {
           { shopId, integrationId, conversationId },
           page.items,
         ).catch(() => undefined);
+        whatsappDb.saveFastMessages(conversationId, page.items);
         return page;
       } catch (error) {
         if (pageParam) return EMPTY_PAGE<WaMessage>([]);
@@ -162,7 +155,7 @@ export function useWhatsAppMessages(conversationId: string) {
 
   const messages = useMemo(() => {
     const cachedItems =
-      localCache?.key === localCacheKey ? localCache.items : [];
+      localCache?.conversationId === conversationId ? localCache.items : [];
     if (!query.data) {
       return cachedItems;
     }
@@ -173,8 +166,8 @@ export function useWhatsAppMessages(conversationId: string) {
       return cachedItems;
     }
     return remoteItems;
-  }, [localCache, localCacheKey, query.data, query.isFetching]);
-  const localCacheHydrated = localCache?.key === localCacheKey;
+  }, [conversationId, localCache, query.data, query.isFetching]);
+  const localCacheHydrated = localCache?.conversationId === conversationId;
 
   useEffect(() => {
     if (!messages || messages.length === 0) return;

@@ -270,34 +270,9 @@ export function ChatListScreen() {
     });
   }, [currentUser?.id, filter, matchedConversationIds, query.conversations, search, showArchived]);
 
-  const openConversation = (conversation: WaConversation) => {
+  const openConversation = useCallback((conversation: WaConversation) => {
     startWhatsAppOpenMeasurement(conversation.id);
-    triggerLightHaptic();
-    const msgKey = queryKeys.whatsapp.messages(shopId, integrationId, conversation.id);
-    if (!queryClient.getQueryState(msgKey)?.data) {
-      const fastMsgs = whatsappDb.getFastMessages(conversation.id);
-      if (fastMsgs.length > 0) {
-        queryClient.setQueryData(msgKey, {
-          pages: [{ items: fastMsgs, nextCursor: null, snapshotCursor: null }],
-          pageParams: [undefined],
-        });
-      }
-    }
-    void whatsappDb.getMessages(conversation.id).then((items) => {
-      whatsappDb.saveFastMessages(conversation.id, items);
-    }).catch(() => undefined);
     navigation.navigate("ChatDetail", {
-      shopId,
-      integrationId,
-      phoneNumberId,
-      conversationId: conversation.id,
-      phone: conversation.phone,
-      conversation,
-    });
-  };
-
-  const preloadConversation = useCallback((conversation: WaConversation) => {
-    navigation.preload?.("ChatDetail", {
       shopId,
       integrationId,
       phoneNumberId,
@@ -315,20 +290,8 @@ export function ChatListScreen() {
       <Pressable
         accessibilityRole="button"
         accessibilityLabel={`${displayName}, ${item.unreadCount} unread messages`}
-        onPressIn={() => {
-          const msgKey = queryKeys.whatsapp.messages(shopId, integrationId, item.id);
-          if (!queryClient.getQueryState(msgKey)?.data) {
-            const fastMsgs = whatsappDb.getFastMessages(item.id);
-            if (fastMsgs.length > 0) {
-              queryClient.setQueryData(msgKey, {
-                pages: [{ items: fastMsgs, nextCursor: null, snapshotCursor: null }],
-                pageParams: [undefined],
-              });
-            }
-          }
-          preloadConversation(item);
-        }}
         onPress={() => openConversation(item)}
+        delayLongPress={300}
         onLongPress={() => {
           triggerLightHaptic();
           setSelected(item);
@@ -372,7 +335,7 @@ export function ChatListScreen() {
         </View>
       </Pressable>
     );
-  }, [integrationId, openConversation, preloadConversation, queryClient, shopId]);
+  }, [openConversation]);
 
   return (
     <View style={styles.screen}>

@@ -2,6 +2,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useState,
   useRef,
   useMemo,
@@ -317,7 +318,7 @@ export const ChatDetailScreen = () => {
   const { data: customerRecord } = useCustomerDetailQuery(conversation?.customerId || "");
 
   // Set custom header with contact name, avatar, and linked customer shortcut
-  useEffect(() => {
+  useLayoutEffect(() => {
     const contactName = conversation?.contactName || formatWhatsAppPhone(recipientPhone);
     const initials = initialsFor(conversation?.contactName || recipientPhone);
 
@@ -595,26 +596,11 @@ export const ChatDetailScreen = () => {
     }
   });
 
-  const [isFullyHydrated, setIsFullyHydrated] = useState(false);
-
-  useEffect(() => {
-    setIsFullyHydrated(false);
-    const timer = setTimeout(() => {
-      setIsFullyHydrated(true);
-    }, 250);
-    return () => clearTimeout(timer);
-  }, [conversationId]);
-
-  const displayedMessages = useMemo(() => {
-    if (!isFullyHydrated && messages.length > 20) {
-      return messages.slice(-20);
-    }
-    return messages;
-  }, [isFullyHydrated, messages]);
+  const displayedMessages = messages;
 
   const maintainVisibleContentConfig = useMemo(() => ({
     startRenderingFromBottom: true,
-    autoscrollToBottomThreshold: 0.15,
+    autoscrollToBottomThreshold: 100,
     animateAutoScrollToBottom: false,
   }), []);
 
@@ -1288,12 +1274,64 @@ export const ChatDetailScreen = () => {
     return `${item.direction || "IN"}_${item.type || "TEXT"}`;
   }, []);
 
+  // Height hints per message type so FlashList can position items without measuring.
+  const overrideItemLayout = useCallback(
+    (layout: { span?: number; size?: number }, item: WaMessage) => {
+      if (item.contentState === "DELETED") { layout.size = 48; return; }
+      switch (item.type) {
+        case "IMAGE": layout.size = 230; break;
+        case "VIDEO": layout.size = 220; break;
+        case "AUDIO": layout.size = 72; break;
+        case "DOCUMENT": layout.size = 84; break;
+        case "LOCATION": layout.size = 180; break;
+        case "STICKER": layout.size = 160; break;
+        default: layout.size = 72; break;
+      }
+    },
+    [],
+  );
+
+const DATE_KEY_CACHE = new Map<string, string>();
+function getFastDateKey(isoString?: string): string {
+  if (!isoString) return "";
+  let val = DATE_KEY_CACHE.get(isoString);
+  if (!val) {
+    val = isoString.slice(0, 10);
+    if (DATE_KEY_CACHE.size > 200) DATE_KEY_CACHE.clear();
+    DATE_KEY_CACHE.set(isoString, val);
+  }
+  return val;
+}
+
+const DATE_SEP_CACHE = new Map<string, string>();
+function getFastDateSep(isoString?: string): string {
+  if (!isoString) return "";
+  let val = DATE_SEP_CACHE.get(isoString);
+  if (!val) {
+    val = format(new Date(isoString), "EEE, d MMM");
+    if (DATE_SEP_CACHE.size > 200) DATE_SEP_CACHE.clear();
+    DATE_SEP_CACHE.set(isoString, val);
+  }
+  return val;
+}
+
+const TIME_SEP_CACHE = new Map<string, string>();
+function getFastTimeSep(isoString?: string): string {
+  if (!isoString) return "";
+  let val = TIME_SEP_CACHE.get(isoString);
+  if (!val) {
+    val = format(new Date(isoString), "hh:mm a");
+    if (TIME_SEP_CACHE.size > 200) TIME_SEP_CACHE.clear();
+    TIME_SEP_CACHE.set(isoString, val);
+  }
+  return val;
+}
+
   const renderMessage = useCallback(({ item, index }: { item: WaMessage; index: number }) => {
     const isOutbound = item.direction === "OUTBOUND";
     const isDeleted = item.contentState === "DELETED";
-    const previous = displayedMessages[index - 1];
-    const showDate = !previous
-      || format(new Date(previous.createdAt), "yyyy-MM-dd") !== format(new Date(item.createdAt), "yyyy-MM-dd");
+    const previous = messages[index - 1];
+    const showDate = !previous || getFastDateKey(previous.createdAt) !== getFastDateKey(item.createdAt);
 
     // Find parent message for reply rendering
     const parentMessage = item.replyToMetaMessageId
@@ -1314,7 +1352,7 @@ export const ChatDetailScreen = () => {
         {showDate && (
           <View style={styles.dateSeparator}>
             <Text style={styles.dateSeparatorText}>
-              {format(new Date(item.createdAt), "EEE, d MMM")}
+              {getFastDateSep(item.createdAt)}
             </Text>
           </View>
         )}
@@ -1377,7 +1415,7 @@ export const ChatDetailScreen = () => {
             )}
 
             <View style={styles.messageFooter}>
-              <Text style={styles.messageTime}>{format(new Date(item.createdAt), "hh:mm a")}</Text>
+              <Text style={styles.messageTime}>{getFastTimeSep(item.createdAt)}</Text>
               {isOutbound && (
                 <View style={{ marginLeft: 4 }}>
                   {renderMessageStatus(item)}
@@ -1401,7 +1439,7 @@ export const ChatDetailScreen = () => {
         </SwipeReplyRow>
       </>
     );
-  }, [displayedMessages, messagesByMetaId, retryMutation]);
+  }, [messages, messagesByMetaId, retryMutation]);
 
   const handleTimelineScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
@@ -1418,7 +1456,8 @@ export const ChatDetailScreen = () => {
         data={displayedMessages}
         renderItem={renderMessage}
         getItemType={getItemType}
-        drawDistance={1000}
+        overrideItemLayout={overrideItemLayout}
+        drawDistance={1500}
         keyExtractor={(item) => item.clientMessageId || item.id}
         scrollEnabled={!reactionMenuVisible}
         contentInsetAdjustmentBehavior="never"
@@ -1455,7 +1494,7 @@ export const ChatDetailScreen = () => {
           ) : messageQuery.isError ? (
             <View style={styles.timelineState}>
               <MaterialCommunityIcons name="cloud-alert-outline" size={38} color={waColors.danger} />
-              <Text style={styles.timelineStateTitle}>Messages couldn’t be loaded</Text>
+              <Text style={styles.timelineStateTitle}>Messages couldn't be loaded</Text>
               <Text style={styles.timelineStateText}>{messageQuery.error.message}</Text>
               <TouchableOpacity style={styles.retryButton} onPress={() => messageQuery.refetch()}>
                 <Text style={styles.retryButtonText}>Try again</Text>
