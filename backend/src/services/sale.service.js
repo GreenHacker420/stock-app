@@ -40,7 +40,7 @@ const resolveSaleDate = (value) => {
     throw new ApiError(400, "Sale date cannot be in the future");
   }
   const date = new Date(`${value}T12:00:00.000Z`);
-  if (Number.isNaN(date.getTime())) {
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) {
     throw new ApiError(400, "Invalid sale date");
   }
   return date;
