@@ -52,7 +52,6 @@ export const cancelSale = asyncHandler(async (req, res) => {
 });
 
 export const sendSaleWhatsAppReceipt = asyncHandler(async (req, res) => {
-  const result = await saleService.sendSaleWhatsAppReceipt(req.user, req.validated.params.id, req.body || {});
+  const result = await saleService.sendSaleWhatsAppReceipt(req.user, req.validated.params.id, req.validated.body || {});
   res.json({ success: true, data: result });
 });
-

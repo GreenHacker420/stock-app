@@ -12,6 +12,7 @@ import {
 } from "react-native";
 import {
   KeyboardGestureArea,
+  useReanimatedKeyboardAnimation,
   useKeyboardState,
 } from "react-native-keyboard-controller";
 import {
@@ -376,6 +377,8 @@ export const AppBottomSheetModal = forwardRef<
     ]
   );
 
+  const { height: keyboardHeight } = useReanimatedKeyboardAnimation();
+
   const backdropStyle = useAnimatedStyle(() => {
     const distance = Math.max(sheetHeight.value, screenH, 1);
     const dragProgress = Math.min(translateY.value / distance, 1);
@@ -388,8 +391,12 @@ export const AppBottomSheetModal = forwardRef<
     const radiusVal = expandable
       ? interpolate(translateY.value, [0, Math.max(1, collapsedOffsetY)], [0, 24], "clamp")
       : 24;
+
+    const maxLift = Math.max(0, screenH - sheetHeight.value - insets.top - spacing.md);
+    const keyboardLift = Math.min(Math.abs(keyboardHeight.value), maxLift);
+
     return {
-      transform: [{ translateY: translateY.value }],
+      transform: [{ translateY: translateY.value - keyboardLift }],
       borderTopLeftRadius: radiusVal,
       borderTopRightRadius: radiusVal,
     };

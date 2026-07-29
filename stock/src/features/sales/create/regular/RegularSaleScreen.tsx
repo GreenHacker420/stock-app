@@ -300,6 +300,13 @@ export function RegularSaleScreen() {
     return "Customer";
   }, [completedSaleSnapshot]);
 
+  const receiptCustomerPhone = useMemo(() => {
+    if (!completedSaleSnapshot) return null;
+    const draftCust = completedSaleSnapshot.submittedDraft.customer;
+    if (draftCust.kind === "EXISTING") return draftCust.customer.phone || null;
+    return null;
+  }, [completedSaleSnapshot]);
+
   const receiptPaymentMode = useMemo(() => {
     if (!completedSaleSnapshot) return "CASH";
     const draftSettlement = completedSaleSnapshot.submittedDraft.settlement;
@@ -389,7 +396,9 @@ export function RegularSaleScreen() {
         setSelectedCustomer(null);
         setCustomerId(null);
       }}
-      onCreateCustomerPress={() => navigation.navigate("AddEditCustomer")}
+      onCreateCustomerPress={() =>
+        navigation.navigate("AddEditCustomer", { initialSearch: customerSearch.trim() })
+      }
     />
   );
 
@@ -400,7 +409,7 @@ export function RegularSaleScreen() {
         <SaleSuccessView
           invoiceSale={invoiceSale}
           customerName={receiptCustomerName}
-          customerPhone={null}
+          customerPhone={receiptCustomerPhone}
           paymentMode={receiptPaymentMode}
           paidAmount={fromMinorUnits(getSettlementPaidMinor(completedSaleSnapshot?.submittedDraft.settlement))}
           changeAmount={

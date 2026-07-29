@@ -1,17 +1,21 @@
-import React, { useMemo, useState, useCallback, useEffect } from "react";
+import { useMemo, useState, useCallback, useEffect } from "react";
 import {
   View,
   StyleSheet,
   Pressable,
   ScrollView,
   TextInput,
+  Modal as RNModal,
+  Platform,
 } from "react-native";
 import { Text, Divider, Icon } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
+import DateTimePicker from "@react-native-community/datetimepicker";
 
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { ActionTile } from "../../components/ui/ActionTile";
+import { Button } from "../../components/ui/Button";
 import { useSalesQuery } from "../../hooks/useSales";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { SkeletonList } from "../../components/ui/SkeletonCard";
@@ -29,7 +33,8 @@ const haptic = (s: "light" | "medium" = "light") => {
   else triggerLightHaptic();
 };
 
-type StatusType = "ALL" | "PAID" | "PENDING" | "PARTIAL";
+type StatusType = "ALL" | "PAID" | "PENDING" | "PARTIAL" | "CANCELLED";
+type DateFilterType = "TODAY" | "WEEK" | "CUSTOM" | "ALL";
 
 const TypedFlashList = FlashList as any;
 
@@ -37,6 +42,13 @@ export function NewSaleType() {
   const [search, setSearch] = useState("");
   const [debSearch, setDebSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusType>("ALL");
+  const [dateFilter, setDateFilter] = useState<DateFilterType>("TODAY");
+
+  // Custom date picker states
+  const [customStartDate, setCustomStartDate] = useState<Date>(new Date());
+  const [customEndDate, setCustomEndDate] = useState<Date>(new Date());
+  const [showCustomModal, setShowCustomModal] = useState(false);
+  const [activePickerField, setActivePickerField] = useState<"start" | "end" | null>(null);
 
   const { data: sales, isLoading, refetch, isRefetching } = useSalesQuery();
 
@@ -58,46 +70,125 @@ export function NewSaleType() {
     navigate("RegularSale");
   };
 
+  // Filter sales by date range, search query, and payment status
   const filteredSales = useMemo(() => {
     if (!sales) return [];
+
+    const now = new Date();
+    let startMs: number | null = null;
+    let endMs: number | null = null;
+
+    if (dateFilter === "TODAY") {
+      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+      const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+      startMs = todayStart.getTime();
+      endMs = todayEnd.getTime();
+    } else if (dateFilter === "WEEK") {
+      const weekStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      weekStart.setHours(0, 0, 0, 0);
+      const weekEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+      startMs = weekStart.getTime();
+      endMs = weekEnd.getTime();
+    } else if (dateFilter === "CUSTOM") {
+      const s = new Date(customStartDate);
+      s.setHours(0, 0, 0, 0);
+      startMs = s.getTime();
+      const e = new Date(customEndDate);
+      e.setHours(23, 59, 59, 999);
+      endMs = e.getTime();
+    }
+
     return sales.filter((s) => {
+      // Date range validation
+      const createdMs = new Date(s.createdAt).getTime();
+      if (startMs !== null && createdMs < startMs) return false;
+      if (endMs !== null && createdMs > endMs) return false;
+
+      // Search query validation
       const q = debSearch.toLowerCase().trim();
       const numMatch = s.saleNumber.toLowerCase().includes(q);
       const nameMatch = s.isWalkin
         ? "walk-in".includes(q)
         : s.customer?.name.toLowerCase().includes(q);
-
       const matchesSearch = !q || numMatch || nameMatch;
 
-      // Treat UNPAID as PENDING (backend may return either value)
-      const effectiveStatus =
-        s.paymentStatus === "UNPAID" ? "PENDING" : s.paymentStatus;
+      // Payment / Sale status validation
+      const isCancelled = s.saleStatus === "CANCELLED" || (s as any).status === "CANCELLED";
+      const effectiveStatus = isCancelled
+        ? "CANCELLED"
+        : s.paymentStatus === "UNPAID"
+        ? "PENDING"
+        : s.paymentStatus;
+
       const matchesStatus =
-        statusFilter === "ALL" || effectiveStatus === statusFilter;
+        statusFilter === "ALL"
+          ? true
+          : statusFilter === "CANCELLED"
+          ? isCancelled
+          : !isCancelled && effectiveStatus === statusFilter;
 
       return matchesSearch && matchesStatus;
     });
-  }, [sales, debSearch, statusFilter]);
+  }, [sales, debSearch, statusFilter, dateFilter, customStartDate, customEndDate]);
+
+  // Calculate summary metrics for active period (excluding cancelled sales)
+  const summaryMetrics = useMemo(() => {
+    let totalRevenue = 0;
+    let paidTotal = 0;
+    let pendingTotal = 0;
+    let activeCount = 0;
+    let cancelledCount = 0;
+
+    for (const s of filteredSales) {
+      const isCancelled = s.saleStatus === "CANCELLED" || (s as any).status === "CANCELLED";
+      if (isCancelled) {
+        cancelledCount++;
+        continue;
+      }
+
+      activeCount++;
+      const total = Number(s.totalAmount) || 0;
+      const paid = Number(s.paidAmount) || (s.paymentStatus === "PAID" ? total : 0);
+      const balance = Number(s.balanceAmount) || (s.paymentStatus === "PAID" ? 0 : Math.max(0, total - paid));
+
+      totalRevenue += total;
+      paidTotal += paid;
+      pendingTotal += balance;
+    }
+
+    return {
+      count: filteredSales.length,
+      activeCount,
+      cancelledCount,
+      totalRevenue,
+      paidTotal,
+      pendingTotal,
+    };
+  }, [filteredSales]);
 
   // Counts for each status chip
   const counts = useMemo(() => {
     const list = sales ?? [];
     return {
       ALL: list.length,
-      PAID: list.filter((s) => s.paymentStatus === "PAID").length,
-      PENDING: list.filter((s) => s.paymentStatus === "PENDING" || s.paymentStatus === "UNPAID").length,
-      PARTIAL: list.filter((s) => s.paymentStatus === "PARTIAL").length,
+      PAID: list.filter((s) => s.paymentStatus === "PAID" && s.saleStatus !== "CANCELLED" && (s as any).status !== "CANCELLED").length,
+      PENDING: list.filter((s) => (s.paymentStatus === "PENDING" || s.paymentStatus === "UNPAID") && s.saleStatus !== "CANCELLED" && (s as any).status !== "CANCELLED").length,
+      PARTIAL: list.filter((s) => s.paymentStatus === "PARTIAL" && s.saleStatus !== "CANCELLED" && (s as any).status !== "CANCELLED").length,
+      CANCELLED: list.filter((s) => s.saleStatus === "CANCELLED" || (s as any).status === "CANCELLED").length,
     };
   }, [sales]);
 
-  const getStatusColors = (status?: string) => {
-    switch (status) {
+  const getStatusColors = (paymentStatus?: string, saleStatus?: string) => {
+    if (saleStatus === "CANCELLED" || paymentStatus === "CANCELLED") {
+      return { label: "CANCELLED", text: colors.danger, bg: colors.dangerLight, border: "rgba(220,38,38,0.25)" };
+    }
+    switch (paymentStatus) {
       case "PAID":
-        return { text: colors.success, bg: colors.successLight, border: "rgba(22,163,74,0.15)" };
+        return { label: "PAID", text: colors.success, bg: colors.successLight, border: "rgba(22,163,74,0.15)" };
       case "PARTIAL":
-        return { text: colors.warning, bg: colors.warningLight, border: "rgba(217,119,6,0.15)" };
+        return { label: "PARTIAL", text: colors.warning, bg: colors.warningLight, border: "rgba(217,119,6,0.15)" };
       default:
-        return { text: colors.danger, bg: colors.dangerLight, border: "rgba(220,38,38,0.15)" };
+        return { label: paymentStatus || "PENDING", text: colors.danger, bg: colors.dangerLight, border: "rgba(220,38,38,0.15)" };
     }
   };
 
@@ -107,8 +198,11 @@ export function NewSaleType() {
   }, [refetch]);
 
   const renderSaleRow = useCallback(({ item, index }: { item: Sale; index: number }) => {
-    const statusColors = getStatusColors(item.paymentStatus);
-    const initials = item.isWalkin
+    const isCancelled = item.saleStatus === "CANCELLED" || (item as any).status === "CANCELLED";
+    const statusColors = getStatusColors(item.paymentStatus, item.saleStatus);
+    const initials = isCancelled
+      ? "✕"
+      : item.isWalkin
       ? "WK"
       : item.customer?.name
       ? item.customer.name.substring(0, 2).toUpperCase()
@@ -131,16 +225,17 @@ export function NewSaleType() {
           style={({ pressed }) => [
             styles.saleItemRow,
             pressed && styles.pressedRow,
+            isCancelled && styles.cancelledRow,
             isFirst && styles.roundedTop,
             isLast && styles.roundedBottom,
           ]}
         >
-          <View style={[styles.avatarCircle, item.isWalkin ? styles.walkinAvatar : styles.customerAvatar]}>
-            <Text style={styles.avatarText}>{initials}</Text>
+          <View style={[styles.avatarCircle, isCancelled ? styles.cancelledAvatar : item.isWalkin ? styles.walkinAvatar : styles.customerAvatar]}>
+            <Text style={[styles.avatarText, isCancelled && { color: colors.danger }]}>{initials}</Text>
           </View>
 
           <View style={styles.saleInfo}>
-            <Text style={styles.saleCustomer} numberOfLines={1}>
+            <Text style={[styles.saleCustomer, isCancelled && styles.cancelledText]} numberOfLines={1}>
               {item.isWalkin ? "Walk-in Customer" : item.customer?.name}
             </Text>
             <Text style={styles.saleDetails}>
@@ -149,10 +244,10 @@ export function NewSaleType() {
           </View>
 
           <View style={styles.salePriceInfo}>
-            <Text style={styles.saleAmount}>{money(item.totalAmount)}</Text>
+            <Text style={[styles.saleAmount, isCancelled && styles.cancelledText]}>{money(item.totalAmount)}</Text>
             <View style={[styles.statusBadge, { backgroundColor: statusColors.bg, borderColor: statusColors.border }]}>
               <Text style={[styles.statusBadgeText, { color: statusColors.text }]}>
-                {item.paymentStatus}
+                {statusColors.label}
               </Text>
             </View>
           </View>
@@ -163,6 +258,17 @@ export function NewSaleType() {
   }, [filteredSales]);
 
   const ListHeader = useMemo(() => {
+    const dateLabel =
+      dateFilter === "TODAY" ? "Today" :
+      dateFilter === "WEEK" ? "This Week" :
+      dateFilter === "CUSTOM"
+        ? `${customStartDate.toLocaleDateString("en-IN", { day: "numeric", month: "short" })} - ${customEndDate.toLocaleDateString("en-IN", { day: "numeric", month: "short" })}`
+        : "All Time";
+
+    const countLabel = summaryMetrics.cancelledCount > 0
+      ? `${summaryMetrics.activeCount} Active • ${summaryMetrics.cancelledCount} Cancelled`
+      : `${summaryMetrics.count} Sales`;
+
     return (
       <View style={styles.headerContainer}>
         {/* Action Grid */}
@@ -190,9 +296,65 @@ export function NewSaleType() {
           </View>
         </View>
 
+        {/* Date Filter Segmented Bar */}
+        <View style={styles.dateFilterContainer}>
+          {(["TODAY", "WEEK", "CUSTOM", "ALL"] as const).map((df) => {
+            const active = dateFilter === df;
+            let label = "Today";
+            if (df === "WEEK") label = "This Week";
+            else if (df === "CUSTOM") label = "Custom";
+            else if (df === "ALL") label = "All";
+
+            return (
+              <Pressable
+                key={df}
+                onPress={() => {
+                  haptic();
+                  if (df === "CUSTOM") {
+                    setShowCustomModal(true);
+                  }
+                  setDateFilter(df);
+                }}
+                style={[styles.dateFilterTab, active && styles.dateFilterTabActive]}
+              >
+                <Text style={[styles.dateFilterTabText, active && styles.dateFilterTabTextActive]}>
+                  {label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        {/* Sales Summary Banner */}
+        <View style={styles.summaryCard}>
+          <View style={styles.summaryHeaderRow}>
+            <Text style={styles.summaryPeriodLabel}>{dateLabel} Overview</Text>
+            <View style={styles.summaryCountBadge}>
+              <Text style={styles.summaryCountText}>{countLabel}</Text>
+            </View>
+          </View>
+          <Text style={styles.summaryRevenueVal}>{money(summaryMetrics.totalRevenue)}</Text>
+
+          <View style={styles.summaryBreakdownRow}>
+            <View style={styles.summaryBreakdownCol}>
+              <Text style={styles.summaryBreakdownLabel}>Collected Paid</Text>
+              <Text style={[styles.summaryBreakdownVal, { color: colors.success }]}>
+                {money(summaryMetrics.paidTotal)}
+              </Text>
+            </View>
+            <View style={styles.summaryDividerVert} />
+            <View style={styles.summaryBreakdownCol}>
+              <Text style={styles.summaryBreakdownLabel}>Outstanding Balance</Text>
+              <Text style={[styles.summaryBreakdownVal, { color: summaryMetrics.pendingTotal > 0 ? colors.danger : colors.textMuted }]}>
+                {money(summaryMetrics.pendingTotal)}
+              </Text>
+            </View>
+          </View>
+        </View>
+
         {/* Section Title */}
         <View style={styles.sectionTitleRow}>
-          <Text style={styles.sectionTitle}>Recent Transactions</Text>
+          <Text style={styles.sectionTitle}>Transactions ({filteredSales.length})</Text>
         </View>
 
         {/* Search Bar */}
@@ -216,13 +378,13 @@ export function NewSaleType() {
           )}
         </View>
 
-        {/* Custom Filter Pills */}
+        {/* Status Filter Pills */}
         <ScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.filterScroll}
         >
-          {(["ALL", "PAID", "PENDING", "PARTIAL"] as const).map((filter) => {
+          {(["ALL", "PAID", "PENDING", "PARTIAL", "CANCELLED"] as const).map((filter) => {
             const active = statusFilter === filter;
             let label = "All";
             let pillColor: string = colors.textSecondary;
@@ -240,6 +402,10 @@ export function NewSaleType() {
               label = "Partial";
               pillColor = colors.warning;
               pillBg = colors.warningLight;
+            } else if (filter === "CANCELLED") {
+              label = "Cancelled";
+              pillColor = colors.danger;
+              pillBg = "rgba(220,38,38,0.1)";
             } else {
               pillColor = colors.primary;
               pillBg = colors.primaryLight;
@@ -291,7 +457,7 @@ export function NewSaleType() {
         </ScrollView>
       </View>
     );
-  }, [search, statusFilter, counts]);
+  }, [search, statusFilter, dateFilter, customStartDate, customEndDate, summaryMetrics, counts, filteredSales.length]);
 
   return (
     <Screen scroll={false} edges={["top", "left", "right"]}>
@@ -316,8 +482,8 @@ export function NewSaleType() {
                 icon="receipt"
                 title="No transactions found"
                 subtitle={
-                  search || statusFilter !== "ALL"
-                    ? "Try adjusting your filters"
+                  search || statusFilter !== "ALL" || dateFilter !== "ALL"
+                    ? "Try adjusting your date or status filters"
                     : "Start by registering a new sale above"
                 }
               />
@@ -336,6 +502,80 @@ export function NewSaleType() {
           />
         )}
       </View>
+
+      {/* Custom Date Range Selection Modal */}
+      <RNModal
+        visible={showCustomModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowCustomModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Select Custom Date Range</Text>
+              <Pressable onPress={() => setShowCustomModal(false)} hitSlop={8}>
+                <Icon source="close" size={20} color={colors.textPrimary} />
+              </Pressable>
+            </View>
+
+            <View style={styles.datePickerRow}>
+              <Text style={styles.datePickerLabel}>Start Date</Text>
+              <Pressable
+                onPress={() => setActivePickerField("start")}
+                style={styles.dateDisplayBtn}
+              >
+                <Text style={styles.dateDisplayText}>
+                  {customStartDate.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                </Text>
+                <Icon source="calendar" size={18} color={colors.primary} />
+              </Pressable>
+            </View>
+
+            <View style={styles.datePickerRow}>
+              <Text style={styles.datePickerLabel}>End Date</Text>
+              <Pressable
+                onPress={() => setActivePickerField("end")}
+                style={styles.dateDisplayBtn}
+              >
+                <Text style={styles.dateDisplayText}>
+                  {customEndDate.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric" })}
+                </Text>
+                <Icon source="calendar" size={18} color={colors.primary} />
+              </Pressable>
+            </View>
+
+            {activePickerField && (
+              <DateTimePicker
+                value={activePickerField === "start" ? customStartDate : customEndDate}
+                mode="date"
+                display={Platform.OS === "ios" ? "inline" : "default"}
+                onChange={(event, selectedDate) => {
+                  if (Platform.OS === "android") {
+                    setActivePickerField(null);
+                  }
+                  if (selectedDate) {
+                    if (activePickerField === "start") setCustomStartDate(selectedDate);
+                    else setCustomEndDate(selectedDate);
+                  }
+                }}
+              />
+            )}
+
+            <Button
+              label="APPLY FILTER"
+              variant="primary"
+              onPress={() => {
+                setDateFilter("CUSTOM");
+                setShowCustomModal(false);
+                setActivePickerField(null);
+              }}
+              style={{ marginTop: spacing.md }}
+              fullWidth
+            />
+          </View>
+        </View>
+      </RNModal>
     </Screen>
   );
 }
@@ -361,6 +601,102 @@ const styles = StyleSheet.create({
   actionTileWrapper: {
     flex: 1,
     minWidth: 0,
+  },
+  dateFilterContainer: {
+    flexDirection: "row",
+    backgroundColor: colors.surfaceOffset,
+    borderRadius: radius.md,
+    padding: 3,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginTop: spacing.xs,
+  },
+  dateFilterTab: {
+    flex: 1,
+    paddingVertical: spacing.xs + 2,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: radius.sm - 2,
+  },
+  dateFilterTabActive: {
+    backgroundColor: colors.surface,
+    ...shadow.sm,
+  },
+  dateFilterTabText: {
+    fontSize: 11,
+    fontWeight: fontWeight.bold,
+    color: colors.textSecondary,
+  },
+  dateFilterTabTextActive: {
+    color: colors.primary,
+  },
+  summaryCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    ...shadow.sm,
+  },
+  summaryHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  summaryPeriodLabel: {
+    fontSize: 11,
+    fontWeight: fontWeight.bold,
+    color: colors.textMuted,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  summaryCountBadge: {
+    backgroundColor: colors.surfaceOffset,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  summaryCountText: {
+    fontSize: 10,
+    fontWeight: fontWeight.bold,
+    color: colors.textSecondary,
+  },
+  summaryRevenueVal: {
+    fontSize: 22,
+    fontWeight: fontWeight.black,
+    color: colors.textPrimary,
+    marginVertical: spacing.xs,
+  },
+  summaryBreakdownRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: colors.surfaceOffset,
+    borderRadius: radius.md,
+    padding: spacing.sm,
+    marginTop: spacing.xs,
+  },
+  summaryBreakdownCol: {
+    flex: 1,
+    alignItems: "center",
+  },
+  summaryDividerVert: {
+    width: 1,
+    height: 24,
+    backgroundColor: colors.border,
+  },
+  summaryBreakdownLabel: {
+    fontSize: 9,
+    color: colors.textMuted,
+    fontWeight: fontWeight.semibold,
+    textTransform: "uppercase",
+  },
+  summaryBreakdownVal: {
+    fontSize: 12,
+    fontWeight: fontWeight.bold,
+    marginTop: 2,
   },
   sectionTitleRow: {
     marginTop: spacing.xs,
@@ -437,6 +773,9 @@ const styles = StyleSheet.create({
     borderRightWidth: 1,
     borderColor: colors.border,
   },
+  cancelledRow: {
+    backgroundColor: "rgba(241,245,249,0.7)",
+  },
   roundedTop: {
     borderTopLeftRadius: radius.lg,
     borderTopRightRadius: radius.lg,
@@ -471,6 +810,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(2,132,199,0.1)",
   },
+  cancelledAvatar: {
+    backgroundColor: "rgba(220,38,38,0.1)",
+    borderWidth: 1,
+    borderColor: "rgba(220,38,38,0.2)",
+  },
   avatarText: {
     fontSize: 11,
     fontWeight: fontWeight.bold,
@@ -485,6 +829,10 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: fontWeight.bold,
     color: colors.textPrimary,
+  },
+  cancelledText: {
+    color: colors.textMuted,
+    textDecorationLine: "line-through",
   },
   saleDetails: {
     fontSize: 10,
@@ -508,5 +856,55 @@ const styles = StyleSheet.create({
   statusBadgeText: {
     fontSize: 8,
     fontWeight: fontWeight.black,
+  },
+
+  /* Custom Date Picker Modal */
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "flex-end",
+  },
+  modalContent: {
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
+    padding: spacing.lg,
+    gap: spacing.md,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: spacing.xs,
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: fontWeight.extrabold,
+    color: colors.textPrimary,
+  },
+  datePickerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: colors.surfaceOffset,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  datePickerLabel: {
+    fontSize: 13,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  dateDisplayBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+  },
+  dateDisplayText: {
+    fontSize: 13,
+    fontWeight: fontWeight.bold,
+    color: colors.primary,
   },
 });

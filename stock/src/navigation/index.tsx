@@ -722,7 +722,7 @@ export type RootStackParamList = {
   ChequeList: undefined;
   ChequeDetail: { chequeId: string };
   CustomerList: undefined;
-  AddEditCustomer: { customer?: any } | undefined;
+  AddEditCustomer: { customer?: any; initialSearch?: string } | undefined;
   CustomerDetail: { customerId: string };
   CustomerOutstandingList: undefined;
   ItemList: { brandId?: string; categoryId?: string } | undefined;

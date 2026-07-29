@@ -43,7 +43,7 @@ import { useCategoryReadModel, useItemCatalogReadModel, useReadModelRefresh } fr
 import { refreshReadModelDomains } from "../local/read-model/read-model-coordinator";
 import type { ReadModelDomain } from "../local/read-model/read-model-types";
 
-function refreshCatalogReadModelAfterMutation({
+async function refreshCatalogReadModelAfterMutation({
   userId,
   shopId,
   token,
@@ -57,16 +57,18 @@ function refreshCatalogReadModelAfterMutation({
   domains: ReadModelDomain[];
 }) {
   if (!userId || !shopId || !token) return;
-  void refreshReadModelDomains({
-    userId,
-    shopId,
-    token,
-    queryClient,
-    reason: "reconciliation",
-    writeCursor: false,
-  }, domains).catch((error) => {
+  try {
+    await refreshReadModelDomains({
+      userId,
+      shopId,
+      token,
+      queryClient,
+      reason: "reconciliation",
+      writeCursor: false,
+    }, domains);
+  } catch (error) {
     if (__DEV__) console.warn("[read-model] catalog mutation refresh failed", error);
-  });
+  }
 }
 
 export function useItemSummaryQuery() {
@@ -101,6 +103,7 @@ export function useInfiniteItemsQuery(opts: { search?: string; limit?: number } 
 export function useItemsQuery(opts: { search?: string; categoryId?: string; brandId?: string; page?: number; limit?: number; enabled?: boolean } = {}) {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
+  const refreshReadModel = useReadModelRefresh(activeShopId);
 
   // 1. Query local MMKV read-model for 0ms instant search
   const readModel = useItemCatalogReadModel({
@@ -179,7 +182,8 @@ export function useItemsQuery(opts: { search?: string; categoryId?: string; bran
         hasMore: false,
         page: 1,
       },
-    } as typeof serverQuery;
+      refetch: refreshReadModel,
+    } as unknown as typeof serverQuery;
   }
 
   if (serverQuery.data) {
@@ -226,13 +230,13 @@ export function useCreateItemMutation() {
   return useMutation({
     mutationFn: (data: Omit<CreateItemPayload, "shopId">) =>
       createItem(token ?? "", { ...data, shopId: requireActiveShopId(activeShopId) }),
-    onSuccess: () => {
+    onSuccess: async () => {
       queryClient.invalidateQueries({ queryKey: ["items"] });
       if (activeShopId) {
         queryClient.invalidateQueries({ queryKey: ["item-summary", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["current-stock", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["stock-movements", activeShopId] });
-        refreshCatalogReadModelAfterMutation({ userId, shopId: activeShopId, token, queryClient, domains: ["items"] });
+        await refreshCatalogReadModelAfterMutation({ userId, shopId: activeShopId, token, queryClient, domains: ["items"] });
       }
     },
   });

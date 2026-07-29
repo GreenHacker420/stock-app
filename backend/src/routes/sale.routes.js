@@ -98,6 +98,13 @@ const cancelInvoiceSchema = z.object({
   }).optional(),
 });
 
+const sendWhatsAppReceiptSchema = z.object({
+  params: idParams,
+  body: z.object({
+    recipientPhone: z.string().trim().min(10).max(20).optional(),
+  }).optional(),
+});
+
 router.use(requireAuth);
 router.get("/", requirePermission(PERMISSIONS.SALE_VIEW_OWN), validate(listSchema), saleController.listSales);
 router.get("/:id", requirePermission(PERMISSIONS.SALE_VIEW_OWN), validate(z.object({ params: idParams })), saleController.getSale);
@@ -107,6 +114,6 @@ router.post("/:id/amendments", requirePermission(PERMISSIONS.SALE_AMEND_CONFIRME
 router.post("/:id/invoice", requirePermission(PERMISSIONS.INVOICE_ISSUE), validate(issueInvoiceSchema), saleController.issueInvoice);
 router.post("/:id/invoice/cancel", requirePermission(PERMISSIONS.INVOICE_CANCEL), validate(cancelInvoiceSchema), saleController.cancelInvoice);
 router.post("/:id/cancel", requirePermission(PERMISSIONS.SALE_EDIT_DRAFT), validate(cancelInvoiceSchema), saleController.cancelSale);
-router.post("/:id/whatsapp-send", requirePermission(PERMISSIONS.SALE_VIEW_OWN), validate(z.object({ params: idParams })), saleController.sendSaleWhatsAppReceipt);
+router.post("/:id/whatsapp-send", requirePermission(PERMISSIONS.SALE_VIEW_OWN), validate(sendWhatsAppReceiptSchema), saleController.sendSaleWhatsAppReceipt);
 
 export default router;

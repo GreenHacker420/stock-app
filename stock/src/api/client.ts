@@ -732,6 +732,21 @@ export async function cancelSale(token: string, saleId: string, data?: {
   });
 }
 
+export async function sendSaleWhatsAppReceipt(
+  token: string,
+  saleId: string,
+  recipientPhone?: string,
+) {
+  return apiRequest<{ success: boolean; metaResponse?: unknown }>(
+    `/sales/${saleId}/whatsapp-send`,
+    {
+      method: "POST",
+      token,
+      body: JSON.stringify(recipientPhone ? { recipientPhone } : {}),
+    },
+  );
+}
+
 export type LocalItemImage = {
   uri: string;
   name: string;

@@ -1,7 +1,7 @@
-import React from "react";
 import { View, StyleSheet } from "react-native";
 import { TextInput as PaperTextInput } from "react-native-paper";
 import { AppBottomSheetModal } from "@/components/overlays/AppBottomSheetModal";
+import { KeyboardAwareScreen } from "@/components/keyboard/KeyboardAwareScreen";
 import { Button } from "@/components/ui/Button";
 import { colors, spacing } from "@/theme";
 
@@ -28,7 +28,6 @@ export function IssueInvoiceSheet({
       title="Issue GST Invoice"
       onDismiss={onDismiss}
       isBusy={isPending}
-      scrollable
     >
       <View style={styles.contentContainer}>
         <PaperTextInput
@@ -41,6 +40,7 @@ export function IssueInvoiceSheet({
           textColor={colors.textPrimary}
           placeholder="e.g. VS-2026-145"
           autoCapitalize="characters"
+          autoFocus
           style={styles.textInput}
         />
       </View>

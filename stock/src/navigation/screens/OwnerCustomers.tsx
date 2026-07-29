@@ -125,17 +125,22 @@ export function AddEditCustomer() {
   const route = useRoute();
   const queryClient = useQueryClient();
   const network = useNetworkStatus();
-  const customer = (route.params as { customer?: Customer } | undefined)?.customer;
+  const params = route.params as { customer?: Customer; initialSearch?: string } | undefined;
+  const customer = params?.customer;
+  const initialSearch = params?.initialSearch?.trim() ?? "";
+  const initialSearchIsPhone = /^[+\d\s()-]+$/.test(initialSearch);
+  const initialName = !customer && initialSearch && !initialSearchIsPhone ? initialSearch : "";
+  const initialPhone = !customer && initialSearchIsPhone ? cleanPhoneNumber(initialSearch) : "";
   
   const isOwner = user?.role === "OWNER";
 
   const [form, setForm] = useState({
-    name: customer?.name ?? "",
-    phone: customer?.phone ?? "",
+    name: customer?.name ?? initialName,
+    phone: customer?.phone ?? initialPhone,
     address: customer?.address ?? "",
     city: customer?.city ?? "",
     gstin: customer?.gstin ?? "",
-    contactPerson: customer?.contactPerson ?? "",
+    contactPerson: customer?.contactPerson ?? initialName,
     creditLimit: String(customer?.creditLimit ?? ""),
     notes: customer?.notes ?? "",
   });

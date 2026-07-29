@@ -1,6 +1,7 @@
 import { View, Pressable, StyleSheet } from "react-native";
 import { Text, TextInput as PaperTextInput, Icon } from "react-native-paper";
 import { AppBottomSheetModal } from "@/components/overlays/AppBottomSheetModal";
+import { KeyboardAwareScreen } from "@/components/keyboard/KeyboardAwareScreen";
 import { Button } from "@/components/ui/Button";
 import { colors, spacing, radius, fontWeight } from "@/theme";
 import { triggerLightHaptic } from "@/utils/haptics";
@@ -32,7 +33,6 @@ export function CancelInvoiceSheet({
       title="Cancel GST Invoice"
       onDismiss={onDismiss}
       isBusy={isPending}
-      scrollable
     >
       <Text style={styles.helperText}>
         Cancellations are permanent and recorded in the audit log. Select a reason:
@@ -104,7 +104,7 @@ export function CancelInvoiceSheet({
           style={styles.dismissBtn}
         />
         <Button
-          label="Cancel Invoice"
+          label="Confirm Cancellation"
           variant="danger"
           loading={isPending}
           disabled={isPending || !cancelReason || (cancelReason === "Other" && !cancelNotes.trim())}

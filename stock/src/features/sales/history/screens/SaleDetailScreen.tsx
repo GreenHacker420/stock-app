@@ -245,16 +245,16 @@ export function SaleDetailScreen() {
 
   const handleSaveGstDetails = () => {
     if (!sale) return;
+    setIsGstModalVisible(false);
     updateSaleMutation.mutate({
       saleId: sale.id,
       data: { gstRequired: editGstRequired }
     }, {
       onSuccess: () => {
-        setIsGstModalVisible(false);
         saleQuery.refetch();
-        Alert.alert("Success", "GST requirement updated successfully!");
       },
       onError: (err: any) => {
+        setIsGstModalVisible(true);
         Alert.alert("Error", err.message || "Failed to update GST details");
       }
     });
@@ -272,16 +272,17 @@ export function SaleDetailScreen() {
       Alert.alert("Error", "Please enter a valid invoice number.");
       return;
     }
+    setIsInvoiceModalVisible(false);
     issueInvoiceMutation.mutate({
       saleId: sale.id,
       data: { invoiceNumber: normalizedInvoiceNumber }
     }, {
       onSuccess: () => {
-        setIsInvoiceModalVisible(false);
+        setInvoiceNumber("");
         saleQuery.refetch();
-        Alert.alert("Success", "GST Invoice issued successfully!");
       },
       onError: (err: any) => {
+        setIsInvoiceModalVisible(true);
         Alert.alert("Error", err.message || "Failed to issue invoice");
       }
     });
@@ -309,16 +310,18 @@ export function SaleDetailScreen() {
       return;
     }
 
+    setIsCancelModalVisible(false);
     cancelInvoiceMutation.mutate({
       saleId: sale.id,
       data: { reason: finalReason }
     }, {
       onSuccess: () => {
-        setIsCancelModalVisible(false);
+        setCancelReason("");
+        setCancelNotes("");
         saleQuery.refetch();
-        Alert.alert("Success", "GST Invoice cancelled successfully.");
       },
       onError: (err: any) => {
+        setIsCancelModalVisible(true);
         Alert.alert("Error", err.message || "Failed to cancel invoice");
       }
     });
@@ -421,7 +424,10 @@ export function SaleDetailScreen() {
   const isFinanciallyLocked = sale.paymentStatus === "PAID" || hasVerifiedPayment || hasIssuedInvoice;
   const canDirectEdit = user?.role === "OWNER" && !isFinanciallyLocked;
 
+  const isCancelled = sale.saleStatus === "CANCELLED" || (sale as any).status === "CANCELLED";
+
   const canAttachExistingPayment =
+    !isCancelled &&
     Boolean(sale.customerId) &&
     !sale.isWalkin &&
     sale.paymentStatus !== "PAID" &&
@@ -431,7 +437,7 @@ export function SaleDetailScreen() {
 
   return (
     <Screen edges={['top', 'left', 'right', 'bottom']}>
-      <AppHeader title={`Sale #${sale.saleNumber}`} subtitle="Transaction Details" showBack />
+      <AppHeader title={`Sale #${sale.saleNumber}`} subtitle={isCancelled ? "Cancelled Transaction" : "Transaction Details"} showBack />
 
       <ScrollView
         contentContainerStyle={{
@@ -443,24 +449,38 @@ export function SaleDetailScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* Hero Summary Card */}
-        <View style={styles.heroCard}>
+        <View style={[styles.heroCard, isCancelled && styles.heroCardCancelled]}>
+          {isCancelled && (
+            <View style={styles.cancelledBannerContainer}>
+              <Icon source="close-circle-outline" size={20} color={colors.danger} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.cancelledBannerTitle}>This Sale Was Cancelled</Text>
+                <Text style={styles.cancelledBannerDesc}>
+                  Stock levels were automatically restored when this transaction was cancelled.
+                </Text>
+              </View>
+            </View>
+          )}
+
           <View style={styles.heroHeaderRow}>
-            <Text style={styles.heroSaleNumber}>Sale #{sale.saleNumber}</Text>
+            <Text style={[styles.heroSaleNumber, isCancelled && styles.cancelledHeroText]}>Sale #{sale.saleNumber}</Text>
             <StatusPill
-              label={sale.paymentStatus || "PENDING"}
-              tone={sale.paymentStatus === "PAID" ? "green" : "amber"}
+              label={isCancelled ? "CANCELLED" : (sale.paymentStatus || "PENDING")}
+              tone={isCancelled ? "red" : sale.paymentStatus === "PAID" ? "green" : "amber"}
             />
           </View>
 
           <View style={styles.heroCenterBlock}>
             <Text style={[
               styles.heroMainAmountVal,
-              { color: trulyOutstandingMinor > 0 ? colors.warning : colors.success, fontVariant: ['tabular-nums'] }
+              isCancelled
+                ? { color: colors.danger, textDecorationLine: 'line-through', fontVariant: ['tabular-nums'] }
+                : { color: trulyOutstandingMinor > 0 ? colors.warning : colors.success, fontVariant: ['tabular-nums'] }
             ]}>
-              {trulyOutstandingMinor > 0 ? formatMinorUnits(trulyOutstandingMinor) : formatRawMoney(sale.totalAmount)}
+              {isCancelled ? formatRawMoney(sale.totalAmount) : trulyOutstandingMinor > 0 ? formatMinorUnits(trulyOutstandingMinor) : formatRawMoney(sale.totalAmount)}
             </Text>
             <Text style={styles.heroMainAmountLabel}>
-              {trulyOutstandingMinor > 0 ? "Outstanding" : "Total Sale Value (Settled)"}
+              {isCancelled ? "Cancelled Sale Amount" : trulyOutstandingMinor > 0 ? "Outstanding" : "Total Sale Value (Settled)"}
             </Text>
           </View>
 
@@ -1025,6 +1045,35 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     ...shadow.sm,
+  },
+  heroCardCancelled: {
+    borderColor: "rgba(220, 38, 38, 0.4)",
+    backgroundColor: "rgba(220, 38, 38, 0.02)",
+  },
+  cancelledHeroText: {
+    color: colors.textMuted,
+    textDecorationLine: "line-through",
+  },
+  cancelledBannerContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    backgroundColor: "rgba(220, 38, 38, 0.08)",
+    borderRadius: radius.md,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: "rgba(220, 38, 38, 0.3)",
+    marginBottom: spacing.md,
+  },
+  cancelledBannerTitle: {
+    fontSize: 13,
+    fontWeight: fontWeight.bold,
+    color: colors.danger,
+  },
+  cancelledBannerDesc: {
+    fontSize: 11,
+    color: colors.textSecondary,
+    marginTop: 2,
   },
   heroCenterBlock: {
     alignItems: "center",

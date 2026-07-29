@@ -1,20 +1,16 @@
 import { useState, useEffect } from "react";
-import { Linking, Alert, StyleSheet, View, ScrollView, Modal, TextInput } from "react-native";
+import { Alert, StyleSheet, View, ScrollView, Modal, TextInput } from "react-native";
 import { Icon, Text, Divider } from "react-native-paper";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../../../theme";
 import { Button } from "../../../../components/ui/Button";
 import { InfoRow } from "../../../../components/ui/InfoRow";
 import { cleanPhoneNumber } from "../../../../utils/items/validation";
 import { useAuthStore } from "../../../../auth/auth-store";
-import { useShopStore } from "../../../../auth/shop-store";
-import {
-  fetchWhatsAppCapability,
-  createScopedWaConversation,
-  sendScopedWaMessage,
-} from "../../../../api/whatsapp.api";
+import { sendSaleWhatsAppReceipt } from "../../../../api/client";
 
 interface SaleSuccessViewProps {
   invoiceSale: {
+    id?: string;
     saleNumber: string;
     totalAmount: number;
   };
@@ -28,7 +24,6 @@ interface SaleSuccessViewProps {
   onViewInvoice: () => void;
   onSharePdf: () => void;
   onPrintDirect?: () => void;
-  onSendWhatsApp?: () => void;
   autoSendWhatsApp?: boolean;
   isSharing?: boolean;
   isPrinting?: boolean;
@@ -46,13 +41,11 @@ export function SaleSuccessView({
   onViewInvoice,
   onSharePdf,
   onPrintDirect,
-  onSendWhatsApp,
   autoSendWhatsApp = false,
   isSharing = false,
   isPrinting = false,
 }: SaleSuccessViewProps) {
   const token = useAuthStore((state) => state.token);
-  const activeShopId = useShopStore((state) => state.activeShopId);
 
   const [isPhoneModalVisible, setIsPhoneModalVisible] = useState(false);
   const [phoneInput, setPhoneInput] = useState(customerPhone ?? "");
@@ -65,64 +58,34 @@ export function SaleSuccessView({
   }, []);
 
   const openWhatsAppWithNumber = async (targetPhone: string) => {
-    setIsSendingWa(true);
     const cleaned = cleanPhoneNumber(targetPhone);
-    const textMsg = `*Sale Receipt*\nSale #: ${invoiceSale.saleNumber}\nCustomer: ${customerName}\nTotal Amount: ₹${invoiceSale.totalAmount.toLocaleString("en-IN")}\nPayment Mode: ${paymentMode}\n\nThank you for shopping with us!`;
-
-    try {
-      if (token && activeShopId && cleaned) {
-        const capability = await fetchWhatsAppCapability(token, activeShopId);
-
-        if (capability.enabled && capability.integrationId) {
-          const formattedPhone = cleaned.startsWith("91") ? cleaned : `91${cleaned}`;
-          const convRes = await createScopedWaConversation(token, capability.integrationId, {
-            phone: formattedPhone,
-            contactName: customerName,
-          });
-
-          const conversationId = convRes?.conversation?.id;
-          if (conversationId) {
-            await sendScopedWaMessage(
-              token,
-              { shopId: activeShopId, integrationId: capability.integrationId, conversationId },
-              {
-                message: {
-                  kind: "text",
-                  text: textMsg,
-                },
-              }
-            );
-
-            Alert.alert(
-              "Receipt Sent",
-              `Sale receipt successfully sent via WhatsApp Business API to +91 ${cleaned}!`
-            );
-            return;
-          }
-        }
-      }
-    } catch (err) {
-      console.log("[WhatsApp API] Server WhatsApp Cloud API unavailable, attempting direct wa.me fallback:", err);
-    } finally {
-      setIsSendingWa(false);
+    if (!token) {
+      Alert.alert("Receipt Not Sent", "Please sign in again before sending the WhatsApp receipt.");
+      return;
     }
-
-    // Direct WhatsApp application fallback if server API is unconfigured or unavailable
-    const url = cleaned
-      ? `https://wa.me/91${cleaned}?text=${encodeURIComponent(textMsg)}`
-      : `https://wa.me/?text=${encodeURIComponent(textMsg)}`;
-
-    Linking.openURL(url).catch(() => {
-      Alert.alert("WhatsApp Error", "Could not open WhatsApp application on this device.");
-    });
-  };
-
-  const handleWhatsAppPress = () => {
-    if (onSendWhatsApp) {
-      onSendWhatsApp();
+    if (!invoiceSale.id) {
+      Alert.alert("Receipt Not Sent", "The completed sale ID is unavailable. Refresh the sale and try again.");
       return;
     }
 
+    setIsSendingWa(true);
+    try {
+      await sendSaleWhatsAppReceipt(token, invoiceSale.id, cleaned);
+      Alert.alert(
+        "Receipt Sent",
+        `The invoice PDF was sent to +91 ${cleaned} using the WhatsApp receipt template.`,
+      );
+    } catch (err: any) {
+      Alert.alert(
+        "Receipt Not Sent",
+        err?.message || "The invoice PDF or WhatsApp template could not be sent.",
+      );
+    } finally {
+      setIsSendingWa(false);
+    }
+  };
+
+  const handleWhatsAppPress = () => {
     const cleaned = customerPhone ? cleanPhoneNumber(customerPhone) : "";
     if (cleaned.length >= 10) {
       Alert.alert(
@@ -232,6 +195,7 @@ export function SaleSuccessView({
           variant="success"
           icon="whatsapp"
           onPress={handleWhatsAppPress}
+          loading={isSendingWa}
           fullWidth
           style={{ backgroundColor: "#25D366", borderColor: "#25D366" }}
         />

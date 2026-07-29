@@ -406,7 +406,9 @@ export function WalkInSaleScreen() {
         setCustomerName={setCustomerName}
         customerPhone={customerPhone}
         setCustomerPhone={setCustomerPhone}
-        onCreateCustomerPress={() => navigation.navigate("AddEditCustomer")}
+        onCreateCustomerPress={() =>
+          navigation.navigate("AddEditCustomer", { initialSearch: customerSearch.trim() })
+        }
         isOffline={network.isOffline}
       />
 

@@ -1,7 +1,8 @@
 import axios from "axios";
 import { getWaCredentials } from "../lib/wa-cache.js";
 import { NON_DIGIT_REGEX } from "../lib/validate.js";
-import { generateAndUploadSaleInvoicePdf, deleteInvoiceAsset } from "./pdf.service.js";
+import { getSignedS3ObjectUrl } from "../lib/s3-storage.js";
+import { generateAndUploadSaleInvoicePdf } from "./pdf.service.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 import {
@@ -944,13 +945,27 @@ export async function sendSaleWhatsAppReceipt(user, id, { recipientPhone } = {})
 
   const shopName = sale.shop?.name || "Vardaman Sales";
   const customerName = sale.isWalkin ? "Walk-in Customer" : (sale.customer?.name || "Valued Customer");
-  const normalizedPhone = targetPhone.replace(NON_DIGIT_REGEX, "");
+  let normalizedPhone = targetPhone.replace(NON_DIGIT_REGEX, "");
+  if (normalizedPhone.startsWith("0")) normalizedPhone = normalizedPhone.slice(1);
+  if (normalizedPhone.length === 10) normalizedPhone = `91${normalizedPhone}`;
+  if (normalizedPhone.length !== 12 || !normalizedPhone.startsWith("91")) {
+    throw new ApiError(400, "A valid Indian WhatsApp mobile number is required");
+  }
 
   // 1. Render invoice HTML → PDF via html-pdf-lite → upload to S3 → record in Asset table
-  const { assetId, publicUrl: documentLink } = await generateAndUploadSaleInvoicePdf({
-    sale,
-    shop: sale.shop,
-  });
+  let documentLink;
+  try {
+    const { s3Key } = await generateAndUploadSaleInvoicePdf({
+      sale,
+      shop: sale.shop,
+    });
+    documentLink = await getSignedS3ObjectUrl(s3Key, 3600);
+  } catch (error) {
+    console.error("[WhatsApp] Sale receipt PDF preparation failed:", error?.message || error);
+    throw new ApiError(502, "The invoice PDF could not be prepared for WhatsApp", {
+      code: "WHATSAPP_RECEIPT_PDF_FAILED",
+    });
+  }
 
   const payload = {
     messaging_product: "whatsapp",
@@ -989,19 +1004,23 @@ export async function sendSaleWhatsAppReceipt(user, id, { recipientPhone } = {})
 
   // 3. Send via Meta Graph API v25.0
   const url = `https://graph.facebook.com/v25.0/${creds.phoneNumberId}/messages`;
-  const response = await axios.post(url, payload, {
-    headers: {
-      Authorization: `Bearer ${creds.accessToken}`,
-      "Content-Type": "application/json",
-    },
-  });
-
-  // 4. Delete the S3 PDF + Asset record after successful dispatch
-  if (assetId) {
-    deleteInvoiceAsset(assetId).catch((e) =>
-      console.error("[WhatsApp] Asset cleanup error:", e.message)
-    );
+  let response;
+  try {
+    response = await axios.post(url, payload, {
+      headers: {
+        Authorization: `Bearer ${creds.accessToken}`,
+        "Content-Type": "application/json",
+      },
+    });
+  } catch (error) {
+    const metaMessage = error?.response?.data?.error?.message;
+    console.error("[WhatsApp] Sale receipt template send failed:", error?.response?.data || error?.message || error);
+    throw new ApiError(502, metaMessage || "WhatsApp rejected the invoice receipt template", {
+      code: "WHATSAPP_RECEIPT_TEMPLATE_FAILED",
+    });
   }
 
+  // Keep the document available after Meta accepts the request because media
+  // retrieval is asynchronous and immediate deletion can race the download.
   return { success: true, metaResponse: response.data };
 }

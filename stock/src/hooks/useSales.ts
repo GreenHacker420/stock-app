@@ -33,15 +33,14 @@ export function useInfiniteSalesQuery(opts: {
   });
 }
 
-/** Simple one-shot query — kept for backward compat / small datasets */
-export function useSalesQuery() {
+export function useSalesQuery(opts: { dateFrom?: string; dateTo?: string } = {}) {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
   return useQuery({
-    queryKey: queryKeys.sales(activeShopId ?? ""),
-    queryFn: () => fetchSales(token ?? "", activeShopId ?? ""),
+    queryKey: [...queryKeys.sales(activeShopId ?? ""), opts],
+    queryFn: () => fetchSales(token ?? "", activeShopId ?? "", opts),
     enabled: !!token && !!activeShopId,
-    staleTime: 10 * 60 * 1000, // 10 mins
+    staleTime: 5 * 60 * 1000,
   });
 }
 

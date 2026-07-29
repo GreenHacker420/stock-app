@@ -99,6 +99,7 @@ test("sale routes contract", () => {
   assertRoute(src, "GET",  '"/:id"', "GET /sales/:id");
   assertRoute(src, "POST", '"/"', "POST /sales");
   assertRoute(src, "PATCH", '"/:id"', "PATCH /sales/:id");
+  assertRoute(src, "POST", '"/:id/whatsapp-send"', "POST /sales/:id/whatsapp-send");
 });
 
 // ─── ORDERS ──────────────────────────────────────────────────────────────────
@@ -264,6 +265,11 @@ test("production env hardening contract", async () => {
   }
 });
 
+test("health checks are excluded from request logs", () => {
+  const appSrc = readSrc("app.js");
+  assert.ok(appSrc.includes('skip: (req) => req.path === "/health"'));
+});
+
 test("disabled WhatsApp startup code is not imported eagerly", () => {
   const indexSrc = readSrc("index.js");
   const workersSrc = readSrc("workers/index.js");
@@ -319,6 +325,28 @@ test("sale cancellation uses sale lifecycle fields and outstanding debt", () => 
   assert.ok(cancelSaleSrc.includes("decreaseCustomerDebt(tx, sale.customerId, sale.balanceAmount)"));
   assert.ok(!cancelSaleSrc.includes("paymentStatus: \"CANCELLED\""));
   assert.ok(!cancelSaleSrc.includes("notes:"));
+});
+
+test("sale WhatsApp receipt sends the PDF template through the backend", () => {
+  const saleServiceSrc = readSrc("services/sale.service.js");
+  const saleControllerSrc = readSrc("controllers/sale.controller.js");
+  const mobileClientSrc = fs.readFileSync(path.resolve(SRC_DIR, "../../stock/src/api/client.ts"), "utf8");
+  const successViewSrc = fs.readFileSync(
+    path.resolve(SRC_DIR, "../../stock/src/features/sales/create/components/SaleSuccessView.tsx"),
+    "utf8",
+  );
+  const receiptSrc = saleServiceSrc.slice(saleServiceSrc.indexOf("export async function sendSaleWhatsAppReceipt"));
+
+  assert.ok(receiptSrc.includes('name: "sale_receipt_v1"'));
+  assert.ok(receiptSrc.includes('type: "document"'));
+  assert.ok(receiptSrc.includes("getSignedS3ObjectUrl(s3Key, 3600)"));
+  assert.ok(receiptSrc.includes("normalizedPhone = `91${normalizedPhone}`"));
+  assert.ok(!receiptSrc.includes("deleteInvoiceAsset"));
+  assert.ok(saleControllerSrc.includes("req.validated.body || {}"));
+  assert.ok(mobileClientSrc.includes("export async function sendSaleWhatsAppReceipt"));
+  assert.ok(successViewSrc.includes("await sendSaleWhatsAppReceipt(token, invoiceSale.id, cleaned)"));
+  assert.ok(!successViewSrc.includes("sendScopedWaMessage"));
+  assert.ok(!successViewSrc.includes("*Sale Receipt*"));
 });
 
 test("expense status enum matches backend", () => {

@@ -59,7 +59,9 @@ export function createApp() {
   }));
 
   if (process.env.NODE_ENV !== "test") {
-    app.use(morgan("dev"));
+    app.use(morgan("dev", {
+      skip: (req) => req.path === "/health",
+    }));
   }
   app.use(requestMetrics);
   app.use(requestContext);

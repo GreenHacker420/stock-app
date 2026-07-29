@@ -548,12 +548,38 @@ test.describe("DATA-03 realtime read-model coherence contracts", () => {
 
     assert.ok(customers.includes("refreshCustomerReadModelAfterMutation"));
     assert.ok(customers.includes("writeCursor: false"));
-    assert.ok(items.includes("refreshCatalogReadModelAfterMutation"));
+    assert.ok(items.includes("async function refreshCatalogReadModelAfterMutation"));
+    assert.ok(items.includes("await refreshCatalogReadModelAfterMutation"));
+    assert.ok(items.includes("refetch: refreshReadModel"));
     assert.ok(items.includes("writeCursor: false"));
   });
 });
 
 test.describe("RELEASE-01 functional blocker closure contracts", () => {
+  test("regular sale receipt preserves the selected customer's phone number", () => {
+    const source = readStock("features/sales/create/regular/RegularSaleScreen.tsx");
+
+    assert.ok(source.includes("const receiptCustomerPhone = useMemo"));
+    assert.ok(source.includes("return draftCust.customer.phone || null"));
+    assert.ok(source.includes("customerPhone={receiptCustomerPhone}"));
+    assert.ok(!source.includes("customerPhone={null}"));
+  });
+
+  test("sale customer search is carried into the create-customer form", () => {
+    const regularSale = readStock("features/sales/create/regular/RegularSaleScreen.tsx");
+    const walkInSale = readStock("features/sales/create/walk-in/WalkInSaleScreen.tsx");
+    const customerForm = readStock("navigation/screens/OwnerCustomers.tsx");
+    const navigation = readStock("navigation/index.tsx");
+
+    assert.ok(regularSale.includes('initialSearch: customerSearch.trim()'));
+    assert.ok(walkInSale.includes('initialSearch: customerSearch.trim()'));
+    assert.ok(customerForm.includes("params?.initialSearch?.trim()"));
+    assert.ok(customerForm.includes("initialSearchIsPhone"));
+    assert.ok(customerForm.includes("phone: customer?.phone ?? initialPhone"));
+    assert.ok(customerForm.includes("name: customer?.name ?? initialName"));
+    assert.ok(navigation.includes("initialSearch?: string"));
+  });
+
   test("OrderDetail uses the real order-to-sale mutation and no fake conversion success path", () => {
     const source = readStock("navigation/screens/OrderDetail.tsx");
 
