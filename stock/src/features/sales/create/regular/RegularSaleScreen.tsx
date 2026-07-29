@@ -530,6 +530,8 @@ export function RegularSaleScreen() {
               onDrawSignaturePress={() => setIsSigSheetVisible(true)}
               draftShop={draftShop as any}
               settlementError={settlementError}
+              paymentDate={draft.paymentDate}
+              onChangePaymentDate={(paymentDate) => dispatch({ type: "SET_PAYMENT_DATE", paymentDate })}
             />
           </KeyboardAwareScreen>
         )}

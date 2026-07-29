@@ -34,6 +34,7 @@ const addSchema = z.object({
     customerId: z.string().optional(),
     paymentMode,
     amount: z.coerce.number().positive("Payment amount must be greater than zero"),
+    paymentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Payment date must be YYYY-MM-DD").optional(),
     referenceNumber: z.string().optional(),
     proofImageUrl: z.string().optional(),
     notes: z.string().optional(),

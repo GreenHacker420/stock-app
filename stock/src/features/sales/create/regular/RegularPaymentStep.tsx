@@ -2,6 +2,7 @@ import { StyleSheet, View } from "react-native";
 import { Text } from "react-native-paper";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../../../theme";
 import { PaymentMethodSelector } from "../components/PaymentMethodSelector";
+import { SaleDateField } from "../components/SaleDateField";
 
 interface RegularPaymentStepProps {
   paymentType: "CASH" | "UPI" | "BANK_TRANSFER" | "CREDIT";
@@ -17,6 +18,8 @@ interface RegularPaymentStepProps {
   onDrawSignaturePress: () => void;
   draftShop?: { upiId?: string; upiName?: string | null };
   settlementError?: string | null;
+  paymentDate: string;
+  onChangePaymentDate: (value: string) => void;
 }
 
 export function RegularPaymentStep({
@@ -33,6 +36,8 @@ export function RegularPaymentStep({
   onDrawSignaturePress,
   draftShop,
   settlementError,
+  paymentDate,
+  onChangePaymentDate,
 }: RegularPaymentStepProps) {
   return (
     <View style={styles.container}>
@@ -58,6 +63,13 @@ export function RegularPaymentStep({
         draftShop={draftShop}
         settlementError={settlementError}
       />
+      {(paymentType !== "CREDIT" || Number(amountPaid) > 0) && (
+        <SaleDateField
+          value={paymentDate}
+          onChange={onChangePaymentDate}
+          label="Payment Date"
+        />
+      )}
     </View>
   );
 }

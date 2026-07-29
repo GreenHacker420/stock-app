@@ -28,6 +28,7 @@ export function createSaleFingerprint(draft: SaleDraft): string {
   const payload = JSON.stringify({
     shopId: draft.shopId,
     saleDate: draft.saleDate,
+    paymentDate: draft.paymentDate,
     customerId,
     lines,
     totalMinor: calculateSaleTotalMinor(draft.lines),

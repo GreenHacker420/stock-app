@@ -260,13 +260,24 @@ test.describe("Phase 2 core business correctness", () => {
     const current = await cashSessionService.getCurrentSession(staff, { shopId: shop.id });
     assert.strictEqual(Number(current.expectedCash), 25);
 
+    const historicalCashPayment = await paymentService.addPayment(staff, {
+      shopId: shop.id,
+      customerId: customer.id,
+      paymentMode: "CASH",
+      amount: 5,
+      paymentDate: "2026-07-20",
+    });
+    assert.strictEqual(historicalCashPayment.cashSessionId, null);
+
     const upiPayment = await paymentService.addPayment(staff, {
       shopId: shop.id,
       customerId: customer.id,
       paymentMode: "UPI",
       amount: 15,
+      paymentDate: "2026-07-20",
     });
     assert.strictEqual(upiPayment.cashSessionId, null);
+    assert.strictEqual(upiPayment.receivedAt.toISOString().slice(0, 10), "2026-07-20");
     const afterUpi = await cashSessionService.getCurrentSession(staff, { shopId: shop.id });
     assert.strictEqual(Number(afterUpi.expectedCash), 25);
   });

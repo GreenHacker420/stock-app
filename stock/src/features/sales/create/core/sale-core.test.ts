@@ -33,11 +33,18 @@ test("quantity and serials are centrally clamped", () => {
   assert.deepEqual(draft.lines[item.id].serialNumbers, ["1", "2", "3"]);
 });
 
-test("sale date defaults to today and is included in the payload", () => {
+test("sale and payment dates default to today and are included in the payload", () => {
   let draft = createInitialSaleDraft("REGULAR", "shop-1");
   assert.match(draft.saleDate, /^\d{4}-\d{2}-\d{2}$/);
+  assert.match(draft.paymentDate, /^\d{4}-\d{2}-\d{2}$/);
   draft = saleDraftReducer(draft, { type: "SET_SALE_DATE", saleDate: "2026-07-20" });
+  draft = saleDraftReducer(draft, { type: "SET_PAYMENT_DATE", paymentDate: "2026-07-25" });
+  draft = saleDraftReducer(draft, {
+    type: "SET_SETTLEMENT",
+    settlement: unwrapSettlement(createRegularSettlement("CASH", 10000, 10000)),
+  });
   assert.equal(buildSalePayload(draft).saleDate, "2026-07-20");
+  assert.equal(buildSalePayload(draft).payments?.[0].paymentDate, "2026-07-25");
 });
 
 test("invoice adapter hydrates raw create response from the submitted draft", () => {

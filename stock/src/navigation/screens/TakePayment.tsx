@@ -39,6 +39,7 @@ import { FormTextField } from "../../components/forms/FormTextField";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { goBack } from "../navigation-ref";
 import { KeyboardAwareScreen } from "../../components/keyboard/KeyboardAwareScreen";
+import { SaleDateField } from "../../features/sales/create/components/SaleDateField";
 import {
   triggerLightHaptic,
   triggerMediumHaptic,
@@ -85,6 +86,10 @@ const getPaymentModeColor = (mode: string) => {
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 const internetRequiredMessage = "Internet connection required. Please connect to the internet to complete this action.";
+const getTodayDateKey = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+};
 
 const haptic = (s: "selection" | "success" | "error" | "light" | "medium" = "selection") => {
   if (s === "selection") triggerSelectionHaptic();
@@ -119,6 +124,7 @@ export function TakePayment() {
   const [debouncedSearchQuery] = useDebounce(searchQuery, 300);
   const [amount, setAmount] = useState(route.params?.amount?.toString() || "");
   const [paymentMode, setPaymentMode] = useState<typeof paymentModes[number]["value"]>("CASH");
+  const [paymentDate, setPaymentDate] = useState(getTodayDateKey);
   const [upiMode, setUpiMode] = useState<"STATIC_QR" | "DYNAMIC_QR">("STATIC_QR");
   const [reference, setReference] = useState("");
   const [chequeNumber, setChequeNumber] = useState("");
@@ -279,6 +285,7 @@ export function TakePayment() {
       dmId,
       paymentMode,
       amount: numericAmount,
+      paymentDate,
       referenceNumber: paymentMode === "CHEQUE" ? (chequeNumber.trim() || undefined) : (reference || undefined),
       notes: notes || (upiMode === 'DYNAMIC_QR' ? 'Paid via generated QR' : undefined),
       details,
@@ -538,6 +545,12 @@ export function TakePayment() {
               })}
             </View>
           </View>
+
+          <SaleDateField
+            value={paymentDate}
+            onChange={setPaymentDate}
+            label="Payment Date"
+          />
 
           {/* Conditionally rendered UPI Config / QR */}
           {paymentMode === 'UPI' && (
@@ -820,6 +833,7 @@ export function TakePayment() {
           setChequeNumber("");
           setChequeBankName("");
           setChequeDate(null);
+          setPaymentDate(getTodayDateKey());
           setNote("");
           setUpiMode("STATIC_QR");
           goBack();

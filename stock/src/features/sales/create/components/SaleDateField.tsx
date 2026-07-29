@@ -7,6 +7,7 @@ import { colors, fontSize, fontWeight, radius, spacing } from "@/theme";
 interface SaleDateFieldProps {
   value: string;
   onChange: (value: string) => void;
+  label?: string;
 }
 
 const dateFromKey = (value: string) => {
@@ -21,7 +22,7 @@ const dateToKey = (value: Date) => {
   return `${year}-${month}-${day}`;
 };
 
-export function SaleDateField({ value, onChange }: SaleDateFieldProps) {
+export function SaleDateField({ value, onChange, label = "Sale Date" }: SaleDateFieldProps) {
   const [showPicker, setShowPicker] = useState(false);
 
   const handleChange = (event: DateTimePickerEvent, selected?: Date) => {
@@ -30,10 +31,10 @@ export function SaleDateField({ value, onChange }: SaleDateFieldProps) {
   };
 
   return (
-    <View>
+    <View style={styles.container}>
       <Pressable
         accessibilityRole="button"
-        accessibilityLabel="Select sale date"
+        accessibilityLabel={`Select ${label.toLowerCase()}`}
         onPress={() => setShowPicker(true)}
         style={({ pressed }) => [styles.field, pressed && styles.pressed]}
       >
@@ -41,7 +42,7 @@ export function SaleDateField({ value, onChange }: SaleDateFieldProps) {
           <Icon source="calendar" size={20} color={colors.primary} />
         </View>
         <View style={styles.copy}>
-          <Text style={styles.label}>Sale Date</Text>
+          <Text style={styles.label}>{label}</Text>
           <Text style={styles.value}>
             {dateFromKey(value).toLocaleDateString("en-IN", {
               day: "2-digit",
@@ -74,13 +75,18 @@ export function SaleDateField({ value, onChange }: SaleDateFieldProps) {
 }
 
 const styles = StyleSheet.create({
+  container: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    overflow: "hidden",
+  },
   field: {
     minHeight: 64,
     paddingHorizontal: spacing.md,
     flexDirection: "row",
     alignItems: "center",
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
   },
   pressed: {
     opacity: 0.7,

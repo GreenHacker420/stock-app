@@ -72,6 +72,7 @@ export type SaleDraft = {
   mode: SaleMode;
   shopId: string;
   saleDate: string;
+  paymentDate: string;
   customer: SaleCustomer;
   lines: Record<string, SaleLine>;
   notes: string;

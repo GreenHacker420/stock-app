@@ -160,8 +160,10 @@ export function getBillPaymentStatus(totalAmount, paidAmount) {
   return "PARTIALLY_PAID";
 }
 
-async function resolveCashSessionForPayment(tx, shopId, paymentMode) {
+async function resolveCashSessionForPayment(tx, shopId, paymentMode, receivedAt) {
   if (paymentMode !== "CASH") return null;
+
+  if (getIndiaDateKey(receivedAt) !== getIndiaDateKey()) return null;
 
   const session = await tx.cashSession.findFirst({
     where: {
@@ -199,9 +201,9 @@ export async function applyPayments(tx, { user, shopId, saleId, dmId, orderId, c
     if (amt.lte(0)) continue;
 
     newPaid = add(newPaid, amt);
-    const cashSessionId = await resolveCashSessionForPayment(tx, shopId, payment.paymentMode);
-
     const isAutoVerified = user?.role === "OWNER" || payment.paymentMode === "CASH";
+    const receivedAt = resolvePaymentDate(payment.paymentDate);
+    const cashSessionId = await resolveCashSessionForPayment(tx, shopId, payment.paymentMode, receivedAt);
 
     // Create the payment record
     const createdPayment = await tx.payment.create({
@@ -215,6 +217,7 @@ export async function applyPayments(tx, { user, shopId, saleId, dmId, orderId, c
         amount: amt,
         status: isAutoVerified ? "VERIFIED" : "RECORDED",
         receivedById: user.id,
+        receivedAt,
         verifiedById: isAutoVerified ? user.id : null,
         verifiedAt: isAutoVerified ? new Date() : null,
         cashSessionId,
@@ -246,6 +249,7 @@ export async function applyPayments(tx, { user, shopId, saleId, dmId, orderId, c
             direction: "CREDIT",
             amount: amt,
             createdById: user.id,
+            effectiveAt: receivedAt,
             notes: `Payment allocated to delivery memo ${dmId}`,
           },
         });
@@ -275,6 +279,44 @@ export async function applyPayments(tx, { user, shopId, saleId, dmId, orderId, c
     balanceAmount: sub(totalVal, newPaid),
     paymentStatus: getBillPaymentStatus(totalVal, newPaid),
   };
+}
+
+function resolvePaymentDate(value) {
+  if (!value) return new Date();
+
+  const now = new Date();
+  const todayParts = getIndiaDateParts(now, true);
+  const today = `${todayParts.year}-${todayParts.month}-${todayParts.day}`;
+  if (value > today) {
+    throw new ApiError(400, "Payment date cannot be in the future");
+  }
+
+  const calendarCheck = new Date(`${value}T12:00:00.000Z`);
+  if (Number.isNaN(calendarCheck.getTime()) || calendarCheck.toISOString().slice(0, 10) !== value) {
+    throw new ApiError(400, "Invalid payment date");
+  }
+  return new Date(`${value}T${todayParts.hour}:${todayParts.minute}:${todayParts.second}+05:30`);
+}
+
+function getIndiaDateParts(date = new Date(), includeTime = false) {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    ...(includeTime ? {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23",
+    } : {}),
+  }).formatToParts(date);
+  return Object.fromEntries(parts.map((part) => [part.type, part.value]));
+}
+
+function getIndiaDateKey(date = new Date()) {
+  const parts = getIndiaDateParts(date);
+  return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
 /**

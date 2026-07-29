@@ -18,6 +18,7 @@ export type SaleDraftAction =
   | { type: "SET_SERIALS"; itemId: string; serialNumbers: string[] }
   | { type: "SET_NOTES"; notes: string }
   | { type: "SET_SALE_DATE"; saleDate: string }
+  | { type: "SET_PAYMENT_DATE"; paymentDate: string }
   | { type: "SET_GST"; required: boolean }
   | { type: "SET_SETTLEMENT"; settlement: SettlementDraft }
   | { type: "AUTHORIZE_CREDIT"; authorization: CreditAuthorization }
@@ -28,6 +29,7 @@ export function createInitialSaleDraft(mode: SaleDraft["mode"], shopId: string):
     mode,
     shopId,
     saleDate: getTodayDateKey(),
+    paymentDate: getTodayDateKey(),
     customer: mode === "REGULAR" ? { kind: "ANONYMOUS" } : { kind: "ANONYMOUS" },
     lines: {},
     notes: "",
@@ -85,6 +87,8 @@ export function saleDraftReducer(draft: SaleDraft, action: SaleDraftAction): Sal
       return { ...draft, notes: action.notes };
     case "SET_SALE_DATE":
       return invalidateAuthorization({ ...draft, saleDate: action.saleDate });
+    case "SET_PAYMENT_DATE":
+      return invalidateAuthorization({ ...draft, paymentDate: action.paymentDate });
     case "SET_GST":
       return invalidateAuthorization({ ...draft, gstRequired: action.required });
     case "SET_SETTLEMENT":

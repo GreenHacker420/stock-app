@@ -34,6 +34,8 @@ interface WalkInCheckoutSheetProps {
   draftShop?: { upiId?: string; upiName?: string | null };
   saleDate: string;
   onChangeSaleDate: (value: string) => void;
+  paymentDate: string;
+  onChangePaymentDate: (value: string) => void;
 }
 
 export function WalkInCheckoutSheet({
@@ -54,6 +56,8 @@ export function WalkInCheckoutSheet({
   draftShop,
   saleDate,
   onChangeSaleDate,
+  paymentDate,
+  onChangePaymentDate,
 }: WalkInCheckoutSheetProps) {
   const slideAnim = useRef(new Animated.Value(Dimensions.get("window").height)).current;
   const parsedReceived = Number(amountReceived) || 0;
@@ -135,6 +139,11 @@ export function WalkInCheckoutSheet({
               </View>
 
               <SaleDateField value={saleDate} onChange={onChangeSaleDate} />
+              <SaleDateField
+                value={paymentDate}
+                onChange={onChangePaymentDate}
+                label="Payment Date"
+              />
 
               {/* Payment Mode Selector */}
               <Text style={styles.sectionLabel}>Select Payment Mode</Text>

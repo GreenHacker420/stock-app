@@ -27,7 +27,9 @@ export function buildSalePayload(draft: SaleDraft) {
       rate: fromMinorUnits(line.rateMinor),
       serialNumbers: line.serialNumbers,
     })),
-    payments: paymentMode && paidMinor > 0 ? [{ paymentMode, amount: fromMinorUnits(paidMinor) }] : undefined,
+    payments: paymentMode && paidMinor > 0
+      ? [{ paymentMode, amount: fromMinorUnits(paidMinor), paymentDate: draft.paymentDate }]
+      : undefined,
     notes: draft.notes || undefined,
     gstRequired: draft.gstRequired,
     customerSignature: draft.creditAuthorization?.signatureBase64,

@@ -537,6 +537,8 @@ export function WalkInSaleScreen() {
         draftShop={draftShop as any}
         saleDate={draft.saleDate}
         onChangeSaleDate={(saleDate) => dispatch({ type: "SET_SALE_DATE", saleDate })}
+        paymentDate={draft.paymentDate}
+        onChangePaymentDate={(paymentDate) => dispatch({ type: "SET_PAYMENT_DATE", paymentDate })}
       />
 
       {/* Scanners modals */}

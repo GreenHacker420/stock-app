@@ -304,7 +304,7 @@ export interface CreateSalePayload {
   saleDate?: string;
   dueDate?: string;
   items: Array<{ itemId: string; quantity: number; rate: number; discountAmount?: number; serialNumbers?: string[]; description?: string }>;
-  payments?: Array<{ paymentMode: PaymentMode; amount: number; referenceNumber?: string; notes?: string }>;
+  payments?: Array<{ paymentMode: PaymentMode; amount: number; paymentDate?: string; referenceNumber?: string; notes?: string }>;
   notes?: string;
   customerSignature?: string;
   gstRequired?: boolean;
@@ -1119,6 +1119,7 @@ export async function addPayment(token: string, data: {
   dmId?: string;
   paymentMode: PaymentMode;
   amount: number;
+  paymentDate?: string;
   referenceNumber?: string;
   notes?: string;
   details?: {
