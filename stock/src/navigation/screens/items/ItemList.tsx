@@ -735,6 +735,7 @@ export function ItemList() {
                 stock={stockByItem.get(item.id) ?? 0}
                 canEdit={isOwner}
                 canManageStock={canManageStock}
+                searchQuery={debouncedSearch}
                 onPress={() => {
                   if (isSelectMode) {
                     toggleSelectItem(item.id);

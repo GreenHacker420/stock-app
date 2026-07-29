@@ -11,6 +11,7 @@ import {
 import { Text, Icon, TextInput } from "react-native-paper";
 import { PickerSheet } from "./PickerSheet";
 import { smartMatchSearch } from "../../utils/search";
+import { HighlightedText } from "../ui/HighlightedText";
 import { ItemCategory } from "../../api/client";
 import { colors, spacing, radius, fontSize, fontWeight } from "../../theme";
 import { getCatPalette, getCatIcon } from "../../utils/items/display";
@@ -131,7 +132,7 @@ export function CategoryPickerSheet({
               style={[styles.row, isSelected && styles.rowActive]}
             >
               <Icon source={getCatIcon(cat.name)} size={18} color={getCatPalette(cat.name).icon} />
-              <Text style={[styles.rowText, isSelected && styles.rowTextActive]}>{cat.name}</Text>
+              <HighlightedText style={[styles.rowText, isSelected && styles.rowTextActive]} text={cat.name} query={searchText} />
               {isSelected && <Icon source="check" size={16} color={colors.primary} />}
             </Pressable>
           );

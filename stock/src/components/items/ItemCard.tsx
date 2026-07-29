@@ -7,6 +7,7 @@ import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../the
 import { money } from "../../utils/items/display";
 import { StockBadge } from "./StockBadge";
 import { CachedThumbnail } from "../ui/CachedThumbnail";
+import { HighlightedText } from "../ui/HighlightedText";
 
 export const ItemCard = memo(({
   item,
@@ -25,6 +26,7 @@ export const ItemCard = memo(({
   onPressImage,
   isSelected = false,
   isSelectMode = false,
+  searchQuery,
 }: {
   item: Item;
   stock: number;
@@ -42,6 +44,7 @@ export const ItemCard = memo(({
   onPressImage?: (uri: string) => void;
   isSelected?: boolean;
   isSelectMode?: boolean;
+  searchQuery?: string;
 }) => {
   const minStock = Number(item.minimumStock ?? 0);
 
@@ -267,20 +270,22 @@ export const ItemCard = memo(({
 
       {/* Info */}
       <View style={styles.itemInfo}>
-        <Text style={styles.itemName}>{item.name}</Text>
+        <HighlightedText style={styles.itemName} text={item.name} query={searchQuery} />
         <View style={styles.itemMeta}>
           {item.category && (
             <View style={styles.categoryBadge}>
-              <Text style={styles.categoryText}>{item.category.name}</Text>
+              <HighlightedText style={styles.categoryText} text={item.category.name} query={searchQuery} />
             </View>
           )}
           {item.brand && (
             <View style={[styles.categoryBadge, styles.brandBadge]}>
-              <Text style={styles.brandText}>{item.brand.name}</Text>
+              <HighlightedText style={styles.brandText} text={item.brand.name} query={searchQuery} />
             </View>
           )}
           {item.sku && (
-            <Text style={styles.itemSku}>{item.sku}</Text>
+            <Text style={styles.itemSku}>
+              SKU: <HighlightedText text={item.sku} query={searchQuery} />
+            </Text>
           )}
           {hasDraft && (
             <View style={styles.draftBadge}>

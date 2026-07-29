@@ -11,6 +11,7 @@ import {
 import { Text, Icon, TextInput } from "react-native-paper";
 import { PickerSheet } from "./PickerSheet";
 import { smartMatchSearch } from "../../utils/search";
+import { HighlightedText } from "../ui/HighlightedText";
 import { ItemBrand } from "../../api/client";
 import { colors, spacing, radius, fontSize, fontWeight } from "../../theme";
 
@@ -130,7 +131,7 @@ export function BrandPickerSheet({
               style={[styles.row, isSelected && styles.rowActive]}
             >
               <Icon source="certificate-outline" size={18} color={colors.primary} />
-              <Text style={[styles.rowText, isSelected && styles.rowTextActive]}>{brand.name}</Text>
+              <HighlightedText style={[styles.rowText, isSelected && styles.rowTextActive]} text={brand.name} query={searchText} />
               {isSelected && <Icon source="check" size={16} color={colors.primary} />}
             </Pressable>
           );

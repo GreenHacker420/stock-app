@@ -12,7 +12,8 @@ import { useRoute, useNavigation } from "@react-navigation/native";
 import { Text, Icon } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 
-import { smartItemSearch, filterAndRankItems } from "../../utils/search";
+import { filterAndRankItems } from "../../utils/search";
+import { HighlightedText } from "../../components/ui/HighlightedText";
 import { Item } from "../../api/client";
 import {
   useItemsQuery,
@@ -51,6 +52,7 @@ const ItemRow = memo(
     isStaff,
     onChange,
     onFocusScrollTo,
+    searchQuery,
   }: {
     item: Item;
     qty: string;
@@ -58,6 +60,7 @@ const ItemRow = memo(
     isStaff?: boolean;
     onChange: (val: string) => void;
     onFocusScrollTo: () => void;
+    searchQuery?: string;
   }) {
     const inputRef = useRef<TextInput>(null);
     const num = Number(qty) || 0;
@@ -87,16 +90,16 @@ const ItemRow = memo(
       >
         {/* Left: info */}
         <View style={styles.rowInfo}>
-          <Text style={styles.rowName} numberOfLines={2}>{item.name}</Text>
+          <HighlightedText style={styles.rowName} text={item.name} query={searchQuery} numberOfLines={2} />
           <View style={styles.rowMeta}>
             {item.brand?.name && (
               <View style={styles.brandTag}>
-                <Text style={styles.brandTagText}>{item.brand.name}</Text>
+                <HighlightedText style={styles.brandTagText} text={item.brand.name} query={searchQuery} />
               </View>
             )}
             {item.category?.name && (
               <View style={styles.catTag}>
-                <Text style={styles.catTagText}>{item.category.name}</Text>
+                <HighlightedText style={styles.catTagText} text={item.category.name} query={searchQuery} />
               </View>
             )}
             
@@ -415,6 +418,7 @@ export function StockEntry() {
                       qty={entries[item.id] ?? ""}
                       currentStock={stockMap.get(item.id)}
                       isStaff={isStaff}
+                      searchQuery={debSearch}
                       onChange={(val) => updateEntry(item, val)}
                       onFocusScrollTo={() => {
                         setTimeout(() => {
