@@ -40,7 +40,7 @@ export async function getCustomerTimeline(user, id) {
   const customer = await getCustomer(user, id);
   
   const [sales, payments, dms, returns, audits] = await Promise.all([
-    prisma.sale.findMany({ where: { customerId: id }, take: 20, orderBy: { createdAt: "desc" } }),
+    prisma.sale.findMany({ where: { customerId: id }, take: 20, orderBy: [{ saleDate: "desc" }, { createdAt: "desc" }] }),
     prisma.payment.findMany({ where: { customerId: id }, take: 20, orderBy: { createdAt: "desc" } }),
     prisma.deliveryMemo.findMany({ where: { customerId: id }, take: 20, orderBy: { createdAt: "desc" } }),
     prisma.inventoryReturn.findMany({ where: { customerId: id }, take: 20, orderBy: { createdAt: "desc" } }),
@@ -48,7 +48,7 @@ export async function getCustomerTimeline(user, id) {
   ]);
 
   const timeline = [
-    ...sales.map(s => ({ id: s.id, type: "SALE", createdAt: s.createdAt, event: `Sale #${s.saleNumber}`, description: `Status: ${s.saleStatus}`, amount: s.totalAmount, status: s.saleStatus })),
+    ...sales.map(s => ({ id: s.id, type: "SALE", createdAt: s.saleDate, event: `Sale #${s.saleNumber}`, description: `Status: ${s.saleStatus}`, amount: s.totalAmount, status: s.saleStatus })),
     ...payments.map(p => ({ id: p.id, type: "PAYMENT", createdAt: p.receivedAt ?? p.createdAt, event: `${p.paymentMode} Payment`, description: `Status: ${p.status}`, amount: p.amount, status: p.status })),
     ...dms.map(d => ({ id: d.id, type: "DM", createdAt: d.createdAt, event: `Delivery Memo #${d.dmNumber}`, description: `Status: ${d.status}`, amount: d.estimatedAmount, status: d.status })),
     ...returns.map(r => ({ id: r.id, type: "RETURN", createdAt: r.createdAt, event: `Return #${r.returnNumber}`, description: `Status: ${r.status}`, amount: r.netAmount, status: r.status })),
@@ -448,7 +448,7 @@ export async function getPriceHistory(user, id, { itemId }) {
     prisma.saleItem.findMany({
       where: { itemId: itemId || undefined, sale: { customerId: id } },
       include: { item: true, sale: true },
-      orderBy: { sale: { createdAt: "desc" } },
+      orderBy: { sale: { saleDate: "desc" } },
       take: 100,
     }),
     prisma.deliveryMemoItem.findMany({
@@ -466,7 +466,7 @@ export async function getPriceHistory(user, id, { itemId }) {
   ]);
 
   const rows = [
-    ...sales.map((row) => ({ type: "SALE", date: row.sale.createdAt, item: row.item, quantity: row.quantity, rate: row.rate, recordNumber: row.sale.saleNumber })),
+    ...sales.map((row) => ({ type: "SALE", date: row.sale.saleDate, item: row.item, quantity: row.quantity, rate: row.rate, recordNumber: row.sale.saleNumber })),
     ...dms.map((row) => ({ type: "DM", date: row.deliveryMemo.createdAt, item: row.item, quantity: row.quantity, rate: row.rate, recordNumber: row.deliveryMemo.dmNumber })),
     ...orders.map((row) => ({ type: "ORDER", date: row.order.createdAt, item: row.item, quantity: row.quantityOrdered, rate: row.rate, recordNumber: row.order.orderNumber })),
   ].sort((a, b) => new Date(b.date) - new Date(a.date));

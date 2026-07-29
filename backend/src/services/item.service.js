@@ -1246,7 +1246,7 @@ export async function getPurchaseHistory(user, id, { customerId }) {
     prisma.saleItem.findMany({
       where: { itemId: id, sale: { customerId: customerId || undefined } },
       include: { sale: { include: { customer: true, staff: { select: { id: true, name: true } } } } },
-      orderBy: { sale: { createdAt: "desc" } },
+      orderBy: { sale: { saleDate: "desc" } },
       take: 100,
     }),
     prisma.deliveryMemoItem.findMany({
@@ -1264,7 +1264,7 @@ export async function getPurchaseHistory(user, id, { customerId }) {
   ]);
 
   const rows = [
-    ...sales.map((row) => ({ type: "SALE", date: row.sale.createdAt, customer: row.sale.customer, staff: row.sale.staff, quantity: row.quantity, rate: row.rate, recordNumber: row.sale.saleNumber })),
+    ...sales.map((row) => ({ type: "SALE", date: row.sale.saleDate, customer: row.sale.customer, staff: row.sale.staff, quantity: row.quantity, rate: row.rate, recordNumber: row.sale.saleNumber })),
     ...dms.map((row) => ({ type: "DM", date: row.deliveryMemo.createdAt, customer: row.deliveryMemo.customer, staff: row.deliveryMemo.staff, quantity: row.quantity, rate: row.rate, recordNumber: row.deliveryMemo.dmNumber })),
     ...orders.map((row) => ({ type: "ORDER", date: row.order.createdAt, customer: row.order.customer, staff: row.order.createdBy, quantity: row.quantityOrdered, rate: row.rate, recordNumber: row.order.orderNumber })),
   ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()); // fixed: use .getTime()
