@@ -17,10 +17,10 @@ export function getReadModelImpact(event: Pick<DomainEvent, "entity" | "action">
   }
 
   if (event.entity === "sale" || event.entity === "payment" || event.entity === "deliveryMemo" || event.entity === "order") {
-    return { customers: true, items: false, categories: false };
+    return { customers: true, items: true, categories: false };
   }
 
-  if (event.entity === "item") {
+  if (event.entity === "item" || event.entity === "stock" || event.entity === "approval") {
     return { customers: false, items: true, categories: false };
   }
 

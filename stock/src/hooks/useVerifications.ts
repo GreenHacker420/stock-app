@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "../auth/auth-store";
 import { useShopStore } from "../auth/shop-store";
 import { apiRequest, fetchNotifications, Notification } from "../api/client";
+import { refreshReadModelDomains } from "../local/read-model/read-model-coordinator";
 
 export const GENERIC_APPROVAL_SUPPORTED_TYPES = new Set([
   "STOCK_ENTRY",
@@ -41,6 +42,19 @@ export function useProcessVerificationMutation() {
       });
     },
     onSuccess: () => {
+      const userId = useAuthStore.getState().user?.id;
+      if (userId && activeShopId && token) {
+        void refreshReadModelDomains(
+          {
+            userId,
+            shopId: activeShopId,
+            token,
+            queryClient,
+            reason: "realtime",
+          },
+          ["items"]
+        );
+      }
       queryClient.invalidateQueries({ queryKey: ["verifications", activeShopId] });
       queryClient.invalidateQueries({ queryKey: ["staff-verifications", activeShopId] });
       queryClient.invalidateQueries({ queryKey: ["expenses", activeShopId] });
@@ -48,6 +62,7 @@ export function useProcessVerificationMutation() {
       queryClient.invalidateQueries({ queryKey: ["item-stock"] });
       queryClient.invalidateQueries({ queryKey: ["items"] });
       queryClient.invalidateQueries({ queryKey: ["owner-dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["read-models"] });
     },
   });
 }
