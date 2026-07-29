@@ -98,6 +98,8 @@ const cancelInvoiceSchema = z.object({
   }).optional(),
 });
 
+router.get("/:id/html", saleController.getSaleHtml);
+
 router.use(requireAuth);
 router.get("/", requirePermission(PERMISSIONS.SALE_VIEW_OWN), validate(listSchema), saleController.listSales);
 router.get("/:id", requirePermission(PERMISSIONS.SALE_VIEW_OWN), validate(z.object({ params: idParams })), saleController.getSale);

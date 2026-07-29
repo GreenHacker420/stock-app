@@ -1,6 +1,7 @@
 import axios from "axios";
 import { getWaCredentials } from "../lib/wa-cache.js";
 import { NON_DIGIT_REGEX } from "../lib/validate.js";
+import { generateSaleInvoiceHtml } from "./pdf.service.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 import {
@@ -973,6 +974,39 @@ export async function sendSaleWhatsAppReceipt(user, id, { recipientPhone } = {})
   });
 
   return { success: true, metaResponse: response.data };
+}
+
+export async function getSaleHtml(id) {
+  const sale = await prisma.sale.findUnique({
+    where: { id },
+    include: {
+      customer: true,
+      shop: true,
+      staff: { select: { id: true, name: true } },
+      items: {
+        include: {
+          item: {
+            include: {
+              brand: true,
+              category: true,
+            },
+          },
+        },
+      },
+      payments: {
+        include: {
+          receivedBy: { select: { id: true, name: true } },
+          details: true,
+        },
+      },
+    },
+  });
+
+  if (!sale) {
+    throw new ApiError(404, "Sale not found");
+  }
+
+  return generateSaleInvoiceHtml({ sale, shop: sale.shop });
 }
 
 
