@@ -55,11 +55,17 @@ export function useSaleQuery(id: string) {
     queryKey: ["sale", id],
     queryFn: () => fetchSale(token ?? "", id),
     enabled: !!token && !!id,
-    staleTime: 10 * 60 * 1000, // 10 mins
+    staleTime: 30 * 1000, // 30 seconds
     initialData: () => {
+      // 1. Try single sale query cache first if it contains full details
+      const singleCache = queryClient.getQueryData<Sale>(["sale", id]);
+      if (singleCache && Array.isArray((singleCache as any).items) && Array.isArray((singleCache as any).payments)) {
+        return singleCache;
+      }
+
       if (!activeShopId) return undefined;
 
-      // 1. Try to find the sale in the infinite query cache
+      // 2. Try to find the sale in the infinite query cache
       const infiniteQueries = queryClient.getQueriesData<any>({
         queryKey: ["sales", activeShopId, "infinite"],
       });
@@ -74,26 +80,20 @@ export function useSaleQuery(id: string) {
         }
       }
 
-      // 2. Fallback to the simple list query cache
+      // 3. Fallback to the simple list query cache
       const sales = queryClient.getQueryData<Sale[]>(["sales", activeShopId]);
       return sales?.find((s) => s.id === id);
     },
     initialDataUpdatedAt: () => {
-      if (!activeShopId) return undefined;
-
-      // 1. Try the infinite query
-      const infiniteQueries = queryClient.getQueriesData<any>({
-        queryKey: ["sales", activeShopId, "infinite"],
-      });
-      for (const [queryKey, _] of infiniteQueries) {
-        const state = queryClient.getQueryState(queryKey);
-        if (state?.dataUpdatedAt) {
-          return state.dataUpdatedAt;
-        }
+      // If single sale cache has complete items and payments, use its updatedAt timestamp
+      const singleCache = queryClient.getQueryData<Sale>(["sale", id]);
+      if (singleCache && Array.isArray((singleCache as any).items) && Array.isArray((singleCache as any).payments)) {
+        return queryClient.getQueryState(["sale", id])?.dataUpdatedAt;
       }
 
-      // 2. Try the simple list query
-      return queryClient.getQueryState(["sales", activeShopId])?.dataUpdatedAt;
+      // If initialData comes from list cache (which lacks items and payments), return 0
+      // so React Query IMMEDIATELY triggers background refetch for full details!
+      return 0;
     },
   });
 }
@@ -112,7 +112,10 @@ export function useCreateSaleMutation() {
       createSale(token ?? "", { ...data, shopId: requireActiveShopId(activeShopId) }, {
         idempotencyKey: newIdempotencyKey("SALE"),
       }),
-    onSuccess: () => {
+    onSuccess: (res: any) => {
+      if (res?.id) {
+        queryClient.setQueryData(["sale", res.id], res);
+      }
       if (activeShopId) {
         queryClient.invalidateQueries({ queryKey: ["sales", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["items"] });
@@ -135,7 +138,10 @@ export function useCreateWalkInSaleMutation() {
   return useMutation({
     mutationFn: (data: any) =>
       createWalkInSale(token ?? "", { ...data, shopId: requireActiveShopId(activeShopId) }),
-    onSuccess: () => {
+    onSuccess: (res: any) => {
+      if (res?.id) {
+        queryClient.setQueryData(["sale", res.id], res);
+      }
       if (activeShopId) {
         queryClient.invalidateQueries({ queryKey: ["sales", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["items"] });

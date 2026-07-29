@@ -75,12 +75,17 @@ export function Button({
               icon
             )
           )}
-          <Text style={[
-            styles.label, 
-            styles[`${variant}Label`], 
-            styles[`size_${size}Label`],
-            isDisabled && styles.disabledLabel
-          ]} numberOfLines={2}>
+          <Text
+            style={[
+              styles.label, 
+              styles[`${variant}Label`], 
+              styles[`size_${size}Label`],
+              isDisabled && styles.disabledLabel
+            ]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            minimumFontScale={0.8}
+          >
             {label}
           </Text>
         </>

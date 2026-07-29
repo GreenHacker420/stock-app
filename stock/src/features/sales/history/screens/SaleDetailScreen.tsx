@@ -918,6 +918,7 @@ Payment Date: ${new Date(p.receivedAt).toLocaleString("en-IN")}`,
           <Button
             label="View Invoice"
             variant="ghost"
+            size="sm"
             icon="eye-outline"
             onPress={() => navigation.navigate("InvoiceViewer", { sale, shop: saleShop })}
             style={styles.viewBtn}
@@ -925,6 +926,7 @@ Payment Date: ${new Date(p.receivedAt).toLocaleString("en-IN")}`,
           <Button
             label="Share"
             variant="primary"
+            size="sm"
             icon="share-variant-outline"
             loading={sharing}
             disabled={sharing}
@@ -935,6 +937,7 @@ Payment Date: ${new Date(p.receivedAt).toLocaleString("en-IN")}`,
             <Button
               label="Cancel Sale"
               variant="danger"
+              size="sm"
               icon="close-circle-outline"
               loading={cancelSaleMutation.isPending}
               disabled={cancelSaleMutation.isPending}
@@ -1296,7 +1299,7 @@ const styles = StyleSheet.create({
   },
   shareRow: {
     flexDirection: "row",
-    gap: spacing.md,
+    gap: spacing.sm,
   },
   viewBtn: {
     flex: 1,
