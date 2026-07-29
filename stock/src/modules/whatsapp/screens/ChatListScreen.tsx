@@ -31,6 +31,7 @@ import { queryKeys } from "../../../hooks/query-keys";
 import { triggerLightHaptic } from "../../../utils/haptics";
 import { useWhatsAppConversations } from "../hooks/use-whatsapp-data";
 import { whatsappDb } from "../services/whatsapp-db";
+import { contactsDb } from "../services/contactsDb";
 import { useWhatsAppScope } from "../whatsapp-scope";
 import { formatWhatsAppPhone, initials, waColors } from "../whatsapp-ui";
 import {
@@ -52,6 +53,10 @@ const AVATAR_COLORS = [
 function avatarColor(value: string) {
   const hash = [...value].reduce((total, char) => total + char.charCodeAt(0), 0);
   return AVATAR_COLORS[hash % AVATAR_COLORS.length];
+}
+
+function phoneSuffix(value: string) {
+  return value.replace(/\D/g, "").slice(-10);
 }
 
 function formatConversationTime(value?: string) {
@@ -119,6 +124,33 @@ export function ChatListScreen() {
   const [showArchived, setShowArchived] = useState(false);
   const [selected, setSelected] = useState<WaConversation | null>(null);
   const [showTools, setShowTools] = useState(false);
+  const [deviceContactNames, setDeviceContactNames] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    let active = true;
+    const uniquePhones = [...new Set(query.conversations.map((conversation) => conversation.phone))];
+    Promise.all(
+      uniquePhones.map(async (phone) => ({
+        suffix: phoneSuffix(phone),
+        contact: await contactsDb.getContactByPhone(phone),
+      })),
+    )
+      .then((matches) => {
+        if (!active) return;
+        const nextNames: Record<string, string> = {};
+        for (const match of matches) {
+          const name = match.contact?.name?.trim();
+          if (match.suffix && name) nextNames[match.suffix] = name;
+        }
+        setDeviceContactNames(nextNames);
+      })
+      .catch(() => {
+        if (active) setDeviceContactNames({});
+      });
+    return () => {
+      active = false;
+    };
+  }, [query.conversations]);
 
   useEffect(() => {
     if (!isFocused || query.isPending) return;
@@ -250,6 +282,7 @@ export function ChatListScreen() {
       if (filter === "ASSIGNED" && conversation.assignedToId !== currentUser?.id) return false;
       if (!needle) return true;
       const haystack = [
+        deviceContactNames[phoneSuffix(conversation.phone)],
         conversation.contactName,
         conversation.customer?.name,
         conversation.phone,
@@ -268,7 +301,7 @@ export function ChatListScreen() {
       const bTime = new Date(b.updatedAt || b.lastCustomerMessageAt || 0).getTime();
       return bTime - aTime;
     });
-  }, [currentUser?.id, filter, matchedConversationIds, query.conversations, search, showArchived]);
+  }, [currentUser?.id, deviceContactNames, filter, matchedConversationIds, query.conversations, search, showArchived]);
 
   const openConversation = useCallback((conversation: WaConversation) => {
     startWhatsAppOpenMeasurement(conversation.id);
@@ -284,7 +317,10 @@ export function ChatListScreen() {
 
   const renderConversation = useCallback(({ item }: { item: WaConversation }) => {
     const lastMessage = item.messages?.[0];
-    const displayName = item.contactName || item.customer?.name || formatWhatsAppPhone(item.phone);
+    const displayName = deviceContactNames[phoneSuffix(item.phone)]
+      || item.contactName
+      || item.customer?.name
+      || formatWhatsAppPhone(item.phone);
     const active = item.unreadCount > 0;
     return (
       <Pressable
@@ -335,7 +371,7 @@ export function ChatListScreen() {
         </View>
       </Pressable>
     );
-  }, [openConversation]);
+  }, [deviceContactNames, openConversation]);
 
   return (
     <View style={styles.screen}>

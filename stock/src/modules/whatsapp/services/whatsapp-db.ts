@@ -7,6 +7,7 @@ import type {
 } from "../../../api/whatsapp.api";
 import { sqliteClient } from "../../../database/sqlite-client";
 import { mmkvStorage } from "../../../auth/mmkv-storage";
+import { extractPhoneSuffix } from "../../../utils/items/validation";
 
 const LOCAL_PAGE_LIMIT = 1_000;
 
@@ -213,6 +214,26 @@ function parseJson<T>(value: string): T | null {
   }
 }
 
+async function refreshFastConversationSnapshot(shopId: string, integrationId: string) {
+  const rows = await sqliteClient.read((database) => database.all<ConversationRow>(
+    `SELECT payload_json
+     FROM wa_conversations
+     WHERE shop_id = ? AND integration_id = ?
+     ORDER BY is_pinned DESC, updated_at DESC, id DESC
+     LIMIT ?`,
+    [shopId, integrationId, LOCAL_PAGE_LIMIT],
+  ));
+  const conversations = rows
+    .map((row) => parseJson<WaConversation>(row.payload_json))
+    .filter((row): row is WaConversation => Boolean(row));
+  try {
+    mmkvStorage.setItem(`wa_fast_convs_${shopId}`, JSON.stringify(conversations));
+  } catch {
+    // SQLite remains authoritative if the fast-start cache cannot be written.
+  }
+  return conversations;
+}
+
 function mapPendingOperation(row: PendingOperationRow): PendingWhatsAppOperation | null {
   const payload = parseJson<PendingWhatsAppOperation["payload"]>(row.payload_json);
   if (!payload) return null;
@@ -243,6 +264,18 @@ export const whatsappDb = {
     await initializeDatabase();
     await sqliteClient.transaction(async (transaction) => {
       for (const conversation of conversations) {
+        const suffix = extractPhoneSuffix(conversation.phone);
+        const localContact = suffix.length === 10
+          ? await transaction.first<{ name: string | null }>(
+              "SELECT name FROM local_contacts WHERE phone = ? OR phone LIKE ? LIMIT 1",
+              [conversation.phone, `%${suffix}`],
+            )
+          : null;
+        const deviceContactName = localContact?.name?.trim();
+        const cachedConversation = deviceContactName
+          ? { ...conversation, contactName: deviceContactName }
+          : conversation;
+
         await transaction.run(
           `INSERT INTO wa_conversations (
             id, shop_id, integration_id, phone_number_id, customer_id, phone,
@@ -263,24 +296,25 @@ export const whatsappDb = {
             payload_json = excluded.payload_json
           WHERE excluded.entity_version >= wa_conversations.entity_version`,
           [
-            conversation.id,
+            cachedConversation.id,
             scope.shopId,
             scope.integrationId,
             scope.phoneNumberId || null,
-            conversation.customerId || null,
-            conversation.phone,
-            conversation.contactName || null,
-            conversation.unreadCount,
-            conversation.isArchived ? 1 : 0,
-            conversation.isPinned ? 1 : 0,
-            conversation.assignedToId || null,
-            conversation.entityVersion || 0,
-            timestamp(conversation.updatedAt || conversation.lastCustomerMessageAt),
-            JSON.stringify(conversation),
+            cachedConversation.customerId || null,
+            cachedConversation.phone,
+            cachedConversation.contactName || null,
+            cachedConversation.unreadCount,
+            cachedConversation.isArchived ? 1 : 0,
+            cachedConversation.isPinned ? 1 : 0,
+            cachedConversation.assignedToId || null,
+            cachedConversation.entityVersion || 0,
+            timestamp(cachedConversation.updatedAt || cachedConversation.lastCustomerMessageAt),
+            JSON.stringify(cachedConversation),
           ],
         );
       }
     });
+    await refreshFastConversationSnapshot(scope.shopId, scope.integrationId);
   },
 
   getFastConversations(shopId: string): WaConversation[] {
@@ -332,32 +366,18 @@ export const whatsappDb = {
 
   async getConversations(shopId: string, integrationId: string) {
     await initializeDatabase();
-    const rows = await sqliteClient.read((database) => database.all<ConversationRow>(
-      `SELECT payload_json
-       FROM wa_conversations
-       WHERE shop_id = ? AND integration_id = ?
-       ORDER BY is_pinned DESC, updated_at DESC, id DESC
-       LIMIT ?`,
-      [shopId, integrationId, LOCAL_PAGE_LIMIT],
-    ));
-    const convs = rows
-      .map((row) => parseJson<WaConversation>(row.payload_json))
-      .filter((row): row is WaConversation => Boolean(row));
-    try {
-      mmkvStorage.setItem(`wa_fast_convs_${shopId}`, JSON.stringify(convs));
-    } catch (e) {}
-    return convs;
+    return refreshFastConversationSnapshot(shopId, integrationId);
   },
 
   async linkCustomerToConversation(conversationId: string, customerId: string | null) {
     await initializeDatabase();
-    await sqliteClient.write(async (database) => {
+    const scope = await sqliteClient.write(async (database) => {
       await database.run(
         `UPDATE wa_conversations SET customer_id = ? WHERE id = ?`,
         [customerId, conversationId],
       );
-      const row = await database.first<ConversationRow>(
-        `SELECT payload_json FROM wa_conversations WHERE id = ?`,
+      const row = await database.first<ConversationRow & { shop_id: string; integration_id: string }>(
+        `SELECT shop_id, integration_id, payload_json FROM wa_conversations WHERE id = ?`,
         [conversationId],
       );
       if (row?.payload_json) {
@@ -370,17 +390,25 @@ export const whatsappDb = {
           );
         }
       }
+      return row ? { shopId: row.shop_id, integrationId: row.integration_id } : null;
     });
+    if (scope) await refreshFastConversationSnapshot(scope.shopId, scope.integrationId);
   },
 
   async removeConversation(conversationId: string) {
     await initializeDatabase();
-    await sqliteClient.transaction(async (transaction) => {
+    const scope = await sqliteClient.transaction(async (transaction) => {
+      const row = await transaction.first<{ shop_id: string; integration_id: string }>(
+        "SELECT shop_id, integration_id FROM wa_conversations WHERE id = ?",
+        [conversationId],
+      );
       await transaction.run("DELETE FROM wa_messages WHERE conversation_id = ?", [conversationId]);
       await transaction.run("DELETE FROM wa_drafts WHERE conversation_id = ?", [conversationId]);
       await transaction.run("DELETE FROM wa_pending_operations WHERE conversation_id = ?", [conversationId]);
       await transaction.run("DELETE FROM wa_conversations WHERE id = ?", [conversationId]);
+      return row ? { shopId: row.shop_id, integrationId: row.integration_id } : null;
     });
+    if (scope) await refreshFastConversationSnapshot(scope.shopId, scope.integrationId);
   },
 
   async upsertMessages(

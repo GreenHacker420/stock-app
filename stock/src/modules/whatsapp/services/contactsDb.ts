@@ -1,4 +1,5 @@
 import { sqliteClient } from "../../../database/sqlite-client";
+import { extractPhoneSuffix } from "../../../utils/items/validation";
 
 export interface LocalContact {
   id: string;
@@ -312,7 +313,7 @@ export const contactsDb = {
 
   getContactByPhone: async (phone: string): Promise<LocalContact | null> => {
     await initializeDatabase();
-    const suffix = phone.replace(/\D/g, "").slice(-10);
+    const suffix = extractPhoneSuffix(phone);
     if (suffix.length !== 10) {
       return sqliteClient.read((database) =>
         database.first<LocalContact>(

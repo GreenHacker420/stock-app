@@ -13,8 +13,16 @@ export function parseQty(value: string, fallback = 0): number | null {
   return Number(value);
 }
 
+export function extractDigits(value: string): string {
+  return (value || "").replace(CLEANING_PATTERNS.NON_DIGITS, "");
+}
+
+export function extractPhoneSuffix(phone: string, length = 10): string {
+  return extractDigits(phone).slice(-length);
+}
+
 export function cleanPhoneNumber(phone: string): string {
-  let cleaned = phone.replace(CLEANING_PATTERNS.PHONE_PUNCTUATION, "");
+  let cleaned = (phone || "").replace(CLEANING_PATTERNS.PHONE_PUNCTUATION, "");
   if (cleaned.startsWith("+91")) {
     cleaned = cleaned.slice(3);
   } else if (cleaned.startsWith("91") && cleaned.length === 12) {
@@ -22,7 +30,7 @@ export function cleanPhoneNumber(phone: string): string {
   } else if (cleaned.startsWith("0")) {
     cleaned = cleaned.slice(1);
   }
-  return cleaned;
+  return extractDigits(cleaned);
 }
 
 export function isValidMobile(phone: string): boolean {
