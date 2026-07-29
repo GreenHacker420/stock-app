@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { generateSaleInvoiceHtml } from "../services/pdf.service.js";
+import {
+  buildTemporaryInvoiceS3Key,
+  generateSaleInvoiceHtml,
+} from "../services/pdf.service.js";
 
 const baseSale = {
   id: "cmrixyrwp00dy01npwkf0x2zu",
@@ -82,4 +85,18 @@ test("sale invoice displays line and sale discounts consistently", () => {
   assert.match(html, /−Rs\. 40\.00/);
   assert.match(html, /Rs\. 2,900\.00/);
   assert.doesNotMatch(html, /Rs\. 12,940\.00/);
+});
+
+test("temporary invoice S3 keys are unique across repeated sends", () => {
+  const args = {
+    shopId: "shop-1",
+    saleId: "sale-1",
+    fileName: "Invoice_SAL-001.pdf",
+  };
+
+  const first = buildTemporaryInvoiceS3Key(args);
+  const second = buildTemporaryInvoiceS3Key(args);
+
+  assert.notEqual(first, second);
+  assert.match(first, /^invoices\/shop-1\/sale-1\/[^/]+\/Invoice_SAL-001\.pdf$/);
 });

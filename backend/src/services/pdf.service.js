@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { renderPdfFromHtml } from "html-pdf-lite";
 import {
   uploadBufferToS3,
@@ -429,10 +430,20 @@ export function generateSaleInvoiceHtml({ sale, shop }) {
  *
  * After sending via WhatsApp, call deleteInvoiceAsset(assetId) to clean up.
  */
+export function buildTemporaryInvoiceS3Key({ shopId, saleId, fileName, uploadId = randomUUID() }) {
+  return `invoices/${shopId}/${saleId}/${uploadId}/${fileName}`;
+}
+
 export async function generateAndUploadSaleInvoicePdf({ sale, shop }) {
   const html = generateSaleInvoiceHtml({ sale, shop });
   const fileName = `Invoice_${sale.saleNumber}.pdf`;
-  const s3Key = `invoices/${shop.id}/${sale.id}/${fileName}`;
+  // A sale can be sent more than once. Asset rows are soft-deleted and retain
+  // their unique storage key, so each temporary upload needs a new key.
+  const s3Key = buildTemporaryInvoiceS3Key({
+    shopId: shop.id,
+    saleId: sale.id,
+    fileName,
+  });
 
   // 1. Render HTML → PDF buffer (no Chromium needed)
   const pdfBuffer = await renderPdfFromHtml(html, {
@@ -453,28 +464,38 @@ export async function generateAndUploadSaleInvoicePdf({ sale, shop }) {
   const bucketName = getS3BucketName();
 
   // 3. Record in Asset table (WHATSAPP_OUTBOUND DOCUMENT)
-  const asset = await prisma.asset.create({
-    data: {
-      shopId: shop.id,
-      kind: "DOCUMENT",
-      source: "WHATSAPP_OUTBOUND",
-      status: "READY",
-      storageProvider: "S3",
-      storageBucket: bucketName,
-      storageKey: s3Key,
-      remoteUrl: publicUrl,
-      mimeType: "application/pdf",
-      fileName,
-      sizeBytes: BigInt(pdfBuffer.byteLength ?? pdfBuffer.length),
-      metadata: {
-        saleId: sale.id,
-        saleNumber: sale.saleNumber,
+  let asset;
+  try {
+    asset = await prisma.asset.create({
+      data: {
         shopId: shop.id,
-        purpose: "whatsapp_receipt",
+        kind: "DOCUMENT",
+        source: "WHATSAPP_OUTBOUND",
+        status: "READY",
+        storageProvider: "S3",
+        storageBucket: bucketName,
+        storageKey: s3Key,
+        remoteUrl: publicUrl,
+        mimeType: "application/pdf",
+        fileName,
+        sizeBytes: BigInt(pdfBuffer.byteLength ?? pdfBuffer.length),
+        metadata: {
+          saleId: sale.id,
+          saleNumber: sale.saleNumber,
+          shopId: shop.id,
+          purpose: "whatsapp_receipt",
+        },
+        readyAt: new Date(),
       },
-      readyAt: new Date(),
-    },
-  });
+    });
+  } catch (error) {
+    try {
+      await deleteS3Object(s3Key);
+    } catch (cleanupError) {
+      console.error("[PDF] Orphaned upload cleanup failed:", cleanupError?.message || cleanupError);
+    }
+    throw error;
+  }
 
   return {
     assetId: asset.id,
