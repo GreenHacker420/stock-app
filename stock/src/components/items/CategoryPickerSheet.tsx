@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { Text, Icon, TextInput } from "react-native-paper";
 import { PickerSheet } from "./PickerSheet";
+import { smartMatchSearch } from "../../utils/search";
 import { ItemCategory } from "../../api/client";
 import { colors, spacing, radius, fontSize, fontWeight } from "../../theme";
 import { getCatPalette, getCatIcon } from "../../utils/items/display";
@@ -35,7 +36,7 @@ export function CategoryPickerSheet({
   const cleanSearch = searchText.trim().toLowerCase();
 
   const filteredCategories = categories.filter((cat) =>
-    cat.name.toLowerCase().includes(cleanSearch)
+    smartMatchSearch(cat.name, searchText)
   );
 
   const exactMatch = categories.find(

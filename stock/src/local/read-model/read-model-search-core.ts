@@ -1,9 +1,6 @@
 import type { Customer, ItemCategory } from "../../api/client";
 import type { CategoryReadModel, CustomerReadModel, ItemCatalogReadModel } from "./read-model-types";
-
-function textIncludes(value: string | null | undefined, query: string) {
-  return Boolean(value?.toLowerCase().includes(query));
-}
+import { smartMatchSearch, smartItemSearch } from "../../utils/search";
 
 export function toCustomer(readModel: CustomerReadModel): Customer {
   return {
@@ -33,17 +30,17 @@ export function selectCustomers(
   customers: CustomerReadModel[],
   options: { search?: string; includeWalkin?: boolean; limit?: number } = {},
 ) {
-  const normalizedSearch = options.search?.trim().toLowerCase() ?? "";
+  const query = options.search?.trim() ?? "";
   const filtered = customers
     .filter((customer) => (options.includeWalkin ? true : customer.type !== "WALK_IN"))
     .filter((customer) => {
-      if (!normalizedSearch) return true;
+      if (!query) return true;
       return (
-        textIncludes(customer.name, normalizedSearch) ||
-        textIncludes(customer.phone, normalizedSearch) ||
-        textIncludes(customer.city, normalizedSearch) ||
-        textIncludes(customer.gstin, normalizedSearch) ||
-        textIncludes(customer.contactPerson, normalizedSearch)
+        smartMatchSearch(customer.name, query) ||
+        smartMatchSearch(customer.phone, query) ||
+        smartMatchSearch(customer.city, query) ||
+        smartMatchSearch(customer.gstin, query) ||
+        smartMatchSearch(customer.contactPerson, query)
       );
     })
     .map(toCustomer);
@@ -59,7 +56,7 @@ export function selectItemCatalog(
   items: ItemCatalogReadModel[],
   options: { search?: string; categoryId?: string; limit?: number } = {},
 ) {
-  const normalizedSearch = options.search?.trim().toLowerCase() ?? "";
+  const query = options.search?.trim() ?? "";
   const filtered = items
     .filter((item) => {
       if (!options.categoryId) return true;
@@ -67,12 +64,8 @@ export function selectItemCatalog(
       return item.categoryId === options.categoryId;
     })
     .filter((item) => {
-      if (!normalizedSearch) return true;
-      return (
-        textIncludes(item.name, normalizedSearch) ||
-        textIncludes(item.sku, normalizedSearch) ||
-        textIncludes(item.categoryName, normalizedSearch)
-      );
+      if (!query) return true;
+      return smartItemSearch(item, query);
     });
 
   return typeof options.limit === "number" ? filtered.slice(0, options.limit) : filtered;

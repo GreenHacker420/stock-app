@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import { Text, Icon, TextInput } from "react-native-paper";
 import { PickerSheet } from "./PickerSheet";
+import { smartMatchSearch } from "../../utils/search";
 import { ItemBrand } from "../../api/client";
 import { colors, spacing, radius, fontSize, fontWeight } from "../../theme";
 
@@ -34,7 +35,7 @@ export function BrandPickerSheet({
   const cleanSearch = searchText.trim().toLowerCase();
 
   const filteredBrands = brands.filter((brand) =>
-    brand.name.toLowerCase().includes(cleanSearch)
+    smartMatchSearch(brand.name, searchText)
   );
 
   const exactMatch = brands.find(

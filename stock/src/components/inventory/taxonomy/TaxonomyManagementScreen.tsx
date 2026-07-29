@@ -6,9 +6,10 @@ import {
   Platform,
   Alert,
   Pressable,
+  BackHandler,
 } from "react-native";
 import { Text, Divider, Icon } from "react-native-paper";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { SwipeableMethods } from "react-native-gesture-handler/ReanimatedSwipeable";
 
 import { TaxonomyEntity, TaxonomyManagementProps, EditorSession } from "./taxonomy.types";
@@ -36,6 +37,7 @@ export function TaxonomyManagementScreen<T extends TaxonomyEntity>({
   onOpen,
   getItemCount,
 }: TaxonomyManagementProps<T>) {
+  const navigation = useNavigation<any>();
   const [search, setSearch] = useState("");
   const [activeSession, setActiveSession] = useState<EditorSession<T> | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -60,13 +62,34 @@ export function TaxonomyManagementScreen<T extends TaxonomyEntity>({
     activeSwipeRef.current = nextRef;
   }, []);
 
-  // Close swipe on screen blur
+  // Close swipe and handle Android hardware back press
   useFocusEffect(
     useCallback(() => {
+      const onBackPress = () => {
+        if (activeSession) {
+          setActiveSession(null);
+          return true;
+        }
+        if (actionsEntity) {
+          setActionsEntity(null);
+          return true;
+        }
+
+        if (navigation && navigation.canGoBack()) {
+          navigation.goBack();
+        } else if (navigation) {
+          navigation.navigate("ItemList");
+        }
+        return true;
+      };
+
+      const subscription = BackHandler.addEventListener("hardwareBackPress", onBackPress);
+
       return () => {
+        subscription.remove();
         activeSwipeRef.current?.close();
       };
-    }, [])
+    }, [navigation, activeSession, actionsEntity])
   );
 
   // Close swipe when search query or active session changes

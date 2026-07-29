@@ -7,6 +7,7 @@ import { useDebounce } from "use-debounce";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Item, ItemCategory, ItemBrand } from "../../../api/client";
+import { smartItemSearch, filterAndRankItems } from "../../../utils/search";
 import { useAuthStore } from "../../../auth/auth-store";
 import { useShopStore } from "../../../auth/shop-store";
 import { useItemsQuery, useCategoriesQuery, useBrandsQuery, useItemSummaryQuery, useBatchQuickUpdateMutation, useBatchDeleteItemsMutation, useMergeItemsMutation } from "../../../hooks/useItems";
@@ -154,8 +155,10 @@ export function ItemList() {
   }, [navigation, listQuery, summaryQuery, categoriesQuery, brandsQuery]);
 
   const allItems: Item[] = useMemo(() => {
-    return listQuery.data?.items ?? [];
-  }, [listQuery.data]);
+    const raw = listQuery.data?.items ?? [];
+    if (!debouncedSearch.trim()) return raw;
+    return filterAndRankItems(raw, debouncedSearch);
+  }, [listQuery.data, debouncedSearch]);
 
   const stockByItem = useMemo(() => {
     const m = new Map<string, number>();

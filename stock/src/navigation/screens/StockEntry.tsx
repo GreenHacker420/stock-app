@@ -12,6 +12,7 @@ import { useRoute, useNavigation } from "@react-navigation/native";
 import { Text, Icon } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 
+import { smartItemSearch, filterAndRankItems } from "../../utils/search";
 import { Item } from "../../api/client";
 import {
   useItemsQuery,
@@ -244,10 +245,7 @@ export function StockEntry() {
       : allItems;
     if (catId !== "ALL") list = list.filter((it) => it.category?.id === catId);
     if (debSearch.trim()) {
-      const q = debSearch.toLowerCase();
-      list = list.filter(
-        (it) => it.name.toLowerCase().includes(q) || (it.sku && it.sku.toLowerCase().includes(q))
-      );
+      list = filterAndRankItems(list, debSearch);
     }
     return list;
   }, [specificItemId, specificItem, allItems, onlyEdited, editedMap, entries, debSearch, catId]);
