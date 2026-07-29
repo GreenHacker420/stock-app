@@ -535,6 +535,8 @@ export function WalkInSaleScreen() {
         onCompleteSale={handleCompleteSale}
         isPending={saleMutation.isPending}
         draftShop={draftShop as any}
+        saleDate={draft.saleDate}
+        onChangeSaleDate={(saleDate) => dispatch({ type: "SET_SALE_DATE", saleDate })}
       />
 
       {/* Scanners modals */}

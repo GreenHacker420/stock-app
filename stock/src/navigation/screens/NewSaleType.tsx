@@ -208,7 +208,7 @@ export function NewSaleType() {
       ? item.customer.name.substring(0, 2).toUpperCase()
       : "SL";
 
-    const saleDate = new Date(item.createdAt).toLocaleDateString("en-IN", {
+    const saleDate = new Date(item.saleDate || item.createdAt).toLocaleDateString("en-IN", {
       day: "numeric",
       month: "short",
       hour: "2-digit",

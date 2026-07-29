@@ -50,6 +50,16 @@ const formatDate = (dateStr) => {
   });
 };
 
+const formatSaleDate = (dateStr) => {
+  if (!dateStr) return "N/A";
+  const date = new Date(dateStr);
+  if (Number.isNaN(date.getTime())) return "N/A";
+  return date.toLocaleDateString("en-IN", {
+    dateStyle: "medium",
+    timeZone: "Asia/Kolkata",
+  });
+};
+
 const CODE128_B_PATTERNS = [
   "212222", "222122", "222221", "121223", "121322", "131222", "122213", "122312", "132212", "221213",
   "221312", "231212", "112232", "122132", "122231", "113222", "123122", "123221", "223211", "221132",
@@ -188,11 +198,15 @@ export function generateSaleInvoiceHtml({ sale, shop }) {
     const itemName = escapeHtml(`${brandPrefix}${item.item?.name || "Product"}`);
     const itemSku = item.item?.sku ? `(${escapeHtml(item.item.sku)})` : "";
     const itemUnit = escapeHtml(item.item?.unit || "pcs");
+    const serialNumbers = Array.isArray(item.serialNumbers)
+      ? item.serialNumbers.map((serial) => String(serial).trim()).filter(Boolean)
+      : [];
     return `
       <tr style="border-bottom: 1px solid #e4e4e7;">
         <td style="padding: 10px 0; text-align: left;">
           <div style="font-weight: 600; color: #18181b;">${itemName}</div>
           <div style="font-size: 11px; color: #71717a;">${itemSku}</div>
+          ${serialNumbers.length ? `<div style="font-size: 10px; color: #52525b; margin-top: 3px;">S/N: ${serialNumbers.map(escapeHtml).join(", ")}</div>` : ""}
           ${itemDiscount > 0 ? `<div style="font-size: 10px; color: #16a34a;">Discount: ${formatMoney(itemDiscount)}</div>` : ""}
         </td>
         <td style="padding: 10px 0; text-align: center; color: #3f3f46;">${qty} ${itemUnit}</td>
@@ -304,7 +318,7 @@ export function generateSaleInvoiceHtml({ sale, shop }) {
         </div>
         <div class="meta-label">Sale Invoice</div>
         <div class="meta-value" style="font-size: 15px; color: var(--success);">#${escapeHtml(sale.saleNumber)}</div>
-        <div style="color: #3f3f46; margin-top: 2px; font-size: 11px;">${formatDate(sale.createdAt)}</div>
+        <div style="color: #3f3f46; margin-top: 2px; font-size: 11px;">${sale.saleDate ? formatSaleDate(sale.saleDate) : formatDate(sale.createdAt)}</div>
         <div style="margin-top: 8px; display: inline-block; width: 140px; height: 30px;">
           ${barcodeSvg}
         </div>

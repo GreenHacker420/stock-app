@@ -260,9 +260,10 @@ export type Sale = {
   paymentStatus?: string;
   saleStatus?: string;
   dueDate?: string | null;
+  saleDate?: string;
   createdAt: string;
   customer?: Customer | null;
-  items?: Array<{ id: string; quantity: string; rate: string; discountAmount?: string; totalAmount: string; item: Item }>;
+  items?: Array<{ id: string; itemId?: string; quantity: string; rate: string; discountAmount?: string; totalAmount: string; serialNumbers?: string[] | null; description?: string | null; item: Item }>;
   payments?: Payment[];
   gstRequired: boolean;
   isGstRequired?: boolean; // alias for compatibility
@@ -300,6 +301,7 @@ export interface CreateSalePayload {
   customerId?: string;
   customerInfo?: { name?: string; phone?: string; email?: string };
   isWalkin?: boolean;
+  saleDate?: string;
   dueDate?: string;
   items: Array<{ itemId: string; quantity: number; rate: number; discountAmount?: number; serialNumbers?: string[]; description?: string }>;
   payments?: Array<{ paymentMode: PaymentMode; amount: number; referenceNumber?: string; notes?: string }>;

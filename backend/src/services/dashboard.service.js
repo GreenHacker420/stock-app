@@ -71,14 +71,14 @@ export async function getOwnerDashboard(user, { shopId, date }) {
     topCustomersRaw
   ] = await Promise.all([
     prisma.sale.aggregate({
-      where: { ...whereShop, createdAt: { gte: start, lte: end } },
+      where: { ...whereShop, saleDate: { gte: start, lte: end } },
       _sum: { totalAmount: true },
     }),
     prisma.sale.aggregate({
-      where: { ...whereShop, isWalkin: true, createdAt: { gte: start, lte: end } },
+      where: { ...whereShop, isWalkin: true, saleDate: { gte: start, lte: end } },
       _sum: { totalAmount: true },
     }),
-    prisma.sale.count({ where: { ...whereShop, createdAt: { gte: start, lte: end } } }),
+    prisma.sale.count({ where: { ...whereShop, saleDate: { gte: start, lte: end } } }),
     prisma.order.count({ where: { ...whereShop, createdAt: { gte: start, lte: end } } }),
     prisma.order.count({ where: { ...whereShop, status: { in: ["CONFIRMED", "PACKING", "PARTIALLY_PACKED"] }, createdAt: { gte: start, lte: end } } }),
     prisma.order.count({ where: { ...whereShop, status: "DISPATCHED", createdAt: { gte: start, lte: end } } }),
@@ -216,7 +216,7 @@ export async function getStaffTodaySummary(user, { shopId, date, staffId, dateFr
   }
 
   const [sales, dms, payments, orders, stockMovements, cashSession] = await Promise.all([
-    prisma.sale.findMany({ where: { shopId, staffId: targetStaffId, createdAt: { gte: start, lte: end } } }),
+    prisma.sale.findMany({ where: { shopId, staffId: targetStaffId, saleDate: { gte: start, lte: end } } }),
     prisma.deliveryMemo.findMany({ where: { shopId, staffId: targetStaffId, createdAt: { gte: start, lte: end } } }),
     prisma.payment.findMany({ where: { shopId, receivedById: targetStaffId, receivedAt: { gte: start, lte: end } } }),
     prisma.order.findMany({ where: { shopId, assignedStaffId: targetStaffId, updatedAt: { gte: start, lte: end } } }),

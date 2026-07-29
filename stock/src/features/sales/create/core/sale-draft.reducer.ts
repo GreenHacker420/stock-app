@@ -2,6 +2,14 @@ import { clampLineQuantity } from "./sale-calculations";
 import { createSaleFingerprint } from "./sale-fingerprint";
 import type { CreditAuthorization, ItemSnapshot, SaleCustomer, SaleDraft, SettlementDraft } from "./sale.types";
 
+const getTodayDateKey = () => {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+};
+
 export type SaleDraftAction =
   | { type: "SET_CUSTOMER"; customer: SaleCustomer }
   | { type: "ADD_QUANTITY"; item: ItemSnapshot; delta: number }
@@ -9,6 +17,7 @@ export type SaleDraftAction =
   | { type: "SET_RATE"; itemId: string; rateMinor: number }
   | { type: "SET_SERIALS"; itemId: string; serialNumbers: string[] }
   | { type: "SET_NOTES"; notes: string }
+  | { type: "SET_SALE_DATE"; saleDate: string }
   | { type: "SET_GST"; required: boolean }
   | { type: "SET_SETTLEMENT"; settlement: SettlementDraft }
   | { type: "AUTHORIZE_CREDIT"; authorization: CreditAuthorization }
@@ -18,6 +27,7 @@ export function createInitialSaleDraft(mode: SaleDraft["mode"], shopId: string):
   return {
     mode,
     shopId,
+    saleDate: getTodayDateKey(),
     customer: mode === "REGULAR" ? { kind: "ANONYMOUS" } : { kind: "ANONYMOUS" },
     lines: {},
     notes: "",
@@ -73,6 +83,8 @@ export function saleDraftReducer(draft: SaleDraft, action: SaleDraftAction): Sal
     }
     case "SET_NOTES":
       return { ...draft, notes: action.notes };
+    case "SET_SALE_DATE":
+      return invalidateAuthorization({ ...draft, saleDate: action.saleDate });
     case "SET_GST":
       return invalidateAuthorization({ ...draft, gstRequired: action.required });
     case "SET_SETTLEMENT":
@@ -87,4 +99,3 @@ export function saleDraftReducer(draft: SaleDraft, action: SaleDraftAction): Sal
       return draft;
   }
 }
-

@@ -39,6 +39,16 @@ const formatDate = (dateStr?: string | Date | null): string => {
   });
 };
 
+const formatSaleDate = (dateStr?: string | Date | null): string => {
+  if (!dateStr) return "N/A";
+  const date = new Date(dateStr);
+  if (Number.isNaN(date.getTime())) return "N/A";
+  return date.toLocaleDateString("en-IN", {
+    dateStyle: "medium",
+    timeZone: "Asia/Kolkata",
+  });
+};
+
 const getSignatureViewBox = (paths: string[]): string => {
   let minX = Infinity;
   let minY = Infinity;
@@ -296,16 +306,22 @@ export async function generateSaleInvoiceHtml({ sale, shop, signatureBase64 }: S
   const itemsHtml = (sale.items || []).map((item, index) => {
     const qty = toFiniteNumber(item.quantity);
     const rate = toFiniteNumber(item.rate);
-    const itemTotal = qty * rate;
+    const itemDiscount = Math.max(toFiniteNumber(item.discountAmount), 0);
+    const itemTotal = Math.max((qty * rate) - itemDiscount, 0);
     const brandPrefix = item.item?.brand?.name ? `${item.item.brand.name} · ` : "";
-    const itemName = escapeHtml(`${brandPrefix} ${item.item?.name}`);
+    const itemName = escapeHtml(`${brandPrefix}${item.item?.name || "Product"}`);
     const itemSku = item.item?.sku ? `(${escapeHtml(item.item.sku)})` : "";
     const itemUnit = escapeHtml(item.item?.unit || "pcs");
+    const serialNumbers = Array.isArray(item.serialNumbers)
+      ? item.serialNumbers.map((serial) => String(serial).trim()).filter(Boolean)
+      : [];
     return `
       <tr style="border-bottom: 1px solid var(--border);">
         <td style="padding: 10px 0; text-align: left;">
           <div style="font-weight: 600; color: var(--primary);">${itemName}</div>
           <div style="font-size: 11px; color: var(--muted);">${itemSku}</div>
+          ${serialNumbers.length ? `<div style="font-size: 10px; color: #52525b; margin-top: 3px;">S/N: ${serialNumbers.map(escapeHtml).join(", ")}</div>` : ""}
+          ${itemDiscount > 0 ? `<div style="font-size: 10px; color: var(--success);">Discount: ${formatMoney(itemDiscount)}</div>` : ""}
         </td>
         <td style="padding: 10px 0; text-align: center; color: #3f3f46;">${qty} ${itemUnit}</td>
         <td style="padding: 10px 0; text-align: right; color: #3f3f46;">${formatMoney(rate)}</td>
@@ -582,7 +598,7 @@ export async function generateSaleInvoiceHtml({ sale, shop, signatureBase64 }: S
             </div>
             <div class="meta-label">Sale Invoice</div>
             <div class="meta-value" style="font-size: 15px; color: var(--success);">#${escapeHtml(sale.saleNumber)}</div>
-            <div style="color: #3f3f46; margin-top: 2px; font-size: 11px;">${formatDate(sale.createdAt)}</div>
+            <div style="color: #3f3f46; margin-top: 2px; font-size: 11px;">${sale.saleDate ? formatSaleDate(sale.saleDate) : formatDate(sale.createdAt)}</div>
             <div style="margin-top: 8px; display: inline-block; width: 140px; height: 30px;">
               ${barcodeSvg}
             </div>

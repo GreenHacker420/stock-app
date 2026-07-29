@@ -244,7 +244,7 @@ async function generateSummaryInternal(shopId, date) {
   endOfDay.setHours(23, 59, 59, 999);
 
   const [sales, orders, payments, cashSession, dms, approvedExpenses, nonRejectedSessionExpenses] = await Promise.all([
-    prisma.sale.findMany({ where: { shopId, createdAt: { gte: startOfDay, lte: endOfDay }, saleStatus: { notIn: ["DRAFT", "CANCELLED", "RETURNED"] } } }),
+    prisma.sale.findMany({ where: { shopId, saleDate: { gte: startOfDay, lte: endOfDay }, saleStatus: { notIn: ["DRAFT", "CANCELLED", "RETURNED"] } } }),
     prisma.order.findMany({ where: { shopId, createdAt: { gte: startOfDay, lte: endOfDay }, status: { not: "CANCELLED" } } }),
     prisma.payment.findMany({ where: { shopId, receivedAt: { gte: startOfDay, lte: endOfDay }, status: { notIn: ["CANCELLED", "REJECTED"] } } }),
     prisma.cashSession.findFirst({ where: { shopId, openedAt: { gte: startOfDay, lte: endOfDay } }, orderBy: { openedAt: 'desc' } }),

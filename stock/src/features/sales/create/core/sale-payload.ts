@@ -17,6 +17,7 @@ export function buildSalePayload(draft: SaleDraft) {
   const paidMinor = getSettlementPaidMinor(settlement);
   return {
     shopId: draft.shopId,
+    saleDate: draft.saleDate,
     customerId,
     customerInfo,
     isWalkin: draft.mode === "WALK_IN" && !customerId,
@@ -33,4 +34,3 @@ export function buildSalePayload(draft: SaleDraft) {
     creditAmount: fromMinorUnits(getSettlementCreditMinor(settlement)),
   };
 }
-

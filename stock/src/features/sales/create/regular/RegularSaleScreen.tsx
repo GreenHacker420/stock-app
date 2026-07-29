@@ -504,6 +504,8 @@ export function RegularSaleScreen() {
                 }
               }}
               userRole={user?.role}
+              saleDate={draft.saleDate}
+              onChangeSaleDate={(saleDate) => dispatch({ type: "SET_SALE_DATE", saleDate })}
             />
           </KeyboardAwareScreen>
         )}

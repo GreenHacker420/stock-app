@@ -23,6 +23,7 @@ const baseSale = {
       quantity: 3,
       rate: 980,
       discountAmount: 0,
+      serialNumbers: ["SN-001", "SN-002", "SN-003"],
       // Deliberately stale: the renderer must not trust this persisted value.
       totalAmount: 12940,
       item: {
@@ -61,6 +62,20 @@ test("sale invoice recalculates line totals instead of trusting stale totalAmoun
   assert.match(html, /UPI Ref: UPI-123/);
   assert.match(html, /Billed by: Owner/);
   assert.match(html, /https:\/\/example\.com\/logo\.png/);
+  assert.match(html, /S\/N: SN-001, SN-002, SN-003/);
+});
+
+test("sale invoice uses the business sale date", () => {
+  const html = generateSaleInvoiceHtml({
+    sale: {
+      ...baseSale,
+      saleDate: "2026-07-20T12:00:00.000Z",
+      createdAt: "2026-07-29T03:29:00.000Z",
+    },
+    shop,
+  });
+
+  assert.match(html, /20 Jul 2026/);
 });
 
 test("sale invoice displays line and sale discounts consistently", () => {

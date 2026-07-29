@@ -147,8 +147,8 @@ export async function getCustomerSummary(user, id) {
     }),
     prisma.sale.findFirst({
       where: { customerId: id, saleStatus: { not: "CANCELLED" } },
-      orderBy: { createdAt: "desc" },
-      select: { createdAt: true }
+      orderBy: [{ saleDate: "desc" }, { createdAt: "desc" }],
+      select: { saleDate: true }
     })
   ]);
 
@@ -160,7 +160,7 @@ export async function getCustomerSummary(user, id) {
       totalOrders: salesMetrics._count.id,
       totalDMs: dmsCount,
       totalCollections: paymentsMetrics._count.id,
-      lastPurchaseDate: lastSale?.createdAt || null,
+      lastPurchaseDate: lastSale?.saleDate || null,
       averageOrderValue: salesMetrics._count.id > 0 
         ? Number(salesMetrics._sum.totalAmount || 0) / salesMetrics._count.id 
         : 0
@@ -432,7 +432,7 @@ export async function getOutstanding(user, id) {
   const customer = await getCustomer(user, id);
   const sales = await prisma.sale.findMany({
     where: { customerId: id, paymentStatus: { in: ["UNPAID", "PARTIALLY_PAID"] }, saleStatus: { not: "CANCELLED" } },
-    orderBy: { createdAt: "desc" }
+    orderBy: [{ saleDate: "desc" }, { createdAt: "desc" }]
   });
   return {
     customer,

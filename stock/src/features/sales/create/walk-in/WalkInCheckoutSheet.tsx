@@ -14,6 +14,7 @@ import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../../
 import { DynamicUpiQr } from "../../../../components/ui/DynamicUpiQr";
 import { Button } from "../../../../components/ui/Button";
 import { AppKeyboardAvoidingView } from "../../../../components/ui/AppKeyboardAvoidingView";
+import { SaleDateField } from "../components/SaleDateField";
 
 interface WalkInCheckoutSheetProps {
   visible: boolean;
@@ -31,6 +32,8 @@ interface WalkInCheckoutSheetProps {
   onCompleteSale: () => void;
   isPending: boolean;
   draftShop?: { upiId?: string; upiName?: string | null };
+  saleDate: string;
+  onChangeSaleDate: (value: string) => void;
 }
 
 export function WalkInCheckoutSheet({
@@ -49,6 +52,8 @@ export function WalkInCheckoutSheet({
   onCompleteSale,
   isPending,
   draftShop,
+  saleDate,
+  onChangeSaleDate,
 }: WalkInCheckoutSheetProps) {
   const slideAnim = useRef(new Animated.Value(Dimensions.get("window").height)).current;
   const parsedReceived = Number(amountReceived) || 0;
@@ -128,6 +133,8 @@ export function WalkInCheckoutSheet({
                 <Text style={styles.totalDueLabel}>TOTAL DUE</Text>
                 <Text style={styles.totalDueVal}>₹{cartTotal.toLocaleString("en-IN")}</Text>
               </View>
+
+              <SaleDateField value={saleDate} onChange={onChangeSaleDate} />
 
               {/* Payment Mode Selector */}
               <Text style={styles.sectionLabel}>Select Payment Mode</Text>

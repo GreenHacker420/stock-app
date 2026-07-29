@@ -4,6 +4,8 @@ import test from "node:test";
 import { createRegularSettlement } from "./sale-calculations";
 import { createInitialSaleDraft, saleDraftReducer } from "./sale-draft.reducer";
 import { createSaleFingerprint } from "./sale-fingerprint";
+import { buildSalePayload } from "./sale-payload";
+import { adaptSaleToInvoice } from "./sale-invoice-adapter";
 import { validateSaleDraft } from "./sale-validation";
 import { regularSalePolicy, walkInSalePolicy, type ItemSnapshot } from "./sale.types";
 
@@ -29,6 +31,36 @@ test("quantity and serials are centrally clamped", () => {
   assert.equal(draft.lines[item.id].quantity, 3);
   draft = saleDraftReducer(draft, { type: "SET_SERIALS", itemId: item.id, serialNumbers: ["1", "2", "3", "4"] });
   assert.deepEqual(draft.lines[item.id].serialNumbers, ["1", "2", "3"]);
+});
+
+test("sale date defaults to today and is included in the payload", () => {
+  let draft = createInitialSaleDraft("REGULAR", "shop-1");
+  assert.match(draft.saleDate, /^\d{4}-\d{2}-\d{2}$/);
+  draft = saleDraftReducer(draft, { type: "SET_SALE_DATE", saleDate: "2026-07-20" });
+  assert.equal(buildSalePayload(draft).saleDate, "2026-07-20");
+});
+
+test("invoice adapter hydrates raw create response from the submitted draft", () => {
+  let draft = createInitialSaleDraft("REGULAR", "shop-1");
+  draft = saleDraftReducer(draft, {
+    type: "SET_CUSTOMER",
+    customer: { kind: "EXISTING", customer: { id: "customer-1", name: "Ashish Computer" } },
+  });
+  draft = saleDraftReducer(draft, { type: "SET_QUANTITY", item, quantity: 2 });
+  draft = saleDraftReducer(draft, {
+    type: "SET_SERIALS",
+    itemId: item.id,
+    serialNumbers: ["SN-1", "SN-2"],
+  });
+
+  const invoice = adaptSaleToInvoice(draft, {
+    saleNumber: "SAL-20260729-001",
+    items: [{ itemId: item.id, quantity: "2", rate: "100", totalAmount: "200" }],
+  });
+
+  assert.equal(invoice.customer.name, "Ashish Computer");
+  assert.equal(invoice.items[0].item.name, "Ink");
+  assert.deepEqual(invoice.items[0].serialNumbers, ["SN-1", "SN-2"]);
 });
 
 test("cart, customer and settlement changes invalidate authorization", () => {

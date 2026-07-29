@@ -2,6 +2,7 @@ import { StyleSheet, View } from "react-native";
 import { Divider, Switch, Text, TextInput } from "react-native-paper";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../../../theme";
 import { SaleCartLine } from "../components/SaleCartLine";
+import { SaleDateField } from "../components/SaleDateField";
 
 interface RegularReviewStepProps {
   cartArray: any[];
@@ -14,6 +15,8 @@ interface RegularReviewStepProps {
   onUpdateRate: (itemId: string, rate: number | undefined) => void;
   onAdjustQuantity: (itemId: string, delta: -1 | 1) => void;
   userRole?: string;
+  saleDate: string;
+  onChangeSaleDate: (value: string) => void;
 }
 
 export function RegularReviewStep({
@@ -27,6 +30,8 @@ export function RegularReviewStep({
   onUpdateRate,
   onAdjustQuantity,
   userRole,
+  saleDate,
+  onChangeSaleDate,
 }: RegularReviewStepProps) {
   return (
     <View style={styles.container}>
@@ -70,6 +75,7 @@ export function RegularReviewStep({
       {/* Sale Settings Block */}
       <Text style={styles.sectionHeader}>Sale Settings</Text>
       <View style={styles.card}>
+        <SaleDateField value={saleDate} onChange={onChangeSaleDate} />
         <View style={styles.rowBetween}>
           <View style={styles.labelCol}>
             <Text style={styles.settingTitle}>GST Invoice Required?</Text>

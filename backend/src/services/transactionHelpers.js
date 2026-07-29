@@ -5,14 +5,14 @@ import { getDayRange } from "../utils/dateRange.js";
 import { money, add, sub, mul, div, isZero } from "../utils/money.js";
 import { createNotification, notifyShopOwner } from "./notification.service.js";
 
-export async function generateRecordNumber(tx, { shopId, model, field, prefix, date = new Date() }) {
+export async function generateRecordNumber(tx, { shopId, model, field, prefix, date = new Date(), dateField = "createdAt" }) {
   const { start, end } = getDayRange(date);
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`record-number:${shopId}:${model}`}))`;
   const datePrefix = formatRecordNumber(prefix, date, 0).replace(/000$/, "");
   const rows = await tx[model].findMany({
     where: {
       shopId,
-      createdAt: {
+      [dateField]: {
         gte: start,
         lt: end,
       },

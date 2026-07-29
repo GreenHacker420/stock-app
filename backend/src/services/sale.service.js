@@ -23,10 +23,34 @@ import { captureCustomer, getOrCreateWalkIn } from "./customer.service.js";
 import { EntityType, AuditAction } from "../generated/prisma/index.js";
 import { createDomainEvent, enqueueDomainEvent, enqueueManyDomainEvents } from "./domain-event.service.js";
 
+const getIndiaDateKey = (date = new Date()) => {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Asia/Kolkata",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${value.year}-${value.month}-${value.day}`;
+};
+
+const resolveSaleDate = (value) => {
+  if (!value) return new Date();
+  if (value > getIndiaDateKey()) {
+    throw new ApiError(400, "Sale date cannot be in the future");
+  }
+  const date = new Date(`${value}T12:00:00.000Z`);
+  if (Number.isNaN(date.getTime())) {
+    throw new ApiError(400, "Invalid sale date");
+  }
+  return date;
+};
+
 export async function createSale(user, data) {
   await assertShopAccess(user, data.shopId);
 
   const { items, subtotal, discountAmount, totalAmount } = calculateItemTotals(data.items);
+  const saleDate = resolveSaleDate(data.saleDate);
 
   return prisma.$transaction(async (tx) => {
     // Resolve Customer based on Strategy
@@ -68,6 +92,8 @@ export async function createSale(user, data) {
       model: "sale",
       field: "saleNumber",
       prefix: "SAL",
+      date: saleDate,
+      dateField: "saleDate",
     });
 
     const totalVal = money(totalAmount);
@@ -89,6 +115,7 @@ export async function createSale(user, data) {
         balanceAmount: totalVal,
         saleStatus: "CONFIRMED",
         customerSignature: data.customerSignature || null,
+        saleDate,
         items: {
           create: items.map((item) => {
             const snList = item.serialNumbers || [];
@@ -148,7 +175,22 @@ export async function createSale(user, data) {
         paymentStatus: paymentResult.paymentStatus,
         saleStatus: paymentResult.paymentStatus === "PAID" ? "PAID" : "CONFIRMED",
       },
-      include: { items: true, payments: true },
+      include: {
+        customer: true,
+        items: {
+          include: {
+            item: { include: { category: true, brand: true } },
+          },
+        },
+        payments: {
+          include: {
+            details: true,
+            receivedBy: { select: { id: true, name: true } },
+            verifiedBy: { select: { id: true, name: true } },
+          },
+        },
+        staff: { select: { id: true, name: true, role: true } },
+      },
     });
 
     await tx.auditLog.create({
@@ -242,7 +284,7 @@ export async function listSales(user, { shopId, customerId, page = 1, limit = 50
       shopId,
       customerId: customerId || undefined,
       staffId: user.role === "STAFF" ? user.id : undefined,
-      createdAt: dateFrom || dateTo
+      saleDate: dateFrom || dateTo
         ? {
             gte: dateFrom ? new Date(dateFrom) : undefined,
             lte: dateTo ? new Date(dateTo) : undefined,
@@ -266,12 +308,13 @@ export async function listSales(user, { shopId, customerId, page = 1, limit = 50
       gstInvoiceStatus: true,
       gstInvoiceNumber: true,
       gstInvoiceGeneratedAt: true,
+      saleDate: true,
       createdAt: true,
       customer: { select: { id: true, name: true, phone: true, city: true, type: true } },
       staff: { select: { id: true, name: true, role: true } },
       _count: { select: { items: true, payments: true } },
     },
-    orderBy: { createdAt: "desc" },
+    orderBy: [{ saleDate: "desc" }, { createdAt: "desc" }],
     skip,
     take,
   });

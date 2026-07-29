@@ -979,6 +979,7 @@ model Sale {
   paymentStatus         BillPaymentStatus @default(UNPAID)
   saleStatus            SaleStatus        @default(DRAFT)
   customerSignature     String?
+  saleDate              DateTime          @default(now())
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt
   cancelledAt           DateTime?
@@ -999,6 +1000,8 @@ model Sale {
   serialAssignments DeliveryMemoSerialAssignment[]
 
   @@unique([shopId, saleNumber])
+  @@index([shopId, saleDate])
+  @@index([shopId, customerId, saleDate])
   @@index([shopId, createdAt])
   @@index([shopId, customerId, createdAt])
   @@index([customerId])

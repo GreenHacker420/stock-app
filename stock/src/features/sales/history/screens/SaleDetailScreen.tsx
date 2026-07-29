@@ -566,9 +566,11 @@ export function SaleDetailScreen() {
               <Text style={styles.metaVal}>{sale.isWalkin ? "Walk-in Customer" : sale.customer?.name}</Text>
             </View>
             <View style={styles.metaCell}>
-              <Text style={styles.metaLabel}>Date & Time</Text>
+              <Text style={styles.metaLabel}>{sale.saleDate ? "Sale Date" : "Date & Time"}</Text>
               <Text style={styles.metaVal}>
-                {new Date(sale.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+                {sale.saleDate
+                  ? new Date(sale.saleDate).toLocaleDateString("en-IN", { dateStyle: "medium", timeZone: "Asia/Kolkata" })
+                  : new Date(sale.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
               </Text>
             </View>
             <View style={styles.metaCell}>
