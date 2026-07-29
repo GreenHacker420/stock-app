@@ -52,8 +52,29 @@ export function ChatProfileSheet({
   const [pickerSearch, setPickerSearch] = useState("");
   const [linkingId, setLinkingId] = useState<string | null>(null);
   const [manuallyLinkedCustomer, setManuallyLinkedCustomer] = useState<any>(null);
+  const [deviceContactName, setDeviceContactName] = useState("");
 
   const queryClient = useQueryClient();
+
+  useEffect(() => {
+    let active = true;
+    if (!visible || !conversation?.phone) {
+      setDeviceContactName("");
+      return () => {
+        active = false;
+      };
+    }
+    contactsDb.getContactByPhone(conversation.phone)
+      .then((contact) => {
+        if (active) setDeviceContactName(contact?.name?.trim() || "");
+      })
+      .catch(() => {
+        if (active) setDeviceContactName("");
+      });
+    return () => {
+      active = false;
+    };
+  }, [conversation?.phone, visible]);
 
   // ONLY fetch customer search list when customer picker modal is actually open
   const customersQuery = useCustomersQuery({
@@ -114,7 +135,8 @@ export function ChatProfileSheet({
   };
 
   const phone = conversation?.phone ?? "";
-  const contactName = conversation?.contactName
+  const contactName = deviceContactName
+    || conversation?.contactName
     || customerRecord?.name
     || formatWhatsAppPhone(phone)
     || "Contact Info";

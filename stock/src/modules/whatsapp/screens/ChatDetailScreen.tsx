@@ -76,6 +76,7 @@ import {
   whatsappDb,
   type PendingWhatsAppOperation,
 } from "../services/whatsapp-db";
+import { contactsDb } from "../services/contactsDb";
 import {
   appendWhatsAppMessage,
   replaceWhatsAppMessage,
@@ -316,11 +317,32 @@ export const ChatDetailScreen = () => {
   }
 
   const { data: customerRecord } = useCustomerDetailQuery(conversation?.customerId || "");
+  const [deviceContactName, setDeviceContactName] = useState("");
+
+  useEffect(() => {
+    let active = true;
+    if (!recipientPhone) {
+      setDeviceContactName("");
+      return () => {
+        active = false;
+      };
+    }
+    contactsDb.getContactByPhone(recipientPhone)
+      .then((contact) => {
+        if (active) setDeviceContactName(contact?.name?.trim() || "");
+      })
+      .catch(() => {
+        if (active) setDeviceContactName("");
+      });
+    return () => {
+      active = false;
+    };
+  }, [recipientPhone]);
 
   // Set custom header with contact name, avatar, and linked customer shortcut
   useLayoutEffect(() => {
-    const contactName = conversation?.contactName || formatWhatsAppPhone(recipientPhone);
-    const initials = initialsFor(conversation?.contactName || recipientPhone);
+    const contactName = deviceContactName || conversation?.contactName || formatWhatsAppPhone(recipientPhone);
+    const initials = initialsFor(deviceContactName || conversation?.contactName || recipientPhone);
 
     try {
       navigation.setOptions({
@@ -365,7 +387,7 @@ export const ChatDetailScreen = () => {
         headerTitleAlign: "left",
       });
     } catch {}
-  }, [navigation, conversation, recipientPhone, showProfileSheet]);
+  }, [navigation, conversation, deviceContactName, recipientPhone, showProfileSheet]);
 
   const messageQuery = useWhatsAppMessages(conversationId);
   const messages = messageQuery.messages;

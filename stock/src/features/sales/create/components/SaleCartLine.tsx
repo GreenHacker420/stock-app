@@ -194,15 +194,32 @@ export const SaleCartLine = memo(
                 </Text>
               </Pressable>
 
-              {!!item.requiresSerialNumber && onScanPress && (
+              {onScanPress && (
                 <Pressable
                   onPress={onScanPress}
                   accessibilityRole="button"
                   accessibilityLabel={`Scan serial numbers for ${item.name}`}
-                  style={({ pressed }) => [styles.actionBtn, pressed && styles.pressed]}
+                  style={({ pressed }) => [
+                    styles.actionBtn,
+                    serialNumbers.length > 0 && styles.actionBtnActive,
+                    pressed && styles.pressed,
+                  ]}
                 >
-                  <Icon source="barcode-scan" size={16} color={colors.primary} />
-                  <Text style={styles.actionBtnText}>Serials</Text>
+                  <Icon
+                    source="barcode-scan"
+                    size={16}
+                    color={serialNumbers.length === quantity ? colors.success : colors.primary}
+                  />
+                  <Text
+                    style={[
+                      styles.actionBtnText,
+                      serialNumbers.length > 0 && styles.actionBtnTextActive,
+                    ]}
+                  >
+                    {serialNumbers.length > 0
+                      ? `Serials (${serialNumbers.length}/${quantity})`
+                      : "Add Serials"}
+                  </Text>
                 </Pressable>
               )}
             </View>
@@ -218,7 +235,7 @@ export const SaleCartLine = memo(
           </View>
 
           {/* Serial Numbers Warning/Status */}
-          {!!item.requiresSerialNumber && onScanPress && (
+          {(Boolean(item.requiresSerialNumber) || (serialNumbers && serialNumbers.length > 0)) && onScanPress && (
             <View style={styles.serialRow}>
               <SerialNumberAction
                 itemName={item.name}

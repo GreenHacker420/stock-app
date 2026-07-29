@@ -312,10 +312,19 @@ export const contactsDb = {
 
   getContactByPhone: async (phone: string): Promise<LocalContact | null> => {
     await initializeDatabase();
+    const suffix = phone.replace(/\D/g, "").slice(-10);
+    if (suffix.length !== 10) {
+      return sqliteClient.read((database) =>
+        database.first<LocalContact>(
+          "SELECT * FROM local_contacts WHERE phone = ? LIMIT 1",
+          [phone],
+        ),
+      );
+    }
     return sqliteClient.read((database) =>
       database.first<LocalContact>(
-        "SELECT * FROM local_contacts WHERE phone = ? LIMIT 1",
-        [phone]
+        "SELECT * FROM local_contacts WHERE phone = ? OR phone LIKE ? LIMIT 1",
+        [phone, `%${suffix}`]
       ),
     );
   },

@@ -130,6 +130,9 @@ export type SnapshotItemInput = {
   minimumAllowedPrice?: number | string | null;
   mrp?: number | string | null;
   requiresSerialNumber?: boolean | null;
+  hasSerials?: boolean | null;
+  isSerialized?: boolean | null;
+  requiresSerial?: boolean | null;
   brand?: { name?: string | null } | null;
 };
 
@@ -163,7 +166,12 @@ export function adaptItemToSnapshot(item: SnapshotItemInput): ItemSnapshot {
     defaultRateMinor,
     minimumRateMinor,
     mrpMinor: parseMoneyToMinor(item.mrp) ?? undefined,
-    requiresSerialNumber: Boolean(item.requiresSerialNumber),
+    requiresSerialNumber: Boolean(
+      item.requiresSerialNumber ??
+      item.hasSerials ??
+      item.isSerialized ??
+      item.requiresSerial
+    ),
     brandName: item.brand?.name ?? null,
   };
 }

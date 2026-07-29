@@ -335,6 +335,10 @@ test("sale WhatsApp receipt sends the PDF template through the backend", () => {
     path.resolve(SRC_DIR, "../../stock/src/features/sales/create/components/SaleSuccessView.tsx"),
     "utf8",
   );
+  const saleDetailSrc = fs.readFileSync(
+    path.resolve(SRC_DIR, "../../stock/src/features/sales/history/screens/SaleDetailScreen.tsx"),
+    "utf8",
+  );
   const receiptSrc = saleServiceSrc.slice(saleServiceSrc.indexOf("export async function sendSaleWhatsAppReceipt"));
 
   assert.ok(receiptSrc.includes('name: "sale_receipt_v1"'));
@@ -353,6 +357,18 @@ test("sale WhatsApp receipt sends the PDF template through the backend", () => {
   assert.ok(successViewSrc.includes("await sendSaleWhatsAppReceipt(token, invoiceSale.id, cleaned)"));
   assert.ok(!successViewSrc.includes("sendScopedWaMessage"));
   assert.ok(!successViewSrc.includes("*Sale Receipt*"));
+  assert.ok(!saleDetailSrc.includes("whatsapp://send"));
+  assert.ok(saleDetailSrc.includes("Delivery status will appear in WhatsApp chat"));
+});
+
+test("WhatsApp contact identity stays separate from CRM customer linkage", () => {
+  const whatsappServiceSrc = readSrc("services/whatsapp.service.js");
+
+  assert.ok(whatsappServiceSrc.includes("skipCustomerAutoLink"));
+  assert.ok(whatsappServiceSrc.includes("matchingCustomers.length !== 1"));
+  assert.ok(whatsappServiceSrc.includes("normalizePhone(customer.phone)"));
+  assert.ok(!whatsappServiceSrc.includes("contactName: customer?.name"));
+  assert.ok(!whatsappServiceSrc.includes("contactName: customer.name"));
 });
 
 test("expense status enum matches backend", () => {
