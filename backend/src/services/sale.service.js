@@ -865,7 +865,7 @@ export async function cancelSale(user, id, { reason = "Cancelled by owner" } = {
 
     // 2. Revert Customer Debt
     if (sale.customerId) {
-      await decreaseCustomerDebt(tx, sale.customerId, sale.totalAmount);
+      await decreaseCustomerDebt(tx, sale.customerId, sale.balanceAmount);
     }
 
     // 3. Mark Sale as CANCELLED
@@ -873,8 +873,8 @@ export async function cancelSale(user, id, { reason = "Cancelled by owner" } = {
       where: { id },
       data: {
         saleStatus: "CANCELLED",
-        paymentStatus: "CANCELLED",
-        notes: sale.notes ? `${sale.notes} | Cancelled: ${reason}` : `Cancelled: ${reason}`,
+        cancelledAt: new Date(),
+        cancelReason: reason,
       },
       include: { items: true, payments: true },
     });
@@ -1005,4 +1005,3 @@ export async function sendSaleWhatsAppReceipt(user, id, { recipientPhone } = {})
 
   return { success: true, metaResponse: response.data };
 }
-

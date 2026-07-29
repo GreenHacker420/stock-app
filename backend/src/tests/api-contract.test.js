@@ -306,6 +306,21 @@ test("payment status enum matches backend", () => {
   }
 });
 
+test("sale cancellation uses sale lifecycle fields and outstanding debt", () => {
+  const saleServiceSrc = readSrc("services/sale.service.js");
+  const cancelSaleSrc = saleServiceSrc.slice(
+    saleServiceSrc.indexOf("export async function cancelSale"),
+    saleServiceSrc.indexOf("export async function sendSaleWhatsAppReceipt")
+  );
+
+  assert.ok(cancelSaleSrc.includes("saleStatus: \"CANCELLED\""));
+  assert.ok(cancelSaleSrc.includes("cancelledAt: new Date()"));
+  assert.ok(cancelSaleSrc.includes("cancelReason: reason"));
+  assert.ok(cancelSaleSrc.includes("decreaseCustomerDebt(tx, sale.customerId, sale.balanceAmount)"));
+  assert.ok(!cancelSaleSrc.includes("paymentStatus: \"CANCELLED\""));
+  assert.ok(!cancelSaleSrc.includes("notes:"));
+});
+
 test("expense status enum matches backend", () => {
   const expenseSrc = readRoute("expense.routes.js");
   assert.ok(expenseSrc.includes('"APPROVED"') || expenseSrc.includes("APPROVED"), "APPROVED not in expense route");
