@@ -15,7 +15,7 @@ import {
   decreaseCustomerDebt,
   getBillPaymentStatus,
 } from "./transactionHelpers.js";
-import { money, sub } from "../utils/money.js";
+import { money, sub, add } from "../utils/money.js";
 import { checkAndLockAvailableStock, expandStockRequirements } from "./stock.service.js";
 import { captureCustomer, getOrCreateWalkIn } from "./customer.service.js";
 import { EntityType, AuditAction } from "../generated/prisma/index.js";
@@ -305,7 +305,22 @@ export async function getSale(user, id) {
   if (user.role === "STAFF" && sale.staffId !== user.id) {
     throw new ApiError(403, "You can view only your own sales");
   }
-  return sale;
+
+  // Compute real-time balance from actual payment records (handles legacy data with stale balanceAmount=0)
+  const verifiedPaid = sale.payments
+    .filter((p) => p.status === "VERIFIED")
+    .reduce((sum, p) => add(sum, p.amount), money(0));
+  const recordedPaid = sale.payments
+    .filter((p) => p.status === "RECORDED")
+    .reduce((sum, p) => add(sum, p.amount), money(0));
+  const computedBalance = money(Math.max(0, Number(sub(sale.totalAmount, verifiedPaid))));
+
+  return {
+    ...sale,
+    balanceAmount: computedBalance,
+    verifiedPaidAmount: verifiedPaid,
+    recordedPaymentAmount: recordedPaid,
+  };
 }
 
 export async function updateSale(user, id, data) {
