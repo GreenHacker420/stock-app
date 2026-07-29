@@ -133,6 +133,11 @@ const templateSchema = z.object({
     language: z.object({ code: z.string().trim().min(1) }),
     components: z.array(z.any()).optional(),
   }).passthrough(),
+  localPreview: z.object({
+    title: z.string().trim().min(1).max(120),
+    body: z.string().trim().min(1).max(1024),
+    documentFilename: z.string().trim().min(1).max(240).optional(),
+  }).optional(),
 });
 
 const flowSchema = z.object({
@@ -188,6 +193,8 @@ export const outboundCommandSchema = z.object({
   requestId: z.string().min(1).max(200).optional(),
   idempotencyKey: z.string().min(1).max(500).optional(),
   actorUserId: z.string().min(1).optional(),
+  customerId: z.string().min(1).optional(),
+  skipCustomerAutoLink: z.boolean().optional().default(false),
 });
 
 const TYPE_BY_KIND = {
@@ -336,7 +343,10 @@ export function getLocalMessageProjection(message) {
   if (message.kind === "template") {
     return {
       type,
-      content: { template: message.template },
+      content: {
+        template: message.template,
+        ...(message.localPreview ? { localPreview: message.localPreview } : {}),
+      },
       payload: { subtype: "template" },
       templateName: message.template.name,
       templateLanguage: message.template.language.code,

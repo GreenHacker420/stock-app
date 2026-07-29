@@ -91,25 +91,40 @@ class WhatsAppService {
     }
 
     return prisma.$transaction(async (tx) => {
-      const conversation = await tx.waConversation.upsert({
-        where: { shopId_phone: { shopId, phone: normalizedPhone } },
-        create: {
+      const legacyDigitsOnlyPhone = normalizedPhone.replace(/\D/g, "");
+      const existing = await tx.waConversation.findFirst({
+        where: {
           shopId,
-          phone: normalizedPhone,
-          contactName: contactName?.trim() || customer?.name || null,
-          customerId: customer?.id || null,
-        },
-        update: {
-          isArchived: false,
-          contactName: contactName?.trim() || customer?.name || undefined,
-          customerId: customer?.id || undefined,
-          entityVersion: { increment: 1 },
-        },
-        include: {
-          customer: { select: { id: true, name: true, phone: true } },
-          messages: { take: 1, orderBy: { createdAt: "desc" } },
+          phone: { in: [normalizedPhone, legacyDigitsOnlyPhone] },
         },
       });
+      const conversation = existing
+        ? await tx.waConversation.update({
+            where: { id: existing.id },
+            data: {
+              phone: normalizedPhone,
+              isArchived: false,
+              contactName: contactName?.trim() || undefined,
+              customerId: customer?.id || undefined,
+              entityVersion: { increment: 1 },
+            },
+            include: {
+              customer: { select: { id: true, name: true, phone: true } },
+              messages: { take: 1, orderBy: { createdAt: "desc" } },
+            },
+          })
+        : await tx.waConversation.create({
+            data: {
+              shopId,
+              phone: normalizedPhone,
+              contactName: contactName?.trim() || null,
+              customerId: customer?.id || null,
+            },
+            include: {
+              customer: { select: { id: true, name: true, phone: true } },
+              messages: { take: 1, orderBy: { createdAt: "desc" } },
+            },
+          });
       await enqueueWhatsAppDomainEvent(tx, {
         shopId,
         integration: context.integration,
@@ -180,6 +195,8 @@ class WhatsAppService {
       sourceDeviceId,
       requestId,
       actorUserId,
+      customerId,
+      skipCustomerAutoLink,
     } = command;
     const clientMessageId = command.clientMessageId || crypto.randomUUID();
     const idempotencyKey = command.idempotencyKey
@@ -211,14 +228,42 @@ class WhatsAppService {
       let conversation = await prisma.waConversation.findUnique({
         where: { shopId_phone: { shopId, phone: normalizedPhone } },
       });
+      if (!conversation) {
+        const legacyDigitsOnlyPhone = normalizedPhone.replace(/\D/g, "");
+        if (legacyDigitsOnlyPhone !== normalizedPhone) {
+          conversation = await prisma.waConversation.findUnique({
+            where: { shopId_phone: { shopId, phone: legacyDigitsOnlyPhone } },
+          });
+          if (conversation) {
+            conversation = await prisma.waConversation.update({
+              where: { id: conversation.id },
+              data: { phone: normalizedPhone },
+            });
+          }
+        }
+      }
 
       if (!conversation) {
-        const customer = await this.findCustomerByPhone(shopId, normalizedPhone);
+        let customer = null;
+        if (customerId) {
+          customer = await prisma.customer.findFirst({
+            where: { id: customerId, shopId, status: "ACTIVE" },
+            select: { id: true, name: true, phone: true },
+          });
+          if (!customer) {
+            throw new Error("Customer not found for this shop");
+          }
+          if (normalizePhone(customer.phone) !== normalizedPhone) {
+            throw new Error("Customer phone does not match the WhatsApp recipient");
+          }
+        } else if (!skipCustomerAutoLink) {
+          customer = await this.findCustomerByPhone(shopId, normalizedPhone);
+        }
         conversation = await prisma.waConversation.create({
           data: {
             shopId,
             phone: normalizedPhone,
-            contactName: customer?.name || null,
+            contactName: null,
             customerId: customer?.id || null,
           },
         });
@@ -906,21 +951,44 @@ class WhatsAppService {
       },
     });
 
-    let createdCount = 0;
+    const customersByPhone = new Map();
     for (const customer of customers) {
-      const normalizedPhone = customer.phone.replace(/\D/g, "");
+      const normalizedPhone = normalizePhone(customer.phone);
       if (!normalizedPhone) continue;
+      const matches = customersByPhone.get(normalizedPhone) || [];
+      matches.push(customer);
+      customersByPhone.set(normalizedPhone, matches);
+    }
 
-      const existing = await prisma.waConversation.findUnique({
+    let createdCount = 0;
+    for (const [normalizedPhone, matchingCustomers] of customersByPhone) {
+      // Shared phone numbers require an explicit choice; never link whichever
+      // customer Prisma happens to return first.
+      if (matchingCustomers.length !== 1) continue;
+      const customer = matchingCustomers[0];
+
+      let existing = await prisma.waConversation.findUnique({
         where: { shopId_phone: { shopId, phone: normalizedPhone } },
       });
+      if (!existing) {
+        const legacyDigitsOnlyPhone = normalizedPhone.replace(/\D/g, "");
+        existing = await prisma.waConversation.findUnique({
+          where: { shopId_phone: { shopId, phone: legacyDigitsOnlyPhone } },
+        });
+        if (existing && legacyDigitsOnlyPhone !== normalizedPhone) {
+          existing = await prisma.waConversation.update({
+            where: { id: existing.id },
+            data: { phone: normalizedPhone },
+          });
+        }
+      }
 
       if (!existing) {
         await prisma.waConversation.create({
           data: {
             shopId,
             phone: normalizedPhone,
-            contactName: customer.name,
+            contactName: null,
             customerId: customer.id,
           },
         });
@@ -992,54 +1060,26 @@ class WhatsAppService {
     });
   }
 
-  // Finds customer by phone number using fallback: normalized (E.164) -> national -> last10 digits suffix
+  // Finds a customer only when the normalized phone identifies one CRM record.
   async findCustomerByPhone(shopId, phone) {
     if (!phone) return null;
     const normalized = normalizePhone(phone);
+    const suffix = normalized.slice(-10);
+    if (suffix.length !== 10) return null;
 
-    // 1. Exact match (normalized E.164)
-    let customer = await prisma.customer.findFirst({
+    const candidates = await prisma.customer.findMany({
       where: {
         shopId,
-        phone: normalized,
+        phone: { endsWith: suffix },
         status: "ACTIVE",
       },
+      take: 3,
     });
-    if (customer) return customer;
+    const exactMatches = candidates.filter(
+      (customer) => normalizePhone(customer.phone) === normalized,
+    );
 
-    // 2. National format fallback
-    let subscriberNumber = normalized;
-    if (normalized.startsWith("+91")) {
-      subscriberNumber = normalized.slice(3); // last 10 digits
-    } else if (normalized.startsWith("+")) {
-      subscriberNumber = normalized.slice(1);
-    }
-
-    if (subscriberNumber !== normalized) {
-      customer = await prisma.customer.findFirst({
-        where: {
-          shopId,
-          phone: { in: [subscriberNumber, `0${subscriberNumber}`] },
-          status: "ACTIVE",
-        },
-      });
-      if (customer) return customer;
-    }
-
-    // 3. Suffix match (last 10 digits endsWith)
-    const suffix = normalized.slice(-10);
-    if (suffix.length === 10) {
-      customer = await prisma.customer.findFirst({
-        where: {
-          shopId,
-          phone: { endsWith: suffix },
-          status: "ACTIVE",
-        },
-      });
-      if (customer) return customer;
-    }
-
-    return null;
+    return exactMatches.length === 1 ? exactMatches[0] : null;
   }
 
   // Bulk synchronizes phone contacts locally cached to DB (asynchronously)

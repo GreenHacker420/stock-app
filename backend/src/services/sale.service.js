@@ -3,6 +3,7 @@ import FormData from "form-data";
 import { getWaCredentials } from "../lib/wa-cache.js";
 import { NON_DIGIT_REGEX } from "../lib/validate.js";
 import { deleteInvoiceAsset, generateAndUploadSaleInvoicePdf } from "./pdf.service.js";
+import { whatsappService } from "./whatsapp.service.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 import {
@@ -1000,12 +1001,7 @@ export async function sendSaleWhatsAppReceipt(user, id, { recipientPhone } = {})
     });
   }
 
-  const payload = {
-    messaging_product: "whatsapp",
-    recipient_type: "individual",
-    to: normalizedPhone,
-    type: "template",
-    template: {
+  const template = {
       name: "sale_receipt_v1",
       language: { code: "en_US" },
       components: [
@@ -1032,28 +1028,39 @@ export async function sendSaleWhatsAppReceipt(user, id, { recipientPhone } = {})
           ],
         },
       ],
-    },
   };
 
-  // 3. Send via Meta Graph API v25.0
-  const url = `https://graph.facebook.com/v25.0/${creds.phoneNumberId}/messages`;
-  let response;
+  const customerPhoneDigits = String(sale.customer?.phone || "").replace(NON_DIGIT_REGEX, "").slice(-10);
+  const recipientMatchesCustomer = customerPhoneDigits.length === 10
+    && customerPhoneDigits === normalizedPhone.slice(-10);
+
+  let queuedMessage;
   try {
-    response = await axios.post(url, payload, {
-      headers: {
-        Authorization: `Bearer ${creds.accessToken}`,
-        "Content-Type": "application/json",
+    queuedMessage = await whatsappService.sendMessage({
+      shopId: sale.shopId,
+      integrationId: creds.id,
+      to: `+${normalizedPhone}`,
+      customerId: recipientMatchesCustomer ? sale.customerId : undefined,
+      skipCustomerAutoLink: !recipientMatchesCustomer,
+      actorUserId: user.id,
+      message: {
+        kind: "template",
+        template,
+        localPreview: {
+          title: "Sale receipt",
+          body: `${customerName}\nSale #${sale.saleNumber} · ₹${Number(sale.totalAmount).toLocaleString("en-IN")} · ${sale.paymentStatus || "PAID"}`,
+          documentFilename: invoiceAsset.fileName,
+        },
       },
     });
   } catch (error) {
-    const metaMessage = error?.response?.data?.error?.message;
-    console.error("[WhatsApp] Sale receipt template send failed:", error?.response?.data || error?.message || error);
+    console.error("[WhatsApp] Sale receipt template queue failed:", error?.message || error);
     try {
       await deleteInvoiceAsset(invoiceAsset.assetId);
     } catch (cleanupError) {
       console.error("[WhatsApp] Temporary invoice cleanup failed:", cleanupError?.message || cleanupError);
     }
-    throw new ApiError(502, metaMessage || "WhatsApp rejected the invoice receipt template", {
+    throw new ApiError(502, error?.message || "The WhatsApp receipt could not be queued", {
       code: "WHATSAPP_RECEIPT_TEMPLATE_FAILED",
     });
   }
@@ -1068,7 +1075,9 @@ export async function sendSaleWhatsAppReceipt(user, id, { recipientPhone } = {})
 
   return {
     success: true,
-    metaResponse: response.data,
+    status: "QUEUED",
+    messageId: queuedMessage.id,
+    recipientPhone: `+${normalizedPhone}`,
     temporaryAssetDeleted,
   };
 }

@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { View, StyleSheet, Pressable, ScrollView, Alert, Modal, Linking } from "react-native";
+import { View, StyleSheet, Pressable, ScrollView, Alert, Modal } from "react-native";
 import { Divider, Text, Icon, TextInput as PaperTextInput } from "react-native-paper";
 import { useRoute, useNavigation, type RouteProp } from "@react-navigation/native";
 import { type NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -240,23 +240,14 @@ export function SaleDetailScreen() {
     try {
       await sendSaleWhatsAppReceipt(token, sale.id, cleaned);
       Alert.alert(
-        "Receipt Sent",
-        `The invoice PDF was sent to +91 ${cleaned} using WhatsApp.`
+        "Receipt Queued",
+        `The invoice PDF was queued for +91 ${cleaned}. Delivery status will appear in WhatsApp chat.`
       );
     } catch (err: any) {
-      const text = encodeURIComponent(
-        `Hello ${sale.customer?.name || "Customer"},\nHere is your invoice for Sale #${sale.saleNumber} of total amount ₹${sale.totalAmount}.\nThank you for shopping with us!`
+      Alert.alert(
+        "Receipt Not Queued",
+        err?.message || "The invoice PDF or WhatsApp template could not be queued."
       );
-      const url = `whatsapp://send?phone=91${cleaned}&text=${text}`;
-      const canOpen = await Linking.canOpenURL(url).catch(() => false);
-      if (canOpen) {
-        await Linking.openURL(url);
-      } else {
-        Alert.alert(
-          "Receipt Not Sent",
-          err?.message || "The WhatsApp template or app could not be opened."
-        );
-      }
     } finally {
       setIsSendingWa(false);
     }
@@ -265,29 +256,8 @@ export function SaleDetailScreen() {
   const handleWhatsAppPress = () => {
     const rawPhone = sale?.customer?.phone || (sale as any)?.customerPhone || "";
     const cleaned = cleanPhoneNumber(rawPhone);
-    if (cleaned.length >= 10) {
-      Alert.alert(
-        "Send via WhatsApp",
-        `Send sale receipt to ${sale?.customer?.name || "Customer"} (+91 ${cleaned})?`,
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Change Number",
-            onPress: () => {
-              setPhoneInput(cleaned);
-              setIsPhoneModalVisible(true);
-            },
-          },
-          {
-            text: "Send Now",
-            onPress: () => openWhatsAppWithNumber(cleaned),
-          },
-        ]
-      );
-    } else {
-      setPhoneInput("");
-      setIsPhoneModalVisible(true);
-    }
+    setPhoneInput(cleaned.length === 10 ? cleaned : "");
+    setIsPhoneModalVisible(true);
   };
 
   // Parse customer signature once — avoids IIFE on every render
@@ -1127,7 +1097,7 @@ Payment Date: ${new Date(p.receivedAt).toLocaleString("en-IN")}`,
               <Text style={styles.waModalTitle}>Send Receipt via WhatsApp</Text>
             </View>
             <Text style={styles.waModalSubtitle}>
-              Enter the 10-digit mobile number to send the sale receipt via WhatsApp.
+              Invoice customer: {sale?.customer?.name || "Customer"}. Confirm the delivery number before sending.
             </Text>
 
             <PaperTextInput
@@ -1144,6 +1114,9 @@ Payment Date: ${new Date(p.receivedAt).toLocaleString("en-IN")}`,
               autoFocus
               style={styles.waPhoneInput}
             />
+            <Text style={styles.waDeliveryNote}>
+              Sending to another number only changes this delivery. It does not edit the customer or WhatsApp contact name.
+            </Text>
 
             <View style={styles.waModalActions}>
               <Button
@@ -1529,6 +1502,12 @@ const styles = StyleSheet.create({
   },
   waPhoneInput: {
     backgroundColor: colors.surface,
+  },
+  waDeliveryNote: {
+    color: colors.textSecondary,
+    fontSize: fontSize.xs,
+    lineHeight: 18,
+    marginTop: spacing.sm,
   },
   waModalActions: {
     flexDirection: "row",

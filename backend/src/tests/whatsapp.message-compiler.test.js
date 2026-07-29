@@ -223,3 +223,32 @@ test("compiles Flow messages and marks only templates as window-independent", ()
     template: { name: "hello", language: { code: "en_US" } },
   }), false);
 });
+
+test("keeps template previews local and supports delivery-only recipients", () => {
+  const command = outboundCommandSchema.parse({
+    shopId: "shop-1",
+    to: "+919876543210",
+    skipCustomerAutoLink: true,
+    message: {
+      kind: "template",
+      template: {
+        name: "sale_receipt_v1",
+        language: { code: "en_US" },
+        components: [],
+      },
+      localPreview: {
+        title: "Sale receipt",
+        body: "Customer\nSale #SAL-001 · ₹2,940 · PAID",
+        documentFilename: "Invoice_SAL-001.pdf",
+      },
+    },
+  });
+
+  const metaPayload = compileMetaMessage({ to: command.to, message: command.message });
+  const localProjection = getLocalMessageProjection(command.message);
+
+  assert.equal(command.skipCustomerAutoLink, true);
+  assert.equal(metaPayload.template.localPreview, undefined);
+  assert.equal(localProjection.content.localPreview.title, "Sale receipt");
+  assert.equal(localProjection.content.localPreview.documentFilename, "Invoice_SAL-001.pdf");
+});

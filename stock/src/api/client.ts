@@ -737,7 +737,13 @@ export async function sendSaleWhatsAppReceipt(
   saleId: string,
   recipientPhone?: string,
 ) {
-  return apiRequest<{ success: boolean; metaResponse?: unknown }>(
+  return apiRequest<{
+    success: boolean;
+    status: "QUEUED";
+    messageId: string;
+    recipientPhone: string;
+    temporaryAssetDeleted: boolean;
+  }>(
     `/sales/${saleId}/whatsapp-send`,
     {
       method: "POST",

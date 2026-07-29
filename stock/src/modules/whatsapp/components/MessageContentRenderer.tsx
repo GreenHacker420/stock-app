@@ -412,6 +412,27 @@ function SystemRenderer({ message }: RendererProps) {
 }
 
 function TemplateRenderer({ message }: RendererProps) {
+  const preview = message.content?.localPreview;
+  if (preview?.body) {
+    return (
+      <View style={styles.templateCard}>
+        <View style={styles.templateHeader}>
+          <MaterialCommunityIcons name="receipt-text-outline" size={20} color={Colors.primary} />
+          <Text style={styles.templateTitle}>{preview.title || "Template message"}</Text>
+        </View>
+        <Text selectable style={styles.templateBody}>{preview.body}</Text>
+        {preview.documentFilename ? (
+          <View style={styles.templateDocument}>
+            <MaterialCommunityIcons name="file-pdf-box" size={20} color={Colors.danger} />
+            <Text numberOfLines={1} style={styles.templateDocumentName}>
+              {preview.documentFilename}
+            </Text>
+          </View>
+        ) : null}
+      </View>
+    );
+  }
+
   return (
     <InfoRow
       icon="card-text-outline"
@@ -566,6 +587,41 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingVertical: 8,
     maxWidth: "100%",
+  },
+  templateCard: {
+    gap: 8,
+    minWidth: 230,
+    maxWidth: 290,
+    paddingVertical: 4,
+  },
+  templateHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  templateTitle: {
+    color: "#1F2937",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+  templateBody: {
+    color: "#374151",
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  templateDocument: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: Colors.surfaceOffset,
+  },
+  templateDocumentName: {
+    flex: 1,
+    color: "#1F2937",
+    fontSize: 12,
+    fontWeight: "600",
   },
   contact: {
     gap: 6,

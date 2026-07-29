@@ -50,10 +50,16 @@ export function SaleSuccessView({
   const [isPhoneModalVisible, setIsPhoneModalVisible] = useState(false);
   const [phoneInput, setPhoneInput] = useState(customerPhone ?? "");
   const [isSendingWa, setIsSendingWa] = useState(false);
+  const storedCustomerPhone = customerPhone ? cleanPhoneNumber(customerPhone) : "";
+  const enteredPhone = cleanPhoneNumber(phoneInput);
+  const isAlternateDeliveryNumber = storedCustomerPhone.length === 10
+    && enteredPhone.length === 10
+    && storedCustomerPhone !== enteredPhone;
 
   useEffect(() => {
-    if (autoSendWhatsApp && (customerPhone || phoneInput)) {
-      openWhatsAppWithNumber(customerPhone || phoneInput);
+    if (autoSendWhatsApp) {
+      setPhoneInput(customerPhone ? cleanPhoneNumber(customerPhone) : "");
+      setIsPhoneModalVisible(true);
     }
   }, []);
 
@@ -72,8 +78,8 @@ export function SaleSuccessView({
     try {
       await sendSaleWhatsAppReceipt(token, invoiceSale.id, cleaned);
       Alert.alert(
-        "Receipt Sent",
-        `The invoice PDF was sent to +91 ${cleaned} using the WhatsApp receipt template.`,
+        "Receipt Queued",
+        `The invoice PDF was queued for +91 ${cleaned}. Delivery status will appear in WhatsApp chat.`,
       );
     } catch (err: any) {
       Alert.alert(
@@ -87,30 +93,8 @@ export function SaleSuccessView({
 
   const handleWhatsAppPress = () => {
     const cleaned = customerPhone ? cleanPhoneNumber(customerPhone) : "";
-    if (cleaned.length >= 10) {
-      Alert.alert(
-        "Send Receipt via WhatsApp",
-        `Send receipt to ${customerName} (+91 ${cleaned})?`,
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Change Number",
-            onPress: () => {
-              setPhoneInput(cleaned);
-              setIsPhoneModalVisible(true);
-            },
-          },
-          {
-            text: "Send Now",
-            style: "default",
-            onPress: () => openWhatsAppWithNumber(cleaned),
-          },
-        ]
-      );
-    } else {
-      setPhoneInput("");
-      setIsPhoneModalVisible(true);
-    }
+    setPhoneInput(cleaned.length === 10 ? cleaned : "");
+    setIsPhoneModalVisible(true);
   };
   return (
     <ScrollView
@@ -223,7 +207,7 @@ export function SaleSuccessView({
               <Text style={styles.modalTitle}>WhatsApp Mobile Number</Text>
             </View>
             <Text style={styles.modalSubtitle}>
-              Enter the 10-digit mobile number to send the sale receipt directly via WhatsApp.
+              Invoice customer: {customerName}. Confirm the delivery number before sending.
             </Text>
 
             <TextInput
@@ -236,6 +220,11 @@ export function SaleSuccessView({
               onChangeText={setPhoneInput}
               autoFocus
             />
+            <Text style={styles.deliveryNote}>
+              {isAlternateDeliveryNumber
+                ? "This is an alternate delivery number. The customer name and saved customer phone will not be changed."
+                : "Sending a receipt does not edit the customer or WhatsApp contact name."}
+            </Text>
 
             <View style={styles.modalActions}>
               <Button
@@ -376,6 +365,12 @@ const styles = StyleSheet.create({
     fontSize: fontSize.md,
     color: colors.textPrimary,
     backgroundColor: colors.surfaceOffset,
+    marginBottom: spacing.sm,
+  },
+  deliveryNote: {
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+    lineHeight: 18,
     marginBottom: spacing.xl,
   },
   modalActions: {
