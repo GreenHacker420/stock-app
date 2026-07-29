@@ -164,6 +164,13 @@ export function WalkInSaleScreen() {
     enabled: !network.isOffline && activeShopId === draftShopId,
   });
 
+  useEffect(() => {
+    const unsubscribe = navigation.addListener("focus", () => {
+      itemsQuery.refetch();
+    });
+    return unsubscribe;
+  }, [navigation, itemsQuery]);
+
   const customersQuery = useCustomersQuery({
     search: customerSearch,
     limit: 10,

@@ -139,6 +139,8 @@ export async function refreshReadModelDomains(
   const envelope = writeLocalReadModelDomains(storage, options.shopId, updates);
   if (envelope) {
     options.queryClient.setQueryData(queryKeys.readModels.bootstrap(options.shopId), envelope);
+    options.queryClient.invalidateQueries({ queryKey: ["current-stock", options.shopId] });
+    options.queryClient.invalidateQueries({ queryKey: ["items"] });
   }
   return envelope;
 }
@@ -161,6 +163,8 @@ async function runRefresh(options: RefreshOptions) {
       baseCursor: options.writeCursor === false ? previous?.baseCursor ?? null : bootstrap.baseCursor,
     });
     options.queryClient.setQueryData(queryKeys.readModels.bootstrap(options.shopId), envelope);
+    options.queryClient.invalidateQueries({ queryKey: ["current-stock", options.shopId] });
+    options.queryClient.invalidateQueries({ queryKey: ["items"] });
     if (options.writeCursor !== false) {
       setStoredSequenceCursor(storage, options.userId, options.shopId, bootstrap.baseCursor);
     }

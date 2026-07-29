@@ -10,7 +10,7 @@ import { Item, ItemCategory, ItemBrand } from "../../../api/client";
 import { smartItemSearch, filterAndRankItems } from "../../../utils/search";
 import { useAuthStore } from "../../../auth/auth-store";
 import { useShopStore } from "../../../auth/shop-store";
-import { useItemsQuery, useCategoriesQuery, useBrandsQuery, useItemSummaryQuery, useBatchQuickUpdateMutation, useBatchDeleteItemsMutation, useMergeItemsMutation } from "../../../hooks/useItems";
+import { useItemsQuery, useCategoriesQuery, useBrandsQuery, useItemSummaryQuery, useCurrentStockQuery, useBatchQuickUpdateMutation, useBatchDeleteItemsMutation, useMergeItemsMutation } from "../../../hooks/useItems";
 import { Screen } from "../../../components/Screen";
 import { AppHeader } from "../../../components/ui/AppHeader";
 import { SkeletonList } from "../../../components/ui/SkeletonCard";
@@ -160,11 +160,24 @@ export function ItemList() {
     return filterAndRankItems(raw, debouncedSearch);
   }, [listQuery.data, debouncedSearch]);
 
+  const stockQuery = useCurrentStockQuery();
+
   const stockByItem = useMemo(() => {
     const m = new Map<string, number>();
-    allItems.forEach((i) => m.set(i.id, Number(i.availableStock ?? 0)));
+    if (stockQuery.data) {
+      for (const lvl of stockQuery.data) {
+        if (lvl?.item?.id) {
+          m.set(lvl.item.id, Number(lvl.availableStock ?? lvl.physicalStock ?? 0));
+        }
+      }
+    }
+    allItems.forEach((i) => {
+      if (!m.has(i.id) && i.availableStock !== undefined && i.availableStock !== null) {
+        m.set(i.id, Number(i.availableStock));
+      }
+    });
     return m;
-  }, [allItems]);
+  }, [stockQuery.data, allItems]);
 
   const token = useAuthStore((s) => s.token);
   const batchQuickUpdateMutation = useBatchQuickUpdateMutation();

@@ -101,6 +101,13 @@ export function RegularSaleScreen() {
     enabled: !network.isOffline && activeShopId === draftShopId,
   });
 
+  useEffect(() => {
+    const unsubscribe = navigation.addListener("focus", () => {
+      itemsQuery.refetch();
+    });
+    return unsubscribe;
+  }, [navigation, itemsQuery]);
+
   // useSaleDraft Hook
   const { draft, dispatch, totalMinor, validation } = useSaleDraft({
     mode: "REGULAR",

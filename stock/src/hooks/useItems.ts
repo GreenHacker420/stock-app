@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery, keepPreviousData, type QueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "../auth/auth-store";
 import { useShopStore } from "../auth/shop-store";
@@ -109,6 +110,24 @@ export function useItemsQuery(opts: { search?: string; categoryId?: string; bran
     limit: opts.limit,
   });
 
+  // 2. Fetch live stock balances
+  const stockQuery = useCurrentStockQuery(undefined, { enabled: opts.enabled });
+
+  const stockMap = useMemo(() => {
+    const m = new Map<string, { availableStock: number; physicalStock: number }>();
+    if (stockQuery.data) {
+      for (const lvl of stockQuery.data) {
+        if (lvl?.item?.id) {
+          m.set(lvl.item.id, {
+            availableStock: Number(lvl.availableStock ?? lvl.physicalStock ?? 0),
+            physicalStock: Number(lvl.physicalStock ?? 0),
+          });
+        }
+      }
+    }
+    return m;
+  }, [stockQuery.data]);
+
   const normalizedOptions = {
     search: opts.search?.trim() || undefined,
     categoryId: opts.categoryId || undefined,
@@ -117,7 +136,7 @@ export function useItemsQuery(opts: { search?: string; categoryId?: string; bran
     limit: opts.limit,
   };
 
-  // 2. Server query fallback (only enabled when local read-model is not bootstrapped in MMKV)
+  // 3. Server query fallback (only enabled when local read-model is not bootstrapped in MMKV)
   const serverQuery = useQuery({
     queryKey: queryKeys.items(activeShopId ?? "", normalizedOptions),
     queryFn: () =>
@@ -133,17 +152,42 @@ export function useItemsQuery(opts: { search?: string; categoryId?: string; bran
     placeholderData: keepPreviousData,
   });
 
-  // If local MMKV read-model contains catalog items, return local data instantly (0 network requests)
+  const rawItems = readModel.hasReadModel && readModel.data ? (readModel.data as any[]) : serverQuery.data?.items ?? [];
+
+  const itemsWithStock = useMemo(() => {
+    if (!rawItems || rawItems.length === 0) return rawItems;
+    return rawItems.map((item) => {
+      const stockInfo = stockMap.get(item.id);
+      const availableStock = stockInfo !== undefined ? stockInfo.availableStock : Number(item.availableStock ?? 0);
+      const physicalStock = stockInfo !== undefined ? stockInfo.physicalStock : Number(item.physicalStock ?? item.availableStock ?? 0);
+      return {
+        ...item,
+        availableStock,
+        physicalStock,
+      };
+    });
+  }, [rawItems, stockMap]);
+
   if (readModel.hasReadModel && readModel.data) {
     return {
       ...serverQuery,
       isLoading: false,
       isFetching: false,
       data: {
-        items: readModel.data as any,
-        total: readModel.data.length,
+        items: itemsWithStock,
+        total: itemsWithStock.length,
         hasMore: false,
         page: 1,
+      },
+    } as typeof serverQuery;
+  }
+
+  if (serverQuery.data) {
+    return {
+      ...serverQuery,
+      data: {
+        ...serverQuery.data,
+        items: itemsWithStock,
       },
     } as typeof serverQuery;
   }
@@ -159,7 +203,7 @@ export function useCurrentStockQuery(itemId?: string, options?: { enabled?: bool
     queryKey: queryKeys.currentStock(activeShopId ?? "", itemId),
     queryFn: () => fetchCurrentStock(token ?? "", activeShopId ?? "", itemId),
     enabled: (options?.enabled ?? true) && !!token && !!activeShopId,
-    staleTime: 5 * 60 * 1000, // 5 mins
+    staleTime: 0,
   });
 }
 
