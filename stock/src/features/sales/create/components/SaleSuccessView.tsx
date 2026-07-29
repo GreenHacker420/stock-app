@@ -1,8 +1,17 @@
-import { StyleSheet, View, ScrollView } from "react-native";
+import { useState } from "react";
+import { Linking, Alert, StyleSheet, View, ScrollView, Modal, TextInput } from "react-native";
 import { Icon, Text, Divider } from "react-native-paper";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../../../theme";
 import { Button } from "../../../../components/ui/Button";
 import { InfoRow } from "../../../../components/ui/InfoRow";
+import { cleanPhoneNumber } from "../../../../utils/items/validation";
+import { useAuthStore } from "../../../../auth/auth-store";
+import { useShopStore } from "../../../../auth/shop-store";
+import {
+  fetchWhatsAppCapability,
+  createScopedWaConversation,
+  sendScopedWaMessage,
+} from "../../../../api/whatsapp.api";
 
 interface SaleSuccessViewProps {
   invoiceSale: {
@@ -19,6 +28,7 @@ interface SaleSuccessViewProps {
   onViewInvoice: () => void;
   onSharePdf: () => void;
   onPrintDirect?: () => void;
+  onSendWhatsApp?: () => void;
   isSharing?: boolean;
   isPrinting?: boolean;
 }
@@ -35,9 +45,102 @@ export function SaleSuccessView({
   onViewInvoice,
   onSharePdf,
   onPrintDirect,
+  onSendWhatsApp,
   isSharing = false,
   isPrinting = false,
 }: SaleSuccessViewProps) {
+  const token = useAuthStore((state) => state.token);
+  const activeShopId = useShopStore((state) => state.activeShopId);
+
+  const [isPhoneModalVisible, setIsPhoneModalVisible] = useState(false);
+  const [phoneInput, setPhoneInput] = useState(customerPhone ?? "");
+  const [isSendingWa, setIsSendingWa] = useState(false);
+
+  const openWhatsAppWithNumber = async (targetPhone: string) => {
+    setIsSendingWa(true);
+    const cleaned = cleanPhoneNumber(targetPhone);
+    const textMsg = `*Sale Receipt*\nSale #: ${invoiceSale.saleNumber}\nCustomer: ${customerName}\nTotal Amount: ₹${invoiceSale.totalAmount.toLocaleString("en-IN")}\nPayment Mode: ${paymentMode}\n\nThank you for shopping with us!`;
+
+    try {
+      if (token && activeShopId && cleaned) {
+        const capability = await fetchWhatsAppCapability(token, activeShopId);
+
+        if (capability.enabled && capability.integrationId) {
+          const formattedPhone = cleaned.startsWith("91") ? cleaned : `91${cleaned}`;
+          const convRes = await createScopedWaConversation(token, capability.integrationId, {
+            phone: formattedPhone,
+            contactName: customerName,
+          });
+
+          const conversationId = convRes?.conversation?.id;
+          if (conversationId) {
+            await sendScopedWaMessage(
+              token,
+              { shopId: activeShopId, integrationId: capability.integrationId, conversationId },
+              {
+                message: {
+                  kind: "text",
+                  text: textMsg,
+                },
+              }
+            );
+
+            Alert.alert(
+              "Receipt Sent",
+              `Sale receipt successfully sent via WhatsApp Business API to +91 ${cleaned}!`
+            );
+            return;
+          }
+        }
+      }
+    } catch (err) {
+      console.log("[WhatsApp API] Server WhatsApp Cloud API unavailable, attempting direct wa.me fallback:", err);
+    } finally {
+      setIsSendingWa(false);
+    }
+
+    // Direct WhatsApp application fallback if server API is unconfigured or unavailable
+    const url = cleaned
+      ? `https://wa.me/91${cleaned}?text=${encodeURIComponent(textMsg)}`
+      : `https://wa.me/?text=${encodeURIComponent(textMsg)}`;
+
+    Linking.openURL(url).catch(() => {
+      Alert.alert("WhatsApp Error", "Could not open WhatsApp application on this device.");
+    });
+  };
+
+  const handleWhatsAppPress = () => {
+    if (onSendWhatsApp) {
+      onSendWhatsApp();
+      return;
+    }
+
+    const cleaned = customerPhone ? cleanPhoneNumber(customerPhone) : "";
+    if (cleaned.length >= 10) {
+      Alert.alert(
+        "Send Receipt via WhatsApp",
+        `Send receipt to ${customerName} (+91 ${cleaned})?`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Change Number",
+            onPress: () => {
+              setPhoneInput(cleaned);
+              setIsPhoneModalVisible(true);
+            },
+          },
+          {
+            text: "Send Now",
+            style: "default",
+            onPress: () => openWhatsAppWithNumber(cleaned),
+          },
+        ]
+      );
+    } else {
+      setPhoneInput("");
+      setIsPhoneModalVisible(true);
+    }
+  };
   return (
     <ScrollView
       contentContainerStyle={styles.container}
@@ -117,6 +220,15 @@ export function SaleSuccessView({
         </View>
 
         <Button
+          label="SEND VIA WHATSAPP"
+          variant="success"
+          icon="whatsapp"
+          onPress={handleWhatsAppPress}
+          fullWidth
+          style={{ backgroundColor: "#25D366", borderColor: "#25D366" }}
+        />
+
+        <Button
           label="START NEW SALE"
           variant="success"
           icon="plus"
@@ -124,6 +236,57 @@ export function SaleSuccessView({
           fullWidth
         />
       </View>
+
+      {/* Phone Number Modal */}
+      <Modal
+        visible={isPhoneModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsPhoneModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContainer}>
+            <View style={styles.modalHeader}>
+              <Icon source="whatsapp" size={28} color="#25D366" />
+              <Text style={styles.modalTitle}>WhatsApp Mobile Number</Text>
+            </View>
+            <Text style={styles.modalSubtitle}>
+              Enter the 10-digit mobile number to send the sale receipt directly via WhatsApp.
+            </Text>
+
+            <TextInput
+              style={styles.phoneInput}
+              placeholder="Enter 10-digit mobile number"
+              placeholderTextColor={colors.textSecondary}
+              keyboardType="phone-pad"
+              maxLength={10}
+              value={phoneInput}
+              onChangeText={setPhoneInput}
+              autoFocus
+            />
+
+            <View style={styles.modalActions}>
+              <Button
+                label="Cancel"
+                variant="ghost"
+                onPress={() => setIsPhoneModalVisible(false)}
+                style={styles.flex1}
+              />
+              <Button
+                label="Send WhatsApp"
+                variant="success"
+                icon="whatsapp"
+                disabled={cleanPhoneNumber(phoneInput).length < 10}
+                onPress={() => {
+                  setIsPhoneModalVisible(false);
+                  openWhatsAppWithNumber(phoneInput);
+                }}
+                style={[{ backgroundColor: "#25D366", borderColor: "#25D366" }, styles.flex1]}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -199,5 +362,53 @@ const styles = StyleSheet.create({
   },
   flex1: {
     flex: 1,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: spacing.lg,
+  },
+  modalContainer: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
+    padding: spacing.xl,
+    width: "100%",
+    maxWidth: 400,
+    ...shadow.lg,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    marginBottom: spacing.xs,
+  },
+  modalTitle: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  modalSubtitle: {
+    fontSize: fontSize.sm,
+    color: colors.textSecondary,
+    marginBottom: spacing.lg,
+    lineHeight: 20,
+  },
+  phoneInput: {
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    fontSize: fontSize.md,
+    color: colors.textPrimary,
+    backgroundColor: colors.surfaceOffset,
+    marginBottom: spacing.xl,
+  },
+  modalActions: {
+    flexDirection: "row",
+    gap: spacing.md,
+    width: "100%",
   },
 });

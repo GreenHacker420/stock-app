@@ -813,4 +813,87 @@ export async function cancelInvoice(user, id, data) {
   });
 }
 
+export async function cancelSale(user, id, { reason = "Cancelled by owner" } = {}) {
+  const sale = await prisma.sale.findUnique({
+    where: { id },
+    include: { items: true, payments: true },
+  });
+
+  if (!sale) {
+    throw new ApiError(404, "Sale not found");
+  }
+  await assertShopAccess(user, sale.shopId);
+
+  if (sale.saleStatus === "CANCELLED") {
+    throw new ApiError(400, "Sale is already cancelled");
+  }
+
+  return prisma.$transaction(async (tx) => {
+    // 1. Restore Stock
+    for (const item of sale.items) {
+      await createStockIn(tx, {
+        shopId: sale.shopId,
+        itemId: item.itemId,
+        quantity: item.quantity,
+        movementType: "RETURN",
+        referenceType: "Sale",
+        referenceId: sale.id,
+        reason: `Sale ${sale.saleNumber} cancelled: ${reason}`,
+        userId: user.id,
+      });
+    }
+
+    // 2. Revert Customer Debt
+    if (sale.customerId) {
+      await decreaseCustomerDebt(tx, sale.customerId, sale.totalAmount);
+    }
+
+    // 3. Mark Sale as CANCELLED
+    const updatedSale = await tx.sale.update({
+      where: { id },
+      data: {
+        saleStatus: "CANCELLED",
+        paymentStatus: "CANCELLED",
+        notes: sale.notes ? `${sale.notes} | Cancelled: ${reason}` : `Cancelled: ${reason}`,
+      },
+      include: { items: true, payments: true },
+    });
+
+    // 4. Audit log & Domain Events
+    await tx.auditLog.create({
+      data: {
+        userId: user.id,
+        shopId: sale.shopId,
+        action: AuditAction.VOIDED,
+        entityType: EntityType.SALE,
+        entityId: sale.id,
+        newValueJson: { status: "CANCELLED", reason },
+      },
+    });
+
+    await enqueueManyDomainEvents(tx, [
+      createDomainEvent({
+        shopId: sale.shopId,
+        entity: "sale",
+        action: "updated",
+        entityId: sale.id,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true },
+      }),
+      createDomainEvent({
+        shopId: sale.shopId,
+        entity: "stock",
+        action: "updated",
+        entityId: sale.id,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true },
+      }),
+    ]);
+
+    return updatedSale;
+  });
+}
+
 

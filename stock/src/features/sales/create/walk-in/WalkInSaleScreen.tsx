@@ -196,16 +196,8 @@ export function WalkInSaleScreen() {
   }, [cartArray]);
 
   const displayItems = useMemo(() => {
-    const items = !network.isOffline ? itemsQuery.data?.items ?? [] : [];
-    // Sort selected items to the top to preserve easy access, but do not aggressively trigger layout shifts
-    return [...items].sort((a, b) => {
-      const aSelected = (draft.lines[a.id]?.quantity ?? 0) > 0;
-      const bSelected = (draft.lines[b.id]?.quantity ?? 0) > 0;
-      if (aSelected && !bSelected) return -1;
-      if (!aSelected && bSelected) return 1;
-      return 0;
-    });
-  }, [itemsQuery.data, network.isOffline, draft.lines]);
+    return !network.isOffline ? itemsQuery.data?.items ?? [] : [];
+  }, [itemsQuery.data, network.isOffline]);
 
   const hasMissingPrice = useMemo(() => {
     return Object.values(draft.lines).some((line) => line.rateMinor <= 0);

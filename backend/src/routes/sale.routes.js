@@ -106,5 +106,6 @@ router.patch("/:id", requirePermission(PERMISSIONS.SALE_EDIT_DRAFT), validate(up
 router.post("/:id/amendments", requirePermission(PERMISSIONS.SALE_AMEND_CONFIRMED), validate(amendSchema), saleController.amendSale);
 router.post("/:id/invoice", requirePermission(PERMISSIONS.INVOICE_ISSUE), validate(issueInvoiceSchema), saleController.issueInvoice);
 router.post("/:id/invoice/cancel", requirePermission(PERMISSIONS.INVOICE_CANCEL), validate(cancelInvoiceSchema), saleController.cancelInvoice);
+router.post("/:id/cancel", requirePermission(PERMISSIONS.SALE_EDIT_DRAFT), validate(cancelInvoiceSchema), saleController.cancelSale);
 
 export default router;

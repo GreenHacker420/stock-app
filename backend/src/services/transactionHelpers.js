@@ -180,6 +180,8 @@ export async function applyPayments(tx, { user, shopId, saleId, dmId, orderId, c
     newPaid = add(newPaid, amt);
     const cashSessionId = await resolveCashSessionForPayment(tx, shopId, payment.paymentMode);
 
+    const isAutoVerified = user?.role === "OWNER" || payment.paymentMode === "CASH";
+
     // Create the payment record
     const createdPayment = await tx.payment.create({
       data: {
@@ -190,8 +192,10 @@ export async function applyPayments(tx, { user, shopId, saleId, dmId, orderId, c
         customerId,
         paymentMode: payment.paymentMode,
         amount: amt,
-        status: payment.paymentMode === "CASH" ? "VERIFIED" : "RECORDED",
+        status: isAutoVerified ? "VERIFIED" : "RECORDED",
         receivedById: user.id,
+        verifiedById: isAutoVerified ? user.id : null,
+        verifiedAt: isAutoVerified ? new Date() : null,
         cashSessionId,
         notes: payment.notes,
         details: payment.details ? {
@@ -227,8 +231,8 @@ export async function applyPayments(tx, { user, shopId, saleId, dmId, orderId, c
       }
     }
 
-    // Alert the owner for non-cash payments pending verification
-    if (payment.paymentMode !== "CASH") {
+    // Alert the owner for non-cash payments pending verification (only when recorded by STAFF)
+    if (!isAutoVerified) {
       try {
         const customer = customerId ? await tx.customer.findUnique({ where: { id: customerId }, select: { name: true } }) : null;
         const customerName = customer?.name || "Walk-In";
