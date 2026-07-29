@@ -1,7 +1,7 @@
 import axios from "axios";
 import { getWaCredentials } from "../lib/wa-cache.js";
 import { NON_DIGIT_REGEX } from "../lib/validate.js";
-import { generateSaleInvoiceHtml, generateAndUploadSaleInvoicePdf, deleteInvoiceAsset } from "./pdf.service.js";
+import { generateAndUploadSaleInvoicePdf, deleteInvoiceAsset } from "./pdf.service.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 import {
@@ -930,21 +930,11 @@ export async function sendSaleWhatsAppReceipt(user, id, { recipientPhone } = {})
   const customerName = sale.isWalkin ? "Walk-in Customer" : (sale.customer?.name || "Valued Customer");
   const normalizedPhone = targetPhone.replace(NON_DIGIT_REGEX, "");
 
-  // 1. Render proper HTML → PDF via html-pdf-lite → upload to S3 → record in Asset table
-  let assetId = null;
-  let pdfPublicUrl = null;
-  try {
-    const { assetId: aid, publicUrl } = await generateAndUploadSaleInvoicePdf({
-      sale,
-      shop: sale.shop,
-    });
-    assetId = aid;
-    pdfPublicUrl = publicUrl;
-  } catch (pdfErr) {
-    console.error("[WhatsApp] PDF generation/upload error:", pdfErr.message);
-  }
-
-  const documentLink = pdfPublicUrl;
+  // 1. Render invoice HTML → PDF via html-pdf-lite → upload to S3 → record in Asset table
+  const { assetId, publicUrl: documentLink } = await generateAndUploadSaleInvoicePdf({
+    sale,
+    shop: sale.shop,
+  });
 
   const payload = {
     messaging_product: "whatsapp",
@@ -999,38 +989,4 @@ export async function sendSaleWhatsAppReceipt(user, id, { recipientPhone } = {})
 
   return { success: true, metaResponse: response.data };
 }
-
-export async function getSaleHtml(id) {
-  const sale = await prisma.sale.findUnique({
-    where: { id },
-    include: {
-      customer: true,
-      shop: true,
-      staff: { select: { id: true, name: true } },
-      items: {
-        include: {
-          item: {
-            include: {
-              brand: true,
-              category: true,
-            },
-          },
-        },
-      },
-      payments: {
-        include: {
-          receivedBy: { select: { id: true, name: true } },
-          details: true,
-        },
-      },
-    },
-  });
-
-  if (!sale) {
-    throw new ApiError(404, "Sale not found");
-  }
-
-  return generateSaleInvoiceHtml({ sale, shop: sale.shop });
-}
-
 

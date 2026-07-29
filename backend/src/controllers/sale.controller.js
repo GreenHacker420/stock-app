@@ -56,8 +56,3 @@ export const sendSaleWhatsAppReceipt = asyncHandler(async (req, res) => {
   res.json({ success: true, data: result });
 });
 
-export const getSaleHtml = asyncHandler(async (req, res) => {
-  const html = await saleService.getSaleHtml(req.params.id);
-  res.setHeader("Content-Type", "text/html");
-  res.send(html);
-});
