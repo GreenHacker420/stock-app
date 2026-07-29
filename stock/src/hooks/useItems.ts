@@ -38,7 +38,7 @@ import {
 } from "../api/client";
 import { newIdempotencyKey } from "../utils/idempotency";
 import { requireActiveShopId } from "./useActiveShop";
-import { useCategoryReadModel, useReadModelRefresh } from "../local/read-model/read-model-selectors";
+import { useCategoryReadModel, useItemCatalogReadModel, useReadModelRefresh } from "../local/read-model/read-model-selectors";
 import { refreshReadModelDomains } from "../local/read-model/read-model-coordinator";
 import type { ReadModelDomain } from "../local/read-model/read-model-types";
 
@@ -100,6 +100,15 @@ export function useInfiniteItemsQuery(opts: { search?: string; limit?: number } 
 export function useItemsQuery(opts: { search?: string; categoryId?: string; brandId?: string; page?: number; limit?: number; enabled?: boolean } = {}) {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
+
+  // 1. Query local MMKV read-model for 0ms instant search
+  const readModel = useItemCatalogReadModel({
+    shopId: activeShopId,
+    search: opts.search,
+    categoryId: opts.categoryId,
+    limit: opts.limit,
+  });
+
   const normalizedOptions = {
     search: opts.search?.trim() || undefined,
     categoryId: opts.categoryId || undefined,
@@ -107,7 +116,9 @@ export function useItemsQuery(opts: { search?: string; categoryId?: string; bran
     page: opts.page,
     limit: opts.limit,
   };
-  return useQuery({
+
+  // 2. Server query fallback (only enabled when local read-model is not bootstrapped in MMKV)
+  const serverQuery = useQuery({
     queryKey: queryKeys.items(activeShopId ?? "", normalizedOptions),
     queryFn: () =>
       fetchItems(token ?? "", activeShopId ?? "", {
@@ -117,10 +128,27 @@ export function useItemsQuery(opts: { search?: string; categoryId?: string; bran
         page: normalizedOptions.page,
         limit: normalizedOptions.limit,
       }),
-    enabled: (opts.enabled ?? true) && !!token && !!activeShopId,
+    enabled: (opts.enabled ?? true) && !!token && !!activeShopId && !readModel.hasReadModel,
     staleTime: 30 * 60 * 1000,
     placeholderData: keepPreviousData,
   });
+
+  // If local MMKV read-model contains catalog items, return local data instantly (0 network requests)
+  if (readModel.hasReadModel && readModel.data) {
+    return {
+      ...serverQuery,
+      isLoading: false,
+      isFetching: false,
+      data: {
+        items: readModel.data as any,
+        total: readModel.data.length,
+        hasMore: false,
+        page: 1,
+      },
+    } as typeof serverQuery;
+  }
+
+  return serverQuery;
 }
 
 

@@ -1,6 +1,8 @@
 export const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL ?? "https://shop-api.evergreenclassic.in";
 import { useNetworkStore } from "../auth/network-store";
 import { reportUnauthorized } from "../auth/unauthorized-handler";
+import { filterAndRankItems } from "../utils/search";
+import { SEARCH_PATTERNS } from "../utils/regex";
 
 export type PaymentMode = "CASH" | "UPI" | "CARD" | "BANK_TRANSFER" | "CHEQUE";
 export type PaymentStatus = "RECORDED" | "VERIFIED" | "REJECTED" | "CANCELLED";
@@ -491,16 +493,60 @@ export async function fetchItems(
   shopId: string,
   opts: { search?: string; page?: number; limit?: number; categoryId?: string; brandId?: string } = {}
 ) {
+  const rawSearch = opts.search && opts.search.trim() ? opts.search.trim() : "";
   const q = new URLSearchParams({ shopId });
-  if (opts.search && opts.search.trim()) q.set('search', opts.search.trim());
+  if (rawSearch) q.set('search', rawSearch);
   if (opts.categoryId) q.set('categoryId', opts.categoryId);
   if (opts.brandId) q.set('brandId', opts.brandId);
   if (opts.page)  q.set('page',  String(opts.page));
   if (opts.limit) q.set('limit', String(opts.limit));
-  return apiRequest<{ items: Item[]; total: number; hasMore: boolean; page: number }>(
+
+  let res = await apiRequest<{ items: Item[]; total: number; hasMore: boolean; page: number }>(
     `/items?${q.toString()}`,
     { token }
   );
+
+  // Fallback 1: If search query contains spaces/symbols (e.g. "Gt 52") and returned 0 items, retry with compact query ("Gt52")
+  if (rawSearch && (!res.items || res.items.length === 0)) {
+    const compactSearch = rawSearch.replace(SEARCH_PATTERNS.SPACE_AND_SYMBOLS, "");
+    if (compactSearch && compactSearch !== rawSearch) {
+      q.set('search', compactSearch);
+      try {
+        const compactRes = await apiRequest<{ items: Item[]; total: number; hasMore: boolean; page: number }>(
+          `/items?${q.toString()}`,
+          { token }
+        );
+        if (compactRes.items && compactRes.items.length > 0) {
+          res = compactRes;
+        }
+      } catch {}
+    }
+  }
+
+  // Fallback 2: If backend search still returned 0 items, fetch full catalog for shop and apply smart search client-side
+  if (rawSearch && (!res.items || res.items.length === 0)) {
+    const fullCatalogQ = new URLSearchParams({ shopId });
+    if (opts.categoryId) fullCatalogQ.set('categoryId', opts.categoryId);
+    if (opts.brandId) fullCatalogQ.set('brandId', opts.brandId);
+    fullCatalogQ.set('limit', '1000');
+    try {
+      const catalogRes = await apiRequest<{ items: Item[]; total: number; hasMore: boolean; page: number }>(
+        `/items?${fullCatalogQ.toString()}`,
+        { token }
+      );
+      if (catalogRes.items && catalogRes.items.length > 0) {
+        const matched = filterAndRankItems(catalogRes.items, rawSearch);
+        return {
+          items: matched,
+          total: matched.length,
+          hasMore: false,
+          page: 1,
+        };
+      }
+    } catch {}
+  }
+
+  return res;
 }
 
 export async function createItem(token: string, data: CreateItemPayload) {
