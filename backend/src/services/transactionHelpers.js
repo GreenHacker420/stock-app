@@ -104,6 +104,27 @@ export async function createStockOut(tx, { shopId, itemId, quantity, movementTyp
   return movement;
 }
 
+
+export async function createStockIn(tx, { shopId, itemId, quantity, movementType, referenceType, referenceId, reason, userId }) {
+  const movement = await tx.stockLedger.create({
+    data: {
+      shopId,
+      itemId,
+      movementType,
+      quantityIn: quantity,
+      quantityOut: 0,
+      referenceType,
+      referenceId,
+      reason,
+      createdById: userId,
+    },
+  });
+
+  return movement;
+}
+
+
+
 export function calculateItemTotals(items) {
   const normalizedItems = items.map((item) => {
     const quantity = Number(item.quantity ?? item.quantityOrdered);

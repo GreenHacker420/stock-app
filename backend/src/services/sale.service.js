@@ -8,6 +8,7 @@ import {
   applyPayments,
   calculateItemTotals,
   createStockOut,
+  createStockIn,
   generateRecordNumber,
   prisma,
   increaseCustomerDebt,
