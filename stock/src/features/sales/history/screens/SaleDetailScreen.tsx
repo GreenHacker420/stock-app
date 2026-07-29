@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import { View, StyleSheet, Pressable, ScrollView, Alert } from "react-native";
-import { Divider, Text, Icon } from "react-native-paper";
+import { View, StyleSheet, Pressable, ScrollView, Alert, Modal, Linking } from "react-native";
+import { Divider, Text, Icon, TextInput as PaperTextInput } from "react-native-paper";
 import { useRoute, useNavigation, type RouteProp } from "@react-navigation/native";
 import { type NativeStackNavigationProp } from "@react-navigation/native-stack";
 import Svg, { Path } from "react-native-svg";
@@ -12,7 +12,7 @@ import { useShopsQuery } from "@/hooks/useShops";
 import { useSaleQuery, useIssueInvoiceMutation, useCancelInvoiceMutation, useUpdateSaleMutation, useCancelSaleMutation } from "@/hooks/useSales";
 import { usePaymentsQuery, useAttachPaymentMutation, useVerifyPaymentMutation, useMarkPaymentMismatchMutation } from "@/hooks/usePayments";
 import { parseMoneyToMinor, fromMinorUnits } from "@/features/sales/create/core/sale-calculations";
-import { type Sale, type Shop } from "@/api/client";
+import { type Sale, type Shop, sendSaleWhatsAppReceipt } from "@/api/client";
 import { Screen } from "@/components/Screen";
 import { AppHeader } from "@/components/ui/AppHeader";
 import { StatusPill } from "@/components/ui/StatusPill";
@@ -20,9 +20,10 @@ import { SkeletonList } from "@/components/ui/SkeletonCard";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Button } from "@/components/ui/Button";
 import { Section } from "@/components/ui/Section";
-import { colors, spacing, radius, fontWeight, shadow } from "@/theme";
+import { colors, spacing, radius, fontWeight, shadow, fontSize } from "@/theme";
 import { shareSaleInvoicePdf } from "@/utils/pdf";
 import { triggerMediumHaptic } from "@/utils/haptics";
+import { cleanPhoneNumber } from "@/utils/items/validation";
 
 import { ItemSpecificationSheet } from "../sheets/ItemSpecificationSheet";
 import { GstRequirementSheet } from "../sheets/GstRequirementSheet";
@@ -124,7 +125,7 @@ export function SaleDetailScreen() {
   const saleId = route.params?.id;
   const insets = useSafeAreaInsets();
 
-  const user = useAuthStore((state) => state.user);
+  const { user, token } = useAuthStore();
   const shopsQuery = useShopsQuery();
 
   const saleQuery = useSaleQuery(saleId);
@@ -219,6 +220,75 @@ export function SaleDetailScreen() {
 
   const [selectedItemDetails, setSelectedItemDetails] = useState<SaleItemRecord | null>(null);
   const [footerHeight, setFooterHeight] = useState(0);
+
+  const [isPhoneModalVisible, setIsPhoneModalVisible] = useState(false);
+  const [phoneInput, setPhoneInput] = useState("");
+  const [isSendingWa, setIsSendingWa] = useState(false);
+
+  const openWhatsAppWithNumber = async (targetPhone: string) => {
+    const cleaned = cleanPhoneNumber(targetPhone);
+    if (!token) {
+      Alert.alert("Receipt Not Sent", "Please sign in again before sending the WhatsApp receipt.");
+      return;
+    }
+    if (!sale?.id) {
+      Alert.alert("Receipt Not Sent", "The sale ID is unavailable.");
+      return;
+    }
+
+    setIsSendingWa(true);
+    try {
+      await sendSaleWhatsAppReceipt(token, sale.id, cleaned);
+      Alert.alert(
+        "Receipt Sent",
+        `The invoice PDF was sent to +91 ${cleaned} using WhatsApp.`
+      );
+    } catch (err: any) {
+      const text = encodeURIComponent(
+        `Hello ${sale.customer?.name || "Customer"},\nHere is your invoice for Sale #${sale.saleNumber} of total amount ₹${sale.totalAmount}.\nThank you for shopping with us!`
+      );
+      const url = `whatsapp://send?phone=91${cleaned}&text=${text}`;
+      const canOpen = await Linking.canOpenURL(url).catch(() => false);
+      if (canOpen) {
+        await Linking.openURL(url);
+      } else {
+        Alert.alert(
+          "Receipt Not Sent",
+          err?.message || "The WhatsApp template or app could not be opened."
+        );
+      }
+    } finally {
+      setIsSendingWa(false);
+    }
+  };
+
+  const handleWhatsAppPress = () => {
+    const rawPhone = sale?.customer?.phone || (sale as any)?.customerPhone || "";
+    const cleaned = cleanPhoneNumber(rawPhone);
+    if (cleaned.length >= 10) {
+      Alert.alert(
+        "Send via WhatsApp",
+        `Send sale receipt to ${sale?.customer?.name || "Customer"} (+91 ${cleaned})?`,
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Change Number",
+            onPress: () => {
+              setPhoneInput(cleaned);
+              setIsPhoneModalVisible(true);
+            },
+          },
+          {
+            text: "Send Now",
+            onPress: () => openWhatsAppWithNumber(cleaned),
+          },
+        ]
+      );
+    } else {
+      setPhoneInput("");
+      setIsPhoneModalVisible(true);
+    }
+  };
 
   // Parse customer signature once — avoids IIFE on every render
   const parsedSignature = useMemo(() => {
@@ -944,6 +1014,16 @@ Payment Date: ${new Date(p.receivedAt).toLocaleString("en-IN")}`,
             style={styles.viewBtn}
           />
           <Button
+            label="WhatsApp"
+            variant="success"
+            size="sm"
+            icon="whatsapp"
+            loading={isSendingWa}
+            disabled={isSendingWa}
+            onPress={handleWhatsAppPress}
+            style={styles.waBtn}
+          />
+          <Button
             label="Share"
             variant="primary"
             size="sm"
@@ -1032,6 +1112,62 @@ Payment Date: ${new Date(p.receivedAt).toLocaleString("en-IN")}`,
         onConfirm={handleConfirmCancelInvoice}
         isPending={cancelInvoiceMutation.isPending}
       />
+
+      {/* WhatsApp Mobile Number Modal */}
+      <Modal
+        visible={isPhoneModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsPhoneModalVisible(false)}
+      >
+        <View style={styles.waModalOverlay}>
+          <View style={styles.waModalContainer}>
+            <View style={styles.waModalHeader}>
+              <Icon source="whatsapp" size={26} color="#25D366" />
+              <Text style={styles.waModalTitle}>Send Receipt via WhatsApp</Text>
+            </View>
+            <Text style={styles.waModalSubtitle}>
+              Enter the 10-digit mobile number to send the sale receipt via WhatsApp.
+            </Text>
+
+            <PaperTextInput
+              mode="outlined"
+              label="Mobile Number"
+              placeholder="e.g. 9876543210"
+              keyboardType="phone-pad"
+              maxLength={10}
+              value={phoneInput}
+              onChangeText={setPhoneInput}
+              outlineColor={colors.border}
+              activeOutlineColor="#25D366"
+              textColor={colors.textPrimary}
+              autoFocus
+              style={styles.waPhoneInput}
+            />
+
+            <View style={styles.waModalActions}>
+              <Button
+                label="Cancel"
+                variant="ghost"
+                onPress={() => setIsPhoneModalVisible(false)}
+                style={{ flex: 1 }}
+              />
+              <Button
+                label="Send WhatsApp"
+                variant="success"
+                icon="whatsapp"
+                loading={isSendingWa}
+                disabled={cleanPhoneNumber(phoneInput).length < 10 || isSendingWa}
+                onPress={() => {
+                  setIsPhoneModalVisible(false);
+                  openWhatsAppWithNumber(phoneInput);
+                }}
+                style={{ flex: 1.5, backgroundColor: "#25D366", borderColor: "#25D366" }}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
     </Screen>
   );
 }
@@ -1355,6 +1491,49 @@ const styles = StyleSheet.create({
   },
   shareBtn: {
     flex: 1,
+  },
+  waBtn: {
+    flex: 1,
+    backgroundColor: "#25D366",
+    borderColor: "#25D366",
+  },
+  waModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: spacing.lg,
+  },
+  waModalContainer: {
+    width: "100%",
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
+    padding: spacing.xl,
+    ...shadow.lg,
+  },
+  waModalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.sm,
+    marginBottom: spacing.xs,
+  },
+  waModalTitle: {
+    fontSize: fontSize.lg,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  waModalSubtitle: {
+    fontSize: fontSize.sm,
+    color: colors.textSecondary,
+    marginBottom: spacing.md,
+  },
+  waPhoneInput: {
+    backgroundColor: colors.surface,
+  },
+  waModalActions: {
+    flexDirection: "row",
+    gap: spacing.md,
+    marginTop: spacing.xl,
   },
   itemsCard: {
     backgroundColor: colors.surface,

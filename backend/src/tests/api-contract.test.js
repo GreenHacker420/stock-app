@@ -339,9 +339,12 @@ test("sale WhatsApp receipt sends the PDF template through the backend", () => {
 
   assert.ok(receiptSrc.includes('name: "sale_receipt_v1"'));
   assert.ok(receiptSrc.includes('type: "document"'));
-  assert.ok(receiptSrc.includes("getSignedS3ObjectUrl(s3Key, 3600)"));
+  assert.ok(receiptSrc.includes('document: {'));
+  assert.ok(receiptSrc.includes("id: mediaId"));
+  assert.ok(receiptSrc.includes("mediaForm.append(\"file\", invoiceAsset.pdfBuffer"));
+  assert.ok(receiptSrc.includes("await deleteInvoiceAsset(invoiceAsset.assetId)"));
   assert.ok(receiptSrc.includes("normalizedPhone = `91${normalizedPhone}`"));
-  assert.ok(!receiptSrc.includes("deleteInvoiceAsset"));
+  assert.ok(!receiptSrc.includes("getSignedS3ObjectUrl"));
   assert.ok(saleControllerSrc.includes("req.validated.body || {}"));
   assert.ok(mobileClientSrc.includes("export async function sendSaleWhatsAppReceipt"));
   assert.ok(successViewSrc.includes("await sendSaleWhatsAppReceipt(token, invoiceSale.id, cleaned)"));

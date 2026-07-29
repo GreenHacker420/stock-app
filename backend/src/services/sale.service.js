@@ -1,8 +1,8 @@
 import axios from "axios";
+import FormData from "form-data";
 import { getWaCredentials } from "../lib/wa-cache.js";
 import { NON_DIGIT_REGEX } from "../lib/validate.js";
-import { getSignedS3ObjectUrl } from "../lib/s3-storage.js";
-import { generateAndUploadSaleInvoicePdf } from "./pdf.service.js";
+import { deleteInvoiceAsset, generateAndUploadSaleInvoicePdf } from "./pdf.service.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 import {
@@ -924,7 +924,13 @@ export async function sendSaleWhatsAppReceipt(user, id, { recipientPhone } = {})
       items: { include: { item: { include: { brand: true } } } },
       customer: true,
       shop: true,
-      payments: true,
+      payments: {
+        include: {
+          details: true,
+          receivedBy: { select: { id: true, name: true } },
+        },
+      },
+      staff: { select: { id: true, name: true } },
     },
   });
 
@@ -952,16 +958,43 @@ export async function sendSaleWhatsAppReceipt(user, id, { recipientPhone } = {})
     throw new ApiError(400, "A valid Indian WhatsApp mobile number is required");
   }
 
-  // 1. Render invoice HTML → PDF via html-pdf-lite → upload to S3 → record in Asset table
-  let documentLink;
+  let invoiceAsset;
+  let mediaId;
   try {
-    const { s3Key } = await generateAndUploadSaleInvoicePdf({
+    invoiceAsset = await generateAndUploadSaleInvoicePdf({
       sale,
       shop: sale.shop,
     });
-    documentLink = await getSignedS3ObjectUrl(s3Key, 3600);
+
+    const mediaForm = new FormData();
+    mediaForm.append("messaging_product", "whatsapp");
+    mediaForm.append("file", invoiceAsset.pdfBuffer, {
+      filename: invoiceAsset.fileName,
+      contentType: "application/pdf",
+      knownLength: invoiceAsset.pdfBuffer.length,
+    });
+
+    const mediaUrl = `https://graph.facebook.com/v25.0/${creds.phoneNumberId}/media`;
+    const mediaResponse = await axios.post(mediaUrl, mediaForm, {
+      headers: {
+        Authorization: `Bearer ${creds.accessToken}`,
+        ...mediaForm.getHeaders(),
+      },
+      maxBodyLength: Infinity,
+    });
+    mediaId = mediaResponse.data?.id;
+    if (!mediaId) {
+      throw new Error("WhatsApp media upload did not return a media ID");
+    }
   } catch (error) {
     console.error("[WhatsApp] Sale receipt PDF preparation failed:", error?.message || error);
+    if (invoiceAsset?.assetId) {
+      try {
+        await deleteInvoiceAsset(invoiceAsset.assetId);
+      } catch (cleanupError) {
+        console.error("[WhatsApp] Temporary invoice cleanup failed:", cleanupError?.message || cleanupError);
+      }
+    }
     throw new ApiError(502, "The invoice PDF could not be prepared for WhatsApp", {
       code: "WHATSAPP_RECEIPT_PDF_FAILED",
     });
@@ -982,8 +1015,8 @@ export async function sendSaleWhatsAppReceipt(user, id, { recipientPhone } = {})
             {
               type: "document",
               document: {
-                link: documentLink,
-                filename: `Invoice_${sale.saleNumber}.pdf`,
+                id: mediaId,
+                filename: invoiceAsset.fileName,
               },
             },
           ],
@@ -1015,12 +1048,27 @@ export async function sendSaleWhatsAppReceipt(user, id, { recipientPhone } = {})
   } catch (error) {
     const metaMessage = error?.response?.data?.error?.message;
     console.error("[WhatsApp] Sale receipt template send failed:", error?.response?.data || error?.message || error);
+    try {
+      await deleteInvoiceAsset(invoiceAsset.assetId);
+    } catch (cleanupError) {
+      console.error("[WhatsApp] Temporary invoice cleanup failed:", cleanupError?.message || cleanupError);
+    }
     throw new ApiError(502, metaMessage || "WhatsApp rejected the invoice receipt template", {
       code: "WHATSAPP_RECEIPT_TEMPLATE_FAILED",
     });
   }
 
-  // Keep the document available after Meta accepts the request because media
-  // retrieval is asynchronous and immediate deletion can race the download.
-  return { success: true, metaResponse: response.data };
+  let temporaryAssetDeleted = true;
+  try {
+    await deleteInvoiceAsset(invoiceAsset.assetId);
+  } catch (cleanupError) {
+    temporaryAssetDeleted = false;
+    console.error("[WhatsApp] Temporary invoice cleanup failed:", cleanupError?.message || cleanupError);
+  }
+
+  return {
+    success: true,
+    metaResponse: response.data,
+    temporaryAssetDeleted,
+  };
 }

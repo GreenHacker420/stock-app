@@ -11,6 +11,7 @@ const files = testFileArg
   ? [path.resolve(testFileArg)]
   : [
       path.resolve("src/tests/api-contract.test.js"),
+      path.resolve("src/tests/pdf.service.test.js"),
       path.resolve("src/tests/delivery-memo-domain.test.js"),
       path.resolve("src/tests/phase1-security.test.js"),
       path.resolve("src/tests/phase2-core.test.js"),

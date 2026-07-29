@@ -33,7 +33,7 @@ const toFiniteNumber = (value, fallback = 0) => {
 };
 
 const formatMoney = (val) => {
-  return `₹${toFiniteNumber(val).toLocaleString("en-IN", {
+  return `Rs. ${toFiniteNumber(val).toLocaleString("en-IN", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
@@ -112,6 +112,7 @@ export function generateSaleInvoiceHtml({ sale, shop }) {
         const signatureViewBox = parsed.viewBox || "0 0 300 150";
         if (paths.length > 0) {
           const pathElements = paths
+            .filter((path) => typeof path === "string")
             .map((p) => `<path d="${escapeAttr(p)}" stroke="#18181b" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round" />`)
             .join("");
           signatureHtml = `
@@ -123,7 +124,16 @@ export function generateSaleInvoiceHtml({ sale, shop }) {
             </div>
           `;
         }
-      } catch (e) {}
+      } catch (error) {
+        console.error("[PDF] Failed to parse customer signature:", error?.message || error);
+      }
+    } else if (rawSig.startsWith("data:") || rawSig.length > 100) {
+      signatureHtml = `
+        <div style="margin-top: 30px; text-align: right;">
+          <div style="color: #71717a; font-weight: 500; font-size: 10px; text-transform: uppercase; margin-bottom: 4px;">Customer Signature</div>
+          <img src="${escapeAttr(rawSig)}" alt="Customer signature" style="max-height: 50px; max-width: 150px; object-fit: contain; border-bottom: 1px solid #e4e4e7;" />
+        </div>
+      `;
     }
   }
 
@@ -133,6 +143,7 @@ export function generateSaleInvoiceHtml({ sale, shop }) {
   const shopPhone = escapeHtml(shop?.phone || "");
   const shopEmail = escapeHtml(shop?.email || "");
   const shopGstin = escapeHtml(shop?.gstin || "");
+  const shopLogo = escapeAttr(shop?.logo || "");
 
   const customerName = escapeHtml(sale.isWalkin ? "Walk-in Customer" : sale.customer?.name || "Valued Customer");
   const customerPhone = escapeHtml(sale.customer?.phone || "");
@@ -141,9 +152,20 @@ export function generateSaleInvoiceHtml({ sale, shop }) {
 
   const uniqueItemsCount = (sale.items || []).length;
   const totalQuantity = (sale.items || []).reduce((sum, item) => sum + toFiniteNumber(item.quantity), 0);
+  const calculatedSubtotal = (sale.items || []).reduce(
+    (sum, item) => sum + (toFiniteNumber(item.quantity) * toFiniteNumber(item.rate)),
+    0,
+  );
+  const calculatedLineDiscount = (sale.items || []).reduce(
+    (sum, item) => sum + Math.max(toFiniteNumber(item.discountAmount), 0),
+    0,
+  );
+  const subtotal = toFiniteNumber(sale.subtotal, calculatedSubtotal);
+  const discount = Math.max(toFiniteNumber(sale.discountAmount, calculatedLineDiscount), 0);
+  const invoiceHash = escapeHtml(String(sale.id || "INV").substring(0, 8).toUpperCase());
 
   const paid = toFiniteNumber(sale.paidAmount);
-  const total = toFiniteNumber(sale.totalAmount);
+  const total = toFiniteNumber(sale.totalAmount, Math.max(subtotal - discount, 0));
   const balanceDue = Math.max(toFiniteNumber(sale.balanceAmount), 0);
 
   let statusText = "PAYMENT DUE";
@@ -159,7 +181,8 @@ export function generateSaleInvoiceHtml({ sale, shop }) {
   const itemsHtml = (sale.items || []).map((item) => {
     const qty = toFiniteNumber(item.quantity);
     const rate = toFiniteNumber(item.rate);
-    const itemTotal = toFiniteNumber(item.totalAmount || qty * rate);
+    const itemDiscount = Math.max(toFiniteNumber(item.discountAmount), 0);
+    const itemTotal = Math.max((qty * rate) - itemDiscount, 0);
     const brandPrefix = item.item?.brand?.name ? `${item.item.brand.name} · ` : "";
     const itemName = escapeHtml(`${brandPrefix}${item.item?.name || "Product"}`);
     const itemSku = item.item?.sku ? `(${escapeHtml(item.item.sku)})` : "";
@@ -169,6 +192,7 @@ export function generateSaleInvoiceHtml({ sale, shop }) {
         <td style="padding: 10px 0; text-align: left;">
           <div style="font-weight: 600; color: #18181b;">${itemName}</div>
           <div style="font-size: 11px; color: #71717a;">${itemSku}</div>
+          ${itemDiscount > 0 ? `<div style="font-size: 10px; color: #16a34a;">Discount: ${formatMoney(itemDiscount)}</div>` : ""}
         </td>
         <td style="padding: 10px 0; text-align: center; color: #3f3f46;">${qty} ${itemUnit}</td>
         <td style="padding: 10px 0; text-align: right; color: #3f3f46;">${formatMoney(rate)}</td>
@@ -182,10 +206,17 @@ export function generateSaleInvoiceHtml({ sale, shop }) {
     const date = formatDate(p.receivedAt);
     const amount = toFiniteNumber(p.amount);
     const collectedBy = p.receivedBy?.name ? `Collected by: ${escapeHtml(p.receivedBy.name)}` : "";
+    const details = [];
+    if (p.details?.upiReference) details.push(`UPI Ref: ${escapeHtml(p.details.upiReference)}`);
+    if (p.details?.bankUtr) details.push(`UTR: ${escapeHtml(p.details.bankUtr)}`);
+    if (p.details?.chequeNumber) details.push(`Cheque: ${escapeHtml(p.details.chequeNumber)}`);
+    if (p.details?.chequeBankName) details.push(escapeHtml(p.details.chequeBankName));
+    if (p.referenceNumber) details.push(`Ref: ${escapeHtml(p.referenceNumber)}`);
+    const detailsText = details.length > 0 ? ` (${details.join(", ")})` : "";
     return `
       <div style="display: flex; justify-content: space-between; padding: 6px 0; font-size: 13px; color: #3f3f46; border-bottom: 1px solid #e4e4e7;">
         <div>
-          <span style="font-weight: 600; color: #18181b;">${mode}</span>
+          <span style="font-weight: 600; color: #18181b;">${mode}</span>${detailsText}
           <div style="font-size: 11px; color: #71717a;">${date} ${collectedBy ? `• ${collectedBy}` : ""}</div>
         </div>
         <div style="font-weight: 600; color: #18181b;">${formatMoney(amount)}</div>
@@ -238,6 +269,13 @@ export function generateSaleInvoiceHtml({ sale, shop }) {
     .grand-total { font-size: 16px; font-weight: 800; border-top: 1px solid var(--primary); padding-top: 8px; margin-top: 6px; }
     .notes-section { background-color: var(--background-offset); padding: 12px; border-radius: 8px; font-size: 12px; margin-top: 20px; color: #3f3f46; border: 1px solid var(--border); }
     .footer { margin-top: 40px; text-align: center; font-size: 11px; color: var(--muted); }
+    @page { margin: 15mm; }
+    @media print {
+      body { padding: 24px !important; margin: 0 !important; background: #ffffff; }
+      .container { max-width: 100%; margin: 0 !important; }
+      .footer, tr { page-break-inside: avoid; }
+      thead { display: table-header-group; }
+    }
   </style>
 </head>
 <body>
@@ -249,6 +287,7 @@ export function generateSaleInvoiceHtml({ sale, shop }) {
         ${(shopPhone || shopEmail) ? `<p style="margin: 4px 0 0 0; font-size: 11px; color: var(--muted);">${shopPhone ? `Phone: ${shopPhone}` : ""} ${shopPhone && shopEmail ? " | " : ""} ${shopEmail ? `Email: ${shopEmail}` : ""}</p>` : ""}
         ${shopGstin ? `<p style="margin: 4px 0 0 0; font-size: 11px; color: var(--muted); font-weight: 500;">GSTIN: ${shopGstin}</p>` : ""}
       </div>
+      ${shopLogo ? `<img src="${shopLogo}" style="max-height: 60px; max-width: 160px; object-fit: contain;" alt="Logo" />` : ""}
     </div>
     <div class="divider"></div>
     <div class="meta-section">
@@ -312,8 +351,14 @@ export function generateSaleInvoiceHtml({ sale, shop }) {
       <div class="totals-section" style="flex: 1; margin-top: 0; min-width: 200px;">
         <div class="totals-row">
           <span style="color: var(--muted);">Subtotal</span>
-          <span style="font-weight: 600;">${formatMoney(total)}</span>
+          <span style="font-weight: 600;">${formatMoney(subtotal)}</span>
         </div>
+        ${discount > 0 ? `
+        <div class="totals-row">
+          <span style="color: var(--muted);">Discount</span>
+          <span style="font-weight: 600; color: var(--success);">−${formatMoney(discount)}</span>
+        </div>
+        ` : ""}
         ${sale.gstInvoiceNumber ? `
         <div class="totals-row">
           <span style="color: var(--muted);">GST Invoice</span>
@@ -353,9 +398,24 @@ export function generateSaleInvoiceHtml({ sale, shop }) {
     ${signatureHtml}
 
     <div class="dashed-divider"></div>
+    <div style="margin-top: 20px; display: flex; justify-content: space-between; align-items: flex-start; gap: 20px;">
+      <div style="flex: 2;">
+        <div style="font-weight: 700; font-size: 10px; color: var(--primary); text-transform: uppercase; margin-bottom: 4px;">Terms & Conditions</div>
+        <ul style="margin: 0; padding-left: 12px; font-size: 10px; color: var(--muted); line-height: 1.4;">
+          <li>Goods once sold will not be taken back or exchanged.</li>
+          <li>Warranty is subject to manufacturer policies.</li>
+          <li>All disputes are subject to ${shopCity || "local"} jurisdiction.</li>
+        </ul>
+      </div>
+      <div style="flex: 1; text-align: right;">
+        <div style="font-weight: 700; font-size: 10px; color: var(--primary); text-transform: uppercase; margin-bottom: 4px;">Verification</div>
+        <div style="font-size: 10px; font-weight: 600; color: var(--primary); font-family: monospace;">Hash: ${invoiceHash}</div>
+        <div style="font-size: 8px; color: var(--muted); margin-top: 2px;">Verified secure POS transaction</div>
+      </div>
+    </div>
     <div class="footer">
-      <div style="font-weight: 600; margin-bottom: 2px;">Thank you for shopping with us!</div>
-      <div>This is a computer-generated tax invoice issued by ${shopName}.</div>
+      <div style="font-weight: 600; margin-bottom: 2px;">Thank you for your business!</div>
+      <div>Powered by ShopControl</div>
     </div>
   </div>
 </body>
@@ -365,9 +425,9 @@ export function generateSaleInvoiceHtml({ sale, shop }) {
 /**
  * Generates a proper PDF from sale invoice HTML using html-pdf-lite,
  * uploads it to S3 under invoices/{shopId}/{saleId}.pdf,
- * records it in the Asset table, and returns { assetId, s3Key, publicUrl }.
+ * records it in the Asset table, and returns the buffer and temporary asset metadata.
  *
- * After sending via WhatsApp, call deleteAsset(assetId) to clean up.
+ * After sending via WhatsApp, call deleteInvoiceAsset(assetId) to clean up.
  */
 export async function generateAndUploadSaleInvoicePdf({ sale, shop }) {
   const html = generateSaleInvoiceHtml({ sale, shop });
@@ -416,7 +476,13 @@ export async function generateAndUploadSaleInvoicePdf({ sale, shop }) {
     },
   });
 
-  return { assetId: asset.id, s3Key, publicUrl };
+  return {
+    assetId: asset.id,
+    s3Key,
+    publicUrl,
+    fileName,
+    pdfBuffer: Buffer.from(pdfBuffer),
+  };
 }
 
 /**
@@ -426,13 +492,8 @@ export async function deleteInvoiceAsset(assetId) {
   const asset = await prisma.asset.findUnique({ where: { id: assetId } });
   if (!asset) return;
 
-  // Delete from S3
   if (asset.storageKey) {
-    try {
-      await deleteS3Object(asset.storageKey);
-    } catch (e) {
-      console.error("[PDF] S3 delete error:", e.message);
-    }
+    await deleteS3Object(asset.storageKey);
   }
 
   // Soft delete in DB
@@ -441,4 +502,3 @@ export async function deleteInvoiceAsset(assetId) {
     data: { status: "DELETED", deletedAt: new Date() },
   });
 }
-
