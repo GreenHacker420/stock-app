@@ -107,5 +107,6 @@ router.post("/:id/amendments", requirePermission(PERMISSIONS.SALE_AMEND_CONFIRME
 router.post("/:id/invoice", requirePermission(PERMISSIONS.INVOICE_ISSUE), validate(issueInvoiceSchema), saleController.issueInvoice);
 router.post("/:id/invoice/cancel", requirePermission(PERMISSIONS.INVOICE_CANCEL), validate(cancelInvoiceSchema), saleController.cancelInvoice);
 router.post("/:id/cancel", requirePermission(PERMISSIONS.SALE_EDIT_DRAFT), validate(cancelInvoiceSchema), saleController.cancelSale);
+router.post("/:id/whatsapp-send", requirePermission(PERMISSIONS.SALE_VIEW_OWN), validate(z.object({ params: idParams })), saleController.sendSaleWhatsAppReceipt);
 
 export default router;

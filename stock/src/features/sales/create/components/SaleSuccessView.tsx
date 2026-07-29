@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Linking, Alert, StyleSheet, View, ScrollView, Modal, TextInput } from "react-native";
 import { Icon, Text, Divider } from "react-native-paper";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../../../theme";
@@ -29,6 +29,7 @@ interface SaleSuccessViewProps {
   onSharePdf: () => void;
   onPrintDirect?: () => void;
   onSendWhatsApp?: () => void;
+  autoSendWhatsApp?: boolean;
   isSharing?: boolean;
   isPrinting?: boolean;
 }
@@ -46,6 +47,7 @@ export function SaleSuccessView({
   onSharePdf,
   onPrintDirect,
   onSendWhatsApp,
+  autoSendWhatsApp = false,
   isSharing = false,
   isPrinting = false,
 }: SaleSuccessViewProps) {
@@ -55,6 +57,12 @@ export function SaleSuccessView({
   const [isPhoneModalVisible, setIsPhoneModalVisible] = useState(false);
   const [phoneInput, setPhoneInput] = useState(customerPhone ?? "");
   const [isSendingWa, setIsSendingWa] = useState(false);
+
+  useEffect(() => {
+    if (autoSendWhatsApp && (customerPhone || phoneInput)) {
+      openWhatsAppWithNumber(customerPhone || phoneInput);
+    }
+  }, []);
 
   const openWhatsAppWithNumber = async (targetPhone: string) => {
     setIsSendingWa(true);

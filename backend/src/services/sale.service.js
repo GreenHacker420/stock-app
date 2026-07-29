@@ -1,3 +1,6 @@
+import axios from "axios";
+import { getWaCredentials } from "../lib/wa-cache.js";
+import { NON_DIGIT_REGEX } from "../lib/validate.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 import {
@@ -894,6 +897,82 @@ export async function cancelSale(user, id, { reason = "Cancelled by owner" } = {
 
     return updatedSale;
   });
+}
+
+export async function sendSaleWhatsAppReceipt(user, id, { recipientPhone } = {}) {
+  const sale = await prisma.sale.findUnique({
+    where: { id },
+    include: {
+      items: { include: { item: { include: { brand: true } } } },
+      customer: true,
+      shop: true,
+      payments: true,
+    },
+  });
+
+  if (!sale) {
+    throw new ApiError(404, "Sale not found");
+  }
+  await assertShopAccess(user, sale.shopId);
+
+  const targetPhone = recipientPhone || sale.customer?.phone;
+  if (!targetPhone) {
+    throw new ApiError(400, "Customer phone number is required to send WhatsApp receipt");
+  }
+
+  const creds = await getWaCredentials(sale.shopId);
+  if (!creds || !creds.accessToken || !creds.phoneNumberId) {
+    throw new ApiError(400, "WhatsApp Business API is not configured or connected for this shop");
+  }
+
+  const shopName = sale.shop?.name || "Vardaman Sales";
+  const customerName = sale.isWalkin ? "Walk-in Customer" : (sale.customer?.name || "Valued Customer");
+  const normalizedPhone = targetPhone.replace(NON_DIGIT_REGEX, "");
+
+  const payload = {
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to: normalizedPhone,
+    type: "template",
+    template: {
+      name: "sale_receipt_v1",
+      language: { code: "en_US" },
+      components: [
+        {
+          type: "header",
+          parameters: [
+            {
+              type: "document",
+              document: {
+                link: `${process.env.PUBLIC_API_URL}/sales/${sale.id}/html`,
+                filename: `Invoice_${sale.saleNumber}.pdf`,
+              },
+            },
+          ],
+        },
+        {
+          type: "body",
+          parameters: [
+            { type: "text", text: customerName },
+            { type: "text", text: sale.saleNumber },
+            { type: "text", text: `₹${Number(sale.totalAmount).toLocaleString("en-IN")}` },
+            { type: "text", text: sale.paymentStatus },
+            { type: "text", text: shopName },
+          ],
+        },
+      ],
+    },
+  };
+
+  const url = `https://graph.facebook.com/v25.0/${creds.phoneNumberId}/messages`;
+  const response = await axios.post(url, payload, {
+    headers: {
+      Authorization: `Bearer ${creds.accessToken}`,
+      "Content-Type": "application/json",
+    },
+  });
+
+  return { success: true, metaResponse: response.data };
 }
 
 

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { TEMPLATE_NAME_REGEX, TEMPLATE_KEY_REGEX } from "../lib/validate.js";
 
 const variableMappingSchema = z.object({
   component: z.enum(["HEADER", "BODY", "BUTTON", "CARD"]),
@@ -42,7 +43,7 @@ const carouselButtonSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("URL"),
     text: z.string().trim().min(1).max(25),
-    url: z.string().url().max(2000),
+    url: z.url().max(2000),
     example: z.string().max(2000).optional(),
   }),
   z.object({
@@ -63,7 +64,7 @@ const carouselCardSchema = z.object({
 });
 
 export const templateDefinitionSchema = z.object({
-  name: z.string().trim().min(1).max(512).regex(/^[a-z0-9_]+$/),
+  name: z.string().trim().min(1).max(512).regex(TEMPLATE_NAME_REGEX),
   language: z.string().trim().min(2).max(20).default("en_US"),
   category: z.enum(["MARKETING", "UTILITY", "AUTHENTICATION"]),
   subtype: z.string().max(80).optional(),
@@ -172,7 +173,7 @@ export const templateDefinitionSchema = z.object({
 });
 
 export const attributeSchema = z.object({
-  key: z.string().trim().min(1).max(120).regex(/^[a-zA-Z0-9_.]+$/),
+  key: z.string().trim().min(1).max(120).regex(TEMPLATE_KEY_REGEX),
   label: z.string().trim().min(1).max(120),
   type: z.enum(["TEXT", "NUMBER", "CURRENCY", "DATE", "DATETIME", "BOOLEAN", "URL", "PHONE", "EMAIL"]).default("TEXT"),
   source: z.enum(["CUSTOMER", "CONVERSATION", "SHOP", "CUSTOM"]).default("CUSTOM"),

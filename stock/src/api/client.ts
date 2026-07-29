@@ -722,6 +722,16 @@ export async function cancelInvoice(token: string, saleId: string, data?: {
   });
 }
 
+export async function cancelSale(token: string, saleId: string, data?: {
+  reason?: string;
+}) {
+  return apiRequest<any>(`/sales/${saleId}/cancel`, {
+    method: "POST",
+    token,
+    body: JSON.stringify(data || {}),
+  });
+}
+
 export type LocalItemImage = {
   uri: string;
   name: string;

@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from "@tansta
 import { useAuthStore } from "@/auth/auth-store";
 import { useShopStore } from "@/auth/shop-store";
 import { queryKeys } from "@/hooks/query-keys";
-import { fetchSales, fetchSale, createSale, createWalkInSale, CreateSalePayload, updateSaleGst, updateSale, amendSale, issueInvoice, cancelInvoice, type Sale } from "@/api/client";
+import { fetchSales, fetchSale, createSale, createWalkInSale, CreateSalePayload, updateSaleGst, updateSale, amendSale, issueInvoice, cancelInvoice, cancelSale, type Sale } from "@/api/client";
 import { newIdempotencyKey } from "@/utils/idempotency";
 import { requireActiveShopId } from "@/hooks/useActiveShop";
 
@@ -236,6 +236,25 @@ export function useCancelInvoiceMutation() {
         queryClient.invalidateQueries({ queryKey: ["sales", activeShopId] });
         queryClient.invalidateQueries({ queryKey: ["sale", variables.saleId] });
         queryClient.invalidateQueries({ queryKey: ["owner-dashboard"] });
+      }
+    },
+  });
+}
+
+export function useCancelSaleMutation() {
+  const token = useAuthStore((state) => state.token);
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ saleId, reason }: { saleId: string; reason?: string }) =>
+      cancelSale(token ?? "", saleId, { reason }),
+    onSuccess: (_, variables) => {
+      if (activeShopId) {
+        queryClient.invalidateQueries({ queryKey: ["sales", activeShopId] });
+        queryClient.invalidateQueries({ queryKey: ["sale", variables.saleId] });
+        queryClient.invalidateQueries({ queryKey: ["owner-dashboard"] });
+        queryClient.invalidateQueries({ queryKey: ["current-stock"] });
+        queryClient.invalidateQueries({ queryKey: ["items"] });
       }
     },
   });

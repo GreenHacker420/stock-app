@@ -9,7 +9,7 @@ import Reanimated, { LinearTransition } from "react-native-reanimated";
 
 import { useAuthStore } from "@/auth/auth-store";
 import { useShopsQuery } from "@/hooks/useShops";
-import { useSaleQuery, useIssueInvoiceMutation, useCancelInvoiceMutation, useUpdateSaleMutation } from "@/hooks/useSales";
+import { useSaleQuery, useIssueInvoiceMutation, useCancelInvoiceMutation, useUpdateSaleMutation, useCancelSaleMutation } from "@/hooks/useSales";
 import { usePaymentsQuery, useAttachPaymentMutation, useVerifyPaymentMutation, useMarkPaymentMismatchMutation } from "@/hooks/usePayments";
 import { parseMoneyToMinor, fromMinorUnits } from "@/features/sales/create/core/sale-calculations";
 import { type Sale, type Shop } from "@/api/client";
@@ -201,10 +201,11 @@ export function SaleDetailScreen() {
 
   const [sharing, setSharing] = useState(false);
 
-  // GST Invoice Mutations
+  // GST Invoice & Sale Mutations
   const issueInvoiceMutation = useIssueInvoiceMutation();
   const cancelInvoiceMutation = useCancelInvoiceMutation();
   const updateSaleMutation = useUpdateSaleMutation();
+  const cancelSaleMutation = useCancelSaleMutation();
 
   const [isInvoiceModalVisible, setIsInvoiceModalVisible] = useState(false);
   const [invoiceNumber, setInvoiceNumber] = useState("");
@@ -385,14 +386,16 @@ export function SaleDetailScreen() {
   const totalAmountMinor = parseMoneyToMinor(sale.totalAmount) ?? 0;
   const paymentsList = (sale.payments as SalePaymentRecord[]) ?? [];
 
-  const derivedVerifiedMinor = paymentsList.reduce((sum: number, p: SalePaymentRecord) =>
-    p.status === "VERIFIED" ? sum + (parseMoneyToMinor(p.amount) ?? 0) : sum, 0) ?? 0;
+  const derivedVerifiedMinor = paymentsList.reduce((sum: number, p: SalePaymentRecord) => {
+    const isVerified = p.status === "VERIFIED" || (sale.paymentStatus === "PAID" && p.status !== "REJECTED") || (user?.role === "OWNER" && p.status !== "REJECTED");
+    return isVerified ? sum + (parseMoneyToMinor(p.amount) ?? 0) : sum;
+  }, 0) ?? 0;
 
   const derivedRecordedMinor = paymentsList.reduce((sum: number, p: SalePaymentRecord) =>
-    p.status === "RECORDED" ? sum + (parseMoneyToMinor(p.amount) ?? 0) : sum, 0) ?? 0;
+    p.status === "RECORDED" && user?.role !== "OWNER" && sale.paymentStatus !== "PAID" ? sum + (parseMoneyToMinor(p.amount) ?? 0) : sum, 0) ?? 0;
 
-  const verifiedPaymentMinor = parseMoneyToMinor((sale as any).verifiedPaidAmount) ?? derivedVerifiedMinor;
-  const recordedPaymentMinor = parseMoneyToMinor((sale as any).recordedPaymentAmount) ?? derivedRecordedMinor;
+  const verifiedPaymentMinor = Math.max(derivedVerifiedMinor, sale.paymentStatus === "PAID" ? totalAmountMinor : (parseMoneyToMinor((sale as any).verifiedPaidAmount) ?? derivedVerifiedMinor));
+  const recordedPaymentMinor = sale.paymentStatus === "PAID" ? 0 : (parseMoneyToMinor((sale as any).recordedPaymentAmount) ?? derivedRecordedMinor);
   const balanceDueMinor = parseMoneyToMinor(sale.balanceAmount) ?? Math.max(0, totalAmountMinor - verifiedPaymentMinor - recordedPaymentMinor);
 
   const pendingPaymentMinor = recordedPaymentMinor;
@@ -928,6 +931,42 @@ Payment Date: ${new Date(p.receivedAt).toLocaleString("en-IN")}`,
             onPress={handleSharePdf}
             style={styles.shareBtn}
           />
+          {user?.role === "OWNER" && (sale as any).saleStatus !== "CANCELLED" && (
+            <Button
+              label="Cancel Sale"
+              variant="danger"
+              icon="close-circle-outline"
+              loading={cancelSaleMutation.isPending}
+              disabled={cancelSaleMutation.isPending}
+              onPress={() => {
+                Alert.alert(
+                  "Cancel Sale",
+                  `Are you sure you want to cancel Sale #${sale.saleNumber}? This will restore product stock levels.`,
+                  [
+                    { text: "Keep Sale", style: "cancel" },
+                    {
+                      text: "Cancel Sale",
+                      style: "destructive",
+                      onPress: () => {
+                        cancelSaleMutation.mutate(
+                          { saleId: sale.id, reason: "Cancelled by owner" },
+                          {
+                            onSuccess: () => {
+                              Alert.alert("Sale Cancelled", `Sale #${sale.saleNumber} has been cancelled.`);
+                            },
+                            onError: (err: any) => {
+                              Alert.alert("Error", err?.message || "Failed to cancel sale.");
+                            },
+                          }
+                        );
+                      },
+                    },
+                  ]
+                );
+              }}
+              style={styles.shareBtn}
+            />
+          )}
         </View>
       </View>
 

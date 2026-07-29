@@ -50,3 +50,8 @@ export const cancelSale = asyncHandler(async (req, res) => {
   const sale = await saleService.cancelSale(req.user, req.validated.params.id, req.validated.body || {});
   res.json({ success: true, data: sale });
 });
+
+export const sendSaleWhatsAppReceipt = asyncHandler(async (req, res) => {
+  const result = await saleService.sendSaleWhatsAppReceipt(req.user, req.validated.params.id, req.body || {});
+  res.json({ success: true, data: result });
+});

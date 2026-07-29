@@ -1,13 +1,14 @@
 import { Worker } from "bullmq";
 import Redis from "ioredis";
 import prisma from "../lib/db.js";
+import { EXPO_PUSH_TOKEN_REGEX } from "../lib/validate.js";
 
 const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
 const connection = new Redis(REDIS_URL, { maxRetriesPerRequest: null });
 const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
 
 function isExpoPushToken(token) {
-  return /^ExponentPushToken\[[^\]]+\]$|^ExpoPushToken\[[^\]]+\]$/.test(token || "");
+  return EXPO_PUSH_TOKEN_REGEX.test(token || "");
 }
 
 async function sendExpo(messages) {
