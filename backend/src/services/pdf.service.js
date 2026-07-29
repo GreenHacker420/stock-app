@@ -1,3 +1,11 @@
+import { renderPdfFromHtml } from "html-pdf-lite";
+import {
+  uploadBufferToS3,
+  getPublicS3ObjectUrl,
+  getS3BucketName,
+  deleteS3Object,
+} from "../lib/s3-storage.js";
+import prisma from "../lib/db.js";
 import {
   HTML_ESCAPE_AMP_REGEX,
   HTML_ESCAPE_LT_REGEX,
@@ -353,3 +361,84 @@ export function generateSaleInvoiceHtml({ sale, shop }) {
 </body>
 </html>`;
 }
+
+/**
+ * Generates a proper PDF from sale invoice HTML using html-pdf-lite,
+ * uploads it to S3 under invoices/{shopId}/{saleId}.pdf,
+ * records it in the Asset table, and returns { assetId, s3Key, publicUrl }.
+ *
+ * After sending via WhatsApp, call deleteAsset(assetId) to clean up.
+ */
+export async function generateAndUploadSaleInvoicePdf({ sale, shop }) {
+  const html = generateSaleInvoiceHtml({ sale, shop });
+  const fileName = `Invoice_${sale.saleNumber}.pdf`;
+  const s3Key = `invoices/${shop.id}/${sale.id}/${fileName}`;
+
+  // 1. Render HTML → PDF buffer (no Chromium needed)
+  const pdfBuffer = await renderPdfFromHtml(html, {
+    margins: { top: 30, bottom: 30, left: 30, right: 30 },
+    fetchExternalCss: false,
+    ignoreInvalidImages: true,
+  });
+
+  // 2. Upload to S3
+  await uploadBufferToS3({
+    body: Buffer.from(pdfBuffer),
+    key: s3Key,
+    mimeType: "application/pdf",
+    cacheControl: "private, max-age=300",
+  });
+
+  const publicUrl = getPublicS3ObjectUrl(s3Key);
+  const bucketName = getS3BucketName();
+
+  // 3. Record in Asset table (WHATSAPP_OUTBOUND DOCUMENT)
+  const asset = await prisma.asset.create({
+    data: {
+      shopId: shop.id,
+      kind: "DOCUMENT",
+      source: "WHATSAPP_OUTBOUND",
+      status: "READY",
+      storageProvider: "S3",
+      storageBucket: bucketName,
+      storageKey: s3Key,
+      remoteUrl: publicUrl,
+      mimeType: "application/pdf",
+      fileName,
+      sizeBytes: BigInt(pdfBuffer.byteLength ?? pdfBuffer.length),
+      metadata: {
+        saleId: sale.id,
+        saleNumber: sale.saleNumber,
+        shopId: shop.id,
+        purpose: "whatsapp_receipt",
+      },
+      readyAt: new Date(),
+    },
+  });
+
+  return { assetId: asset.id, s3Key, publicUrl };
+}
+
+/**
+ * Deletes the S3 object and soft-deletes the Asset record.
+ */
+export async function deleteInvoiceAsset(assetId) {
+  const asset = await prisma.asset.findUnique({ where: { id: assetId } });
+  if (!asset) return;
+
+  // Delete from S3
+  if (asset.storageKey) {
+    try {
+      await deleteS3Object(asset.storageKey);
+    } catch (e) {
+      console.error("[PDF] S3 delete error:", e.message);
+    }
+  }
+
+  // Soft delete in DB
+  await prisma.asset.update({
+    where: { id: assetId },
+    data: { status: "DELETED", deletedAt: new Date() },
+  });
+}
+

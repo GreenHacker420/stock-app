@@ -1,8 +1,7 @@
 import axios from "axios";
-import FormData from "form-data";
 import { getWaCredentials } from "../lib/wa-cache.js";
 import { NON_DIGIT_REGEX } from "../lib/validate.js";
-import { generateSaleInvoiceHtml } from "./pdf.service.js";
+import { generateSaleInvoiceHtml, generateAndUploadSaleInvoicePdf, deleteInvoiceAsset } from "./pdf.service.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 import {
@@ -931,33 +930,21 @@ export async function sendSaleWhatsAppReceipt(user, id, { recipientPhone } = {})
   const customerName = sale.isWalkin ? "Walk-in Customer" : (sale.customer?.name || "Valued Customer");
   const normalizedPhone = targetPhone.replace(NON_DIGIT_REGEX, "");
 
-  // Generate Tax Invoice HTML
-  const htmlContent = generateSaleInvoiceHtml({ sale, shop: sale.shop });
-
-  // Create PDF Buffer
-  const pdfBuffer = Buffer.from(
-    `%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R /Resources << /Font << /F1 << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> >> >> >>\nendobj\n4 0 obj\n<< /Length 120 >>\nstream\nBT /F1 16 Tf 50 720 Td (TAX INVOICE - ${sale.saleNumber}) Tj 0 -30 Td (${shopName}) Tj 0 -30 Td (Total: ₹${Number(sale.totalAmount).toLocaleString("en-IN")}) Tj ET\nendstream\nendobj\nxref\n0 5\n0000000000 65535 f \n0000000009 00000 n \n0000000058 00000 n \n0000000115 00000 n \n0000000302 00000 n \ntrailer << /Size 5 /Root 1 0 R >>\nstartxref\n470\n%%EOF`
-  );
-
-  let mediaId = null;
+  // 1. Render proper HTML → PDF via html-pdf-lite → upload to S3 → record in Asset table
+  let assetId = null;
+  let pdfPublicUrl = null;
   try {
-    const form = new FormData();
-    form.append("messaging_product", "whatsapp");
-    form.append("file", pdfBuffer, {
-      filename: `Invoice_${sale.saleNumber}.pdf`,
-      contentType: "application/pdf",
+    const { assetId: aid, publicUrl } = await generateAndUploadSaleInvoicePdf({
+      sale,
+      shop: sale.shop,
     });
-
-    const mediaRes = await axios.post(`https://graph.facebook.com/v25.0/${creds.phoneNumberId}/media`, form, {
-      headers: {
-        Authorization: `Bearer ${creds.accessToken}`,
-        ...form.getHeaders(),
-      },
-    });
-    mediaId = mediaRes.data.id;
-  } catch (mediaErr) {
-    console.error("[WhatsApp Media Upload] Media upload error:", mediaErr?.response?.data || mediaErr.message);
+    assetId = aid;
+    pdfPublicUrl = publicUrl;
+  } catch (pdfErr) {
+    console.error("[WhatsApp] PDF generation/upload error:", pdfErr.message);
   }
+
+  const documentLink = pdfPublicUrl;
 
   const payload = {
     messaging_product: "whatsapp",
@@ -973,9 +960,10 @@ export async function sendSaleWhatsAppReceipt(user, id, { recipientPhone } = {})
           parameters: [
             {
               type: "document",
-              document: mediaId
-                ? { id: mediaId, filename: `Invoice_${sale.saleNumber}.pdf` }
-                : { link: `${process.env.PUBLIC_API_URL || "https://stock-backend.evergreen.shop"}/sales/${sale.id}/html`, filename: `Invoice_${sale.saleNumber}.pdf` },
+              document: {
+                link: documentLink,
+                filename: `Invoice_${sale.saleNumber}.pdf`,
+              },
             },
           ],
         },
@@ -993,6 +981,7 @@ export async function sendSaleWhatsAppReceipt(user, id, { recipientPhone } = {})
     },
   };
 
+  // 3. Send via Meta Graph API v25.0
   const url = `https://graph.facebook.com/v25.0/${creds.phoneNumberId}/messages`;
   const response = await axios.post(url, payload, {
     headers: {
@@ -1001,7 +990,14 @@ export async function sendSaleWhatsAppReceipt(user, id, { recipientPhone } = {})
     },
   });
 
-  return { success: true, metaResponse: response.data, mediaId };
+  // 4. Delete the S3 PDF + Asset record after successful dispatch
+  if (assetId) {
+    deleteInvoiceAsset(assetId).catch((e) =>
+      console.error("[WhatsApp] Asset cleanup error:", e.message)
+    );
+  }
+
+  return { success: true, metaResponse: response.data };
 }
 
 export async function getSaleHtml(id) {
