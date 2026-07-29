@@ -306,7 +306,7 @@ export async function getSale(user, id) {
     throw new ApiError(403, "You can view only your own sales");
   }
 
-  // Compute real-time balance from actual payment records (handles legacy data with stale balanceAmount=0)
+  // Compute real-time balance from actual payment records 
   const verifiedPaid = sale.payments
     .filter((p) => p.status === "VERIFIED")
     .reduce((sum, p) => add(sum, p.amount), money(0));
