@@ -17,6 +17,7 @@ import {
   ActivityIndicator,
   NativeScrollEvent,
   NativeSyntheticEvent,
+  type ScrollViewProps,
 } from "react-native";
 import { FlashList } from "@shopify/flash-list";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
@@ -53,6 +54,7 @@ import {
 import { useAuthStore } from "../../../auth/auth-store";
 import { useCustomerDetailQuery } from "../../../hooks/useCustomers";
 import { KeyboardAwareFooter } from "../../../components/keyboard/KeyboardAwareFooter";
+import { KeyboardChatListScrollComponent } from "../../../components/keyboard/KeyboardChatListScrollComponent";
 import { AppBottomSheetModal } from "../../../components/overlays/AppBottomSheetModal";
 import type { RootStackParamList } from "../../../navigation";
 import { colors as Colors } from "../../../theme";
@@ -283,6 +285,7 @@ export const ChatDetailScreen = () => {
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [newMessageCount, setNewMessageCount] = useState(0);
   const [isNearBottom, setIsNearBottom] = useState(true);
+  const [composerHeight, setComposerHeight] = useState(0);
 
   // Template Picker State
   const [showTemplateSheet, setShowTemplateSheet] = useState(false);
@@ -349,7 +352,9 @@ export const ChatDetailScreen = () => {
 
     try {
       navigation.setOptions({
-        headerShown: !showProfileSheet,
+        // Keep the route header mounted. Hiding it for a modal profile sheet can
+        // leave the chat without its contact header if dismissal is interrupted.
+        headerShown: true,
         headerStyle: { backgroundColor: waColors.greenDark },
         headerTintColor: "#fff",
         headerShadowVisible: false,
@@ -390,7 +395,7 @@ export const ChatDetailScreen = () => {
         headerTitleAlign: "left",
       });
     } catch {}
-  }, [navigation, conversation, deviceContactName, recipientPhone, showProfileSheet]);
+  }, [navigation, conversation, deviceContactName, recipientPhone]);
 
   const messageQuery = useWhatsAppMessages(conversationId);
   const messages = messageQuery.messages;
@@ -1476,10 +1481,21 @@ function getFastTimeSep(isoString?: string): string {
     if (nearBottom && newMessageCount) setNewMessageCount(0);
   };
 
+  const renderKeyboardAwareScroll = useCallback(
+    (props: ScrollViewProps) => (
+      <KeyboardChatListScrollComponent
+        {...props}
+        keyboardOffset={composerHeight}
+      />
+    ),
+    [composerHeight],
+  );
+
   return (
     <View style={styles.container}>
       <FlashList
         ref={flatListRef}
+        style={styles.timeline}
         data={displayedMessages}
         renderItem={renderMessage}
         getItemType={getItemType}
@@ -1490,6 +1506,7 @@ function getFastTimeSep(isoString?: string): string {
         contentInsetAdjustmentBehavior="never"
         keyboardDismissMode="interactive"
         keyboardShouldPersistTaps="handled"
+        renderScrollComponent={renderKeyboardAwareScroll}
         contentContainerStyle={styles.listContent}
         maintainVisibleContentPosition={maintainVisibleContentConfig}
         onScroll={handleTimelineScroll}
@@ -1556,7 +1573,12 @@ function getFastTimeSep(isoString?: string): string {
         </TouchableOpacity>
       )}
 
-      <KeyboardAwareFooter>
+      <KeyboardAwareFooter
+        onLayout={(event) => {
+          const nextHeight = Math.round(event.nativeEvent.layout.height);
+          setComposerHeight((current) => current === nextHeight ? current : nextHeight);
+        }}
+      >
         {/* Reply Quoting Bar (if replying) */}
         {replyingTo && (
           <View style={styles.replyingBar}>
@@ -1775,6 +1797,7 @@ function getFastTimeSep(isoString?: string): string {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#e9efec" },
+  timeline: { flex: 1 },
   listContent: { paddingHorizontal: 10, paddingTop: 12, paddingBottom: 16 },
   timelineState: {
     minHeight: 420,
