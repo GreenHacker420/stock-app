@@ -11,7 +11,12 @@ interface Props {
   edges?: ('top' | 'bottom' | 'left' | 'right')[];
 }
 
-export function Screen({ children, style, bg = colors.bg, edges = ['top', 'left', 'right'] }: Props) {
+export function Screen({
+  children,
+  style,
+  bg = colors.bg,
+  edges = ['top', 'bottom', 'left', 'right'],
+}: Props) {
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: bg }]} edges={edges}>
       <StatusBar

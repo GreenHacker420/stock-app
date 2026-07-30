@@ -43,6 +43,7 @@
           "style": "dark"
         }
       ],
+      "./plugins/with-android-navigation-bar-background",
       "expo-notifications",
       "expo-asset",
       [

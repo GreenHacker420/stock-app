@@ -1,7 +1,6 @@
-import { useMemo, useState, useCallback, useEffect } from "react";
+import { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import { Alert, StyleSheet, View } from "react-native";
 import { useNavigation, type NavigationProp } from "@react-navigation/native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useShopStore } from "@/auth/shop-store";
 import { useAuthStore } from "@/auth/auth-store";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
@@ -49,6 +48,12 @@ import { colors, spacing } from "@/theme";
 import { type RootStackParamList } from "@/navigation";
 import { useLiveSaleStock } from "../core/useLiveSaleStock";
 import { formatStockShortageMessage } from "../core/sale-stock";
+import {
+  clearLocalSaleDraft,
+  hasMeaningfulSaleDraft,
+  loadLocalSaleDraft,
+  saveLocalSaleDraft,
+} from "../core/sale-draft-storage";
 
 const internetRequiredMessage = "Internet connection required. Please connect to the internet to complete this action.";
 
@@ -59,7 +64,14 @@ export function RegularSaleScreen() {
   const token = useAuthStore((state) => state.token);
   const user = useAuthStore((state) => state.user);
   const network = useNetworkStatus();
-  const insets = useSafeAreaInsets();
+  const [restoredDraft] = useState(() =>
+    user?.id ? loadLocalSaleDraft(user.id, draftShopId, "REGULAR") : null
+  );
+  const restoredView = restoredDraft?.view.kind === "REGULAR" ? restoredDraft.view : null;
+  const restoredCustomer = restoredDraft?.draft.customer.kind === "EXISTING"
+    ? restoredDraft.draft.customer.customer as Customer
+    : null;
+  const restoredSettlement = restoredDraft?.draft.settlement;
 
   const shopsQuery = useShopsQuery();
   const draftShop = useMemo(() =>
@@ -67,20 +79,39 @@ export function RegularSaleScreen() {
     [shopsQuery.data, draftShopId]
   );
 
-  const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(1);
+  const [currentStep, setCurrentStep] = useState<1 | 2 | 3 | 4>(
+    restoredView?.currentStep ?? 1,
+  );
   const [footerHeight, setFooterHeight] = useState(85);
 
-  const [customerId, setCustomerId] = useState<string | null>(null);
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [customerId, setCustomerId] = useState<string | null>(restoredCustomer?.id ?? null);
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(restoredCustomer);
   const [customerSearch, setCustomerSearch] = useState("");
   const [itemSearch, setItemSearch] = useState("");
   const [activeSerialScanItemId, setActiveSerialScanItemId] = useState<string | null>(null);
 
-  const [paymentType, setPaymentType] = useState<"CASH" | "UPI" | "BANK_TRANSFER" | "CREDIT">("CASH");
-  const [partialPaymentMode, setPartialPaymentMode] = useState<"CASH" | "UPI">("CASH");
-  const [amountPaid, setAmountPaid] = useState("");
-  const [notes, setNotes] = useState("");
-  const [isGstSale, setIsGstSale] = useState(false);
+  const [paymentType, setPaymentType] = useState<"CASH" | "UPI" | "BANK_TRANSFER" | "CREDIT">(
+    restoredView?.paymentType
+      ?? (restoredSettlement?.kind === "FULL_CREDIT" || restoredSettlement?.kind === "PARTIAL_CREDIT"
+        ? "CREDIT"
+        : restoredSettlement?.kind === "FULL_PAYMENT"
+          ? restoredSettlement.mode
+          : "CASH"),
+  );
+  const [partialPaymentMode, setPartialPaymentMode] = useState<"CASH" | "UPI">(
+    restoredView?.partialPaymentMode
+      ?? (restoredSettlement?.kind === "PARTIAL_CREDIT" && restoredSettlement.upfrontMode === "UPI"
+        ? "UPI"
+        : "CASH"),
+  );
+  const [amountPaid, setAmountPaid] = useState(
+    restoredView?.amountPaid
+      ?? (restoredSettlement && "paidMinor" in restoredSettlement
+        ? String(fromMinorUnits(restoredSettlement.paidMinor))
+        : ""),
+  );
+  const [notes, setNotes] = useState(restoredDraft?.draft.notes ?? "");
+  const [isGstSale, setIsGstSale] = useState(restoredDraft?.draft.gstRequired ?? false);
   const [isSigSheetVisible, setIsSigSheetVisible] = useState(false);
   const [skuScannerVisible, setSkuScannerVisible] = useState(false);
 
@@ -115,7 +146,10 @@ export function RegularSaleScreen() {
   const { draft, dispatch, totalMinor, validation } = useSaleDraft({
     mode: "REGULAR",
     shopId: draftShopId,
+    initialDraft: restoredDraft?.draft,
   });
+  const allowNextRemovalRef = useRef(false);
+  const removalPromptVisibleRef = useRef(false);
 
   const handleLiveStockShortage = useCallback((shortages: Parameters<typeof formatStockShortageMessage>[0]) => {
     Alert.alert("Stock changed", formatStockShortageMessage(shortages));
@@ -129,8 +163,86 @@ export function RegularSaleScreen() {
 
   // Sync draftShopId to useSaleDraft reducer
   useEffect(() => {
-    dispatch({ type: "RESET_DRAFT", shopId: draftShopId });
-  }, [draftShopId, dispatch]);
+    if (draft.shopId !== draftShopId) {
+      dispatch({ type: "RESET_DRAFT", shopId: draftShopId });
+    }
+  }, [draft.shopId, draftShopId, dispatch]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    saveLocalSaleDraft({
+      userId: user.id,
+      shopId: draftShopId,
+      mode: "REGULAR",
+      draft,
+      view: {
+        kind: "REGULAR",
+        currentStep: currentStep === 4 ? 3 : currentStep,
+        paymentType,
+        partialPaymentMode,
+        amountPaid,
+      },
+    });
+  }, [
+    amountPaid,
+    currentStep,
+    draft,
+    draftShopId,
+    partialPaymentMode,
+    paymentType,
+    user?.id,
+  ]);
+
+  useEffect(() => {
+    return navigation.addListener("beforeRemove", (event) => {
+      if (allowNextRemovalRef.current) {
+        allowNextRemovalRef.current = false;
+        return;
+      }
+      if (currentStep === 2 || currentStep === 3) {
+        event.preventDefault();
+        setCurrentStep(currentStep === 3 ? 2 : 1);
+        return;
+      }
+      if (!hasMeaningfulSaleDraft(draft) || currentStep === 4) return;
+
+      event.preventDefault();
+      if (removalPromptVisibleRef.current) return;
+      removalPromptVisibleRef.current = true;
+      Alert.alert(
+        "Save unfinished sale?",
+        "Keep this sale as a local draft and continue it later on this device.",
+        [
+          {
+            text: "Cancel",
+            style: "cancel",
+            onPress: () => {
+              removalPromptVisibleRef.current = false;
+            },
+          },
+          {
+            text: "Discard",
+            style: "destructive",
+            onPress: () => {
+              removalPromptVisibleRef.current = false;
+              if (user?.id) clearLocalSaleDraft(user.id, draftShopId, "REGULAR");
+              dispatch({ type: "RESET_DRAFT", shopId: draftShopId });
+              allowNextRemovalRef.current = true;
+              navigation.dispatch(event.data.action);
+            },
+          },
+          {
+            text: "Save & exit",
+            onPress: () => {
+              removalPromptVisibleRef.current = false;
+              allowNextRemovalRef.current = true;
+              navigation.dispatch(event.data.action);
+            },
+          },
+        ],
+      );
+    });
+  }, [currentStep, draft, draftShopId, navigation, user?.id, dispatch]);
 
   // Sync customer state to draft
   useEffect(() => {
@@ -301,6 +413,7 @@ export function RegularSaleScreen() {
           submittedDraft: { ...draft },
         });
         dispatch({ type: "RESET_DRAFT", shopId: requireActiveShopId(activeShopId) });
+        if (user?.id) clearLocalSaleDraft(user.id, draftShopId, "REGULAR");
         setCurrentStep(4);
       },
       onError: (error: any) => {
@@ -368,9 +481,13 @@ export function RegularSaleScreen() {
     setCustomerSearch("");
     setItemSearch("");
     setAmountPaid("");
+    setPaymentType("CASH");
+    setPartialPaymentMode("CASH");
     setNotes("");
     setDraftShopId(requireActiveShopId(activeShopId));
     setIsGstSale(false);
+    if (user?.id) clearLocalSaleDraft(user.id, draftShopId, "REGULAR");
+    dispatch({ type: "RESET_DRAFT", shopId: requireActiveShopId(activeShopId) });
     saleMutation.reset();
     setCompletedSaleSnapshot(null);
     setCurrentStep(1);
@@ -469,7 +586,11 @@ export function RegularSaleScreen() {
 
   return (
     <Screen edges={["top", "left", "right"]}>
-      <SaleStepHeader step={currentStep} onBack={handleHeaderBack} />
+      <SaleStepHeader
+        step={currentStep}
+        onBack={handleHeaderBack}
+        draftRestored={Boolean(restoredDraft)}
+      />
 
       <View style={styles.mainContainer}>
         {currentStep === 1 && (

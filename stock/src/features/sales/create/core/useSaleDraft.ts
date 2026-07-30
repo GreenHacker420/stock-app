@@ -8,10 +8,17 @@ import type { SaleMode } from "./sale.types";
 export interface UseSaleDraftOptions {
   mode: SaleMode;
   shopId: string;
+  initialDraft?: import("./sale.types").SaleDraft | null;
 }
 
-export function useSaleDraft({ mode, shopId }: UseSaleDraftOptions) {
-  const [draft, dispatch] = useReducer(saleDraftReducer, undefined, () => createInitialSaleDraft(mode, shopId));
+export function useSaleDraft({ mode, shopId, initialDraft }: UseSaleDraftOptions) {
+  const [draft, dispatch] = useReducer(
+    saleDraftReducer,
+    undefined,
+    () => initialDraft?.mode === mode && initialDraft.shopId === shopId
+      ? initialDraft
+      : createInitialSaleDraft(mode, shopId),
+  );
   const policy = useMemo(() => (mode === "WALK_IN" ? walkInSalePolicy : regularSalePolicy), [mode]);
   const totalMinor = useMemo(() => calculateSaleTotalMinor(draft.lines), [draft.lines]);
   const validation = useMemo(() => validateSaleDraft(draft, policy), [draft, policy]);

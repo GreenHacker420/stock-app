@@ -4,6 +4,7 @@ import { Icon, Text, Divider } from "react-native-paper";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../../../theme";
 import { Button } from "../../../../components/ui/Button";
 import { InfoRow } from "../../../../components/ui/InfoRow";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { cleanPhoneNumber } from "../../../../utils/items/validation";
 import { useAuthStore } from "../../../../auth/auth-store";
 import { sendSaleWhatsAppReceipt } from "../../../../api/client";
@@ -46,6 +47,7 @@ export function SaleSuccessView({
   isPrinting = false,
 }: SaleSuccessViewProps) {
   const token = useAuthStore((state) => state.token);
+  const insets = useSafeAreaInsets();
 
   const [isPhoneModalVisible, setIsPhoneModalVisible] = useState(false);
   const [phoneInput, setPhoneInput] = useState(customerPhone ?? "");
@@ -98,8 +100,12 @@ export function SaleSuccessView({
   };
   return (
     <ScrollView
-      contentContainerStyle={styles.container}
+      contentContainerStyle={[
+        styles.container,
+        { paddingBottom: Math.max(insets.bottom, spacing.lg) + spacing.lg },
+      ]}
       showsVerticalScrollIndicator={false}
+      contentInsetAdjustmentBehavior="automatic"
     >
       <View style={styles.successCard}>
         <View style={styles.iconWrapper}>

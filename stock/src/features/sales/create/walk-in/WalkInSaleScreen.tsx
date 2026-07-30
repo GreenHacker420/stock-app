@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback, useEffect } from "react";
+import { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import { Alert, StyleSheet, View } from "react-native";
 import { AppHeader } from "@/components/ui/AppHeader";
 import { Screen } from "@/components/Screen";
@@ -41,6 +41,12 @@ import { colors, spacing, fontSize, fontWeight, radius, shadow } from "@/theme";
 import { type RootStackParamList } from "@/navigation";
 import { useLiveSaleStock } from "../core/useLiveSaleStock";
 import { formatStockShortageMessage } from "../core/sale-stock";
+import {
+  clearLocalSaleDraft,
+  hasMeaningfulSaleDraft,
+  loadLocalSaleDraft,
+  saveLocalSaleDraft,
+} from "../core/sale-draft-storage";
 
 const internetRequiredMessage = "Internet connection required. Please connect to the internet to complete this action.";
 
@@ -51,6 +57,17 @@ export function WalkInSaleScreen() {
   const token = useAuthStore((state) => state.token);
   const user = useAuthStore((state) => state.user);
   const network = useNetworkStatus();
+  const [restoredDraft] = useState(() =>
+    user?.id ? loadLocalSaleDraft(user.id, draftShopId, "WALK_IN") : null
+  );
+  const restoredView = restoredDraft?.view.kind === "WALK_IN" ? restoredDraft.view : null;
+  const restoredCustomer = restoredDraft?.draft.customer.kind === "EXISTING"
+    ? restoredDraft.draft.customer.customer as Customer
+    : null;
+  const restoredQuickCustomer = restoredDraft?.draft.customer.kind === "QUICK_WALK_IN"
+    ? restoredDraft.draft.customer
+    : null;
+  const restoredSettlement = restoredDraft?.draft.settlement;
 
   const shopsQuery = useShopsQuery();
   const draftShop = useMemo(() =>
@@ -65,14 +82,26 @@ export function WalkInSaleScreen() {
 
   const [search, setSearch] = useState("");
   const [customerSearch, setCustomerSearch] = useState("");
-  const [customerId, setCustomerId] = useState<string | null>(null);
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
-  const [customerName, setCustomerName] = useState("");
-  const [customerPhone, setCustomerPhone] = useState("");
-  const [paymentMode, setPaymentMode] = useState<"CASH" | "UPI">("CASH");
-  const [amountReceived, setAmountReceived] = useState("");
-  const [notes, setNotes] = useState("");
-  const [upiConfirmedFingerprint, setUpiConfirmedFingerprint] = useState<string | null>(null);
+  const [customerId, setCustomerId] = useState<string | null>(restoredCustomer?.id ?? null);
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(restoredCustomer);
+  const [customerName, setCustomerName] = useState(restoredQuickCustomer?.name ?? "");
+  const [customerPhone, setCustomerPhone] = useState(restoredQuickCustomer?.phone ?? "");
+  const [paymentMode, setPaymentMode] = useState<"CASH" | "UPI">(
+    restoredView?.paymentMode
+      ?? (restoredSettlement?.kind === "WALK_IN_UPI" ? "UPI" : "CASH"),
+  );
+  const [amountReceived, setAmountReceived] = useState(
+    restoredView?.amountReceived
+      ?? (restoredSettlement?.kind === "FULL_PAYMENT"
+        ? String(fromMinorUnits(restoredSettlement.paidMinor))
+        : ""),
+  );
+  const [notes, setNotes] = useState(restoredDraft?.draft.notes ?? "");
+  const [upiConfirmedFingerprint, setUpiConfirmedFingerprint] = useState<string | null>(
+    restoredSettlement?.kind === "WALK_IN_UPI"
+      ? restoredSettlement.confirmedFingerprint
+      : null,
+  );
   const [skuScannerVisible, setSkuScannerVisible] = useState(false);
   const [activeSerialScanItemId, setActiveSerialScanItemId] = useState<string | null>(null);
 
@@ -90,7 +119,10 @@ export function WalkInSaleScreen() {
   const { draft, dispatch, totalMinor, validation } = useSaleDraft({
     mode: "WALK_IN",
     shopId: draftShopId,
+    initialDraft: restoredDraft?.draft,
   });
+  const allowNextRemovalRef = useRef(false);
+  const removalPromptVisibleRef = useRef(false);
 
   const handleLiveStockShortage = useCallback((shortages: Parameters<typeof formatStockShortageMessage>[0]) => {
     Alert.alert("Stock changed", formatStockShortageMessage(shortages));
@@ -104,8 +136,71 @@ export function WalkInSaleScreen() {
 
   // Sync draftShopId to useSaleDraft reducer
   useEffect(() => {
-    dispatch({ type: "RESET_DRAFT", shopId: draftShopId });
-  }, [draftShopId, dispatch]);
+    if (draft.shopId !== draftShopId) {
+      dispatch({ type: "RESET_DRAFT", shopId: draftShopId });
+    }
+  }, [draft.shopId, draftShopId, dispatch]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    saveLocalSaleDraft({
+      userId: user.id,
+      shopId: draftShopId,
+      mode: "WALK_IN",
+      draft,
+      view: {
+        kind: "WALK_IN",
+        paymentMode,
+        amountReceived,
+      },
+    });
+  }, [amountReceived, draft, draftShopId, paymentMode, user?.id]);
+
+  useEffect(() => {
+    return navigation.addListener("beforeRemove", (event) => {
+      if (allowNextRemovalRef.current) {
+        allowNextRemovalRef.current = false;
+        return;
+      }
+      if (!hasMeaningfulSaleDraft(draft) || currentStep === 3) return;
+
+      event.preventDefault();
+      if (removalPromptVisibleRef.current) return;
+      removalPromptVisibleRef.current = true;
+      Alert.alert(
+        "Save unfinished sale?",
+        "Keep this sale as a local draft and continue it later on this device.",
+        [
+          {
+            text: "Cancel",
+            style: "cancel",
+            onPress: () => {
+              removalPromptVisibleRef.current = false;
+            },
+          },
+          {
+            text: "Discard",
+            style: "destructive",
+            onPress: () => {
+              removalPromptVisibleRef.current = false;
+              if (user?.id) clearLocalSaleDraft(user.id, draftShopId, "WALK_IN");
+              dispatch({ type: "RESET_DRAFT", shopId: draftShopId });
+              allowNextRemovalRef.current = true;
+              navigation.dispatch(event.data.action);
+            },
+          },
+          {
+            text: "Save & exit",
+            onPress: () => {
+              removalPromptVisibleRef.current = false;
+              allowNextRemovalRef.current = true;
+              navigation.dispatch(event.data.action);
+            },
+          },
+        ],
+      );
+    });
+  }, [currentStep, draft, draftShopId, navigation, user?.id, dispatch]);
 
   // Sync customer state to draft
   useEffect(() => {
@@ -303,6 +398,7 @@ export function WalkInSaleScreen() {
         });
         setCompletedSaleNumber(res?.saleNumber || "N/A");
         dispatch({ type: "RESET_DRAFT", shopId: requireActiveShopId(activeShopId) });
+        if (user?.id) clearLocalSaleDraft(user.id, draftShopId, "WALK_IN");
         setCheckoutVisible(false);
         setCurrentStep(3);
       },
@@ -398,8 +494,11 @@ export function WalkInSaleScreen() {
     setNotes("");
     setCustomerName("");
     setCustomerPhone("");
+    setPaymentMode("CASH");
     setUpiConfirmedFingerprint(null);
     setDraftShopId(requireActiveShopId(activeShopId));
+    if (user?.id) clearLocalSaleDraft(user.id, draftShopId, "WALK_IN");
+    dispatch({ type: "RESET_DRAFT", shopId: requireActiveShopId(activeShopId) });
     saleMutation.reset();
     setCompletedSaleSnapshot(null);
     setCompletedSaleNumber(null);
@@ -504,7 +603,12 @@ export function WalkInSaleScreen() {
 
   return (
     <Screen edges={["top", "left", "right"]}>
-      <AppHeader title="Walk-in Sale" subtitle="Step 1 of 2 • Cart Details" showBack={true} onBack={handleHeaderBack} />
+      <AppHeader
+        title="Walk-in Sale"
+        subtitle={`Step 1 of 2 • Cart Details${restoredDraft ? " • Local draft restored" : ""}`}
+        showBack={true}
+        onBack={handleHeaderBack}
+      />
 
       <View style={styles.mainContainer}>
         <SaleProductPicker

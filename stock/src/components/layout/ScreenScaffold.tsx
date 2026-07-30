@@ -26,7 +26,9 @@ export function ScreenScaffold({
   onBack,
   fallbackRoute,
   hideAvatar,
-  edges = ["top", "left", "right"],
+  edges = footer
+    ? ["top", "left", "right"]
+    : ["top", "bottom", "left", "right"],
   contentStyle,
 }: ScreenScaffoldProps) {
   return (
