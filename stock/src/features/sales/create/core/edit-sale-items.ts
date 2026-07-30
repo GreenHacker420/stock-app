@@ -61,3 +61,25 @@ export function buildSaleEditPayload(items: EditableSaleItem[]) {
     description: item.description,
   }));
 }
+
+export function updateEditableSaleItemQuantity(item: EditableSaleItem, quantity: string): EditableSaleItem {
+  const numericQuantity = Number(quantity);
+  return {
+    ...item,
+    quantity,
+    serialNumbers: Number.isInteger(numericQuantity) && numericQuantity >= 0
+      ? item.serialNumbers.slice(0, numericQuantity)
+      : item.serialNumbers,
+  };
+}
+
+export function updateEditableSaleItemSerials(item: EditableSaleItem, serialNumbers: string[]): EditableSaleItem {
+  const generatedSerialDescription = item.description?.trim().match(/^S\/N:/i);
+  return {
+    ...item,
+    serialNumbers,
+    description: generatedSerialDescription
+      ? (serialNumbers.length > 0 ? `S/N: ${serialNumbers.join(", ")}` : undefined)
+      : item.description,
+  };
+}

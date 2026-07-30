@@ -13,10 +13,14 @@ import { KeyboardAwareScreen } from "../../components/keyboard/KeyboardAwareScre
 import { Button } from "../../components/ui/Button";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { triggerLightHaptic, triggerSuccessHaptic } from "../../utils/haptics";
+import { SerialNumberScannerModal } from "../../components/items/SerialNumberScannerModal";
+import { SerialNumberAction } from "../../features/sales/create/components/SerialNumberAction";
 import {
   buildSaleEditPayload,
   hydrateEditableSaleItems,
   type EditableSaleItem,
+  updateEditableSaleItemQuantity,
+  updateEditableSaleItemSerials,
 } from "../../features/sales/create/core/edit-sale-items";
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
@@ -42,6 +46,7 @@ export function EditSale() {
   const [isReviewing, setIsReviewing] = useState(false);
   const [gstRequired, setGstRequired] = useState(false);
   const [gstInvoiceNumber, setGstInvoiceNumber] = useState("");
+  const [activeSerialScanItemId, setActiveSerialScanItemId] = useState<string | null>(null);
 
   // Hydrate once per sale and preserve every product field required by amendments.
   useEffect(() => {
@@ -102,6 +107,10 @@ export function EditSale() {
   const totalAmount = useMemo(() => {
     return Math.max(0, subtotal - Number(editDiscountAmount || 0));
   }, [subtotal, editDiscountAmount]);
+  const activeSerialScanItem = useMemo(
+    () => editItems.find((item) => item.itemId === activeSerialScanItemId) || null,
+    [activeSerialScanItemId, editItems],
+  );
 
   const previousTotal = Number(sale?.totalAmount || 0);
   const financialChange = totalAmount - previousTotal;
@@ -447,17 +456,9 @@ export function EditSale() {
         <View style={styles.card}>
           {editItems.map((item, index) => {
             const handleQtyChange = (val: string) => {
-              setEditItems(prev => prev.map((it, idx) => {
-                if (idx !== index) return it;
-                const nextQuantity = Number(val);
-                return {
-                  ...it,
-                  quantity: val,
-                  serialNumbers: Number.isInteger(nextQuantity) && nextQuantity >= 0
-                    ? it.serialNumbers.slice(0, nextQuantity)
-                    : it.serialNumbers,
-                };
-              }));
+              setEditItems(prev => prev.map((it, idx) =>
+                idx === index ? updateEditableSaleItemQuantity(it, val) : it
+              ));
             };
             const handleRateChange = (val: string) => {
               setEditItems(prev => prev.map((it, idx) => idx === index ? { ...it, rate: val } : it));
@@ -467,7 +468,11 @@ export function EditSale() {
             };
             const handleIncrement = () => {
               const cur = Number(item.quantity) || 0;
-              handleQtyChange(String(cur + 1));
+              const nextQuantity = cur + 1;
+              handleQtyChange(String(nextQuantity));
+              if (item.requiresSerialNumber && item.serialNumbers.length < nextQuantity) {
+                setActiveSerialScanItemId(item.itemId);
+              }
             };
             const handleDecrement = () => {
               const cur = Number(item.quantity) || 0;
@@ -492,6 +497,16 @@ export function EditSale() {
                     <TextInput
                       value={item.quantity}
                       onChangeText={handleQtyChange}
+                      onEndEditing={({ nativeEvent }) => {
+                        const nextQuantity = Number(nativeEvent.text);
+                        if (
+                          item.requiresSerialNumber &&
+                          Number.isInteger(nextQuantity) &&
+                          nextQuantity > item.serialNumbers.length
+                        ) {
+                          setActiveSerialScanItemId(item.itemId);
+                        }
+                      }}
                       keyboardType="numeric"
                       style={styles.qtyNativeInput}
                       selectTextOnFocus
@@ -518,13 +533,19 @@ export function EditSale() {
                     <Icon source="trash-can-outline" size={20} color={colors.danger} />
                   </Pressable>
                 </View>
-                {item.serialNumbers.length > 0 ? (
-                  <View style={styles.serialsPreservedRow}>
-                    <Icon source="barcode-scan" size={15} color={colors.success} />
-                    <Text style={styles.serialsPreservedText} numberOfLines={2}>
-                      Serials preserved: {item.serialNumbers.join(", ")}
-                    </Text>
-                  </View>
+                {(item.requiresSerialNumber || item.serialNumbers.length > 0) ? (
+                  <SerialNumberAction
+                    itemName={item.name}
+                    quantity={Number(item.quantity) || 0}
+                    serialNumbers={item.serialNumbers}
+                    onScanPress={() => {
+                      if (Number(item.quantity) > 0) {
+                        setActiveSerialScanItemId(item.itemId);
+                      } else {
+                        Alert.alert("Enter quantity", "Enter a valid quantity before scanning serial numbers.");
+                      }
+                    }}
+                  />
                 ) : null}
                 {index < editItems.length - 1 && <Divider style={styles.itemDivider} />}
               </View>
@@ -636,6 +657,24 @@ export function EditSale() {
           style={{ marginVertical: spacing.lg }}
         />
         </KeyboardAwareScreen>
+
+      {activeSerialScanItem && Number(activeSerialScanItem.quantity) > 0 ? (
+        <SerialNumberScannerModal
+          visible
+          itemName={activeSerialScanItem.name}
+          quantity={Number(activeSerialScanItem.quantity)}
+          serialNumbers={activeSerialScanItem.serialNumbers}
+          onDismiss={() => setActiveSerialScanItemId(null)}
+          onSave={(serialNumbers) => {
+            setEditItems((items) => items.map((item) =>
+              item.itemId === activeSerialScanItem.itemId
+                ? updateEditableSaleItemSerials(item, serialNumbers)
+                : item
+            ));
+            setActiveSerialScanItemId(null);
+          }}
+        />
+      ) : null}
     </Screen>
   );
 }
@@ -760,19 +799,6 @@ const styles = StyleSheet.create({
   itemDivider: {
     marginTop: spacing.sm,
     backgroundColor: colors.surfaceOffset,
-  },
-  serialsPreservedRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: spacing.xs,
-    marginTop: spacing.sm,
-    paddingHorizontal: spacing.xs,
-  },
-  serialsPreservedText: {
-    flex: 1,
-    fontSize: 11,
-    lineHeight: 16,
-    color: colors.success,
   },
   impactRow: { flexDirection: "row", justifyContent: "space-between" },
   impactLabel: { fontSize: 13, color: colors.textSecondary },

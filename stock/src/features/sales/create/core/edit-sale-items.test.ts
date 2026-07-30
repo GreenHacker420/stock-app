@@ -1,7 +1,12 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { Sale } from "../../../../api/client";
-import { buildSaleEditPayload, hydrateEditableSaleItems } from "./edit-sale-items";
+import {
+  buildSaleEditPayload,
+  hydrateEditableSaleItems,
+  updateEditableSaleItemQuantity,
+  updateEditableSaleItemSerials,
+} from "./edit-sale-items";
 
 const serializedSaleItems = [
   {
@@ -50,4 +55,17 @@ test("legacy serial description is carried into the edit payload", () => {
 
   assert.deepStrictEqual(editable[0].serialNumbers, ["OLD-1", "OLD-2"]);
   assert.deepStrictEqual(buildSaleEditPayload(editable)[0].serialNumbers, ["OLD-1", "OLD-2"]);
+});
+
+test("quantity changes retain existing serials on increase and release extras on decrease", () => {
+  const item = hydrateEditableSaleItems(serializedSaleItems)[0];
+
+  const increased = updateEditableSaleItemQuantity(item, "2");
+  assert.deepStrictEqual(increased.serialNumbers, ["MORPHO-123"]);
+
+  const scanned = updateEditableSaleItemSerials(increased, ["MORPHO-123", "MORPHO-456"]);
+  assert.deepStrictEqual(scanned.serialNumbers, ["MORPHO-123", "MORPHO-456"]);
+
+  const decreased = updateEditableSaleItemQuantity(scanned, "1");
+  assert.deepStrictEqual(decreased.serialNumbers, ["MORPHO-123"]);
 });
