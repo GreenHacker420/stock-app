@@ -150,6 +150,7 @@ export async function deliverNotification(notificationId) {
       })
     : null;
   const whatsappData = whatsappPushData(notification, outbox?.eventJson);
+  const whatsappNotification = whatsappData ? outbox?.eventJson?.notification : null;
   if (whatsappData?.conversationId) {
     const conversation = await prisma.waConversation.findUnique({
       where: { id: whatsappData.conversationId },
@@ -176,8 +177,8 @@ export async function deliverNotification(notificationId) {
   const tickets = await sendExpo(devices.map((device) => ({
     to: device.pushToken,
     sound: "default",
-    title: notification.shop?.name || "ShopControl",
-    body: notification.message,
+    title: whatsappNotification?.title || notification.shop?.name || "ShopControl",
+    body: whatsappNotification?.body || notification.message,
     channelId: "default",
     data: whatsappData || {
       notificationId: notification.id,

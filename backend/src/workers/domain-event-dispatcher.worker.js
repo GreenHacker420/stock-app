@@ -155,11 +155,7 @@ async function queuePushNotifications(event) {
         triggerEvent: notificationTriggerFor(event),
         entityType: ENTITY_TYPE_MAP[event.entity] || "SHOP",
         entityId: event.entityId,
-        // Message content is intentionally excluded from the persisted notification.
-        // A privacy-aware preview can be added later from a user preference.
-        message: event.entity === "waMessage"
-          ? "New WhatsApp message"
-          : event.notification.body || event.notification.title || "New activity",
+        message: event.notification.body || event.notification.title || "New activity",
         domainEventId: event.eventId,
       });
     } catch (error) {

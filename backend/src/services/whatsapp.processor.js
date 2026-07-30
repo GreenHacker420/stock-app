@@ -3,6 +3,7 @@ import prisma from "../lib/db.js";
 import { mapEventTypeToMessageType, parseWebhookPayload } from "./whatsapp.webhook-parser.js";
 import { resolveProviderTransition } from "./whatsapp.status-state.js";
 import { enqueueWhatsAppDomainEvent } from "./whatsapp.domain-events.js";
+import { buildWhatsAppNotification } from "./whatsapp.notification-preview.js";
 
 
 export async function processWhatsAppEvent(event, shopId, integrationId = null) {
@@ -405,6 +406,8 @@ async function handleInboundMessage(event, shopId, eventId, integrationId) {
       console.error(`[WhatsApp Processor] Failed to set 24h window key:`, err.message);
     }
 
+    const pushPreview = buildWhatsAppNotification({ event, conversation });
+
     await enqueueWhatsAppDomainEvent(tx, {
       shopId,
       entity: "waMessage",
@@ -429,8 +432,8 @@ async function handleInboundMessage(event, shopId, eventId, integrationId) {
         createdAt: message.createdAt,
       },
       notification: {
-        title: "New WhatsApp message",
-        body: "Open ShopControl to view the message.",
+        title: pushPreview.title,
+        body: pushPreview.body,
         severity: "info",
         sendPush: true,
         data: {
