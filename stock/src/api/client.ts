@@ -745,7 +745,7 @@ export async function sendSaleWhatsAppReceipt(
     status: "QUEUED";
     messageId: string;
     recipientPhone: string;
-    temporaryAssetDeleted: boolean;
+    receiptAssetRetained: boolean;
   }>(
     `/sales/${saleId}/whatsapp-send`,
     {

@@ -137,6 +137,7 @@ const templateSchema = z.object({
     title: z.string().trim().min(1).max(120),
     body: z.string().trim().min(1).max(1024),
     documentFilename: z.string().trim().min(1).max(240).optional(),
+    documentAssetId: z.string().trim().min(1).optional(),
   }).optional(),
 });
 
@@ -349,6 +350,7 @@ export function getLocalMessageProjection(message) {
         ...(message.localPreview ? { localPreview: message.localPreview } : {}),
       },
       payload: { subtype: "template" },
+      assetId: message.localPreview?.documentAssetId,
       templateName: message.template.name,
       templateLanguage: message.template.language.code,
     };

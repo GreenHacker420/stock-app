@@ -361,6 +361,8 @@ test("sale WhatsApp receipt sends the PDF template through the backend", () => {
   assert.ok(receiptSrc.includes("await whatsappService.sendMessage"));
   assert.ok(receiptSrc.includes("skipCustomerAutoLink: !recipientMatchesCustomer"));
   assert.ok(receiptSrc.includes("localPreview:"));
+  assert.ok(receiptSrc.includes("documentAssetId: invoiceAsset.assetId"));
+  assert.ok(receiptSrc.includes("receiptAssetRetained: true"));
   assert.ok(receiptSrc.includes('sale.isWalkin ? "Customer"'));
   assert.ok(!receiptSrc.includes('"Walk-in Customer"'));
   assert.ok(receiptSrc.includes("await deleteInvoiceAsset(invoiceAsset.assetId)"));

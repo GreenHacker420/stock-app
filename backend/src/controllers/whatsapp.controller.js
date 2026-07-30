@@ -411,7 +411,16 @@ class WhatsAppController {
         integrationId: integration.id,
         actorUserId: req.user.id,
       });
-      res.status(202).json({ success: true, data: { message } });
+      const messageWithAsset = await prisma.waMessage.findUnique({
+        where: { id: message.id },
+        include: { asset: true },
+      });
+      res.status(202).json({
+        success: true,
+        data: {
+          message: await serializeMessageWithAsset(messageWithAsset || message),
+        },
+      });
     } catch (error) {
       next(error);
     }

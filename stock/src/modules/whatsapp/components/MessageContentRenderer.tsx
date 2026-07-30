@@ -422,12 +422,27 @@ function TemplateRenderer({ message }: RendererProps) {
         </View>
         <Text selectable style={styles.templateBody}>{preview.body}</Text>
         {preview.documentFilename ? (
-          <View style={styles.templateDocument}>
+          <Pressable
+            accessibilityRole={message.asset?.url ? "button" : undefined}
+            accessibilityLabel={message.asset?.url ? `Open ${preview.documentFilename}` : undefined}
+            disabled={!message.asset?.url}
+            onPress={() => openUrl(message.asset?.url, "This PDF is not available.")}
+            style={({ pressed }) => [
+              styles.templateDocument,
+              message.asset?.url && styles.templateDocumentOpenable,
+              pressed && message.asset?.url ? styles.templateDocumentPressed : null,
+            ]}
+          >
             <MaterialCommunityIcons name="file-pdf-box" size={20} color={Colors.danger} />
             <Text numberOfLines={1} style={styles.templateDocumentName}>
               {preview.documentFilename}
             </Text>
-          </View>
+            <MaterialCommunityIcons
+              name={message.asset?.url ? "open-in-new" : "cloud-off-outline"}
+              size={17}
+              color={message.asset?.url ? Colors.primary : Colors.textSecondary}
+            />
+          </Pressable>
         ) : null}
       </View>
     );
@@ -616,6 +631,13 @@ const styles = StyleSheet.create({
     padding: 8,
     borderRadius: 8,
     backgroundColor: Colors.surfaceOffset,
+  },
+  templateDocumentOpenable: {
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  templateDocumentPressed: {
+    opacity: 0.72,
   },
   templateDocumentName: {
     flex: 1,

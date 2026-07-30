@@ -437,13 +437,6 @@ export function generateSaleInvoiceHtml({ sale, shop }) {
 </html>`;
 }
 
-/**
- * Generates a proper PDF from sale invoice HTML using html-pdf-lite,
- * uploads it to S3 under invoices/{shopId}/{saleId}.pdf,
- * records it in the Asset table, and returns the buffer and temporary asset metadata.
- *
- * After sending via WhatsApp, call deleteInvoiceAsset(assetId) to clean up.
- */
 export function buildTemporaryInvoiceS3Key({ shopId, saleId, fileName, uploadId = randomUUID() }) {
   return `invoices/${shopId}/${saleId}/${uploadId}/${fileName}`;
 }
@@ -451,8 +444,6 @@ export function buildTemporaryInvoiceS3Key({ shopId, saleId, fileName, uploadId 
 export async function generateAndUploadSaleInvoicePdf({ sale, shop }) {
   const html = generateSaleInvoiceHtml({ sale, shop });
   const fileName = `Invoice_${sale.saleNumber}.pdf`;
-  // A sale can be sent more than once. Asset rows are soft-deleted and retain
-  // their unique storage key, so each temporary upload needs a new key.
   const s3Key = buildTemporaryInvoiceS3Key({
     shopId: shop.id,
     saleId: sale.id,

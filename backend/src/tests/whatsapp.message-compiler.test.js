@@ -240,6 +240,7 @@ test("keeps template previews local and supports delivery-only recipients", () =
         title: "Sale receipt",
         body: "Customer\nSale #SAL-001 · ₹2,940 · PAID",
         documentFilename: "Invoice_SAL-001.pdf",
+        documentAssetId: "asset-receipt-1",
       },
     },
   });
@@ -251,4 +252,5 @@ test("keeps template previews local and supports delivery-only recipients", () =
   assert.equal(metaPayload.template.localPreview, undefined);
   assert.equal(localProjection.content.localPreview.title, "Sale receipt");
   assert.equal(localProjection.content.localPreview.documentFilename, "Invoice_SAL-001.pdf");
+  assert.equal(localProjection.assetId, "asset-receipt-1");
 });

@@ -1113,6 +1113,7 @@ export async function sendSaleWhatsAppReceipt(user, id, { recipientPhone } = {})
           title: "Sale receipt",
           body: `${customerName}\nSale #${sale.saleNumber} · ₹${Number(sale.totalAmount).toLocaleString("en-IN")} · ${sale.paymentStatus || "PAID"}`,
           documentFilename: invoiceAsset.fileName,
+          documentAssetId: invoiceAsset.assetId,
         },
       },
     });
@@ -1128,19 +1129,11 @@ export async function sendSaleWhatsAppReceipt(user, id, { recipientPhone } = {})
     });
   }
 
-  let temporaryAssetDeleted = true;
-  try {
-    await deleteInvoiceAsset(invoiceAsset.assetId);
-  } catch (cleanupError) {
-    temporaryAssetDeleted = false;
-    console.error("[WhatsApp] Temporary invoice cleanup failed:", cleanupError?.message || cleanupError);
-  }
-
   return {
     success: true,
     status: "QUEUED",
     messageId: queuedMessage.id,
     recipientPhone: `+${normalizedPhone}`,
-    temporaryAssetDeleted,
+    receiptAssetRetained: true,
   };
 }

@@ -443,6 +443,7 @@ class WhatsAppService {
             direction: created.direction,
             type: created.type,
             content: created.content,
+            assetId: created.assetId,
             createdAt: created.createdAt,
           },
         });
