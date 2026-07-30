@@ -363,12 +363,20 @@ test("sale WhatsApp receipt sends the PDF template through the backend", () => {
 
 test("WhatsApp contact identity stays separate from CRM customer linkage", () => {
   const whatsappServiceSrc = readSrc("services/whatsapp.service.js");
+  const sendMessageSrc = whatsappServiceSrc.slice(
+    whatsappServiceSrc.indexOf("async sendMessage(input)"),
+    whatsappServiceSrc.indexOf("let resolvedReplyToMetaId"),
+  );
 
   assert.ok(whatsappServiceSrc.includes("skipCustomerAutoLink"));
   assert.ok(whatsappServiceSrc.includes("matchingCustomers.length !== 1"));
   assert.ok(whatsappServiceSrc.includes("normalizePhone(customer.phone)"));
   assert.ok(!whatsappServiceSrc.includes("contactName: customer?.name"));
   assert.ok(!whatsappServiceSrc.includes("contactName: customer.name"));
+  assert.match(
+    sendMessageSrc,
+    /let customer = null;\s+if \(!conversation\)[\s\S]*if \(customer\)/,
+  );
 });
 
 test("expense status enum matches backend", () => {

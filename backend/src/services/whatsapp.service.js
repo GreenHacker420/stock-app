@@ -284,8 +284,8 @@ class WhatsAppService {
         }
       }
 
+      let customer = null;
       if (!conversation) {
-        let customer = null;
         if (customerId) {
           customer = await prisma.customer.findFirst({
             where: { id: customerId, shopId: contextShopId, status: "ACTIVE" },
