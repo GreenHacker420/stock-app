@@ -76,8 +76,20 @@ export async function renderInvoicePdfFromHtml(html) {
     const page = await browser.newPage();
     await page.setJavaScriptEnabled(false);
     await page.setContent(html, {
-      waitUntil: "networkidle0",
+      waitUntil: "domcontentloaded",
       timeout: 20_000,
+    });
+    await page.evaluate(async () => {
+      await document.fonts?.ready;
+      await Promise.all(Array.from(document.images).map((image) => {
+        if (image.complete) return undefined;
+        return new Promise((resolve) => {
+          const finish = () => resolve(undefined);
+          image.addEventListener("load", finish, { once: true });
+          image.addEventListener("error", finish, { once: true });
+          setTimeout(finish, 3_000);
+        });
+      }));
     });
     const pdf = await page.pdf({
       format: "A4",
@@ -122,6 +134,7 @@ const formatDate = (dateStr) => {
   return date.toLocaleString("en-IN", {
     dateStyle: "medium",
     timeStyle: "short",
+    timeZone: "Asia/Kolkata",
   });
 };
 

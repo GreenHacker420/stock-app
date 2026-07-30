@@ -36,6 +36,7 @@ const formatDate = (dateStr?: string | Date | null): string => {
   return date.toLocaleString("en-IN", {
     dateStyle: "medium",
     timeStyle: "short",
+    timeZone: "Asia/Kolkata",
   });
 };
 
@@ -274,13 +275,23 @@ export async function generateSaleInvoiceHtml({ sale, shop, signatureBase64 }: S
   const shopGstin = escapeHtml(shop?.gstin || "");
   const shopLogo = escapeAttr(shop?.logo || "");
 
-  const customerName = escapeHtml(sale.isWalkin ? "Walk-in Customer" : sale.customer?.name || "Valued Customer");
+  const customerName = escapeHtml(sale.isWalkin ? "Customer" : sale.customer?.name || "Valued Customer");
   const customerPhone = escapeHtml(sale.customer?.phone || "");
   const customerGstin = escapeHtml(sale.customer?.gstin || "");
   const staffName = escapeHtml(sale.staff?.name || "");
 
   const uniqueItemsCount = (sale.items || []).length;
   const totalQuantity = (sale.items || []).reduce((sum, item) => sum + toFiniteNumber(item.quantity), 0);
+  const calculatedSubtotal = (sale.items || []).reduce(
+    (sum, item) => sum + (toFiniteNumber(item.quantity) * toFiniteNumber(item.rate)),
+    0,
+  );
+  const calculatedLineDiscount = (sale.items || []).reduce(
+    (sum, item) => sum + Math.max(toFiniteNumber(item.discountAmount), 0),
+    0,
+  );
+  const subtotal = toFiniteNumber(sale.subtotal, calculatedSubtotal);
+  const discount = Math.max(toFiniteNumber(sale.discountAmount, calculatedLineDiscount), 0);
   const invoiceHash = escapeHtml((sale.id || "INV").substring(0, 8).toUpperCase());
 
   // Payment Status Badge
@@ -338,8 +349,10 @@ export async function generateSaleInvoiceHtml({ sale, shop, signatureBase64 }: S
     const collectedBy = p.receivedBy?.name ? `Collected by: ${escapeHtml(p.receivedBy.name)}` : "";
     const details = [];
     if (p.details?.upiReference) details.push(`UPI Ref: ${escapeHtml(p.details.upiReference)}`);
+    if (p.details?.bankUtr) details.push(`UTR: ${escapeHtml(p.details.bankUtr)}`);
     if (p.details?.chequeNumber) details.push(`Cheque: ${escapeHtml(p.details.chequeNumber)}`);
-    if (p.details?.bankName) details.push(escapeHtml(p.details.bankName));
+    if (p.details?.chequeBankName) details.push(escapeHtml(p.details.chequeBankName));
+    if (p.referenceNumber) details.push(`Ref: ${escapeHtml(p.referenceNumber)}`);
     const detailsText = details.length > 0 ? `(${details.join(", ")})` : "";
 
     return `
@@ -650,7 +663,7 @@ export async function generateSaleInvoiceHtml({ sale, shop, signatureBase64 }: S
           <div style="flex: 1.2; margin-right: 20px;">
             ${shop?.upiId && balanceDue > 0 ? (() => {
               const upiPayeeName = shop.upiName || shop.name;
-              const upiUri = `upi://pay?pa=${encodeURIComponent(shop.upiId)}&pn=${encodeURIComponent(upiPayeeName)}&am=${total.toFixed(2)}&cu=INR`;
+              const upiUri = `upi://pay?pa=${encodeURIComponent(shop.upiId)}&pn=${encodeURIComponent(upiPayeeName)}&am=${balanceDue.toFixed(2)}&cu=INR`;
               
               // Generate QR code locally offline using qrcode-generator
               const qr = qrcode(0, 'M');
@@ -664,7 +677,7 @@ export async function generateSaleInvoiceHtml({ sale, shop, signatureBase64 }: S
                     <div style="font-weight: 700; color: var(--primary); font-size: 11px;">Scan to Pay via UPI</div>
                     <div style="font-size: 9px; color: var(--muted); margin-top: 2px;">Payee: ${escapeHtml(upiPayeeName)}</div>
                     <div style="font-size: 9px; color: var(--muted);">UPI ID: ${escapeHtml(shop.upiId)}</div>
-                    <div style="font-size: 9px; color: var(--muted);">Amount: <b>${formatMoney(total)}</b></div>
+                    <div style="font-size: 9px; color: var(--muted);">Amount: <b>${formatMoney(balanceDue)}</b></div>
                   </div>
                   <img src="${qrBase64}" style="width: 70px; height: 70px;" alt="UPI QR" />
                 </div>
@@ -676,8 +689,14 @@ export async function generateSaleInvoiceHtml({ sale, shop, signatureBase64 }: S
           <div class="totals-section" style="flex: 1; margin-top: 0; min-width: 200px;">
             <div class="totals-row">
               <span style="color: var(--muted);">Subtotal</span>
-              <span style="font-weight: 600;">${formatMoney(total)}</span>
+              <span style="font-weight: 600;">${formatMoney(subtotal)}</span>
             </div>
+            ${discount > 0 ? `
+            <div class="totals-row">
+              <span style="color: var(--muted);">Discount</span>
+              <span style="font-weight: 600; color: var(--success);">−${formatMoney(discount)}</span>
+            </div>
+            ` : ""}
             ${sale.gstInvoiceNumber ? `
             <div class="totals-row">
               <span style="color: var(--muted);">GST Invoice</span>
@@ -724,7 +743,7 @@ export async function generateSaleInvoiceHtml({ sale, shop, signatureBase64 }: S
             <ul style="margin: 0; padding-left: 12px; font-size: 10px; color: var(--muted); line-height: 1.4;">
               <li>Goods once sold will not be taken back or exchanged.</li>
               <li>Warranty is subject to manufacturer policies.</li>
-              <li>All disputes are subject to Nagpur jurisdiction.</li>
+              <li>All disputes are subject to ${shopCity || "local"} jurisdiction.</li>
             </ul>
           </div>
           <div style="flex: 1; text-align: right;">
