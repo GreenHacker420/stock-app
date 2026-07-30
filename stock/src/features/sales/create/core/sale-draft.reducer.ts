@@ -20,6 +20,7 @@ export type SaleDraftAction =
   | { type: "SET_SALE_DATE"; saleDate: string }
   | { type: "SET_PAYMENT_DATE"; paymentDate: string }
   | { type: "SET_GST"; required: boolean }
+  | { type: "SYNC_AVAILABLE_STOCK"; availability: ReadonlyMap<string, number> }
   | { type: "SET_SETTLEMENT"; settlement: SettlementDraft }
   | { type: "AUTHORIZE_CREDIT"; authorization: CreditAuthorization }
   | { type: "RESET_DRAFT"; shopId?: string };
@@ -91,6 +92,20 @@ export function saleDraftReducer(draft: SaleDraft, action: SaleDraftAction): Sal
       return invalidateAuthorization({ ...draft, paymentDate: action.paymentDate });
     case "SET_GST":
       return invalidateAuthorization({ ...draft, gstRequired: action.required });
+    case "SYNC_AVAILABLE_STOCK": {
+      let changed = false;
+      const lines = { ...draft.lines };
+      for (const [itemId, line] of Object.entries(lines)) {
+        const availableStock = action.availability.get(itemId);
+        if (availableStock === undefined || availableStock === line.item.availableStock) continue;
+        changed = true;
+        lines[itemId] = {
+          ...line,
+          item: { ...line.item, availableStock },
+        };
+      }
+      return changed ? { ...draft, lines } : draft;
+    }
     case "SET_SETTLEMENT":
       return invalidateAuthorization({ ...draft, settlement: action.settlement });
     case "AUTHORIZE_CREDIT":

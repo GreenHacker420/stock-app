@@ -47,6 +47,8 @@ import { ProductSkuScannerModal } from "@/components/items/ProductSkuScannerModa
 import { KeyboardAwareScreen } from "@/components/keyboard/KeyboardAwareScreen";
 import { colors, spacing } from "@/theme";
 import { type RootStackParamList } from "@/navigation";
+import { useLiveSaleStock } from "../core/useLiveSaleStock";
+import { formatStockShortageMessage } from "../core/sale-stock";
 
 const internetRequiredMessage = "Internet connection required. Please connect to the internet to complete this action.";
 
@@ -88,6 +90,7 @@ export function RegularSaleScreen() {
   } | null>(null);
 
   const [isSharing, setIsSharing] = useState(false);
+  const [isCheckingStock, setIsCheckingStock] = useState(false);
 
   const customersQuery = useCustomersQuery({
     search: customerSearch,
@@ -112,6 +115,16 @@ export function RegularSaleScreen() {
   const { draft, dispatch, totalMinor, validation } = useSaleDraft({
     mode: "REGULAR",
     shopId: draftShopId,
+  });
+
+  const handleLiveStockShortage = useCallback((shortages: Parameters<typeof formatStockShortageMessage>[0]) => {
+    Alert.alert("Stock changed", formatStockShortageMessage(shortages));
+  }, []);
+  const { verifyLatestStock } = useLiveSaleStock({
+    draft,
+    dispatch,
+    enabled: !network.isOffline && activeShopId === draftShopId,
+    onShortage: handleLiveStockShortage,
   });
 
   // Sync draftShopId to useSaleDraft reducer
@@ -244,8 +257,8 @@ export function RegularSaleScreen() {
 
   const saleMutation = useCreateSaleMutation();
 
-  const handleCompleteSale = () => {
-    if (saleMutation.isPending) return;
+  const handleCompleteSale = async () => {
+    if (saleMutation.isPending || isCheckingStock) return;
     if (network.isOffline) {
       Alert.alert("Internet required", internetRequiredMessage);
       return;
@@ -255,6 +268,21 @@ export function RegularSaleScreen() {
         "Shop Changed",
         "This sale was started in another shop. Discard it and start a new sale."
       );
+      return;
+    }
+
+    setIsCheckingStock(true);
+    const stockVerification = await verifyLatestStock();
+    setIsCheckingStock(false);
+    if (!stockVerification.verified) {
+      Alert.alert(
+        "Could not verify stock",
+        "Latest stock could not be loaded. Check the connection and try again.",
+      );
+      return;
+    }
+    if (stockVerification.shortages.length > 0) {
+      Alert.alert("Stock changed", formatStockShortageMessage(stockVerification.shortages));
       return;
     }
 
@@ -361,7 +389,7 @@ export function RegularSaleScreen() {
   const getFooterLabel = () => {
     if (currentStep === 1) return "Proceed to Review →";
     if (currentStep === 2) return "Proceed to Payment →";
-    return "Complete Sale ✓";
+    return isCheckingStock ? "Checking stock..." : "Complete Sale ✓";
   };
 
   const isFooterDisabled = () => {
@@ -371,7 +399,7 @@ export function RegularSaleScreen() {
     if (currentStep === 2) {
       return !isSerialsComplete || hasMissingPrice;
     }
-    return !validation.isValid;
+    return !validation.isValid || isCheckingStock;
   };
 
   const renderPickerHeader = () => (

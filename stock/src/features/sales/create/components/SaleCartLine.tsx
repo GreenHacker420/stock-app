@@ -264,6 +264,7 @@ export const SaleCartLine = memo(
   },
   (p, n) =>
     p.item.id === n.item.id &&
+    p.item.availableStock === n.item.availableStock &&
     p.quantity === n.quantity &&
     p.customRate === n.customRate &&
     p.userRole === n.userRole &&

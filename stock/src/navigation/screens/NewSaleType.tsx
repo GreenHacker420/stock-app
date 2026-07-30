@@ -7,6 +7,7 @@ import {
   TextInput,
   Modal as RNModal,
   Platform,
+  Alert,
 } from "react-native";
 import { Text, Divider, Icon } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
@@ -23,6 +24,15 @@ import { EmptyState } from "../../components/ui/EmptyState";
 import { navigate } from "../navigation-ref";
 import { type Sale } from "../../api/client";
 import { triggerLightHaptic, triggerMediumHaptic } from "../../utils/haptics";
+import {
+  countSalesByStatus,
+  effectiveSaleStatus,
+  filterSalesForPeriod,
+  getSalePeriodRange,
+  saleMatchesSearch,
+  type SaleDateFilter,
+  type SaleStatusFilter,
+} from "../../features/sales/create/core/sales-list-filter";
 
 function money(value?: string | number | null) {
   return `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
@@ -33,16 +43,13 @@ const haptic = (s: "light" | "medium" = "light") => {
   else triggerLightHaptic();
 };
 
-type StatusType = "ALL" | "PAID" | "PENDING" | "PARTIAL" | "CANCELLED";
-type DateFilterType = "TODAY" | "WEEK" | "CUSTOM" | "ALL";
-
 const TypedFlashList = FlashList as any;
 
 export function NewSaleType() {
   const [search, setSearch] = useState("");
   const [debSearch, setDebSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<StatusType>("ALL");
-  const [dateFilter, setDateFilter] = useState<DateFilterType>("TODAY");
+  const [statusFilter, setStatusFilter] = useState<SaleStatusFilter>("ALL");
+  const [dateFilter, setDateFilter] = useState<SaleDateFilter>("TODAY");
 
   // Custom date picker states
   const [customStartDate, setCustomStartDate] = useState<Date>(new Date());
@@ -50,7 +57,16 @@ export function NewSaleType() {
   const [showCustomModal, setShowCustomModal] = useState(false);
   const [activePickerField, setActivePickerField] = useState<"start" | "end" | null>(null);
 
-  const { data: sales, isLoading, refetch, isRefetching } = useSalesQuery();
+  const periodRange = useMemo(
+    () => getSalePeriodRange(dateFilter, new Date(), customStartDate, customEndDate),
+    [customEndDate, customStartDate, dateFilter],
+  );
+  const salesQueryOptions = useMemo(() => ({
+    dateFrom: periodRange?.start.toISOString(),
+    dateTo: periodRange?.end.toISOString(),
+    limit: 200,
+  }), [periodRange]);
+  const { data: sales, isLoading, refetch, isRefetching } = useSalesQuery(salesQueryOptions);
 
   // Debounce search input for performance
   useEffect(() => {
@@ -70,66 +86,20 @@ export function NewSaleType() {
     navigate("RegularSale");
   };
 
-  // Filter sales by date range, search query, and payment status
-  const filteredSales = useMemo(() => {
-    if (!sales) return [];
-
-    const now = new Date();
-    let startMs: number | null = null;
-    let endMs: number | null = null;
-
-    if (dateFilter === "TODAY") {
-      const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-      const todayEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-      startMs = todayStart.getTime();
-      endMs = todayEnd.getTime();
-    } else if (dateFilter === "WEEK") {
-      const weekStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-      weekStart.setHours(0, 0, 0, 0);
-      const weekEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-      startMs = weekStart.getTime();
-      endMs = weekEnd.getTime();
-    } else if (dateFilter === "CUSTOM") {
-      const s = new Date(customStartDate);
-      s.setHours(0, 0, 0, 0);
-      startMs = s.getTime();
-      const e = new Date(customEndDate);
-      e.setHours(23, 59, 59, 999);
-      endMs = e.getTime();
-    }
-
-    return sales.filter((s) => {
-      // Date range validation
-      const createdMs = new Date(s.createdAt).getTime();
-      if (startMs !== null && createdMs < startMs) return false;
-      if (endMs !== null && createdMs > endMs) return false;
-
-      // Search query validation
-      const q = debSearch.toLowerCase().trim();
-      const numMatch = s.saleNumber.toLowerCase().includes(q);
-      const nameMatch = s.isWalkin
-        ? "walk-in".includes(q)
-        : s.customer?.name.toLowerCase().includes(q);
-      const matchesSearch = !q || numMatch || nameMatch;
-
-      // Payment / Sale status validation
-      const isCancelled = s.saleStatus === "CANCELLED" || (s as any).status === "CANCELLED";
-      const effectiveStatus = isCancelled
-        ? "CANCELLED"
-        : s.paymentStatus === "UNPAID"
-        ? "PENDING"
-        : s.paymentStatus;
-
-      const matchesStatus =
-        statusFilter === "ALL"
-          ? true
-          : statusFilter === "CANCELLED"
-          ? isCancelled
-          : !isCancelled && effectiveStatus === statusFilter;
-
-      return matchesSearch && matchesStatus;
-    });
-  }, [sales, debSearch, statusFilter, dateFilter, customStartDate, customEndDate]);
+  const periodSales = useMemo(
+    () => filterSalesForPeriod(sales ?? [], periodRange),
+    [periodRange, sales],
+  );
+  const searchedPeriodSales = useMemo(
+    () => periodSales.filter((sale) => saleMatchesSearch(sale, debSearch)),
+    [debSearch, periodSales],
+  );
+  const filteredSales = useMemo(
+    () => searchedPeriodSales.filter(
+      (sale) => statusFilter === "ALL" || effectiveSaleStatus(sale) === statusFilter,
+    ),
+    [searchedPeriodSales, statusFilter],
+  );
 
   // Calculate summary metrics for active period (excluding cancelled sales)
   const summaryMetrics = useMemo(() => {
@@ -139,7 +109,7 @@ export function NewSaleType() {
     let activeCount = 0;
     let cancelledCount = 0;
 
-    for (const s of filteredSales) {
+    for (const s of periodSales) {
       const isCancelled = s.saleStatus === "CANCELLED" || (s as any).status === "CANCELLED";
       if (isCancelled) {
         cancelledCount++;
@@ -157,26 +127,19 @@ export function NewSaleType() {
     }
 
     return {
-      count: filteredSales.length,
+      count: periodSales.length,
       activeCount,
       cancelledCount,
       totalRevenue,
       paidTotal,
       pendingTotal,
     };
-  }, [filteredSales]);
+  }, [periodSales]);
 
-  // Counts for each status chip
-  const counts = useMemo(() => {
-    const list = sales ?? [];
-    return {
-      ALL: list.length,
-      PAID: list.filter((s) => s.paymentStatus === "PAID" && s.saleStatus !== "CANCELLED" && (s as any).status !== "CANCELLED").length,
-      PENDING: list.filter((s) => (s.paymentStatus === "PENDING" || s.paymentStatus === "UNPAID") && s.saleStatus !== "CANCELLED" && (s as any).status !== "CANCELLED").length,
-      PARTIAL: list.filter((s) => s.paymentStatus === "PARTIAL" && s.saleStatus !== "CANCELLED" && (s as any).status !== "CANCELLED").length,
-      CANCELLED: list.filter((s) => s.saleStatus === "CANCELLED" || (s as any).status === "CANCELLED").length,
-    };
-  }, [sales]);
+  const counts = useMemo(
+    () => countSalesByStatus(searchedPeriodSales),
+    [searchedPeriodSales],
+  );
 
   const getStatusColors = (paymentStatus?: string, saleStatus?: string) => {
     if (saleStatus === "CANCELLED" || paymentStatus === "CANCELLED") {
@@ -312,6 +275,7 @@ export function NewSaleType() {
                   haptic();
                   if (df === "CUSTOM") {
                     setShowCustomModal(true);
+                    return;
                   }
                   setDateFilter(df);
                 }}
@@ -566,6 +530,10 @@ export function NewSaleType() {
               label="APPLY FILTER"
               variant="primary"
               onPress={() => {
+                if (customStartDate.getTime() > customEndDate.getTime()) {
+                  Alert.alert("Invalid date range", "The start date must be before the end date.");
+                  return;
+                }
                 setDateFilter("CUSTOM");
                 setShowCustomModal(false);
                 setActivePickerField(null);

@@ -515,6 +515,14 @@ export function ItemList() {
     setFilter("ALL");
   }, []);
 
+  const enterStockFilter = useCallback((nextFilter: StockFilter) => {
+    triggerLightHaptic();
+    setSelectedCat("ALL");
+    setSelectedBrandId("");
+    setSearch("");
+    setFilter(nextFilter);
+  }, []);
+
   const exitGrid = useCallback(() => {
     triggerLightHaptic();
     setSelectedCat(null);
@@ -654,11 +662,43 @@ export function ItemList() {
           {/* Summary pills */}
           <SummaryPillRow
             items={[
-              { label: "ITEMS", value: totalCount },
-              { label: "OUT", value: outCount, tone: outCount > 0 ? "red" : "default" },
-              { label: "LOW", value: lowCount, tone: lowCount > 0 ? "amber" : "default" },
-              { label: "CATS", value: categories.length },
-              { label: "BRANDS", value: summary?.totalBrands ?? 0 },
+              {
+                label: "ITEMS",
+                value: totalCount,
+                onPress: () => enterStockFilter("ALL"),
+                accessibilityLabel: `View all ${totalCount} products`,
+              },
+              {
+                label: "OUT",
+                value: outCount,
+                tone: outCount > 0 ? "red" : "default",
+                onPress: () => enterStockFilter("OUT"),
+                accessibilityLabel: `View ${outCount} out of stock products`,
+              },
+              {
+                label: "LOW",
+                value: lowCount,
+                tone: lowCount > 0 ? "amber" : "default",
+                onPress: () => enterStockFilter("LOW"),
+                accessibilityLabel: `View ${lowCount} low stock products`,
+              },
+              {
+                label: "CATS",
+                value: categories.length,
+                onPress: isOwner ? () => navigate("ManageCategories") : undefined,
+                accessibilityLabel: isOwner
+                  ? `Manage ${categories.length} product categories`
+                  : undefined,
+              },
+              {
+                label: "BRANDS",
+                value: summary?.totalBrands ?? 0,
+                onPress: () => {
+                  triggerLightHaptic();
+                  openBrandPicker();
+                },
+                accessibilityLabel: `Filter products by ${summary?.totalBrands ?? 0} brands`,
+              },
             ]}
           />
 
@@ -865,6 +905,7 @@ export function ItemList() {
         selectedBrandId={selectedBrandId}
         onSelect={(brandId) => {
           setSelectedBrandId(brandId);
+          if (brandId) setSelectedCat("ALL");
           setShowBrandPicker(false);
         }}
         onDismiss={() => setShowBrandPicker(false)}

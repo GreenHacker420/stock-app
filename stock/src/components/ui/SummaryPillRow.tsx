@@ -1,4 +1,4 @@
-import { StyleSheet, View, StyleProp, ViewStyle } from "react-native";
+import { Pressable, StyleSheet, View, StyleProp, ViewStyle } from "react-native";
 import { Text } from "react-native-paper";
 
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
@@ -7,6 +7,8 @@ type SummaryPill = {
   label: string;
   value: string | number;
   tone?: "default" | "green" | "amber" | "red" | "blue";
+  onPress?: () => void;
+  accessibilityLabel?: string;
 };
 
 type SummaryPillRowProps = {
@@ -26,14 +28,25 @@ export function SummaryPillRow({ items, style }: SummaryPillRowProps) {
   return (
     <View style={[styles.row, style]}>
       {items.map((item) => (
-        <View key={item.label} style={styles.pill}>
+        <Pressable
+          key={item.label}
+          accessibilityRole={item.onPress ? "button" : undefined}
+          accessibilityLabel={item.accessibilityLabel}
+          disabled={!item.onPress}
+          onPress={item.onPress}
+          style={({ pressed }) => [
+            styles.pill,
+            item.onPress && styles.pillInteractive,
+            pressed && styles.pillPressed,
+          ]}
+        >
           <Text style={[styles.value, { color: toneColors[item.tone ?? "default"] }]} numberOfLines={1} adjustsFontSizeToFit>
             {item.value}
           </Text>
           <Text style={styles.label} numberOfLines={1}>
             {item.label}
           </Text>
-        </View>
+        </Pressable>
       ))}
     </View>
   );
@@ -56,6 +69,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xs,
     gap: 2,
     ...shadow.sm,
+  },
+  pillInteractive: {
+    borderColor: colors.borderStrong,
+  },
+  pillPressed: {
+    opacity: 0.78,
+    transform: [{ scale: 0.97 }],
   },
   value: {
     fontSize: fontSize.lg,

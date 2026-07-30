@@ -33,7 +33,11 @@ export function useInfiniteSalesQuery(opts: {
   });
 }
 
-export function useSalesQuery(opts: { dateFrom?: string; dateTo?: string } = {}) {
+export function useSalesQuery(opts: {
+  dateFrom?: string;
+  dateTo?: string;
+  limit?: number;
+} = {}) {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
   return useQuery({

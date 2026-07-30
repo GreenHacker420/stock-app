@@ -8,6 +8,11 @@ import { buildSalePayload } from "./sale-payload";
 import { adaptSaleToInvoice } from "./sale-invoice-adapter";
 import { validateSaleDraft } from "./sale-validation";
 import { regularSalePolicy, walkInSalePolicy, type ItemSnapshot } from "./sale.types";
+import {
+  buildAvailableStockMap,
+  findStockShortages,
+  formatStockShortageMessage,
+} from "./sale-stock";
 
 const item: ItemSnapshot = {
   id: "item-1",
@@ -126,6 +131,56 @@ test("quantity clamps at zero and available stock", () => {
   // Try setting quantity above available stock (which is 3)
   draft = saleDraftReducer(draft, { type: "SET_QUANTITY", item, quantity: 10 });
   assert.equal(draft.lines[item.id].quantity, 3);
+});
+
+test("realtime stock reconciliation updates an open cart and blocks stale quantity", () => {
+  let draft = createInitialSaleDraft("REGULAR", "shop-1");
+  draft = saleDraftReducer(draft, {
+    type: "SET_QUANTITY",
+    item: { ...item, requiresSerialNumber: false },
+    quantity: 2,
+  });
+
+  const availability = buildAvailableStockMap([
+    { item: { id: item.id }, availableStock: 1, physicalStock: 1 },
+  ]);
+  draft = saleDraftReducer(draft, {
+    type: "SYNC_AVAILABLE_STOCK",
+    availability,
+  });
+
+  assert.equal(draft.lines[item.id].item.availableStock, 1);
+  assert.equal(draft.lines[item.id].quantity, 2);
+  assert.equal(
+    validateSaleDraft(draft, regularSalePolicy).errors.stock,
+    "A product exceeds available stock.",
+  );
+  assert.deepEqual(findStockShortages(draft.lines, availability), [{
+    itemId: item.id,
+    itemName: item.name,
+    requested: 2,
+    available: 1,
+  }]);
+  assert.match(
+    formatStockShortageMessage(findStockShortages(draft.lines, availability)),
+    /1 available, 2 selected/,
+  );
+});
+
+test("final stock verification treats a missing selected item as unavailable", () => {
+  let draft = createInitialSaleDraft("WALK_IN", "shop-1");
+  draft = saleDraftReducer(draft, {
+    type: "SET_QUANTITY",
+    item: { ...item, requiresSerialNumber: false },
+    quantity: 1,
+  });
+
+  assert.deepEqual(findStockShortages(draft.lines, new Map(), true), [{
+    itemId: item.id,
+    itemName: item.name,
+    requested: 1,
+    available: 0,
+  }]);
 });
 
 test("serial numbers truncate after decrement", () => {

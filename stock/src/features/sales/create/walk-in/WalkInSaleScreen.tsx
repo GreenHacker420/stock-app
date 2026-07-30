@@ -39,6 +39,8 @@ import { ProductSkuScannerModal } from "@/components/items/ProductSkuScannerModa
 import { Text } from "react-native-paper";
 import { colors, spacing, fontSize, fontWeight, radius, shadow } from "@/theme";
 import { type RootStackParamList } from "@/navigation";
+import { useLiveSaleStock } from "../core/useLiveSaleStock";
+import { formatStockShortageMessage } from "../core/sale-stock";
 
 const internetRequiredMessage = "Internet connection required. Please connect to the internet to complete this action.";
 
@@ -82,11 +84,22 @@ export function WalkInSaleScreen() {
 
   const [isPrinting, setIsPrinting] = useState(false);
   const [isSharing, setIsSharing] = useState(false);
+  const [isCheckingStock, setIsCheckingStock] = useState(false);
 
   // useSaleDraft Hook
   const { draft, dispatch, totalMinor, validation } = useSaleDraft({
     mode: "WALK_IN",
     shopId: draftShopId,
+  });
+
+  const handleLiveStockShortage = useCallback((shortages: Parameters<typeof formatStockShortageMessage>[0]) => {
+    Alert.alert("Stock changed", formatStockShortageMessage(shortages));
+  }, []);
+  const { verifyLatestStock } = useLiveSaleStock({
+    draft,
+    dispatch,
+    enabled: !network.isOffline && activeShopId === draftShopId,
+    onShortage: handleLiveStockShortage,
   });
 
   // Sync draftShopId to useSaleDraft reducer
@@ -245,8 +258,8 @@ export function WalkInSaleScreen() {
 
   const saleMutation = useCreateSaleMutation();
 
-  const handleCompleteSale = () => {
-    if (saleMutation.isPending) return;
+  const handleCompleteSale = async () => {
+    if (saleMutation.isPending || isCheckingStock) return;
     if (network.isOffline) {
       Alert.alert("Internet required", internetRequiredMessage);
       return;
@@ -256,6 +269,21 @@ export function WalkInSaleScreen() {
         "Shop Changed",
         "This sale was started in another shop. Discard it and start a new sale."
       );
+      return;
+    }
+
+    setIsCheckingStock(true);
+    const stockVerification = await verifyLatestStock();
+    setIsCheckingStock(false);
+    if (!stockVerification.verified) {
+      Alert.alert(
+        "Could not verify stock",
+        "Latest stock could not be loaded. Check the connection and try again.",
+      );
+      return;
+    }
+    if (stockVerification.shortages.length > 0) {
+      Alert.alert("Stock changed", formatStockShortageMessage(stockVerification.shortages));
       return;
     }
 
@@ -512,7 +540,7 @@ export function WalkInSaleScreen() {
           count={cartItemCount}
           total={cartTotal}
           onPress={() => setCheckoutVisible(true)}
-          disabled={cartItemCount === 0 || hasMissingPrice}
+          disabled={cartItemCount === 0 || hasMissingPrice || Boolean(validation.errors.stock)}
           label="Proceed to Payment →"
           onLayout={setFooterHeight}
         />
@@ -533,7 +561,7 @@ export function WalkInSaleScreen() {
         upiProposalFingerprint={upiProposalFingerprint}
         onConfirmUpi={() => setUpiConfirmedFingerprint(upiProposalFingerprint)}
         onCompleteSale={handleCompleteSale}
-        isPending={saleMutation.isPending}
+        isPending={saleMutation.isPending || isCheckingStock}
         draftShop={draftShop as any}
         saleDate={draft.saleDate}
         onChangeSaleDate={(saleDate) => dispatch({ type: "SET_SALE_DATE", saleDate })}
