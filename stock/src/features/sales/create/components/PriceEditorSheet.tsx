@@ -163,12 +163,14 @@ export function PriceEditorSheet({
     const minorUnits = parseMoneyToMinor(rateInput.trim());
     if (minorUnits !== null) {
       const numericVal = minorUnits / 100;
+      // Close the controlled sheet before changing the parent price. Otherwise the
+      // currentPrice update can retrigger the visible effect and reopen the sheet.
+      onClose();
       if (numericVal === defaultPrice) {
         onSave(undefined); // Reset to default
       } else {
         onSave(numericVal);
       }
-      beginDismiss();
     }
   };
 

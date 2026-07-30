@@ -675,9 +675,9 @@ export type RootStackParamList = {
   // Shared Stack Screens
   NotFound: undefined;
   NotificationHistory: undefined;
-  WalkInSale: undefined;
+  WalkInSale: { draftId?: string } | undefined;
   NewSaleType: undefined;
-  RegularSale: undefined;
+  RegularSale: { draftId?: string } | undefined;
   SplitPayment: undefined;
   OpenCashSession: undefined;
   StockEntry: { itemId?: string };

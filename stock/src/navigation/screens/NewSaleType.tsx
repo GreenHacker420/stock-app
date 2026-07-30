@@ -1,4 +1,5 @@
 import { useMemo, useState, useCallback, useEffect } from "react";
+import { useFocusEffect } from "@react-navigation/native";
 import {
   View,
   StyleSheet,
@@ -24,6 +25,8 @@ import { EmptyState } from "../../components/ui/EmptyState";
 import { navigate } from "../navigation-ref";
 import { type Sale } from "../../api/client";
 import { triggerLightHaptic, triggerMediumHaptic } from "../../utils/haptics";
+import { useAuthStore } from "../../auth/auth-store";
+import { useShopStore } from "../../auth/shop-store";
 import {
   countSalesByStatus,
   effectiveSaleStatus,
@@ -33,6 +36,11 @@ import {
   type SaleDateFilter,
   type SaleStatusFilter,
 } from "../../features/sales/create/core/sales-list-filter";
+import {
+  clearLocalSaleDraft,
+  listLocalSaleDrafts,
+  type StoredSaleDraft,
+} from "../../features/sales/create/core/sale-draft-storage";
 
 function money(value?: string | number | null) {
   return `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
@@ -45,7 +53,21 @@ const haptic = (s: "light" | "medium" = "light") => {
 
 const TypedFlashList = FlashList as any;
 
+function localDraftCustomerName(localDraft: StoredSaleDraft) {
+  const customer = localDraft.draft.customer;
+  if (customer.kind === "EXISTING") return customer.customer.name;
+  if (customer.kind === "QUICK_WALK_IN") return customer.name || "Customer";
+  return "Customer";
+}
+
+function localDraftTotal(localDraft: StoredSaleDraft) {
+  return Object.values(localDraft.draft.lines)
+    .reduce((total, line) => total + line.quantity * line.rateMinor, 0) / 100;
+}
+
 export function NewSaleType() {
+  const userId = useAuthStore((state) => state.user?.id);
+  const activeShopId = useShopStore((state) => state.activeShopId);
   const [search, setSearch] = useState("");
   const [debSearch, setDebSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<SaleStatusFilter>("ALL");
@@ -56,6 +78,19 @@ export function NewSaleType() {
   const [customEndDate, setCustomEndDate] = useState<Date>(new Date());
   const [showCustomModal, setShowCustomModal] = useState(false);
   const [activePickerField, setActivePickerField] = useState<"start" | "end" | null>(null);
+  const [localDrafts, setLocalDrafts] = useState<StoredSaleDraft[]>([]);
+
+  const refreshLocalDrafts = useCallback(() => {
+    if (!userId || !activeShopId) {
+      setLocalDrafts([]);
+      return;
+    }
+    setLocalDrafts(listLocalSaleDrafts(userId, activeShopId));
+  }, [activeShopId, userId]);
+
+  useFocusEffect(useCallback(() => {
+    refreshLocalDrafts();
+  }, [refreshLocalDrafts]));
 
   const periodRange = useMemo(
     () => getSalePeriodRange(dateFilter, new Date(), customStartDate, customEndDate),
@@ -85,6 +120,34 @@ export function NewSaleType() {
     haptic("medium");
     navigate("RegularSale");
   };
+
+  const handleResumeDraft = useCallback((localDraft: StoredSaleDraft) => {
+    haptic("medium");
+    if (localDraft.mode === "REGULAR") {
+      navigate("RegularSale", { draftId: localDraft.id });
+    } else {
+      navigate("WalkInSale", { draftId: localDraft.id });
+    }
+  }, []);
+
+  const handleDiscardDraft = useCallback((localDraft: StoredSaleDraft) => {
+    if (!userId || !activeShopId) return;
+    Alert.alert(
+      "Discard unfinished sale?",
+      "This only removes the saved checkout from this device.",
+      [
+        { text: "Keep", style: "cancel" },
+        {
+          text: "Discard",
+          style: "destructive",
+          onPress: () => {
+            clearLocalSaleDraft(userId, activeShopId, localDraft.mode, localDraft.id);
+            refreshLocalDrafts();
+          },
+        },
+      ],
+    );
+  }, [activeShopId, refreshLocalDrafts, userId]);
 
   const periodSales = useMemo(
     () => filterSalesForPeriod(sales ?? [], periodRange),
@@ -259,6 +322,72 @@ export function NewSaleType() {
           </View>
         </View>
 
+        {localDrafts.length > 0 && (
+          <View style={styles.localDraftSection}>
+            <View style={styles.localDraftHeader}>
+              <Text style={styles.localDraftTitle}>Unfinished sales</Text>
+              <Text style={styles.localDraftCount}>{localDrafts.length} saved on this device</Text>
+            </View>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.localDraftScroll}
+            >
+              {localDrafts.map((localDraft) => {
+                const itemCount = Object.values(localDraft.draft.lines)
+                  .reduce((count, line) => count + line.quantity, 0);
+                const step = localDraft.view.kind === "REGULAR"
+                  ? localDraft.view.currentStep
+                  : 1;
+                return (
+                  <Pressable
+                    key={localDraft.id}
+                    onPress={() => handleResumeDraft(localDraft)}
+                    style={({ pressed }) => [
+                      styles.localDraftCard,
+                      pressed && styles.pressedRow,
+                    ]}
+                  >
+                    <View style={styles.localDraftCardHeader}>
+                      <View style={styles.localDraftModeBadge}>
+                        <Text style={styles.localDraftModeText}>
+                          {localDraft.mode === "REGULAR" ? "REGULAR" : "WALK-IN"}
+                        </Text>
+                      </View>
+                      <Pressable
+                        hitSlop={10}
+                        accessibilityRole="button"
+                        accessibilityLabel="Discard unfinished sale"
+                        onPress={(event) => {
+                          event.stopPropagation();
+                          handleDiscardDraft(localDraft);
+                        }}
+                      >
+                        <Icon source="trash-can-outline" size={17} color={colors.danger} />
+                      </Pressable>
+                    </View>
+                    <Text style={styles.localDraftCustomer} numberOfLines={1}>
+                      {localDraftCustomerName(localDraft)}
+                    </Text>
+                    <Text style={styles.localDraftDetails}>
+                      {itemCount} item{itemCount === 1 ? "" : "s"} • {money(localDraftTotal(localDraft))}
+                    </Text>
+                    <View style={styles.localDraftFooter}>
+                      <Text style={styles.localDraftSavedAt}>
+                        Step {step} • {new Date(localDraft.savedAt).toLocaleTimeString("en-IN", {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </Text>
+                      <Icon source="arrow-right" size={16} color={colors.primary} />
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        )}
+
         {/* Date Filter Segmented Bar */}
         <View style={styles.dateFilterContainer}>
           {(["TODAY", "WEEK", "CUSTOM", "ALL"] as const).map((df) => {
@@ -421,7 +550,19 @@ export function NewSaleType() {
         </ScrollView>
       </View>
     );
-  }, [search, statusFilter, dateFilter, customStartDate, customEndDate, summaryMetrics, counts, filteredSales.length]);
+  }, [
+    search,
+    statusFilter,
+    dateFilter,
+    customStartDate,
+    customEndDate,
+    summaryMetrics,
+    counts,
+    filteredSales.length,
+    handleDiscardDraft,
+    handleResumeDraft,
+    localDrafts,
+  ]);
 
   return (
     <Screen scroll={false} edges={["top", "left", "right"]}>
@@ -569,6 +710,75 @@ const styles = StyleSheet.create({
   actionTileWrapper: {
     flex: 1,
     minWidth: 0,
+  },
+  localDraftSection: {
+    gap: spacing.xs,
+    paddingVertical: spacing.xs,
+  },
+  localDraftHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  localDraftTitle: {
+    fontSize: 11,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  localDraftCount: {
+    fontSize: 10,
+    color: colors.textMuted,
+  },
+  localDraftScroll: {
+    gap: spacing.sm,
+    paddingRight: spacing.lg,
+  },
+  localDraftCard: {
+    width: 190,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: spacing.sm,
+    gap: 4,
+    ...shadow.sm,
+  },
+  localDraftCardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  localDraftModeBadge: {
+    backgroundColor: colors.primaryLight,
+    borderRadius: radius.sm,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  localDraftModeText: {
+    color: colors.primary,
+    fontSize: 8,
+    fontWeight: fontWeight.black,
+  },
+  localDraftCustomer: {
+    color: colors.textPrimary,
+    fontSize: 13,
+    fontWeight: fontWeight.bold,
+  },
+  localDraftDetails: {
+    color: colors.textSecondary,
+    fontSize: 11,
+  },
+  localDraftFooter: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingTop: 2,
+  },
+  localDraftSavedAt: {
+    color: colors.textMuted,
+    fontSize: 9,
   },
   dateFilterContainer: {
     flexDirection: "row",

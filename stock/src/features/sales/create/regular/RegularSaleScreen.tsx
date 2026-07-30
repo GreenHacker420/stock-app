@@ -1,6 +1,6 @@
 import { useMemo, useState, useCallback, useEffect } from "react";
 import { Alert, StyleSheet, View } from "react-native";
-import { useNavigation, type NavigationProp } from "@react-navigation/native";
+import { useNavigation, useRoute, type NavigationProp, type RouteProp } from "@react-navigation/native";
 import { useShopStore } from "@/auth/shop-store";
 import { useAuthStore } from "@/auth/auth-store";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
@@ -50,6 +50,7 @@ import { useLiveSaleStock } from "../core/useLiveSaleStock";
 import { formatStockShortageMessage } from "../core/sale-stock";
 import {
   clearLocalSaleDraft,
+  createLocalSaleDraftId,
   loadLocalSaleDraft,
   saveLocalSaleDraft,
 } from "../core/sale-draft-storage";
@@ -58,13 +59,19 @@ const internetRequiredMessage = "Internet connection required. Please connect to
 
 export function RegularSaleScreen() {
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
+  const route = useRoute<RouteProp<RootStackParamList, "RegularSale">>();
   const { activeShopId } = useShopStore();
   const [draftShopId, setDraftShopId] = useState(() => requireActiveShopId(activeShopId));
+  const [sessionDraftId, setSessionDraftId] = useState(
+    () => route.params?.draftId ?? createLocalSaleDraftId(),
+  );
   const token = useAuthStore((state) => state.token);
   const user = useAuthStore((state) => state.user);
   const network = useNetworkStatus();
   const [restoredDraft] = useState(() =>
-    user?.id ? loadLocalSaleDraft(user.id, draftShopId, "REGULAR") : null
+    user?.id && route.params?.draftId
+      ? loadLocalSaleDraft(user.id, draftShopId, "REGULAR", route.params.draftId)
+      : null
   );
   const restoredView = restoredDraft?.view.kind === "REGULAR" ? restoredDraft.view : null;
   const restoredCustomer = restoredDraft?.draft.customer.kind === "EXISTING"
@@ -167,6 +174,7 @@ export function RegularSaleScreen() {
   useEffect(() => {
     if (!user?.id) return;
     saveLocalSaleDraft({
+      id: sessionDraftId,
       userId: user.id,
       shopId: draftShopId,
       mode: "REGULAR",
@@ -186,6 +194,7 @@ export function RegularSaleScreen() {
     draftShopId,
     partialPaymentMode,
     paymentType,
+    sessionDraftId,
     user?.id,
   ]);
 
@@ -198,6 +207,7 @@ export function RegularSaleScreen() {
       }
       if (currentStep !== 4 && user?.id) {
         saveLocalSaleDraft({
+          id: sessionDraftId,
           userId: user.id,
           shopId: draftShopId,
           mode: "REGULAR",
@@ -220,6 +230,7 @@ export function RegularSaleScreen() {
     navigation,
     partialPaymentMode,
     paymentType,
+    sessionDraftId,
     user?.id,
   ]);
 
@@ -392,7 +403,7 @@ export function RegularSaleScreen() {
           submittedDraft: { ...draft },
         });
         dispatch({ type: "RESET_DRAFT", shopId: requireActiveShopId(activeShopId) });
-        if (user?.id) clearLocalSaleDraft(user.id, draftShopId, "REGULAR");
+        if (user?.id) clearLocalSaleDraft(user.id, draftShopId, "REGULAR", sessionDraftId);
         setCurrentStep(4);
       },
       onError: (error: any) => {
@@ -465,7 +476,8 @@ export function RegularSaleScreen() {
     setNotes("");
     setDraftShopId(requireActiveShopId(activeShopId));
     setIsGstSale(false);
-    if (user?.id) clearLocalSaleDraft(user.id, draftShopId, "REGULAR");
+    if (user?.id) clearLocalSaleDraft(user.id, draftShopId, "REGULAR", sessionDraftId);
+    setSessionDraftId(createLocalSaleDraftId());
     dispatch({ type: "RESET_DRAFT", shopId: requireActiveShopId(activeShopId) });
     saleMutation.reset();
     setCompletedSaleSnapshot(null);

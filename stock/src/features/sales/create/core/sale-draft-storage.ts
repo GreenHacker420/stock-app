@@ -1,8 +1,9 @@
 import { mmkvStorage } from "@/auth/mmkv-storage";
 import type { SaleDraft, SaleMode } from "./sale.types";
 
-const DRAFT_VERSION = 1;
+const DRAFT_VERSION = 2;
 const MAX_DRAFT_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+const MAX_LOCAL_DRAFTS_PER_MODE = 25;
 
 export type RegularSaleDraftViewState = {
   kind: "REGULAR";
@@ -22,16 +23,38 @@ export type SaleDraftViewState = RegularSaleDraftViewState | WalkInSaleDraftView
 
 export type StoredSaleDraft = {
   version: typeof DRAFT_VERSION;
+  id: string;
   userId: string;
   shopId: string;
   mode: SaleMode;
+  createdAt: string;
   savedAt: string;
   draft: SaleDraft;
   view: SaleDraftViewState;
 };
 
-const storageKey = (userId: string, shopId: string, mode: SaleMode) =>
-  `sale-draft:v${DRAFT_VERSION}:${userId}:${shopId}:${mode}`;
+type LegacyStoredSaleDraft = Omit<StoredSaleDraft, "version" | "id" | "createdAt"> & {
+  version: 1;
+};
+
+type SaveLocalSaleDraftInput = {
+  id: string;
+  userId: string;
+  shopId: string;
+  mode: SaleMode;
+  draft: SaleDraft;
+  view: SaleDraftViewState;
+};
+
+const collectionKey = (userId: string, shopId: string, mode: SaleMode) =>
+  `sale-drafts:v${DRAFT_VERSION}:${userId}:${shopId}:${mode}`;
+
+const legacyStorageKey = (userId: string, shopId: string, mode: SaleMode) =>
+  `sale-draft:v1:${userId}:${shopId}:${mode}`;
+
+export function createLocalSaleDraftId() {
+  return `local-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
 
 export function hasMeaningfulSaleDraft(draft: SaleDraft) {
   return Object.keys(draft.lines).length > 0
@@ -80,87 +103,189 @@ function isValidView(value: unknown, mode: SaleMode): value is SaleDraftViewStat
     && typeof regular.amountPaid === "string";
 }
 
-export function loadLocalSaleDraft(
+function sanitizeDraft(stored: StoredSaleDraft): StoredSaleDraft {
+  return {
+    ...stored,
+    draft: {
+      ...stored.draft,
+      // A customer signature is sensitive and becomes stale when another draft is resumed.
+      creditAuthorization: null,
+    },
+  };
+}
+
+function isValidStoredDraft(
+  stored: unknown,
+  userId: string,
+  shopId: string,
+  mode: SaleMode,
+  now: number,
+): stored is StoredSaleDraft {
+  if (!stored || typeof stored !== "object") return false;
+  const candidate = stored as Partial<StoredSaleDraft>;
+  const savedAt = Date.parse(candidate.savedAt ?? "");
+  const createdAt = Date.parse(candidate.createdAt ?? "");
+  return candidate.version === DRAFT_VERSION
+    && typeof candidate.id === "string"
+    && candidate.id.length > 0
+    && candidate.userId === userId
+    && candidate.shopId === shopId
+    && candidate.mode === mode
+    && Number.isFinite(savedAt)
+    && Number.isFinite(createdAt)
+    && now - savedAt <= MAX_DRAFT_AGE_MS
+    && isValidDraft(candidate.draft, shopId, mode)
+    && isValidView(candidate.view, mode);
+}
+
+function readCollection(
   userId: string,
   shopId: string,
   mode: SaleMode,
   now = Date.now(),
-): StoredSaleDraft | null {
-  const key = storageKey(userId, shopId, mode);
+): StoredSaleDraft[] {
+  const key = collectionKey(userId, shopId, mode);
+  let candidates: unknown[] = [];
   try {
     const raw = mmkvStorage.getItem(key);
-    if (typeof raw !== "string" || !raw) return null;
-    const stored = JSON.parse(raw) as StoredSaleDraft;
-    const savedAt = Date.parse(stored.savedAt);
-    const valid = stored.version === DRAFT_VERSION
-      && stored.userId === userId
-      && stored.shopId === shopId
-      && stored.mode === mode
-      && Number.isFinite(savedAt)
-      && now - savedAt <= MAX_DRAFT_AGE_MS
-      && isValidDraft(stored.draft, shopId, mode)
-      && isValidView(stored.view, mode);
-
-    if (!valid) {
-      clearLocalSaleDraft(userId, shopId, mode);
-      return null;
+    if (typeof raw === "string" && raw) {
+      const parsed = JSON.parse(raw);
+      candidates = Array.isArray(parsed) ? parsed : [];
     }
-
-    return {
-      ...stored,
-      draft: {
-        ...stored.draft,
-        // A customer signature is sensitive and can become stale as the draft changes.
-        creditAuthorization: null,
-      },
-    };
   } catch {
-    clearLocalSaleDraft(userId, shopId, mode);
-    return null;
+    candidates = [];
+  }
+
+  const drafts = candidates
+    .filter((candidate): candidate is StoredSaleDraft =>
+      isValidStoredDraft(candidate, userId, shopId, mode, now))
+    .map(sanitizeDraft);
+
+  // One-time migration from the original single-slot draft.
+  try {
+    const legacyKey = legacyStorageKey(userId, shopId, mode);
+    const rawLegacy = mmkvStorage.getItem(legacyKey);
+    if (typeof rawLegacy === "string" && rawLegacy) {
+      const legacy = JSON.parse(rawLegacy) as LegacyStoredSaleDraft;
+      const savedAt = Date.parse(legacy.savedAt);
+      if (
+        legacy.version === 1
+        && legacy.userId === userId
+        && legacy.shopId === shopId
+        && legacy.mode === mode
+        && Number.isFinite(savedAt)
+        && now - savedAt <= MAX_DRAFT_AGE_MS
+        && isValidDraft(legacy.draft, shopId, mode)
+        && isValidView(legacy.view, mode)
+      ) {
+        drafts.push(sanitizeDraft({
+          ...legacy,
+          version: DRAFT_VERSION,
+          id: createLocalSaleDraftId(),
+          createdAt: legacy.savedAt,
+        }));
+      }
+    }
+    mmkvStorage.removeItem(legacyKey);
+  } catch {
+    // A corrupt legacy cache is safe to discard.
+  }
+
+  const unique = Array.from(new Map(drafts.map((draft) => [draft.id, draft])).values())
+    .sort((left, right) => Date.parse(right.savedAt) - Date.parse(left.savedAt))
+    .slice(0, MAX_LOCAL_DRAFTS_PER_MODE);
+
+  try {
+    if (unique.length > 0) mmkvStorage.setItem(key, JSON.stringify(unique));
+    else mmkvStorage.removeItem(key);
+  } catch {
+    // A local cache failure must never block checkout.
+  }
+  return unique;
+}
+
+function writeCollection(
+  userId: string,
+  shopId: string,
+  mode: SaleMode,
+  drafts: StoredSaleDraft[],
+) {
+  const key = collectionKey(userId, shopId, mode);
+  try {
+    if (drafts.length > 0) mmkvStorage.setItem(key, JSON.stringify(drafts));
+    else mmkvStorage.removeItem(key);
+  } catch {
+    // A local cache failure must never block checkout.
   }
 }
 
+export function listLocalSaleDrafts(
+  userId: string,
+  shopId: string,
+  mode?: SaleMode,
+): StoredSaleDraft[] {
+  const modes: SaleMode[] = mode ? [mode] : ["REGULAR", "WALK_IN"];
+  return modes
+    .flatMap((candidateMode) => readCollection(userId, shopId, candidateMode))
+    .sort((left, right) => Date.parse(right.savedAt) - Date.parse(left.savedAt));
+}
+
+export function loadLocalSaleDraft(
+  userId: string,
+  shopId: string,
+  mode: SaleMode,
+  id: string,
+): StoredSaleDraft | null {
+  return readCollection(userId, shopId, mode).find((draft) => draft.id === id) ?? null;
+}
+
 export function saveLocalSaleDraft({
+  id,
   userId,
   shopId,
   mode,
   draft,
   view,
-}: Omit<StoredSaleDraft, "version" | "savedAt">) {
-  const key = storageKey(userId, shopId, mode);
+}: SaveLocalSaleDraftInput) {
   if (draft.shopId !== shopId || draft.mode !== mode || view.kind !== mode) return;
   if (!hasMeaningfulSaleDraft(draft)) {
-    try {
-      mmkvStorage.removeItem(key);
-    } catch {
-      // A local cache failure must never block the sale screen.
-    }
+    clearLocalSaleDraft(userId, shopId, mode, id);
     return;
   }
 
+  const existing = readCollection(userId, shopId, mode);
+  const previous = existing.find((candidate) => candidate.id === id);
+  const now = new Date().toISOString();
   const stored: StoredSaleDraft = {
     version: DRAFT_VERSION,
+    id,
     userId,
     shopId,
     mode,
-    savedAt: new Date().toISOString(),
+    createdAt: previous?.createdAt ?? now,
+    savedAt: now,
     draft: {
       ...draft,
       creditAuthorization: null,
     },
     view,
   };
-  try {
-    mmkvStorage.setItem(key, JSON.stringify(stored));
-  } catch {
-    // A local cache failure must never block the sale screen.
-  }
+  writeCollection(
+    userId,
+    shopId,
+    mode,
+    [stored, ...existing.filter((candidate) => candidate.id !== id)]
+      .slice(0, MAX_LOCAL_DRAFTS_PER_MODE),
+  );
 }
 
-export function clearLocalSaleDraft(userId: string, shopId: string, mode: SaleMode) {
-  try {
-    mmkvStorage.removeItem(storageKey(userId, shopId, mode));
-  } catch {
-    // Clearing a missing or unavailable local cache is safe to ignore.
-  }
+export function clearLocalSaleDraft(
+  userId: string,
+  shopId: string,
+  mode: SaleMode,
+  id: string,
+) {
+  const remaining = readCollection(userId, shopId, mode)
+    .filter((draft) => draft.id !== id);
+  writeCollection(userId, shopId, mode, remaining);
 }

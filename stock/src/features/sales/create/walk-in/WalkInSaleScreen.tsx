@@ -2,7 +2,7 @@ import { useMemo, useState, useCallback, useEffect } from "react";
 import { Alert, StyleSheet, View } from "react-native";
 import { AppHeader } from "@/components/ui/AppHeader";
 import { Screen } from "@/components/Screen";
-import { useNavigation, type NavigationProp } from "@react-navigation/native";
+import { useNavigation, useRoute, type NavigationProp, type RouteProp } from "@react-navigation/native";
 import { useShopStore } from "@/auth/shop-store";
 import { useAuthStore } from "@/auth/auth-store";
 import { useNetworkStatus } from "@/hooks/useNetworkStatus";
@@ -43,6 +43,7 @@ import { useLiveSaleStock } from "../core/useLiveSaleStock";
 import { formatStockShortageMessage } from "../core/sale-stock";
 import {
   clearLocalSaleDraft,
+  createLocalSaleDraftId,
   loadLocalSaleDraft,
   saveLocalSaleDraft,
 } from "../core/sale-draft-storage";
@@ -51,13 +52,19 @@ const internetRequiredMessage = "Internet connection required. Please connect to
 
 export function WalkInSaleScreen() {
   const navigation = useNavigation<NavigationProp<RootStackParamList>>();
+  const route = useRoute<RouteProp<RootStackParamList, "WalkInSale">>();
   const { activeShopId } = useShopStore();
   const [draftShopId, setDraftShopId] = useState(() => requireActiveShopId(activeShopId));
+  const [sessionDraftId, setSessionDraftId] = useState(
+    () => route.params?.draftId ?? createLocalSaleDraftId(),
+  );
   const token = useAuthStore((state) => state.token);
   const user = useAuthStore((state) => state.user);
   const network = useNetworkStatus();
   const [restoredDraft] = useState(() =>
-    user?.id ? loadLocalSaleDraft(user.id, draftShopId, "WALK_IN") : null
+    user?.id && route.params?.draftId
+      ? loadLocalSaleDraft(user.id, draftShopId, "WALK_IN", route.params.draftId)
+      : null
   );
   const restoredView = restoredDraft?.view.kind === "WALK_IN" ? restoredDraft.view : null;
   const restoredCustomer = restoredDraft?.draft.customer.kind === "EXISTING"
@@ -140,6 +147,7 @@ export function WalkInSaleScreen() {
   useEffect(() => {
     if (!user?.id) return;
     saveLocalSaleDraft({
+      id: sessionDraftId,
       userId: user.id,
       shopId: draftShopId,
       mode: "WALK_IN",
@@ -150,12 +158,13 @@ export function WalkInSaleScreen() {
         amountReceived,
       },
     });
-  }, [amountReceived, draft, draftShopId, paymentMode, user?.id]);
+  }, [amountReceived, draft, draftShopId, paymentMode, sessionDraftId, user?.id]);
 
   useEffect(() => {
     return navigation.addListener("beforeRemove", () => {
       if (currentStep === 3 || !user?.id) return;
       saveLocalSaleDraft({
+        id: sessionDraftId,
         userId: user.id,
         shopId: draftShopId,
         mode: "WALK_IN",
@@ -174,6 +183,7 @@ export function WalkInSaleScreen() {
     draftShopId,
     navigation,
     paymentMode,
+    sessionDraftId,
     user?.id,
   ]);
 
@@ -373,7 +383,7 @@ export function WalkInSaleScreen() {
         });
         setCompletedSaleNumber(res?.saleNumber || "N/A");
         dispatch({ type: "RESET_DRAFT", shopId: requireActiveShopId(activeShopId) });
-        if (user?.id) clearLocalSaleDraft(user.id, draftShopId, "WALK_IN");
+        if (user?.id) clearLocalSaleDraft(user.id, draftShopId, "WALK_IN", sessionDraftId);
         setCheckoutVisible(false);
         setCurrentStep(3);
       },
@@ -472,7 +482,8 @@ export function WalkInSaleScreen() {
     setPaymentMode("CASH");
     setUpiConfirmedFingerprint(null);
     setDraftShopId(requireActiveShopId(activeShopId));
-    if (user?.id) clearLocalSaleDraft(user.id, draftShopId, "WALK_IN");
+    if (user?.id) clearLocalSaleDraft(user.id, draftShopId, "WALK_IN", sessionDraftId);
+    setSessionDraftId(createLocalSaleDraftId());
     dispatch({ type: "RESET_DRAFT", shopId: requireActiveShopId(activeShopId) });
     saleMutation.reset();
     setCompletedSaleSnapshot(null);
