@@ -1,5 +1,6 @@
 import prisma from "../lib/db.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
+import { createWhatsAppChannelResolver } from "./whatsapp.channel-resolution.js";
 import { ApiError } from "../utils/ApiError.js";
 
 function notFound(resource) {
@@ -12,36 +13,57 @@ export function createWhatsAppAuthorization({
   db = prisma,
   authorizeShop = assertShopAccess,
 } = {}) {
-  const resolveIntegration = async (user, integrationId) => {
+  const channelResolver = createWhatsAppChannelResolver({ db, authorizeShop });
+
+  const resolveIntegration = async (user, integrationId, activeShopId) => {
     if (!integrationId) throw notFound("WhatsApp integration");
-    const integration = await db.waIntegration.findUnique({
-      where: { id: integrationId },
-    });
-    if (!integration) throw notFound("WhatsApp integration");
-    let shop;
-    try {
-      shop = await authorizeShop(user, integration.shopId);
-    } catch {
-      throw notFound("WhatsApp integration");
+    let requestedShopId = activeShopId;
+    if (!requestedShopId) {
+      const legacyIntegration = await db.waIntegration.findUnique({
+        where: { id: integrationId },
+        select: { shopId: true },
+      });
+      requestedShopId = legacyIntegration?.shopId;
     }
-    return { integration, shop };
+    return channelResolver.resolveWhatsAppChannelById(
+      user,
+      requestedShopId,
+      integrationId,
+    );
   };
 
-  const resolveConversation = async (user, integrationId, conversationId) => {
-    const scope = await resolveIntegration(user, integrationId);
+  const resolveConversation = async (user, integrationId, conversationId, activeShopId) => {
+    const scope = await resolveIntegration(user, integrationId, activeShopId);
     const conversation = await db.waConversation.findFirst({
-      where: { id: conversationId, shopId: scope.integration.shopId },
+      where: {
+        id: conversationId,
+        OR: [
+          { integrationId: scope.integration.id },
+          {
+            integrationId: null,
+            shopId: scope.integration.shopId,
+          },
+        ],
+      },
     });
     if (!conversation) throw notFound("WhatsApp conversation");
     return { ...scope, conversation };
   };
 
-  const resolveMessage = async (user, integrationId, messageId) => {
-    const scope = await resolveIntegration(user, integrationId);
+  const resolveMessage = async (user, integrationId, messageId, activeShopId) => {
+    const scope = await resolveIntegration(user, integrationId, activeShopId);
     const message = await db.waMessage.findFirst({
       where: {
         id: messageId,
-        conversation: { shopId: scope.integration.shopId },
+        conversation: {
+          OR: [
+            { integrationId: scope.integration.id },
+            {
+              integrationId: null,
+              shopId: scope.integration.shopId,
+            },
+          ],
+        },
       },
       include: { conversation: true },
     });
@@ -61,8 +83,14 @@ export const resolveWhatsAppIntegration = authorization.resolveWhatsAppIntegrati
 export const resolveWhatsAppConversation = authorization.resolveWhatsAppConversation;
 export const resolveWhatsAppMessage = authorization.resolveWhatsAppMessage;
 
+function activeShopId(req) {
+  return req.get?.("X-Shop-Id")
+    || req.query?.shopId
+    || req.body?.shopId;
+}
+
 export function requireWhatsAppIntegration(req, _res, next) {
-  resolveWhatsAppIntegration(req.user, req.params.integrationId)
+  resolveWhatsAppIntegration(req.user, req.params.integrationId, activeShopId(req))
     .then((scope) => {
       req.waScope = scope;
       req.shop = scope.shop;
@@ -72,7 +100,12 @@ export function requireWhatsAppIntegration(req, _res, next) {
 }
 
 export function requireWhatsAppConversation(req, _res, next) {
-  resolveWhatsAppConversation(req.user, req.params.integrationId, req.params.conversationId)
+  resolveWhatsAppConversation(
+    req.user,
+    req.params.integrationId,
+    req.params.conversationId,
+    activeShopId(req),
+  )
     .then((scope) => {
       req.waScope = scope;
       req.shop = scope.shop;
@@ -82,7 +115,12 @@ export function requireWhatsAppConversation(req, _res, next) {
 }
 
 export function requireWhatsAppMessage(req, _res, next) {
-  resolveWhatsAppMessage(req.user, req.params.integrationId, req.params.messageId)
+  resolveWhatsAppMessage(
+    req.user,
+    req.params.integrationId,
+    req.params.messageId,
+    activeShopId(req),
+  )
     .then((scope) => {
       req.waScope = scope;
       req.shop = scope.shop;

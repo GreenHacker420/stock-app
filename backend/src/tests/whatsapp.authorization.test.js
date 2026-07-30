@@ -5,23 +5,48 @@ import { createWhatsAppAuthorization } from "../services/whatsapp.authorization.
 function authorizationFixture({ authorized = true } = {}) {
   const calls = [];
   const db = {
+    shop: {
+      findUnique: async ({ where }) => ({
+        id: where.id,
+        tenantId: null,
+        shopGroupId: null,
+      }),
+    },
     waIntegration: {
       findUnique: async ({ where }) => where.id === "integration-a"
         ? { id: "integration-a", shopId: "shop-a" }
         : null,
+      findFirst: async ({ where }) => where.shopId === "shop-a"
+        ? {
+            id: "integration-a",
+            shopId: "shop-a",
+            status: "CONNECTED",
+            isArchived: false,
+          }
+        : null,
+    },
+    waIntegrationShopAccess: {
+      findFirst: async () => null,
+      findUnique: async () => null,
+    },
+    shopGroup: {
+      findUnique: async () => null,
+    },
+    tenant: {
+      findUnique: async () => null,
     },
     waConversation: {
       findFirst: async ({ where }) => {
         calls.push({ type: "conversation", where });
-        return where.id === "conversation-a" && where.shopId === "shop-a"
-          ? { id: where.id, shopId: where.shopId }
+        return where.id === "conversation-a"
+          ? { id: where.id, shopId: "shop-a", integrationId: "integration-a" }
           : null;
       },
     },
     waMessage: {
       findFirst: async ({ where }) => {
         calls.push({ type: "message", where });
-        return where.id === "message-a" && where.conversation.shopId === "shop-a"
+        return where.id === "message-a"
           ? { id: where.id, conversation: { id: "conversation-a", shopId: "shop-a" } }
           : null;
       },
@@ -46,12 +71,13 @@ test("cross-shop integration access is hidden behind the same resource-not-found
   );
 });
 
-test("conversation and message resolution always carries the integration shop boundary", async () => {
+test("conversation and message resolution always carries the integration channel boundary", async () => {
   const { service, calls } = authorizationFixture();
   await service.resolveWhatsAppConversation({ id: "user-a" }, "integration-a", "conversation-a");
   await service.resolveWhatsAppMessage({ id: "user-a" }, "integration-a", "message-a");
-  assert.deepEqual(calls[0].where, { id: "conversation-a", shopId: "shop-a" });
-  assert.equal(calls[1].where.conversation.shopId, "shop-a");
+  assert.equal(calls[0].where.OR[0].integrationId, "integration-a");
+  assert.equal(calls[0].where.OR[1].shopId, "shop-a");
+  assert.equal(calls[1].where.conversation.OR[0].integrationId, "integration-a");
 });
 
 test("cross-integration conversation IDs are not resolved", async () => {

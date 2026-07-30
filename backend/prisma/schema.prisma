@@ -14,6 +14,12 @@ enum RoleName {
   STAFF
 }
 
+enum TenantMemberRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
 enum UserStatus {
   ACTIVE
   INACTIVE
@@ -445,6 +451,8 @@ model User {
   waTemplateVersionsCreated   WaTemplateVersion[]   @relation("WaTemplateVersionCreatedBy")
   devices                     UserDevice[]
   waOnboardingSessions        WaOnboardingSession[]
+  ownedTenants                Tenant[]              @relation("TenantOwner")
+  tenantMemberships           TenantMember[]
 
   @@index([staffOwnerId])
 }
@@ -482,24 +490,81 @@ model UserDevice {
   @@index([voipToken])
 }
 
+model Tenant {
+  id                     String   @id @default(cuid())
+  name                   String
+  ownerId                String
+  defaultWaIntegrationId String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  owner                User            @relation("TenantOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+  members              TenantMember[]
+  shopGroups           ShopGroup[]
+  shops                Shop[]
+  waIntegrations       WaIntegration[] @relation("TenantWaIntegrations")
+  defaultWaIntegration WaIntegration?  @relation("TenantDefaultWaIntegration", fields: [defaultWaIntegrationId], references: [id], onDelete: SetNull)
+
+  @@index([ownerId])
+  @@index([defaultWaIntegrationId])
+}
+
+model TenantMember {
+  id        String           @id @default(cuid())
+  tenantId  String
+  userId    String
+  role      TenantMemberRole @default(MEMBER)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId])
+  @@index([userId])
+}
+
+model ShopGroup {
+  id                     String   @id @default(cuid())
+  tenantId               String
+  name                   String
+  code                   String
+  callPhone              String?
+  defaultWaIntegrationId String?
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  tenant               Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branches             Shop[]
+  defaultWaIntegration WaIntegration? @relation("ShopGroupDefaultWaIntegration", fields: [defaultWaIntegrationId], references: [id], onDelete: SetNull)
+
+  @@unique([tenantId, code])
+  @@index([tenantId, name])
+  @@index([defaultWaIntegrationId])
+}
+
 model Shop {
-  id        String       @id @default(cuid())
-  name      String
-  code      String       @unique
-  city      String
-  address   String?
-  phone     String?
-  email     String?
-  gstin     String?
-  logo      String?
-  ownerId   String
-  upiId     String?
-  upiName   String?
-  status    RecordStatus @default(ACTIVE)
-  createdAt DateTime     @default(now())
-  updatedAt DateTime     @updatedAt
+  id          String       @id @default(cuid())
+  name        String
+  code        String       @unique
+  city        String
+  address     String?
+  phone       String?
+  email       String?
+  gstin       String?
+  logo        String?
+  ownerId     String
+  tenantId    String?
+  shopGroupId String?
+  upiId       String?
+  upiName     String?
+  status      RecordStatus @default(ACTIVE)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
 
   owner                 User                           @relation("ShopOwner", fields: [ownerId], references: [id])
+  tenant                Tenant?                        @relation(fields: [tenantId], references: [id], onDelete: Restrict)
+  shopGroup             ShopGroup?                     @relation(fields: [shopGroupId], references: [id], onDelete: Restrict)
   staffAccesses         StaffShopAccess[]
   customers             Customer[]
   itemCategories        ItemCategory[]
@@ -524,21 +589,28 @@ model Shop {
   dmSerialAssignments   DeliveryMemoSerialAssignment[]
   customerLedgerEntries CustomerLedgerEntry[]
 
-  waConversations      WaConversation[]
-  waTemplates          WaTemplate[]
-  waFlows              WaFlow[]
-  waIntegration        WaIntegration?
-  waBroadcasts         WaBroadcast[]
-  assets               Asset[]
-  waTemplateAttributes WaTemplateAttribute[]
-  waOnboardingSessions WaOnboardingSession[]
+  waConversations             WaConversation[]             @relation("WaConversationHomeShop")
+  waContextConversations      WaConversation[]             @relation("WaConversationContextShop")
+  waContextMessages           WaMessage[]                  @relation("WaMessageContextShop")
+  waConversationCustomerLinks WaConversationCustomerLink[]
+  waIntegrationAccesses       WaIntegrationShopAccess[]
+  waTemplates                 WaTemplate[]
+  waFlows                     WaFlow[]
+  waIntegration               WaIntegration?
+  waBroadcasts                WaBroadcast[]
+  assets                      Asset[]
+  waTemplateAttributes        WaTemplateAttribute[]
+  waOnboardingSessions        WaOnboardingSession[]
 
   @@index([ownerId])
+  @@index([tenantId])
+  @@index([shopGroupId])
 }
 
 model WaIntegration {
   id                       String                @id @default(cuid())
   shopId                   String                @unique
+  tenantId                 String?
   verifyToken              String
   accessToken              String
   appSecret                String?
@@ -568,12 +640,42 @@ model WaIntegration {
   onboardingMode           WaOnboardingMode?
   reauthorizationRequired  Boolean               @default(false)
   disconnectedAt           DateTime?
+  isArchived               Boolean               @default(false)
+  archivedReason           String?
   createdAt                DateTime              @default(now())
   updatedAt                DateTime              @updatedAt
 
-  shop Shop @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  shop                 Shop                      @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  tenant               Tenant?                   @relation("TenantWaIntegrations", fields: [tenantId], references: [id], onDelete: Restrict)
+  shopAccesses         WaIntegrationShopAccess[]
+  conversations        WaConversation[]
+  webhookEnvelopes     WaWebhookEnvelope[]
+  templates            WaTemplate[]
+  flows                WaFlow[]
+  broadcasts           WaBroadcast[]
+  defaultForTenants    Tenant[]                  @relation("TenantDefaultWaIntegration")
+  defaultForShopGroups ShopGroup[]               @relation("ShopGroupDefaultWaIntegration")
 
   @@index([phoneNumberId])
+  @@index([tenantId, status])
+}
+
+model WaIntegrationShopAccess {
+  id            String   @id @default(cuid())
+  integrationId String
+  shopId        String
+  canView       Boolean  @default(true)
+  canSend       Boolean  @default(true)
+  canManage     Boolean  @default(false)
+  isPrimary     Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  integration WaIntegration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  shop        Shop          @relation(fields: [shopId], references: [id], onDelete: Cascade)
+
+  @@unique([integrationId, shopId])
+  @@index([shopId, isPrimary])
 }
 
 model WaOnboardingSession {
@@ -653,8 +755,8 @@ model Customer {
   createdAt         DateTime     @default(now())
   updatedAt         DateTime     @updatedAt
 
-  shop                  Shop                   @relation(fields: [shopId], references: [id], onDelete: Restrict)
-  createdBy             User                   @relation("CustomerCreatedBy", fields: [createdById], references: [id])
+  shop                  Shop                         @relation(fields: [shopId], references: [id], onDelete: Restrict)
+  createdBy             User                         @relation("CustomerCreatedBy", fields: [createdById], references: [id])
   orders                Order[]
   dispatches            Dispatch[]
   sales                 Sale[]
@@ -662,6 +764,7 @@ model Customer {
   payments              Payment[]
   inventoryReturns      InventoryReturn[]
   waConversations       WaConversation[]
+  waConversationLinks   WaConversationCustomerLink[]
   waFlowExecutions      WaFlowExecution[]
   waBroadcastRecipients WaBroadcastRecipient[]
   ledgerEntries         CustomerLedgerEntry[]
@@ -1743,6 +1846,8 @@ model Asset {
 model WaConversation {
   id                    String    @id @default(cuid())
   shopId                String
+  integrationId         String?
+  contextShopId         String?
   customerId            String?
   phone                 String
   bsuid                 String?
@@ -1752,26 +1857,49 @@ model WaConversation {
   isArchived            Boolean   @default(false)
   isPinned              Boolean   @default(false)
   isMuted               Boolean   @default(false)
-  mutedUntil             DateTime?
+  mutedUntil            DateTime?
   assignedToId          String?
   entityVersion         Int       @default(1)
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 
-  shop           Shop              @relation(fields: [shopId], references: [id])
-  customer       Customer?         @relation(fields: [customerId], references: [id])
-  assignedTo     User?             @relation(fields: [assignedToId], references: [id])
+  shop           Shop                         @relation("WaConversationHomeShop", fields: [shopId], references: [id])
+  contextShop    Shop?                        @relation("WaConversationContextShop", fields: [contextShopId], references: [id], onDelete: SetNull)
+  integration    WaIntegration?               @relation(fields: [integrationId], references: [id], onDelete: Restrict)
+  customer       Customer?                    @relation(fields: [customerId], references: [id])
+  assignedTo     User?                        @relation(fields: [assignedToId], references: [id])
   messages       WaMessage[]
   flowExecutions WaFlowExecution[]
+  customerLinks  WaConversationCustomerLink[]
 
   @@unique([shopId, phone])
   @@index([shopId, updatedAt, id])
   @@index([shopId, customerId])
+  @@index([integrationId, updatedAt, id])
+  @@index([contextShopId, updatedAt, id])
+}
+
+model WaConversationCustomerLink {
+  id             String   @id @default(cuid())
+  conversationId String
+  shopId         String
+  customerId     String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  conversation WaConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  shop         Shop           @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  customer     Customer       @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, shopId])
+  @@index([shopId, customerId])
+  @@index([customerId])
 }
 
 model WaMessage {
   id                   String             @id @default(cuid())
   conversationId       String
+  contextShopId        String?
   clientMessageId      String?
   clientPayloadHash    String?
   sourceDeviceId       String?
@@ -1803,6 +1931,7 @@ model WaMessage {
   createdAt            DateTime           @default(now())
 
   conversation WaConversation @relation(fields: [conversationId], references: [id])
+  contextShop  Shop?          @relation("WaMessageContextShop", fields: [contextShopId], references: [id], onDelete: SetNull)
   asset        Asset?         @relation(fields: [assetId], references: [id], onDelete: SetNull)
 
   @@unique([conversationId, clientMessageId])
@@ -1810,6 +1939,7 @@ model WaMessage {
   @@index([clientMessageId])
   @@index([operationState, lastRetryAt])
   @@index([assetId])
+  @@index([contextShopId, createdAt])
 }
 
 enum WaWebhookEventType {
@@ -1828,6 +1958,7 @@ enum WaWebhookProcessingStatus {
 model WaWebhookEnvelope {
   id                String                    @id @default(cuid())
   shopId            String
+  integrationId     String?
   wabaId            String?
   phoneNumberId     String?
   field             String
@@ -1841,23 +1972,29 @@ model WaWebhookEnvelope {
   receivedAt        DateTime                  @default(now())
   processedAt       DateTime?
 
+  integration WaIntegration? @relation(fields: [integrationId], references: [id], onDelete: Restrict)
+
   @@unique([shopId, payloadHash])
   @@index([shopId, processingStatus, receivedAt])
+  @@index([integrationId, processingStatus, receivedAt])
   @@index([field, receivedAt])
 }
 
 model WaWebhookEvent {
-  id          String             @id // Composite or hash ID
-  shopId      String?
-  eventType   WaWebhookEventType
-  processedAt DateTime           @default(now())
+  id            String             @id // Composite or hash ID
+  shopId        String?
+  integrationId String?
+  eventType     WaWebhookEventType
+  processedAt   DateTime           @default(now())
 
   @@index([processedAt])
+  @@index([integrationId, processedAt])
 }
 
 model WaTemplate {
   id                  String                  @id @default(cuid())
   shopId              String
+  integrationId       String?
   metaTemplateId      String?
   name                String
   language            String
@@ -1884,12 +2021,14 @@ model WaTemplate {
   updatedAt           DateTime                @updatedAt
 
   shop             Shop                        @relation(fields: [shopId], references: [id])
+  integration      WaIntegration?              @relation(fields: [integrationId], references: [id], onDelete: Restrict)
   broadcasts       WaBroadcast[]
   variableMappings WaTemplateVariableMapping[]
   versions         WaTemplateVersion[]
 
   @@unique([shopId, name, language])
   @@index([shopId, status])
+  @@index([integrationId, status])
 }
 
 model WaTemplateAttribute {
@@ -1965,6 +2104,7 @@ model WaTemplateUsage {
 model WaFlow {
   id               String       @id @default(cuid())
   shopId           String
+  integrationId    String?
   flowId           String?
   name             String
   description      String?
@@ -1994,11 +2134,13 @@ model WaFlow {
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
 
-  shop       Shop              @relation(fields: [shopId], references: [id], onDelete: Cascade)
-  executions WaFlowExecution[]
+  shop        Shop              @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  integration WaIntegration?    @relation(fields: [integrationId], references: [id], onDelete: Restrict)
+  executions  WaFlowExecution[]
 
   @@unique([shopId, flowId])
   @@index([shopId, status, updatedAt])
+  @@index([integrationId, status, updatedAt])
 }
 
 model WaFlowExecution {
@@ -2039,6 +2181,7 @@ model WaFlowExecution {
 model WaBroadcast {
   id                String            @id @default(cuid())
   shopId            String
+  integrationId     String?
   name              String
   templateId        String?
   templateVariables Json?
@@ -2057,12 +2200,14 @@ model WaBroadcast {
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
 
-  shop       Shop                   @relation(fields: [shopId], references: [id], onDelete: Cascade)
-  template   WaTemplate?            @relation(fields: [templateId], references: [id])
-  createdBy  User                   @relation(fields: [createdById], references: [id])
-  recipients WaBroadcastRecipient[]
+  shop        Shop                   @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  integration WaIntegration?         @relation(fields: [integrationId], references: [id], onDelete: Restrict)
+  template    WaTemplate?            @relation(fields: [templateId], references: [id])
+  createdBy   User                   @relation(fields: [createdById], references: [id])
+  recipients  WaBroadcastRecipient[]
 
   @@index([shopId, status])
+  @@index([integrationId, status])
 }
 
 model WaBroadcastRecipient {

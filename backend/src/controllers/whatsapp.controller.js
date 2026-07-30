@@ -22,6 +22,7 @@ import {
 import { ApiError } from "../utils/ApiError.js";
 import { enqueueWhatsAppDomainEvent } from "../services/whatsapp.domain-events.js";
 import { getWhatsAppMediaPolicy } from "../services/whatsapp.media-policy.js";
+import { resolveEffectiveWhatsAppChannel } from "../services/whatsapp.channel-resolution.js";
 
 function boundedLimit(value, fallback = 50, maximum = 100) {
   const parsed = Number(value);
@@ -31,7 +32,7 @@ function boundedLimit(value, fallback = 50, maximum = 100) {
 
 function assertMatchingWhatsAppScope(body, scope) {
   const mismatched = (
-    (body.shopId && body.shopId !== scope.integration.shopId)
+    (body.shopId && body.shopId !== scope.shop.id)
     || (body.integrationId && body.integrationId !== scope.integration.id)
     || (body.conversationId && body.conversationId !== scope.conversation.id)
   );
@@ -84,14 +85,8 @@ async function getPublicIntegration(shopId) {
 class WhatsAppController {
   async getCapability(req, res, next) {
     try {
-      const integration = await prisma.waIntegration.findUnique({
-        where: { shopId: req.shop.id },
-        select: {
-          id: true,
-          phoneNumberId: true,
-          status: true,
-        },
-      });
+      const scope = await resolveEffectiveWhatsAppChannel(req.user, req.shop.id);
+      const integration = scope.integration;
       if (req.query.integrationId && req.query.integrationId !== integration?.id) {
         throw new ApiError(404, "WhatsApp resource not found", {
           code: "WHATSAPP_RESOURCE_NOT_FOUND",
@@ -101,7 +96,13 @@ class WhatsAppController {
         const conversation = await prisma.waConversation.findFirst({
           where: {
             id: req.query.conversationId,
-            shopId: req.shop.id,
+            OR: [
+              { integrationId: integration?.id },
+              {
+                integrationId: null,
+                shopId: integration?.shopId,
+              },
+            ],
           },
           select: { id: true },
         });
@@ -119,6 +120,8 @@ class WhatsAppController {
         enabled: Boolean(integration && integration.status === "CONNECTED"),
         integrationId: integration?.id || null,
         phoneNumberId: integration?.phoneNumberId || null,
+        channelScope: scope.resolution,
+        activeShopId: req.shop.id,
         runtimeConfig: {
           socketGraceMs,
           notificationPreviewsEnabled: false,

@@ -417,6 +417,7 @@ export function fetchWhatsAppCapability(
 
 export function fetchScopedWaConversations(
   token: string,
+  shopId: string,
   integrationId: string,
   options: { limit?: number; cursor?: string } = {},
 ) {
@@ -424,12 +425,13 @@ export function fetchScopedWaConversations(
   if (options.cursor) query.set("cursor", options.cursor);
   return apiRequest<WaPage<WaConversation>>(
     `/whatsapp/integrations/${encodeURIComponent(integrationId)}/conversations?${query.toString()}`,
-    { token },
+    { token, headers: { "X-Shop-Id": shopId } },
   );
 }
 
 export function fetchScopedWaMessages(
   token: string,
+  shopId: string,
   integrationId: string,
   conversationId: string,
   options: { limit?: number; cursor?: string } = {},
@@ -438,7 +440,7 @@ export function fetchScopedWaMessages(
   if (options.cursor) query.set("cursor", options.cursor);
   return apiRequest<WaPage<WaMessage>>(
     `/whatsapp/integrations/${encodeURIComponent(integrationId)}/conversations/${encodeURIComponent(conversationId)}/messages?${query.toString()}`,
-    { token },
+    { token, headers: { "X-Shop-Id": shopId } },
   );
 }
 
@@ -463,6 +465,7 @@ export async function sendScopedWaMessage(
       headers: {
         "Idempotency-Key": idempotencyKey,
         "X-Request-Id": requestId,
+        "X-Shop-Id": scope.shopId,
       },
       body: JSON.stringify({
         clientMessageId,
@@ -474,38 +477,46 @@ export async function sendScopedWaMessage(
   );
 }
 
-export function retryScopedWaMessage(token: string, integrationId: string, messageId: string) {
+export function retryScopedWaMessage(token: string, shopId: string, integrationId: string, messageId: string) {
   return apiRequest<{ message: WaMessage }>(
     `/whatsapp/integrations/${encodeURIComponent(integrationId)}/messages/${encodeURIComponent(messageId)}/retry`,
-    { method: "POST", token },
+    { method: "POST", token, headers: { "X-Shop-Id": shopId } },
   );
 }
 
 export function markScopedWaConversationRead(
   token: string,
+  shopId: string,
   integrationId: string,
   conversationId: string,
 ) {
   return apiRequest<{ conversation: WaConversation }>(
     `/whatsapp/integrations/${encodeURIComponent(integrationId)}/conversations/${encodeURIComponent(conversationId)}/read`,
-    { method: "POST", token },
+    { method: "POST", token, headers: { "X-Shop-Id": shopId } },
   );
 }
 
 export async function createScopedWaConversation(
   token: string,
+  shopId: string,
   integrationId: string,
   input: WaCreateConversationInput,
 ) {
   const sourceDeviceId = await getDeviceInstallationId();
   return apiRequest<{ conversation: WaConversation }>(
     `/whatsapp/integrations/${encodeURIComponent(integrationId)}/conversations`,
-    { method: "POST", token, body: JSON.stringify({ ...input, sourceDeviceId }) },
+    {
+      method: "POST",
+      token,
+      headers: { "X-Shop-Id": shopId },
+      body: JSON.stringify({ ...input, sourceDeviceId }),
+    },
   );
 }
 
 export async function reactToScopedWaMessage(
   token: string,
+  shopId: string,
   integrationId: string,
   messageId: string,
   emoji: string,
@@ -513,20 +524,31 @@ export async function reactToScopedWaMessage(
   const sourceDeviceId = await getDeviceInstallationId();
   return apiRequest<{ message: WaMessage }>(
     `/whatsapp/integrations/${encodeURIComponent(integrationId)}/messages/${encodeURIComponent(messageId)}/reaction`,
-    { method: "POST", token, body: JSON.stringify({ emoji, sourceDeviceId }) },
+    {
+      method: "POST",
+      token,
+      headers: { "X-Shop-Id": shopId },
+      body: JSON.stringify({ emoji, sourceDeviceId }),
+    },
   );
 }
 
-export async function deleteScopedWaMessage(token: string, integrationId: string, messageId: string) {
+export async function deleteScopedWaMessage(token: string, shopId: string, integrationId: string, messageId: string) {
   const sourceDeviceId = await getDeviceInstallationId();
   return apiRequest<{ message: WaMessage }>(
     `/whatsapp/integrations/${encodeURIComponent(integrationId)}/messages/${encodeURIComponent(messageId)}`,
-    { method: "DELETE", token, body: JSON.stringify({ sourceDeviceId }) },
+    {
+      method: "DELETE",
+      token,
+      headers: { "X-Shop-Id": shopId },
+      body: JSON.stringify({ sourceDeviceId }),
+    },
   );
 }
 
 export async function archiveScopedWaConversation(
   token: string,
+  shopId: string,
   integrationId: string,
   conversationId: string,
   isArchived = true,
@@ -534,12 +556,18 @@ export async function archiveScopedWaConversation(
   const sourceDeviceId = await getDeviceInstallationId();
   return apiRequest<{ conversation: WaConversation }>(
     `/whatsapp/integrations/${encodeURIComponent(integrationId)}/conversations/${encodeURIComponent(conversationId)}/archive`,
-    { method: "POST", token, body: JSON.stringify({ isArchived, sourceDeviceId }) },
+    {
+      method: "POST",
+      token,
+      headers: { "X-Shop-Id": shopId },
+      body: JSON.stringify({ isArchived, sourceDeviceId }),
+    },
   );
 }
 
 export async function pinScopedWaConversation(
   token: string,
+  shopId: string,
   integrationId: string,
   conversationId: string,
   isPinned: boolean,
@@ -547,12 +575,18 @@ export async function pinScopedWaConversation(
   const sourceDeviceId = await getDeviceInstallationId();
   return apiRequest<{ conversation: WaConversation }>(
     `/whatsapp/integrations/${encodeURIComponent(integrationId)}/conversations/${encodeURIComponent(conversationId)}/pin`,
-    { method: "POST", token, body: JSON.stringify({ isPinned, sourceDeviceId }) },
+    {
+      method: "POST",
+      token,
+      headers: { "X-Shop-Id": shopId },
+      body: JSON.stringify({ isPinned, sourceDeviceId }),
+    },
   );
 }
 
 export async function muteScopedWaConversation(
   token: string,
+  shopId: string,
   integrationId: string,
   conversationId: string,
   input: { isMuted: boolean; mutedUntil?: string },
@@ -560,20 +594,31 @@ export async function muteScopedWaConversation(
   const sourceDeviceId = await getDeviceInstallationId();
   return apiRequest<{ conversation: WaConversation }>(
     `/whatsapp/integrations/${encodeURIComponent(integrationId)}/conversations/${encodeURIComponent(conversationId)}/mute`,
-    { method: "POST", token, body: JSON.stringify({ ...input, sourceDeviceId }) },
+    {
+      method: "POST",
+      token,
+      headers: { "X-Shop-Id": shopId },
+      body: JSON.stringify({ ...input, sourceDeviceId }),
+    },
   );
 }
 
-export async function deleteScopedWaConversation(token: string, integrationId: string, conversationId: string) {
+export async function deleteScopedWaConversation(token: string, shopId: string, integrationId: string, conversationId: string) {
   const sourceDeviceId = await getDeviceInstallationId();
   return apiRequest<{ deleted: true }>(
     `/whatsapp/integrations/${encodeURIComponent(integrationId)}/conversations/${encodeURIComponent(conversationId)}`,
-    { method: "DELETE", token, body: JSON.stringify({ sourceDeviceId }) },
+    {
+      method: "DELETE",
+      token,
+      headers: { "X-Shop-Id": shopId },
+      body: JSON.stringify({ sourceDeviceId }),
+    },
   );
 }
 
 export function uploadWaMedia(
   token: string,
+  shopId: string,
   integrationId: string,
   media: WaLocalMedia,
   onProgress?: (progress: number) => void,
@@ -586,6 +631,7 @@ export function uploadWaMedia(
       `${API_BASE_URL}/whatsapp/integrations/${encodeURIComponent(integrationId)}/media`,
     );
     request.setRequestHeader("Authorization", `Bearer ${token}`);
+    request.setRequestHeader("X-Shop-Id", shopId);
 
     request.upload.onprogress = (event) => {
       if (event.lengthComputable) {
@@ -916,6 +962,7 @@ export async function sendWaTemplate(
 
 export async function syncScopedWaPhoneContacts(
   token: string,
+  shopId: string,
   integrationId: string,
   contacts: any[],
   mergeStrategy: "MERGE" | "OVERWRITE",
@@ -923,6 +970,7 @@ export async function syncScopedWaPhoneContacts(
   return apiRequest<any>(`/whatsapp/integrations/${encodeURIComponent(integrationId)}/contacts/sync`, {
     method: "POST",
     token,
+    headers: { "X-Shop-Id": shopId },
     body: JSON.stringify({ contacts, mergeStrategy }),
   });
 }

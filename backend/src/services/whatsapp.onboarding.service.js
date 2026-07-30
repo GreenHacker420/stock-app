@@ -341,10 +341,7 @@ class WhatsAppOnboardingService {
       });
 
       if (!steps.has("APP_SUBSCRIBED")) {
-        await graphPost(`${session.wabaId}/subscribed_apps`, accessToken, {
-          override_callback_uri: `${publicApiBase()}/whatsapp/webhook`,
-          verify_token: session.verifyToken,
-        });
+        await graphPost(`${session.wabaId}/subscribed_apps`, accessToken);
         steps.add("APP_SUBSCRIBED");
         session = await prisma.waOnboardingSession.update({
           where: { id: session.id },
@@ -376,6 +373,20 @@ class WhatsAppOnboardingService {
       const phone = await graphGet(session.phoneNumberId, accessToken, {
         fields: "id,display_phone_number,verified_name,quality_rating,name_status,code_verification_status,platform_type,throughput,account_mode",
       });
+
+      if (!steps.has("PHONE_WEBHOOK_CONFIGURED")) {
+        await graphPost(session.phoneNumberId, accessToken, {
+          webhook_configuration: {
+            override_callback_uri: `${publicApiBase()}/whatsapp/webhook`,
+            verify_token: session.verifyToken,
+          },
+        });
+        steps.add("PHONE_WEBHOOK_CONFIGURED");
+        session = await prisma.waOnboardingSession.update({
+          where: { id: session.id },
+          data: { completedSteps: [...steps] },
+        });
+      }
 
       if (session.mode !== "COEXISTENCE" && !steps.has("NUMBER_REGISTERED")) {
         if (phone.code_verification_status && phone.code_verification_status !== "VERIFIED") {
