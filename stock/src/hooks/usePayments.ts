@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient, useInfiniteQuery } from "@tanstack/react-query";
 import { useAuthStore } from "../auth/auth-store";
 import { useShopStore } from "../auth/shop-store";
-import { fetchPayments, verifyPayment, addPayment, markPaymentMismatch, attachPayment, PaymentStatus } from "../api/client";
+import { fetchPayments, verifyPayment, addPayment, markPaymentMismatch, attachPayment, amendPayment, PaymentStatus } from "../api/client";
 import { newIdempotencyKey } from "../utils/idempotency";
 import { requireActiveShopId } from "./useActiveShop";
 import { queryKeys } from "./query-keys";
@@ -177,6 +177,39 @@ export function useAttachPaymentMutation(shopId?: string) {
       const shopId = targetShopId || updatedPayment?.shopId;
       if (shopId) {
         invalidatePaymentDomains(queryClient, shopId, updatedPayment?.saleId, updatedPayment?.customerId);
+      }
+    },
+  });
+}
+
+// ─── Correct payment ─────────────────────────────────────────────────────────
+
+export function useAmendPaymentMutation(shopId?: string) {
+  const token = useAuthStore((state) => state.token);
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  const targetShopId = shopId || activeShopId;
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      paymentId,
+      saleId: _saleId,
+      customerId: _customerId,
+      ...data
+    }: {
+      paymentId: string;
+      saleId?: string;
+      customerId?: string;
+      amount: number;
+      reason: string;
+      expectedUpdatedAt?: string;
+    }) => amendPayment(token ?? "", paymentId, data),
+    onSuccess: (updatedPayment: any, variables) => {
+      const shopId = targetShopId || updatedPayment?.shopId;
+      const saleId = updatedPayment?.saleId || variables.saleId;
+      const customerId = updatedPayment?.customerId || variables.customerId;
+      if (shopId) {
+        invalidatePaymentDomains(queryClient, shopId, saleId, customerId);
       }
     },
   });

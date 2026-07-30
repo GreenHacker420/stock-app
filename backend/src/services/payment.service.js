@@ -1,6 +1,12 @@
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
-import { applyPayments, prisma, increaseCustomerDebt } from "./transactionHelpers.js";
+import {
+  applyPayments,
+  prisma,
+  increaseCustomerDebt,
+  decreaseCustomerDebt,
+  getBillPaymentStatus,
+} from "./transactionHelpers.js";
 import { money, sub, add, isZero } from "../utils/money.js";
 import { writeAuditLog } from "../utils/auditLog.js";
 import { getOrCreateWalkIn } from "./customer.service.js";
@@ -317,6 +323,175 @@ export async function voidPayment(user, id, { reason } = {}) {
     ]);
 
     return payment;
+  });
+}
+
+export async function amendPayment(user, id, { amount, reason, expectedUpdatedAt }) {
+  if (user.role !== "OWNER") throw new ApiError(403, "Owner access required");
+  const existing = await getPaymentWithAccess(user, id);
+
+  if (!existing.saleId) {
+    throw new ApiError(400, "Only sale payments can be corrected from the sale screen");
+  }
+  if (!["RECORDED", "VERIFIED"].includes(existing.status)) {
+    throw new ApiError(409, `Cannot correct a ${existing.status.toLowerCase()} payment`);
+  }
+
+  const nextAmount = money(amount);
+  const previousAmount = money(existing.amount);
+  if (nextAmount.eq(previousAmount)) {
+    throw new ApiError(400, "Enter a different payment amount");
+  }
+
+  return prisma.$transaction(async (tx) => {
+    const current = await tx.payment.findUnique({
+      where: { id },
+      include: { sale: true },
+    });
+    if (!current) throw new ApiError(404, "Payment not found");
+    if (!current.sale || current.shopId !== existing.shopId) {
+      throw new ApiError(409, "The linked sale is no longer available");
+    }
+    if (!["RECORDED", "VERIFIED"].includes(current.status)) {
+      throw new ApiError(409, `Cannot correct a ${current.status.toLowerCase()} payment`);
+    }
+    if (expectedUpdatedAt && current.updatedAt.toISOString() !== expectedUpdatedAt) {
+      throw new ApiError(409, "This payment changed on another device. Refresh and try again.");
+    }
+
+    const otherPayments = await tx.payment.aggregate({
+      where: {
+        saleId: current.saleId,
+        id: { not: id },
+        status: { in: ["RECORDED", "VERIFIED"] },
+      },
+      _sum: { amount: true },
+    });
+    const correctedPaidAmount = add(otherPayments._sum.amount || 0, nextAmount);
+    if (correctedPaidAmount.gt(money(current.sale.totalAmount))) {
+      throw new ApiError(400, "Corrected payments cannot exceed the sale total");
+    }
+
+    const delta = sub(nextAmount, current.amount);
+    const updateResult = await tx.payment.updateMany({
+      where: {
+        id,
+        ...(expectedUpdatedAt ? { updatedAt: current.updatedAt } : {}),
+      },
+      data: {
+        amount: nextAmount,
+        notes: current.notes
+          ? `${current.notes}\nCorrection: ${reason}`
+          : `Correction: ${reason}`,
+      },
+    });
+    if (updateResult.count !== 1) {
+      throw new ApiError(409, "This payment changed on another device. Refresh and try again.");
+    }
+
+    if (delta.gt(0)) {
+      await decreaseCustomerDebt(tx, current.customerId, delta);
+    } else {
+      await increaseCustomerDebt(tx, current.customerId, delta.abs());
+    }
+
+    if (current.paymentMode === "CASH" && current.cashSessionId) {
+      await tx.cashSession.update({
+        where: { id: current.cashSessionId },
+        data: {
+          expectedCash: delta.gt(0)
+            ? { increment: delta }
+            : { decrement: delta.abs() },
+        },
+      });
+    }
+
+    const paymentStatus = getBillPaymentStatus(current.sale.totalAmount, correctedPaidAmount);
+    const balanceAmount = money(current.sale.totalAmount).minus(correctedPaidAmount);
+    await tx.sale.update({
+      where: { id: current.saleId },
+      data: {
+        paidAmount: correctedPaidAmount,
+        balanceAmount,
+        paymentStatus,
+        saleStatus: paymentStatus === "PAID" ? "PAID" : "CONFIRMED",
+        version: { increment: 1 },
+      },
+    });
+
+    const updated = await tx.payment.findUnique({
+      where: { id },
+      include: { details: true, sale: true, customer: true },
+    });
+
+    await tx.auditLog.create({
+      data: {
+        userId: user.id,
+        shopId: current.shopId,
+        action: "UPDATED",
+        entityType: "PAYMENT",
+        entityId: id,
+        oldValueJson: {
+          amount: current.amount.toString(),
+          updatedAt: current.updatedAt.toISOString(),
+        },
+        newValueJson: {
+          amount: nextAmount.toString(),
+          updatedAt: updated.updatedAt.toISOString(),
+        },
+        reason,
+      },
+    });
+
+    await enqueueManyDomainEvents(tx, [
+      createDomainEvent({
+        shopId: current.shopId,
+        entity: "payment",
+        action: "amended",
+        entityId: id,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true },
+      }),
+      createDomainEvent({
+        shopId: current.shopId,
+        entity: "sale",
+        action: "updated",
+        entityId: current.saleId,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true },
+      }),
+      createDomainEvent({
+        shopId: current.shopId,
+        entity: "customer",
+        action: "updated",
+        entityId: current.customerId,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true },
+      }),
+      createDomainEvent({
+        shopId: current.shopId,
+        entity: "cashSession",
+        action: "updated",
+        entityId: current.cashSessionId || current.shopId,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true },
+      }),
+      createDomainEvent({
+        shopId: current.shopId,
+        entity: "dashboard",
+        action: "updated",
+        entityId: current.shopId,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true },
+      }),
+    ]);
+
+    return updated;
   });
 }
 

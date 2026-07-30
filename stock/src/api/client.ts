@@ -178,6 +178,7 @@ export type Payment = {
   amount: string;
   status: PaymentStatus;
   receivedAt: string;
+  updatedAt?: string;
   referenceNumber?: string | null;
   customer?: { name: string } | null;
   receivedBy: { name: string };
@@ -1139,6 +1140,18 @@ export async function addPayment(token: string, data: {
 
 export async function markPaymentMismatch(token: string, paymentId: string, note?: string) {
   return apiRequest(`/payments/${paymentId}/mark-mismatch`, { method: "POST", token, body: JSON.stringify({ note }) });
+}
+
+export async function amendPayment(
+  token: string,
+  paymentId: string,
+  data: { amount: number; reason: string; expectedUpdatedAt?: string },
+) {
+  return apiRequest<Payment>(`/payments/${paymentId}/amend`, {
+    method: "POST",
+    token,
+    body: JSON.stringify(data),
+  });
 }
 
 // CASH SESSIONS

@@ -282,6 +282,69 @@ test.describe("Phase 2 core business correctness", () => {
     assert.strictEqual(Number(afterUpi.expectedCash), 25);
   });
 
+  test("owner payment correction reconciles sale, customer, audit, and realtime state", async () => {
+    const cashSessionBefore = await prisma.cashSession.findFirst({
+      where: { shopId: shop.id, status: "OPEN" },
+      orderBy: { openedAt: "desc" },
+    });
+    assert.ok(cashSessionBefore);
+
+    const sale = await saleService.createSale(owner, {
+      shopId: shop.id,
+      customerId: customer.id,
+      items: [{ itemId: item.id, quantity: 1, rate: 100 }],
+      payments: [{ paymentMode: "CASH", amount: 40 }],
+    });
+    const payment = sale.payments[0];
+    const customerBefore = await prisma.customer.findUnique({ where: { id: customer.id } });
+
+    const corrected = await paymentService.amendPayment(owner, payment.id, {
+      amount: 25,
+      reason: "Incorrect amount entered",
+      expectedUpdatedAt: payment.updatedAt.toISOString(),
+    });
+
+    assert.strictEqual(Number(corrected.amount), 25);
+    const [updatedSale, updatedCustomer, updatedCashSession, audit, paymentEvent, saleEvent] = await Promise.all([
+      prisma.sale.findUnique({ where: { id: sale.id } }),
+      prisma.customer.findUnique({ where: { id: customer.id } }),
+      prisma.cashSession.findUnique({ where: { id: cashSessionBefore.id } }),
+      prisma.auditLog.findFirst({
+        where: { entityType: "PAYMENT", entityId: payment.id, action: "UPDATED" },
+        orderBy: { createdAt: "desc" },
+      }),
+      prisma.domainEventOutbox.findFirst({
+        where: { entity: "payment", entityId: payment.id, action: "amended" },
+      }),
+      prisma.domainEventOutbox.findFirst({
+        where: { entity: "sale", entityId: sale.id, action: "updated" },
+      }),
+    ]);
+
+    assert.strictEqual(Number(updatedSale.paidAmount), 25);
+    assert.strictEqual(Number(updatedSale.balanceAmount), 75);
+    assert.strictEqual(updatedSale.paymentStatus, "PARTIALLY_PAID");
+    assert.strictEqual(updatedSale.saleStatus, "CONFIRMED");
+    assert.strictEqual(updatedSale.version, sale.version + 1);
+    assert.strictEqual(
+      Number(updatedCustomer.outstandingAmount),
+      Number(customerBefore.outstandingAmount) + 15,
+    );
+    assert.strictEqual(
+      Number(updatedCashSession.expectedCash),
+      Number(cashSessionBefore.expectedCash) + 25,
+    );
+    assert.strictEqual(audit.reason, "Incorrect amount entered");
+    assert.ok(paymentEvent);
+    assert.ok(saleEvent);
+
+    await assertRejectsApi(() => paymentService.amendPayment(owner, payment.id, {
+      amount: 20,
+      reason: "Stale phone correction",
+      expectedUpdatedAt: payment.updatedAt.toISOString(),
+    }), 409);
+  });
+
   test("idempotency replays same user/shop/action and rejects changed payload", async () => {
     const body = { shopId: shop.id, amount: 12, category: "MISC", note: "Tape" };
     const req = idemReq(staff, "p2-expense-key", body);

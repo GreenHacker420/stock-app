@@ -40,3 +40,8 @@ export const attachPayment = asyncHandler(async (req, res) => {
   const payment = await paymentService.attachPayment(req.user, req.validated.params.id, req.validated.body);
   res.json({ success: true, data: payment });
 });
+
+export const amendPayment = asyncHandler(async (req, res) => {
+  const payment = await paymentService.amendPayment(req.user, req.validated.params.id, req.validated.body);
+  res.json({ success: true, data: payment });
+});

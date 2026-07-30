@@ -71,6 +71,16 @@ const attachSchema = z.object({
   query: z.object({}).optional(),
 });
 
+const amendSchema = z.object({
+  params: idParams,
+  body: z.object({
+    amount: z.coerce.number().positive("Payment amount must be greater than zero"),
+    reason: z.string().trim().min(3, "A correction reason is required").max(500),
+    expectedUpdatedAt: z.string().datetime().optional(),
+  }),
+  query: z.object({}).optional(),
+});
+
 router.use(requireAuth);
 router.get("/", requirePermission(PERMISSIONS.PAYMENT_VIEW_OWN), validate(listSchema), paymentController.listPayments);
 router.get("/:id", requirePermission(PERMISSIONS.PAYMENT_VIEW_OWN), validate(z.object({ params: idParams })), paymentController.getPayment);
@@ -78,5 +88,6 @@ router.post("/", requirePermission(PERMISSIONS.PAYMENT_CREATE), validate(addSche
 router.post("/:id/verify", requirePermission(PERMISSIONS.PAYMENT_VERIFY), validate(noteSchema), paymentController.verifyPayment);
 router.post("/:id/mark-mismatch", requirePermission(PERMISSIONS.PAYMENT_VERIFY), validate(noteSchema), paymentController.markMismatch);
 router.post("/:id/attach", requirePermission(PERMISSIONS.PAYMENT_CREATE), validate(attachSchema), paymentController.attachPayment);
+router.post("/:id/amend", requirePermission(PERMISSIONS.PAYMENT_VERIFY), validate(amendSchema), paymentController.amendPayment);
 
 export default router;

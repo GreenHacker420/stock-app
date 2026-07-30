@@ -10,7 +10,13 @@ import Reanimated, { LinearTransition } from "react-native-reanimated";
 import { useAuthStore } from "@/auth/auth-store";
 import { useShopsQuery } from "@/hooks/useShops";
 import { useSaleQuery, useIssueInvoiceMutation, useCancelInvoiceMutation, useUpdateSaleMutation, useCancelSaleMutation } from "@/hooks/useSales";
-import { usePaymentsQuery, useAttachPaymentMutation, useVerifyPaymentMutation, useMarkPaymentMismatchMutation } from "@/hooks/usePayments";
+import {
+  usePaymentsQuery,
+  useAttachPaymentMutation,
+  useVerifyPaymentMutation,
+  useMarkPaymentMismatchMutation,
+  useAmendPaymentMutation,
+} from "@/hooks/usePayments";
 import { parseMoneyToMinor, fromMinorUnits } from "@/features/sales/create/core/sale-calculations";
 import { type Sale, type Shop, sendSaleWhatsAppReceipt } from "@/api/client";
 import { Screen } from "@/components/Screen";
@@ -41,6 +47,7 @@ type SalePaymentRecord = {
   amount: string | number;
   paymentMode: string;
   receivedAt: string;
+  updatedAt?: string;
   saleId?: string | null;
   staff?: { name: string } | null;
   verifiedBy?: { name: string } | null;
@@ -151,6 +158,7 @@ export function SaleDetailScreen() {
   const attachPaymentMutation = useAttachPaymentMutation(saleShopId || undefined);
   const verifyPaymentMutation = useVerifyPaymentMutation(saleShopId || undefined);
   const rejectPaymentMutation = useMarkPaymentMismatchMutation(saleShopId || undefined);
+  const amendPaymentMutation = useAmendPaymentMutation(saleShopId || undefined);
 
   const handleVerifyPayment = (paymentId: string) => {
     triggerMediumHaptic();
@@ -224,6 +232,58 @@ export function SaleDetailScreen() {
   const [isPhoneModalVisible, setIsPhoneModalVisible] = useState(false);
   const [phoneInput, setPhoneInput] = useState("");
   const [isSendingWa, setIsSendingWa] = useState(false);
+  const [paymentBeingEdited, setPaymentBeingEdited] = useState<SalePaymentRecord | null>(null);
+  const [paymentAmountInput, setPaymentAmountInput] = useState("");
+  const [paymentCorrectionReason, setPaymentCorrectionReason] = useState("");
+
+  const openPaymentEditor = (payment: SalePaymentRecord) => {
+    triggerMediumHaptic();
+    setPaymentBeingEdited(payment);
+    setPaymentAmountInput(String(payment.amount));
+    setPaymentCorrectionReason("");
+  };
+
+  const closePaymentEditor = () => {
+    setPaymentBeingEdited(null);
+    setPaymentAmountInput("");
+    setPaymentCorrectionReason("");
+  };
+
+  const submitPaymentCorrection = () => {
+    if (!paymentBeingEdited || !sale) return;
+    const amount = Number(paymentAmountInput.replace(/,/g, "").trim());
+    const reason = paymentCorrectionReason.trim();
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      Alert.alert("Invalid amount", "Enter a payment amount greater than zero.");
+      return;
+    }
+    if (reason.length < 3) {
+      Alert.alert("Reason required", "Enter why this payment is being corrected.");
+      return;
+    }
+
+    amendPaymentMutation.mutate(
+      {
+        paymentId: paymentBeingEdited.id,
+        saleId: sale.id,
+        customerId: sale.customerId || undefined,
+        amount,
+        reason,
+        expectedUpdatedAt: paymentBeingEdited.updatedAt,
+      },
+      {
+        onSuccess: () => {
+          closePaymentEditor();
+          saleQuery.refetch();
+          Alert.alert("Payment corrected", "The sale balance and customer account were recalculated.");
+        },
+        onError: (error: any) => {
+          Alert.alert("Could not correct payment", error?.message || "Please refresh and try again.");
+        },
+      },
+    );
+  };
 
   const openWhatsAppWithNumber = async (targetPhone: string) => {
     const cleaned = cleanPhoneNumber(targetPhone);
@@ -460,11 +520,8 @@ export function SaleDetailScreen() {
   const canIssueInvoice = user?.role === "OWNER" && gstRequired && !hasIssuedInvoice;
   const canCancelInvoice = user?.role === "OWNER" && hasIssuedInvoice;
 
-  const hasVerifiedPayment = paymentsList.some((p: SalePaymentRecord) => p.status === "VERIFIED");
-  const isFinanciallyLocked = sale.paymentStatus === "PAID" || hasVerifiedPayment || hasIssuedInvoice;
-  const canDirectEdit = user?.role === "OWNER" && !isFinanciallyLocked;
-
   const isCancelled = sale.saleStatus === "CANCELLED" || (sale as any).status === "CANCELLED";
+  const canDirectEdit = user?.role === "OWNER" && !isCancelled;
 
   const canAttachExistingPayment =
     !isCancelled &&
@@ -754,9 +811,19 @@ export function SaleDetailScreen() {
                 tone: "neutral"
               };
 
-              const mutatingPaymentId = verifyPaymentMutation.variables?.paymentId || rejectPaymentMutation.variables?.paymentId;
+              const canCorrectPayment =
+                user?.role === "OWNER" &&
+                (p.status === "RECORDED" || p.status === "VERIFIED") &&
+                !isCancelled;
+              const mutatingPaymentId =
+                verifyPaymentMutation.variables?.paymentId ||
+                rejectPaymentMutation.variables?.paymentId ||
+                amendPaymentMutation.variables?.paymentId;
               const isMutatingThisRow = mutatingPaymentId === p.id;
-              const anyMutationPending = verifyPaymentMutation.isPending || rejectPaymentMutation.isPending;
+              const anyMutationPending =
+                verifyPaymentMutation.isPending ||
+                rejectPaymentMutation.isPending ||
+                amendPaymentMutation.isPending;
 
               return (
                 <View style={styles.timelineNode} key={p.id}>
@@ -810,26 +877,41 @@ export function SaleDetailScreen() {
                         </View>
                       </View>
 
-                      {isPending && user?.role === "OWNER" && (
+                      {(canCorrectPayment || (isPending && user?.role === "OWNER")) && (
                         <View style={styles.paymentInlineActionsRow}>
-                          <Button
-                            label="Verify"
-                            variant="primary"
-                            size="sm"
-                            onPress={() => requestVerifyPayment(p)}
-                            loading={verifyPaymentMutation.isPending && isMutatingThisRow}
-                            disabled={anyMutationPending}
-                            style={styles.paymentInlineActionBtn}
-                          />
-                          <Button
-                            label="Mismatch"
-                            variant="secondary"
-                            size="sm"
-                            onPress={() => requestRejectPayment(p)}
-                            loading={rejectPaymentMutation.isPending && isMutatingThisRow}
-                            disabled={anyMutationPending}
-                            style={styles.paymentInlineActionBtn}
-                          />
+                          {canCorrectPayment ? (
+                            <Button
+                              label="Edit Payment"
+                              variant="ghost"
+                              size="sm"
+                              icon="pencil-outline"
+                              onPress={() => openPaymentEditor(p)}
+                              disabled={anyMutationPending}
+                              style={styles.paymentInlineActionBtn}
+                            />
+                          ) : null}
+                          {isPending ? (
+                            <>
+                              <Button
+                                label="Verify"
+                                variant="primary"
+                                size="sm"
+                                onPress={() => requestVerifyPayment(p)}
+                                loading={verifyPaymentMutation.isPending && isMutatingThisRow}
+                                disabled={anyMutationPending}
+                                style={styles.paymentInlineActionBtn}
+                              />
+                              <Button
+                                label="Mismatch"
+                                variant="secondary"
+                                size="sm"
+                                onPress={() => requestRejectPayment(p)}
+                                loading={rejectPaymentMutation.isPending && isMutatingThisRow}
+                                disabled={anyMutationPending}
+                                style={styles.paymentInlineActionBtn}
+                              />
+                            </>
+                          ) : null}
                         </View>
                       )}
                     </View>
@@ -1138,6 +1220,72 @@ Payment Date: ${new Date(p.receivedAt).toLocaleString("en-IN")}`,
                   openWhatsAppWithNumber(phoneInput);
                 }}
                 style={{ flex: 1.5, backgroundColor: "#25D366", borderColor: "#25D366" }}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={Boolean(paymentBeingEdited)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!amendPaymentMutation.isPending) closePaymentEditor();
+        }}
+      >
+        <View style={styles.waModalOverlay}>
+          <View style={styles.waModalContainer}>
+            <View style={styles.waModalHeader}>
+              <Icon source="pencil-outline" size={24} color={colors.primary} />
+              <Text style={styles.waModalTitle}>Edit Payment</Text>
+            </View>
+            <Text style={styles.waModalSubtitle}>
+              Previous amount: {formatRawMoney(paymentBeingEdited?.amount)}. This correction updates the sale balance, customer account, and cash session.
+            </Text>
+
+            <PaperTextInput
+              mode="outlined"
+              label="Correct payment amount"
+              keyboardType="decimal-pad"
+              value={paymentAmountInput}
+              onChangeText={setPaymentAmountInput}
+              outlineColor={colors.border}
+              activeOutlineColor={colors.primary}
+              textColor={colors.textPrimary}
+              autoFocus
+              style={styles.waPhoneInput}
+              left={<PaperTextInput.Affix text="₹" />}
+            />
+            <PaperTextInput
+              mode="outlined"
+              label="Reason for correction"
+              placeholder="Example: Amount entered incorrectly"
+              value={paymentCorrectionReason}
+              onChangeText={setPaymentCorrectionReason}
+              outlineColor={colors.border}
+              activeOutlineColor={colors.primary}
+              textColor={colors.textPrimary}
+              multiline
+              style={[styles.waPhoneInput, styles.paymentReasonInput]}
+            />
+
+            <View style={styles.waModalActions}>
+              <Button
+                label="Cancel"
+                variant="ghost"
+                onPress={closePaymentEditor}
+                disabled={amendPaymentMutation.isPending}
+                style={{ flex: 1 }}
+              />
+              <Button
+                label="Save Correction"
+                variant="primary"
+                icon="content-save-outline"
+                loading={amendPaymentMutation.isPending}
+                disabled={amendPaymentMutation.isPending}
+                onPress={submitPaymentCorrection}
+                style={{ flex: 1.5 }}
               />
             </View>
           </View>
@@ -1504,6 +1652,10 @@ const styles = StyleSheet.create({
   },
   waPhoneInput: {
     backgroundColor: colors.surface,
+  },
+  paymentReasonInput: {
+    marginTop: spacing.md,
+    minHeight: 88,
   },
   waDeliveryNote: {
     color: colors.textSecondary,

@@ -144,6 +144,7 @@ test("payment routes contract", () => {
   assertRoute(src, "POST", '"/:id/verify"', "POST /payments/:id/verify");
   assertRoute(src, "POST", '"/:id/mark-mismatch"', "POST /payments/:id/mark-mismatch");
   assertRoute(src, "POST", '"/:id/attach"', "POST /payments/:id/attach");
+  assertRoute(src, "POST", '"/:id/amend"', "POST /payments/:id/amend");
 });
 
 // ─── CASH SESSIONS ───────────────────────────────────────────────────────────
