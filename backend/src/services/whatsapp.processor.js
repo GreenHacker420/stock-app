@@ -5,7 +5,7 @@ import { resolveProviderTransition } from "./whatsapp.status-state.js";
 import { enqueueWhatsAppDomainEvent } from "./whatsapp.domain-events.js";
 
 
-export async function processWhatsAppEvent(event, shopId) {
+export async function processWhatsAppEvent(event, shopId, integrationId = null) {
   // 1. Idempotency Check (Event level)
   const hashedEventId = crypto
     .createHash("sha256")
@@ -20,21 +20,21 @@ export async function processWhatsAppEvent(event, shopId) {
 
   // 2. Route based on type
   if (event.type === "status") {
-    return handleStatusUpdate(event, shopId, hashedEventId);
+    return handleStatusUpdate(event, shopId, hashedEventId, integrationId);
   }
 
   if (event.type === "reaction") {
-    return handleInboundReaction(event, shopId, hashedEventId);
+    return handleInboundReaction(event, shopId, hashedEventId, integrationId);
   }
 
-  return handleInboundMessage(event, shopId, hashedEventId);
+  return handleInboundMessage(event, shopId, hashedEventId, integrationId);
 }
 
-async function handleStatusUpdate(event, shopId, eventId) {
+async function handleStatusUpdate(event, shopId, eventId, integrationId) {
   return await prisma.$transaction(async (tx) => {
     // Save event idempotency
     await tx.waWebhookEvent.create({
-      data: { id: eventId, eventType: "STATUS", shopId }
+      data: { id: eventId, eventType: "STATUS", shopId, integrationId }
     });
 
     const message = await tx.waMessage.findUnique({
@@ -121,7 +121,7 @@ async function handleStatusUpdate(event, shopId, eventId) {
   });
 }
 
-async function handleInboundReaction(event, shopId, eventId) {
+async function handleInboundReaction(event, shopId, eventId, integrationId) {
   const targetMetaId = event.payload?.message_id;
   const emoji = event.payload?.emoji;
   const senderPhone = event.from;
@@ -131,7 +131,7 @@ async function handleInboundReaction(event, shopId, eventId) {
   return await prisma.$transaction(async (tx) => {
     // Save event idempotency
     await tx.waWebhookEvent.create({
-      data: { id: eventId, eventType: "MESSAGE", shopId }
+      data: { id: eventId, eventType: "MESSAGE", shopId, integrationId }
     });
 
     const targetMessage = await tx.waMessage.findUnique({
@@ -185,7 +185,7 @@ async function handleInboundReaction(event, shopId, eventId) {
   });
 }
 
-async function handleInboundMessage(event, shopId, eventId) {
+async function handleInboundMessage(event, shopId, eventId, integrationId) {
   // Handle customer deleting/recalling their message
   if (event.type === "system" && event.payload?.type === "message_deleted") {
     const deletedMetaId = event.payload.deleted_message_id;
@@ -194,7 +194,7 @@ async function handleInboundMessage(event, shopId, eventId) {
     return await prisma.$transaction(async (tx) => {
       // Save event idempotency
       await tx.waWebhookEvent.create({
-        data: { id: eventId, eventType: "MESSAGE", shopId }
+        data: { id: eventId, eventType: "MESSAGE", shopId, integrationId }
       });
 
       const targetMessage = await tx.waMessage.findUnique({
@@ -234,27 +234,37 @@ async function handleInboundMessage(event, shopId, eventId) {
   return await prisma.$transaction(async (tx) => {
     // 1. Save event idempotency
     await tx.waWebhookEvent.create({
-      data: { id: eventId, eventType: "MESSAGE", shopId }
+      data: { id: eventId, eventType: "MESSAGE", shopId, integrationId }
     });
 
     // 2. Find or Create Conversation (Race condition safe)
-    let conversation = await tx.waConversation.upsert({
-      where: { shopId_phone: { shopId, phone: event.from } },
-      update: {
-        contactName: event.contactName || undefined,
-        lastCustomerMessageAt: new Date(Number(event.timestamp) * 1000),
-        unreadCount: { increment: 1 },
-        entityVersion: { increment: 1 },
-        updatedAt: new Date(),
-      },
-      create: {
-        shopId,
-        phone: event.from,
-        contactName: event.contactName,
-        lastCustomerMessageAt: new Date(Number(event.timestamp) * 1000),
-        unreadCount: 1,
-      },
+    let conversation = await tx.waConversation.findFirst({
+      where: integrationId
+        ? { integrationId, phone: event.from }
+        : { integrationId: null, shopId, phone: event.from },
     });
+    conversation = conversation
+      ? await tx.waConversation.update({
+          where: { id: conversation.id },
+          data: {
+            contactName: event.contactName || undefined,
+            lastCustomerMessageAt: new Date(Number(event.timestamp) * 1000),
+            unreadCount: { increment: 1 },
+            entityVersion: { increment: 1 },
+            updatedAt: new Date(),
+          },
+        })
+      : await tx.waConversation.create({
+          data: {
+            shopId,
+            integrationId,
+            contextShopId: shopId,
+            phone: event.from,
+            contactName: event.contactName,
+            lastCustomerMessageAt: new Date(Number(event.timestamp) * 1000),
+            unreadCount: 1,
+          },
+        });
 
     // 3. Optional: Link to customer if not already linked
     if (!conversation.customerId) {
@@ -322,6 +332,7 @@ async function handleInboundMessage(event, shopId, eventId) {
     const message = await tx.waMessage.create({
       data: {
         conversationId: conversation.id,
+        contextShopId: shopId,
         metaMessageId: event.metaMessageId,
         replyToMetaMessageId: event.replyToMetaMessageId,
         direction: "INBOUND",

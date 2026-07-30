@@ -24,7 +24,12 @@ function hashPayload(payload) {
     .digest("hex");
 }
 
-export async function persistWebhookEnvelopes({ payload, shopId, signatureVerified }) {
+export async function persistWebhookEnvelopes({
+  payload,
+  shopId,
+  integrationId,
+  signatureVerified,
+}) {
   const changes = splitWebhookPayload(payload);
   const envelopes = [];
 
@@ -40,6 +45,7 @@ export async function persistWebhookEnvelopes({ payload, shopId, signatureVerifi
       update: {},
       create: {
         shopId,
+        integrationId: integrationId || null,
         wabaId: change.wabaId,
         phoneNumberId: change.phoneNumberId,
         field: change.field,
@@ -85,7 +91,7 @@ export async function processWebhookEnvelope(envelopeId) {
     if (isMessagesField) {
       const events = parseWebhookPayload(envelope.payloadJson);
       for (const event of events) {
-        await processWhatsAppEvent(event, envelope.shopId);
+        await processWhatsAppEvent(event, envelope.shopId, envelope.integrationId);
       }
     } else {
       await processManagementWebhook(envelope);

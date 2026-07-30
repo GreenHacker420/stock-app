@@ -80,17 +80,26 @@ export function startBroadcastSendWorker() {
       }
 
       // 2. Find or Create Conversation
-      let conversation = await prisma.waConversation.upsert({
-        where: { shopId_phone: { shopId, phone: customerPhone } },
-        update: {
-          updatedAt: new Date(),
-        },
-        create: {
-          shopId,
+      let conversation = await prisma.waConversation.findFirst({
+        where: {
+          integrationId: credentials.id,
           phone: customerPhone,
-          unreadCount: 0,
         },
       });
+      conversation = conversation
+        ? await prisma.waConversation.update({
+            where: { id: conversation.id },
+            data: { updatedAt: new Date() },
+          })
+        : await prisma.waConversation.create({
+            data: {
+              shopId,
+              integrationId: credentials.id,
+              contextShopId: shopId,
+              phone: customerPhone,
+              unreadCount: 0,
+            },
+          });
 
       // Link customer to conversation if not already linked
       if (!conversation.customerId) {

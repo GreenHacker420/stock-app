@@ -75,9 +75,8 @@ test("conversation and message resolution always carries the integration channel
   const { service, calls } = authorizationFixture();
   await service.resolveWhatsAppConversation({ id: "user-a" }, "integration-a", "conversation-a");
   await service.resolveWhatsAppMessage({ id: "user-a" }, "integration-a", "message-a");
-  assert.equal(calls[0].where.OR[0].integrationId, "integration-a");
-  assert.equal(calls[0].where.OR[1].shopId, "shop-a");
-  assert.equal(calls[1].where.conversation.OR[0].integrationId, "integration-a");
+  assert.equal(calls[0].where.integrationId, "integration-a");
+  assert.equal(calls[1].where.conversation.integrationId, "integration-a");
 });
 
 test("cross-integration conversation IDs are not resolved", async () => {

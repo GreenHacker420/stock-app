@@ -204,7 +204,7 @@ export function ChatListScreen() {
   const archiveMutation = useMutation({
     mutationFn: ({ id, archive }: { id: string; archive: boolean }) => {
       if (!token) throw new Error("Your session expired. Sign in again.");
-      return archiveScopedWaConversation(token, integrationId, id, archive);
+      return archiveScopedWaConversation(token, shopId, integrationId, id, archive);
     },
     onSuccess: ({ conversation }) => {
       void whatsappDb.upsertConversations(
@@ -222,7 +222,7 @@ export function ChatListScreen() {
   const deleteMutation = useMutation({
     mutationFn: (id: string) => {
       if (!token) throw new Error("Your session expired. Sign in again.");
-      return deleteScopedWaConversation(token, integrationId, id);
+      return deleteScopedWaConversation(token, shopId, integrationId, id);
     },
     onSuccess: async (_, id) => {
       await whatsappDb.removeConversation(id).catch(() => undefined);
@@ -243,6 +243,7 @@ export function ChatListScreen() {
       if (input.kind === "pin") {
         return pinScopedWaConversation(
           token,
+          shopId,
           integrationId,
           input.conversation.id,
           !input.conversation.isPinned,
@@ -250,6 +251,7 @@ export function ChatListScreen() {
       }
       return muteScopedWaConversation(
         token,
+        shopId,
         integrationId,
         input.conversation.id,
         { isMuted: !input.conversation.isMuted },

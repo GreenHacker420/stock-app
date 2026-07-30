@@ -37,13 +37,7 @@ export function createWhatsAppAuthorization({
     const conversation = await db.waConversation.findFirst({
       where: {
         id: conversationId,
-        OR: [
-          { integrationId: scope.integration.id },
-          {
-            integrationId: null,
-            shopId: scope.integration.shopId,
-          },
-        ],
+        integrationId: scope.integration.id,
       },
     });
     if (!conversation) throw notFound("WhatsApp conversation");
@@ -56,13 +50,7 @@ export function createWhatsAppAuthorization({
       where: {
         id: messageId,
         conversation: {
-          OR: [
-            { integrationId: scope.integration.id },
-            {
-              integrationId: null,
-              shopId: scope.integration.shopId,
-            },
-          ],
+          integrationId: scope.integration.id,
         },
       },
       include: { conversation: true },

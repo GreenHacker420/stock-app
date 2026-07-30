@@ -1872,7 +1872,7 @@ model WaConversation {
   flowExecutions WaFlowExecution[]
   customerLinks  WaConversationCustomerLink[]
 
-  @@unique([shopId, phone])
+  @@unique([integrationId, phone])
   @@index([shopId, updatedAt, id])
   @@index([shopId, customerId])
   @@index([integrationId, updatedAt, id])

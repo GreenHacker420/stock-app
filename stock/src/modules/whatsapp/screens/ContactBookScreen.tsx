@@ -412,7 +412,7 @@ export const ContactBookScreen = () => {
   }>({
     mutationFn: async ({ phone, contactName, customerId }) => {
       if (!token) throw new Error("Your session expired. Sign in again.");
-      const response = await createScopedWaConversation(token, integrationId, {
+      const response = await createScopedWaConversation(token, activeShopId, integrationId, {
         phone,
         contactName,
         customerId,

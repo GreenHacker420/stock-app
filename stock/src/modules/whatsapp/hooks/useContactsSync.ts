@@ -39,7 +39,13 @@ export function useContactsSync() {
       syncLockRef.current = true;
 
       try {
-        const res = await syncScopedWaPhoneContacts(token, integrationId, toSync, mergeStrategy);
+        const res = await syncScopedWaPhoneContacts(
+          token,
+          activeShopId,
+          integrationId,
+          toSync,
+          mergeStrategy,
+        );
 
         // Mark local contacts as synced in SQLite database
         const syncedIds = toSync.map((t) => t.id);

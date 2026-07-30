@@ -49,6 +49,7 @@ export function WhatsAppPendingOperationSync() {
             ) {
               const uploaded = await uploadWaMedia(
                 token,
+                shopId,
                 integrationId,
                 operation.payload.media,
               );

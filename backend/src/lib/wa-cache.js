@@ -73,14 +73,22 @@ export async function getTenantByPhoneNumberId(phoneNumberId) {
   
   // 1. LRU Cache Hit
   const memCached = tenantMemCache.get(cacheKey);
-  if (memCached) return memCached;
+  if (memCached) {
+    return typeof memCached === "string" ? { shopId: memCached } : memCached;
+  }
   
   // 2. Redis Cache Hit
   try {
     const redisCached = await redis.get(cacheKey);
     if (redisCached) {
-      tenantMemCache.set(cacheKey, redisCached);
-      return { shopId: redisCached };
+      let parsed;
+      try {
+        parsed = JSON.parse(redisCached);
+      } catch {
+        parsed = { shopId: redisCached };
+      }
+      tenantMemCache.set(cacheKey, parsed);
+      return parsed;
     }
   } catch (err) {
     console.error("[WhatsApp Cache] Redis read error (tenant):", err.message);
@@ -88,25 +96,28 @@ export async function getTenantByPhoneNumberId(phoneNumberId) {
   
   // 3. Database Fallback
   const integration = await prisma.waIntegration.findFirst({
-    where: { phoneNumberId },
-    select: { shopId: true },
+    where: { phoneNumberId, isArchived: false },
+    select: { id: true, shopId: true },
   });
   
   if (!integration) {
     return null;
   }
   
-  const shopId = integration.shopId;
+  const identity = {
+    shopId: integration.shopId,
+    integrationId: integration.id,
+  };
   
   // 4. Update Caches (Redis TTL: 4 hours)
   try {
-    await redis.setex(cacheKey, 4 * 60 * 60, shopId);
+    await redis.setex(cacheKey, 4 * 60 * 60, JSON.stringify(identity));
   } catch (err) {
     console.error("[WhatsApp Cache] Redis write error (tenant):", err.message);
   }
-  tenantMemCache.set(cacheKey, shopId);
+  tenantMemCache.set(cacheKey, identity);
   
-  return { shopId };
+  return identity;
 }
 
 export async function invalidateWaCredentials(shopId) {
@@ -159,10 +170,14 @@ export async function warmTenantCache() {
       };
       
       credsMemCache.set(credsKey, credentials);
-      tenantMemCache.set(tenantKey, integration.shopId);
+      const identity = {
+        shopId: integration.shopId,
+        integrationId: integration.id,
+      };
+      tenantMemCache.set(tenantKey, identity);
       
       await redis.setex(credsKey, 4 * 60 * 60, JSON.stringify(credentials));
-      await redis.setex(tenantKey, 4 * 60 * 60, integration.shopId);
+      await redis.setex(tenantKey, 4 * 60 * 60, JSON.stringify(identity));
     }
     
     console.log("[WhatsApp Cache] Pre-warming complete.");

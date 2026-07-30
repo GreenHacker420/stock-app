@@ -681,7 +681,7 @@ export const ChatDetailScreen = () => {
     let cancelled = false;
     const timer = setTimeout(() => {
       if (cancelled) return;
-      void markScopedWaConversationRead(token, integrationId, conversationId)
+      void markScopedWaConversationRead(token, activeShopId, integrationId, conversationId)
         .then(() => {
           if (cancelled) return;
           queryClient.setQueriesData<any>(
@@ -721,7 +721,7 @@ export const ChatDetailScreen = () => {
   const reactionMutation = useMutation({
     mutationFn: async ({ messageId, emoji }: { messageId: string; emoji: string }) => {
       if (!token) throw new Error("Your session expired. Sign in again.");
-      return reactToScopedWaMessage(token, integrationId, messageId, emoji);
+      return reactToScopedWaMessage(token, activeShopId, integrationId, messageId, emoji);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: messagesKey });
@@ -738,7 +738,7 @@ export const ChatDetailScreen = () => {
   const deleteMutation = useMutation({
     mutationFn: async (messageId: string) => {
       if (!token) throw new Error("Your session expired. Sign in again.");
-      return deleteScopedWaMessage(token, integrationId, messageId);
+      return deleteScopedWaMessage(token, activeShopId, integrationId, messageId);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: messagesKey });
@@ -762,7 +762,7 @@ export const ChatDetailScreen = () => {
         if (!requeued) throw new Error("The saved send operation is missing.");
         return { message: { ...message, operationState: "RETRY_SCHEDULED" as const, providerStatus: "PENDING" as const } };
       }
-      return retryScopedWaMessage(token, integrationId, message.id);
+      return retryScopedWaMessage(token, activeShopId, integrationId, message.id);
     },
     onSuccess: ({ message }) => {
       if (message.clientMessageId) {
@@ -1026,6 +1026,7 @@ export const ChatDetailScreen = () => {
       });
       const uploaded = await uploadWaMedia(
         token,
+        activeShopId,
         integrationId,
         media,
         setMediaUploadProgress,
@@ -1120,6 +1121,7 @@ export const ChatDetailScreen = () => {
       });
       const uploaded = await uploadWaMedia(
         token,
+        activeShopId,
         integrationId,
         persistedMedia,
         setMediaUploadProgress,

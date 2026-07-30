@@ -429,17 +429,31 @@ class WhatsAppTemplateService {
   async compileTemplateMessage(shopId, id, input = {}) {
     const template = await this.getTemplate(shopId, id);
     if (template.status !== "APPROVED") throw new Error("Only approved templates can be sent");
+    const contextShopId = input.contextShopId || shopId;
 
     const conversation = input.conversationId
       ? await prisma.waConversation.findFirst({
-          where: { id: input.conversationId, shopId },
-          include: { customer: true, shop: true },
+          where: {
+            id: input.conversationId,
+            ...(input.integrationId
+              ? { integrationId: input.integrationId }
+              : { shopId }),
+          },
+          include: {
+            customer: true,
+            customerLinks: {
+              where: { shopId: contextShopId },
+              include: { customer: true },
+              take: 1,
+            },
+          },
         })
       : null;
     const context = {
-      customer: conversation?.customer,
+      customer: conversation?.customerLinks?.[0]?.customer
+        || (contextShopId === shopId ? conversation?.customer : null),
       conversation,
-      shop: conversation?.shop || await prisma.shop.findUnique({ where: { id: shopId } }),
+      shop: await prisma.shop.findUnique({ where: { id: contextShopId } }),
       attributes: input.attributes || {},
     };
 

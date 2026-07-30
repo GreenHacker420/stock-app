@@ -201,6 +201,8 @@ export type WhatsAppCapability = {
   enabled: boolean;
   integrationId: string | null;
   phoneNumberId: string | null;
+  activeShopId?: string;
+  channelScope?: "BRANCH_OWNED" | "BRANCH_ASSIGNED" | "SHOP_GROUP_DEFAULT" | "TENANT_DEFAULT" | "NONE";
   runtimeConfig: {
     socketGraceMs: number;
     notificationPreviewsEnabled: boolean;

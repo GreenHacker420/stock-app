@@ -57,7 +57,7 @@ export function useWhatsAppConversations() {
     queryFn: async ({ pageParam }) => {
       if (!token) throw new Error("Your session expired. Sign in again.");
       try {
-        const page = await fetchScopedWaConversations(token, integrationId, {
+        const page = await fetchScopedWaConversations(token, shopId, integrationId, {
           cursor: pageParam,
           limit: 50,
         });
@@ -131,7 +131,7 @@ export function useWhatsAppMessages(conversationId: string) {
     queryFn: async ({ pageParam }) => {
       if (!token) throw new Error("Your session expired. Sign in again.");
       try {
-        const page = await fetchScopedWaMessages(token, integrationId, conversationId, {
+        const page = await fetchScopedWaMessages(token, shopId, integrationId, conversationId, {
           cursor: pageParam,
           limit: 75,
         });

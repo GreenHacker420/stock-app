@@ -96,13 +96,7 @@ class WhatsAppController {
         const conversation = await prisma.waConversation.findFirst({
           where: {
             id: req.query.conversationId,
-            OR: [
-              { integrationId: integration?.id },
-              {
-                integrationId: null,
-                shopId: integration?.shopId,
-              },
-            ],
+            integrationId: integration?.id,
           },
           select: { id: true },
         });
@@ -224,8 +218,12 @@ class WhatsAppController {
       const tenant = phoneNumberId
         ? await getTenantByPhoneNumberId(phoneNumberId)
         : await prisma.waIntegration.findFirst({
-            where: { businessAccountId: wabaId, status: "CONNECTED" },
-            select: { shopId: true },
+            where: {
+              businessAccountId: wabaId,
+              status: "CONNECTED",
+              isArchived: false,
+            },
+            select: { id: true, shopId: true },
           });
 
       if (!tenant?.shopId) {
@@ -245,6 +243,7 @@ class WhatsAppController {
       const envelopes = await persistWebhookEnvelopes({
         payload,
         shopId,
+        integrationId: tenant.integrationId || tenant.id,
         signatureVerified: true,
       });
 
@@ -284,18 +283,30 @@ class WhatsAppController {
       const cursor = decodeWhatsAppCursor(req.query.cursor, "conversation");
       const rows = await prisma.waConversation.findMany({
         where: {
-          shopId: integration.shopId,
+          integrationId: integration.id,
           ...(whatsappCursorWhere(cursor, "updatedAt") || {}),
         },
         include: {
           customer: { select: { id: true, name: true, phone: true } },
+          customerLinks: {
+            where: { shopId: req.shop.id },
+            include: {
+              customer: { select: { id: true, name: true, phone: true } },
+            },
+            take: 1,
+          },
           messages: { take: 1, orderBy: [{ createdAt: "desc" }, { id: "desc" }] },
         },
         orderBy: [{ updatedAt: "desc" }, { id: "desc" }],
         take: limit + 1,
       });
       const hasMore = rows.length > limit;
-      const items = hasMore ? rows.slice(0, limit) : rows;
+      const pageRows = hasMore ? rows.slice(0, limit) : rows;
+      const items = pageRows.map(({ customerLinks, customer, ...row }) => ({
+        ...row,
+        customer: customerLinks[0]?.customer
+          || (req.shop.id === integration.shopId ? customer : null),
+      }));
       res.json({
         success: true,
         data: {
@@ -321,6 +332,7 @@ class WhatsAppController {
         req.body,
         {
           integration,
+          contextShopId: req.shop.id,
           actorUserId: req.user.id,
           sourceDeviceId: req.body.sourceDeviceId,
         },
@@ -379,7 +391,7 @@ class WhatsAppController {
         });
       }
       const expectedIdempotencyKey =
-        `wa-send:${integration.shopId}:${integration.id}:${req.body.clientMessageId}`;
+        `wa-send:${req.shop.id}:${integration.id}:${req.body.clientMessageId}`;
       if (req.get("Idempotency-Key") !== expectedIdempotencyKey) {
         throw new ApiError(400, "Invalid Idempotency-Key", {
           code: "INVALID_IDEMPOTENCY_KEY",
@@ -387,6 +399,7 @@ class WhatsAppController {
       }
       const message = await whatsappService.sendMessage({
         shopId: integration.shopId,
+        contextShopId: req.shop.id,
         conversationId: conversation.id,
         to: conversation.phone,
         message: req.body.message,
@@ -680,7 +693,12 @@ class WhatsAppController {
    */
   async getTemplates(req, res) {
     try {
-      const result = await whatsappTemplateService.listTemplates(req.shop.id, req.query);
+      const scope = await resolveEffectiveWhatsAppChannel(req.user, req.shop.id);
+      if (!scope.integration) throw new Error("WhatsApp integration not connected");
+      const result = await whatsappTemplateService.listTemplates(
+        scope.integration.shopId,
+        req.query,
+      );
       res.json({ success: true, data: result });
     } catch (error) {
       res.status(500).json({ success: false, message: error.message });
@@ -689,7 +707,12 @@ class WhatsAppController {
 
   async getTemplate(req, res) {
     try {
-      const template = await whatsappTemplateService.getTemplate(req.shop.id, req.params.id);
+      const scope = await resolveEffectiveWhatsAppChannel(req.user, req.shop.id);
+      if (!scope.integration) throw new Error("WhatsApp integration not connected");
+      const template = await whatsappTemplateService.getTemplate(
+        scope.integration.shopId,
+        req.params.id,
+      );
       res.json({ success: true, data: template });
     } catch (error) {
       res.status(404).json({ success: false, message: error.message });
@@ -740,7 +763,17 @@ class WhatsAppController {
 
   async previewTemplate(req, res) {
     try {
-      const template = await whatsappTemplateService.previewTemplate(req.shop.id, req.params.id, req.body);
+      const scope = await resolveEffectiveWhatsAppChannel(req.user, req.shop.id);
+      if (!scope.integration) throw new Error("WhatsApp integration not connected");
+      const template = await whatsappTemplateService.previewTemplate(
+        scope.integration.shopId,
+        req.params.id,
+        {
+          ...req.body,
+          contextShopId: req.shop.id,
+          integrationId: scope.integration.id,
+        },
+      );
       res.json({ success: true, data: template });
     } catch (error) {
       res.status(400).json({ success: false, message: error.message });
@@ -749,13 +782,25 @@ class WhatsAppController {
 
   async sendTemplate(req, res) {
     try {
-      const message = await whatsappTemplateService.compileTemplateMessage(
+      const scope = await resolveEffectiveWhatsAppChannel(
+        req.user,
         req.shop.id,
+        { permission: "canSend" },
+      );
+      if (!scope.integration) throw new Error("WhatsApp sending is not enabled for this shop");
+      const message = await whatsappTemplateService.compileTemplateMessage(
+        scope.integration.shopId,
         req.params.id,
-        req.body,
+        {
+          ...req.body,
+          contextShopId: req.shop.id,
+          integrationId: scope.integration.id,
+        },
       );
       const sent = await whatsappService.sendMessage({
-        shopId: req.shop.id,
+        shopId: scope.integration.shopId,
+        contextShopId: req.shop.id,
+        integrationId: scope.integration.id,
         conversationId: req.body.conversationId,
         to: req.body.to,
         message,

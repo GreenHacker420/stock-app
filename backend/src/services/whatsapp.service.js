@@ -73,6 +73,8 @@ class WhatsAppService {
 
   async createConversation(shopId, { phone, contactName, customerId }, context = {}) {
     await this.getIntegration(shopId);
+    const contextShopId = context.contextShopId || shopId;
+    const integrationId = context.integration?.id;
 
     const normalizedPhone = normalizePhone(phone);
     if (!normalizedPhone || normalizedPhone.length < 10) {
@@ -81,10 +83,10 @@ class WhatsAppService {
 
     const customer = customerId
       ? await prisma.customer.findFirst({
-          where: { id: customerId, shopId, status: "ACTIVE" },
+          where: { id: customerId, shopId: contextShopId, status: "ACTIVE" },
           select: { id: true, name: true, phone: true },
         })
-      : await this.findCustomerByPhone(shopId, normalizedPhone);
+      : await this.findCustomerByPhone(contextShopId, normalizedPhone);
 
     if (customerId && !customer) {
       throw new Error("Customer not found for this shop");
@@ -94,8 +96,9 @@ class WhatsAppService {
       const legacyDigitsOnlyPhone = normalizedPhone.replace(/\D/g, "");
       const existing = await tx.waConversation.findFirst({
         where: {
-          shopId,
           phone: { in: [normalizedPhone, legacyDigitsOnlyPhone] },
+          integrationId: integrationId || null,
+          ...(integrationId ? {} : { shopId }),
         },
       });
       const conversation = existing
@@ -105,7 +108,11 @@ class WhatsAppService {
               phone: normalizedPhone,
               isArchived: false,
               contactName: contactName?.trim() || undefined,
-              customerId: customer?.id || undefined,
+              contextShopId,
+              integrationId: integrationId || undefined,
+              ...(contextShopId === shopId
+                ? { customerId: customer?.id || undefined }
+                : {}),
               entityVersion: { increment: 1 },
             },
             include: {
@@ -116,17 +123,35 @@ class WhatsAppService {
         : await tx.waConversation.create({
             data: {
               shopId,
+              integrationId: integrationId || null,
+              contextShopId,
               phone: normalizedPhone,
               contactName: contactName?.trim() || null,
-              customerId: customer?.id || null,
+              customerId: contextShopId === shopId ? customer?.id || null : null,
             },
             include: {
               customer: { select: { id: true, name: true, phone: true } },
               messages: { take: 1, orderBy: { createdAt: "desc" } },
             },
           });
+      if (customer) {
+        await tx.waConversationCustomerLink.upsert({
+          where: {
+            conversationId_shopId: {
+              conversationId: conversation.id,
+              shopId: contextShopId,
+            },
+          },
+          create: {
+            conversationId: conversation.id,
+            shopId: contextShopId,
+            customerId: customer.id,
+          },
+          update: { customerId: customer.id },
+        });
+      }
       await enqueueWhatsAppDomainEvent(tx, {
-        shopId,
+        shopId: contextShopId,
         integration: context.integration,
         entity: "waConversation",
         entityId: conversation.id,
@@ -144,7 +169,10 @@ class WhatsAppService {
           entityVersion: conversation.entityVersion,
         },
       });
-      return conversation;
+      return {
+        ...conversation,
+        customer: customer || conversation.customer,
+      };
     });
   }
 
@@ -186,6 +214,7 @@ class WhatsAppService {
     const command = outboundCommandSchema.parse(input);
     const {
       shopId,
+      contextShopId = shopId,
       integrationId,
       conversationId,
       to,
@@ -215,7 +244,11 @@ class WhatsAppService {
 
     if (resolvedConversationId) {
       const conversation = await prisma.waConversation.findFirst({
-        where: { id: resolvedConversationId, shopId },
+        where: {
+          id: resolvedConversationId,
+          integrationId: integrationId || null,
+          ...(integrationId ? {} : { shopId }),
+        },
         select: { id: true, phone: true },
       });
       if (!conversation) {
@@ -225,14 +258,22 @@ class WhatsAppService {
         throw new Error("Conversation recipient does not match the requested phone number");
       }
     } else {
-      let conversation = await prisma.waConversation.findUnique({
-        where: { shopId_phone: { shopId, phone: normalizedPhone } },
+      let conversation = await prisma.waConversation.findFirst({
+        where: {
+          phone: normalizedPhone,
+          integrationId: integrationId || null,
+          ...(integrationId ? {} : { shopId }),
+        },
       });
       if (!conversation) {
         const legacyDigitsOnlyPhone = normalizedPhone.replace(/\D/g, "");
         if (legacyDigitsOnlyPhone !== normalizedPhone) {
-          conversation = await prisma.waConversation.findUnique({
-            where: { shopId_phone: { shopId, phone: legacyDigitsOnlyPhone } },
+          conversation = await prisma.waConversation.findFirst({
+            where: {
+              phone: legacyDigitsOnlyPhone,
+              integrationId: integrationId || null,
+              ...(integrationId ? {} : { shopId }),
+            },
           });
           if (conversation) {
             conversation = await prisma.waConversation.update({
@@ -247,7 +288,7 @@ class WhatsAppService {
         let customer = null;
         if (customerId) {
           customer = await prisma.customer.findFirst({
-            where: { id: customerId, shopId, status: "ACTIVE" },
+            where: { id: customerId, shopId: contextShopId, status: "ACTIVE" },
             select: { id: true, name: true, phone: true },
           });
           if (!customer) {
@@ -257,15 +298,33 @@ class WhatsAppService {
             throw new Error("Customer phone does not match the WhatsApp recipient");
           }
         } else if (!skipCustomerAutoLink) {
-          customer = await this.findCustomerByPhone(shopId, normalizedPhone);
+          customer = await this.findCustomerByPhone(contextShopId, normalizedPhone);
         }
         conversation = await prisma.waConversation.create({
           data: {
             shopId,
+            integrationId: integrationId || null,
+            contextShopId,
             phone: normalizedPhone,
             contactName: null,
-            customerId: customer?.id || null,
+            customerId: contextShopId === shopId ? customer?.id || null : null,
           },
+        });
+      }
+      if (customer) {
+        await prisma.waConversationCustomerLink.upsert({
+          where: {
+            conversationId_shopId: {
+              conversationId: conversation.id,
+              shopId: contextShopId,
+            },
+          },
+          create: {
+            conversationId: conversation.id,
+            shopId: contextShopId,
+            customerId: customer.id,
+          },
+          update: { customerId: customer.id },
         });
       }
       resolvedConversationId = conversation.id;
@@ -335,6 +394,7 @@ class WhatsAppService {
         const created = await tx.waMessage.create({
           data: {
             conversationId: resolvedConversationId,
+            contextShopId,
             clientMessageId,
             clientPayloadHash,
             sourceDeviceId,
@@ -358,7 +418,7 @@ class WhatsAppService {
           },
         });
         const event = await enqueueWhatsAppDomainEvent(tx, {
-          shopId,
+          shopId: contextShopId,
           integration: {
             id: integration.id,
             phoneNumberId: integration.phoneNumberId,
@@ -444,7 +504,7 @@ class WhatsAppService {
           },
         });
         await enqueueWhatsAppDomainEvent(tx, {
-          shopId,
+          shopId: contextShopId,
           integration,
           entity: "waMessage",
           entityId: failed.id,
@@ -944,6 +1004,7 @@ class WhatsAppService {
 
   // Syncs existing Customers into WaConversation records.
   async syncContactsWithConversations(shopId) {
+    const integration = await this.getIntegration(shopId);
     const customers = await prisma.customer.findMany({
       where: {
         shopId,
@@ -967,13 +1028,19 @@ class WhatsAppService {
       if (matchingCustomers.length !== 1) continue;
       const customer = matchingCustomers[0];
 
-      let existing = await prisma.waConversation.findUnique({
-        where: { shopId_phone: { shopId, phone: normalizedPhone } },
+      let existing = await prisma.waConversation.findFirst({
+        where: {
+          integrationId: integration.id,
+          phone: normalizedPhone,
+        },
       });
       if (!existing) {
         const legacyDigitsOnlyPhone = normalizedPhone.replace(/\D/g, "");
-        existing = await prisma.waConversation.findUnique({
-          where: { shopId_phone: { shopId, phone: legacyDigitsOnlyPhone } },
+        existing = await prisma.waConversation.findFirst({
+          where: {
+            integrationId: integration.id,
+            phone: legacyDigitsOnlyPhone,
+          },
         });
         if (existing && legacyDigitsOnlyPhone !== normalizedPhone) {
           existing = await prisma.waConversation.update({
@@ -987,6 +1054,8 @@ class WhatsAppService {
         await prisma.waConversation.create({
           data: {
             shopId,
+            integrationId: integration.id,
+            contextShopId: shopId,
             phone: normalizedPhone,
             contactName: null,
             customerId: customer.id,

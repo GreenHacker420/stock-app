@@ -159,7 +159,8 @@ export function TemplateSendSheet({
         };
       }
       setUploadingHeader(true);
-      const uploaded = await uploadWaMedia(token, integrationId, media);
+      if (!shopId) throw new Error("Select a shop before uploading media.");
+      const uploaded = await uploadWaMedia(token, shopId, integrationId, media);
       setHeaderAsset({
         assetId: uploaded.id,
         assetName: uploaded.fileName || "Template header media",
@@ -208,7 +209,8 @@ export function TemplateSendSheet({
       if (result.canceled) return;
       const asset = result.assets[0];
       setUploadingCard(cardIndex);
-      const uploaded = await uploadWaMedia(token, integrationId, {
+      if (!shopId) throw new Error("Select a shop before uploading media.");
+      const uploaded = await uploadWaMedia(token, shopId, integrationId, {
         kind,
         uri: asset.uri,
         name: asset.fileName || `carousel-${cardIndex + 1}.${kind === "image" ? "jpg" : "mp4"}`,

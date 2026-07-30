@@ -182,6 +182,7 @@ export const outboundMessageSchema = z.discriminatedUnion("kind", [
 
 export const outboundCommandSchema = z.object({
   shopId: z.string().min(1),
+  contextShopId: z.string().min(1).optional(),
   integrationId: z.string().min(1).optional(),
   conversationId: z.string().min(1).optional(),
   to: z.string().trim().min(5),
