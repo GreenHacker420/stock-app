@@ -15,6 +15,7 @@ interface SaleProductRowProps {
   onScanPress?: () => void;
   onAdd: () => void;
   onRemove: () => void;
+  onSetQuantity: (quantity: number) => void;
 }
 
 export const SaleProductRow = memo(
@@ -25,6 +26,7 @@ export const SaleProductRow = memo(
     onScanPress,
     onAdd,
     onRemove,
+    onSetQuantity,
   }: SaleProductRowProps) {
     const stockQty = item.availableStock ?? 0;
     const isOutOfStock = stockQty <= 0;
@@ -133,6 +135,7 @@ export const SaleProductRow = memo(
               maximum={stockQty}
               onIncrement={handleIncrement}
               onDecrement={handleDecrement}
+              onSetQuantity={onSetQuantity}
               compact
             />
           )}

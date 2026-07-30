@@ -5,13 +5,27 @@ export type SearchScore = {
   score: number; // 0.0 to 1.0
 };
 
+function normalizeSearchText(value: string | null | undefined) {
+  return String(value ?? "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function joinSearchFields(values: Array<string | null | undefined>) {
+  return values.map(normalizeSearchText).filter(Boolean).join(" ");
+}
+
 export function calculateMatchScore(
   text: string | null | undefined,
   query: string
 ): SearchScore {
   if (!text || !query) return { matched: false, score: 0 };
-  const rawText = String(text).toLowerCase().trim();
-  const rawQuery = String(query).toLowerCase().trim();
+  const rawText = normalizeSearchText(text);
+  const rawQuery = normalizeSearchText(query);
   if (!rawQuery) return { matched: true, score: 1.0 };
 
   // 1. Exact match
@@ -45,21 +59,17 @@ export function calculateMatchScore(
     }
   }
 
-  // 5. Multi-token match (all query words present)
+  // 5. Multi-token match. All meaningful words must be present; accepting half
+  // the words made searches such as "A4 lamination pouch" return unrelated rows.
   const queryTokens = rawQuery.split(SEARCH_PATTERNS.TOKEN_SPLIT).filter(Boolean);
   if (queryTokens.length > 1) {
-    let tokenMatches = 0;
-    for (const token of queryTokens) {
+    const allTokensMatch = queryTokens.every((token) => {
       const cleanToken = token.replace(SEARCH_PATTERNS.SPACE_AND_SYMBOLS, "");
-      if (rawText.includes(token) || (cleanToken.length > 0 && compactText.includes(cleanToken))) {
-        tokenMatches++;
-      }
-    }
-    if (tokenMatches === queryTokens.length) {
+      return rawText.includes(token)
+        || (cleanToken.length > 0 && compactText.includes(cleanToken));
+    });
+    if (allTokensMatch) {
       return { matched: true, score: 0.75 };
-    }
-    if (tokenMatches > 0 && tokenMatches / queryTokens.length >= 0.5) {
-      return { matched: true, score: 0.4 };
     }
   }
 
@@ -88,12 +98,14 @@ export function smartItemSearch(
 
   const categoryStr = item.categoryName || item.category?.name;
   const brandStr = item.brandName || item.brand?.name;
+  const combined = joinSearchFields([item.name, item.sku, categoryStr, brandStr]);
 
   return (
     smartMatchSearch(item.name, query) ||
     smartMatchSearch(item.sku, query) ||
     smartMatchSearch(categoryStr, query) ||
-    smartMatchSearch(brandStr, query)
+    smartMatchSearch(brandStr, query) ||
+    smartMatchSearch(combined, query)
   );
 }
 
@@ -112,19 +124,61 @@ export function filterAndRankItems<T extends {
   for (const item of items) {
     const categoryStr = item.categoryName || item.category?.name;
     const brandStr = item.brandName || item.brand?.name;
+    const combined = joinSearchFields([item.name, item.sku, categoryStr, brandStr]);
 
     const nameScore = calculateMatchScore(item.name, query).score;
     const skuScore = calculateMatchScore(item.sku, query).score;
     const catScore = calculateMatchScore(categoryStr, query).score * 0.7;
     const brandScore = calculateMatchScore(brandStr, query).score * 0.7;
+    const combinedScore = calculateMatchScore(combined, query).score * 0.9;
 
-    const maxScore = Math.max(nameScore, skuScore, catScore, brandScore);
+    const maxScore = Math.max(nameScore, skuScore, catScore, brandScore, combinedScore);
 
     if (maxScore > 0) {
       scored.push({ item, score: maxScore });
     }
   }
 
-  scored.sort((a, b) => b.score - a.score);
+  scored.sort((a, b) => {
+    const scoreDifference = b.score - a.score;
+    if (scoreDifference !== 0) return scoreDifference;
+    return String(a.item.name ?? "").localeCompare(String(b.item.name ?? ""));
+  });
   return scored.map((s) => s.item);
+}
+
+export function filterAndRankCustomers<T extends {
+  name?: string | null;
+  phone?: string | null;
+  city?: string | null;
+  gstin?: string | null;
+  contactPerson?: string | null;
+}>(customers: T[], query: string): T[] {
+  if (!query || !query.trim()) return customers;
+
+  const scored = customers.flatMap((customer) => {
+    const combined = joinSearchFields([
+      customer.name,
+      customer.phone,
+      customer.contactPerson,
+      customer.city,
+      customer.gstin,
+    ]);
+    const score = Math.max(
+      calculateMatchScore(customer.name, query).score,
+      calculateMatchScore(customer.phone, query).score,
+      calculateMatchScore(customer.contactPerson, query).score * 0.85,
+      calculateMatchScore(customer.gstin, query).score * 0.8,
+      calculateMatchScore(customer.city, query).score * 0.65,
+      calculateMatchScore(combined, query).score * 0.9,
+    );
+    return score > 0 ? [{ customer, score }] : [];
+  });
+
+  scored.sort((a, b) => {
+    const scoreDifference = b.score - a.score;
+    if (scoreDifference !== 0) return scoreDifference;
+    return String(a.customer.name ?? "").localeCompare(String(b.customer.name ?? ""));
+  });
+  return scored.map(({ customer }) => customer);
 }

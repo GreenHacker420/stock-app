@@ -1,6 +1,6 @@
 import type { Customer, ItemCategory } from "../../api/client";
 import type { CategoryReadModel, CustomerReadModel, ItemCatalogReadModel } from "./read-model-types";
-import { smartMatchSearch, smartItemSearch } from "../../utils/search";
+import { filterAndRankCustomers, filterAndRankItems } from "../../utils/search";
 
 export function toCustomer(readModel: CustomerReadModel): Customer {
   return {
@@ -31,19 +31,9 @@ export function selectCustomers(
   options: { search?: string; includeWalkin?: boolean; limit?: number } = {},
 ) {
   const query = options.search?.trim() ?? "";
-  const filtered = customers
-    .filter((customer) => (options.includeWalkin ? true : customer.type !== "WALK_IN"))
-    .filter((customer) => {
-      if (!query) return true;
-      return (
-        smartMatchSearch(customer.name, query) ||
-        smartMatchSearch(customer.phone, query) ||
-        smartMatchSearch(customer.city, query) ||
-        smartMatchSearch(customer.gstin, query) ||
-        smartMatchSearch(customer.contactPerson, query)
-      );
-    })
-    .map(toCustomer);
+  const eligible = customers
+    .filter((customer) => (options.includeWalkin ? true : customer.type !== "WALK_IN"));
+  const filtered = filterAndRankCustomers(eligible, query).map(toCustomer);
 
   return typeof options.limit === "number" ? filtered.slice(0, options.limit) : filtered;
 }
@@ -57,16 +47,13 @@ export function selectItemCatalog(
   options: { search?: string; categoryId?: string; limit?: number } = {},
 ) {
   const query = options.search?.trim() ?? "";
-  const filtered = items
+  const eligible = items
     .filter((item) => {
       if (!options.categoryId) return true;
       if (options.categoryId === "__uncat__") return !item.categoryId;
       return item.categoryId === options.categoryId;
-    })
-    .filter((item) => {
-      if (!query) return true;
-      return smartItemSearch(item, query);
     });
+  const filtered = filterAndRankItems(eligible, query);
 
   return typeof options.limit === "number" ? filtered.slice(0, options.limit) : filtered;
 }

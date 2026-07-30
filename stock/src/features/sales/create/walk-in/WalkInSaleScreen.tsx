@@ -561,6 +561,9 @@ export function WalkInSaleScreen() {
                 onAdjustQuantity={(delta) => {
                   dispatch({ type: "ADD_QUANTITY", item: adaptItemToSnapshot(item), delta });
                 }}
+                onSetQuantity={(quantity) => {
+                  dispatch({ type: "SET_QUANTITY", item: adaptItemToSnapshot(item), quantity });
+                }}
                 userRole={user?.role}
               />
             ))}
@@ -624,6 +627,9 @@ export function WalkInSaleScreen() {
               }}
               onRemove={() => {
                 dispatch({ type: "ADD_QUANTITY", item: adaptItemToSnapshot(item), delta: -1 });
+              }}
+              onSetQuantity={(quantity) => {
+                dispatch({ type: "SET_QUANTITY", item: adaptItemToSnapshot(item), quantity });
               }}
             />
           )}

@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { useQuery, useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "@/auth/auth-store";
 import { useShopStore } from "@/auth/shop-store";
@@ -8,6 +9,7 @@ import { requireActiveShopId } from "@/hooks/useActiveShop";
 import { useCustomerReadModel, useReadModelRefresh } from "@/local/read-model/read-model-selectors";
 import { refreshReadModelDomains } from "@/local/read-model/read-model-coordinator";
 import { mmkvStorage } from "@/auth/mmkv-storage";
+import { filterAndRankCustomers } from "@/utils/search";
 
 function refreshCustomerReadModelAfterMutation({
   userId,
@@ -51,10 +53,15 @@ export function useCustomersQuery(opts: { search?: string; includeWalkin?: boole
     enabled: (opts.enabled ?? true) && !!token && !!activeShopId && !localCustomers.hasReadModel,
     staleTime: 15 * 60 * 1000, // 15 mins
   });
+  const sourceData = localCustomers.hasReadModel ? (localCustomers.data ?? []) : serverQuery.data;
+  const rankedData = useMemo(
+    () => filterAndRankCustomers(sourceData ?? [], opts.search ?? ""),
+    [sourceData, opts.search],
+  );
 
   return {
     ...serverQuery,
-    data: localCustomers.hasReadModel ? (localCustomers.data ?? []) : serverQuery.data,
+    data: rankedData,
     isLoading: localCustomers.hasReadModel ? false : serverQuery.isLoading,
     isFetching: serverQuery.isFetching || localCustomers.isFetching,
     refetch: localCustomers.hasReadModel ? refreshReadModel : serverQuery.refetch,

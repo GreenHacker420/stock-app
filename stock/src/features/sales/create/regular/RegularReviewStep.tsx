@@ -14,6 +14,7 @@ interface RegularReviewStepProps {
   onScanPress: (itemId: string) => void;
   onUpdateRate: (itemId: string, rate: number | undefined) => void;
   onAdjustQuantity: (itemId: string, delta: -1 | 1) => void;
+  onSetQuantity: (itemId: string, quantity: number) => void;
   userRole?: string;
   saleDate: string;
   onChangeSaleDate: (value: string) => void;
@@ -29,6 +30,7 @@ export function RegularReviewStep({
   onScanPress,
   onUpdateRate,
   onAdjustQuantity,
+  onSetQuantity,
   userRole,
   saleDate,
   onChangeSaleDate,
@@ -48,6 +50,7 @@ export function RegularReviewStep({
             onScanPress={() => onScanPress(item.id)}
             onUpdateRate={(rate) => onUpdateRate(item.id, rate)}
             onAdjustQuantity={(delta) => onAdjustQuantity(item.id, delta)}
+            onSetQuantity={(nextQuantity) => onSetQuantity(item.id, nextQuantity)}
             userRole={userRole}
           />
         ))}

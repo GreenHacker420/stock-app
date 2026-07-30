@@ -61,19 +61,28 @@ export async function getCustomerTimeline(user, id) {
 async function listCustomersFromDb({ shopId, search, includeWalkin = false, type, page = 1, limit = 100 }) {
   const take = Math.min(Number(limit) || 100, 200);
   const skip = (Number(page) - 1) * take;
+  const searchTokens = String(search || "")
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 8);
+  const searchableFieldsFor = (token) => ({
+    OR: [
+      { name: { contains: token, mode: "insensitive" } },
+      { phone: { contains: token, mode: "insensitive" } },
+      { city: { contains: token, mode: "insensitive" } },
+      { gstin: { contains: token, mode: "insensitive" } },
+      { contactPerson: { contains: token, mode: "insensitive" } },
+    ],
+  });
 
   return prisma.customer.findMany({
     where: {
       shopId,
       status: "ACTIVE",
       type: type || (includeWalkin ? undefined : { not: "WALK_IN" }),
-      OR: search
-        ? [
-            { name: { contains: search, mode: "insensitive" } },
-            { phone: { contains: search, mode: "insensitive" } },
-            { city: { contains: search, mode: "insensitive" } },
-            { gstin: { contains: search, mode: "insensitive" } },
-          ]
+      AND: searchTokens.length > 0
+        ? searchTokens.map(searchableFieldsFor)
         : undefined,
     },
     select: {
@@ -86,6 +95,7 @@ async function listCustomersFromDb({ shopId, search, includeWalkin = false, type
       address: true,
       city: true,
       gstin: true,
+      contactPerson: true,
       creditLimit: true,
       outstandingAmount: true,
       advanceBalance: true,

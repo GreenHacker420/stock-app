@@ -549,6 +549,16 @@ export async function fetchItems(
     } catch {}
   }
 
+  if (rawSearch && res.items?.length) {
+    const rankedItems = filterAndRankItems(res.items, rawSearch);
+    return {
+      ...res,
+      items: rankedItems,
+      total: rankedItems.length,
+      hasMore: false,
+    };
+  }
+
   return res;
 }
 

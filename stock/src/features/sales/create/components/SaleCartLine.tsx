@@ -24,6 +24,7 @@ interface SaleCartLineProps {
   onScanPress?: () => void;
   onUpdateRate: (rate: number | undefined) => void;
   onAdjustQuantity: (delta: -1 | 1) => void;
+  onSetQuantity: (quantity: number) => void;
   userRole?: string;
 }
 
@@ -36,6 +37,7 @@ export const SaleCartLine = memo(
     onScanPress,
     onUpdateRate,
     onAdjustQuantity,
+    onSetQuantity,
     userRole,
   }: SaleCartLineProps) {
     const [sheetVisible, setSheetVisible] = useState(false);
@@ -65,10 +67,7 @@ export const SaleCartLine = memo(
     const handleRemoveAll = () => {
       triggerMediumHaptic();
       swipeableRef.current?.close();
-      // Adjust by negative quantity to remove completely
-      for (let i = 0; i < quantity; i++) {
-        onAdjustQuantity(-1);
-      }
+      onSetQuantity(0);
     };
 
     const brandDisplay = item.brandName || item.brand?.name;
@@ -230,6 +229,7 @@ export const SaleCartLine = memo(
               maximum={item.availableStock}
               onIncrement={handleIncrement}
               onDecrement={handleDecrement}
+              onSetQuantity={onSetQuantity}
               compact
             />
           </View>

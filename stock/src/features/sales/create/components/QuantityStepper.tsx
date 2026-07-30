@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 import { Icon, Text } from "react-native-paper";
 import { colors, fontSize, fontWeight, radius, spacing } from "../../../../theme";
+import { QuantityEditorSheet } from "./QuantityEditorSheet";
 
 type QuantityStepperProps = {
   itemName: string;
@@ -9,6 +10,7 @@ type QuantityStepperProps = {
   maximum: number;
   onIncrement: () => void;
   onDecrement: () => void;
+  onSetQuantity?: (quantity: number) => void;
   compact?: boolean;
 };
 
@@ -18,8 +20,10 @@ export function QuantityStepper({
   maximum,
   onIncrement,
   onDecrement,
+  onSetQuantity,
   compact = false,
 }: QuantityStepperProps) {
+  const [editorVisible, setEditorVisible] = useState(false);
   const repeatTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const repeatIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const didRepeatRef = useRef(false);
@@ -111,9 +115,20 @@ export function QuantityStepper({
         />
       </Pressable>
 
-      <View style={[styles.value, compact && styles.compactValue]}>
+      <Pressable
+        onPress={() => onSetQuantity && setEditorVisible(true)}
+        disabled={!onSetQuantity}
+        accessibilityRole={onSetQuantity ? "button" : "text"}
+        accessibilityLabel={onSetQuantity ? `Set ${itemName} quantity manually` : undefined}
+        style={({ pressed }) => [
+          styles.value,
+          compact && styles.compactValue,
+          onSetQuantity && styles.editableValue,
+          pressed && onSetQuantity && styles.pressed,
+        ]}
+      >
         <Text style={styles.valueText}>{quantity}</Text>
-      </View>
+      </Pressable>
 
       <Pressable
         onPressIn={() => beginRepeating(onIncrement)}
@@ -141,6 +156,17 @@ export function QuantityStepper({
           }
         />
       </Pressable>
+
+      {onSetQuantity ? (
+        <QuantityEditorSheet
+          visible={editorVisible}
+          itemName={itemName}
+          quantity={quantity}
+          maximum={safeMaximum}
+          onDismiss={() => setEditorVisible(false)}
+          onSave={onSetQuantity}
+        />
+      ) : null}
     </View>
   );
 }
@@ -151,6 +177,14 @@ const styles = StyleSheet.create({
   compactButton: { width: 32, height: 32 },
   value: { minWidth: 34, height: 36, alignItems: "center", justifyContent: "center" },
   compactValue: { height: 32 },
+  editableValue: {
+    minWidth: 42,
+    paddingHorizontal: spacing.xs,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surface,
+  },
   valueText: { fontSize: fontSize.md, fontWeight: fontWeight.bold, color: colors.textPrimary },
   disabled: { opacity: 0.45 },
   pressed: { opacity: 0.7 },

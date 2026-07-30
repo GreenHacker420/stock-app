@@ -26,6 +26,8 @@ export type ItemCatalogReadModel = {
   minimumStock: string;
   categoryId: string | null;
   categoryName: string | null;
+  brandId?: string | null;
+  brandName?: string | null;
   updatedAt: string;
 };
 

@@ -31,8 +31,10 @@ const ITEM_SELECT = {
   mrp: true,
   minimumStock: true,
   categoryId: true,
+  brandId: true,
   updatedAt: true,
   category: { select: { name: true } },
+  brand: { select: { name: true } },
   bundleComponents: {
     select: {
       componentItemId: true,
@@ -49,10 +51,11 @@ const CATEGORY_SELECT = {
 };
 
 function projectItem(item) {
-  const { category, ...rest } = item;
+  const { category, brand, ...rest } = item;
   return {
     ...rest,
     categoryName: category?.name ?? null,
+    brandName: brand?.name ?? null,
     bundleComponents: (item.bundleComponents || []).map((component) => ({
       componentItemId: component.componentItemId,
       quantity: Number(component.quantity),

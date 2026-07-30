@@ -606,6 +606,9 @@ export function RegularSaleScreen() {
                 onRemove={() => {
                   dispatch({ type: "ADD_QUANTITY", item: adaptItemToSnapshot(item), delta: -1 });
                 }}
+                onSetQuantity={(quantity) => {
+                  dispatch({ type: "SET_QUANTITY", item: adaptItemToSnapshot(item), quantity });
+                }}
               />
             )}
             search={itemSearch}
@@ -650,6 +653,12 @@ export function RegularSaleScreen() {
                 const line = draft.lines[itemId];
                 if (line) {
                   dispatch({ type: "ADD_QUANTITY", item: line.item, delta });
+                }
+              }}
+              onSetQuantity={(itemId, quantity) => {
+                const line = draft.lines[itemId];
+                if (line) {
+                  dispatch({ type: "SET_QUANTITY", item: line.item, quantity });
                 }
               }}
               userRole={user?.role}

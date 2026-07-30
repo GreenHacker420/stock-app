@@ -283,6 +283,14 @@ async function listItemsFromDb({ shopId, search, categoryId, brandId, page = 1, 
 
   if (normalizedSearch && normalizedSearch.length >= 2) {
     const likePattern = `%${normalizedSearch}%`;
+    const searchTokens = normalizedSearch.toLowerCase().match(/[a-z0-9]+/g)?.slice(0, 8)
+      ?? [normalizedSearch.toLowerCase()];
+    const lexicalMatch = Prisma.join(
+      searchTokens.map((token) => Prisma.sql`
+        concat_ws(' ', i.name, i.sku, c.name, b.name) ILIKE ${`%${token}%`}
+      `),
+      " AND ",
+    );
 
     // Only generate embedding for queries long enough to carry semantic meaning.
     // Short queries (1-2 chars) get lexical-only search to avoid wasted GPU calls.
@@ -316,10 +324,7 @@ async function listItemsFromDb({ shopId, search, categoryId, brandId, page = 1, 
         LEFT JOIN "ItemBrand" b ON i."brandId" = b.id
         WHERE i."shopId" = ${shopId} AND i.status = 'ACTIVE'
           AND (
-            i.name ILIKE ${likePattern}
-            OR i.sku ILIKE ${likePattern}
-            OR c.name ILIKE ${likePattern}
-            OR b.name ILIKE ${likePattern}
+            (${lexicalMatch})
             OR COALESCE(i.embedding <=> ${vectorString}::vector, 1.0) < 0.35
           )
           ${categoryId ? (categoryId === "__uncat__" ? Prisma.sql`AND i."categoryId" IS NULL` : Prisma.sql`AND i."categoryId" = ${categoryId}`) : Prisma.empty}
@@ -343,12 +348,7 @@ async function listItemsFromDb({ shopId, search, categoryId, brandId, page = 1, 
         LEFT JOIN "ItemCategory" c ON i."categoryId" = c.id
         LEFT JOIN "ItemBrand" b ON i."brandId" = b.id
         WHERE i."shopId" = ${shopId} AND i.status = 'ACTIVE'
-          AND (
-            i.name ILIKE ${likePattern}
-            OR i.sku ILIKE ${likePattern}
-            OR c.name ILIKE ${likePattern}
-            OR b.name ILIKE ${likePattern}
-          )
+          AND (${lexicalMatch})
           ${categoryId ? (categoryId === "__uncat__" ? Prisma.sql`AND i."categoryId" IS NULL` : Prisma.sql`AND i."categoryId" = ${categoryId}`) : Prisma.empty}
           ${brandId ? (brandId === "__unbranded__" ? Prisma.sql`AND i."brandId" IS NULL` : Prisma.sql`AND i."brandId" = ${brandId}`) : Prisma.empty}
         ORDER BY i.name ASC
