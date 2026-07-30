@@ -654,7 +654,16 @@ class WhatsAppController {
           width: req.body.width,
           height: req.body.height,
           durationMs: req.body.durationMs,
-  },
+        },
+      });
+      res.status(201).json({ success: true, data: result });
+    } catch (error) {
+      const message = error.response?.data?.error?.message
+        || error.issues?.[0]?.message
+        || error.message;
+      res.status(400).json({ success: false, message });
+    }
+  }
 
   async getAsset(req, res, next) {
     try {
@@ -668,15 +677,6 @@ class WhatsAppController {
       res.json({ success: true, data: await getPublicAsset(asset) });
     } catch (error) {
       next(error);
-    }
-  },
-      });
-      res.status(201).json({ success: true, data: result });
-    } catch (error) {
-      const message = error.response?.data?.error?.message
-        || error.issues?.[0]?.message
-        || error.message;
-      res.status(400).json({ success: false, message });
     }
   }
 
