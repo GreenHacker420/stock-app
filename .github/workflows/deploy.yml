@@ -88,6 +88,23 @@ jobs:
             echo "🧱 Running Prisma migrations..."
             docker compose run --rm shop-backend npx prisma migrate deploy
 
+            echo "🧪 Preflight-checking routes and Chromium in the new image..."
+            docker compose run --rm --no-deps shop-backend node --input-type=module -e '
+              import { appRoutes } from "./src/routes/index.js";
+              const router = appRoutes.find(([prefix]) => prefix === "/whatsapp")?.[1];
+              const paths = router?.stack.filter((layer) => layer.route).map((layer) => layer.route.path) ?? [];
+              if (!paths.includes("/onboarding/sessions")) process.exit(1);
+              if (!paths.includes("/assets/:assetId")) process.exit(1);
+              process.exit(0);
+            '
+            docker compose run --rm --no-deps shop-backend chromium --version
+            docker compose run --rm --no-deps shop-backend node --input-type=module -e '
+              import { renderInvoicePdfFromHtml } from "./src/services/pdf.service.js";
+              const pdf = await renderInvoicePdfFromHtml("<!doctype html><html><body><h1>Invoice renderer ready</h1></body></html>");
+              if (pdf.subarray(0, 4).toString() !== "%PDF") process.exit(1);
+              process.exit(0);
+            '
+
             echo "🚀 Updating services..."
             docker compose up -d --remove-orphans
 
@@ -115,6 +132,7 @@ jobs:
               const router = appRoutes.find(([prefix]) => prefix === "/whatsapp")?.[1];
               const paths = router?.stack.filter((layer) => layer.route).map((layer) => layer.route.path) ?? [];
               if (!paths.includes("/onboarding/sessions")) process.exit(1);
+              if (!paths.includes("/assets/:assetId")) process.exit(1);
               process.exit(0);
             '
             docker exec shop-backend chromium --version
