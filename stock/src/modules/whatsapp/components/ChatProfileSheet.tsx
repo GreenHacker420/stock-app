@@ -7,6 +7,7 @@ import {
   Image,
   Linking,
   Alert,
+  InteractionManager,
 } from "react-native";
 import { Text, IconButton, Switch, Divider, Button, Searchbar, ActivityIndicator } from "react-native-paper";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
@@ -30,6 +31,7 @@ interface ChatProfileSheetProps {
   onDismiss: () => void;
   conversation: WaConversation | null;
   customerRecord?: any;
+  deviceContactName?: string;
   messages?: WaMessage[];
   onToggleMute?: (muted: boolean) => void;
   onOpenLinkCustomer?: () => void;
@@ -44,6 +46,7 @@ export function ChatProfileSheet({
   onDismiss,
   conversation,
   customerRecord,
+  deviceContactName = "",
   messages = [],
   onToggleMute,
   onOpenLinkCustomer,
@@ -56,29 +59,19 @@ export function ChatProfileSheet({
   const [pickerSearch, setPickerSearch] = useState("");
   const [linkingId, setLinkingId] = useState<string | null>(null);
   const [manuallyLinkedCustomer, setManuallyLinkedCustomer] = useState<any>(null);
-  const [deviceContactName, setDeviceContactName] = useState("");
-
+  const [detailsReady, setDetailsReady] = useState(false);
   const queryClient = useQueryClient();
 
   useEffect(() => {
-    let active = true;
-    if (!visible || !conversation?.phone) {
-      setDeviceContactName("");
-      return () => {
-        active = false;
-      };
+    if (!visible) {
+      const clearTimer = setTimeout(() => setDetailsReady(false), 220);
+      return () => clearTimeout(clearTimer);
     }
-    contactsDb.getContactByPhone(conversation.phone)
-      .then((contact) => {
-        if (active) setDeviceContactName(contact?.name?.trim() || "");
-      })
-      .catch(() => {
-        if (active) setDeviceContactName("");
-      });
-    return () => {
-      active = false;
-    };
-  }, [conversation?.phone, visible]);
+    const task = InteractionManager.runAfterInteractions(() => {
+      setDetailsReady(true);
+    });
+    return () => task.cancel();
+  }, [visible]);
 
   // ONLY fetch customer search list when customer picker modal is actually open
   const customersQuery = useCustomersQuery({
@@ -255,6 +248,8 @@ export function ChatProfileSheet({
           </View>
         </View>
 
+        {detailsReady ? (
+          <>
         {/* 2. MEDIA, LINKS & DOCS GALLERY */}
         <View style={styles.cardSection}>
           <View style={styles.sectionHeaderRow}>
@@ -514,6 +509,8 @@ export function ChatProfileSheet({
             <Text style={styles.dangerTitle}>Clear & Delete Chat</Text>
           </TouchableOpacity>
         </View>
+          </>
+        ) : null}
       </View>
 
       {/* 6. CUSTOMER LINK PICKER MODAL */}

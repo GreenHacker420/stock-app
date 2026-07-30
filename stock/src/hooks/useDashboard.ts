@@ -5,24 +5,70 @@ import { useShopStore } from "../auth/shop-store";
 import { queryKeys } from "./query-keys";
 import {
   fetchOwnerDashboard,
+  type OwnerDashboardData,
   fetchStaffTodaySummary,
   fetchStorageObjects,
   deleteStorageObject,
   bulkDeleteOrphans,
 } from "../api/client";
 import { readAssetCache, writeAssetCache, invalidateAssetCache } from "./useAssetCache";
+import { mmkvStorage } from "../auth/mmkv-storage";
 
-export function useOwnerDashboardQuery(options: { date?: string } = {}) {
+type DashboardSnapshot = {
+  shopId: string;
+  date?: string;
+  savedAt: number;
+  data: OwnerDashboardData;
+};
+
+function dashboardSnapshotKey(shopId: string, date?: string) {
+  return `owner_dashboard_snapshot_${shopId}_${date || "current"}`;
+}
+
+function readDashboardSnapshot(shopId: string, date?: string): DashboardSnapshot | null {
+  try {
+    const raw = mmkvStorage.getItem(dashboardSnapshotKey(shopId, date));
+    if (!raw || typeof raw !== "string") return null;
+    const snapshot = JSON.parse(raw) as DashboardSnapshot;
+    return snapshot?.shopId === shopId && snapshot?.data
+      ? snapshot
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeDashboardSnapshot(shopId: string, date: string | undefined, data: OwnerDashboardData) {
+  try {
+    mmkvStorage.setItem(
+      dashboardSnapshotKey(shopId, date),
+      JSON.stringify({ shopId, date, savedAt: Date.now(), data } satisfies DashboardSnapshot),
+    );
+  } catch {
+    // React Query and the server remain available when the fast snapshot fails.
+  }
+}
+
+export function useOwnerDashboardQuery(options: { date?: string; enabled?: boolean } = {}) {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
   return useQuery({
     queryKey: queryKeys.ownerDashboard(activeShopId ?? undefined, options.date),
-    queryFn: () =>
-      fetchOwnerDashboard(token ?? "", {
+    queryFn: async () => {
+      const data = await fetchOwnerDashboard(token ?? "", {
         shopId: activeShopId ?? undefined,
         date: options.date,
-      }),
-    enabled: !!token && !!activeShopId,
+      });
+      if (activeShopId) writeDashboardSnapshot(activeShopId, options.date, data);
+      return data;
+    },
+    initialData: () => activeShopId
+      ? readDashboardSnapshot(activeShopId, options.date)?.data
+      : undefined,
+    initialDataUpdatedAt: () => activeShopId
+      ? readDashboardSnapshot(activeShopId, options.date)?.savedAt
+      : undefined,
+    enabled: (options.enabled ?? true) && !!token && !!activeShopId,
     staleTime: 60 * 1000,
     refetchOnReconnect: false,
   });

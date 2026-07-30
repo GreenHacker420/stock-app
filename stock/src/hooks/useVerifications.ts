@@ -15,13 +15,47 @@ export const GENERIC_APPROVAL_SUPPORTED_TYPES = new Set([
   "CANCEL_DM",
 ]);
 
+import { mmkvStorage } from "../auth/mmkv-storage";
+
+function verificationsSnapshotKey(shopId: string, role: string) {
+  return `verifications_snapshot_${shopId}_${role}`;
+}
+
+function readVerificationsSnapshot(shopId: string, role: string) {
+  try {
+    const raw = mmkvStorage.getItem(verificationsSnapshotKey(shopId, role));
+    if (!raw || typeof raw !== "string") return null;
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed?.data) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeVerificationsSnapshot(shopId: string, role: string, data: any[]) {
+  try {
+    mmkvStorage.setItem(
+      verificationsSnapshotKey(shopId, role),
+      JSON.stringify({ shopId, role, savedAt: Date.now(), data }),
+    );
+  } catch {
+    // Graceful fallback
+  }
+}
+
 export function usePendingVerificationsQuery() {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
   const isOwner = useAuthStore((state) => state.user?.role === "OWNER");
   return useQuery({
     queryKey: ["verifications", activeShopId],
-    queryFn: () => apiRequest<any[]>(`/approvals?status=PENDING&shopId=${activeShopId}`, { token }),
+    queryFn: async () => {
+      const data = await apiRequest<any[]>(`/approvals?status=PENDING&shopId=${activeShopId}`, { token });
+      if (activeShopId) writeVerificationsSnapshot(activeShopId, "OWNER", data);
+      return data;
+    },
+    initialData: () => activeShopId ? readVerificationsSnapshot(activeShopId, "OWNER")?.data : undefined,
+    initialDataUpdatedAt: () => activeShopId ? readVerificationsSnapshot(activeShopId, "OWNER")?.savedAt : undefined,
     enabled: !!token && !!activeShopId && isOwner,
   });
 }
@@ -136,12 +170,15 @@ export function useStaffApprovalsQuery() {
           };
         });
 
+        if (activeShopId) writeVerificationsSnapshot(activeShopId, user?.role || "STAFF", requests);
         return requests;
       } catch (e) {
         if (__DEV__) console.warn("[useStaffApprovalsQuery] Error fetching staff notifications", e);
         return [];
       }
     },
+    initialData: () => activeShopId ? readVerificationsSnapshot(activeShopId, user?.role || "STAFF")?.data : undefined,
+    initialDataUpdatedAt: () => activeShopId ? readVerificationsSnapshot(activeShopId, user?.role || "STAFF")?.savedAt : undefined,
     enabled: !!token && !!activeShopId,
     staleTime: 0,
   });

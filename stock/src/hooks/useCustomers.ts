@@ -10,6 +10,8 @@ import { useCustomerReadModel, useReadModelRefresh } from "@/local/read-model/re
 import { refreshReadModelDomains } from "@/local/read-model/read-model-coordinator";
 import { mmkvStorage } from "@/auth/mmkv-storage";
 import { filterAndRankCustomers } from "@/utils/search";
+import { getDomainReadCache } from "@/auth/domain-cache";
+import { readLocalReadModelEnvelope } from "@/local/read-model/read-model-cache-core";
 
 function refreshCustomerReadModelAfterMutation({
   userId,
@@ -75,7 +77,15 @@ export function useCustomerDetailQuery(id: string) {
 
   return useQuery<Customer, Error>({
     queryKey: queryKeys.customer(id),
-    queryFn: () => fetchCustomer(token ?? "", id),
+    queryFn: async () => {
+      const customer = await fetchCustomer(token ?? "", id);
+      try {
+        mmkvStorage.setItem(`cust_snapshot_${id}`, JSON.stringify(customer));
+      } catch {
+        // The encrypted read model and server remain available on cache failure.
+      }
+      return customer;
+    },
     enabled: !!token && !!id,
     staleTime: 5 * 60 * 1000, // 5 mins
     initialData: () => {
@@ -90,7 +100,37 @@ export function useCustomerDetailQuery(id: string) {
       } catch (err) {
         // ignore parse error
       }
-      // 2. Search in customers queries cache
+      // 2. Read the encrypted shop customer replica directly from MMKV.
+      if (activeShopId) {
+        try {
+          const envelope = readLocalReadModelEnvelope(
+            getDomainReadCache().storage,
+            activeShopId,
+          );
+          const local = envelope?.customers.find((customer) => customer.id === id);
+          if (local) {
+            const customer: Customer = {
+              id: local.id,
+              name: local.name,
+              phone: local.phone,
+              address: local.address,
+              city: local.city,
+              gstin: local.gstin,
+              contactPerson: local.contactPerson,
+              creditLimit: local.creditLimit,
+              outstandingAmount: local.outstandingAmount ?? undefined,
+              type: local.type === "REGULAR" || local.type === "WALK_IN"
+                ? local.type
+                : undefined,
+            };
+            mmkvStorage.setItem(`cust_snapshot_${id}`, JSON.stringify(customer));
+            return customer;
+          }
+        } catch {
+          // The domain cache may still be initializing; continue to query cache.
+        }
+      }
+      // 3. Search in customers queries cache
       if (!activeShopId) return undefined;
       const queries = queryClient.getQueriesData<any>({
         queryKey: ["customers", activeShopId],
@@ -103,16 +143,6 @@ export function useCustomerDetailQuery(id: string) {
         }
       }
       return undefined;
-    },
-    select: (data) => {
-      if (data && id) {
-        try {
-          mmkvStorage.setItem(`cust_snapshot_${id}`, JSON.stringify(data));
-        } catch (err) {
-          // ignore
-        }
-      }
-      return data;
     },
     initialDataUpdatedAt: () => {
       if (!activeShopId) return undefined;

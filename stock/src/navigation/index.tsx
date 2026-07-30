@@ -33,7 +33,7 @@ import {
   GenericPlannedScreen,
   OwnerRecords,
   OwnerStock,
-} from "./screens/PlannedScreens";
+} from "./screens/OperationalHubScreens";
 import { ChequeList } from "./screens/ChequeList";
 import { ChequeDetail } from "./screens/ChequeDetail";
 import { NewSaleType } from "./screens/NewSaleType";

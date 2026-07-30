@@ -1,5 +1,6 @@
 import { sqliteClient } from "../../../database/sqlite-client";
 import { extractPhoneSuffix } from "../../../utils/items/validation";
+import { mmkvStorage } from "../../../auth/mmkv-storage";
 
 export interface LocalContact {
   id: string;
@@ -13,6 +14,36 @@ export interface LocalContact {
 }
 
 let schemaPromise: Promise<void> | null = null;
+
+function fastContactKey(phone: string) {
+  const suffix = extractPhoneSuffix(phone);
+  return `wa_contact_snapshot_${suffix || phone.replace(/\D/g, "")}`;
+}
+
+function readFastContact(phone: string): LocalContact | null {
+  try {
+    const raw = mmkvStorage.getItem(fastContactKey(phone));
+    if (!raw || typeof raw !== "string") return null;
+    const parsed = JSON.parse(raw) as LocalContact;
+    return parsed
+      && typeof parsed.id === "string"
+      && typeof parsed.name === "string"
+      && typeof parsed.phone === "string"
+      ? parsed
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeFastContact(phone: string, contact: LocalContact | null) {
+  if (!contact) return;
+  try {
+    mmkvStorage.setItem(fastContactKey(phone), JSON.stringify(contact));
+  } catch {
+    // SQLite remains the durable source if the fast snapshot cannot be written.
+  }
+}
 
 function initializeDatabase() {
   if (!schemaPromise) {
@@ -39,6 +70,10 @@ function initializeDatabase() {
 }
 
 export const contactsDb = {
+  getFastContactByPhone(phone: string): LocalContact | null {
+    return readFastContact(phone);
+  },
+
   /**
    * Bulk upserts contacts read from device address book into local SQLite database.
    * Keeps existing user modifications (tag, customerId, syncState === 'MUTATED') unchanged.
@@ -314,20 +349,24 @@ export const contactsDb = {
   getContactByPhone: async (phone: string): Promise<LocalContact | null> => {
     await initializeDatabase();
     const suffix = extractPhoneSuffix(phone);
+    let contact: LocalContact | null;
     if (suffix.length !== 10) {
-      return sqliteClient.read((database) =>
+      contact = await sqliteClient.read((database) =>
         database.first<LocalContact>(
           "SELECT * FROM local_contacts WHERE phone = ? LIMIT 1",
           [phone],
         ),
-      );
+      ) ?? null;
+    } else {
+      contact = await sqliteClient.read((database) =>
+        database.first<LocalContact>(
+          "SELECT * FROM local_contacts WHERE phone = ? OR phone LIKE ? LIMIT 1",
+          [phone, `%${suffix}`]
+        ),
+      ) ?? null;
     }
-    return sqliteClient.read((database) =>
-      database.first<LocalContact>(
-        "SELECT * FROM local_contacts WHERE phone = ? OR phone LIKE ? LIMIT 1",
-        [phone, `%${suffix}`]
-      ),
-    );
+    writeFastContact(phone, contact);
+    return contact;
   },
 
   /**

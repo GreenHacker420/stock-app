@@ -14,6 +14,7 @@ import { Button } from "../../components/ui/Button";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { navigate } from "../navigation-ref";
 import { triggerLightHaptic, triggerMediumHaptic } from "../../utils/haptics";
+import { Notifications } from "./Notifications";
 
 const smartTitle = (routeName: string) => {
   return routeName
@@ -187,185 +188,9 @@ export function OwnerStock() {
   );
 }
 
-type AlertCardProps = {
-  title: string;
-  desc: string;
-  count: number;
-  icon: string;
-  color: string;
-  bgColor: string;
-  borderColor: string;
-  onPress: () => void;
-};
-
-function AlertCard({ title, desc, count, icon, color, bgColor, borderColor, onPress }: AlertCardProps) {
-  const isPending = count > 0;
-
-  const handlePress = () => {
-    triggerLightHaptic();
-    onPress();
-  };
-
-  return (
-    <Pressable
-      onPress={handlePress}
-      style={[
-        styles.queueCard,
-        {
-          backgroundColor: isPending ? bgColor : colors.surface,
-          borderColor: isPending ? borderColor : colors.border,
-          borderLeftColor: isPending ? color : colors.border,
-        }
-      ]}
-    >
-      {({ pressed }) => (
-        <View style={StyleSheet.flatten([styles.queueCardInner, pressed && styles.pressed])}>
-          <View style={styles.queueCardLeft}>
-            <View style={[
-              styles.queueIconBg,
-              { backgroundColor: isPending ? 'rgba(255,255,255,0.7)' : colors.surfaceOffset }
-            ]}>
-              <Icon source={icon} size={22} color={isPending ? color : colors.textMuted} />
-            </View>
-            <View style={styles.queueCardInfo}>
-              <Text style={styles.queueCardTitle}>{title}</Text>
-              <Text style={styles.queueCardDesc} numberOfLines={2}>
-                {isPending ? desc : "All caught up"}
-              </Text>
-            </View>
-          </View>
-          <View style={[
-            styles.queueBadge,
-            { backgroundColor: isPending ? color : colors.surfaceOffset }
-          ]}>
-            <Text style={[
-              styles.queueBadgeText,
-              { color: isPending ? '#ffffff' : colors.textSecondary }
-            ]}>
-              {count}
-            </Text>
-          </View>
-        </View>
-      )}
-    </Pressable>
-  );
-}
-
 export function OwnerAlerts() {
-  const dashboardQuery = useOwnerDashboardQuery();
-  const dashboard = dashboardQuery.data as any;
-
-  const alertCards = useMemo(() => [
-    {
-      id: "verifications",
-      title: "Verifications Queue",
-      desc: "Approve pending stock adjustments and expense requests.",
-      count: dashboard?.pendingVerifications ?? 0,
-      icon: "shield-check-outline",
-      route: "VerificationQueue",
-      params: undefined,
-      color: colors.success,
-      bgColor: "rgba(22, 163, 74, 0.06)",
-      borderColor: "rgba(22, 163, 74, 0.2)",
-    },
-    {
-      id: "gst",
-      title: "Pending GST Invoices",
-      desc: "Sales invoices requiring entry into Tally GST console.",
-      count: dashboard?.gstInvoicesPendingCount ?? 0,
-      icon: "file-percent-outline",
-      route: "SalesList",
-      params: { filter: 'gst_pending' },
-      color: colors.warning,
-      bgColor: "rgba(217, 119, 6, 0.06)",
-      borderColor: "rgba(217, 119, 6, 0.2)",
-    },
-    {
-      id: "stock",
-      title: "Low Stock Alerts",
-      desc: "Items below catalog safety levels. Requires replenishment.",
-      count: dashboard?.lowStockAlerts ?? 0,
-      icon: "alert-circle-outline",
-      route: "StockDashboard",
-      params: undefined,
-      color: colors.danger,
-      bgColor: "rgba(220, 38, 38, 0.06)",
-      borderColor: "rgba(220, 38, 38, 0.2)",
-    },
-    {
-      id: "payments",
-      title: "Payment Approvals",
-      desc: "Verify pending bank, cheque, and UPI collection entries.",
-      count: dashboard?.paymentVerificationPending ?? 0,
-      icon: "check-decagram-outline",
-      route: "PaymentVerification",
-      params: undefined,
-      color: colors.info,
-      bgColor: "rgba(2, 132, 199, 0.06)",
-      borderColor: "rgba(2, 132, 199, 0.2)",
-    },
-    {
-      id: "reconciliations",
-      title: "Cash Session Mismatches",
-      desc: "Review daily cash session differences at drawer closing.",
-      count: dashboard?.cashMismatch ?? 0,
-      icon: "cash-register",
-      route: "CashClosingReview",
-      params: undefined,
-      color: "#8b5cf6",
-      bgColor: "rgba(139, 92, 246, 0.06)",
-      borderColor: "rgba(139, 92, 246, 0.2)",
-    },
-    {
-      id: "corrections",
-      title: "Correction Requests",
-      desc: "Approve staff requests for invoice edits or cancellations.",
-      count: dashboard?.correctionRequests ?? 0,
-      icon: "file-alert-outline",
-      route: "CorrectionRequests",
-      params: undefined,
-      color: colors.warning,
-      bgColor: "rgba(217, 119, 6, 0.06)",
-      borderColor: "rgba(217, 119, 6, 0.2)",
-    }
-  ], [dashboard]);
-
-  const activeAlerts = useMemo(() => alertCards.filter(card => card.count > 0), [alertCards]);
-
-  return (
-    <ScrollScreen title="Work Queue" subtitle="Tasks requiring owner attention.">
-      {dashboardQuery.isLoading ? (
-        <LoadingState label="Loading work queue..." />
-      ) : activeAlerts.length > 0 ? (
-        <ScreenSection title="Active Tasks Queue">
-          <View style={styles.alertsContainer}>
-            {activeAlerts.map((card) => (
-              <AlertCard
-                key={card.id}
-                title={card.title}
-                desc={card.desc}
-                count={card.count}
-                icon={card.icon}
-                color={card.color}
-                bgColor={card.bgColor}
-                borderColor={card.borderColor}
-                onPress={() => navigate(card.route as any, card.params as any)}
-              />
-            ))}
-          </View>
-        </ScreenSection>
-      ) : (
-        <EmptyState
-          icon="check-circle-outline"
-          title="All caught up!"
-          subtitle="There are no pending payment verifications, session mismatches, low stock levels, or invoice change approvals at this time."
-        />
-      )}
-    </ScrollScreen>
-  );
+  return <Notifications />;
 }
-
-
 
 export function GenericPlannedScreen() {
   const route = useRoute();
@@ -413,71 +238,11 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: 'rgba(255, 255, 255, 0.85)',
   },
-  queueCard: {
-    backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderLeftWidth: 4,
-    ...shadow.sm,
-    marginBottom: spacing.xs,
-  },
-  queueCardInner: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: spacing.md,
-    gap: spacing.md,
-  },
-  queueCardLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    flex: 1,
-  },
-  queueIconBg: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: colors.surfaceOffset,
-  },
-  queueCardInfo: {
-    flex: 1,
-    gap: 2,
-  },
-  queueCardTitle: {
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.bold,
-    color: colors.textPrimary,
-  },
-  queueCardDesc: {
-    fontSize: fontSize.xs,
-    color: colors.textSecondary,
-  },
-  queueBadge: {
-    minWidth: 24,
-    height: 24,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 6,
-    backgroundColor: colors.surfaceOffset,
-  },
-  queueBadgeText: {
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.bold,
-    color: colors.textSecondary,
-  },
   gridContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: spacing.md,
     justifyContent: 'space-between',
-  },
-  alertsContainer: {
-    gap: spacing.md,
   },
   statCard: {
     flex: 1,

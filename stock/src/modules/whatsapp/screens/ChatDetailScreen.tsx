@@ -330,7 +330,9 @@ export const ChatDetailScreen = () => {
   }, [isFocused, profilePreloaded]);
 
   const { data: customerRecord } = useCustomerDetailQuery(conversation?.customerId || "");
-  const [deviceContactName, setDeviceContactName] = useState("");
+  const [deviceContactName, setDeviceContactName] = useState(
+    () => contactsDb.getFastContactByPhone(recipientPhone)?.name?.trim() || "",
+  );
 
   useEffect(() => {
     let active = true;
@@ -340,6 +342,9 @@ export const ChatDetailScreen = () => {
         active = false;
       };
     }
+    setDeviceContactName(
+      contactsDb.getFastContactByPhone(recipientPhone)?.name?.trim() || "",
+    );
     contactsDb.getContactByPhone(recipientPhone)
       .then((contact) => {
         if (active) setDeviceContactName(contact?.name?.trim() || "");
@@ -1787,6 +1792,7 @@ function getFastTimeSep(isoString?: string): string {
         onDismiss={() => setShowProfileSheet(false)}
         conversation={conversation || null}
         customerRecord={customerRecord}
+        deviceContactName={deviceContactName}
         messages={messages}
         onCustomerLinked={(customer) => {
           if (conversation) {

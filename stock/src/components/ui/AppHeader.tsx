@@ -9,6 +9,7 @@ import { useShopStore } from "../../auth/shop-store";
 import { useShopsQuery } from "../../hooks/useShops";
 import { useSwitchActiveShop } from "../../hooks/useActiveShop";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
+import { useNotificationsQuery, useAlertsBadgeCount } from "../../hooks/useNotifications";
 
 type AppHeaderProps = {
   title: string;
@@ -71,6 +72,8 @@ export function AppHeader({ title, subtitle, role, initials, showBack, onBack, h
       navigation.navigate(targetTab, { screen: "Profile" });
     }
   };
+
+  const alertsBadgeCount = useAlertsBadgeCount();
 
   return (
     <View style={styles.headerContainer}>
@@ -154,10 +157,17 @@ export function AppHeader({ title, subtitle, role, initials, showBack, onBack, h
             onPress={() => navigation?.navigate("NotificationHistory")}
             style={({ pressed }) => [styles.alertButton, pressed && styles.pressed]}
             accessibilityRole="button"
-            accessibilityLabel="Open alerts"
+            accessibilityLabel={`Open alerts${alertsBadgeCount > 0 ? `, ${alertsBadgeCount} items requiring attention` : ""}`}
             hitSlop={8}
           >
             <Icon source="bell-outline" size={23} color={colors.textPrimary} />
+            {alertsBadgeCount > 0 && (
+              <View style={styles.alertBadgeContainer}>
+                <Text style={styles.alertBadgeText}>
+                  {alertsBadgeCount > 99 ? "99+" : alertsBadgeCount}
+                </Text>
+              </View>
+            )}
           </Pressable>
         )}
         {!hideAvatar && (
@@ -337,6 +347,33 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: colors.surfaceOffset,
+    position: "relative",
+  },
+  alertBadgeContainer: {
+    position: "absolute",
+    top: -2,
+    right: -2,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: colors.danger,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
+    borderWidth: 1.5,
+    borderColor: colors.bg,
+    elevation: 3,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1.5,
+  },
+  alertBadgeText: {
+    color: "#ffffff",
+    fontSize: 9,
+    fontWeight: "900",
+    textAlign: "center",
+    includeFontPadding: false,
   },
   avatarContainer: {
     ...shadow.sm,
