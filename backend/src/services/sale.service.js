@@ -398,7 +398,16 @@ export async function updateSale(user, id, data) {
     if (hasItemsChanged) {
       let updatedItems = sale.items;
       if (data.items) {
-        updatedItems = data.items;
+        const existingItemsById = new Map(sale.items.map((item) => [item.itemId, item]));
+        updatedItems = data.items.map((item) => {
+          const existingItem = existingItemsById.get(item.itemId);
+          return {
+            ...item,
+            discountAmount: item.discountAmount ?? existingItem?.discountAmount ?? 0,
+            serialNumbers: item.serialNumbers ?? existingItem?.serialNumbers ?? undefined,
+            description: item.description ?? existingItem?.description ?? undefined,
+          };
+        });
       }
 
       const { items: processedItems, subtotal: computedSubtotal, totalAmount: computedTotal } = calculateItemTotals(
@@ -531,9 +540,21 @@ export async function amendSale(user, id, data) {
       );
     }
 
-    // 2. Parse new items configuration
+    // 2. Parse new items configuration. Existing immutable product details are
+    // inherited when an amount-only edit comes from an older client.
+    const beforeMap = new Map(sale.items.map(item => [item.itemId, item]));
+    const requestedItems = data.items.map((item) => {
+      const beforeItem = beforeMap.get(item.itemId);
+      return {
+        ...item,
+        discountAmount: item.discountAmount ?? beforeItem?.discountAmount ?? 0,
+        serialNumbers: item.serialNumbers ?? beforeItem?.serialNumbers ?? undefined,
+        description: item.description ?? beforeItem?.description ?? undefined,
+      };
+    });
+
     const { items: newItems, subtotal, discountAmount: itemsDiscount, totalAmount } = calculateItemTotals(
-      data.items.map(item => ({
+      requestedItems.map(item => ({
         itemId: item.itemId,
         quantity: item.quantity,
         rate: item.rate,
@@ -548,7 +569,6 @@ export async function amendSale(user, id, data) {
     const newTotalAmount = Math.max(0, Number(newSubtotal) - Number(newDiscountAmount));
 
     // 3. Compute delta and validate stock
-    const beforeMap = new Map(sale.items.map(item => [item.itemId, item]));
     const afterMap = new Map(newItems.map(item => [item.itemId, item]));
     const allItemIds = new Set([...beforeMap.keys(), ...afterMap.keys()]);
     

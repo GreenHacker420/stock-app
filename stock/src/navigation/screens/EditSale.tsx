@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { View, StyleSheet, Pressable, Alert, ActivityIndicator, Switch, Platform, TextInput } from "react-native";
 import { Divider, Text, Icon, TextInput as PaperTextInput } from "react-native-paper";
 import { useRoute, useNavigation } from "@react-navigation/native";
@@ -13,6 +13,11 @@ import { KeyboardAwareScreen } from "../../components/keyboard/KeyboardAwareScre
 import { Button } from "../../components/ui/Button";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { triggerLightHaptic, triggerSuccessHaptic } from "../../utils/haptics";
+import {
+  buildSaleEditPayload,
+  hydrateEditableSaleItems,
+  type EditableSaleItem,
+} from "../../features/sales/create/core/edit-sale-items";
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 
@@ -29,33 +34,24 @@ export function EditSale() {
   const updateSaleMutation = useUpdateSaleMutation();
   const isDraft = sale?.saleStatus === "DRAFT";
 
-  const [editItems, setEditItems] = useState<any[]>([]);
+  const [editItems, setEditItems] = useState<EditableSaleItem[]>([]);
   const [editDiscountAmount, setEditDiscountAmount] = useState("0");
   const [reason, setReason] = useState("");
   const [productSearch, setProductSearch] = useState("");
-  const [initialized, setInitialized] = useState(false);
+  const [initializedSaleId, setInitializedSaleId] = useState<string | null>(null);
   const [isReviewing, setIsReviewing] = useState(false);
   const [gstRequired, setGstRequired] = useState(false);
   const [gstInvoiceNumber, setGstInvoiceNumber] = useState("");
 
-  // Initialize form fields once sale data is loaded
-  if (sale && !initialized) {
-    setEditItems(
-      (sale.items || []).map((item: any) => ({
-        itemId: item.itemId,
-        name: item.item.name,
-        quantity: String(item.quantity),
-        rate: String(item.rate),
-        unit: item.item.unit,
-        defaultSellingPrice: item.item.defaultSellingPrice,
-        minimumPrice: item.item.minimumPrice,
-      }))
-    );
+  // Hydrate once per sale and preserve every product field required by amendments.
+  useEffect(() => {
+    if (!sale || initializedSaleId === sale.id) return;
+    setEditItems(hydrateEditableSaleItems(sale.items));
     setEditDiscountAmount(String(sale.discountAmount || 0));
     setGstRequired(sale.isGstRequired ?? sale.gstRequired ?? false);
     setGstInvoiceNumber(sale.gstInvoiceNumber || "");
-    setInitialized(true);
-  }
+    setInitializedSaleId(sale.id);
+  }, [initializedSaleId, sale]);
 
   const allProducts = itemsQuery.data?.items ?? [];
   const filteredProducts = useMemo(() => {
@@ -86,7 +82,11 @@ export function EditSale() {
             rate: String(prod.defaultSellingPrice),
             unit: prod.unit,
             defaultSellingPrice: prod.defaultSellingPrice,
-            minimumPrice: prod.minimumPrice,
+            minimumPrice: prod.minimumAllowedPrice,
+            discountAmount: "0",
+            serialNumbers: [],
+            description: undefined,
+            requiresSerialNumber: Boolean(prod.requiresSerialNumber),
           }
         ];
       }
@@ -143,11 +143,7 @@ export function EditSale() {
   const handleSaveAmendment = () => {
     if (!sale) return;
 
-    const formattedItems = editItems.map(item => ({
-      itemId: item.itemId,
-      quantity: Number(item.quantity),
-      rate: Number(item.rate),
-    }));
+    const formattedItems = buildSaleEditPayload(editItems);
 
     if (formattedItems.length === 0) {
       Alert.alert("Error", "Sale must contain at least one item.");
@@ -161,6 +157,17 @@ export function EditSale() {
       }
       if (isNaN(item.rate) || item.rate < 0) {
         Alert.alert("Error", "All rates must be greater than or equal to 0.");
+        return;
+      }
+      const editItem = editItems.find((candidate) => candidate.itemId === item.itemId);
+      if (
+        editItem?.requiresSerialNumber &&
+        editItem.serialNumbers.length !== item.quantity
+      ) {
+        Alert.alert(
+          "Serial numbers required",
+          `${editItem.name} has ${editItem.serialNumbers.length} saved serial number(s), but the quantity is ${item.quantity}. Keep the original quantity or update its serial numbers.`,
+        );
         return;
       }
     }
@@ -440,7 +447,17 @@ export function EditSale() {
         <View style={styles.card}>
           {editItems.map((item, index) => {
             const handleQtyChange = (val: string) => {
-              setEditItems(prev => prev.map((it, idx) => idx === index ? { ...it, quantity: val } : it));
+              setEditItems(prev => prev.map((it, idx) => {
+                if (idx !== index) return it;
+                const nextQuantity = Number(val);
+                return {
+                  ...it,
+                  quantity: val,
+                  serialNumbers: Number.isInteger(nextQuantity) && nextQuantity >= 0
+                    ? it.serialNumbers.slice(0, nextQuantity)
+                    : it.serialNumbers,
+                };
+              }));
             };
             const handleRateChange = (val: string) => {
               setEditItems(prev => prev.map((it, idx) => idx === index ? { ...it, rate: val } : it));
@@ -501,6 +518,14 @@ export function EditSale() {
                     <Icon source="trash-can-outline" size={20} color={colors.danger} />
                   </Pressable>
                 </View>
+                {item.serialNumbers.length > 0 ? (
+                  <View style={styles.serialsPreservedRow}>
+                    <Icon source="barcode-scan" size={15} color={colors.success} />
+                    <Text style={styles.serialsPreservedText} numberOfLines={2}>
+                      Serials preserved: {item.serialNumbers.join(", ")}
+                    </Text>
+                  </View>
+                ) : null}
                 {index < editItems.length - 1 && <Divider style={styles.itemDivider} />}
               </View>
             );
@@ -735,6 +760,19 @@ const styles = StyleSheet.create({
   itemDivider: {
     marginTop: spacing.sm,
     backgroundColor: colors.surfaceOffset,
+  },
+  serialsPreservedRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: spacing.xs,
+    marginTop: spacing.sm,
+    paddingHorizontal: spacing.xs,
+  },
+  serialsPreservedText: {
+    flex: 1,
+    fontSize: 11,
+    lineHeight: 16,
+    color: colors.success,
   },
   impactRow: { flexDirection: "row", justifyContent: "space-between" },
   impactLabel: { fontSize: 13, color: colors.textSecondary },

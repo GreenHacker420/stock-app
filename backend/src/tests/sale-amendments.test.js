@@ -299,4 +299,67 @@ test.describe("Sale Amendments and Invoices", () => {
     assert.strictEqual(postCancelSale.gstInvoiceStatus, "PENDING");
     assert.strictEqual(postCancelSale.gstInvoiceNumber, null);
   });
+
+  test("5. Amount-only amendments preserve existing serials, description, and line discount", async () => {
+    const serializedItem = await prisma.item.create({
+      data: {
+        name: "Serialized Product",
+        sku: "SERIAL-EDIT",
+        shopId: shop.id,
+        defaultSellingPrice: 500,
+        minimumAllowedPrice: 400,
+        unit: "PCS",
+        requiresSerialNumber: true,
+      },
+    });
+    await prisma.stockLedger.create({
+      data: {
+        shopId: shop.id,
+        itemId: serializedItem.id,
+        movementType: "OPENING_STOCK",
+        quantityIn: 5,
+        quantityOut: 0,
+        createdById: owner.id,
+      },
+    });
+    const sale = await prisma.sale.create({
+      data: {
+        saleNumber: "SALE-SERIAL-EDIT",
+        shopId: shop.id,
+        customerId: customer.id,
+        saleStatus: "CONFIRMED",
+        paymentStatus: "UNPAID",
+        subtotal: 500,
+        discountAmount: 25,
+        totalAmount: 475,
+        paidAmount: 0,
+        balanceAmount: 475,
+        staffId: owner.id,
+        items: {
+          create: {
+            itemId: serializedItem.id,
+            quantity: 1,
+            rate: 500,
+            discountAmount: 25,
+            totalAmount: 475,
+            serialNumbers: ["SERIAL-001"],
+            description: "Original product details",
+          },
+        },
+      },
+      include: { items: true },
+    });
+
+    const amended = await saleService.amendSale(owner, sale.id, {
+      expectedVersion: sale.version,
+      reason: "Corrected entered rate only",
+      items: [{ itemId: serializedItem.id, quantity: 1, rate: 450 }],
+      discountAmount: 25,
+    });
+
+    assert.strictEqual(Number(amended.totalAmount), 425);
+    assert.strictEqual(Number(amended.items[0].discountAmount), 25);
+    assert.deepStrictEqual(amended.items[0].serialNumbers, ["SERIAL-001"]);
+    assert.strictEqual(amended.items[0].description, "Original product details");
+  });
 });
