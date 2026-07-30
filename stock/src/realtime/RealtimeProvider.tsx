@@ -16,6 +16,7 @@ import {
   hydrateReadModelForShop,
 } from "../local/read-model/read-model-coordinator";
 import { getWhatsAppSocketGraceMs } from "../modules/whatsapp/whatsapp-runtime-config";
+import { persistWhatsAppDomainEvent } from "../modules/whatsapp/services/whatsapp-realtime-replica";
 
 
 const legacyEvents: RealtimeEvent[] = [
@@ -219,6 +220,11 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
       });
 
       socket.on("domain:event", (event: DomainEvent) => {
+        if (event?.entity === "waMessage" || event?.entity === "waConversation") {
+          void persistWhatsAppDomainEvent(event).catch((error) => {
+            if (__DEV__) console.warn("[whatsapp-replica] realtime persist failed", error);
+          });
+        }
         const handled = handleDomainEvent(queryClient, event, deviceId);
         const wasUnassignedFromActiveShop =
           event?.entity === "shop" &&

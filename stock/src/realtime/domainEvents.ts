@@ -61,10 +61,27 @@ type EntityRecord = Record<string, unknown> & {
   entityVersion?: number;
 };
 
+function normalizedPatch(entity: EntityRecord, event: DomainEvent) {
+  const patch = { ...(event.patch || {}) };
+  if (event.entity === "waMessage") {
+    if (typeof patch.providerMessageId === "string" && !patch.metaMessageId) {
+      patch.metaMessageId = patch.providerMessageId;
+    }
+    if (Array.isArray(patch.reactions)) {
+      const payload = entity.payload && typeof entity.payload === "object"
+        ? entity.payload as Record<string, unknown>
+        : {};
+      patch.payload = { ...payload, reactions: patch.reactions };
+      delete patch.reactions;
+    }
+  }
+  return patch;
+}
+
 function patchEntity(item: unknown, event: DomainEvent) {
   if (!item || typeof item !== "object") return item;
   const entity = item as EntityRecord;
-  const patch = event.patch || {};
+  const patch = normalizedPatch(entity, event);
   const patchClientId = typeof patch.clientMessageId === "string" ? patch.clientMessageId : undefined;
   if (entity.id !== event.entityId && (!patchClientId || entity.clientMessageId !== patchClientId)) {
     return item;
@@ -123,6 +140,11 @@ function patchWhatsAppEvent(queryClient: QueryClient, event: DomainEvent) {
       { queryKey: ["whatsapp", "messages", event.shopId, event.integrationId, event.conversationId] },
       (data) => patchCollection(data, event),
     );
+    if (event.action === "created") {
+      void queryClient.invalidateQueries({
+        queryKey: ["whatsapp", "conversations", event.shopId, event.integrationId],
+      });
+    }
     return;
   }
   if (event.entity === "waConversation") {
@@ -130,6 +152,9 @@ function patchWhatsAppEvent(queryClient: QueryClient, event: DomainEvent) {
       { queryKey: ["whatsapp", "conversations", event.shopId, event.integrationId] },
       (data) => patchCollection(data, event),
     );
+    void queryClient.invalidateQueries({
+      queryKey: ["whatsapp", "conversations", event.shopId, event.integrationId],
+    });
   }
 }
 

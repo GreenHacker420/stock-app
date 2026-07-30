@@ -28,7 +28,7 @@ export function useWhatsAppConversations() {
     key: string;
     items: WaConversation[];
   } | null>(() => {
-    const fastItems = whatsappDb.getFastConversations(shopId);
+    const fastItems = whatsappDb.getFastConversations(shopId, integrationId);
     return fastItems.length > 0 ? { key: localCacheKey, items: fastItems } : null;
   });
 
@@ -110,20 +110,32 @@ export function useWhatsAppConversations() {
 export function useWhatsAppMessages(conversationId: string) {
   const token = useAuthStore((state) => state.token);
   const { shopId, integrationId } = useWhatsAppScope();
+  const localCacheKey = `${shopId}:${integrationId}:${conversationId}`;
   const [localCache, setLocalCache] = useState<{
-    conversationId: string;
+    key: string;
     items: WaMessage[];
   } | null>(() => {
-    const fastItems = whatsappDb.getFastMessages(conversationId);
-    return fastItems.length > 0 ? { conversationId, items: fastItems } : null;
+    const fastItems = whatsappDb.getFastMessages(shopId, integrationId, conversationId);
+    return fastItems.length > 0 ? { key: localCacheKey, items: fastItems } : null;
   });
 
   useEffect(() => {
-    const fastItems = whatsappDb.getFastMessages(conversationId);
+    let cancelled = false;
+    const fastItems = whatsappDb.getFastMessages(shopId, integrationId, conversationId);
     if (fastItems.length > 0) {
-      setLocalCache({ conversationId, items: fastItems });
+      setLocalCache({ key: localCacheKey, items: fastItems });
     }
-  }, [conversationId]);
+    void whatsappDb.getMessages(shopId, integrationId, conversationId)
+      .then((items) => {
+        if (!cancelled) setLocalCache({ key: localCacheKey, items });
+      })
+      .catch(() => {
+        if (!cancelled) setLocalCache({ key: localCacheKey, items: [] });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [conversationId, integrationId, localCacheKey, shopId]);
 
   const query = useInfiniteQuery({
     queryKey: queryKeys.whatsapp.messages(shopId, integrationId, conversationId),
@@ -135,15 +147,14 @@ export function useWhatsAppMessages(conversationId: string) {
           cursor: pageParam,
           limit: 75,
         });
-        void whatsappDb.upsertMessages(
+        await whatsappDb.upsertMessages(
           { shopId, integrationId, conversationId },
           page.items,
         ).catch(() => undefined);
-        whatsappDb.saveFastMessages(conversationId, page.items);
         return page;
       } catch (error) {
         if (pageParam) return EMPTY_PAGE<WaMessage>([]);
-        const local = await whatsappDb.getMessages(conversationId);
+        const local = await whatsappDb.getMessages(shopId, integrationId, conversationId);
         if (local.length > 0) return EMPTY_PAGE(local);
         throw error;
       }
@@ -155,7 +166,7 @@ export function useWhatsAppMessages(conversationId: string) {
 
   const messages = useMemo(() => {
     const cachedItems =
-      localCache?.conversationId === conversationId ? localCache.items : [];
+      localCache?.key === localCacheKey ? localCache.items : [];
     if (!query.data) {
       return cachedItems;
     }
@@ -166,8 +177,8 @@ export function useWhatsAppMessages(conversationId: string) {
       return cachedItems;
     }
     return remoteItems;
-  }, [conversationId, localCache, query.data, query.isFetching]);
-  const localCacheHydrated = localCache?.conversationId === conversationId;
+  }, [localCache, localCacheKey, query.data, query.isFetching]);
+  const localCacheHydrated = localCache?.key === localCacheKey;
 
   useEffect(() => {
     if (!messages || messages.length === 0) return;

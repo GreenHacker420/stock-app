@@ -8,6 +8,7 @@ import {
   refreshReadModelDomains,
 } from "../local/read-model/read-model-coordinator";
 import { getReadModelDomainsForBatch } from "../local/read-model/read-model-event-policy";
+import { persistWhatsAppDomainEvent } from "../modules/whatsapp/services/whatsapp-realtime-replica";
 
 // ─── Throttle / In-flight guard ──────────────────────────────────────────────
 
@@ -121,6 +122,9 @@ async function runReconciliation(
 
       for (const event of events) {
         if (event?.shopId !== shopId) continue;
+        if (event.entity === "waMessage" || event.entity === "waConversation") {
+          await persistWhatsAppDomainEvent(event);
+        }
         handleDomainEvent(queryClient, event, currentDeviceId);
       }
 

@@ -7,7 +7,14 @@ import type {
 } from "../../../api/whatsapp.api";
 import { sqliteClient } from "../../../database/sqlite-client";
 import { mmkvStorage } from "../../../auth/mmkv-storage";
-import { extractPhoneSuffix } from "../../../utils/items/validation";
+import {
+  isWaConversation,
+  isWaMessage,
+  parseStoredConversation,
+  parseStoredMessage,
+  whatsappConversationCacheKey,
+  whatsappMessageCacheKey,
+} from "../whatsapp-validation";
 
 const LOCAL_PAGE_LIMIT = 1_000;
 
@@ -262,14 +269,48 @@ async function refreshFastConversationSnapshot(shopId: string, integrationId: st
     [shopId, integrationId, LOCAL_PAGE_LIMIT],
   ));
   const conversations = rows
-    .map((row) => parseJson<WaConversation>(row.payload_json))
+    .map((row) => parseStoredConversation(row.payload_json))
     .filter((row): row is WaConversation => Boolean(row));
   try {
-    mmkvStorage.setItem(`wa_fast_convs_${shopId}`, JSON.stringify(conversations));
+    mmkvStorage.setItem(
+      whatsappConversationCacheKey(shopId, integrationId),
+      JSON.stringify(conversations),
+    );
   } catch {
     // SQLite remains authoritative if the fast-start cache cannot be written.
   }
   return conversations;
+}
+
+async function refreshFastMessageSnapshot(
+  shopId: string,
+  integrationId: string,
+  conversationId: string,
+) {
+  const rows = await sqliteClient.read((database) => database.all<MessageRow>(
+    `SELECT payload_json
+     FROM (
+       SELECT id, created_at, payload_json
+       FROM wa_messages
+       WHERE shop_id = ? AND integration_id = ? AND conversation_id = ?
+       ORDER BY created_at DESC, id DESC
+       LIMIT 75
+     )
+     ORDER BY created_at ASC, id ASC`,
+    [shopId, integrationId, conversationId],
+  ));
+  const messages = rows
+    .map((row) => parseStoredMessage(row.payload_json, conversationId))
+    .filter((row): row is WaMessage => Boolean(row));
+  try {
+    mmkvStorage.setItem(
+      whatsappMessageCacheKey(shopId, integrationId, conversationId),
+      JSON.stringify(messages),
+    );
+  } catch {
+    // SQLite remains authoritative if the fast-start cache cannot be written.
+  }
+  return messages;
 }
 
 function mapPendingOperation(row: PendingOperationRow): PendingWhatsAppOperation | null {
@@ -302,17 +343,7 @@ export const whatsappDb = {
     await initializeDatabase();
     await sqliteClient.transaction(async (transaction) => {
       for (const conversation of conversations) {
-        const suffix = extractPhoneSuffix(conversation.phone);
-        const localContact = suffix.length === 10
-          ? await transaction.first<{ name: string | null }>(
-              "SELECT name FROM local_contacts WHERE phone = ? OR phone LIKE ? LIMIT 1",
-              [conversation.phone, `%${suffix}`],
-            )
-          : null;
-        const deviceContactName = localContact?.name?.trim();
-        const cachedConversation = deviceContactName
-          ? { ...conversation, contactName: deviceContactName }
-          : conversation;
+        if (!isWaConversation(conversation)) continue;
 
         await transaction.run(
           `INSERT INTO wa_conversations (
@@ -334,20 +365,20 @@ export const whatsappDb = {
             payload_json = excluded.payload_json
           WHERE excluded.entity_version >= wa_conversations.entity_version`,
           [
-            cachedConversation.id,
+            conversation.id,
             scope.shopId,
             scope.integrationId,
             scope.phoneNumberId || null,
-            cachedConversation.customerId || null,
-            cachedConversation.phone,
-            cachedConversation.contactName || null,
-            cachedConversation.unreadCount,
-            cachedConversation.isArchived ? 1 : 0,
-            cachedConversation.isPinned ? 1 : 0,
-            cachedConversation.assignedToId || null,
-            cachedConversation.entityVersion || 0,
-            timestamp(cachedConversation.updatedAt || cachedConversation.lastCustomerMessageAt),
-            JSON.stringify(cachedConversation),
+            conversation.customerId || null,
+            conversation.phone,
+            conversation.contactName || null,
+            conversation.unreadCount,
+            conversation.isArchived ? 1 : 0,
+            conversation.isPinned ? 1 : 0,
+            conversation.assignedToId || null,
+            conversation.entityVersion || 0,
+            timestamp(conversation.updatedAt || conversation.lastCustomerMessageAt),
+            JSON.stringify(conversation),
           ],
         );
       }
@@ -355,12 +386,18 @@ export const whatsappDb = {
     await refreshFastConversationSnapshot(scope.shopId, scope.integrationId);
   },
 
-  getFastConversations(shopId: string): WaConversation[] {
+  getFastConversations(shopId: string, integrationId: string): WaConversation[] {
     try {
-      const cached = mmkvStorage.getItem(`wa_fast_convs_${shopId}`) as string | null;
+      const cached = mmkvStorage.getItem(
+        whatsappConversationCacheKey(shopId, integrationId),
+      ) as string | null;
       if (cached && typeof cached === "string") {
-        const parsed = JSON.parse(cached);
-        if (Array.isArray(parsed)) return parsed;
+        const parsed: unknown = JSON.parse(cached);
+        if (Array.isArray(parsed)) {
+          return parsed.filter(
+            (item): item is WaConversation => isWaConversation(item),
+          );
+        }
       }
     } catch (e) {}
     return [];
@@ -384,27 +421,73 @@ export const whatsappDb = {
     } catch {}
   },
 
-  getFastMessages(conversationId: string): WaMessage[] {
+  getFastMessages(
+    shopId: string,
+    integrationId: string,
+    conversationId: string,
+  ): WaMessage[] {
     try {
-      const cached = mmkvStorage.getItem(`wa_fast_msgs_${conversationId}`) as string | null;
+      const cached = mmkvStorage.getItem(
+        whatsappMessageCacheKey(shopId, integrationId, conversationId),
+      ) as string | null;
       if (cached && typeof cached === "string") {
-        const parsed = JSON.parse(cached);
-        if (Array.isArray(parsed)) return parsed as WaMessage[];
+        const parsed: unknown = JSON.parse(cached);
+        if (Array.isArray(parsed)) {
+          return parsed.filter(
+            (item): item is WaMessage => isWaMessage(item, conversationId),
+          );
+        }
       }
     } catch {}
     return [];
   },
 
-  saveFastMessages(conversationId: string, messages: WaMessage[]) {
-    try {
-      const recent = messages.slice(-75);
-      mmkvStorage.setItem(`wa_fast_msgs_${conversationId}`, JSON.stringify(recent));
-    } catch {}
-  },
-
   async getConversations(shopId: string, integrationId: string) {
     await initializeDatabase();
     return refreshFastConversationSnapshot(shopId, integrationId);
+  },
+
+  async getConversation(
+    shopId: string,
+    integrationId: string,
+    conversationId: string,
+  ) {
+    await initializeDatabase();
+    const row = await sqliteClient.read((database) => database.first<ConversationRow>(
+      `SELECT payload_json
+       FROM wa_conversations
+       WHERE shop_id = ? AND integration_id = ? AND id = ?`,
+      [shopId, integrationId, conversationId],
+    ));
+    return row ? parseStoredConversation(row.payload_json) : null;
+  },
+
+  async getMessage(
+    shopId: string,
+    integrationId: string,
+    conversationId: string,
+    messageId: string,
+    clientMessageId?: string,
+  ) {
+    await initializeDatabase();
+    const row = await sqliteClient.read((database) => database.first<MessageRow>(
+      `SELECT payload_json
+       FROM wa_messages
+       WHERE shop_id = ?
+         AND integration_id = ?
+         AND conversation_id = ?
+         AND (id = ? OR (? IS NOT NULL AND client_message_id = ?))
+       LIMIT 1`,
+      [
+        shopId,
+        integrationId,
+        conversationId,
+        messageId,
+        clientMessageId || null,
+        clientMessageId || null,
+      ],
+    ));
+    return row ? parseStoredMessage(row.payload_json, conversationId) : null;
   },
 
   async linkCustomerToConversation(
@@ -428,7 +511,7 @@ export const whatsappDb = {
         [shopId, integrationId, conversationId],
       );
       if (row?.payload_json) {
-        const parsed = parseJson<WaConversation>(row.payload_json);
+        const parsed = parseStoredConversation(row.payload_json);
         if (parsed) {
           parsed.customerId = customerId || undefined;
           await database.run(
@@ -453,9 +536,18 @@ export const whatsappDb = {
          WHERE shop_id = ? AND integration_id = ? AND id = ?`,
         [shopId, integrationId, conversationId],
       );
-      await transaction.run("DELETE FROM wa_messages WHERE conversation_id = ?", [conversationId]);
-      await transaction.run("DELETE FROM wa_drafts WHERE conversation_id = ?", [conversationId]);
-      await transaction.run("DELETE FROM wa_pending_operations WHERE conversation_id = ?", [conversationId]);
+      await transaction.run(
+        "DELETE FROM wa_messages WHERE shop_id = ? AND integration_id = ? AND conversation_id = ?",
+        [shopId, integrationId, conversationId],
+      );
+      await transaction.run(
+        "DELETE FROM wa_drafts WHERE shop_id = ? AND integration_id = ? AND conversation_id = ?",
+        [shopId, integrationId, conversationId],
+      );
+      await transaction.run(
+        "DELETE FROM wa_pending_operations WHERE shop_id = ? AND integration_id = ? AND conversation_id = ?",
+        [shopId, integrationId, conversationId],
+      );
       await transaction.run(
         `DELETE FROM wa_conversations
          WHERE shop_id = ? AND integration_id = ? AND id = ?`,
@@ -463,7 +555,12 @@ export const whatsappDb = {
       );
       return row ? { shopId: row.shop_id, integrationId: row.integration_id } : null;
     });
-    if (scope) await refreshFastConversationSnapshot(scope.shopId, scope.integrationId);
+    if (scope) {
+      await refreshFastConversationSnapshot(scope.shopId, scope.integrationId);
+      mmkvStorage.removeItem(
+        whatsappMessageCacheKey(shopId, integrationId, conversationId),
+      );
+    }
   },
 
   async upsertMessages(
@@ -473,6 +570,7 @@ export const whatsappDb = {
     await initializeDatabase();
     await sqliteClient.transaction(async (transaction) => {
       for (const message of messages) {
+        if (!isWaMessage(message, scope.conversationId)) continue;
         if (message.clientMessageId) {
           const replaced = await transaction.all<{ id: string }>(
             `SELECT id FROM wa_messages
@@ -567,28 +665,29 @@ export const whatsappDb = {
         }
       }
     });
-    // Update MMKV fast cache after each upsert for instant next-open render
-    void whatsappDb.getMessages(scope.conversationId).then((all) => {
-      whatsappDb.saveFastMessages(scope.conversationId, all);
-    }).catch(() => undefined);
+    await refreshFastMessageSnapshot(
+      scope.shopId,
+      scope.integrationId,
+      scope.conversationId,
+    );
   },
 
-  async getMessages(conversationId: string) {
+  async getMessages(shopId: string, integrationId: string, conversationId: string) {
     await initializeDatabase();
     const rows = await sqliteClient.read((database) => database.all<MessageRow>(
       `SELECT payload_json
        FROM (
          SELECT id, created_at, payload_json
          FROM wa_messages
-         WHERE conversation_id = ?
+         WHERE shop_id = ? AND integration_id = ? AND conversation_id = ?
          ORDER BY created_at DESC, id DESC
          LIMIT ?
        )
        ORDER BY created_at ASC, id ASC`,
-      [conversationId, LOCAL_PAGE_LIMIT],
+      [shopId, integrationId, conversationId, LOCAL_PAGE_LIMIT],
     ));
     return rows
-      .map((row) => parseJson<WaMessage>(row.payload_json))
+      .map((row) => parseStoredMessage(row.payload_json, conversationId))
       .filter((row): row is WaMessage => Boolean(row));
   },
 
@@ -736,6 +835,11 @@ export const whatsappDb = {
         ],
       );
     });
+    await refreshFastMessageSnapshot(
+      scope.shopId,
+      scope.integrationId,
+      scope.conversationId,
+    );
   },
 
   async requeueOperationByClientMessageId(

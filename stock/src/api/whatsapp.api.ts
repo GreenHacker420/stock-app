@@ -2,6 +2,10 @@ import { API_BASE_URL, apiRequest } from "./client";
 import { useAuthStore } from "../auth/auth-store";
 import * as Crypto from "expo-crypto";
 import { getDeviceInstallationId } from "../notifications/device-identity";
+import {
+  parseWaConversationPage,
+  parseWaMessagePage,
+} from "../modules/whatsapp/whatsapp-validation";
 
 export type WaOperationState =
   | "WAITING_FOR_NETWORK"
@@ -417,7 +421,7 @@ export function fetchWhatsAppCapability(
   );
 }
 
-export function fetchScopedWaConversations(
+export async function fetchScopedWaConversations(
   token: string,
   shopId: string,
   integrationId: string,
@@ -425,13 +429,14 @@ export function fetchScopedWaConversations(
 ) {
   const query = new URLSearchParams({ limit: String(options.limit ?? 50) });
   if (options.cursor) query.set("cursor", options.cursor);
-  return apiRequest<WaPage<WaConversation>>(
+  const response = await apiRequest<unknown>(
     `/whatsapp/integrations/${encodeURIComponent(integrationId)}/conversations?${query.toString()}`,
     { token, headers: { "X-Shop-Id": shopId } },
   );
+  return parseWaConversationPage(response);
 }
 
-export function fetchScopedWaMessages(
+export async function fetchScopedWaMessages(
   token: string,
   shopId: string,
   integrationId: string,
@@ -440,10 +445,11 @@ export function fetchScopedWaMessages(
 ) {
   const query = new URLSearchParams({ limit: String(options.limit ?? 50) });
   if (options.cursor) query.set("cursor", options.cursor);
-  return apiRequest<WaPage<WaMessage>>(
+  const response = await apiRequest<unknown>(
     `/whatsapp/integrations/${encodeURIComponent(integrationId)}/conversations/${encodeURIComponent(conversationId)}/messages?${query.toString()}`,
     { token, headers: { "X-Shop-Id": shopId } },
   );
+  return parseWaMessagePage(response, conversationId);
 }
 
 export async function sendScopedWaMessage(
