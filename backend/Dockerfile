@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
 # ---------- Stage 1: Dependencies ----------
-FROM node:24-slim AS deps
+FROM node:24-bookworm-slim AS deps
 WORKDIR /app
 
 RUN apt-get update -y && apt-get install -y openssl
@@ -13,7 +13,7 @@ RUN --mount=type=cache,target=/root/.npm \
     npm ci --omit=dev
 
 # ---------- Stage 2: Builder ----------
-FROM node:24-slim AS builder
+FROM node:24-bookworm-slim AS builder
 WORKDIR /app
 
 RUN apt-get update -y && apt-get install -y openssl
@@ -31,7 +31,7 @@ RUN npx prisma generate
 # If it were TS: RUN npm run build
 
 # ---------- Stage 3: Runtime ----------
-FROM node:24-slim AS runner
+FROM node:24-bookworm-slim AS runner
 
 WORKDIR /app
 
