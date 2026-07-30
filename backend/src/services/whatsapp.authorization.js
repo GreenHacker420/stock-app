@@ -15,7 +15,12 @@ export function createWhatsAppAuthorization({
 } = {}) {
   const channelResolver = createWhatsAppChannelResolver({ db, authorizeShop });
 
-  const resolveIntegration = async (user, integrationId, activeShopId) => {
+  const resolveIntegration = async (
+    user,
+    integrationId,
+    activeShopId,
+    { permission = "canView" } = {},
+  ) => {
     if (!integrationId) throw notFound("WhatsApp integration");
     let requestedShopId = activeShopId;
     if (!requestedShopId) {
@@ -29,11 +34,18 @@ export function createWhatsAppAuthorization({
       user,
       requestedShopId,
       integrationId,
+      { permission },
     );
   };
 
-  const resolveConversation = async (user, integrationId, conversationId, activeShopId) => {
-    const scope = await resolveIntegration(user, integrationId, activeShopId);
+  const resolveConversation = async (
+    user,
+    integrationId,
+    conversationId,
+    activeShopId,
+    options,
+  ) => {
+    const scope = await resolveIntegration(user, integrationId, activeShopId, options);
     const conversation = await db.waConversation.findFirst({
       where: {
         id: conversationId,
@@ -44,8 +56,8 @@ export function createWhatsAppAuthorization({
     return { ...scope, conversation };
   };
 
-  const resolveMessage = async (user, integrationId, messageId, activeShopId) => {
-    const scope = await resolveIntegration(user, integrationId, activeShopId);
+  const resolveMessage = async (user, integrationId, messageId, activeShopId, options) => {
+    const scope = await resolveIntegration(user, integrationId, activeShopId, options);
     const message = await db.waMessage.findFirst({
       where: {
         id: messageId,
@@ -87,6 +99,21 @@ export function requireWhatsAppIntegration(req, _res, next) {
     .catch(next);
 }
 
+export function requireWhatsAppSendIntegration(req, _res, next) {
+  resolveWhatsAppIntegration(
+    req.user,
+    req.params.integrationId,
+    activeShopId(req),
+    { permission: "canSend" },
+  )
+    .then((scope) => {
+      req.waScope = scope;
+      req.shop = scope.shop;
+      next();
+    })
+    .catch(next);
+}
+
 export function requireWhatsAppConversation(req, _res, next) {
   resolveWhatsAppConversation(
     req.user,
@@ -102,12 +129,44 @@ export function requireWhatsAppConversation(req, _res, next) {
     .catch(next);
 }
 
+export function requireWhatsAppSendConversation(req, _res, next) {
+  resolveWhatsAppConversation(
+    req.user,
+    req.params.integrationId,
+    req.params.conversationId,
+    activeShopId(req),
+    { permission: "canSend" },
+  )
+    .then((scope) => {
+      req.waScope = scope;
+      req.shop = scope.shop;
+      next();
+    })
+    .catch(next);
+}
+
 export function requireWhatsAppMessage(req, _res, next) {
   resolveWhatsAppMessage(
     req.user,
     req.params.integrationId,
     req.params.messageId,
     activeShopId(req),
+  )
+    .then((scope) => {
+      req.waScope = scope;
+      req.shop = scope.shop;
+      next();
+    })
+    .catch(next);
+}
+
+export function requireWhatsAppSendMessage(req, _res, next) {
+  resolveWhatsAppMessage(
+    req.user,
+    req.params.integrationId,
+    req.params.messageId,
+    activeShopId(req),
+    { permission: "canSend" },
   )
     .then((scope) => {
       req.waScope = scope;

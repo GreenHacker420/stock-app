@@ -10,6 +10,9 @@ import {
   requireWhatsAppConversation,
   requireWhatsAppIntegration,
   requireWhatsAppMessage,
+  requireWhatsAppSendConversation,
+  requireWhatsAppSendIntegration,
+  requireWhatsAppSendMessage,
 } from "../services/whatsapp.authorization.js";
 import { validate } from "../middleware/validate.js";
 import { z } from "zod";
@@ -43,7 +46,7 @@ router.get(
 router.post(
   "/integrations/:integrationId/conversations",
   requireAuth,
-  requireWhatsAppIntegration,
+  requireWhatsAppSendIntegration,
   whatsappController.createScopedConversation,
 );
 router.get(
@@ -55,7 +58,7 @@ router.get(
 router.get(
   "/integrations/:integrationId/conversations/:conversationId/messages",
   requireAuth,
-  requireWhatsAppConversation,
+  requireWhatsAppSendConversation,
   whatsappController.getScopedMessages,
 );
 router.post(
@@ -67,13 +70,13 @@ router.post(
 router.post(
   "/integrations/:integrationId/messages/:messageId/reaction",
   requireAuth,
-  requireWhatsAppMessage,
+  requireWhatsAppSendMessage,
   whatsappController.reactToScopedMessage,
 );
 router.delete(
   "/integrations/:integrationId/messages/:messageId",
   requireAuth,
-  requireWhatsAppMessage,
+  requireWhatsAppSendMessage,
   whatsappController.deleteScopedMessage,
 );
 router.post(
@@ -103,7 +106,7 @@ router.delete(
 router.post(
   "/integrations/:integrationId/media",
   requireAuth,
-  requireWhatsAppIntegration,
+  requireWhatsAppSendIntegration,
   mediaUpload.single("file"),
   whatsappController.uploadMedia,
 );
@@ -122,7 +125,7 @@ router.post(
 router.post(
   "/integrations/:integrationId/messages/:messageId/retry",
   requireAuth,
-  requireWhatsAppMessage,
+  requireWhatsAppSendMessage,
   whatsappController.retryScopedMessage,
 );
 router.get(
