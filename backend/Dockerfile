@@ -35,7 +35,7 @@ FROM node:24-bookworm-slim AS runner
 
 WORKDIR /app
 
-RUN apt-get update -y && apt-get install -y \
+RUN apt-get update -y && apt-get install -y --no-install-recommends \
     openssl \
     chromium \
     fontconfig \
