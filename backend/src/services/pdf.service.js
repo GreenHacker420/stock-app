@@ -617,6 +617,8 @@ async function getOrCreateSaleInvoicePdf({ sale, shop }) {
         invoiceFingerprint: fingerprint,
         renderer: "chromium",
       },
+      externalProvider: null,
+      externalId: null,
       errorMessage: null,
       readyAt: new Date(),
       deletedAt: null,
