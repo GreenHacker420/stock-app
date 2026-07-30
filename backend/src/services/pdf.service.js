@@ -569,11 +569,9 @@ async function getOrCreateSaleInvoicePdf({ sale, shop }) {
       storageProvider: "S3",
       storageBucket: getS3BucketName(),
       storageKey: s3Key,
-      status: "READY",
-      deletedAt: null,
     },
   });
-  if (existing) {
+  if (existing?.status === "READY" && !existing.deletedAt) {
     return {
       assetId: existing.id,
       s3Key,
@@ -600,30 +598,40 @@ async function getOrCreateSaleInvoicePdf({ sale, shop }) {
   // 3. Record in Asset table (WHATSAPP_OUTBOUND DOCUMENT)
   let asset;
   try {
-    asset = await prisma.asset.create({
-      data: {
+    const assetData = {
+      kind: "DOCUMENT",
+      source: "WHATSAPP_OUTBOUND",
+      status: "READY",
+      storageProvider: "S3",
+      storageBucket: bucketName,
+      storageKey: s3Key,
+      remoteUrl: publicUrl,
+      mimeType: "application/pdf",
+      fileName,
+      sizeBytes: BigInt(pdfBuffer.byteLength ?? pdfBuffer.length),
+      metadata: {
+        saleId: sale.id,
+        saleNumber: sale.saleNumber,
         shopId: shop.id,
-        kind: "DOCUMENT",
-        source: "WHATSAPP_OUTBOUND",
-        status: "READY",
-        storageProvider: "S3",
-        storageBucket: bucketName,
-        storageKey: s3Key,
-        remoteUrl: publicUrl,
-        mimeType: "application/pdf",
-        fileName,
-        sizeBytes: BigInt(pdfBuffer.byteLength ?? pdfBuffer.length),
-        metadata: {
-          saleId: sale.id,
-          saleNumber: sale.saleNumber,
-          shopId: shop.id,
-          purpose: "whatsapp_receipt",
-          invoiceFingerprint: fingerprint,
-          renderer: "chromium",
-        },
-        readyAt: new Date(),
+        purpose: "whatsapp_receipt",
+        invoiceFingerprint: fingerprint,
+        renderer: "chromium",
       },
-    });
+      errorMessage: null,
+      readyAt: new Date(),
+      deletedAt: null,
+    };
+    asset = existing
+      ? await prisma.asset.update({
+        where: { id: existing.id },
+        data: assetData,
+      })
+      : await prisma.asset.create({
+        data: {
+          shopId: shop.id,
+          ...assetData,
+        },
+      });
   } catch (error) {
     try {
       await deleteS3Object(s3Key);
