@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback, useEffect, useRef } from "react";
+import { useMemo, useState, useCallback, useEffect } from "react";
 import { Alert, StyleSheet, View } from "react-native";
 import { AppHeader } from "@/components/ui/AppHeader";
 import { Screen } from "@/components/Screen";
@@ -43,7 +43,6 @@ import { useLiveSaleStock } from "../core/useLiveSaleStock";
 import { formatStockShortageMessage } from "../core/sale-stock";
 import {
   clearLocalSaleDraft,
-  hasMeaningfulSaleDraft,
   loadLocalSaleDraft,
   saveLocalSaleDraft,
 } from "../core/sale-draft-storage";
@@ -121,9 +120,6 @@ export function WalkInSaleScreen() {
     shopId: draftShopId,
     initialDraft: restoredDraft?.draft,
   });
-  const allowNextRemovalRef = useRef(false);
-  const removalPromptVisibleRef = useRef(false);
-
   const handleLiveStockShortage = useCallback((shortages: Parameters<typeof formatStockShortageMessage>[0]) => {
     Alert.alert("Stock changed", formatStockShortageMessage(shortages));
   }, []);
@@ -157,50 +153,29 @@ export function WalkInSaleScreen() {
   }, [amountReceived, draft, draftShopId, paymentMode, user?.id]);
 
   useEffect(() => {
-    return navigation.addListener("beforeRemove", (event) => {
-      if (allowNextRemovalRef.current) {
-        allowNextRemovalRef.current = false;
-        return;
-      }
-      if (!hasMeaningfulSaleDraft(draft) || currentStep === 3) return;
-
-      event.preventDefault();
-      if (removalPromptVisibleRef.current) return;
-      removalPromptVisibleRef.current = true;
-      Alert.alert(
-        "Save unfinished sale?",
-        "Keep this sale as a local draft and continue it later on this device.",
-        [
-          {
-            text: "Cancel",
-            style: "cancel",
-            onPress: () => {
-              removalPromptVisibleRef.current = false;
-            },
-          },
-          {
-            text: "Discard",
-            style: "destructive",
-            onPress: () => {
-              removalPromptVisibleRef.current = false;
-              if (user?.id) clearLocalSaleDraft(user.id, draftShopId, "WALK_IN");
-              dispatch({ type: "RESET_DRAFT", shopId: draftShopId });
-              allowNextRemovalRef.current = true;
-              navigation.dispatch(event.data.action);
-            },
-          },
-          {
-            text: "Save & exit",
-            onPress: () => {
-              removalPromptVisibleRef.current = false;
-              allowNextRemovalRef.current = true;
-              navigation.dispatch(event.data.action);
-            },
-          },
-        ],
-      );
+    return navigation.addListener("beforeRemove", () => {
+      if (currentStep === 3 || !user?.id) return;
+      saveLocalSaleDraft({
+        userId: user.id,
+        shopId: draftShopId,
+        mode: "WALK_IN",
+        draft,
+        view: {
+          kind: "WALK_IN",
+          paymentMode,
+          amountReceived,
+        },
+      });
     });
-  }, [currentStep, draft, draftShopId, navigation, user?.id, dispatch]);
+  }, [
+    amountReceived,
+    currentStep,
+    draft,
+    draftShopId,
+    navigation,
+    paymentMode,
+    user?.id,
+  ]);
 
   // Sync customer state to draft
   useEffect(() => {
@@ -608,7 +583,7 @@ export function WalkInSaleScreen() {
     <Screen edges={["top", "left", "right"]}>
       <AppHeader
         title="Walk-in Sale"
-        subtitle={`Step 1 of 2 • Cart Details${restoredDraft ? " • Local draft restored" : ""}`}
+        subtitle="Step 1 of 2 • Cart Details"
         showBack={true}
         onBack={handleHeaderBack}
       />

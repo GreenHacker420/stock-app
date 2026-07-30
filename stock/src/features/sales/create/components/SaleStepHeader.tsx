@@ -7,14 +7,12 @@ interface SaleStepHeaderProps {
   step: number;
   onBack: () => void;
   totalSteps?: number;
-  draftRestored?: boolean;
 }
 
 export function SaleStepHeader({
   step,
   onBack,
   totalSteps = 3,
-  draftRestored = false,
 }: SaleStepHeaderProps) {
   const insets = useSafeAreaInsets();
 
@@ -50,7 +48,6 @@ export function SaleStepHeader({
           <Text style={styles.title}>Regular Sale</Text>
           <Text style={styles.subtitle}>
             Step {step} of {totalSteps} • {getStepSubtitle()}
-            {draftRestored ? " • Local draft restored" : ""}
           </Text>
         </View>
       </View>

@@ -12,6 +12,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { spacing } from "@/theme";
 import { navigate } from "@/navigation/navigation-ref";
 import { type RootStackParamList } from "@/navigation";
+import { isCompletedSaleRecord } from "@/features/sales/create/core/sales-list-filter";
 
 type HistorySale = Sale & {
   staff?: { name: string } | null;
@@ -31,7 +32,10 @@ export function SalesListScreen() {
   const [activeTab, setActiveTab] = useState<string>(initialFilter);
 
   const salesQuery = useSalesQuery();
-  const allSales = (salesQuery.data as HistorySale[]) ?? [];
+  const allSales = useMemo(
+    () => ((salesQuery.data as HistorySale[]) ?? []).filter(isCompletedSaleRecord),
+    [salesQuery.data],
+  );
 
   const filteredSales = useMemo(() => {
     let data = allSales;

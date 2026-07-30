@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback, useEffect, useRef } from "react";
+import { useMemo, useState, useCallback, useEffect } from "react";
 import { Alert, StyleSheet, View } from "react-native";
 import { useNavigation, type NavigationProp } from "@react-navigation/native";
 import { useShopStore } from "@/auth/shop-store";
@@ -50,7 +50,6 @@ import { useLiveSaleStock } from "../core/useLiveSaleStock";
 import { formatStockShortageMessage } from "../core/sale-stock";
 import {
   clearLocalSaleDraft,
-  hasMeaningfulSaleDraft,
   loadLocalSaleDraft,
   saveLocalSaleDraft,
 } from "../core/sale-draft-storage";
@@ -148,9 +147,6 @@ export function RegularSaleScreen() {
     shopId: draftShopId,
     initialDraft: restoredDraft?.draft,
   });
-  const allowNextRemovalRef = useRef(false);
-  const removalPromptVisibleRef = useRef(false);
-
   const handleLiveStockShortage = useCallback((shortages: Parameters<typeof formatStockShortageMessage>[0]) => {
     Alert.alert("Stock changed", formatStockShortageMessage(shortages));
   }, []);
@@ -195,54 +191,37 @@ export function RegularSaleScreen() {
 
   useEffect(() => {
     return navigation.addListener("beforeRemove", (event) => {
-      if (allowNextRemovalRef.current) {
-        allowNextRemovalRef.current = false;
-        return;
-      }
       if (currentStep === 2 || currentStep === 3) {
         event.preventDefault();
         setCurrentStep(currentStep === 3 ? 2 : 1);
         return;
       }
-      if (!hasMeaningfulSaleDraft(draft) || currentStep === 4) return;
-
-      event.preventDefault();
-      if (removalPromptVisibleRef.current) return;
-      removalPromptVisibleRef.current = true;
-      Alert.alert(
-        "Save unfinished sale?",
-        "Keep this sale as a local draft and continue it later on this device.",
-        [
-          {
-            text: "Cancel",
-            style: "cancel",
-            onPress: () => {
-              removalPromptVisibleRef.current = false;
-            },
+      if (currentStep !== 4 && user?.id) {
+        saveLocalSaleDraft({
+          userId: user.id,
+          shopId: draftShopId,
+          mode: "REGULAR",
+          draft,
+          view: {
+            kind: "REGULAR",
+            currentStep: 1,
+            paymentType,
+            partialPaymentMode,
+            amountPaid,
           },
-          {
-            text: "Discard",
-            style: "destructive",
-            onPress: () => {
-              removalPromptVisibleRef.current = false;
-              if (user?.id) clearLocalSaleDraft(user.id, draftShopId, "REGULAR");
-              dispatch({ type: "RESET_DRAFT", shopId: draftShopId });
-              allowNextRemovalRef.current = true;
-              navigation.dispatch(event.data.action);
-            },
-          },
-          {
-            text: "Save & exit",
-            onPress: () => {
-              removalPromptVisibleRef.current = false;
-              allowNextRemovalRef.current = true;
-              navigation.dispatch(event.data.action);
-            },
-          },
-        ],
-      );
+        });
+      }
     });
-  }, [currentStep, draft, draftShopId, navigation, user?.id, dispatch]);
+  }, [
+    amountPaid,
+    currentStep,
+    draft,
+    draftShopId,
+    navigation,
+    partialPaymentMode,
+    paymentType,
+    user?.id,
+  ]);
 
   // Sync customer state to draft
   useEffect(() => {
@@ -589,7 +568,6 @@ export function RegularSaleScreen() {
       <SaleStepHeader
         step={currentStep}
         onBack={handleHeaderBack}
-        draftRestored={Boolean(restoredDraft)}
       />
 
       <View style={styles.mainContainer}>

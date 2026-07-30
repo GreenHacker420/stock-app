@@ -55,14 +55,19 @@ export function saleTimestamp(sale: SaleListRecord) {
   return Number.isFinite(timestamp) ? timestamp : null;
 }
 
+export function isCompletedSaleRecord(sale: SaleListRecord) {
+  return sale.saleStatus !== "DRAFT" && sale.status !== "DRAFT";
+}
+
 export function filterSalesForPeriod<T extends SaleListRecord>(
   sales: readonly T[],
   range: SalePeriodRange | null,
 ) {
-  if (!range) return [...sales];
+  const completedSales = sales.filter(isCompletedSaleRecord);
+  if (!range) return completedSales;
   const start = range.start.getTime();
   const end = range.end.getTime();
-  return sales.filter((sale) => {
+  return completedSales.filter((sale) => {
     const timestamp = saleTimestamp(sale);
     return timestamp !== null && timestamp >= start && timestamp <= end;
   });

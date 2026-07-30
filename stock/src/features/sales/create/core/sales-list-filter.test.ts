@@ -52,3 +52,29 @@ test("this week starts on Monday and status counts use only period sales", () =>
     CANCELLED: 0,
   });
 });
+
+test("local or legacy server drafts never appear in sales history totals", () => {
+  const completed = {
+    saleDate: "2026-07-30T10:00:00.000Z",
+    createdAt: "2026-07-30T10:00:00.000Z",
+    paymentStatus: "PAID",
+    saleStatus: "COMPLETED",
+  };
+  const draft = {
+    saleDate: "2026-07-30T11:00:00.000Z",
+    createdAt: "2026-07-30T11:00:00.000Z",
+    paymentStatus: "PENDING",
+    saleStatus: "DRAFT",
+  };
+
+  const visible = filterSalesForPeriod([completed, draft], null);
+
+  assert.deepEqual(visible, [completed]);
+  assert.deepEqual(countSalesByStatus(visible), {
+    ALL: 1,
+    PAID: 1,
+    PENDING: 0,
+    PARTIAL: 0,
+    CANCELLED: 0,
+  });
+});
