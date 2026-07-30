@@ -994,7 +994,7 @@ export async function sendSaleWhatsAppReceipt(user, id, { recipientPhone } = {})
   }
 
   const shopName = sale.shop?.name || "Vardaman Sales";
-  const customerName = sale.isWalkin ? "Walk-in Customer" : (sale.customer?.name || "Valued Customer");
+  const customerName = sale.isWalkin ? "Customer" : (sale.customer?.name || "Valued Customer");
   let normalizedPhone = targetPhone.replace(NON_DIGIT_REGEX, "");
   if (normalizedPhone.startsWith("0")) normalizedPhone = normalizedPhone.slice(1);
   if (normalizedPhone.length === 10) normalizedPhone = `91${normalizedPhone}`;

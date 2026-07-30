@@ -142,6 +142,7 @@ export const SaleProductRow = memo(
   },
   (p, n) =>
     p.item.id === n.item.id &&
+    p.item.availableStock === n.item.availableStock &&
     p.quantity === n.quantity &&
     p.serialNumbers?.join(",") === n.serialNumbers?.join(",")
 );

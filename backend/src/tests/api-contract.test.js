@@ -349,6 +349,8 @@ test("sale WhatsApp receipt sends the PDF template through the backend", () => {
   assert.ok(receiptSrc.includes("await whatsappService.sendMessage"));
   assert.ok(receiptSrc.includes("skipCustomerAutoLink: !recipientMatchesCustomer"));
   assert.ok(receiptSrc.includes("localPreview:"));
+  assert.ok(receiptSrc.includes('sale.isWalkin ? "Customer"'));
+  assert.ok(!receiptSrc.includes('"Walk-in Customer"'));
   assert.ok(receiptSrc.includes("await deleteInvoiceAsset(invoiceAsset.assetId)"));
   assert.ok(receiptSrc.includes("normalizedPhone = `91${normalizedPhone}`"));
   assert.ok(!receiptSrc.includes("getSignedS3ObjectUrl"));
@@ -376,6 +378,19 @@ test("WhatsApp contact identity stays separate from CRM customer linkage", () =>
   assert.match(
     sendMessageSrc,
     /let customer = null;\s+if \(!conversation\)[\s\S]*if \(customer\)/,
+  );
+});
+
+test("sale product rows refresh when live stock replaces the initial catalog value", () => {
+  const saleProductRowSrc = fs.readFileSync(
+    path.resolve(SRC_DIR, "../../stock/src/features/sales/create/components/SaleProductRow.tsx"),
+    "utf8",
+  );
+
+  assert.ok(
+    saleProductRowSrc.includes(
+      "p.item.availableStock === n.item.availableStock",
+    ),
   );
 });
 
