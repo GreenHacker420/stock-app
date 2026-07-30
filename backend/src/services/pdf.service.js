@@ -65,6 +65,12 @@ export async function renderInvoicePdfFromHtml(html) {
     browser = await puppeteer.launch({
       executablePath: resolveChromiumExecutable(),
       headless: true,
+      env: {
+        ...process.env,
+        HOME: "/tmp",
+        XDG_CACHE_HOME: "/tmp/.cache",
+        XDG_CONFIG_HOME: "/tmp/.config",
+      },
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
