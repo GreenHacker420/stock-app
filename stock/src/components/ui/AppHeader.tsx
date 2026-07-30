@@ -19,11 +19,14 @@ type AppHeaderProps = {
   onBack?: () => void;
   hideAvatar?: boolean;
   showAlerts?: boolean;
+  rightActionLabel?: string;
+  rightActionIcon?: string;
+  onRightAction?: () => void;
   fallbackRoute?: string;
   onRequestShopSwitch?: (shopId: string, proceed: () => void) => void;
 };
 
-export function AppHeader({ title, subtitle, role, initials, showBack, onBack, hideAvatar, showAlerts, fallbackRoute, onRequestShopSwitch }: AppHeaderProps) {
+export function AppHeader({ title, subtitle, role, initials, showBack, onBack, hideAvatar, showAlerts, rightActionLabel, rightActionIcon, onRightAction, fallbackRoute, onRequestShopSwitch }: AppHeaderProps) {
   const user = useAuthStore((state) => state.user);
   const { activeShopId } = useShopStore();
   const switchActiveShop = useSwitchActiveShop();
@@ -130,6 +133,22 @@ export function AppHeader({ title, subtitle, role, initials, showBack, onBack, h
       </View>
 
       <View style={styles.headerActions}>
+        {onRightAction && (
+          <Pressable
+            onPress={onRightAction}
+            style={({ pressed }) => [styles.headerTextAction, pressed && styles.pressed]}
+            accessibilityRole="button"
+            accessibilityLabel={rightActionLabel}
+            hitSlop={8}
+          >
+            {rightActionIcon ? (
+              <Icon source={rightActionIcon} size={17} color={colors.primary} />
+            ) : null}
+            {rightActionLabel ? (
+              <Text style={styles.headerTextActionLabel}>{rightActionLabel}</Text>
+            ) : null}
+          </Pressable>
+        )}
         {showAlerts && (
           <Pressable
             onPress={() => navigation?.navigate("NotificationHistory")}
@@ -296,6 +315,20 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: spacing.sm,
     flexShrink: 0,
+  },
+  headerTextAction: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: radius.full,
+    backgroundColor: colors.primaryLight,
+  },
+  headerTextActionLabel: {
+    color: colors.primary,
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
   },
   alertButton: {
     width: 40,

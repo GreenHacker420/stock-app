@@ -44,6 +44,7 @@ import { formatStockShortageMessage } from "../core/sale-stock";
 import {
   clearLocalSaleDraft,
   createLocalSaleDraftId,
+  hasMeaningfulSaleDraft,
   loadLocalSaleDraft,
   saveLocalSaleDraft,
 } from "../core/sale-draft-storage";
@@ -179,6 +180,33 @@ export function WalkInSaleScreen() {
   }, [
     amountReceived,
     currentStep,
+    draft,
+    draftShopId,
+    navigation,
+    paymentMode,
+    sessionDraftId,
+    user?.id,
+  ]);
+
+  const handleParkSale = useCallback(() => {
+    if (user?.id) {
+      saveLocalSaleDraft({
+        id: sessionDraftId,
+        userId: user.id,
+        shopId: draftShopId,
+        mode: "WALK_IN",
+        draft,
+        view: {
+          kind: "WALK_IN",
+          paymentMode,
+          amountReceived,
+        },
+      });
+    }
+    if (navigation.canGoBack()) navigation.goBack();
+    else navigation.navigate("NewSaleType");
+  }, [
+    amountReceived,
     draft,
     draftShopId,
     navigation,
@@ -597,6 +625,9 @@ export function WalkInSaleScreen() {
         subtitle="Step 1 of 2 • Cart Details"
         showBack={true}
         onBack={handleHeaderBack}
+        rightActionLabel={hasMeaningfulSaleDraft(draft) ? "Park" : undefined}
+        rightActionIcon={hasMeaningfulSaleDraft(draft) ? "tray-arrow-down" : undefined}
+        onRightAction={hasMeaningfulSaleDraft(draft) ? handleParkSale : undefined}
       />
 
       <View style={styles.mainContainer}>

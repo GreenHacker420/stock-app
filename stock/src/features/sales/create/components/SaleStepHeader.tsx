@@ -6,12 +6,14 @@ import { colors, spacing, fontSize, fontWeight, shadow } from "../../../../theme
 interface SaleStepHeaderProps {
   step: number;
   onBack: () => void;
+  onPark?: () => void;
   totalSteps?: number;
 }
 
 export function SaleStepHeader({
   step,
   onBack,
+  onPark,
   totalSteps = 3,
 }: SaleStepHeaderProps) {
   const insets = useSafeAreaInsets();
@@ -50,6 +52,17 @@ export function SaleStepHeader({
             Step {step} of {totalSteps} • {getStepSubtitle()}
           </Text>
         </View>
+        {onPark ? (
+          <Pressable
+            onPress={onPark}
+            accessibilityRole="button"
+            accessibilityLabel="Park this sale and return to Sales Hub"
+            style={({ pressed }) => [styles.parkButton, pressed && styles.pressed]}
+          >
+            <Icon source="tray-arrow-down" size={17} color={colors.primary} />
+            <Text style={styles.parkButtonText}>Park</Text>
+          </Pressable>
+        ) : null}
       </View>
 
       {/* Thin Progress Bar */}
@@ -81,6 +94,20 @@ const styles = StyleSheet.create({
   },
   titleContainer: {
     flex: 1,
+  },
+  parkButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs,
+    borderRadius: 999,
+    backgroundColor: colors.primaryLight,
+  },
+  parkButtonText: {
+    color: colors.primary,
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
   },
   title: {
     fontSize: fontSize.lg,

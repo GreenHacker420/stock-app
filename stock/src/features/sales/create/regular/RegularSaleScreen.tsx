@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback, useEffect } from "react";
+import { useMemo, useState, useCallback, useEffect, useRef } from "react";
 import { Alert, StyleSheet, View } from "react-native";
 import { useNavigation, useRoute, type NavigationProp, type RouteProp } from "@react-navigation/native";
 import { useShopStore } from "@/auth/shop-store";
@@ -51,6 +51,7 @@ import { formatStockShortageMessage } from "../core/sale-stock";
 import {
   clearLocalSaleDraft,
   createLocalSaleDraftId,
+  hasMeaningfulSaleDraft,
   loadLocalSaleDraft,
   saveLocalSaleDraft,
 } from "../core/sale-draft-storage";
@@ -154,6 +155,7 @@ export function RegularSaleScreen() {
     shopId: draftShopId,
     initialDraft: restoredDraft?.draft,
   });
+  const allowNextRemovalRef = useRef(false);
   const handleLiveStockShortage = useCallback((shortages: Parameters<typeof formatStockShortageMessage>[0]) => {
     Alert.alert("Stock changed", formatStockShortageMessage(shortages));
   }, []);
@@ -200,6 +202,10 @@ export function RegularSaleScreen() {
 
   useEffect(() => {
     return navigation.addListener("beforeRemove", (event) => {
+      if (allowNextRemovalRef.current) {
+        allowNextRemovalRef.current = false;
+        return;
+      }
       if (currentStep === 2 || currentStep === 3) {
         event.preventDefault();
         setCurrentStep(currentStep === 3 ? 2 : 1);
@@ -222,6 +228,38 @@ export function RegularSaleScreen() {
         });
       }
     });
+  }, [
+    amountPaid,
+    currentStep,
+    draft,
+    draftShopId,
+    navigation,
+    partialPaymentMode,
+    paymentType,
+    sessionDraftId,
+    user?.id,
+  ]);
+
+  const handleParkSale = useCallback(() => {
+    if (user?.id) {
+      saveLocalSaleDraft({
+        id: sessionDraftId,
+        userId: user.id,
+        shopId: draftShopId,
+        mode: "REGULAR",
+        draft,
+        view: {
+          kind: "REGULAR",
+          currentStep: currentStep === 4 ? 3 : currentStep,
+          paymentType,
+          partialPaymentMode,
+          amountPaid,
+        },
+      });
+    }
+    allowNextRemovalRef.current = true;
+    if (navigation.canGoBack()) navigation.goBack();
+    else navigation.navigate("NewSaleType");
   }, [
     amountPaid,
     currentStep,
@@ -580,6 +618,7 @@ export function RegularSaleScreen() {
       <SaleStepHeader
         step={currentStep}
         onBack={handleHeaderBack}
+        onPark={hasMeaningfulSaleDraft(draft) ? handleParkSale : undefined}
       />
 
       <View style={styles.mainContainer}>
