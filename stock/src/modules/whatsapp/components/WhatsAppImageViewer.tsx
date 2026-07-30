@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, Modal, Pressable, StyleSheet, useWindowDimensions, View } from "react-native";
 import { Image } from "expo-image";
 import { Directory, File, Paths } from "expo-file-system";
-import * as MediaLibrary from "expo-media-library";
+import { Asset, requestPermissionsAsync } from "expo-media-library";
 import * as Sharing from "expo-sharing";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { ActivityIndicator, Text } from "react-native-paper";
@@ -218,10 +218,10 @@ export function WhatsAppImageViewer({ image, token, onClose }: Props) {
     if (!image || action) return;
     setAction("save");
     try {
-      const permission = await MediaLibrary.requestPermissionsAsync(true);
+      const permission = await requestPermissionsAsync(true);
       if (!permission.granted) throw new Error("Photo permission is required to save this image");
       const file = await downloadImage();
-      await MediaLibrary.saveToLibraryAsync(file.uri);
+      await Asset.create(file.uri);
       triggerSuccessHaptic();
       Alert.alert("Saved", "The image was saved to your photo library.");
     } catch (error) {
