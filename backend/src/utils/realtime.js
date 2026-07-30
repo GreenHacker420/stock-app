@@ -27,6 +27,7 @@ export const REALTIME_EVENTS = {
   DAILY_SUMMARY_UPDATED: "daily-summary:updated",
   SHOP_UPDATED: "shop:updated",
   NOTIFICATION_CREATED: "notification:created",
+  NOTIFICATION_UPDATED: "notification:updated",
 };
 
 async function getSocketUser(token) {

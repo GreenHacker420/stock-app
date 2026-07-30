@@ -237,14 +237,16 @@ export function invalidateForDomainEvent(queryClient: QueryClient, event: Domain
   }
 
   if (event.entity === "approval" || event.entity === "notification") {
-    queryClient.invalidateQueries({ queryKey: ["notifications", { shopId }] });
-    invalidate(["rate-change-requests", shopId]);
-    invalidate(["correction-requests", shopId]);
+    queryClient.invalidateQueries({ queryKey: ["notifications"] });
+    invalidate(["verifications", shopId]);
+    invalidate(["staff-verifications", shopId]);
+    queryClient.invalidateQueries({ queryKey: ["rate-change-requests"] });
+    queryClient.invalidateQueries({ queryKey: ["correction-requests"] });
   }
 
   for (const key of event.queryKeys || []) {
     if (key === "dashboard") invalidate(["owner-dashboard", { shopId }]);
-    if (key === "notifications") queryClient.invalidateQueries({ queryKey: ["notifications", { shopId }] });
+    if (key === "notifications") queryClient.invalidateQueries({ queryKey: ["notifications"] });
   }
 }
 

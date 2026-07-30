@@ -9,12 +9,21 @@ export const listNotifications = asyncHandler(async (req, res) => {
 
 export const markRead = asyncHandler(async (req, res) => {
   const notification = await notificationService.markRead(req.user, req.validated.params.id);
-  emitShopEvent(req, notification.shopId, REALTIME_EVENTS.NOTIFICATION_CREATED, { notificationId: notification.id, action: "read" });
+  emitShopEvent(req, notification.shopId, REALTIME_EVENTS.NOTIFICATION_UPDATED, {
+    notificationId: notification.id,
+    action: "read",
+  });
   res.json({ success: true, data: notification });
 });
 
 export const markAllRead = asyncHandler(async (req, res) => {
-  const result = await notificationService.markAllRead(req.user, req.validated.body ?? {});
+  const input = req.validated.body ?? {};
+  const result = await notificationService.markAllRead(req.user, input);
+  if (input.shopId) {
+    emitShopEvent(req, input.shopId, REALTIME_EVENTS.NOTIFICATION_UPDATED, {
+      action: "read_all",
+    });
+  }
   res.json({ success: true, data: result });
 });
 

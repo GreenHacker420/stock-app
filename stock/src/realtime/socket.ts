@@ -12,7 +12,8 @@ export type RealtimeEvent =
   | "stock:updated"
   | "daily-summary:updated"
   | "shop:updated"
-  | "notification:created";
+  | "notification:created"
+  | "notification:updated";
 
 export function createRealtimeSocket(token: string, deviceId?: string | null): Socket {
   return io(SOCKET_URL, {

@@ -185,9 +185,20 @@ test("dashboard routes contract", () => {
 // ─── NOTIFICATIONS ───────────────────────────────────────────────────────────
 test("notification routes contract", () => {
   const src = readRoute("notification.routes.js");
+  const controllerSrc = readSrc("controllers/notification.controller.js");
+  const realtimeSrc = fs.readFileSync(
+    path.resolve(SRC_DIR, "../../stock/src/realtime/RealtimeProvider.tsx"),
+    "utf8",
+  );
   assertRoute(src, "GET",  '"/"', "GET /notifications");
   assertRoute(src, "POST", '"/mark-all-read"', "POST /notifications/mark-all-read");
   assertRoute(src, "POST", '"/:id/mark-read"', "POST /notifications/:id/mark-read");
+  assert.ok(controllerSrc.includes("REALTIME_EVENTS.NOTIFICATION_UPDATED"));
+  assert.ok(realtimeSrc.includes('"notification:updated"'));
+  assert.ok(
+    realtimeSrc.includes('event === "notification:created" && payload'),
+    "only newly created notifications should display a realtime toast",
+  );
 });
 
 // ─── APPROVALS ───────────────────────────────────────────────────────────────
@@ -391,6 +402,29 @@ test("sale product rows refresh when live stock replaces the initial catalog val
     saleProductRowSrc.includes(
       "p.item.availableStock === n.item.availableStock",
     ),
+  );
+});
+
+test("Android FCM configuration targets the Shop Control application", () => {
+  const appConfig = JSON.parse(
+    fs.readFileSync(path.resolve(SRC_DIR, "../../stock/app.json"), "utf8"),
+  );
+  const googleServices = JSON.parse(
+    fs.readFileSync(
+      path.resolve(SRC_DIR, "../../stock/google-services.json"),
+      "utf8",
+    ),
+  );
+  const androidPackage = appConfig.expo.android.package;
+  const firebaseClient = googleServices.client.find(
+    (client) =>
+      client.client_info.android_client_info.package_name === androidPackage,
+  );
+
+  assert.equal(androidPackage, "com.shopcontrol");
+  assert.equal(
+    firebaseClient?.client_info.mobilesdk_app_id,
+    "1:474633049000:android:647b82fe5eefb2765c839d",
   );
 });
 

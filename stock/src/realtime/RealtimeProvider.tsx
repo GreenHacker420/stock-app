@@ -28,6 +28,7 @@ const legacyEvents: RealtimeEvent[] = [
   "daily-summary:updated",
   "shop:updated",
   "notification:created",
+  "notification:updated",
 ];
 
 export function RealtimeProvider({ children }: PropsWithChildren) {
@@ -56,7 +57,20 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
       "stock:updated": [["items", activeShopId], ["stock", activeShopId], ["stock-movements", activeShopId]],
       "daily-summary:updated": [["daily-summary", activeShopId]],
       "shop:updated": [["shops"]],
-      "notification:created": [["notifications", activeShopId], ["rate-change-requests", activeShopId], ["correction-requests", activeShopId]],
+      "notification:created": [
+        ["notifications"],
+        ["verifications", activeShopId],
+        ["staff-verifications", activeShopId],
+        ["rate-change-requests"],
+        ["correction-requests"],
+        ["owner-dashboard", { shopId: activeShopId }],
+      ],
+      "notification:updated": [
+        ["notifications"],
+        ["verifications", activeShopId],
+        ["staff-verifications", activeShopId],
+        ["owner-dashboard", { shopId: activeShopId }],
+      ],
     }),
     [activeShopId],
   );

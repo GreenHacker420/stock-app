@@ -190,7 +190,7 @@ test.describe("Frontend Domain Event Handler Tests (Step 8)", () => {
         mockQueryClient.invalidateQueries({ queryKey: ["delivery-memos", "shop_1"] });
         mockQueryClient.invalidateQueries({ queryKey: ["current-cash-session", "shop_1"] });
         mockQueryClient.invalidateQueries({ queryKey: ["owner-dashboard", { shopId: "shop_1" }] });
-        mockQueryClient.invalidateQueries({ queryKey: ["notifications", { shopId: "shop_1" }] });
+        mockQueryClient.invalidateQueries({ queryKey: ["notifications"] });
       };
 
       try {
@@ -207,7 +207,7 @@ test.describe("Frontend Domain Event Handler Tests (Step 8)", () => {
       assert.ok(keys.includes(JSON.stringify(["delivery-memos", "shop_1"])));
       assert.ok(keys.includes(JSON.stringify(["current-cash-session", "shop_1"])));
       assert.ok(keys.includes(JSON.stringify(["owner-dashboard", { shopId: "shop_1" }])));
-      assert.ok(keys.includes(JSON.stringify(["notifications", { shopId: "shop_1" }])));
+      assert.ok(keys.includes(JSON.stringify(["notifications"])));
     });
     test("4. Cursor does not advance if event processing throws", () => {
       const cursorKey = "domain_event_cursor:shop_fail";
