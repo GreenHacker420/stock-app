@@ -9,10 +9,12 @@ import { encrypt } from "../lib/wa-crypto.js";
 import prisma from "../lib/db.js";
 import { persistWebhookEnvelopes } from "../services/whatsapp.webhook.service.js";
 import {
+  getPublicAsset,
   serializeMessageWithAsset,
   uploadWhatsAppTemplateExample,
   uploadWhatsAppMedia,
 } from "../services/whatsapp.media.service.js";
+import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { whatsappTemplateService } from "../services/whatsapp.template.service.js";
 import {
   decodeWhatsAppCursor,
@@ -652,7 +654,22 @@ class WhatsAppController {
           width: req.body.width,
           height: req.body.height,
           durationMs: req.body.durationMs,
-        },
+  },
+
+  async getAsset(req, res, next) {
+    try {
+      const asset = await prisma.asset.findUnique({
+        where: { id: req.params.assetId },
+      });
+      if (!asset || asset.deletedAt) {
+        throw new ApiError(404, "Media asset not found");
+      }
+      await assertShopAccess(req.user, asset.shopId);
+      res.json({ success: true, data: await getPublicAsset(asset) });
+    } catch (error) {
+      next(error);
+    }
+  },
       });
       res.status(201).json({ success: true, data: result });
     } catch (error) {

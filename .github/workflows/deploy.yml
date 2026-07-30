@@ -117,6 +117,12 @@ jobs:
               if (!paths.includes("/onboarding/sessions")) process.exit(1);
               process.exit(0);
             '
+            docker exec shop-backend chromium --version
+            docker exec shop-backend node --input-type=module -e '
+              import { renderInvoicePdfFromHtml } from "./src/services/pdf.service.js";
+              const pdf = await renderInvoicePdfFromHtml("<!doctype html><html><body><h1>Invoice renderer ready</h1></body></html>");
+              if (pdf.subarray(0, 4).toString() !== "%PDF") process.exit(1);
+            '
 
             if grep -q '^IMAGE_NAME=' .env; then
               sed -i "s|^IMAGE_NAME=.*|IMAGE_NAME=$IMAGE_NAME|" .env

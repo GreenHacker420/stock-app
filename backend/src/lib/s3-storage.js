@@ -75,6 +75,22 @@ export async function getSignedS3ObjectUrl(key, expiresIn = 3600) {
   return getSignedUrl(s3Client, command, { expiresIn });
 }
 
+export async function downloadS3ObjectBuffer(key) {
+  if (!key) {
+    throw new Error("An S3 object key is required");
+  }
+
+  const response = await s3Client.send(new GetObjectCommand({
+    Bucket: bucketName,
+    Key: key,
+  }));
+  if (!response.Body) {
+    throw new Error(`S3 object ${key} did not include a response body`);
+  }
+
+  return Buffer.from(await response.Body.transformToByteArray());
+}
+
 export async function deleteS3Object(key) {
   if (!key) return;
 

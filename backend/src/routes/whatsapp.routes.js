@@ -110,6 +110,11 @@ router.post(
   mediaUpload.single("file"),
   whatsappController.uploadMedia,
 );
+router.get(
+  "/assets/:assetId",
+  requireAuth,
+  whatsappController.getAsset,
+);
 router.post(
   "/integrations/:integrationId/contacts/sync",
   requireAuth,

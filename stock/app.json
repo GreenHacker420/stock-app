@@ -61,6 +61,13 @@
       ],
       "expo-sharing",
       [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow ShopControl to access photos for WhatsApp media.",
+          "savePhotosPermission": "Allow ShopControl to save WhatsApp images."
+        }
+      ],
+      [
         "expo-truecaller",
         {
           "androidClientId": "ksaranwfztxrftq7zzf5rqy7gp2olcdj6s6s0pneolw"

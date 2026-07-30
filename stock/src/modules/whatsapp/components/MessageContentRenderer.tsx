@@ -17,10 +17,11 @@ import type { WaContact, WaMessage, WaMessageType } from "../../../api/whatsapp.
 import { formatWhatsAppPhone } from "../whatsapp-ui";
 import { parseCoordinate, sanitizeEmail } from "../../../utils/validation";
 import { AudioMessagePlayer } from "./AudioMessagePlayer";
+import type { WhatsAppViewerImage } from "./WhatsAppImageViewer";
 
 type RendererProps = {
   message: WaMessage;
-  onOpenImage?: (url: string) => void;
+  onOpenImage?: (image: WhatsAppViewerImage) => void;
 };
 
 type MaterialIconName = ComponentProps<typeof MaterialCommunityIcons>["name"];
@@ -134,7 +135,14 @@ const ImageRenderer = memo(function ImageRenderer({ message, onOpenImage }: Rend
         disabled={failed}
         accessibilityRole="button"
         accessibilityLabel="Open image"
-        onPress={() => onOpenImage?.(url)}
+        onPress={() => onOpenImage?.({
+          assetId: message.asset?.id,
+          url,
+          fileName: message.asset?.fileName,
+          mimeType: message.asset?.mimeType,
+          width: message.asset?.width,
+          height: message.asset?.height,
+        })}
       >
         <View style={[styles.imageFrame, { width: frameWidth, height: frameHeight }]}>
           <Image

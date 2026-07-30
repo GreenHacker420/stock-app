@@ -35,7 +35,14 @@ FROM node:24-slim AS runner
 
 WORKDIR /app
 
-RUN apt-get update -y && apt-get install -y openssl && \
+RUN apt-get update -y && apt-get install -y \
+    openssl \
+    chromium \
+    fontconfig \
+    fonts-dejavu-core \
+    fonts-liberation \
+    fonts-noto-core \
+    && \
     rm -rf /var/lib/apt/lists/*
 
 # Create non-root user for security
@@ -58,8 +65,9 @@ USER nodejs
 # Production environment
 ENV NODE_ENV=production
 ENV PORT=6600
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 # Optimize memory for container limits
-ENV NODE_OPTIONS="--max-old-space-size=450 --enable-source-maps"
+ENV NODE_OPTIONS="--max-old-space-size=384 --enable-source-maps"
 
 EXPOSE 6600
 

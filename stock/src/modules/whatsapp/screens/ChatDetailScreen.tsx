@@ -28,7 +28,6 @@ import Animated, {
 } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 import { KeyboardController } from "react-native-keyboard-controller";
-import { Image as ExpoImage } from "expo-image";
 import * as Crypto from "expo-crypto";
 import * as Clipboard from "expo-clipboard";
 import * as DocumentPicker from "expo-document-picker";
@@ -68,6 +67,10 @@ import { MessageReactionOverlay } from "../components/MessageReactionOverlay";
 import { TemplateSendSheet } from "../components/TemplateSendSheet";
 import { FlowSendSheet } from "../components/FlowSendSheet";
 import { ChatProfileSheet } from "../components/ChatProfileSheet";
+import {
+  WhatsAppImageViewer,
+  type WhatsAppViewerImage,
+} from "../components/WhatsAppImageViewer";
 import { formatWhatsAppPhone, initialsFor, waColors } from "../whatsapp-ui";
 import { queryKeys } from "../../../hooks/query-keys";
 import { useWhatsAppScope } from "../whatsapp-scope";
@@ -286,7 +289,7 @@ export const ChatDetailScreen = () => {
   const [templateReplyToMessageId, setTemplateReplyToMessageId] = useState<string>();
   const [showFlowSheet, setShowFlowSheet] = useState(false);
   const [showProfileSheet, setShowProfileSheet] = useState(false);
-  const [viewerImageUrl, setViewerImageUrl] = useState<string | null>(null);
+  const [viewerImage, setViewerImage] = useState<WhatsAppViewerImage | null>(null);
 
   const flatListRef = useRef<any>(null);
   const emojiInputRef = useRef<TextInput>(null);
@@ -1435,7 +1438,7 @@ function getFastTimeSep(isoString?: string): string {
                 <Text style={styles.deletedText}>This message was deleted</Text>
               </View>
             ) : (
-              <MessageContentRenderer message={item} onOpenImage={(url) => setViewerImageUrl(url)} />
+              <MessageContentRenderer message={item} onOpenImage={setViewerImage} />
             )}
 
             <View style={styles.messageFooter}>
@@ -1761,24 +1764,11 @@ function getFastTimeSep(isoString?: string): string {
         onDeleteChat={() => navigation.goBack()}
       />}
 
-      {/* Absolute Fullscreen Image Viewer — Zero Native Modal Window Resize, Zero Scroll Jump */}
-      {!!viewerImageUrl && (
-        <View style={styles.fullScreenImageViewer}>
-          <ExpoImage
-            source={{ uri: viewerImageUrl }}
-            style={styles.fullScreenImage}
-            contentFit="contain"
-            cachePolicy="memory-disk"
-          />
-          <TouchableOpacity
-            style={styles.fullScreenCloseBtn}
-            onPress={() => setViewerImageUrl(null)}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-          >
-            <MaterialCommunityIcons name="close" size={28} color="#ffffff" />
-          </TouchableOpacity>
-        </View>
-      )}
+      <WhatsAppImageViewer
+        image={viewerImage}
+        token={token}
+        onClose={() => setViewerImage(null)}
+      />
     </View>
   );
 };
@@ -2175,28 +2165,5 @@ const styles = StyleSheet.create({
   templateItemPreview: {
     fontSize: 13,
     color: Colors.textSecondary,
-  },
-  fullScreenImageViewer: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: "#000000",
-    zIndex: 99999,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  fullScreenImage: {
-    width: "100%",
-    height: "100%",
-  },
-  fullScreenCloseBtn: {
-    position: "absolute",
-    top: 50,
-    right: 16,
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    justifyContent: "center",
-    alignItems: "center",
-    zIndex: 100000,
   },
 });

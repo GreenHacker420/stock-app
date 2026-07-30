@@ -1,9 +1,12 @@
-import { randomUUID } from "node:crypto";
-import { renderPdfFromHtml } from "html-pdf-lite";
+import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
+import puppeteer from "puppeteer-core";
+import qrcode from "qrcode-generator";
 import {
   uploadBufferToS3,
   getPublicS3ObjectUrl,
   getS3BucketName,
+  downloadS3ObjectBuffer,
   deleteS3Object,
 } from "../lib/s3-storage.js";
 import prisma from "../lib/db.js";
@@ -34,10 +37,82 @@ const toFiniteNumber = (value, fallback = 0) => {
 };
 
 const formatMoney = (val) => {
-  return `Rs. ${toFiniteNumber(val).toLocaleString("en-IN", {
+  return `₹${toFiniteNumber(val).toLocaleString("en-IN", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   })}`;
+};
+
+const activeInvoiceBuilds = new Map();
+
+function resolveChromiumExecutable() {
+  const candidates = [
+    process.env.PUPPETEER_EXECUTABLE_PATH,
+    "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  ].filter(Boolean);
+  const executablePath = candidates.find((candidate) => existsSync(candidate));
+  if (!executablePath) {
+    throw new Error("Chromium is not installed or PUPPETEER_EXECUTABLE_PATH is not configured");
+  }
+  return executablePath;
+}
+
+export async function renderInvoicePdfFromHtml(html) {
+  let browser;
+  try {
+    browser = await puppeteer.launch({
+      executablePath: resolveChromiumExecutable(),
+      headless: true,
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-gpu",
+        "--no-first-run",
+        "--no-zygote",
+      ],
+    });
+    const page = await browser.newPage();
+    await page.setJavaScriptEnabled(false);
+    await page.setContent(html, {
+      waitUntil: "networkidle0",
+      timeout: 20_000,
+    });
+    const pdf = await page.pdf({
+      format: "A4",
+      printBackground: true,
+      preferCSSPageSize: true,
+    });
+    await page.close();
+    return Buffer.from(pdf);
+  } finally {
+    await browser?.close().catch(() => {});
+  }
+}
+
+const getSignatureViewBox = (paths) => {
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  paths.forEach((path) => {
+    if (typeof path !== "string") return;
+    const matches = path.match(SVG_NUMERIC_MATCH_REGEX);
+    if (!matches) return;
+    for (let index = 0; index < matches.length; index += 2) {
+      const x = Number.parseFloat(matches[index]);
+      const y = Number.parseFloat(matches[index + 1]);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) continue;
+      minX = Math.min(minX, x);
+      minY = Math.min(minY, y);
+      maxX = Math.max(maxX, x);
+      maxY = Math.max(maxY, y);
+    }
+  });
+  if (![minX, minY, maxX, maxY].every(Number.isFinite)) return "0 0 300 150";
+  const padding = 10;
+  return `${minX - padding} ${minY - padding} ${maxX - minX + padding * 2} ${maxY - minY + padding * 2}`;
 };
 
 const formatDate = (dateStr) => {
@@ -120,7 +195,7 @@ export function generateSaleInvoiceHtml({ sale, shop }) {
       try {
         const parsed = JSON.parse(rawSig);
         const paths = Array.isArray(parsed) ? parsed : (parsed.paths || []);
-        const signatureViewBox = parsed.viewBox || "0 0 300 150";
+        const signatureViewBox = parsed.viewBox || getSignatureViewBox(paths);
         if (paths.length > 0) {
           const pathElements = paths
             .filter((path) => typeof path === "string")
@@ -156,7 +231,7 @@ export function generateSaleInvoiceHtml({ sale, shop }) {
   const shopGstin = escapeHtml(shop?.gstin || "");
   const shopLogo = escapeAttr(shop?.logo || "");
 
-  const customerName = escapeHtml(sale.isWalkin ? "Walk-in Customer" : sale.customer?.name || "Valued Customer");
+  const customerName = escapeHtml(sale.isWalkin ? "Customer" : sale.customer?.name || "Valued Customer");
   const customerPhone = escapeHtml(sale.customer?.phone || "");
   const customerGstin = escapeHtml(sale.customer?.gstin || "");
   const staffName = escapeHtml(sale.staff?.name || "");
@@ -264,26 +339,28 @@ export function generateSaleInvoiceHtml({ sale, shop }) {
     }
     .container { max-width: 650px; margin: 0 auto; }
     .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px; }
-    .shop-name { font-size: 24px; font-weight: 800; color: var(--primary); margin: 0 0 4px 0; text-transform: uppercase; }
-    .shop-sub { font-size: 12px; color: var(--muted); margin: 0; text-transform: uppercase; }
+    .shop-name { font-size: 24px; font-weight: 800; color: var(--primary); letter-spacing: -0.5px; margin: 0 0 4px 0; text-transform: uppercase; }
+    .shop-sub { font-size: 12px; color: var(--muted); margin: 0; text-transform: uppercase; letter-spacing: 0.5px; }
     .divider { border-top: 2px solid var(--primary); margin: 16px 0; }
     .dashed-divider { border-top: 1px dashed var(--border); margin: 16px 0; }
     .meta-section { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 20px; }
     .meta-col { flex: 1; }
     .meta-col:last-child { text-align: right; }
-    .meta-label { color: var(--muted); font-weight: 500; margin-bottom: 2px; text-transform: uppercase; font-size: 10px; }
+    .meta-label { color: var(--muted); font-weight: 500; margin-bottom: 2px; text-transform: uppercase; font-size: 10px; letter-spacing: 0.5px; }
     .meta-value { font-weight: 600; color: var(--primary); }
-    .status-badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; text-transform: uppercase; }
+    .status-badge { display: inline-block; padding: 4px 8px; border-radius: 4px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
     .status-badge.paid { background-color: rgba(22, 163, 74, 0.1); color: var(--success); border: 1px solid rgba(22, 163, 74, 0.2); }
     .status-badge.partial { background-color: rgba(217, 119, 6, 0.1); color: #d97706; border: 1px solid rgba(217, 119, 6, 0.2); }
     .status-badge.due { background-color: rgba(220, 38, 38, 0.1); color: var(--danger); border: 1px solid rgba(220, 38, 38, 0.2); }
     .table { width: 100%; border-collapse: collapse; margin-top: 16px; }
-    .th { border-bottom: 2px solid var(--primary); color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; padding-bottom: 8px; }
+    .th { border-bottom: 2px solid var(--primary); color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding-bottom: 8px; }
     .totals-section { margin-left: auto; width: 250px; margin-top: 16px; }
     .totals-row { display: flex; justify-content: space-between; padding: 4px 0; font-size: 13px; }
     .grand-total { font-size: 16px; font-weight: 800; border-top: 1px solid var(--primary); padding-top: 8px; margin-top: 6px; }
     .notes-section { background-color: var(--background-offset); padding: 12px; border-radius: 8px; font-size: 12px; margin-top: 20px; color: #3f3f46; border: 1px solid var(--border); }
+    .notes-title { font-weight: 700; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); margin-bottom: 4px; }
     .footer { margin-top: 40px; text-align: center; font-size: 11px; color: var(--muted); }
+    .thank-you { font-weight: 600; color: var(--muted); margin-bottom: 2px; }
     @page { margin: 15mm; }
     @media print {
       body { padding: 24px !important; margin: 0 !important; background: #ffffff; }
@@ -363,6 +440,26 @@ export function generateSaleInvoiceHtml({ sale, shop }) {
     </div>
 
     <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-top: 20px;">
+      <div style="flex: 1.2; margin-right: 20px;">
+        ${shop?.upiId && balanceDue > 0 ? (() => {
+          const upiPayeeName = shop.upiName || shop.name;
+          const upiUri = `upi://pay?pa=${encodeURIComponent(shop.upiId)}&pn=${encodeURIComponent(upiPayeeName)}&am=${balanceDue.toFixed(2)}&cu=INR`;
+          const qr = qrcode(0, "M");
+          qr.addData(upiUri);
+          qr.make();
+          return `
+            <div style="display: flex; align-items: center; border: 1px dashed var(--border); padding: 10px; border-radius: 6px; background-color: var(--background-offset);">
+              <div style="flex: 1; padding-right: 10px;">
+                <div style="font-weight: 700; color: var(--primary); font-size: 11px;">Scan to Pay via UPI</div>
+                <div style="font-size: 9px; color: var(--muted); margin-top: 2px;">Payee: ${escapeHtml(upiPayeeName)}</div>
+                <div style="font-size: 9px; color: var(--muted);">UPI ID: ${escapeHtml(shop.upiId)}</div>
+                <div style="font-size: 9px; color: var(--muted);">Amount: <b>${formatMoney(balanceDue)}</b></div>
+              </div>
+              <img src="${qr.createDataURL(4)}" style="width: 70px; height: 70px;" alt="UPI QR" />
+            </div>
+          `;
+        })() : ""}
+      </div>
       <div class="totals-section" style="flex: 1; margin-top: 0; min-width: 200px;">
         <div class="totals-row">
           <span style="color: var(--muted);">Subtotal</span>
@@ -405,7 +502,7 @@ export function generateSaleInvoiceHtml({ sale, shop }) {
 
     ${sale.notes ? `
       <div class="notes-section">
-        <div style="font-weight: 700; font-size: 10px; text-transform: uppercase; color: var(--muted); margin-bottom: 4px;">Operational Notes</div>
+        <div class="notes-title">Operational Notes</div>
         <div>${escapeHtml(sale.notes)}</div>
       </div>
     ` : ""}
@@ -429,35 +526,54 @@ export function generateSaleInvoiceHtml({ sale, shop }) {
       </div>
     </div>
     <div class="footer">
-      <div style="font-weight: 600; margin-bottom: 2px;">Thank you for your business!</div>
-      <div>Powered by ShopControl</div>
+      <div class="thank-you">Thank you for your business!</div>
+      <div style="color: #cbd5e1; margin-top: 4px;">Powered by ShopControl</div>
     </div>
   </div>
 </body>
 </html>`;
 }
 
-export function buildTemporaryInvoiceS3Key({ shopId, saleId, fileName, uploadId = randomUUID() }) {
-  return `invoices/${shopId}/${saleId}/${uploadId}/${fileName}`;
+export function buildInvoiceS3Key({ shopId, saleId, fileName, fingerprint }) {
+  if (!fingerprint) throw new Error("An invoice fingerprint is required");
+  return `invoices/${shopId}/${saleId}/${fingerprint}/${fileName}`;
 }
 
-export async function generateAndUploadSaleInvoicePdf({ sale, shop }) {
+async function getOrCreateSaleInvoicePdf({ sale, shop }) {
   const html = generateSaleInvoiceHtml({ sale, shop });
   const fileName = `Invoice_${sale.saleNumber}.pdf`;
-  const s3Key = buildTemporaryInvoiceS3Key({
+  const fingerprint = createHash("sha256").update(html).digest("hex");
+  const s3Key = buildInvoiceS3Key({
     shopId: shop.id,
     saleId: sale.id,
     fileName,
+    fingerprint,
   });
 
-  // 1. Render HTML → PDF buffer (no Chromium needed)
-  const pdfBuffer = await renderPdfFromHtml(html, {
-    margins: { top: 30, bottom: 30, left: 30, right: 30 },
-    fetchExternalCss: false,
-    ignoreInvalidImages: true,
+  const existing = await prisma.asset.findFirst({
+    where: {
+      shopId: shop.id,
+      storageProvider: "S3",
+      storageBucket: getS3BucketName(),
+      storageKey: s3Key,
+      status: "READY",
+      deletedAt: null,
+    },
   });
+  if (existing) {
+    return {
+      assetId: existing.id,
+      s3Key,
+      publicUrl: existing.remoteUrl || getPublicS3ObjectUrl(s3Key),
+      fileName: existing.fileName || fileName,
+      pdfBuffer: null,
+      externalId: existing.externalId,
+      cached: true,
+      fingerprint,
+    };
+  }
 
-  // 2. Upload to S3
+  const pdfBuffer = await renderInvoicePdfFromHtml(html);
   await uploadBufferToS3({
     body: Buffer.from(pdfBuffer),
     key: s3Key,
@@ -489,6 +605,8 @@ export async function generateAndUploadSaleInvoicePdf({ sale, shop }) {
           saleNumber: sale.saleNumber,
           shopId: shop.id,
           purpose: "whatsapp_receipt",
+          invoiceFingerprint: fingerprint,
+          renderer: "chromium",
         },
         readyAt: new Date(),
       },
@@ -508,7 +626,28 @@ export async function generateAndUploadSaleInvoicePdf({ sale, shop }) {
     publicUrl,
     fileName,
     pdfBuffer: Buffer.from(pdfBuffer),
+    externalId: asset.externalId,
+    cached: false,
+    fingerprint,
   };
+}
+
+export async function generateAndUploadSaleInvoicePdf({ sale, shop }) {
+  const html = generateSaleInvoiceHtml({ sale, shop });
+  const fingerprint = createHash("sha256").update(html).digest("hex");
+  const lockKey = `${shop.id}:${sale.id}:${fingerprint}`;
+  const active = activeInvoiceBuilds.get(lockKey);
+  if (active) return active;
+
+  const build = getOrCreateSaleInvoicePdf({ sale, shop })
+    .finally(() => activeInvoiceBuilds.delete(lockKey));
+  activeInvoiceBuilds.set(lockKey, build);
+  return build;
+}
+
+export async function getInvoicePdfBuffer(invoiceAsset) {
+  if (invoiceAsset.pdfBuffer) return invoiceAsset.pdfBuffer;
+  return downloadS3ObjectBuffer(invoiceAsset.s3Key);
 }
 
 /**

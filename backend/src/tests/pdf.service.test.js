@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  buildTemporaryInvoiceS3Key,
+  buildInvoiceS3Key,
   generateSaleInvoiceHtml,
 } from "../services/pdf.service.js";
 
@@ -56,9 +56,8 @@ const shop = {
 test("sale invoice recalculates line totals instead of trusting stale totalAmount", () => {
   const html = generateSaleInvoiceHtml({ sale: baseSale, shop });
 
-  assert.match(html, /Rs\. 2,940\.00/);
-  assert.doesNotMatch(html, /Rs\. 12,940\.00/);
-  assert.doesNotMatch(html, /₹/);
+  assert.match(html, /₹2,940\.00/);
+  assert.doesNotMatch(html, /₹12,940\.00/);
   assert.match(html, /UPI Ref: UPI-123/);
   assert.match(html, /Billed by: Owner/);
   assert.match(html, /https:\/\/example\.com\/logo\.png/);
@@ -96,22 +95,23 @@ test("sale invoice displays line and sale discounts consistently", () => {
 
   const html = generateSaleInvoiceHtml({ sale, shop });
 
-  assert.match(html, /Discount: Rs\. 40\.00/);
-  assert.match(html, /−Rs\. 40\.00/);
-  assert.match(html, /Rs\. 2,900\.00/);
-  assert.doesNotMatch(html, /Rs\. 12,940\.00/);
+  assert.match(html, /Discount: ₹40\.00/);
+  assert.match(html, /−₹40\.00/);
+  assert.match(html, /₹2,900\.00/);
+  assert.doesNotMatch(html, /₹12,940\.00/);
 });
 
-test("temporary invoice S3 keys are unique across repeated sends", () => {
+test("invoice S3 keys are stable for an unchanged invoice fingerprint", () => {
   const args = {
     shopId: "shop-1",
     saleId: "sale-1",
     fileName: "Invoice_SAL-001.pdf",
+    fingerprint: "abc123",
   };
 
-  const first = buildTemporaryInvoiceS3Key(args);
-  const second = buildTemporaryInvoiceS3Key(args);
+  const first = buildInvoiceS3Key(args);
+  const second = buildInvoiceS3Key(args);
 
-  assert.notEqual(first, second);
-  assert.match(first, /^invoices\/shop-1\/sale-1\/[^/]+\/Invoice_SAL-001\.pdf$/);
+  assert.equal(first, second);
+  assert.equal(first, "invoices/shop-1/sale-1/abc123/Invoice_SAL-001.pdf");
 });

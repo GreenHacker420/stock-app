@@ -2,7 +2,7 @@ import axios from "axios";
 import FormData from "form-data";
 import { getWaCredentials } from "../lib/wa-cache.js";
 import { NON_DIGIT_REGEX } from "../lib/validate.js";
-import { deleteInvoiceAsset, generateAndUploadSaleInvoicePdf } from "./pdf.service.js";
+import { generateAndUploadSaleInvoicePdf, getInvoicePdfBuffer } from "./pdf.service.js";
 import { whatsappService } from "./whatsapp.service.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
@@ -1030,35 +1030,39 @@ export async function sendSaleWhatsAppReceipt(user, id, { recipientPhone } = {})
       shop: sale.shop,
     });
 
-    const mediaForm = new FormData();
-    mediaForm.append("messaging_product", "whatsapp");
-    mediaForm.append("file", invoiceAsset.pdfBuffer, {
-      filename: invoiceAsset.fileName,
-      contentType: "application/pdf",
-      knownLength: invoiceAsset.pdfBuffer.length,
-    });
-
-    const mediaUrl = `https://graph.facebook.com/v25.0/${creds.phoneNumberId}/media`;
-    const mediaResponse = await axios.post(mediaUrl, mediaForm, {
-      headers: {
-        Authorization: `Bearer ${creds.accessToken}`,
-        ...mediaForm.getHeaders(),
-      },
-      maxBodyLength: Infinity,
-    });
-    mediaId = mediaResponse.data?.id;
+    mediaId = invoiceAsset.externalId;
     if (!mediaId) {
-      throw new Error("WhatsApp media upload did not return a media ID");
+      const pdfBuffer = await getInvoicePdfBuffer(invoiceAsset);
+      const mediaForm = new FormData();
+      mediaForm.append("messaging_product", "whatsapp");
+      mediaForm.append("file", pdfBuffer, {
+        filename: invoiceAsset.fileName,
+        contentType: "application/pdf",
+        knownLength: pdfBuffer.length,
+      });
+
+      const mediaUrl = `https://graph.facebook.com/v25.0/${creds.phoneNumberId}/media`;
+      const mediaResponse = await axios.post(mediaUrl, mediaForm, {
+        headers: {
+          Authorization: `Bearer ${creds.accessToken}`,
+          ...mediaForm.getHeaders(),
+        },
+        maxBodyLength: Infinity,
+      });
+      mediaId = mediaResponse.data?.id;
+      if (!mediaId) {
+        throw new Error("WhatsApp media upload did not return a media ID");
+      }
+      await prisma.asset.update({
+        where: { id: invoiceAsset.assetId },
+        data: {
+          externalProvider: "META_WHATSAPP",
+          externalId: mediaId,
+        },
+      });
     }
   } catch (error) {
     console.error("[WhatsApp] Sale receipt PDF preparation failed:", error?.message || error);
-    if (invoiceAsset?.assetId) {
-      try {
-        await deleteInvoiceAsset(invoiceAsset.assetId);
-      } catch (cleanupError) {
-        console.error("[WhatsApp] Temporary invoice cleanup failed:", cleanupError?.message || cleanupError);
-      }
-    }
     throw new ApiError(502, "The invoice PDF could not be prepared for WhatsApp", {
       code: "WHATSAPP_RECEIPT_PDF_FAILED",
     });
@@ -1119,11 +1123,6 @@ export async function sendSaleWhatsAppReceipt(user, id, { recipientPhone } = {})
     });
   } catch (error) {
     console.error("[WhatsApp] Sale receipt template queue failed:", error?.message || error);
-    try {
-      await deleteInvoiceAsset(invoiceAsset.assetId);
-    } catch (cleanupError) {
-      console.error("[WhatsApp] Temporary invoice cleanup failed:", cleanupError?.message || cleanupError);
-    }
     throw new ApiError(502, error?.message || "The WhatsApp receipt could not be queued", {
       code: "WHATSAPP_RECEIPT_TEMPLATE_FAILED",
     });

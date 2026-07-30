@@ -172,6 +172,10 @@ export type WaMediaUpload = {
   url?: string;
 };
 
+export async function getWaAsset(token: string, assetId: string) {
+  return apiRequest<WaMediaUpload>(`/whatsapp/assets/${encodeURIComponent(assetId)}`, { token });
+}
+
 export interface WaConversation {
   id: string;
   shopId: string;

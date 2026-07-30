@@ -357,7 +357,8 @@ test("sale WhatsApp receipt sends the PDF template through the backend", () => {
   assert.ok(receiptSrc.includes('type: "document"'));
   assert.ok(receiptSrc.includes('document: {'));
   assert.ok(receiptSrc.includes("id: mediaId"));
-  assert.ok(receiptSrc.includes("mediaForm.append(\"file\", invoiceAsset.pdfBuffer"));
+  assert.ok(receiptSrc.includes("const pdfBuffer = await getInvoicePdfBuffer(invoiceAsset)"));
+  assert.ok(receiptSrc.includes("mediaId = invoiceAsset.externalId"));
   assert.ok(receiptSrc.includes("await whatsappService.sendMessage"));
   assert.ok(receiptSrc.includes("skipCustomerAutoLink: !recipientMatchesCustomer"));
   assert.ok(receiptSrc.includes("localPreview:"));
@@ -365,7 +366,7 @@ test("sale WhatsApp receipt sends the PDF template through the backend", () => {
   assert.ok(receiptSrc.includes("receiptAssetRetained: true"));
   assert.ok(receiptSrc.includes('sale.isWalkin ? "Customer"'));
   assert.ok(!receiptSrc.includes('"Walk-in Customer"'));
-  assert.ok(receiptSrc.includes("await deleteInvoiceAsset(invoiceAsset.assetId)"));
+  assert.ok(!receiptSrc.includes("deleteInvoiceAsset(invoiceAsset.assetId)"));
   assert.ok(receiptSrc.includes("normalizedPhone = `91${normalizedPhone}`"));
   assert.ok(!receiptSrc.includes("getSignedS3ObjectUrl"));
   assert.ok(saleControllerSrc.includes("req.validated.body || {}"));
