@@ -24,6 +24,8 @@ import { contactsDb } from "../services/contactsDb";
 import { KeyboardAwareScreen } from "../../../components/keyboard/KeyboardAwareScreen";
 
 interface ChatProfileSheetProps {
+  shopId: string;
+  integrationId: string;
   visible: boolean;
   onDismiss: () => void;
   conversation: WaConversation | null;
@@ -36,6 +38,8 @@ interface ChatProfileSheetProps {
 }
 
 export function ChatProfileSheet({
+  shopId,
+  integrationId,
   visible,
   onDismiss,
   conversation,
@@ -120,7 +124,12 @@ export function ChatProfileSheet({
 
     // 2. ASYNC BACKGROUND PERSISTENCE & IMMEDIATE REFETCH
     try {
-      await whatsappDb.linkCustomerToConversation(conversation.id, customer.id);
+      await whatsappDb.linkCustomerToConversation(
+        shopId,
+        integrationId,
+        conversation.id,
+        customer.id,
+      );
       const contact = await contactsDb.getContactByPhone(conversation.phone);
       if (contact) {
         await contactsDb.linkCustomer(contact.id, customer.id);

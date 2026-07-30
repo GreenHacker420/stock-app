@@ -1746,6 +1746,8 @@ function getFastTimeSep(isoString?: string): string {
         onClose={() => setShowFlowSheet(false)}
       />}
       {mountedOverlays.profile && <ChatProfileSheet
+        shopId={activeShopId}
+        integrationId={integrationId}
         visible={showProfileSheet}
         onDismiss={() => setShowProfileSheet(false)}
         conversation={conversation || null}

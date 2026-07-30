@@ -225,7 +225,7 @@ export function ChatListScreen() {
       return deleteScopedWaConversation(token, shopId, integrationId, id);
     },
     onSuccess: async (_, id) => {
-      await whatsappDb.removeConversation(id).catch(() => undefined);
+      await whatsappDb.removeConversation(shopId, integrationId, id).catch(() => undefined);
       queryClient.invalidateQueries({
         queryKey: ["whatsapp", "conversations", shopId, integrationId],
       });

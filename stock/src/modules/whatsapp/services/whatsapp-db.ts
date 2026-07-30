@@ -74,9 +74,10 @@ let schemaPromise: Promise<void> | null = null;
 
 function initializeDatabase() {
   if (!schemaPromise) {
-    schemaPromise = sqliteClient.write((database) => database.exec(`
+    schemaPromise = sqliteClient.write(async (database) => {
+      await database.exec(`
     CREATE TABLE IF NOT EXISTS wa_conversations (
-      id TEXT PRIMARY KEY NOT NULL,
+      id TEXT NOT NULL,
       shop_id TEXT NOT NULL,
       integration_id TEXT NOT NULL,
       phone_number_id TEXT,
@@ -89,7 +90,8 @@ function initializeDatabase() {
       assigned_to_id TEXT,
       entity_version INTEGER NOT NULL DEFAULT 0,
       updated_at INTEGER NOT NULL,
-      payload_json TEXT NOT NULL
+      payload_json TEXT NOT NULL,
+      PRIMARY KEY (shop_id, integration_id, id)
     );
 
     CREATE TABLE IF NOT EXISTS wa_messages (
@@ -196,7 +198,43 @@ function initializeDatabase() {
       ON wa_pending_operations(operation_state, next_attempt_at);
     CREATE INDEX IF NOT EXISTS wa_contact_index_search_idx
       ON wa_contact_index(shop_id, integration_id, normalized_search);
-  `));
+  `);
+      const columns = await database.all<{ name: string; pk: number }>(
+        "PRAGMA table_info(wa_conversations)",
+      );
+      const primaryKey = columns
+        .filter((column) => column.pk > 0)
+        .sort((left, right) => left.pk - right.pk)
+        .map((column) => column.name);
+      if (primaryKey.join(",") === "id") {
+        await database.exec(`
+          DROP INDEX IF EXISTS wa_conversations_scope_updated_idx;
+          ALTER TABLE wa_conversations RENAME TO wa_conversations_legacy;
+          CREATE TABLE wa_conversations (
+            id TEXT NOT NULL,
+            shop_id TEXT NOT NULL,
+            integration_id TEXT NOT NULL,
+            phone_number_id TEXT,
+            customer_id TEXT,
+            phone TEXT NOT NULL,
+            contact_name TEXT,
+            unread_count INTEGER NOT NULL DEFAULT 0,
+            is_archived INTEGER NOT NULL DEFAULT 0,
+            is_pinned INTEGER NOT NULL DEFAULT 0,
+            assigned_to_id TEXT,
+            entity_version INTEGER NOT NULL DEFAULT 0,
+            updated_at INTEGER NOT NULL,
+            payload_json TEXT NOT NULL,
+            PRIMARY KEY (shop_id, integration_id, id)
+          );
+          INSERT INTO wa_conversations
+          SELECT * FROM wa_conversations_legacy;
+          DROP TABLE wa_conversations_legacy;
+          CREATE INDEX wa_conversations_scope_updated_idx
+            ON wa_conversations(shop_id, integration_id, updated_at DESC, id DESC);
+        `);
+      }
+    });
   }
   return schemaPromise;
 }
@@ -282,7 +320,7 @@ export const whatsappDb = {
             contact_name, unread_count, is_archived, is_pinned, assigned_to_id,
             entity_version, updated_at, payload_json
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(id) DO UPDATE SET
+          ON CONFLICT(shop_id, integration_id, id) DO UPDATE SET
             phone_number_id = excluded.phone_number_id,
             customer_id = excluded.customer_id,
             phone = excluded.phone,
@@ -369,24 +407,35 @@ export const whatsappDb = {
     return refreshFastConversationSnapshot(shopId, integrationId);
   },
 
-  async linkCustomerToConversation(conversationId: string, customerId: string | null) {
+  async linkCustomerToConversation(
+    shopId: string,
+    integrationId: string,
+    conversationId: string,
+    customerId: string | null,
+  ) {
     await initializeDatabase();
     const scope = await sqliteClient.write(async (database) => {
       await database.run(
-        `UPDATE wa_conversations SET customer_id = ? WHERE id = ?`,
-        [customerId, conversationId],
+        `UPDATE wa_conversations
+         SET customer_id = ?
+         WHERE shop_id = ? AND integration_id = ? AND id = ?`,
+        [customerId, shopId, integrationId, conversationId],
       );
       const row = await database.first<ConversationRow & { shop_id: string; integration_id: string }>(
-        `SELECT shop_id, integration_id, payload_json FROM wa_conversations WHERE id = ?`,
-        [conversationId],
+        `SELECT shop_id, integration_id, payload_json
+         FROM wa_conversations
+         WHERE shop_id = ? AND integration_id = ? AND id = ?`,
+        [shopId, integrationId, conversationId],
       );
       if (row?.payload_json) {
         const parsed = parseJson<WaConversation>(row.payload_json);
         if (parsed) {
           parsed.customerId = customerId || undefined;
           await database.run(
-            `UPDATE wa_conversations SET payload_json = ? WHERE id = ?`,
-            [JSON.stringify(parsed), conversationId],
+            `UPDATE wa_conversations
+             SET payload_json = ?
+             WHERE shop_id = ? AND integration_id = ? AND id = ?`,
+            [JSON.stringify(parsed), shopId, integrationId, conversationId],
           );
         }
       }
@@ -395,17 +444,23 @@ export const whatsappDb = {
     if (scope) await refreshFastConversationSnapshot(scope.shopId, scope.integrationId);
   },
 
-  async removeConversation(conversationId: string) {
+  async removeConversation(shopId: string, integrationId: string, conversationId: string) {
     await initializeDatabase();
     const scope = await sqliteClient.transaction(async (transaction) => {
       const row = await transaction.first<{ shop_id: string; integration_id: string }>(
-        "SELECT shop_id, integration_id FROM wa_conversations WHERE id = ?",
-        [conversationId],
+        `SELECT shop_id, integration_id
+         FROM wa_conversations
+         WHERE shop_id = ? AND integration_id = ? AND id = ?`,
+        [shopId, integrationId, conversationId],
       );
       await transaction.run("DELETE FROM wa_messages WHERE conversation_id = ?", [conversationId]);
       await transaction.run("DELETE FROM wa_drafts WHERE conversation_id = ?", [conversationId]);
       await transaction.run("DELETE FROM wa_pending_operations WHERE conversation_id = ?", [conversationId]);
-      await transaction.run("DELETE FROM wa_conversations WHERE id = ?", [conversationId]);
+      await transaction.run(
+        `DELETE FROM wa_conversations
+         WHERE shop_id = ? AND integration_id = ? AND id = ?`,
+        [shopId, integrationId, conversationId],
+      );
       return row ? { shopId: row.shop_id, integrationId: row.integration_id } : null;
     });
     if (scope) await refreshFastConversationSnapshot(scope.shopId, scope.integrationId);
