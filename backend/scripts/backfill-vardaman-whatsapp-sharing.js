@@ -7,14 +7,17 @@ const apply = args.has("--apply");
 const config = {
   primaryShopCode: "VS",
   branchShopCode: "VS-BURDI",
+  chiragShopCode: "JBP-01",
   tenantName: "Vardaman",
   groupName: "Vardaman Sales",
   groupCode: "VARDAMAN-SALES",
+  chiragGroupName: "Chirag Enterprises",
+  chiragGroupCode: "CHIRAG-ENTERPRISES",
   callPhone: "9329470933",
   expectedPhoneNumberId: "1271752386017174",
 };
 
-function summary({ primary, branch, integration, tenant, group }) {
+function summary({ primary, branch, chirag, integration, tenant, group, chiragGroup }) {
   return {
     mode: apply ? "APPLY" : "DRY_RUN",
     tenant: tenant
@@ -23,9 +26,13 @@ function summary({ primary, branch, integration, tenant, group }) {
     group: group
       ? { id: group.id, code: group.code }
       : { code: config.groupCode, create: true },
+    chiragGroup: chiragGroup
+      ? { id: chiragGroup.id, code: chiragGroup.code }
+      : { code: config.chiragGroupCode, create: true },
     branches: [
       { id: primary.id, code: primary.code, name: primary.name },
       { id: branch.id, code: branch.code, name: branch.name },
+      { id: chirag.id, code: chirag.code, name: chirag.name, whatsappAccess: false },
     ],
     channel: {
       id: integration.id,
@@ -37,7 +44,7 @@ function summary({ primary, branch, integration, tenant, group }) {
 }
 
 async function loadPreflight(db = prisma) {
-  const [primary, branch] = await Promise.all([
+  const [primary, branch, chirag] = await Promise.all([
     db.shop.findUnique({
       where: { code: config.primaryShopCode },
       include: { staffAccesses: { select: { staffId: true } } },
@@ -46,12 +53,16 @@ async function loadPreflight(db = prisma) {
       where: { code: config.branchShopCode },
       include: { staffAccesses: { select: { staffId: true } } },
     }),
+    db.shop.findUnique({
+      where: { code: config.chiragShopCode },
+      include: { staffAccesses: { select: { staffId: true } } },
+    }),
   ]);
-  if (!primary || !branch) {
-    throw new Error("Expected VS and VS-BURDI shop rows were not both found");
+  if (!primary || !branch || !chirag) {
+    throw new Error("Expected VS, VS-BURDI, and JBP-01 shop rows were not all found");
   }
-  if (primary.ownerId !== branch.ownerId) {
-    throw new Error("Vardaman branches do not have the same owner");
+  if (primary.ownerId !== branch.ownerId || primary.ownerId !== chirag.ownerId) {
+    throw new Error("The three expected tenant shops do not have the same owner");
   }
 
   const integration = await db.waIntegration.findFirst({
@@ -90,8 +101,18 @@ async function loadPreflight(db = prisma) {
         },
       })
     : null;
+  const chiragGroup = tenant
+    ? await db.shopGroup.findUnique({
+        where: {
+          tenantId_code: {
+            tenantId: tenant.id,
+            code: config.chiragGroupCode,
+          },
+        },
+      })
+    : null;
 
-  return { primary, branch, integration, tenant, group };
+  return { primary, branch, chirag, integration, tenant, group, chiragGroup };
 }
 
 async function run() {
@@ -127,6 +148,7 @@ async function run() {
     const staffIds = new Set([
       ...preflight.primary.staffAccesses.map(({ staffId }) => staffId),
       ...preflight.branch.staffAccesses.map(({ staffId }) => staffId),
+      ...preflight.chirag.staffAccesses.map(({ staffId }) => staffId),
     ]);
     for (const userId of staffIds) {
       if (userId === preflight.primary.ownerId) continue;
@@ -153,6 +175,13 @@ async function run() {
         defaultWaIntegrationId: preflight.integration.id,
       },
     });
+    const chiragGroup = preflight.chiragGroup || await tx.shopGroup.create({
+      data: {
+        tenantId: tenant.id,
+        name: config.chiragGroupName,
+        code: config.chiragGroupCode,
+      },
+    });
 
     await tx.shop.updateMany({
       where: { id: { in: [preflight.primary.id, preflight.branch.id] } },
@@ -160,6 +189,13 @@ async function run() {
         tenantId: tenant.id,
         shopGroupId: group.id,
         phone: config.callPhone,
+      },
+    });
+    await tx.shop.update({
+      where: { id: preflight.chirag.id },
+      data: {
+        tenantId: tenant.id,
+        shopGroupId: chiragGroup.id,
       },
     });
     await tx.waIntegration.update({
@@ -210,6 +246,7 @@ async function run() {
     return {
       tenantId: tenant.id,
       shopGroupId: group.id,
+      chiragShopGroupId: chiragGroup.id,
       integrationId: preflight.integration.id,
       memberCount: staffIds.size + 1,
       templatesAssigned: templates.count,
