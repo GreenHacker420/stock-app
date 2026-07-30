@@ -292,6 +292,7 @@ export const ChatDetailScreen = () => {
   const [templateReplyToMessageId, setTemplateReplyToMessageId] = useState<string>();
   const [showFlowSheet, setShowFlowSheet] = useState(false);
   const [showProfileSheet, setShowProfileSheet] = useState(false);
+  const [profilePreloaded, setProfilePreloaded] = useState(false);
   const [viewerImage, setViewerImage] = useState<WhatsAppViewerImage | null>(null);
 
   const flatListRef = useRef<any>(null);
@@ -321,6 +322,12 @@ export const ChatDetailScreen = () => {
     didMarkInitialRender.current = true;
     markWhatsAppOpenMeasurement(conversationId, "detail-render");
   }
+
+  useEffect(() => {
+    if (!isFocused || profilePreloaded) return;
+    const timer = setTimeout(() => setProfilePreloaded(true), 250);
+    return () => clearTimeout(timer);
+  }, [isFocused, profilePreloaded]);
 
   const { data: customerRecord } = useCustomerDetailQuery(conversation?.customerId || "");
   const [deviceContactName, setDeviceContactName] = useState("");
@@ -360,7 +367,10 @@ export const ChatDetailScreen = () => {
         headerShadowVisible: false,
         headerTitle: () => (
           <TouchableOpacity
-            onPress={() => setShowProfileSheet(true)}
+            onPress={() => {
+              setProfilePreloaded(true);
+              setShowProfileSheet(true);
+            }}
             style={{ flexDirection: "row", alignItems: "center" }}
           >
             <View style={{
@@ -1770,7 +1780,7 @@ function getFastTimeSep(isoString?: string): string {
         to={recipientPhone}
         onClose={() => setShowFlowSheet(false)}
       />}
-      {mountedOverlays.profile && <ChatProfileSheet
+      {(profilePreloaded || mountedOverlays.profile) && <ChatProfileSheet
         shopId={activeShopId}
         integrationId={integrationId}
         visible={showProfileSheet}

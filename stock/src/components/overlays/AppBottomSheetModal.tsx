@@ -166,7 +166,16 @@ export const AppBottomSheetModal = forwardRef<
 
   // Effect 1: Handle visible changes, especially reopening during close
   useEffect(() => {
-    if (!visible) return;
+    if (!visible) {
+      if (renderModal && !dismissingRef.current) {
+        if (hasOpenedRef.current) {
+          beginDismiss();
+        } else {
+          setRenderModal(false);
+        }
+      }
+      return;
+    }
 
     if (dismissingRef.current) {
       dismissingRef.current = false;
@@ -185,7 +194,17 @@ export const AppBottomSheetModal = forwardRef<
     if (!renderModal) {
       setRenderModal(true);
     }
-  }, [visible, renderModal, closing, translateY, backdropOpacity, expandable, snapStage, collapsedOffsetY]);
+  }, [
+    visible,
+    renderModal,
+    beginDismiss,
+    closing,
+    translateY,
+    backdropOpacity,
+    expandable,
+    snapStage,
+    collapsedOffsetY,
+  ]);
 
   // Effect 2: Opening animation — runs exactly once per open
   useEffect(() => {

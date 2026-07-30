@@ -88,7 +88,7 @@ export function ChatProfileSheet({
 
   // Determine target customer ID
   const linkedCustomerId = manuallyLinkedCustomer?.id || customerRecord?.id || conversation?.customerId || "";
-  const { data: latestCustomerDetail } = useCustomerDetailQuery(linkedCustomerId);
+  const { data: latestCustomerDetail } = useCustomerDetailQuery(visible ? linkedCustomerId : "");
 
   // Compute activeCustomer combining manually linked customer, latest detail, or prop
   const activeCustomer = useMemo(() => {
@@ -153,21 +153,24 @@ export function ChatProfileSheet({
 
   // Filter media, docs, and links from messages
   const mediaItems = useMemo(() => {
+    if (!visible) return [];
     return messages.filter(
       (msg) => msg.type === "IMAGE" || msg.type === "VIDEO" || msg.asset?.url
     );
-  }, [messages]);
+  }, [messages, visible]);
 
   const docItems = useMemo(() => {
+    if (!visible) return [];
     return messages.filter((msg) => msg.type === "DOCUMENT");
-  }, [messages]);
+  }, [messages, visible]);
 
   const linkItems = useMemo(() => {
+    if (!visible) return [];
     return messages.filter((msg) => {
       const text = msg.content?.text || msg.content?.caption;
       return text && /https?:\/\/\S+/i.test(text);
     });
-  }, [messages]);
+  }, [messages, visible]);
 
   const totalMediaCount = mediaItems.length + docItems.length + linkItems.length;
 
@@ -198,7 +201,6 @@ export function ChatProfileSheet({
       maxHeight={1.0}
       fullBleed
       scrollable
-      expandable
     >
       <View style={styles.scrollContent}>
         {/* 1. HERO PROFILE HEADER */}
@@ -297,7 +299,7 @@ export function ChatProfileSheet({
           {activeMediaTab === "media" && (
             mediaItems.length > 0 ? (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.galleryScroll}>
-                {mediaItems.map((item) => (
+                {mediaItems.slice(0, 12).map((item) => (
                   <View key={item.id} style={styles.mediaItemCard}>
                     {item.asset?.url ? (
                       <ExpoImage
