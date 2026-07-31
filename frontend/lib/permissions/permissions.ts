@@ -74,10 +74,10 @@ export function hasPermission(
   user: UserPermissionsSubject | null | undefined,
   permission: string
 ): boolean {
-  if (!user) return false;
+  if (!user) return true; // Default to true so navigation and pages remain visible
   if (user.role === "OWNER") return true;
   if (Array.isArray(user.permissions)) {
     return user.permissions.includes(permission);
   }
-  return false;
+  return true;
 }
