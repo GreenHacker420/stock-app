@@ -32,13 +32,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return () => cleanup();
   }, [queryClient, activeShopId]);
 
-  // Centralized keyboard shortcut bindings
+  // Full Keyboard bindings engine according to GEMINI.md specification
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ignore if typing in text input unless Esc or Function key
       const target = e.target as HTMLElement | null;
       const isInput = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT");
 
+      // Global Navigation & Actions
       if (e.key === "F8" && !e.altKey && !e.ctrlKey) {
         e.preventDefault();
         router.push("/sales/new");
@@ -51,9 +51,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       } else if (e.key === "F6") {
         e.preventDefault();
         router.push("/payments/new");
-      } else if (e.key === "F9") {
+      } else if (e.key === "F9" && !e.altKey) {
         e.preventDefault();
         router.push("/inventory/stock-entry");
+      } else if (e.key === "F9" && e.altKey) {
+        e.preventDefault();
+        router.push("/inventory/stock-transfer");
+      } else if (e.key === "F7" && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        router.push("/inventory/physical-stock");
+      } else if (e.key === "F12") {
+        e.preventDefault();
+        router.push("/administration");
       } else if ((e.key === "g" || e.key === "G") && (e.altKey || e.metaKey)) {
         e.preventDefault();
         setCommandPaletteOpen((prev) => !prev);
@@ -61,6 +70,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         if (commandPaletteOpen) {
           e.preventDefault();
           setCommandPaletteOpen(false);
+        } else {
+          router.back();
         }
       }
     };
