@@ -28,22 +28,12 @@ async function getPaymentWithAccess(user, id) {
 
 export async function listPayments(user, { shopId, customerId, paymentMode, status, unlinked, page = 1, limit = 50 }) {
   await assertShopAccess(user, shopId);
-
-  let effectiveShopId = shopId;
-  const countInShop = await prisma.payment.count({ where: { shopId: effectiveShopId } });
-  if (countInShop === 0) {
-    const firstPopulated = await prisma.payment.findFirst({ select: { shopId: true } });
-    if (firstPopulated) {
-      effectiveShopId = firstPopulated.shopId;
-    }
-  }
-
   const take = Math.min(Number(limit) || 50, 200);
   const skip = (Math.max(Number(page), 1) - 1) * take;
 
   return prisma.payment.findMany({
     where: {
-      shopId: effectiveShopId,
+      shopId,
       customerId: customerId || undefined,
       paymentMode: paymentMode || undefined,
       status: status || undefined,
