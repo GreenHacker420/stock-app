@@ -16,13 +16,16 @@ import { Plus, Search, Receipt, ArrowLeft, RefreshCw, FileText, ChevronRight } f
 
 export default function SalesRegisterPage() {
   const router = useRouter();
-  const { token, shops, activeShopId } = useAuthStore();
+  const { token, shops, activeShopId, startDate, endDate } = useAuthStore();
   const [searchTerm, setSearchTerm] = useState("");
   const currentShopId = activeShopId || (shops.length > 0 ? shops[0].id : "");
 
   const { data: salesResponse, isLoading, refetch } = useQuery({
-    queryKey: ["sales", currentShopId],
-    queryFn: () => apiRequest(`/sales?shopId=${currentShopId}`, { token: token || undefined }),
+    queryKey: ["sales", currentShopId, startDate, endDate],
+    queryFn: () =>
+      apiRequest(`/sales?shopId=${currentShopId}&dateFrom=${startDate}&dateTo=${endDate}`, {
+        token: token || undefined,
+      }),
     enabled: !!token && !!currentShopId,
   });
 
@@ -49,7 +52,7 @@ export default function SalesRegisterPage() {
           </Link>
           <div>
             <h1 className="text-2xl font-black tracking-tight">Sales Register</h1>
-            <p className="text-xs text-muted-foreground">View and manage all sales transactions and invoices for active shop.</p>
+            <p className="text-xs text-muted-foreground">View and manage all sales transactions for period ({startDate} to {endDate}).</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -137,7 +140,7 @@ export default function SalesRegisterPage() {
                 ) : (
                   <TableRow>
                     <TableCell colSpan={7} className="text-center py-8 text-xs text-muted-foreground">
-                      No sales found for active shop.
+                      No sales found for period ({startDate} to {endDate}).
                     </TableCell>
                   </TableRow>
                 )}

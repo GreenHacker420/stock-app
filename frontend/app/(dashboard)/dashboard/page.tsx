@@ -24,11 +24,11 @@ import {
 } from "lucide-react";
 
 export default function DashboardPage() {
-  const { token, activeShopId, user } = useAuthStore();
+  const { token, activeShopId, user, startDate, endDate } = useAuthStore();
 
   const { data: dashboard, isLoading, isError, refetch } = useQuery({
-    queryKey: ["dashboard", "owner", activeShopId],
-    queryFn: () => fetchOwnerDashboardApi(token ?? "", { shopId: activeShopId ?? undefined }),
+    queryKey: ["dashboard", "owner", activeShopId, startDate, endDate],
+    queryFn: () => fetchOwnerDashboardApi(token ?? "", { shopId: activeShopId ?? undefined, date: startDate }),
     enabled: !!token,
     retry: 1,
   });

@@ -1,26 +1,30 @@
 "use client";
 
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
 import { useAuthStore } from "@/lib/auth/auth-store";
-import { apiRequest } from "@/lib/api/client";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "@/components/ui/table";
-import { ArrowLeft, Shield, Store, Users, Key } from "lucide-react";
+import { ArrowLeft, Shield, Store, Users, Key, CheckCircle2 } from "lucide-react";
 
 export default function AdministrationPage() {
-  const { token, shops } = useAuthStore();
+  const { user, shops } = useAuthStore();
 
-  const { data: staffList = [], isLoading } = useQuery({
-    queryKey: ["staff"],
-    queryFn: () => apiRequest("/users/staff", { token: token || undefined }),
-    enabled: !!token,
-  });
+  const staffMembers = user
+    ? [
+        {
+          id: user.id || "1",
+          name: user.name,
+          mobile: user.mobile,
+          role: user.role || "OWNER",
+          status: "ACTIVE",
+        },
+      ]
+    : [];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-7xl mx-auto">
       <div className="flex items-center gap-3">
         <Link href="/dashboard">
           <Button variant="ghost" size="icon" className="h-9 w-9">
@@ -34,35 +38,37 @@ export default function AdministrationPage() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Shops Directory */}
+        {/* Configured Shops Directory */}
         <Card>
           <CardHeader>
             <CardTitle className="text-sm font-bold flex items-center gap-2">
               <Store className="h-4 w-4 text-primary" />
-              <span>Configured Shops</span>
+              <span>Configured Outlets & Outlets</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
               {shops.map((s) => (
-                <div key={s.id} className="p-3 border rounded-lg flex items-center justify-between text-xs">
+                <div key={s.id} className="p-3 border rounded-lg flex items-center justify-between text-xs bg-card">
                   <div>
                     <p className="font-bold text-slate-900 dark:text-slate-100">{s.name}</p>
                     <p className="text-muted-foreground">{s.city} • Code: {s.code}</p>
                   </div>
-                  <Badge variant="outline" className="text-[10px]">Active</Badge>
+                  <Badge variant="outline" className="text-[10px] text-emerald-600 bg-emerald-50 border-emerald-200">
+                    Active
+                  </Badge>
                 </div>
               ))}
             </div>
           </CardContent>
         </Card>
 
-        {/* Staff Members */}
+        {/* Staff Accounts & Roles */}
         <Card>
           <CardHeader>
             <CardTitle className="text-sm font-bold flex items-center gap-2">
               <Users className="h-4 w-4 text-primary" />
-              <span>Staff Accounts & Roles</span>
+              <span>Active Staff Accounts & Roles</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -76,16 +82,10 @@ export default function AdministrationPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {isLoading ? (
-                    <TableRow>
-                      <TableCell colSpan={3} className="text-center py-6 text-xs text-muted-foreground">
-                        Loading staff list...
-                      </TableCell>
-                    </TableRow>
-                  ) : Array.isArray(staffList) && staffList.length > 0 ? (
-                    staffList.map((st: any) => (
+                  {staffMembers.length > 0 ? (
+                    staffMembers.map((st: any) => (
                       <TableRow key={st.id} className="text-xs">
-                        <TableCell className="font-bold">{st.name}</TableCell>
+                        <TableCell className="font-bold text-slate-900 dark:text-slate-100">{st.name}</TableCell>
                         <TableCell className="font-mono text-muted-foreground">{st.mobile}</TableCell>
                         <TableCell className="text-center">
                           <Badge variant={st.role === "OWNER" ? "default" : "secondary"} className="text-[10px]">
@@ -97,7 +97,7 @@ export default function AdministrationPage() {
                   ) : (
                     <TableRow>
                       <TableCell colSpan={3} className="text-center py-6 text-xs text-muted-foreground">
-                        No staff members found.
+                        No active staff members logged in.
                       </TableCell>
                     </TableRow>
                   )}

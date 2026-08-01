@@ -16,11 +16,16 @@ interface HeaderProps {
 }
 
 export function Header({ onOpenCommandPalette, approvalsCount = 0 }: HeaderProps) {
-  const { user, shops, activeShopId, setActiveShopId, logout } = useAuthStore();
+  const { user, shops, activeShopId, setActiveShopId, logout, startDate, endDate } = useAuthStore();
   const { isMac } = useOS();
 
   const selectedShop = shops.find((s) => s.id === activeShopId);
   const canSwitchShop = user?.role === "OWNER" && shops.length > 1;
+
+  const displayPeriod =
+    startDate === endDate
+      ? formatDate(startDate)
+      : `${formatDate(startDate)} – ${formatDate(endDate)}`;
 
   const initials = user?.name
     ? user.name
@@ -64,7 +69,7 @@ export function Header({ onOpenCommandPalette, approvalsCount = 0 }: HeaderProps
         )}
 
         <Badge variant="outline" className="hidden sm:inline-flex text-xs font-medium text-muted-foreground">
-          Period: {formatDate(new Date().toISOString())}
+          Period: {displayPeriod}
         </Badge>
       </div>
 

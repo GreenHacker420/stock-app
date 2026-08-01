@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useAuthStore } from "@/lib/auth/auth-store";
 import { Calendar } from "lucide-react";
 
 interface DatePeriodDialogProps {
@@ -13,10 +14,19 @@ interface DatePeriodDialogProps {
 }
 
 export function DatePeriodDialog({ open, onOpenChange, onSelectPeriod }: DatePeriodDialogProps) {
-  const [startDate, setStartDate] = useState(new Date().toISOString().split("T")[0]);
-  const [endDate, setEndDate] = useState(new Date().toISOString().split("T")[0]);
+  const { startDate: storeStart, endDate: storeEnd, setPeriod } = useAuthStore();
+  const [startDate, setStartDate] = useState(storeStart || new Date().toISOString().split("T")[0]);
+  const [endDate, setEndDate] = useState(storeEnd || new Date().toISOString().split("T")[0]);
+
+  useEffect(() => {
+    if (open) {
+      setStartDate(storeStart || new Date().toISOString().split("T")[0]);
+      setEndDate(storeEnd || new Date().toISOString().split("T")[0]);
+    }
+  }, [open, storeStart, storeEnd]);
 
   const handleApply = () => {
+    setPeriod(startDate, endDate);
     if (onSelectPeriod) onSelectPeriod(startDate, endDate);
     onOpenChange(false);
   };
