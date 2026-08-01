@@ -1,11 +1,12 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { CommandDialog, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem, CommandSeparator } from "@/components/ui/command";
 import { useAuthStore } from "@/lib/auth/auth-store";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions/permissions";
 import { useOS, formatShortcutForOS } from "@/lib/keyboard/os";
+import { useShortcut } from "@/components/keyboard/ShortcutProvider";
 import { LayoutDashboard, Receipt, ShoppingBag, Truck, CreditCard, Warehouse, Users, ReceiptIndianRupee, BarChart3, MessageSquare, Shield, Store } from "lucide-react";
 
 interface CommandPaletteProps {
@@ -17,6 +18,7 @@ export function CommandPalette({ open: externalOpen, onOpenChange: externalOnOpe
   const [internalOpen, setInternalOpen] = useState(false);
   const router = useRouter();
   const { user, shops, activeShopId, setActiveShopId } = useAuthStore();
+  const { isMac } = useOS();
 
   const isOpen = externalOpen !== undefined ? externalOpen : internalOpen;
   const setOpen = (val: boolean) => {
@@ -24,16 +26,14 @@ export function CommandPalette({ open: externalOpen, onOpenChange: externalOnOpe
     setInternalOpen(val);
   };
 
-  useEffect(() => {
-    const down = (e: KeyboardEvent) => {
-      if (e.key === "g" && (e.altKey || e.metaKey)) {
-        e.preventDefault();
-        setOpen(!isOpen);
-      }
-    };
-    window.addEventListener("keydown", down);
-    return () => window.removeEventListener("keydown", down);
-  }, [isOpen]);
+  // Register Alt+G command palette shortcut cleanly with shortcut engine
+  useShortcut({
+    id: "command-palette-alt-g",
+    key: "alt+g",
+    scope: "GLOBAL",
+    description: "Open Go To Command Palette",
+    action: () => setOpen(!isOpen),
+  });
 
   const handleNavigate = (path: string) => {
     setOpen(false);
@@ -56,11 +56,9 @@ export function CommandPalette({ open: externalOpen, onOpenChange: externalOnOpe
 
   const permittedNav = navItems.filter((item) => hasPermission(user, item.permission));
 
-  const { isMac } = useOS();
-
   return (
     <CommandDialog open={isOpen} onOpenChange={setOpen}>
-      <CommandInput placeholder={`Search pages, actions or switch shop... (${formatShortcutForOS("alt+g", isMac)})`} />
+      <CommandInput placeholder={`Search pages, actions or switch shop... (${formatShortcutForOS("alt+g", isMac)})`} aria-keyshortcuts="Alt+G" />
       <CommandList>
         <CommandEmpty>No results found.</CommandEmpty>
         <CommandGroup heading="Navigation">

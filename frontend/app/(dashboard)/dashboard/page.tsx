@@ -3,10 +3,8 @@
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { useAuthStore } from "@/lib/auth/auth-store";
-import { fetchOwnerDashboardApi } from "@/lib/api/client";
+import { fetchOwnerDashboardApi, fetchStaffDashboardApi } from "@/lib/api/client";
 import { formatINR } from "@/lib/utils";
-import { HoverEffect } from "@/components/ui/card-hover-effect";
-import { BentoGrid, BentoGridItem } from "@/components/ui/bento-grid";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -21,28 +19,56 @@ import {
   ReceiptIndianRupee,
   FileCheck,
   RefreshCw,
+  ShoppingBag,
+  Truck,
+  Building,
 } from "lucide-react";
 
 export default function DashboardPage() {
-  const { token, activeShopId, user, startDate, endDate } = useAuthStore();
+  const { token, activeShopId, user, startDate } = useAuthStore();
+  const isOwner = user?.role === "OWNER";
 
-  const { data: dashboard, isLoading, isError, refetch } = useQuery({
-    queryKey: ["dashboard", "owner", activeShopId, startDate, endDate],
+  const {
+    data: ownerData,
+    isLoading: isOwnerLoading,
+    isError: isOwnerError,
+    error: ownerError,
+    refetch: refetchOwner,
+  } = useQuery({
+    queryKey: ["dashboard", "owner", activeShopId, startDate],
     queryFn: () => fetchOwnerDashboardApi(token ?? "", { shopId: activeShopId ?? undefined, date: startDate }),
-    enabled: !!token,
+    enabled: !!token && isOwner,
     retry: 1,
   });
 
+  const {
+    data: staffData,
+    isLoading: isStaffLoading,
+    isError: isStaffError,
+    error: staffError,
+    refetch: refetchStaff,
+  } = useQuery({
+    queryKey: ["dashboard", "staff", activeShopId, startDate],
+    queryFn: () => fetchStaffDashboardApi(token ?? "", { shopId: activeShopId || "", date: startDate }),
+    enabled: !!token && !isOwner && !!activeShopId,
+    retry: 1,
+  });
+
+  const isLoading = isOwner ? isOwnerLoading : isStaffLoading;
+  const isError = isOwner ? isOwnerError : isStaffError;
+  const errorObj = isOwner ? ownerError : staffError;
+  const refetch = isOwner ? refetchOwner : refetchStaff;
+
   if (isLoading) {
     return (
-      <div className="space-y-6">
+      <div className="space-y-6 max-w-7xl mx-auto">
         <div className="flex items-center justify-between">
           <Skeleton className="h-8 w-48" />
           <Skeleton className="h-9 w-24" />
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {Array.from({ length: 8 }).map((_, i) => (
-            <Skeleton key={i} className="h-32 rounded-xl" />
+            <Skeleton key={i} className="h-28 rounded-xl" />
           ))}
         </div>
       </div>
@@ -51,19 +77,21 @@ export default function DashboardPage() {
 
   if (isError) {
     return (
-      <div className="p-8 border rounded-xl bg-card text-center space-y-4 my-8 shadow-xs">
-        <div className="text-sm font-bold text-slate-900 dark:text-slate-100">Unable to load active shop dashboard metrics</div>
-        <p className="text-xs text-muted-foreground max-w-md mx-auto">
-          Make sure backend server is running on <code className="font-mono text-primary">http://localhost:6600</code> and user session is authenticated.
+      <div className="p-8 border rounded-xl bg-card text-center space-y-4 my-8 max-w-2xl mx-auto shadow-xs">
+        <div className="text-sm font-bold text-slate-900 dark:text-slate-100">
+          Failed to load dashboard metrics
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {(errorObj as any)?.message || "An unexpected error occurred while loading dashboard metrics."}
         </p>
         <div className="flex items-center justify-center gap-3 pt-2">
-          <Button variant="outline" size="sm" onClick={() => refetch()} className="h-9 text-xs">
+          <Button variant="outline" size="sm" onClick={() => refetch()} className="h-9 text-xs font-bold">
             <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
             Retry Connection
           </Button>
           <Link href="/login">
             <Button size="sm" className="h-9 font-bold text-xs">
-              Sign In to Dashboard
+              Sign In
             </Button>
           </Link>
         </div>
@@ -71,59 +99,27 @@ export default function DashboardPage() {
     );
   }
 
-  const isOwner = user?.role === "OWNER";
-
-  const statItems = [
-    {
-      title: "Today's Sales",
-      description: `${dashboard?.todaySalesCount ?? 0} invoices created today`,
-      value: formatINR(dashboard?.todaySalesTotal ?? 0),
-      link: "/sales",
-      badge: "View Sales Register",
-      icon: <TrendingUp className="h-5 w-5 text-emerald-600" />,
-    },
-    {
-      title: "Outstanding Collections",
-      description: "Total outstanding customer dues",
-      value: formatINR(dashboard?.outstandingTotal ?? 0),
-      link: "/customers?filter=outstanding",
-      badge: "View Ledgers",
-      icon: <Users className="h-5 w-5 text-indigo-600" />,
-    },
-    {
-      title: "Pending Approvals",
-      description: "Stock & price verification requests",
-      value: `${dashboard?.pendingVerifications ?? 0}`,
-      link: "/approvals",
-      badge: "Review Approvals",
-      icon: <ShieldAlert className="h-5 w-5 text-amber-600" />,
-    },
-    {
-      title: "Low Stock Items",
-      description: "Products below reorder threshold",
-      value: `${dashboard?.lowStockAlerts ?? 0}`,
-      link: "/inventory?filter=low_stock",
-      badge: "Replenish Inventory",
-      icon: <AlertTriangle className="h-5 w-5 text-rose-600" />,
-    },
-  ];
-
   return (
     <div className="space-y-6 max-w-7xl mx-auto">
       {/* Header Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-black tracking-tight text-slate-900 dark:text-slate-100">
-            {isOwner ? "Owner Dashboard" : "Staff Hub"}
-          </h1>
-          <p className="text-xs text-muted-foreground">
-            Real-time operational summary and action queues for active shop.
+          <div className="flex items-center gap-2">
+            <h1 className="text-2xl font-black tracking-tight text-slate-900 dark:text-slate-100">
+              {isOwner ? "Owner Operations Console" : "Staff Today Summary"}
+            </h1>
+            <Badge variant="outline" className="text-[10px] font-mono">
+              Business Date: {startDate}
+            </Badge>
+          </div>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Real-time server-authoritative metrics for active shop.
           </p>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => refetch()} className="h-9 gap-1 text-xs">
             <RefreshCw className="h-3.5 w-3.5" />
-            <span>Refresh</span>
+            <span>Refresh Metrics</span>
           </Button>
           <Link href="/sales/new">
             <Button size="sm" className="h-9 gap-1 font-bold text-xs">
@@ -134,136 +130,190 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Aceternity UI Hover Effect Grid for Metrics */}
-      <HoverEffect items={statItems} />
+      {isOwner && ownerData && (
+        <div className="space-y-6">
+          {/* Key Metric Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-xs font-medium">Today's Sales</CardTitle>
+                <TrendingUp className="h-4 w-4 text-emerald-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-xl font-bold">{formatINR(ownerData.todaySales)}</div>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  {ownerData.salesCount} Invoices • Walk-in: {formatINR(ownerData.walkinSales)}
+                </p>
+              </CardContent>
+            </Card>
 
-      {/* Secondary Action Queues Bento Grid */}
-      <div className="space-y-3">
-        <h2 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-          Operational Action Queues
-        </h2>
-        <BentoGrid className="grid-cols-1 md:grid-cols-2 lg:grid-cols-4 max-w-none">
-          <BentoGridItem
-            title="Payment Verification"
-            description={`${dashboard?.paymentVerificationPending ?? 0} Bank/Cheque entries pending review.`}
-            icon={<CreditCard className="h-4 w-4 text-indigo-500" />}
-            header={
-              <Link href="/payments?filter=pending" className="flex justify-end">
-                <Button variant="ghost" size="sm" className="h-7 text-xs font-bold">Verify →</Button>
-              </Link>
-            }
-          />
-          <BentoGridItem
-            title="GST Bills Pending"
-            description={`${dashboard?.gstInvoicesPendingCount ?? 0} Tally billing follow-up entries.`}
-            icon={<FileCheck className="h-4 w-4 text-amber-500" />}
-            header={
-              <Link href="/sales?filter=gst_pending" className="flex justify-end">
-                <Button variant="ghost" size="sm" className="h-7 text-xs font-bold">View Queue →</Button>
-              </Link>
-            }
-          />
-          <BentoGridItem
-            title="Cash Mismatch"
-            description={`${dashboard?.cashMismatch ?? 0} Cash drawer balances requiring audit.`}
-            icon={<ReceiptIndianRupee className="h-4 w-4 text-purple-500" />}
-            header={
-              <Link href="/cash-sessions" className="flex justify-end">
-                <Button variant="ghost" size="sm" className="h-7 text-xs font-bold">Audit →</Button>
-              </Link>
-            }
-          />
-          <BentoGridItem
-            title="Correction Requests"
-            description={`${dashboard?.correctionRequests ?? 0} Invoice edit approval requests.`}
-            icon={<ShieldAlert className="h-4 w-4 text-rose-500" />}
-            header={
-              <Link href="/corrections" className="flex justify-end">
-                <Button variant="ghost" size="sm" className="h-7 text-xs font-bold">Approve →</Button>
-              </Link>
-            }
-          />
-        </BentoGrid>
-      </div>
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-xs font-medium">Collections & Cash</CardTitle>
+                <CreditCard className="h-4 w-4 text-indigo-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-xl font-bold">{formatINR(ownerData.cashCollected + ownerData.upiCollected + ownerData.cardCollected + ownerData.bankCollected)}</div>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Cash: {formatINR(ownerData.cashCollected)} • UPI: {formatINR(ownerData.upiCollected)}
+                </p>
+              </CardContent>
+            </Card>
 
-      {/* Operational Workflows & Recent Activity */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <Card className="lg:col-span-2">
-          <CardHeader>
-            <CardTitle className="text-base font-extrabold">Recent Shop Operations</CardTitle>
-            <CardDescription>
-              Audit log of real-time transactions across sales, payments & inventory.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {dashboard?.recentActivity && dashboard.recentActivity.length > 0 ? (
-              <div className="space-y-3">
-                {dashboard.recentActivity.map((act) => (
-                  <div key={act.id} className="flex items-center justify-between p-3 border rounded-lg bg-card/60 text-xs">
-                    <div className="space-y-0.5">
-                      <p className="font-bold text-slate-900 dark:text-slate-100">{act.description}</p>
-                      <p className="text-muted-foreground">
-                        {act.actorName ? `By ${act.actorName} • ` : ""}{act.timestamp}
-                      </p>
-                    </div>
-                    <Badge variant="outline" className="text-[10px] uppercase font-bold">
-                      {act.type}
-                    </Badge>
-                  </div>
-                ))}
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-xs font-medium">Pending DMs Amount</CardTitle>
+                <Truck className="h-4 w-4 text-amber-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-xl font-bold">{formatINR(ownerData.pendingDmAmount)}</div>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Unbilled delivery memo balance
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-xs font-medium">Low Stock Alerts</CardTitle>
+                <AlertTriangle className="h-4 w-4 text-rose-600" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-xl font-bold">{ownerData.lowStockAlerts}</div>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Items below minimum threshold
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Operational Action Queues */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <Card className="p-4 flex items-center justify-between">
+              <div>
+                <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Pending Approvals</span>
+                <p className="text-lg font-extrabold">{ownerData.pendingApprovalRequests}</p>
               </div>
-            ) : (
-              <div className="py-8 text-center text-xs text-muted-foreground">
-                No recent activity logged for the active shop.
-              </div>
-            )}
-          </CardContent>
-        </Card>
+              <ShieldAlert className="h-5 w-5 text-amber-500" />
+            </Card>
 
-        {/* Operational Shortcuts */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base font-extrabold">Shortcut Cheat Sheet</CardTitle>
-            <CardDescription>
-              Keyboard-first operational controls.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2 text-xs">
-            <div className="flex items-center justify-between py-1.5 border-b">
-              <span>New Sale</span>
-              <kbd className="font-mono bg-muted border px-1.5 py-0.5 rounded text-[10px]">F8</kbd>
-            </div>
-            <div className="flex items-center justify-between py-1.5 border-b">
-              <span>Select Date / Period</span>
-              <kbd className="font-mono bg-muted border px-1.5 py-0.5 rounded text-[10px]">F2</kbd>
-            </div>
-            <div className="flex items-center justify-between py-1.5 border-b">
-              <span>Switch Shop</span>
-              <kbd className="font-mono bg-muted border px-1.5 py-0.5 rounded text-[10px]">F3</kbd>
-            </div>
-            <div className="flex items-center justify-between py-1.5 border-b">
-              <span>Delivery Memo</span>
-              <kbd className="font-mono bg-muted border px-1.5 py-0.5 rounded text-[10px]">Alt+F8</kbd>
-            </div>
-            <div className="flex items-center justify-between py-1.5 border-b">
-              <span>New Order</span>
-              <kbd className="font-mono bg-muted border px-1.5 py-0.5 rounded text-[10px]">Ctrl+F8</kbd>
-            </div>
-            <div className="flex items-center justify-between py-1.5 border-b">
-              <span>Receive Payment</span>
-              <kbd className="font-mono bg-muted border px-1.5 py-0.5 rounded text-[10px]">F6</kbd>
-            </div>
-            <div className="flex items-center justify-between py-1.5 border-b">
-              <span>Stock Entry</span>
-              <kbd className="font-mono bg-muted border px-1.5 py-0.5 rounded text-[10px]">F9</kbd>
-            </div>
-            <div className="flex items-center justify-between py-1.5">
-              <span>Go To Palette</span>
-              <kbd className="font-mono bg-muted border px-1.5 py-0.5 rounded text-[10px]">Alt+G</kbd>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+            <Card className="p-4 flex items-center justify-between">
+              <div>
+                <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Payment Verifications</span>
+                <p className="text-lg font-extrabold">{ownerData.paymentVerificationPending}</p>
+              </div>
+              <FileCheck className="h-5 w-5 text-indigo-500" />
+            </Card>
+
+            <Card className="p-4 flex items-center justify-between">
+              <div>
+                <span className="text-xs font-bold text-slate-700 dark:text-slate-300">Cash Mismatches</span>
+                <p className="text-lg font-extrabold">{ownerData.cashMismatch}</p>
+              </div>
+              <ReceiptIndianRupee className="h-5 w-5 text-purple-500" />
+            </Card>
+
+            <Card className="p-4 flex items-center justify-between">
+              <div>
+                <span className="text-xs font-bold text-slate-700 dark:text-slate-300">GST Bills Pending</span>
+                <p className="text-lg font-extrabold">{ownerData.gstInvoicesPendingCount}</p>
+              </div>
+              <Building className="h-5 w-5 text-emerald-500" />
+            </Card>
+          </div>
+
+          {/* Orders & Customers Widgets */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm font-bold flex items-center gap-2">
+                  <ShoppingBag className="h-4 w-4 text-primary" />
+                  <span>Order Fulfillment Status</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-xs">
+                <div className="flex justify-between py-1.5 border-b">
+                  <span>Orders Created Today</span>
+                  <span className="font-bold">{ownerData.ordersCreated}</span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b">
+                  <span>Orders to Pack</span>
+                  <span className="font-bold text-amber-600">{ownerData.ordersToPack}</span>
+                </div>
+                <div className="flex justify-between py-1.5">
+                  <span>Orders Dispatched Today</span>
+                  <span className="font-bold text-emerald-600">{ownerData.ordersDispatched}</span>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm font-bold flex items-center gap-2">
+                  <Users className="h-4 w-4 text-primary" />
+                  <span>Customer Activity Summary</span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3 text-xs">
+                <div className="flex justify-between py-1.5 border-b">
+                  <span>New Customers Today</span>
+                  <span className="font-bold">{ownerData.newCustomersToday}</span>
+                </div>
+                <div className="flex justify-between py-1.5 border-b">
+                  <span>Customers with Outstanding Balance</span>
+                  <span className="font-bold text-indigo-600">{ownerData.outstandingCustomersCount}</span>
+                </div>
+                <div className="flex justify-between py-1.5">
+                  <span>Inactive Customers (30+ Days)</span>
+                  <span className="font-bold text-rose-600">{ownerData.inactiveCustomersCount}</span>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      )}
+
+      {!isOwner && staffData && (
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-xs font-medium">My Sales Today</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-xl font-bold">{formatINR(staffData.salesTotal)}</div>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  {staffData.salesCount} Total Invoices
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-xs font-medium">Cash Collected</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-xl font-bold">{formatINR(staffData.cashCollected)}</div>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  UPI Recorded: {formatINR(staffData.upiRecorded)}
+                </p>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-xs font-medium">Orders Packed & Dispatched</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-xl font-bold">{staffData.ordersPacked} / {staffData.ordersDispatched}</div>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  Day Close Status: <span className="font-bold text-primary">{staffData.dayCloseStatus}</span>
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -14,6 +14,13 @@ export function getSocketInstance(): Socket {
   return socket;
 }
 
+export function disconnectRealtimeSocket() {
+  if (socket) {
+    socket.disconnect();
+    socket = null;
+  }
+}
+
 export function initRealtimeSocket(queryClient: QueryClient, shopId?: string | null) {
   const instance = getSocketInstance();
 

@@ -63,6 +63,8 @@ export const PERMISSIONS = {
   AUDIT_LOG_VIEW: "audit_log:view",
 } as const;
 
+export const VALID_PERMISSIONS_SET = new Set<string>(Object.values(PERMISSIONS));
+
 export type UserRole = "OWNER" | "STAFF";
 
 export interface UserPermissionsSubject {
@@ -70,14 +72,24 @@ export interface UserPermissionsSubject {
   permissions?: string[];
 }
 
+/**
+ * Fail-closed permission helper:
+ * - no user -> false
+ * - owner -> true
+ * - staff with explicit permission -> true
+ * - staff without explicit permission -> false
+ * - missing permissions array -> false
+ * - unknown permission -> false
+ */
 export function hasPermission(
   user: UserPermissionsSubject | null | undefined,
   permission: string
 ): boolean {
-  if (!user) return true; // Default to true so navigation and pages remain visible
+  if (!user) return false;
+  if (!VALID_PERMISSIONS_SET.has(permission)) return false;
   if (user.role === "OWNER") return true;
   if (Array.isArray(user.permissions)) {
     return user.permissions.includes(permission);
   }
-  return true;
+  return false;
 }

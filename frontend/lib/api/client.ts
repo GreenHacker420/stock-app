@@ -79,28 +79,64 @@ export type Customer = {
   type?: "REGULAR" | "WALK_IN";
 };
 
+export type TopCustomerItem = {
+  customerId: string;
+  _sum: { totalAmount: number | null };
+  customer?: { id: string; name: string; phone: string | null };
+};
+
 export type OwnerDashboardData = {
-  todaySalesCount: number;
-  todaySalesTotal: number;
-  outstandingTotal: number;
-  pendingVerifications: number;
-  lowStockAlerts: number;
+  date: string;
+  todaySales: number;
+  walkinSales: number;
+  salesCount: number;
+  ordersCreated: number;
+  ordersToPack: number;
+  ordersDispatched: number;
+  pendingDmAmount: number;
+  cashCollected: number;
+  upiCollected: number;
+  cardCollected: number;
+  bankCollected: number;
+  chequeReceived: number;
   paymentVerificationPending: number;
   cashMismatch: number;
-  gstInvoicesPendingCount: number;
+  pendingApprovalRequests: number;
+  pendingVerifications: number;
+  cashSessionDifferencesCount: number;
+  rateChangeRequests: number;
   correctionRequests: number;
-  recentActivity: Array<{
-    id: string;
-    type: string;
-    description: string;
-    timestamp: string;
-    actorName?: string;
-  }>;
+  lowStockAlerts: number;
+  todayExpenses: number;
+  gstInvoicesPendingCount: number;
+  gstInvoicesPendingAmount: number;
+  newCustomersToday: number;
+  outstandingCustomersCount: number;
+  inactiveCustomersCount: number;
+  topCustomers: TopCustomerItem[];
+};
+
+export type StaffDashboardData = {
+  date: string;
+  salesCount: number;
+  salesTotal: number;
+  walkinSalesCount: number;
+  walkinSalesTotal: number;
+  dmsCreated: number;
+  dmTotal: number;
+  cashCollected: number;
+  upiRecorded: number;
+  chequesReceived: number;
+  ordersPacked: number;
+  ordersDispatched: number;
+  stockEntries: number;
+  dayCloseStatus: string;
 };
 
 export class ApiError extends Error {
   status: number;
   data: any;
+
   constructor(message: string, status: number, data?: any) {
     super(message);
     this.name = "ApiError";
@@ -109,34 +145,36 @@ export class ApiError extends Error {
   }
 }
 
+let onUnauthorizedCallback: (() => void) | null = null;
+
+export function setUnauthorizedHandler(handler: () => void) {
+  onUnauthorizedCallback = handler;
+}
+
 export async function apiRequest<T = any>(
   endpoint: string,
   options: {
-    method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
-    token?: string | null;
+    method?: string;
     body?: any;
-    idempotencyKey?: string;
+    token?: string | null;
     headers?: Record<string, string>;
   } = {}
 ): Promise<T> {
-  const { method = "GET", token, body, idempotencyKey, headers = {} } = options;
+  const method = options.method || "GET";
+  const token = options.token;
 
   const reqHeaders: Record<string, string> = {
     "Content-Type": "application/json",
-    ...headers,
+    ...(options.headers || {}),
   };
 
   if (token) {
     reqHeaders["Authorization"] = `Bearer ${token}`;
   }
 
-  if (idempotencyKey) {
-    reqHeaders["Idempotency-Key"] = idempotencyKey;
-  }
+  const body = options.body;
 
-  const url = endpoint.startsWith("http") ? endpoint : `${API_BASE_URL}${endpoint.startsWith("/") ? "" : "/"}${endpoint}`;
-
-  const res = await fetch(url, {
+  const res = await fetch(`${API_BASE_URL}${endpoint}`, {
     method,
     headers: reqHeaders,
     body: body ? (typeof body === "string" ? body : JSON.stringify(body)) : undefined,
@@ -151,6 +189,9 @@ export async function apiRequest<T = any>(
   }
 
   if (!res.ok) {
+    if (res.status === 401 && onUnauthorizedCallback) {
+      onUnauthorizedCallback();
+    }
     throw new ApiError(
       json?.error || json?.message || `Request failed with status ${res.status}`,
       res.status,
@@ -195,4 +236,13 @@ export async function fetchOwnerDashboardApi(
   if (params.shopId) query.set("shopId", params.shopId);
   if (params.date) query.set("date", params.date);
   return apiRequest(`/dashboard/owner?${query.toString()}`, { token });
+}
+
+export async function fetchStaffDashboardApi(
+  token: string,
+  params: { shopId: string; date?: string }
+): Promise<StaffDashboardData> {
+  const query = new URLSearchParams({ shopId: params.shopId });
+  if (params.date) query.set("date", params.date);
+  return apiRequest(`/dashboard/staff/today?${query.toString()}`, { token });
 }
