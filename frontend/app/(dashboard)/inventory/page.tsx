@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { useAuthStore } from "@/lib/auth/auth-store";
 import { apiRequest } from "@/lib/api/client";
@@ -13,25 +14,41 @@ import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "@
 import { Input } from "@/components/ui/input";
 import { Plus, Search, Warehouse, ArrowLeft, RefreshCw, AlertTriangle } from "lucide-react";
 
-export default function InventoryPage() {
-  const { token, activeShopId } = useAuthStore();
+function InventoryContent() {
+  const searchParams = useSearchParams();
+  const filterParam = searchParams.get("filter");
+  const { token, shops, activeShopId } = useAuthStore();
   const [searchTerm, setSearchTerm] = useState("");
+  const currentShopId = activeShopId || (shops.length > 0 ? shops[0].id : "");
 
-  const { data: items = [], isLoading, refetch } = useQuery({
-    queryKey: ["items", activeShopId],
-    queryFn: () => apiRequest(`/items?shopId=${activeShopId || ""}`, { token: token || undefined }),
-    enabled: !!token,
+  const { data: itemsResponse, isLoading, refetch } = useQuery({
+    queryKey: ["items", currentShopId],
+    queryFn: () => apiRequest(`/items?shopId=${currentShopId}`, { token: token || undefined }),
+    enabled: !!token && !!currentShopId,
   });
 
-  const filteredItems = Array.isArray(items)
-    ? items.filter((i: any) =>
-        i.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        i.sku?.toLowerCase().includes(searchTerm.toLowerCase())
-      )
+  const rawItems = Array.isArray(itemsResponse)
+    ? itemsResponse
+    : itemsResponse?.data && Array.isArray(itemsResponse.data)
+    ? itemsResponse.data
     : [];
 
+  const filteredItems = rawItems.filter((item: any) => {
+    const matchesSearch =
+      item.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      item.sku?.toLowerCase().includes(searchTerm.toLowerCase());
+
+    const isLow = (item.availableStock ?? item.physicalStock ?? item.currentStock ?? 0) <= (parseFloat(item.minimumStock) || 0);
+
+    if (filterParam === "low_stock") {
+      return matchesSearch && isLow;
+    }
+
+    return matchesSearch;
+  });
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-7xl mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <Link href="/dashboard">
@@ -45,6 +62,11 @@ export default function InventoryPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {filterParam && (
+            <Link href="/inventory">
+              <Button variant="outline" size="sm" className="h-9 text-xs">Clear Filter</Button>
+            </Link>
+          )}
           <Button variant="outline" size="sm" onClick={() => refetch()} className="h-9 gap-1 text-xs">
             <RefreshCw className="h-3.5 w-3.5" />
             <span>Refresh</span>
@@ -60,7 +82,12 @@ export default function InventoryPage() {
 
       <Card>
         <CardHeader className="pb-3 flex flex-row items-center justify-between">
-          <CardTitle className="text-sm font-bold">Stock Summary Catalog</CardTitle>
+          <div className="flex items-center gap-2">
+            <CardTitle className="text-sm font-bold">Stock Summary Catalog</CardTitle>
+            {filterParam === "low_stock" && (
+              <Badge variant="destructive" className="text-[10px]">Low Stock Filter</Badge>
+            )}
+          </div>
           <div className="w-72 relative">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
@@ -76,7 +103,7 @@ export default function InventoryPage() {
             <Table>
               <TableHeader className="bg-muted/50">
                 <TableRow>
-                  <TableHead className="w-24 text-xs">SKU</TableHead>
+                  <TableHead className="w-28 text-xs">SKU</TableHead>
                   <TableHead className="text-xs">Product Name</TableHead>
                   <TableHead className="text-xs">Unit</TableHead>
                   <TableHead className="text-xs text-right">Selling Price</TableHead>
@@ -93,21 +120,24 @@ export default function InventoryPage() {
                   </TableRow>
                 ) : filteredItems.length > 0 ? (
                   filteredItems.map((item: any) => {
-                    const isLow = (item.availableStock ?? item.physicalStock ?? 0) <= (parseFloat(item.minimumStock) || 0);
+                    const physical = item.physicalStock ?? item.currentStock ?? item.availableStock ?? 0;
+                    const minStock = parseFloat(item.minimumStock) || 0;
+                    const isLow = physical <= minStock;
+
                     return (
-                      <TableRow key={item.id} className="hover:bg-muted/40 text-xs cursor-pointer">
+                      <TableRow key={item.id} className="hover:bg-muted/60 text-xs cursor-pointer">
                         <TableCell className="font-mono text-muted-foreground">{item.sku || "—"}</TableCell>
                         <TableCell className="font-bold text-slate-900 dark:text-slate-100">{item.name}</TableCell>
                         <TableCell className="text-muted-foreground">{item.unit}</TableCell>
                         <TableCell className="text-right font-semibold">{formatINR(item.defaultSellingPrice)}</TableCell>
-                        <TableCell className="text-right font-black">{item.physicalStock ?? item.currentStock ?? 0}</TableCell>
+                        <TableCell className="text-right font-black">{physical}</TableCell>
                         <TableCell className="text-center">
                           {isLow ? (
                             <Badge variant="destructive" className="text-[10px] gap-1">
                               <AlertTriangle className="h-3 w-3" /> Low Stock
                             </Badge>
                           ) : (
-                            <Badge variant="outline" className="text-[10px] text-emerald-600 bg-emerald-50">
+                            <Badge variant="outline" className="text-[10px] text-emerald-600 bg-emerald-50 border-emerald-200">
                               Available
                             </Badge>
                           )}
@@ -118,7 +148,7 @@ export default function InventoryPage() {
                 ) : (
                   <TableRow>
                     <TableCell colSpan={6} className="text-center py-8 text-xs text-muted-foreground">
-                      No products found in catalog.
+                      No products found in catalog for this shop.
                     </TableCell>
                   </TableRow>
                 )}
@@ -128,5 +158,13 @@ export default function InventoryPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function InventoryPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-center text-xs text-muted-foreground">Loading inventory catalog...</div>}>
+      <InventoryContent />
+    </Suspense>
   );
 }

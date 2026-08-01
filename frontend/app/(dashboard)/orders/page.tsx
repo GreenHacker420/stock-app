@@ -14,24 +14,29 @@ import { Input } from "@/components/ui/input";
 import { Plus, Search, ShoppingBag, ArrowLeft, RefreshCw } from "lucide-react";
 
 export default function OrdersPage() {
-  const { token, activeShopId } = useAuthStore();
+  const { token, shops, activeShopId } = useAuthStore();
   const [searchTerm, setSearchTerm] = useState("");
+  const currentShopId = activeShopId || (shops.length > 0 ? shops[0].id : "");
 
-  const { data: orders = [], isLoading, refetch } = useQuery({
-    queryKey: ["orders", activeShopId],
-    queryFn: () => apiRequest(`/orders?shopId=${activeShopId || ""}`, { token: token || undefined }),
-    enabled: !!token,
+  const { data: ordersResponse = [], isLoading, refetch } = useQuery({
+    queryKey: ["orders", currentShopId],
+    queryFn: () => apiRequest(`/orders?shopId=${currentShopId}`, { token: token || undefined }),
+    enabled: !!token && !!currentShopId,
   });
 
-  const filteredOrders = Array.isArray(orders)
-    ? orders.filter((o: any) =>
-        o.customerName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        o.orderNumber?.toLowerCase().includes(searchTerm.toLowerCase())
-      )
+  const rawOrders = Array.isArray(ordersResponse)
+    ? ordersResponse
+    : ordersResponse?.data && Array.isArray(ordersResponse.data)
+    ? ordersResponse.data
     : [];
 
+  const filteredOrders = rawOrders.filter((o: any) =>
+    o.customerName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    o.orderNumber?.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-7xl mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <Link href="/dashboard">

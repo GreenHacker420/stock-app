@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { useAuthStore } from "@/lib/auth/auth-store";
 import { apiRequest } from "@/lib/api/client";
@@ -11,28 +12,34 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
-import { Plus, Search, Receipt, ArrowLeft, RefreshCw, FileText } from "lucide-react";
+import { Plus, Search, Receipt, ArrowLeft, RefreshCw, FileText, ChevronRight } from "lucide-react";
 
 export default function SalesRegisterPage() {
-  const { token, activeShopId } = useAuthStore();
+  const router = useRouter();
+  const { token, shops, activeShopId } = useAuthStore();
   const [searchTerm, setSearchTerm] = useState("");
+  const currentShopId = activeShopId || (shops.length > 0 ? shops[0].id : "");
 
-  const { data: sales = [], isLoading, refetch } = useQuery({
-    queryKey: ["sales", activeShopId],
-    queryFn: () =>
-      apiRequest(`/sales?shopId=${activeShopId || ""}`, { token: token || undefined }),
-    enabled: !!token,
+  const { data: salesResponse, isLoading, refetch } = useQuery({
+    queryKey: ["sales", currentShopId],
+    queryFn: () => apiRequest(`/sales?shopId=${currentShopId}`, { token: token || undefined }),
+    enabled: !!token && !!currentShopId,
   });
 
-  const filteredSales = Array.isArray(sales)
-    ? sales.filter((s: any) =>
-        s.customerName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        s.invoiceNumber?.toLowerCase().includes(searchTerm.toLowerCase())
-      )
+  const rawSales = Array.isArray(salesResponse)
+    ? salesResponse
+    : salesResponse?.data && Array.isArray(salesResponse.data)
+    ? salesResponse.data
     : [];
 
+  const filteredSales = rawSales.filter((s: any) =>
+    s.invoiceNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    s.customerName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    s.customer?.name?.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-7xl mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <Link href="/dashboard">
@@ -42,7 +49,7 @@ export default function SalesRegisterPage() {
           </Link>
           <div>
             <h1 className="text-2xl font-black tracking-tight">Sales Register</h1>
-            <p className="text-xs text-muted-foreground">View and manage all sales transactions and invoices.</p>
+            <p className="text-xs text-muted-foreground">View and manage all sales transactions and invoices for active shop.</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -65,7 +72,7 @@ export default function SalesRegisterPage() {
           <div className="w-72 relative">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search customer or invoice..."
+              placeholder="Search customer or invoice number..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-9 h-9 text-xs"
@@ -83,7 +90,7 @@ export default function SalesRegisterPage() {
                   <TableHead className="text-xs text-right">Amount</TableHead>
                   <TableHead className="text-xs text-right">Payment Status</TableHead>
                   <TableHead className="text-xs text-center">GST</TableHead>
-                  <TableHead className="w-20 text-xs text-center">Actions</TableHead>
+                  <TableHead className="w-24 text-xs text-center">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -95,10 +102,18 @@ export default function SalesRegisterPage() {
                   </TableRow>
                 ) : filteredSales.length > 0 ? (
                   filteredSales.map((sale: any) => (
-                    <TableRow key={sale.id} className="hover:bg-muted/40 text-xs cursor-pointer">
-                      <TableCell className="font-bold text-primary">{sale.invoiceNumber || sale.id.slice(0, 8)}</TableCell>
-                      <TableCell>{formatDate(sale.saleDate || sale.createdAt)}</TableCell>
-                      <TableCell className="font-semibold">{sale.customerName || sale.customer?.name || "Walk-in"}</TableCell>
+                    <TableRow
+                      key={sale.id}
+                      onClick={() => router.push(`/sales/${sale.id}`)}
+                      className="hover:bg-indigo-50/50 dark:hover:bg-slate-800/50 text-xs cursor-pointer transition-colors group"
+                    >
+                      <TableCell className="font-bold text-primary group-hover:underline">
+                        {sale.invoiceNumber || sale.id.slice(0, 8)}
+                      </TableCell>
+                      <TableCell className="text-muted-foreground">{formatDate(sale.saleDate || sale.createdAt)}</TableCell>
+                      <TableCell className="font-semibold text-slate-900 dark:text-slate-100">
+                        {sale.customerName || sale.customer?.name || "Walk-in Customer"}
+                      </TableCell>
                       <TableCell className="text-right font-black">{formatINR(sale.totalAmount || sale.finalAmount)}</TableCell>
                       <TableCell className="text-right">
                         <Badge variant={sale.paymentStatus === "PAID" ? "default" : "secondary"} className="text-[10px]">
@@ -111,8 +126,10 @@ export default function SalesRegisterPage() {
                         </Badge>
                       </TableCell>
                       <TableCell className="text-center">
-                        <Button variant="ghost" size="icon" className="h-7 w-7">
+                        <Button variant="ghost" size="sm" className="h-7 text-[11px] font-bold text-primary gap-1">
                           <FileText className="h-3.5 w-3.5" />
+                          <span>View</span>
+                          <ChevronRight className="h-3 w-3" />
                         </Button>
                       </TableCell>
                     </TableRow>

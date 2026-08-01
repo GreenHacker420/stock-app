@@ -6,6 +6,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuthStore } from "@/lib/auth/auth-store";
 import { apiRequest } from "@/lib/api/client";
 import { formatINR, formatDate } from "@/lib/utils";
+import { printInvoiceDocument } from "@/lib/pdf/invoice-print";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -14,7 +15,8 @@ import { ArrowLeft, Printer, MessageSquare, Receipt } from "lucide-react";
 
 export default function SaleDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
-  const { token } = useAuthStore();
+  const { token, shops, activeShopId } = useAuthStore();
+  const selectedShop = shops.find((s) => s.id === activeShopId) || shops[0];
 
   const { data: sale, isLoading } = useQuery({
     queryKey: ["sale", id],
@@ -23,7 +25,9 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
   });
 
   const handlePrint = () => {
-    window.print();
+    if (sale) {
+      printInvoiceDocument(sale, selectedShop);
+    }
   };
 
   const handleWhatsApp = async () => {
@@ -44,7 +48,7 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-5xl mx-auto">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Link href="/sales">
@@ -54,7 +58,7 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
           </Link>
           <div>
             <h1 className="text-2xl font-black tracking-tight">Invoice #{sale?.invoiceNumber || id.slice(0, 8)}</h1>
-            <p className="text-xs text-muted-foreground">Sale Invoice Details & Print Preview</p>
+            <p className="text-xs text-muted-foreground">Sale Invoice Details & Standalone Print Document</p>
           </div>
         </div>
         <div className="flex items-center gap-2">

@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { useAuthStore } from "@/lib/auth/auth-store";
 import { apiRequest } from "@/lib/api/client";
@@ -11,27 +12,34 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
-import { Search, Users, ArrowLeft, RefreshCw, FileText } from "lucide-react";
+import { Search, Users, ArrowLeft, RefreshCw, FileText, ChevronRight } from "lucide-react";
 
 export default function CustomersPage() {
-  const { token, activeShopId } = useAuthStore();
+  const router = useRouter();
+  const { token, shops, activeShopId } = useAuthStore();
   const [searchTerm, setSearchTerm] = useState("");
+  const currentShopId = activeShopId || (shops.length > 0 ? shops[0].id : "");
 
-  const { data: customers = [], isLoading, refetch } = useQuery({
-    queryKey: ["customers", activeShopId],
-    queryFn: () => apiRequest(`/customers?shopId=${activeShopId || ""}`, { token: token || undefined }),
-    enabled: !!token,
+  const { data: customersResponse, isLoading, refetch } = useQuery({
+    queryKey: ["customers", currentShopId],
+    queryFn: () => apiRequest(`/customers?shopId=${currentShopId}`, { token: token || undefined }),
+    enabled: !!token && !!currentShopId,
   });
 
-  const filteredCustomers = Array.isArray(customers)
-    ? customers.filter((c: any) =>
-        c.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        c.phone?.toLowerCase().includes(searchTerm.toLowerCase())
-      )
+  const rawCustomers = Array.isArray(customersResponse)
+    ? customersResponse
+    : customersResponse?.data && Array.isArray(customersResponse.data)
+    ? customersResponse.data
     : [];
 
+  const filteredCustomers = rawCustomers.filter((c: any) =>
+    c.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    c.phone?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    c.gstin?.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-7xl mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <Link href="/dashboard">
@@ -41,7 +49,7 @@ export default function CustomersPage() {
           </Link>
           <div>
             <h1 className="text-2xl font-black tracking-tight">Customers & Ledgers</h1>
-            <p className="text-xs text-muted-foreground">Customer master directory, outstanding dues, and ledger history.</p>
+            <p className="text-xs text-muted-foreground">Click any row to open full customer ledger profile and transaction history.</p>
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -58,7 +66,7 @@ export default function CustomersPage() {
           <div className="w-72 relative">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search customer name or phone..."
+              placeholder="Search customer name, phone or GSTIN..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-9 h-9 text-xs"
@@ -75,7 +83,7 @@ export default function CustomersPage() {
                   <TableHead className="text-xs">GSTIN</TableHead>
                   <TableHead className="text-xs text-right">Credit Limit</TableHead>
                   <TableHead className="text-xs text-right">Outstanding Dues</TableHead>
-                  <TableHead className="w-20 text-xs text-center">Ledger</TableHead>
+                  <TableHead className="w-24 text-xs text-center">Ledger</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -86,26 +94,37 @@ export default function CustomersPage() {
                     </TableCell>
                   </TableRow>
                 ) : filteredCustomers.length > 0 ? (
-                  filteredCustomers.map((cust: any) => (
-                    <TableRow key={cust.id} className="hover:bg-muted/40 text-xs cursor-pointer">
-                      <TableCell className="font-bold text-slate-900 dark:text-slate-100">{cust.name}</TableCell>
-                      <TableCell className="font-mono text-muted-foreground">{cust.phone || "—"}</TableCell>
-                      <TableCell className="font-mono text-muted-foreground">{cust.gstin || "—"}</TableCell>
-                      <TableCell className="text-right font-semibold">{formatINR(cust.creditLimit)}</TableCell>
-                      <TableCell className="text-right font-black text-rose-600">
-                        {formatINR(cust.outstandingAmount)}
-                      </TableCell>
-                      <TableCell className="text-center">
-                        <Button variant="ghost" size="icon" className="h-7 w-7">
-                          <FileText className="h-3.5 w-3.5" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))
+                  filteredCustomers.map((cust: any) => {
+                    const dues = parseFloat(cust.outstandingAmount || "0");
+                    return (
+                      <TableRow
+                        key={cust.id}
+                        onClick={() => router.push(`/customers/${cust.id}`)}
+                        className="hover:bg-indigo-50/50 dark:hover:bg-slate-800/50 text-xs cursor-pointer transition-colors group"
+                      >
+                        <TableCell className="font-bold text-slate-900 dark:text-slate-100 group-hover:text-primary">
+                          {cust.name}
+                        </TableCell>
+                        <TableCell className="font-mono text-muted-foreground">{cust.phone || "—"}</TableCell>
+                        <TableCell className="font-mono text-muted-foreground">{cust.gstin || "—"}</TableCell>
+                        <TableCell className="text-right font-semibold">{formatINR(cust.creditLimit)}</TableCell>
+                        <TableCell className="text-right font-black text-rose-600">
+                          {formatINR(dues)}
+                        </TableCell>
+                        <TableCell className="text-center">
+                          <Button variant="ghost" size="sm" className="h-7 text-[11px] font-bold text-primary gap-1">
+                            <FileText className="h-3.5 w-3.5" />
+                            <span>View</span>
+                            <ChevronRight className="h-3 w-3" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })
                 ) : (
                   <TableRow>
                     <TableCell colSpan={6} className="text-center py-8 text-xs text-muted-foreground">
-                      No customers found.
+                      No customers found for this shop.
                     </TableCell>
                   </TableRow>
                 )}
