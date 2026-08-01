@@ -28,10 +28,18 @@ export const queryKeys = {
   items: {
     list: (shopId: string, filters?: Record<string, any>) =>
       ["items", shopId, filters] as const,
+    stock: (itemId: string) => ["items", "stock", itemId] as const,
+    rateSuggestion: (itemId: string, customerId: string) =>
+      ["items", "rate-suggestion", itemId, customerId] as const,
   },
   customers: {
     list: (shopId: string, search?: string) =>
       ["customers", shopId, search || "all"] as const,
     detail: (id: string) => ["customers", "detail", id] as const,
+    outstanding: (id: string) => ["customers", "outstanding", id] as const,
+  },
+  payments: {
+    list: (shopId: string) => ["payments", shopId] as const,
   },
 };
+

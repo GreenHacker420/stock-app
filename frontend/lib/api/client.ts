@@ -1,4 +1,5 @@
 import { env } from "../env";
+import type { CreateSalePayload, CreatedSale, CustomerSearchResult, ItemWithStock, ItemStockResult, RateSuggestion } from "@/features/sales/lib/sale-types";
 
 export const API_BASE_URL = env.NEXT_PUBLIC_API_URL;
 
@@ -245,4 +246,87 @@ export async function fetchStaffDashboardApi(
   const query = new URLSearchParams({ shopId: params.shopId });
   if (params.date) query.set("date", params.date);
   return apiRequest(`/dashboard/staff/today?${query.toString()}`, { token });
+}
+
+// ─── Sale API ─────────────────────────────────────────────────────────────────
+
+
+export async function createSaleApi(
+  token: string,
+  payload: CreateSalePayload,
+  idempotencyKey: string
+): Promise<CreatedSale> {
+  return apiRequest<CreatedSale>("/sales", {
+    method: "POST",
+    token,
+    body: payload,
+    headers: {
+      "Idempotency-Key": idempotencyKey,
+    },
+  });
+}
+
+
+export async function searchCustomersApi(
+  token: string,
+  params: {
+    shopId: string;
+    search?: string;
+    includeWalkin?: boolean;
+    page?: number;
+    limit?: number;
+  }
+): Promise<CustomerSearchResult[]> {
+  const q = new URLSearchParams({ shopId: params.shopId });
+  if (params.search) q.set("search", params.search);
+  if (params.includeWalkin) q.set("includeWalkin", "true");
+  if (params.page) q.set("page", String(params.page));
+  if (params.limit) q.set("limit", String(params.limit));
+  const res = await apiRequest<CustomerSearchResult[] | { data: CustomerSearchResult[] }>(
+    `/customers?${q.toString()}`,
+    { token }
+  );
+  // Handle both array and { data: [...] } shapes
+  return Array.isArray(res) ? res : ((res as any)?.data ?? []);
+}
+
+
+export async function searchItemsApi(
+  token: string,
+  params: {
+    shopId: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  }
+): Promise<ItemWithStock[]> {
+  const q = new URLSearchParams({ shopId: params.shopId });
+  if (params.search) q.set("search", params.search);
+  if (params.page) q.set("page", String(params.page));
+  if (params.limit) q.set("limit", String(params.limit));
+  const res = await apiRequest<ItemWithStock[] | { data: ItemWithStock[] }>(
+    `/items?${q.toString()}`,
+    { token }
+  );
+  return Array.isArray(res) ? res : ((res as any)?.data ?? []);
+}
+
+
+export async function getItemStockApi(
+  token: string,
+  itemId: string
+): Promise<ItemStockResult> {
+  return apiRequest<ItemStockResult>(`/items/${itemId}/stock`, { token });
+}
+
+export async function getRateSuggestionApi(
+  token: string,
+  itemId: string,
+  customerId: string
+): Promise<RateSuggestion> {
+  const q = new URLSearchParams({ customerId });
+  return apiRequest<RateSuggestion>(
+    `/items/${itemId}/customer-rate-suggestion?${q.toString()}`,
+    { token }
+  );
 }

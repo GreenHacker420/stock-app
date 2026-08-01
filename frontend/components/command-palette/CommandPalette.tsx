@@ -3,10 +3,12 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { CommandDialog, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem, CommandSeparator } from "@/components/ui/command";
+import { Badge } from "@/components/ui/badge";
 import { useAuthStore } from "@/lib/auth/auth-store";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions/permissions";
 import { useOS, formatShortcutForOS } from "@/lib/keyboard/os";
 import { useShortcut } from "@/components/keyboard/ShortcutProvider";
+import { getActionableFeatures } from "@/lib/features/feature-availability";
 import { LayoutDashboard, Receipt, ShoppingBag, Truck, CreditCard, Warehouse, Users, ReceiptIndianRupee, BarChart3, MessageSquare, Shield, Store } from "lucide-react";
 
 interface CommandPaletteProps {
@@ -55,12 +57,53 @@ export function CommandPalette({ open: externalOpen, onOpenChange: externalOnOpe
   ];
 
   const permittedNav = navItems.filter((item) => hasPermission(user, item.permission));
+  const actionableFeatures = getActionableFeatures();
+  const permittedActions = actionableFeatures.filter(
+    (f) => hasPermission(user, f.requiredPermission)
+  );
 
   return (
     <CommandDialog open={isOpen} onOpenChange={setOpen}>
       <CommandInput placeholder={`Search pages, actions or switch shop... (${formatShortcutForOS("alt+g", isMac)})`} aria-keyshortcuts="Alt+G" />
       <CommandList>
         <CommandEmpty>No results found.</CommandEmpty>
+
+        {/* Quick Actions — ENABLED and DISABLED shown, UNSUPPORTED hidden */}
+        <CommandGroup heading="Quick Actions">
+          {permittedActions.map((feature) => {
+            const isEnabled = feature.status === "ENABLED";
+            return (
+              <CommandItem
+                key={feature.id}
+                disabled={!isEnabled}
+                onSelect={() => {
+                  if (!isEnabled) return; // DISABLED: must not navigate
+                  setOpen(false);
+                  router.push(feature.route);
+                }}
+                className={isEnabled ? "cursor-pointer" : "cursor-not-allowed opacity-50"}
+              >
+                <span className="flex items-center gap-2 flex-1">
+                  <Receipt className="mr-2 h-4 w-4 text-muted-foreground" />
+                  <span>{feature.label}</span>
+                  {!isEnabled && (
+                    <Badge variant="outline" className="text-[9px] ml-auto border-amber-300 text-amber-700 dark:text-amber-400">
+                      Unavailable
+                    </Badge>
+                  )}
+                  {feature.shortcut && isEnabled && (
+                    <kbd className="ml-auto pointer-events-none inline-flex h-4 select-none items-center rounded border bg-muted/60 px-1 font-mono text-[9px] font-extrabold text-muted-foreground">
+                      {formatShortcutForOS(feature.shortcut, isMac)}
+                    </kbd>
+                  )}
+                </span>
+              </CommandItem>
+            );
+          })}
+        </CommandGroup>
+
+        <CommandSeparator />
+
         <CommandGroup heading="Navigation">
           {permittedNav.map((item) => {
             const IconComp = item.icon;
@@ -72,6 +115,7 @@ export function CommandPalette({ open: externalOpen, onOpenChange: externalOnOpe
             );
           })}
         </CommandGroup>
+
         {user?.role === "OWNER" && shops.length > 1 && (
           <>
             <CommandSeparator />
