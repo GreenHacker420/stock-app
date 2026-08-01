@@ -608,22 +608,6 @@ function getPeriodKey(dateObj, granularity) {
 
 export async function getOwnerDashboardAnalytics(user, { shopId, dateFrom, dateTo, granularity = "AUTO", topLimit = 5 }) {
   if (shopId) await assertShopAccess(user, shopId);
-  const ownedShopIds = shopId
-    ? [shopId]
-    : (await prisma.shop.findMany({ where: { ownerId: user.id }, select: { id: true } })).map((shop) => shop.id);
-
-  if (ownedShopIds.length === 0) {
-    return {
-      range: { dateFrom, dateTo, granularity: "DAY", timezone: "Asia/Kolkata" },
-      totals: { salesAmount: 0, invoiceCount: 0, expensesAmount: 0, salesLessRecordedExpenses: 0, collectedAmount: 0 },
-      salesTrend: [],
-      paymentMix: [],
-      orderStatus: [],
-      topItems: [],
-      topCustomers: [],
-      customerTrend: [],
-    };
-  }
 
   const start = new Date(`${dateFrom}T00:00:00.000+05:30`);
   const end = new Date(`${dateTo}T23:59:59.999+05:30`);
@@ -639,6 +623,23 @@ export async function getOwnerDashboardAnalytics(user, { shopId, dateFrom, dateT
   const diffDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
   if (diffDays > 366) {
     throw new ApiError(400, "Maximum permitted range is 366 days");
+  }
+
+  const ownedShopIds = shopId
+    ? [shopId]
+    : (await prisma.shop.findMany({ where: { ownerId: user.id }, select: { id: true } })).map((shop) => shop.id);
+
+  if (ownedShopIds.length === 0) {
+    return {
+      range: { dateFrom, dateTo, granularity: "DAY", timezone: "Asia/Kolkata" },
+      totals: { salesAmount: 0, invoiceCount: 0, expensesAmount: 0, salesLessRecordedExpenses: 0, collectedAmount: 0 },
+      salesTrend: [],
+      paymentMix: [],
+      orderStatus: [],
+      topItems: [],
+      topCustomers: [],
+      customerTrend: [],
+    };
   }
 
   let effectiveGranularity = granularity;
