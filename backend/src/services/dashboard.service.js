@@ -589,3 +589,234 @@ export async function bulkDeleteOrphanedAssets(user, { shopId }) {
 
   return { success: true, count: deletedCount, sizeBytesFreed };
 }
+
+function getPeriodKey(dateObj, granularity) {
+  const d = new Date(dateObj);
+  if (granularity === "MONTH") {
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    return `${yyyy}-${mm}`;
+  }
+  if (granularity === "WEEK") {
+    const day = d.getDay();
+    const diffToMon = d.getDate() - day + (day === 0 ? -6 : 1);
+    const mon = new Date(d.setDate(diffToMon));
+    return mon.toISOString().slice(0, 10);
+  }
+  return d.toISOString().slice(0, 10);
+}
+
+export async function getOwnerDashboardAnalytics(user, { shopId, dateFrom, dateTo, granularity = "AUTO", topLimit = 5 }) {
+  if (shopId) await assertShopAccess(user, shopId);
+  const ownedShopIds = shopId
+    ? [shopId]
+    : (await prisma.shop.findMany({ where: { ownerId: user.id }, select: { id: true } })).map((shop) => shop.id);
+
+  if (ownedShopIds.length === 0) {
+    return {
+      range: { dateFrom, dateTo, granularity: "DAY", timezone: "Asia/Kolkata" },
+      totals: { salesAmount: 0, invoiceCount: 0, expensesAmount: 0, salesLessRecordedExpenses: 0, collectedAmount: 0 },
+      salesTrend: [],
+      paymentMix: [],
+      orderStatus: [],
+      topItems: [],
+      topCustomers: [],
+      customerTrend: [],
+    };
+  }
+
+  const start = new Date(`${dateFrom}T00:00:00.000+05:30`);
+  const end = new Date(`${dateTo}T23:59:59.999+05:30`);
+
+  if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+    throw new ApiError(400, "Invalid date format. Expected YYYY-MM-DD");
+  }
+
+  if (start > end) {
+    throw new ApiError(400, "dateFrom cannot be after dateTo");
+  }
+
+  const diffDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+  if (diffDays > 366) {
+    throw new ApiError(400, "Maximum permitted range is 366 days");
+  }
+
+  let effectiveGranularity = granularity;
+  if (!effectiveGranularity || effectiveGranularity === "AUTO") {
+    if (diffDays <= 31) effectiveGranularity = "DAY";
+    else if (diffDays <= 120) effectiveGranularity = "WEEK";
+    else effectiveGranularity = "MONTH";
+  }
+
+  const limit = Math.max(3, Math.min(Number(topLimit) || 5, 10));
+  const whereShop = { shopId: { in: ownedShopIds } };
+
+  const [
+    sales,
+    expenses,
+    paymentsRaw,
+    ordersRaw,
+    saleItemsRaw,
+    topCustomersRaw,
+    newCustomersRaw
+  ] = await Promise.all([
+    prisma.sale.findMany({
+      where: { ...whereShop, saleStatus: { not: "CANCELLED" }, saleDate: { gte: start, lte: end } },
+      select: { id: true, totalAmount: true, saleDate: true }
+    }),
+    prisma.expense.findMany({
+      where: { ...whereShop, createdAt: { gte: start, lte: end } },
+      select: { id: true, amount: true, createdAt: true }
+    }),
+    prisma.payment.groupBy({
+      by: ["paymentMode"],
+      where: { ...whereShop, status: { notIn: ["CANCELLED", "REJECTED"] }, receivedAt: { gte: start, lte: end } },
+      _sum: { amount: true },
+      _count: { id: true },
+    }),
+    prisma.order.groupBy({
+      by: ["status"],
+      where: { ...whereShop, createdAt: { gte: start, lte: end } },
+      _count: { id: true },
+    }),
+    prisma.saleItem.findMany({
+      where: {
+        sale: { ...whereShop, saleStatus: { not: "CANCELLED" }, saleDate: { gte: start, lte: end } }
+      },
+      select: {
+        itemId: true,
+        quantity: true,
+        totalAmount: true,
+        item: { select: { id: true, name: true } }
+      }
+    }),
+    prisma.sale.groupBy({
+      by: ["customerId"],
+      where: { ...whereShop, saleStatus: { not: "CANCELLED" }, isWalkin: false, saleDate: { gte: start, lte: end } },
+      _sum: { totalAmount: true },
+      _count: { id: true },
+      orderBy: { _sum: { totalAmount: "desc" } },
+      take: limit
+    }),
+    prisma.customer.findMany({
+      where: { ...whereShop, type: { not: "WALK_IN" }, createdAt: { gte: start, lte: end } },
+      select: { createdAt: true }
+    })
+  ]);
+
+  // Aggregate Sales Trend & Expenses Trend by Period
+  const trendMap = new Map();
+
+  sales.forEach((s) => {
+    const key = getPeriodKey(s.saleDate, effectiveGranularity);
+    const current = trendMap.get(key) || { period: key, salesAmount: 0, expensesAmount: 0, invoiceCount: 0 };
+    current.salesAmount += Number(s.totalAmount || 0);
+    current.invoiceCount += 1;
+    trendMap.set(key, current);
+  });
+
+  expenses.forEach((e) => {
+    const key = getPeriodKey(e.createdAt, effectiveGranularity);
+    const current = trendMap.get(key) || { period: key, salesAmount: 0, expensesAmount: 0, invoiceCount: 0 };
+    current.expensesAmount += Number(e.amount || 0);
+    trendMap.set(key, current);
+  });
+
+  const salesTrend = Array.from(trendMap.values())
+    .sort((a, b) => a.period.localeCompare(b.period))
+    .map((item) => ({
+      ...item,
+      salesAmount: Number(item.salesAmount.toFixed(2)),
+      expensesAmount: Number(item.expensesAmount.toFixed(2)),
+      salesLessRecordedExpenses: Number((item.salesAmount - item.expensesAmount).toFixed(2)),
+    }));
+
+  // Aggregate Customer Trend
+  const custTrendMap = new Map();
+  newCustomersRaw.forEach((c) => {
+    const key = getPeriodKey(c.createdAt, effectiveGranularity);
+    custTrendMap.set(key, (custTrendMap.get(key) || 0) + 1);
+  });
+
+  const customerTrend = Array.from(custTrendMap.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([period, newCustomers]) => ({ period, newCustomers }));
+
+  // Aggregate Payment Mix
+  const paymentMix = paymentsRaw.map((p) => ({
+    paymentMode: p.paymentMode,
+    amount: Number((p._sum.amount || 0).toFixed(2)),
+    paymentCount: p._count.id,
+  }));
+
+  // Aggregate Order Status
+  const orderStatus = ordersRaw.map((o) => ({
+    status: o.status,
+    count: o._count.id,
+  }));
+
+  // Aggregate Top Items
+  const itemAggMap = new Map();
+  saleItemsRaw.forEach((si) => {
+    const current = itemAggMap.get(si.itemId) || {
+      itemId: si.itemId,
+      itemName: si.item?.name || "Unknown Item",
+      quantitySold: 0,
+      revenue: 0,
+    };
+    current.quantitySold += Number(si.quantity || 0);
+    current.revenue += Number(si.totalAmount || 0);
+    itemAggMap.set(si.itemId, current);
+  });
+
+  const topItems = Array.from(itemAggMap.values())
+    .sort((a, b) => b.revenue - a.revenue)
+    .slice(0, limit)
+    .map((it) => ({
+      ...it,
+      quantitySold: Number(it.quantitySold.toFixed(3)),
+      revenue: Number(it.revenue.toFixed(2)),
+    }));
+
+  // Aggregate Top Customers
+  const customerIds = topCustomersRaw.map((tc) => tc.customerId).filter(Boolean);
+  const customerDetails = await prisma.customer.findMany({
+    where: { id: { in: customerIds } },
+    select: { id: true, name: true }
+  });
+  const customerNameMap = new Map(customerDetails.map((c) => [c.id, c.name]));
+
+  const topCustomers = topCustomersRaw.map((tc) => ({
+    customerId: tc.customerId,
+    customerName: customerNameMap.get(tc.customerId) || "Unknown Customer",
+    invoiceCount: tc._count.id,
+    salesAmount: Number((tc._sum.totalAmount || 0).toFixed(2)),
+  }));
+
+  // Calculate Totals
+  const totalSalesAmount = sales.reduce((sum, s) => sum + Number(s.totalAmount || 0), 0);
+  const totalExpensesAmount = expenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
+  const totalCollectedAmount = paymentMix.reduce((sum, p) => sum + p.amount, 0);
+
+  return {
+    range: {
+      dateFrom,
+      dateTo,
+      granularity: effectiveGranularity,
+      timezone: "Asia/Kolkata",
+    },
+    totals: {
+      salesAmount: Number(totalSalesAmount.toFixed(2)),
+      invoiceCount: sales.length,
+      expensesAmount: Number(totalExpensesAmount.toFixed(2)),
+      salesLessRecordedExpenses: Number((totalSalesAmount - totalExpensesAmount).toFixed(2)),
+      collectedAmount: Number(totalCollectedAmount.toFixed(2)),
+    },
+    salesTrend,
+    paymentMix,
+    orderStatus,
+    topItems,
+    topCustomers,
+    customerTrend,
+  };
+}

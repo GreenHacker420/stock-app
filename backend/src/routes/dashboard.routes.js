@@ -17,6 +17,18 @@ const querySchema = z.object({
   body: z.object({}).optional(),
 });
 
+const analyticsQuerySchema = z.object({
+  query: z.object({
+    shopId: z.string().optional(),
+    dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid dateFrom format (YYYY-MM-DD)"),
+    dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid dateTo format (YYYY-MM-DD)"),
+    granularity: z.enum(["AUTO", "DAY", "WEEK", "MONTH"]).optional(),
+    topLimit: z.string().optional(),
+  }),
+  params: z.object({}).optional(),
+  body: z.object({}).optional(),
+});
+
 const staffQuerySchema = z.object({
   query: z.object({
     shopId: z.string().min(1),
@@ -64,6 +76,7 @@ const bulkDeleteOrphansSchema = z.object({
 router.use(requireAuth);
 
 router.get("/owner", requireOwner, validate(querySchema), dashboardController.ownerDashboard);
+router.get("/owner/analytics", requireOwner, validate(analyticsQuerySchema), dashboardController.ownerAnalytics);
 router.get("/staff/today", requirePermission(PERMISSIONS.SALE_VIEW_OWN), validate(staffQuerySchema), dashboardController.staffTodaySummary);
 router.get("/storage/objects", requireOwner, validate(storageQuerySchema), dashboardController.listStorageObjects);
 router.delete("/storage/objects/:id", requireOwner, validate(deleteStorageSchema), dashboardController.deleteStorageObject);

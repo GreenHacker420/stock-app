@@ -25,3 +25,8 @@ export const bulkDeleteOrphans = asyncHandler(async (req, res) => {
   const result = await dashboardService.bulkDeleteOrphanedAssets(req.user, req.body);
   res.json({ success: true, ...result });
 });
+
+export const ownerAnalytics = asyncHandler(async (req, res) => {
+  const analytics = await dashboardService.getOwnerDashboardAnalytics(req.user, req.validated.query);
+  res.json({ success: true, data: analytics });
+});
