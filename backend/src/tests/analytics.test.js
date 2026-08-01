@@ -12,7 +12,7 @@ test("getOwnerDashboardAnalytics - validation and aggregation tests", async (t) 
           dateTo: "2026-08-01",
         });
       },
-      (err) => err.status === 400 && err.message.includes("dateFrom cannot be after dateTo")
+      { name: "ApiError", status: 400, message: "dateFrom cannot be after dateTo" }
     );
   });
 
@@ -25,7 +25,7 @@ test("getOwnerDashboardAnalytics - validation and aggregation tests", async (t) 
           dateTo: "2026-08-01",
         });
       },
-      (err) => err.status === 400 && err.message.includes("366 days")
+      { name: "ApiError", status: 400, message: "Maximum permitted range is 366 days" }
     );
   });
 
