@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { CommandDialog, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem, CommandSeparator } from "@/components/ui/command";
 import { useAuthStore } from "@/lib/auth/auth-store";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions/permissions";
+import { useOS, formatShortcutForOS } from "@/lib/keyboard/os";
 import { LayoutDashboard, Receipt, ShoppingBag, Truck, CreditCard, Warehouse, Users, ReceiptIndianRupee, BarChart3, MessageSquare, Shield, Store } from "lucide-react";
 
 interface CommandPaletteProps {
@@ -55,9 +56,11 @@ export function CommandPalette({ open: externalOpen, onOpenChange: externalOnOpe
 
   const permittedNav = navItems.filter((item) => hasPermission(user, item.permission));
 
+  const { isMac } = useOS();
+
   return (
     <CommandDialog open={isOpen} onOpenChange={setOpen}>
-      <CommandInput placeholder="Search pages, actions or switch shop... (Alt+G)" />
+      <CommandInput placeholder={`Search pages, actions or switch shop... (${formatShortcutForOS("alt+g", isMac)})`} />
       <CommandList>
         <CommandEmpty>No results found.</CommandEmpty>
         <CommandGroup heading="Navigation">
