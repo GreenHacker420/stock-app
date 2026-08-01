@@ -1,26 +1,28 @@
 "use client";
 
 import Link from "next/link";
+import { useQuery } from "@tanstack/react-query";
 import { useAuthStore } from "@/lib/auth/auth-store";
+import { apiRequest } from "@/lib/api/client";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "@/components/ui/table";
-import { ArrowLeft, Shield, Store, Users, Key, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, Store, Users } from "lucide-react";
 
 export default function AdministrationPage() {
-  const { user, shops } = useAuthStore();
+  const { token, user, shops } = useAuthStore();
 
-  const staffMembers = user
-    ? [
-        {
-          id: user.id || "1",
-          name: user.name,
-          mobile: user.mobile,
-          role: user.role || "OWNER",
-          status: "ACTIVE",
-        },
-      ]
+  const { data: fetchedStaff = [], isLoading } = useQuery({
+    queryKey: ["staff"],
+    queryFn: () => apiRequest("/auth/staff", { token: token || undefined }),
+    enabled: !!token,
+  });
+
+  const rawStaff = Array.isArray(fetchedStaff) && fetchedStaff.length > 0
+    ? fetchedStaff
+    : user
+    ? [{ id: user.id || "1", name: user.name, mobile: user.mobile, role: user.role || "OWNER" }]
     : [];
 
   return (
@@ -43,7 +45,7 @@ export default function AdministrationPage() {
           <CardHeader>
             <CardTitle className="text-sm font-bold flex items-center gap-2">
               <Store className="h-4 w-4 text-primary" />
-              <span>Configured Outlets & Outlets</span>
+              <span>Configured Outlets & Shops</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -68,7 +70,7 @@ export default function AdministrationPage() {
           <CardHeader>
             <CardTitle className="text-sm font-bold flex items-center gap-2">
               <Users className="h-4 w-4 text-primary" />
-              <span>Active Staff Accounts & Roles</span>
+              <span>Staff Accounts & Roles</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -82,8 +84,14 @@ export default function AdministrationPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {staffMembers.length > 0 ? (
-                    staffMembers.map((st: any) => (
+                  {isLoading ? (
+                    <TableRow>
+                      <TableCell colSpan={3} className="text-center py-6 text-xs text-muted-foreground">
+                        Loading staff list...
+                      </TableCell>
+                    </TableRow>
+                  ) : rawStaff.length > 0 ? (
+                    rawStaff.map((st: any) => (
                       <TableRow key={st.id} className="text-xs">
                         <TableCell className="font-bold text-slate-900 dark:text-slate-100">{st.name}</TableCell>
                         <TableCell className="font-mono text-muted-foreground">{st.mobile}</TableCell>
@@ -97,7 +105,7 @@ export default function AdministrationPage() {
                   ) : (
                     <TableRow>
                       <TableCell colSpan={3} className="text-center py-6 text-xs text-muted-foreground">
-                        No active staff members logged in.
+                        No staff members found.
                       </TableCell>
                     </TableRow>
                   )}
