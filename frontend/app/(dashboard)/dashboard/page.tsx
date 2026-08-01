@@ -5,10 +5,11 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuthStore } from "@/lib/auth/auth-store";
 import { fetchOwnerDashboardApi, fetchStaffDashboardApi } from "@/lib/api/client";
 import { formatINR } from "@/lib/utils";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Separator } from "@/components/ui/separator";
 import {
   TrendingUp,
   Receipt,
@@ -22,7 +23,9 @@ import {
   ShoppingBag,
   Truck,
   Building,
+  BarChart2,
 } from "lucide-react";
+import { DashboardAnalyticsSection } from "@/features/dashboard/components/DashboardAnalyticsSection";
 
 export default function DashboardPage() {
   const { token, activeShopId, user, startDate } = useAuthStore();
@@ -100,7 +103,7 @@ export default function DashboardPage() {
   }
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
+    <div className="space-y-8 max-w-7xl mx-auto">
       {/* Header Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -149,7 +152,7 @@ export default function DashboardPage() {
 
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-xs font-medium">Collections & Cash</CardTitle>
+                <CardTitle className="text-xs font-medium">Collections &amp; Cash</CardTitle>
                 <CreditCard className="h-4 w-4 text-indigo-600" />
               </CardHeader>
               <CardContent>
@@ -270,6 +273,19 @@ export default function DashboardPage() {
               </CardContent>
             </Card>
           </div>
+
+          {/* Analytics Section Divider */}
+          <div className="flex items-center gap-3 py-2">
+            <Separator className="flex-1" />
+            <div className="flex items-center gap-2 text-xs font-bold text-muted-foreground tracking-widest uppercase px-2">
+              <BarChart2 className="h-3.5 w-3.5" />
+              <span>Owner Analytics &amp; Trends</span>
+            </div>
+            <Separator className="flex-1" />
+          </div>
+
+          {/* Analytics Charts */}
+          <DashboardAnalyticsSection />
         </div>
       )}
 
@@ -302,7 +318,7 @@ export default function DashboardPage() {
 
             <Card>
               <CardHeader className="pb-2">
-                <CardTitle className="text-xs font-medium">Orders Packed & Dispatched</CardTitle>
+                <CardTitle className="text-xs font-medium">Orders Packed &amp; Dispatched</CardTitle>
               </CardHeader>
               <CardContent>
                 <div className="text-xl font-bold">{staffData.ordersPacked} / {staffData.ordersDispatched}</div>

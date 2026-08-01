@@ -8,6 +8,8 @@ export const queryKeys = {
   dashboard: {
     owner: (shopId?: string | null, date?: string) =>
       ["dashboard", "owner", shopId || "all", date || "today"] as const,
+    ownerAnalytics: (params: { shopId?: string; dateFrom: string; dateTo: string; granularity?: string; topLimit?: number }) =>
+      ["dashboard", "owner-analytics", params.shopId || "all", params.dateFrom, params.dateTo, params.granularity || "AUTO", params.topLimit || 5] as const,
     staff: (shopId: string, date?: string) =>
       ["dashboard", "staff", shopId, date || "today"] as const,
   },
