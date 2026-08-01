@@ -18,7 +18,7 @@ export default function OrdersPage() {
   const [searchTerm, setSearchTerm] = useState("");
   const currentShopId = activeShopId || (shops.length > 0 ? shops[0].id : "");
 
-  const { data: ordersResponse = [], isLoading, refetch } = useQuery({
+  const { data: ordersResponse, isLoading, refetch } = useQuery({
     queryKey: ["orders", currentShopId],
     queryFn: () => apiRequest(`/orders?shopId=${currentShopId}`, { token: token || undefined }),
     enabled: !!token && !!currentShopId,
@@ -26,12 +26,17 @@ export default function OrdersPage() {
 
   const rawOrders = Array.isArray(ordersResponse)
     ? ordersResponse
+    : ordersResponse?.orders && Array.isArray(ordersResponse.orders)
+    ? ordersResponse.orders
     : ordersResponse?.data && Array.isArray(ordersResponse.data)
     ? ordersResponse.data
+    : ordersResponse?.data?.orders && Array.isArray(ordersResponse.data.orders)
+    ? ordersResponse.data.orders
     : [];
 
   const filteredOrders = rawOrders.filter((o: any) =>
     o.customerName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    o.customer?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
     o.orderNumber?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 

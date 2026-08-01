@@ -14,24 +14,36 @@ import { Input } from "@/components/ui/input";
 import { Plus, Search, Truck, ArrowLeft, RefreshCw } from "lucide-react";
 
 export default function DeliveryMemosPage() {
-  const { token, activeShopId } = useAuthStore();
+  const { token, shops, activeShopId } = useAuthStore();
   const [searchTerm, setSearchTerm] = useState("");
+  const currentShopId = activeShopId || (shops.length > 0 ? shops[0].id : "");
 
-  const { data: dms = [], isLoading, refetch } = useQuery({
-    queryKey: ["delivery-memos", activeShopId],
-    queryFn: () => apiRequest(`/delivery-memos?shopId=${activeShopId || ""}`, { token: token || undefined }),
-    enabled: !!token,
+  const { data: dmsResponse, isLoading, refetch } = useQuery({
+    queryKey: ["delivery-memos", currentShopId],
+    queryFn: () => apiRequest(`/delivery-memos?shopId=${currentShopId}`, { token: token || undefined }),
+    enabled: !!token && !!currentShopId,
   });
 
-  const filteredDms = Array.isArray(dms)
-    ? dms.filter((d: any) =>
-        d.customerName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        d.memoNumber?.toLowerCase().includes(searchTerm.toLowerCase())
-      )
+  const rawDms = Array.isArray(dmsResponse)
+    ? dmsResponse
+    : dmsResponse?.deliveryMemos && Array.isArray(dmsResponse.deliveryMemos)
+    ? dmsResponse.deliveryMemos
+    : dmsResponse?.memos && Array.isArray(dmsResponse.memos)
+    ? dmsResponse.memos
+    : dmsResponse?.data && Array.isArray(dmsResponse.data)
+    ? dmsResponse.data
+    : dmsResponse?.data?.deliveryMemos && Array.isArray(dmsResponse.data.deliveryMemos)
+    ? dmsResponse.data.deliveryMemos
     : [];
 
+  const filteredDms = rawDms.filter((d: any) =>
+    d.customerName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    d.customer?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    d.memoNumber?.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-7xl mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <Link href="/dashboard">

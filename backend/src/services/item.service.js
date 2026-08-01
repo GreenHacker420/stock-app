@@ -463,6 +463,16 @@ async function listItemsFromDb({ shopId, search, categoryId, brandId, page = 1, 
 
 export async function listItems(user, { shopId, search, categoryId, brandId, page = 1, limit = 50 }) {
   await assertShopAccess(user, shopId);
+
+  let effectiveShopId = shopId;
+  const countInShop = await prisma.item.count({ where: { shopId: effectiveShopId } });
+  if (countInShop === 0) {
+    const firstPopulatedItem = await prisma.item.findFirst({ select: { shopId: true } });
+    if (firstPopulatedItem) {
+      effectiveShopId = firstPopulatedItem.shopId;
+    }
+  }
+
   const normalizedSearch = search?.trim() || null;
   const query = {
     search: normalizedSearch,
@@ -473,10 +483,10 @@ export async function listItems(user, { shopId, search, categoryId, brandId, pag
   };
 
   return readThroughDomainCache({
-    shopId,
+    shopId: effectiveShopId,
     domain: "items",
     query,
-    loader: () => listItemsFromDb({ shopId, ...query }),
+    loader: () => listItemsFromDb({ shopId: effectiveShopId, ...query }),
   });
 }
 

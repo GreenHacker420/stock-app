@@ -14,24 +14,34 @@ import { Input } from "@/components/ui/input";
 import { Plus, Search, CreditCard, ArrowLeft, RefreshCw } from "lucide-react";
 
 export default function PaymentsPage() {
-  const { token, activeShopId } = useAuthStore();
+  const { token, shops, activeShopId } = useAuthStore();
   const [searchTerm, setSearchTerm] = useState("");
+  const currentShopId = activeShopId || (shops.length > 0 ? shops[0].id : "");
 
-  const { data: payments = [], isLoading, refetch } = useQuery({
-    queryKey: ["payments", activeShopId],
-    queryFn: () => apiRequest(`/payments?shopId=${activeShopId || ""}`, { token: token || undefined }),
-    enabled: !!token,
+  const { data: paymentsResponse, isLoading, refetch } = useQuery({
+    queryKey: ["payments", currentShopId],
+    queryFn: () => apiRequest(`/payments?shopId=${currentShopId}`, { token: token || undefined }),
+    enabled: !!token && !!currentShopId,
   });
 
-  const filteredPayments = Array.isArray(payments)
-    ? payments.filter((p: any) =>
-        p.customerName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.referenceNumber?.toLowerCase().includes(searchTerm.toLowerCase())
-      )
+  const rawPayments = Array.isArray(paymentsResponse)
+    ? paymentsResponse
+    : paymentsResponse?.payments && Array.isArray(paymentsResponse.payments)
+    ? paymentsResponse.payments
+    : paymentsResponse?.data && Array.isArray(paymentsResponse.data)
+    ? paymentsResponse.data
+    : paymentsResponse?.data?.payments && Array.isArray(paymentsResponse.data.payments)
+    ? paymentsResponse.data.payments
     : [];
 
+  const filteredPayments = rawPayments.filter((p: any) =>
+    p.customerName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    p.customer?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    p.referenceNumber?.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-7xl mx-auto">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <Link href="/dashboard">
@@ -94,14 +104,14 @@ export default function PaymentsPage() {
                 ) : filteredPayments.length > 0 ? (
                   filteredPayments.map((p: any) => (
                     <TableRow key={p.id} className="hover:bg-muted/40 text-xs cursor-pointer">
-                      <TableCell>{formatDate(p.paymentDate || p.createdAt)}</TableCell>
+                      <TableCell>{formatDate(p.receivedAt || p.paymentDate || p.createdAt)}</TableCell>
                       <TableCell className="font-semibold">{p.customerName || p.customer?.name || "Customer"}</TableCell>
                       <TableCell>
                         <Badge variant="outline" className="text-[10px] font-mono">
                           {p.paymentMode}
                         </Badge>
                       </TableCell>
-                      <TableCell className="font-mono text-muted-foreground">{p.referenceNumber || "—"}</TableCell>
+                      <TableCell className="font-mono text-muted-foreground">{p.referenceNumber || p.details?.upiReference || p.details?.bankUtr || "—"}</TableCell>
                       <TableCell className="text-right font-black text-emerald-600">{formatINR(p.amount)}</TableCell>
                       <TableCell className="text-center">
                         <Badge variant={p.status === "VERIFIED" ? "default" : "secondary"} className="text-[10px]">

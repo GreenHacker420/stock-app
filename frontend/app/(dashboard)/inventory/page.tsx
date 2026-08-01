@@ -29,8 +29,12 @@ function InventoryContent() {
 
   const rawItems = Array.isArray(itemsResponse)
     ? itemsResponse
+    : itemsResponse?.items && Array.isArray(itemsResponse.items)
+    ? itemsResponse.items
     : itemsResponse?.data && Array.isArray(itemsResponse.data)
     ? itemsResponse.data
+    : itemsResponse?.data?.items && Array.isArray(itemsResponse.data.items)
+    ? itemsResponse.data.items
     : [];
 
   const filteredItems = rawItems.filter((item: any) => {
