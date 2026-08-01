@@ -4,6 +4,8 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { useFormContext } from "react-hook-form";
 import { useAuthStore } from "@/lib/auth/auth-store";
 import { useCustomerSearchQuery } from "../api/sale.queries";
+import { useTransactionField } from "@/components/keyboard/useTransactionField";
+import { ComboboxKeyboardController } from "@/components/keyboard/ComboboxKeyboardController";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -32,8 +34,16 @@ export function SaleCustomerSelector() {
 
   const [searchInput, setSearchInput] = useState("");
   const [dropdownOpen, setDropdownOpen] = useState(false);
-  const debouncedSearch = useDebounce(searchInput, 300);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const debouncedSearch = useDebounce(searchInput, 250);
+
+  const controllerRef = useRef(new ComboboxKeyboardController());
+  const listboxId = "customer-search-listbox";
+
+  // Register with FocusRegistry
+  const { setRef: setSearchRef } = useTransactionField<HTMLInputElement>({
+    id: "sale.customer.search",
+    zoneId: "CUSTOMER_SEARCH",
+  });
 
   const { data: customers = [], isLoading } = useCustomerSearchQuery({
     token,
@@ -41,6 +51,15 @@ export function SaleCustomerSelector() {
     search: debouncedSearch,
     enabled: dropdownOpen && customerMode === "existing",
   });
+
+  useEffect(() => {
+    const items = customers.map((c) => ({ id: c.id, label: c.name, data: c }));
+    controllerRef.current.setItems(items);
+  }, [customers]);
+
+  useEffect(() => {
+    controllerRef.current.setOpen(dropdownOpen);
+  }, [dropdownOpen]);
 
   const handleSelectMode = (mode: CustomerMode) => {
     setValue("customerMode", mode, { shouldDirty: true });
@@ -50,11 +69,7 @@ export function SaleCustomerSelector() {
     setValue("customerEmail", "");
     setSearchInput("");
     setDropdownOpen(mode === "existing");
-    if (mode === "walkin") {
-      setValue("isWalkin", true);
-    } else {
-      setValue("isWalkin", false);
-    }
+    setValue("isWalkin", mode === "walkin");
   };
 
   const handleSelectCustomer = useCallback((c: { id: string; name: string; phone: string | null; outstandingAmount?: string | null }) => {
@@ -70,8 +85,22 @@ export function SaleCustomerSelector() {
     setValue("customerName", "");
     setSearchInput("");
     setDropdownOpen(true);
-    setTimeout(() => inputRef.current?.focus(), 50);
   };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    const res = controllerRef.current.handleKeyDown(e.nativeEvent);
+    if (res.handled) {
+      if (res.action === "SELECT") {
+        const item = controllerRef.current.getActiveItem();
+        if (item) {
+          handleSelectCustomer(item.data);
+        }
+      }
+    }
+  };
+
+  const activeIndex = controllerRef.current.getActiveIndex();
+  const activeItemId = activeIndex >= 0 && customers[activeIndex] ? `customer-opt-${customers[activeIndex].id}` : undefined;
 
   return (
     <div className="space-y-3">
@@ -80,7 +109,7 @@ export function SaleCustomerSelector() {
         <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1.5 block">
           Customer
         </label>
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap" role="toolbar" aria-label="Customer Mode Selection">
           <Button
             type="button"
             size="sm"
@@ -139,21 +168,32 @@ export function SaleCustomerSelector() {
             <div className="relative">
               <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
               <Input
-                ref={inputRef}
+                ref={setSearchRef}
                 placeholder="Search customer by name or phone (F4)..."
                 value={searchInput}
                 onChange={(e) => {
                   setSearchInput(e.target.value);
                   setDropdownOpen(true);
                 }}
-                onFocus={() => setSearchInput(searchInput)}
+                onKeyDown={handleKeyDown}
+                onFocus={() => setDropdownOpen(true)}
                 className="pl-8 h-9 text-xs"
+                role="combobox"
+                aria-expanded={dropdownOpen}
+                aria-haspopup="listbox"
+                aria-controls={listboxId}
+                aria-activedescendant={activeItemId}
                 aria-label="Customer search"
                 aria-keyshortcuts="F4"
                 autoComplete="off"
               />
               {dropdownOpen && (
-                <div className="absolute top-full left-0 right-0 z-50 mt-1 border rounded-md bg-popover shadow-md max-h-56 overflow-y-auto">
+                <div
+                  id={listboxId}
+                  role="listbox"
+                  aria-label="Customer suggestions"
+                  className="absolute top-full left-0 right-0 z-50 mt-1 border rounded-md bg-popover shadow-md max-h-56 overflow-y-auto"
+                >
                   {isLoading ? (
                     <div className="p-2 space-y-1.5">
                       <Skeleton className="h-8 w-full" />
@@ -164,26 +204,35 @@ export function SaleCustomerSelector() {
                       {debouncedSearch ? `No customers found for "${debouncedSearch}"` : "Start typing to search customers"}
                     </p>
                   ) : (
-                    customers.map((c) => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onClick={() => handleSelectCustomer(c)}
-                        className="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-accent transition-colors text-xs"
-                      >
-                        <div>
-                          <div className="font-semibold">{c.name}</div>
-                          <div className="text-muted-foreground text-[10px]">
-                            {c.phone || "No phone"} · {c.type}
+                    customers.map((c, idx) => {
+                      const isHighlighted = idx === activeIndex;
+                      return (
+                        <button
+                          key={c.id}
+                          id={`customer-opt-${c.id}`}
+                          role="option"
+                          aria-selected={isHighlighted}
+                          type="button"
+                          onClick={() => handleSelectCustomer(c)}
+                          className={[
+                            "w-full flex items-center justify-between px-3 py-2 text-left transition-colors text-xs border-b last:border-0",
+                            isHighlighted ? "bg-accent text-accent-foreground font-bold" : "hover:bg-accent/50",
+                          ].join(" ")}
+                        >
+                          <div>
+                            <div className="font-semibold">{c.name}</div>
+                            <div className="text-muted-foreground text-[10px]">
+                              {c.phone || "No phone"} · {c.type}
+                            </div>
                           </div>
-                        </div>
-                        {c.outstandingAmount && Number(c.outstandingAmount) > 0 && (
-                          <Badge variant="outline" className="text-[9px] text-amber-700 border-amber-300 shrink-0">
-                            ₹{Number(c.outstandingAmount).toLocaleString("en-IN")} due
-                          </Badge>
-                        )}
-                      </button>
-                    ))
+                          {c.outstandingAmount && Number(c.outstandingAmount) > 0 && (
+                            <Badge variant="outline" className="text-[9px] text-amber-700 border-amber-300 shrink-0">
+                              ₹{Number(c.outstandingAmount).toLocaleString("en-IN")} due
+                            </Badge>
+                          )}
+                        </button>
+                      );
+                    })
                   )}
                 </div>
               )}

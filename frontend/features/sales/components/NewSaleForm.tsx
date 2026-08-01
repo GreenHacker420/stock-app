@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { useForm, FormProvider, SubmitHandler } from "react-hook-form";
 
 import { useAuthStore } from "@/lib/auth/auth-store";
-import { useShortcut } from "@/components/keyboard/ShortcutProvider";
+import { TransactionFocusProvider } from "@/components/keyboard/TransactionFocusContext";
+import { TransactionKeyboardProvider } from "@/components/keyboard/TransactionKeyboardProvider";
 import { useNewSaleDraft, createEmptyLine, getTodayIST } from "../hooks/useNewSaleDraft";
 import { useCreateSaleMutation } from "../api/sale.mutations";
 import { useUnsavedSaleGuard } from "../hooks/useUnsavedSaleGuard";
@@ -26,7 +27,7 @@ import { Input } from "@/components/ui/input";
 import { Receipt, Save, ArrowLeft, Loader2, RotateCcw } from "lucide-react";
 import type { ApiError } from "@/lib/api/client";
 
-export function NewSaleForm() {
+export function NewSaleFormContent() {
   const router = useRouter();
   const { token, activeShopId } = useAuthStore();
   const { idempotencyKey, cycleKey } = useNewSaleDraft();
@@ -77,7 +78,6 @@ export function NewSaleForm() {
   const processSubmit: SubmitHandler<SaleFormValues> = (formData) => {
     setServerError(null);
 
-    // Validate with Zod manually before payload build to satisfy refinements
     const parseResult = saleFormSchema.safeParse(formData);
     if (!parseResult.success) {
       const issue = parseResult.error.issues[0];
@@ -88,18 +88,6 @@ export function NewSaleForm() {
     const payload = buildSalePayload(parseResult.data);
     createSaleMutation.mutate(payload);
   };
-
-  // Keyboard shortcut: Ctrl+A / Cmd+A saves registered form
-  useShortcut({
-    id: "new-sale-save-ctrl-a",
-    key: "ctrl+a",
-    scope: "FORM",
-    description: "Save New Sale",
-    action: (e) => {
-      e.preventDefault();
-      handleSubmit(processSubmit)();
-    },
-  });
 
   const handleBack = () => {
     if (confirmNavigation()) {
@@ -128,143 +116,171 @@ export function NewSaleForm() {
     }
   };
 
+  const handleRemoveLine = (lineId: string) => {
+    const currentLines = methods.getValues("lines");
+    if (currentLines.length <= 1) return; // Keep at least one row
+    const nextLines = currentLines.filter((l) => l._lineId !== lineId);
+    methods.setValue("lines", nextLines, { shouldDirty: true });
+  };
+
+  const handleRemovePayment = (paymentId: string) => {
+    const currentPayments = methods.getValues("payments");
+    const nextPayments = currentPayments.filter((p) => p._paymentId !== paymentId);
+    methods.setValue("payments", nextPayments, { shouldDirty: true });
+  };
+
   return (
-    <FormProvider {...methods}>
-      <form onSubmit={handleSubmit(processSubmit)} className="space-y-6 max-w-7xl mx-auto pb-24 lg:pb-8">
-        {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <Button type="button" variant="ghost" size="icon" onClick={handleBack} className="h-9 w-9">
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-            <div>
-              <div className="flex items-center gap-2">
-                <h1 className="text-2xl font-black tracking-tight flex items-center gap-2">
-                  <Receipt className="h-6 w-6 text-primary" />
-                  <span>New Sale</span>
-                </h1>
+    <TransactionKeyboardProvider
+      onSave={handleSubmit(processSubmit)}
+      onRemoveLine={handleRemoveLine}
+      onRemovePayment={handleRemovePayment}
+      onAbandonDraft={handleBack}
+    >
+      <FormProvider {...methods}>
+        <form onSubmit={handleSubmit(processSubmit)} className="space-y-6 max-w-7xl mx-auto pb-24 lg:pb-8">
+          {/* Header */}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <Button type="button" variant="ghost" size="icon" onClick={handleBack} className="h-9 w-9">
+                <ArrowLeft className="h-4 w-4" />
+              </Button>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h1 className="text-2xl font-black tracking-tight flex items-center gap-2">
+                    <Receipt className="h-6 w-6 text-primary" />
+                    <span>New Sale</span>
+                  </h1>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Create a production-grade sale invoice with real-time stock and payment collection.
+                </p>
               </div>
-              <p className="text-xs text-muted-foreground">
-                Create a production-grade sale invoice with real-time stock and payment collection.
-              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={handleResetForm}
+                disabled={createSaleMutation.isPending}
+                className="h-9 text-xs gap-1"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+                <span>Reset</span>
+              </Button>
+
+              <Button
+                type="submit"
+                size="sm"
+                disabled={createSaleMutation.isPending || lines.length === 0}
+                className="h-9 font-bold text-xs gap-2 px-5"
+              >
+                {createSaleMutation.isPending ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span>Saving...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-4 w-4" />
+                    <span>Save Sale (Ctrl+A)</span>
+                  </>
+                )}
+              </Button>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={handleResetForm}
-              disabled={createSaleMutation.isPending}
-              className="h-9 text-xs gap-1"
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-              <span>Reset</span>
-            </Button>
+          {/* Validation Errors Alert */}
+          <SaleValidationSummary serverError={serverError} fieldErrors={errors as any} />
 
-            <Button
-              type="submit"
-              size="sm"
-              disabled={createSaleMutation.isPending || lines.length === 0}
-              className="h-9 font-bold text-xs gap-2 px-5"
-            >
-              {createSaleMutation.isPending ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>Saving...</span>
-                </>
-              ) : (
-                <>
-                  <Save className="h-4 w-4" />
-                  <span>Save Sale (Ctrl+A)</span>
-                </>
-              )}
-            </Button>
-          </div>
-        </div>
+          {/* Form Body Grid */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+            {/* Main Column */}
+            <div className="lg:col-span-8 space-y-6">
+              {/* Customer & Sale Metadata */}
+              <Card>
+                <CardContent className="p-4 space-y-4">
+                  <SaleCustomerSelector />
 
-        {/* Validation Errors Alert */}
-        <SaleValidationSummary serverError={serverError} fieldErrors={errors as any} />
-
-        {/* Form Body Grid */}
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          {/* Main Column */}
-          <div className="lg:col-span-8 space-y-6">
-            {/* Customer & Sale Metadata */}
-            <Card>
-              <CardContent className="p-4 space-y-4">
-                <SaleCustomerSelector />
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t pt-3">
-                  <div>
-                    <label className="text-xs font-bold text-slate-900 dark:text-slate-100 block mb-1">
-                      Sale Date
-                    </label>
-                    <Input
-                      type="date"
-                      max={getTodayIST()}
-                      {...methods.register("saleDate")}
-                      className="h-8 text-xs"
-                    />
-                  </div>
-
-                  <div className="flex items-end pb-1">
-                    <label className="flex items-center gap-2 cursor-pointer text-xs font-bold">
-                      <input
-                        type="checkbox"
-                        checked={watch("gstRequired")}
-                        onChange={(e) => methods.setValue("gstRequired", e.target.checked, { shouldDirty: true })}
-                        className="rounded border-gray-300 h-4 w-4 text-primary focus:ring-primary"
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t pt-3">
+                    <div>
+                      <label className="text-xs font-bold text-slate-900 dark:text-slate-100 block mb-1">
+                        Sale Date
+                      </label>
+                      <Input
+                        type="date"
+                        max={getTodayIST()}
+                        {...methods.register("saleDate")}
+                        className="h-8 text-xs"
                       />
-                      <span>GST Required (18% B2B Invoice)</span>
-                    </label>
+                    </div>
+
+                    <div className="flex items-end pb-1">
+                      <label className="flex items-center gap-2 cursor-pointer text-xs font-bold">
+                        <input
+                          type="checkbox"
+                          checked={watch("gstRequired")}
+                          onChange={(e) => methods.setValue("gstRequired", e.target.checked, { shouldDirty: true })}
+                          className="rounded border-gray-300 h-4 w-4 text-primary focus:ring-primary"
+                        />
+                        <span>GST Required</span>
+                      </label>
+                    </div>
                   </div>
-                </div>
-              </CardContent>
-            </Card>
+                </CardContent>
+              </Card>
 
-            {/* Line Items Grid */}
-            <Card>
-              <CardContent className="p-4">
-                <div className="font-bold text-xs uppercase tracking-wider text-muted-foreground mb-3">
-                  Line Items ({lines.length})
-                </div>
-                <SaleLineGrid />
-              </CardContent>
-            </Card>
+              {/* Line Items Grid */}
+              <Card>
+                <CardContent className="p-4">
+                  <div className="font-bold text-xs uppercase tracking-wider text-muted-foreground mb-3">
+                    Line Items ({lines.length})
+                  </div>
+                  <SaleLineGrid />
+                </CardContent>
+              </Card>
 
-            {/* Payment Panel */}
-            <SalePaymentPanel />
+              {/* Payment Panel */}
+              <SalePaymentPanel />
+            </div>
+
+            {/* Side Rail */}
+            <div className="lg:col-span-4 space-y-4">
+              <SaleTotalsPanel lines={lines} payments={payments} isWalkin={isWalkin} />
+
+              {/* Notes */}
+              <Card>
+                <CardContent className="p-4 space-y-2">
+                  <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground block">
+                    Internal Notes / Remarks
+                  </label>
+                  <textarea
+                    {...methods.register("notes")}
+                    placeholder="Optional sale notes or special instructions..."
+                    className="w-full h-20 text-xs p-2.5 border rounded-md resize-none focus:outline-none focus:ring-1 focus:ring-ring"
+                  />
+                </CardContent>
+              </Card>
+            </div>
           </div>
 
-          {/* Side Rail */}
-          <div className="lg:col-span-4 space-y-4">
-            <SaleTotalsPanel lines={lines} payments={payments} isWalkin={isWalkin} />
+          {/* Sticky Mobile Action Bar */}
+          <SaleMobileActionBar
+            lines={lines}
+            isSubmitting={createSaleMutation.isPending}
+            onSubmit={handleSubmit(processSubmit)}
+          />
+        </form>
+      </FormProvider>
+    </TransactionKeyboardProvider>
+  );
+}
 
-            {/* Notes */}
-            <Card>
-              <CardContent className="p-4 space-y-2">
-                <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground block">
-                  Internal Notes / Remarks
-                </label>
-                <textarea
-                  {...methods.register("notes")}
-                  placeholder="Optional sale notes or special instructions..."
-                  className="w-full h-20 text-xs p-2.5 border rounded-md resize-none focus:outline-none focus:ring-1 focus:ring-ring"
-                />
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-
-        {/* Sticky Mobile Action Bar */}
-        <SaleMobileActionBar
-          lines={lines}
-          isSubmitting={createSaleMutation.isPending}
-          onSubmit={handleSubmit(processSubmit)}
-        />
-      </form>
-    </FormProvider>
+export function NewSaleForm() {
+  return (
+    <TransactionFocusProvider>
+      <NewSaleFormContent />
+    </TransactionFocusProvider>
   );
 }
