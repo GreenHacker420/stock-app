@@ -1,10 +1,11 @@
 import { useEffect } from "react";
+import { isMacUser, formatShortcutForOS } from "./os";
 
 export type ShortcutScope = "GLOBAL" | "PAGE" | "TABLE" | "FORM" | "DIALOG";
 
 export interface ShortcutDefinition {
   id: string;
-  key: string; // e.g. "f8", "alt+g", "ctrl+a", "escape", "enter"
+  key: string; // e.g. "f8", "alt+g", "ctrl+a", "cmd+g", "escape", "enter"
   scope: ShortcutScope;
   description: string;
   action: (e: KeyboardEvent) => void;
@@ -41,13 +42,17 @@ class ShortcutEngine {
       GLOBAL: 1,
     };
 
-    // Filter matching shortcuts
+    // Filter matching shortcuts (support both Ctrl and Cmd / Meta interchangeably across macOS and Windows)
     const matching = this.shortcuts.filter((s) => {
-      if (s.key.toLowerCase() !== combo.toLowerCase()) return false;
+      const keyNorm = s.key.toLowerCase().replace(/cmd\+/g, "ctrl+").replace(/meta\+/g, "ctrl+");
+      const comboNorm = combo.toLowerCase();
+      
+      if (keyNorm !== comboNorm) return false;
+
       if (isInput && s.preventInInput !== false) {
-        // Allow Esc and Enter and function keys in inputs
+        // Allow Esc, Enter, Function keys, and Cmd/Ctrl combos in inputs
         const isFunctionKey = /^f\d+$/i.test(e.key);
-        const isAllowedSpecial = e.key === "Escape" || (e.ctrlKey && e.key === "a");
+        const isAllowedSpecial = e.key === "Escape" || ((e.ctrlKey || e.metaKey) && e.key === "a");
         if (!isFunctionKey && !isAllowedSpecial && e.key !== "g" && !e.altKey) {
           return false;
         }
@@ -95,16 +100,6 @@ export function useShortcut(def: ShortcutDefinition) {
  * Format shortcut key string into user friendly OS badge (macOS ⌥G / ⌘A vs Windows Alt+G / Ctrl+A)
  */
 export function formatShortcutLabel(combo: string): string {
-  const isMac = typeof window !== "undefined" && /mac/i.test(navigator.userAgent);
-  if (isMac) {
-    return combo
-      .replace(/ctrl\+/i, "⌘")
-      .replace(/alt\+/i, "⌥")
-      .replace(/shift\+/i, "⇧")
-      .toUpperCase();
-  }
-  return combo
-    .split("+")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join("+");
+  const isMac = isMacUser();
+  return formatShortcutForOS(combo, isMac);
 }

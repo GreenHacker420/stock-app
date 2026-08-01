@@ -7,6 +7,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Store, Search, Bell, Shield, LogOut, Wifi } from "lucide-react";
 import { formatDate } from "@/lib/utils";
+import { useOS, formatShortcutForOS } from "@/lib/keyboard/os";
 
 interface HeaderProps {
   onOpenCommandPalette: () => void;
@@ -15,17 +16,18 @@ interface HeaderProps {
 
 export function Header({ onOpenCommandPalette, approvalsCount = 0 }: HeaderProps) {
   const { user, shops, activeShopId, setActiveShopId, logout } = useAuthStore();
+  const { isMac } = useOS();
 
   const selectedShop = shops.find((s) => s.id === activeShopId);
   const canSwitchShop = user?.role === "OWNER" && shops.length > 1;
 
   const initials = user?.name
     ? user.name
-        .split(/\s+/)
-        .map((n) => n[0])
-        .join("")
-        .toUpperCase()
-        .slice(0, 2)
+      .split(/\s+/)
+      .map((n) => n[0])
+      .join("")
+      .toUpperCase()
+      .slice(0, 2)
     : "SC";
 
   return (
@@ -65,7 +67,7 @@ export function Header({ onOpenCommandPalette, approvalsCount = 0 }: HeaderProps
         </Badge>
       </div>
 
-      {/* Center: Global Search trigger (Alt+G) */}
+      {/* Center: Global Search trigger */}
       <div className="flex-1 max-w-md mx-4 hidden md:block">
         <Button
           variant="outline"
@@ -77,7 +79,7 @@ export function Header({ onOpenCommandPalette, approvalsCount = 0 }: HeaderProps
             <span>Search pages, actions, customers...</span>
           </span>
           <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium opacity-100">
-            Alt+G
+            {formatShortcutForOS("alt+g", isMac)}
           </kbd>
         </Button>
       </div>

@@ -32,47 +32,85 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return () => cleanup();
   }, [queryClient, activeShopId]);
 
-  // Full Keyboard bindings engine according to GEMINI.md specification
+  // Full Keyboard bindings engine supporting both macOS (⌘ / ⌥) and Windows (Ctrl / Alt)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null;
-      const isInput = target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT");
+      const isCmdOrCtrl = e.metaKey || e.ctrlKey;
+      const isAltOrOption = e.altKey;
+      const key = e.key.toLowerCase();
 
-      // Global Navigation & Actions
-      if (e.key === "F8" && !e.altKey && !e.ctrlKey) {
-        e.preventDefault();
-        router.push("/sales/new");
-      } else if (e.key === "F8" && e.altKey) {
-        e.preventDefault();
-        router.push("/delivery-memos/new");
-      } else if (e.key === "F8" && (e.ctrlKey || e.metaKey)) {
-        e.preventDefault();
-        router.push("/orders/new");
-      } else if (e.key === "F6") {
-        e.preventDefault();
-        router.push("/payments/new");
-      } else if (e.key === "F9" && !e.altKey) {
-        e.preventDefault();
-        router.push("/inventory/stock-entry");
-      } else if (e.key === "F9" && e.altKey) {
-        e.preventDefault();
-        router.push("/inventory/stock-transfer");
-      } else if (e.key === "F7" && (e.ctrlKey || e.metaKey)) {
-        e.preventDefault();
-        router.push("/inventory/physical-stock");
-      } else if (e.key === "F12") {
-        e.preventDefault();
-        router.push("/administration");
-      } else if ((e.key === "g" || e.key === "G") && (e.altKey || e.metaKey)) {
+      // Alt+G / ⌥G / ⌘G -> Go To Command Palette
+      if ((key === "g") && (isAltOrOption || isCmdOrCtrl)) {
         e.preventDefault();
         setCommandPaletteOpen((prev) => !prev);
-      } else if (e.key === "Escape") {
+        return;
+      }
+
+      // Esc -> Dismiss Command Palette or Navigate Back
+      if (e.key === "Escape") {
         if (commandPaletteOpen) {
           e.preventDefault();
           setCommandPaletteOpen(false);
         } else {
           router.back();
         }
+        return;
+      }
+
+      // F8 / ⌘8 / Ctrl+8 -> New Sale
+      if ((e.key === "F8" && !isAltOrOption && !isCmdOrCtrl) || (key === "8" && isCmdOrCtrl && !isAltOrOption)) {
+        e.preventDefault();
+        router.push("/sales/new");
+        return;
+      }
+
+      // Alt+F8 / ⌥F8 -> New Delivery Memo
+      if (e.key === "F8" && isAltOrOption) {
+        e.preventDefault();
+        router.push("/delivery-memos/new");
+        return;
+      }
+
+      // Ctrl+F8 / ⌘F8 -> New Order Booking
+      if (e.key === "F8" && isCmdOrCtrl) {
+        e.preventDefault();
+        router.push("/orders/new");
+        return;
+      }
+
+      // F6 / ⌘6 -> Receive Payment
+      if (e.key === "F6" || (key === "6" && isCmdOrCtrl)) {
+        e.preventDefault();
+        router.push("/payments/new");
+        return;
+      }
+
+      // F9 / ⌘9 -> Stock Inward Entry
+      if ((e.key === "F9" && !isAltOrOption) || (key === "9" && isCmdOrCtrl && !isAltOrOption)) {
+        e.preventDefault();
+        router.push("/inventory/stock-entry");
+        return;
+      }
+
+      // Alt+F9 / ⌥F9 -> Inter-Shop Stock Transfer
+      if (e.key === "F9" && isAltOrOption) {
+        e.preventDefault();
+        router.push("/inventory/stock-transfer");
+        return;
+      }
+
+      // Ctrl+F7 / ⌘F7 -> Physical Stock Audit Count
+      if (e.key === "F7" && isCmdOrCtrl) {
+        e.preventDefault();
+        router.push("/inventory/physical-stock");
+        return;
+      }
+
+      // F12 / ⌘, -> Administration & Settings
+      if (e.key === "F12" || (key === "," && isCmdOrCtrl)) {
+        e.preventDefault();
+        router.push("/administration");
+        return;
       }
     };
 
