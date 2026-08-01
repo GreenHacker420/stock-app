@@ -5,18 +5,23 @@ import { Button } from "@/components/ui/button";
 import { useOS, formatShortcutForOS } from "@/lib/keyboard/os";
 import { Receipt, Truck, ShoppingBag, CreditCard, Warehouse, Calendar, Store } from "lucide-react";
 
-export function RightActionRail() {
+interface RightActionRailProps {
+  onOpenDateDialog?: () => void;
+  onOpenShopDialog?: () => void;
+}
+
+export function RightActionRail({ onOpenDateDialog, onOpenShopDialog }: RightActionRailProps) {
   const router = useRouter();
   const { isMac } = useOS();
 
   const actions = [
-    { label: "New Sale", shortcut: "F8", href: "/sales/new", icon: Receipt, variant: "default" as const },
-    { label: "Delivery Memo", shortcut: "Alt+F8", href: "/delivery-memos/new", icon: Truck, variant: "outline" as const },
-    { label: "New Order", shortcut: "Ctrl+F8", href: "/orders/new", icon: ShoppingBag, variant: "outline" as const },
-    { label: "Receive Payment", shortcut: "F6", href: "/payments/new", icon: CreditCard, variant: "outline" as const },
-    { label: "Stock Entry", shortcut: "F9", href: "/inventory/stock-entry", icon: Warehouse, variant: "outline" as const },
-    { label: "Select Date", shortcut: "F2", href: "#", icon: Calendar, variant: "ghost" as const },
-    { label: "Switch Shop", shortcut: "F3", href: "#", icon: Store, variant: "ghost" as const },
+    { label: "New Sale", shortcut: "F8", action: () => router.push("/sales/new"), icon: Receipt, variant: "default" as const },
+    { label: "Delivery Memo", shortcut: "Alt+F8", action: () => router.push("/delivery-memos/new"), icon: Truck, variant: "outline" as const },
+    { label: "New Order", shortcut: "Ctrl+F8", action: () => router.push("/orders/new"), icon: ShoppingBag, variant: "outline" as const },
+    { label: "Receive Payment", shortcut: "F6", action: () => router.push("/payments/new"), icon: CreditCard, variant: "outline" as const },
+    { label: "Stock Entry", shortcut: "F9", action: () => router.push("/inventory/stock-entry"), icon: Warehouse, variant: "outline" as const },
+    { label: "Select Date", shortcut: "F2", action: () => onOpenDateDialog && onOpenDateDialog(), icon: Calendar, variant: "ghost" as const },
+    { label: "Switch Shop", shortcut: "F3", action: () => onOpenShopDialog && onOpenShopDialog(), icon: Store, variant: "ghost" as const },
   ];
 
   return (
@@ -32,7 +37,7 @@ export function RightActionRail() {
               key={act.label}
               variant={act.variant}
               size="sm"
-              onClick={() => act.href !== "#" && router.push(act.href)}
+              onClick={act.action}
               className="w-full justify-between h-9 text-xs font-medium cursor-pointer"
             >
               <span className="flex items-center gap-2">

@@ -5,6 +5,8 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuthStore } from "@/lib/auth/auth-store";
 import { fetchOwnerDashboardApi } from "@/lib/api/client";
 import { formatINR } from "@/lib/utils";
+import { HoverEffect } from "@/components/ui/card-hover-effect";
+import { BentoGrid, BentoGridItem } from "@/components/ui/bento-grid";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,7 +20,6 @@ import {
   CreditCard,
   ReceiptIndianRupee,
   FileCheck,
-  ArrowUpRight,
   RefreshCw,
 } from "lucide-react";
 
@@ -50,7 +51,7 @@ export default function DashboardPage() {
 
   if (isError) {
     return (
-      <div className="p-8 border rounded-xl bg-card text-center space-y-4 my-8">
+      <div className="p-8 border rounded-xl bg-card text-center space-y-4 my-8 shadow-xs">
         <div className="text-sm font-bold text-slate-900 dark:text-slate-100">Unable to load active shop dashboard metrics</div>
         <p className="text-xs text-muted-foreground max-w-md mx-auto">
           Make sure backend server is running on <code className="font-mono text-primary">http://localhost:6600</code> and user session is authenticated.
@@ -72,8 +73,43 @@ export default function DashboardPage() {
 
   const isOwner = user?.role === "OWNER";
 
+  const statItems = [
+    {
+      title: "Today's Sales",
+      description: `${dashboard?.todaySalesCount ?? 0} invoices created today`,
+      value: formatINR(dashboard?.todaySalesTotal ?? 0),
+      link: "/sales",
+      badge: "View Sales Register",
+      icon: <TrendingUp className="h-5 w-5 text-emerald-600" />,
+    },
+    {
+      title: "Outstanding Collections",
+      description: "Total outstanding customer dues",
+      value: formatINR(dashboard?.outstandingTotal ?? 0),
+      link: "/customers?filter=outstanding",
+      badge: "View Ledgers",
+      icon: <Users className="h-5 w-5 text-indigo-600" />,
+    },
+    {
+      title: "Pending Approvals",
+      description: "Stock & price verification requests",
+      value: `${dashboard?.pendingVerifications ?? 0}`,
+      link: "/approvals",
+      badge: "Review Approvals",
+      icon: <ShieldAlert className="h-5 w-5 text-amber-600" />,
+    },
+    {
+      title: "Low Stock Items",
+      description: "Products below reorder threshold",
+      value: `${dashboard?.lowStockAlerts ?? 0}`,
+      link: "/inventory?filter=low_stock",
+      badge: "Replenish Inventory",
+      icon: <AlertTriangle className="h-5 w-5 text-rose-600" />,
+    },
+  ];
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-7xl mx-auto">
       {/* Header Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
@@ -98,194 +134,56 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Primary Financial & Operational Metrics Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Today's Sales */}
-        <Card className="hover:border-primary/40 transition-colors">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-              Today's Sales
-            </CardTitle>
-            <div className="h-8 w-8 rounded-lg bg-emerald-500/10 text-emerald-600 flex items-center justify-center">
-              <TrendingUp className="h-4 w-4" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-black text-slate-900 dark:text-slate-100">
-              {formatINR(dashboard?.todaySalesTotal ?? 0)}
-            </div>
-            <div className="flex items-center justify-between mt-1 text-xs text-muted-foreground">
-              <span>{dashboard?.todaySalesCount ?? 0} invoices created</span>
-              <Link href="/sales" className="text-primary font-semibold flex items-center hover:underline">
-                View <ArrowUpRight className="h-3 w-3 ml-0.5" />
+      {/* Aceternity UI Hover Effect Grid for Metrics */}
+      <HoverEffect items={statItems} />
+
+      {/* Secondary Action Queues Bento Grid */}
+      <div className="space-y-3">
+        <h2 className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+          Operational Action Queues
+        </h2>
+        <BentoGrid className="grid-cols-1 md:grid-cols-2 lg:grid-cols-4 max-w-none">
+          <BentoGridItem
+            title="Payment Verification"
+            description={`${dashboard?.paymentVerificationPending ?? 0} Bank/Cheque entries pending review.`}
+            icon={<CreditCard className="h-4 w-4 text-indigo-500" />}
+            header={
+              <Link href="/payments?filter=pending" className="flex justify-end">
+                <Button variant="ghost" size="sm" className="h-7 text-xs font-bold">Verify →</Button>
               </Link>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Customer Outstanding */}
-        <Card className="hover:border-primary/40 transition-colors">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-              Outstanding Collections
-            </CardTitle>
-            <div className="h-8 w-8 rounded-lg bg-blue-500/10 text-blue-600 flex items-center justify-center">
-              <Users className="h-4 w-4" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-black text-slate-900 dark:text-slate-100">
-              {formatINR(dashboard?.outstandingTotal ?? 0)}
-            </div>
-            <div className="flex items-center justify-between mt-1 text-xs text-muted-foreground">
-              <span>Total customer dues</span>
-              <Link href="/customers?filter=outstanding" className="text-primary font-semibold flex items-center hover:underline">
-                Ledger <ArrowUpRight className="h-3 w-3 ml-0.5" />
+            }
+          />
+          <BentoGridItem
+            title="GST Bills Pending"
+            description={`${dashboard?.gstInvoicesPendingCount ?? 0} Tally billing follow-up entries.`}
+            icon={<FileCheck className="h-4 w-4 text-amber-500" />}
+            header={
+              <Link href="/sales?filter=gst_pending" className="flex justify-end">
+                <Button variant="ghost" size="sm" className="h-7 text-xs font-bold">View Queue →</Button>
               </Link>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Pending Verifications */}
-        <Card className="hover:border-primary/40 transition-colors">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-              Pending Approvals
-            </CardTitle>
-            <div className="h-8 w-8 rounded-lg bg-amber-500/10 text-amber-600 flex items-center justify-center">
-              <ShieldAlert className="h-4 w-4" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-black text-slate-900 dark:text-slate-100">
-              {dashboard?.pendingVerifications ?? 0}
-            </div>
-            <div className="flex items-center justify-between mt-1 text-xs text-muted-foreground">
-              <span>Stock & price requests</span>
-              <Link href="/approvals" className="text-primary font-semibold flex items-center hover:underline">
-                Review <ArrowUpRight className="h-3 w-3 ml-0.5" />
+            }
+          />
+          <BentoGridItem
+            title="Cash Mismatch"
+            description={`${dashboard?.cashMismatch ?? 0} Cash drawer balances requiring audit.`}
+            icon={<ReceiptIndianRupee className="h-4 w-4 text-purple-500" />}
+            header={
+              <Link href="/cash-sessions" className="flex justify-end">
+                <Button variant="ghost" size="sm" className="h-7 text-xs font-bold">Audit →</Button>
               </Link>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Low Stock Alerts */}
-        <Card className="hover:border-primary/40 transition-colors">
-          <CardHeader className="flex flex-row items-center justify-between pb-2">
-            <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-              Low Stock Items
-            </CardTitle>
-            <div className="h-8 w-8 rounded-lg bg-rose-500/10 text-rose-600 flex items-center justify-center">
-              <AlertTriangle className="h-4 w-4" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-black text-slate-900 dark:text-slate-100">
-              {dashboard?.lowStockAlerts ?? 0}
-            </div>
-            <div className="flex items-center justify-between mt-1 text-xs text-muted-foreground">
-              <span>Below safety thresholds</span>
-              <Link href="/inventory?filter=low_stock" className="text-primary font-semibold flex items-center hover:underline">
-                Replenish <ArrowUpRight className="h-3 w-3 ml-0.5" />
+            }
+          />
+          <BentoGridItem
+            title="Correction Requests"
+            description={`${dashboard?.correctionRequests ?? 0} Invoice edit approval requests.`}
+            icon={<ShieldAlert className="h-4 w-4 text-rose-500" />}
+            header={
+              <Link href="/corrections" className="flex justify-end">
+                <Button variant="ghost" size="sm" className="h-7 text-xs font-bold">Approve →</Button>
               </Link>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Secondary Action Queues Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-        {/* Payment Approvals */}
-        <Card>
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                Payment Verification
-              </CardTitle>
-              <CreditCard className="h-4 w-4 text-indigo-500" />
-            </div>
-          </CardHeader>
-          <CardContent className="flex items-center justify-between">
-            <div>
-              <div className="text-xl font-bold">{dashboard?.paymentVerificationPending ?? 0}</div>
-              <p className="text-[11px] text-muted-foreground">Bank/Cheque entries</p>
-            </div>
-            <Link href="/payments?filter=pending">
-              <Button variant="ghost" size="sm" className="h-8 text-xs font-semibold">
-                Verify
-              </Button>
-            </Link>
-          </CardContent>
-        </Card>
-
-        {/* GST Invoices Pending */}
-        <Card>
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                GST Bills Pending
-              </CardTitle>
-              <FileCheck className="h-4 w-4 text-amber-500" />
-            </div>
-          </CardHeader>
-          <CardContent className="flex items-center justify-between">
-            <div>
-              <div className="text-xl font-bold">{dashboard?.gstInvoicesPendingCount ?? 0}</div>
-              <p className="text-[11px] text-muted-foreground">Tally billing follow-up</p>
-            </div>
-            <Link href="/sales?filter=gst_pending">
-              <Button variant="ghost" size="sm" className="h-8 text-xs font-semibold">
-                View Queue
-              </Button>
-            </Link>
-          </CardContent>
-        </Card>
-
-        {/* Cash Drawer Closing */}
-        <Card>
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                Cash Mismatch
-              </CardTitle>
-              <ReceiptIndianRupee className="h-4 w-4 text-purple-500" />
-            </div>
-          </CardHeader>
-          <CardContent className="flex items-center justify-between">
-            <div>
-              <div className="text-xl font-bold">{dashboard?.cashMismatch ?? 0}</div>
-              <p className="text-[11px] text-muted-foreground">Drawer differences</p>
-            </div>
-            <Link href="/cash-sessions">
-              <Button variant="ghost" size="sm" className="h-8 text-xs font-semibold">
-                Audit
-              </Button>
-            </Link>
-          </CardContent>
-        </Card>
-
-        {/* Correction Requests */}
-        <Card>
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                Correction Requests
-              </CardTitle>
-              <ShieldAlert className="h-4 w-4 text-rose-500" />
-            </div>
-          </CardHeader>
-          <CardContent className="flex items-center justify-between">
-            <div>
-              <div className="text-xl font-bold">{dashboard?.correctionRequests ?? 0}</div>
-              <p className="text-[11px] text-muted-foreground">Invoice edit requests</p>
-            </div>
-            <Link href="/corrections">
-              <Button variant="ghost" size="sm" className="h-8 text-xs font-semibold">
-                Approve
-              </Button>
-            </Link>
-          </CardContent>
-        </Card>
+            }
+          />
+        </BentoGrid>
       </div>
 
       {/* Operational Workflows & Recent Activity */}
@@ -334,6 +232,14 @@ export default function DashboardPage() {
             <div className="flex items-center justify-between py-1.5 border-b">
               <span>New Sale</span>
               <kbd className="font-mono bg-muted border px-1.5 py-0.5 rounded text-[10px]">F8</kbd>
+            </div>
+            <div className="flex items-center justify-between py-1.5 border-b">
+              <span>Select Date / Period</span>
+              <kbd className="font-mono bg-muted border px-1.5 py-0.5 rounded text-[10px]">F2</kbd>
+            </div>
+            <div className="flex items-center justify-between py-1.5 border-b">
+              <span>Switch Shop</span>
+              <kbd className="font-mono bg-muted border px-1.5 py-0.5 rounded text-[10px]">F3</kbd>
             </div>
             <div className="flex items-center justify-between py-1.5 border-b">
               <span>Delivery Memo</span>

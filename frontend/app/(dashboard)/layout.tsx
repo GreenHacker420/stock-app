@@ -8,6 +8,8 @@ import { Sidebar } from "@/components/shell/Sidebar";
 import { RightActionRail } from "@/components/shell/RightActionRail";
 import { StatusBar } from "@/components/shell/StatusBar";
 import { CommandPalette } from "@/components/command-palette/CommandPalette";
+import { DatePeriodDialog } from "@/components/shell/DatePeriodDialog";
+import { ShopSwitcherDialog } from "@/components/shell/ShopSwitcherDialog";
 import { initRealtimeSocket } from "@/lib/realtime/socket-client";
 import { useAuthStore } from "@/lib/auth/auth-store";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -25,6 +27,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }));
 
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [dateDialogOpen, setDateDialogOpen] = useState(false);
+  const [shopDialogOpen, setShopDialogOpen] = useState(false);
+
   const activeShopId = useAuthStore((state) => state.activeShopId);
 
   useEffect(() => {
@@ -46,11 +51,31 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         return;
       }
 
-      // Esc -> Dismiss Command Palette or Navigate Back
+      // F2 -> Select Date / Period Dialog
+      if (e.key === "F2" || (key === "2" && isCmdOrCtrl)) {
+        e.preventDefault();
+        setDateDialogOpen((prev) => !prev);
+        return;
+      }
+
+      // F3 -> Switch Shop Dialog
+      if (e.key === "F3" || (key === "3" && isCmdOrCtrl)) {
+        e.preventDefault();
+        setShopDialogOpen((prev) => !prev);
+        return;
+      }
+
+      // Esc -> Dismiss Dialogs or Navigate Back
       if (e.key === "Escape") {
         if (commandPaletteOpen) {
           e.preventDefault();
           setCommandPaletteOpen(false);
+        } else if (dateDialogOpen) {
+          e.preventDefault();
+          setDateDialogOpen(false);
+        } else if (shopDialogOpen) {
+          e.preventDefault();
+          setShopDialogOpen(false);
         } else {
           router.back();
         }
@@ -116,7 +141,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [router, commandPaletteOpen]);
+  }, [router, commandPaletteOpen, dateDialogOpen, shopDialogOpen]);
 
   return (
     <QueryClientProvider client={queryClient}>
@@ -128,10 +153,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             <main className="flex-1 p-6 overflow-y-auto min-w-0">
               {children}
             </main>
-            <RightActionRail />
+            <RightActionRail
+              onOpenDateDialog={() => setDateDialogOpen(true)}
+              onOpenShopDialog={() => setShopDialogOpen(true)}
+            />
           </div>
           <StatusBar />
           <CommandPalette open={commandPaletteOpen} onOpenChange={setCommandPaletteOpen} />
+          <DatePeriodDialog open={dateDialogOpen} onOpenChange={setDateDialogOpen} />
+          <ShopSwitcherDialog open={shopDialogOpen} onOpenChange={setShopDialogOpen} />
         </div>
       </TooltipProvider>
     </QueryClientProvider>
