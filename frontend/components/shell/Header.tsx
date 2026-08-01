@@ -1,11 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { useAuthStore } from "@/lib/auth/auth-store";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Store, Search, Bell, Shield, LogOut, Wifi } from "lucide-react";
+import { Store, Search, Bell, Shield, LogOut, Wifi, User } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { useOS, formatShortcutForOS } from "@/lib/keyboard/os";
 
@@ -126,6 +127,13 @@ export function Header({ onOpenCommandPalette, approvalsCount = 0 }: HeaderProps
                 </div>
               </div>
             </DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem className="cursor-pointer">
+              <Link href="/profile" className="flex items-center w-full">
+                <User className="mr-2 h-4 w-4" />
+                <span>My Profile</span>
+              </Link>
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={logout} className="text-destructive cursor-pointer">
               <LogOut className="mr-2 h-4 w-4" />

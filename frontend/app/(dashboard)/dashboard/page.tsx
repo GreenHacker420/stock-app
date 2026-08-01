@@ -29,6 +29,7 @@ export default function DashboardPage() {
     queryKey: ["dashboard", "owner", activeShopId],
     queryFn: () => fetchOwnerDashboardApi(token ?? "", { shopId: activeShopId ?? undefined }),
     enabled: !!token,
+    retry: 1,
   });
 
   if (isLoading) {
@@ -42,6 +43,28 @@ export default function DashboardPage() {
           {Array.from({ length: 8 }).map((_, i) => (
             <Skeleton key={i} className="h-32 rounded-xl" />
           ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="p-8 border rounded-xl bg-card text-center space-y-4 my-8">
+        <div className="text-sm font-bold text-slate-900 dark:text-slate-100">Unable to load active shop dashboard metrics</div>
+        <p className="text-xs text-muted-foreground max-w-md mx-auto">
+          Make sure backend server is running on <code className="font-mono text-primary">http://localhost:6600</code> and user session is authenticated.
+        </p>
+        <div className="flex items-center justify-center gap-3 pt-2">
+          <Button variant="outline" size="sm" onClick={() => refetch()} className="h-9 text-xs">
+            <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+            Retry Connection
+          </Button>
+          <Link href="/login">
+            <Button size="sm" className="h-9 font-bold text-xs">
+              Sign In to Dashboard
+            </Button>
+          </Link>
         </div>
       </div>
     );

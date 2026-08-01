@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { persist, createJSONStorage } from "zustand/middleware";
 import { ApiUser, Shop } from "../api/client";
 
 interface AuthState {
@@ -13,18 +14,26 @@ interface AuthState {
   logout: () => void;
 }
 
-export const useAuthStore = create<AuthState>((set) => ({
-  user: null,
-  token: null,
-  activeShopId: null,
-  shops: [],
-  isAuthenticated: false,
-  setAuth: (user, token) => set({ user, token, isAuthenticated: true }),
-  setShops: (shops) =>
-    set((state) => ({
-      shops,
-      activeShopId: state.activeShopId || (shops.length > 0 ? shops[0].id : null),
-    })),
-  setActiveShopId: (activeShopId) => set({ activeShopId }),
-  logout: () => set({ user: null, token: null, activeShopId: null, shops: [], isAuthenticated: false }),
-}));
+export const useAuthStore = create<AuthState>()(
+  persist(
+    (set) => ({
+      user: null,
+      token: null,
+      activeShopId: null,
+      shops: [],
+      isAuthenticated: false,
+      setAuth: (user, token) => set({ user, token, isAuthenticated: true }),
+      setShops: (shops) =>
+        set((state) => ({
+          shops,
+          activeShopId: state.activeShopId || (shops.length > 0 ? shops[0].id : null),
+        })),
+      setActiveShopId: (activeShopId) => set({ activeShopId }),
+      logout: () => set({ user: null, token: null, activeShopId: null, shops: [], isAuthenticated: false }),
+    }),
+    {
+      name: "shop-control-auth",
+      storage: createJSONStorage(() => (typeof window !== "undefined" ? localStorage : ({} as any))),
+    }
+  )
+);

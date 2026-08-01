@@ -172,6 +172,17 @@ export async function fetchMeApi(token: string): Promise<ApiUser> {
   return apiRequest("/auth/me", { token });
 }
 
+export async function updateMeApi(
+  token: string,
+  body: { name?: string; email?: string | null; password?: string }
+): Promise<ApiUser> {
+  return apiRequest("/auth/me", {
+    method: "PATCH",
+    token,
+    body,
+  });
+}
+
 export async function fetchShopsApi(token: string): Promise<Shop[]> {
   return apiRequest("/shops", { token });
 }
