@@ -2,11 +2,12 @@
 
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { formatShortcutLabel } from "@/lib/keyboard/shortcut-engine";
+import { useOS, formatShortcutForOS } from "@/lib/keyboard/os";
 import { Receipt, Truck, ShoppingBag, CreditCard, Warehouse, Calendar, Store } from "lucide-react";
 
 export function RightActionRail() {
   const router = useRouter();
+  const { isMac } = useOS();
 
   const actions = [
     { label: "New Sale", shortcut: "F8", href: "/sales/new", icon: Receipt, variant: "default" as const },
@@ -32,14 +33,14 @@ export function RightActionRail() {
               variant={act.variant}
               size="sm"
               onClick={() => act.href !== "#" && router.push(act.href)}
-              className="w-full justify-between h-9 text-xs font-medium"
+              className="w-full justify-between h-9 text-xs font-medium cursor-pointer"
             >
               <span className="flex items-center gap-2">
                 <IconComp className="h-3.5 w-3.5" />
                 <span>{act.label}</span>
               </span>
               <kbd className="pointer-events-none inline-flex h-4 select-none items-center rounded border bg-muted/60 px-1 font-mono text-[9px] font-extrabold text-muted-foreground">
-                {formatShortcutLabel(act.shortcut)}
+                {formatShortcutForOS(act.shortcut, isMac)}
               </kbd>
             </Button>
           );

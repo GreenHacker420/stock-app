@@ -1,7 +1,6 @@
 "use client";
 
-import { useState } from "react";
-import { formatShortcutLabel } from "@/lib/keyboard/shortcut-engine";
+import { useOS, formatShortcutForOS } from "@/lib/keyboard/os";
 
 interface StatusBarProps {
   scope?: string;
@@ -10,6 +9,8 @@ interface StatusBarProps {
 }
 
 export function StatusBar({ scope = "Global", selectedCount = 0, hasUnsaved = false }: StatusBarProps) {
+  const { isMac } = useOS();
+
   return (
     <footer className="h-7 border-t bg-muted/60 px-4 flex items-center justify-between text-[11px] font-medium text-muted-foreground sticky bottom-0 z-30 select-none">
       {/* Left: Keyboard Scope & Selection */}
@@ -32,9 +33,9 @@ export function StatusBar({ scope = "Global", selectedCount = 0, hasUnsaved = fa
 
       {/* Right: Shortcut Hints */}
       <div className="hidden sm:flex items-center gap-3 text-[10px]">
-        <span><kbd className="font-mono bg-background border rounded px-1">{formatShortcutLabel("Alt+G")}</kbd> Go To</span>
-        <span><kbd className="font-mono bg-background border rounded px-1">{formatShortcutLabel("F8")}</kbd> New Sale</span>
-        <span><kbd className="font-mono bg-background border rounded px-1">{formatShortcutLabel("Esc")}</kbd> Back</span>
+        <span><kbd className="font-mono bg-background border rounded px-1">{formatShortcutForOS("alt+g", isMac)}</kbd> Go To</span>
+        <span><kbd className="font-mono bg-background border rounded px-1">{formatShortcutForOS("F8", isMac)}</kbd> New Sale</span>
+        <span><kbd className="font-mono bg-background border rounded px-1">{formatShortcutForOS("Esc", isMac)}</kbd> Back</span>
       </div>
     </footer>
   );
