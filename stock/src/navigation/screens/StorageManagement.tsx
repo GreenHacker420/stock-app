@@ -943,18 +943,17 @@ export function StorageManagement() {
   const handleDelete = useCallback(
     (file: StorageObject) => {
       if (deletingId !== null) return;
-      if (getUsageStatus(file) !== "UNUSED") {
-        Alert.alert(
-          "Cannot delete",
-          file.productName
-            ? `This file is linked to "${file.productName}". Remove the product image first.`
-            : "This file is referenced in messaging history."
-        );
-        return;
-      }
+      const status = getUsageStatus(file);
+      const note =
+        status === "PRODUCT"
+          ? `\n\nNote: This file is currently linked to product "${file.productName}". Deleting it will un-link the image.`
+          : status === "WHATSAPP"
+          ? `\n\nNote: This file is referenced in messaging history.`
+          : "";
+
       Alert.alert(
         "Delete file",
-        `Permanently delete "${file.productName || file.fileName}"? This cannot be undone.`,
+        `Permanently delete "${file.productName || file.fileName}"?${note} This cannot be undone.`,
         [
           { text: "Cancel", style: "cancel" },
           {
@@ -1110,19 +1109,17 @@ export function StorageManagement() {
   }, [filtered, selectedIds]);
 
   const handleBulkDelete = useCallback(() => {
-    const deletable = filtered.filter(
-      (f) => selectedIds.has(f.id) && getUsageStatus(f) === "UNUSED"
-    );
-    if (deletable.length === 0) {
-      Alert.alert(
-        "Cannot delete",
-        "None of the selected files are unused. Only unused files can be deleted."
-      );
-      return;
-    }
+    const deletable = filtered.filter((f) => selectedIds.has(f.id));
+    if (deletable.length === 0) return;
+
+    const linkedCount = deletable.filter((f) => getUsageStatus(f) !== "UNUSED").length;
+    const warningMsg = linkedCount > 0
+      ? ` (Includes ${linkedCount} file${linkedCount !== 1 ? "s" : ""} linked to products/messages)`
+      : "";
+
     Alert.alert(
       "Delete selected",
-      `Delete ${deletable.length} unused file${deletable.length !== 1 ? "s" : ""}?`,
+      `Permanently delete ${deletable.length} selected file${deletable.length !== 1 ? "s" : ""}?${warningMsg} This cannot be undone.`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -1221,7 +1218,7 @@ export function StorageManagement() {
       const isSharing = sharingId === item.id;
       const isDeleting = deletingId === item.id;
       const isSelected = selectedIds.has(item.id);
-      const canDelete = isOwner && status === "UNUSED";
+      const canDelete = isOwner;
 
       if (viewMode === "list") {
         return (
@@ -1541,13 +1538,7 @@ export function StorageManagement() {
         onShare={handleBulkShare}
         onDelete={handleBulkDelete}
         onCancel={handleCancelSelection}
-        canDelete={
-          isOwner &&
-          Array.from(selectedIds).some((id) => {
-            const f = allAssets.find((a: StorageObject) => a.id === id);
-            return f ? getUsageStatus(f) === "UNUSED" : false;
-          })
-        }
+        canDelete={isOwner && selectedIds.size > 0}
         isBusy={isBusy}
       />
     </Animated.View>
@@ -1723,7 +1714,7 @@ function InfoSheet({
   onClose: (action?: "share" | "delete" | "edit" | "assign") => void;
 }) {
   const status = getUsageStatus(file);
-  const canDelete = isOwner && status === "UNUSED";
+  const canDelete = isOwner;
 
   const statusLabel =
     status === "PRODUCT"
