@@ -40,6 +40,7 @@ export async function printInvoiceDocument(sale: any, shop?: any): Promise<void>
   const totalAmount = Number(sale.totalAmount || sale.finalAmount || 0);
   const paidAmount = Number(sale.paidAmount || (sale.paymentStatus === "PAID" ? totalAmount : 0));
   const balanceDue = Math.max(totalAmount - paidAmount, 0);
+  const changeReturned = Math.max(paidAmount - totalAmount, 0);
 
   const statusText = sale.paymentStatus === "PAID" || paidAmount >= totalAmount ? "PAID" : "PAYMENT DUE";
 
@@ -191,6 +192,7 @@ export async function printInvoiceDocument(sale: any, shop?: any): Promise<void>
           <div style="text-align: right;">
             <div style="color: #64748b; font-size: 10px; font-weight: 700; text-transform: uppercase;">Invoice Summary</div>
             <div style="margin-top: 2px;">Items: <b>${items.length}</b></div>
+            ${changeReturned > 0 ? `<div>Change Returned: <b style="color: #0284c7;">${formatMoney(changeReturned)}</b></div>` : ""}
             <div>GST: <b>${sale.gstRequired ? "18% Included" : "Non-GST"}</b></div>
           </div>
         </div>
@@ -222,6 +224,12 @@ export async function printInvoiceDocument(sale: any, shop?: any): Promise<void>
             <span style="color: #64748b;">Amount Paid</span>
             <span style="font-weight: 700; color: #16a34a; font-family: monospace;">${formatMoney(paidAmount)}</span>
           </div>
+          ${changeReturned > 0 ? `
+          <div class="totals-row">
+            <span style="color: #64748b;">Change Returned</span>
+            <span style="font-weight: 700; color: #0284c7; font-family: monospace;">${formatMoney(changeReturned)}</span>
+          </div>
+          ` : ""}
           <div class="totals-row">
             <span style="color: #64748b;">Balance Due</span>
             <span style="font-weight: 700; color: ${balanceDue > 0 ? "#dc2626" : "#0f172a"}; font-family: monospace;">${formatMoney(balanceDue)}</span>

@@ -298,6 +298,7 @@ export async function generateSaleInvoiceHtml({ sale, shop, signatureBase64 }: S
   const paid = toFiniteNumber(sale.paidAmount);
   const total = toFiniteNumber(sale.totalAmount);
   const balanceDue = Math.max(toFiniteNumber(sale.balanceAmount), 0);
+  const changeReturned = Math.max(paid - total, 0);
 
   let statusText = "PAYMENT DUE";
   let statusClass = "due";
@@ -353,6 +354,7 @@ export async function generateSaleInvoiceHtml({ sale, shop, signatureBase64 }: S
     if (p.details?.chequeNumber) details.push(`Cheque: ${escapeHtml(p.details.chequeNumber)}`);
     if (p.details?.chequeBankName) details.push(escapeHtml(p.details.chequeBankName));
     if (p.referenceNumber) details.push(`Ref: ${escapeHtml(p.referenceNumber)}`);
+    if (p.paymentMode === "CASH" && changeReturned > 0) details.push(`Change Returned: ${formatMoney(changeReturned)}`);
     const detailsText = details.length > 0 ? `(${details.join(", ")})` : "";
 
     return `
@@ -650,6 +652,12 @@ export async function generateSaleInvoiceHtml({ sale, shop, signatureBase64 }: S
               <div style="font-size: 10px; color: var(--muted);">Amount Paid</div>
               <div style="font-size: 14px; font-weight: 700; color: var(--success); margin-top: 2px;">${formatMoney(paid)}</div>
             </div>
+            ${changeReturned > 0 ? `
+            <div style="flex: 1; border-right: 1px solid var(--border);">
+              <div style="font-size: 10px; color: var(--muted);">Change Returned</div>
+              <div style="font-size: 14px; font-weight: 700; color: #0284c7; margin-top: 2px;">${formatMoney(changeReturned)}</div>
+            </div>
+            ` : ""}
             <div style="flex: 1;">
               <div style="font-size: 10px; color: var(--muted);">Balance Due</div>
               <div style="font-size: 14px; font-weight: 700; color: ${balanceDue > 0 ? "var(--danger)" : "var(--primary)"}; margin-top: 2px;">${formatMoney(balanceDue)}</div>
@@ -711,6 +719,12 @@ export async function generateSaleInvoiceHtml({ sale, shop, signatureBase64 }: S
               <span style="color: var(--muted); font-weight: 500;">Amount Paid</span>
               <span style="color: var(--success); font-weight: 700;">${formatMoney(paid)}</span>
             </div>
+            ${changeReturned > 0 ? `
+            <div class="totals-row">
+              <span style="color: var(--muted); font-weight: 500;">Change Returned</span>
+              <span style="color: #0284c7; font-weight: 700;">${formatMoney(changeReturned)}</span>
+            </div>
+            ` : ""}
             <div class="totals-row">
               <span style="color: var(--muted); font-weight: 500;">Balance Due</span>
               <span style="color: ${balanceDue > 0 ? "var(--danger)" : "var(--primary)"}; font-weight: 700;">${formatMoney(balanceDue)}</span>

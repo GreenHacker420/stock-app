@@ -14,7 +14,10 @@ export function buildSalePayload(draft: SaleDraft) {
       : settlement.kind === "WALK_IN_UPI"
         ? "UPI"
         : undefined;
-  const paidMinor = getSettlementPaidMinor(settlement);
+  let paidMinor = getSettlementPaidMinor(settlement);
+  if (settlement.kind === "FULL_PAYMENT" && settlement.mode === "CASH" && settlement.changeMinor > 0) {
+    paidMinor = Math.max(0, settlement.paidMinor - settlement.changeMinor);
+  }
   return {
     shopId: draft.shopId,
     saleDate: draft.saleDate,

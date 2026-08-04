@@ -115,3 +115,25 @@ test("invoice S3 keys are stable for an unchanged invoice fingerprint", () => {
   assert.equal(first, second);
   assert.equal(first, "invoices/shop-1/sale-1/abc123/Invoice_SAL-001.pdf");
 });
+
+test("sale invoice displays change returned when paid amount exceeds total amount", () => {
+  const sale = {
+    ...baseSale,
+    totalAmount: 350,
+    paidAmount: 500,
+    balanceAmount: 0,
+    payments: [
+      {
+        paymentMode: "CASH",
+        amount: 500,
+        receivedAt: "2026-08-04T10:00:00.000Z",
+      },
+    ],
+  };
+
+  const html = generateSaleInvoiceHtml({ sale, shop });
+
+  assert.match(html, /Change Returned/);
+  assert.match(html, /₹150\.00/);
+});
+

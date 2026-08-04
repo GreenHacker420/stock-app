@@ -197,8 +197,21 @@ export async function applyPayments(tx, { user, shopId, saleId, dmId, orderId, c
   }
 
   for (const payment of payments) {
-    const amt = money(payment.amount);
-    if (amt.lte(0)) continue;
+    const rawAmt = money(payment.amount);
+    if (rawAmt.lte(0)) continue;
+
+    let amt = rawAmt;
+    let paymentNotes = payment.notes;
+
+    if (payment.paymentMode === "CASH" && saleId && totalVal.gt(0)) {
+      const remainingBalance = Math.max(0, sub(totalVal, newPaid));
+      if (remainingBalance > 0 && rawAmt.gt(remainingBalance)) {
+        amt = money(remainingBalance);
+        const changeReturned = sub(rawAmt, amt);
+        const changeNote = `Tendered: ₹${rawAmt.toFixed(2)}, Change Returned: ₹${changeReturned.toFixed(2)}`;
+        paymentNotes = paymentNotes ? `${paymentNotes} (${changeNote})` : changeNote;
+      }
+    }
 
     newPaid = add(newPaid, amt);
     const isAutoVerified = user?.role === "OWNER" || payment.paymentMode === "CASH";
@@ -221,7 +234,7 @@ export async function applyPayments(tx, { user, shopId, saleId, dmId, orderId, c
         verifiedById: isAutoVerified ? user.id : null,
         verifiedAt: isAutoVerified ? new Date() : null,
         cashSessionId,
-        notes: payment.notes,
+        notes: paymentNotes,
         details: payment.details ? {
           create: payment.details
         } : undefined
