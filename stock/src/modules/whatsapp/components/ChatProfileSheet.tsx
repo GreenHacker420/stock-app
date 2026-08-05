@@ -17,12 +17,13 @@ import { colors as Colors, spacing, radius, fontSize, fontWeight } from "../../.
 import { formatWhatsAppPhone, initials, waColors } from "../whatsapp-ui";
 import { type WaConversation, type WaMessage } from "../../../api/whatsapp.api";
 import { navigate } from "../../../navigation/navigation-ref";
-import { triggerLightHaptic, triggerMediumHaptic } from "../../../utils/haptics";
+import { triggerLightHaptic, triggerMediumHaptic, triggerSuccessHaptic, triggerErrorHaptic } from "../../../utils/haptics";
 import { Image as ExpoImage } from "expo-image";
-import { useCustomersQuery, useCustomerDetailQuery } from "../../../hooks/useCustomers";
+import { useCustomersQuery, useCustomerDetailQuery, useCreateCustomerMutation } from "../../../hooks/useCustomers";
 import { whatsappDb } from "../services/whatsapp-db";
 import { contactsDb } from "../services/contactsDb";
 import { KeyboardAwareScreen } from "../../../components/keyboard/KeyboardAwareScreen";
+import { cleanPhoneNumber } from "../../../utils/items/validation";
 
 interface ChatProfileSheetProps {
   shopId: string;
@@ -60,7 +61,9 @@ export function ChatProfileSheet({
   const [linkingId, setLinkingId] = useState<string | null>(null);
   const [manuallyLinkedCustomer, setManuallyLinkedCustomer] = useState<any>(null);
   const [detailsReady, setDetailsReady] = useState(false);
+  const [isCreatingCustomer, setIsCreatingCustomer] = useState(false);
   const queryClient = useQueryClient();
+  const createCustomerMutation = useCreateCustomerMutation();
 
   useEffect(() => {
     if (!visible) {
@@ -133,6 +136,28 @@ export function ChatProfileSheet({
       void queryClient.refetchQueries({ queryKey: ["customer", customer.id] });
     } catch (err: any) {
       console.warn("Background linking error:", err);
+    }
+  };
+
+  const handleCreateAndLinkCustomer = async () => {
+    if (!conversation || isCreatingCustomer) return;
+    setIsCreatingCustomer(true);
+    triggerMediumHaptic();
+    try {
+      const rawPhone = conversation.phone || "";
+      const cleaned = cleanPhoneNumber(rawPhone) || rawPhone.replace(/[^\d]/g, "");
+      const newCust = await createCustomerMutation.mutateAsync({
+        name: contactName || "New Customer",
+        phone: cleaned,
+      });
+      setIsCreatingCustomer(false);
+      triggerSuccessHaptic();
+      await handleLinkCustomer(newCust);
+    } catch (err: any) {
+      setIsCreatingCustomer(false);
+      triggerErrorHaptic();
+      const msg = err?.message || "Could not create customer account.";
+      Alert.alert("Create Customer Failed", msg);
     }
   };
 
@@ -529,19 +554,62 @@ export function ChatProfileSheet({
             onChangeText={setPickerSearch}
             style={{ marginBottom: 12, backgroundColor: Colors.surfaceOffset, elevation: 0 }}
           />
+
+          {/* QUICK CREATE & LINK DIRECTLY CARD */}
+          <TouchableOpacity
+            style={styles.createAndLinkCard}
+            onPress={handleCreateAndLinkCustomer}
+            disabled={isCreatingCustomer || Boolean(linkingId)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.createAndLinkAvatar}>
+              {isCreatingCustomer ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <MaterialCommunityIcons name="account-plus" size={20} color="#fff" />
+              )}
+            </View>
+            <View style={{ flex: 1, marginLeft: 12 }}>
+              <Text style={styles.createAndLinkTitle} numberOfLines={1}>
+                Create & Link "{contactName}"
+              </Text>
+              <Text style={styles.createAndLinkSub} numberOfLines={1}>
+                {phone ? formatWhatsAppPhone(phone) : "New customer account"}
+              </Text>
+            </View>
+            <MaterialCommunityIcons name="plus-circle" size={22} color={waColors.greenDark} />
+          </TouchableOpacity>
+
+          <Divider style={{ marginVertical: 8 }} />
+
           {customersQuery.isLoading ? (
             <ActivityIndicator color={waColors.greenDark} style={{ padding: 20 }} />
           ) : filteredCustomers.length === 0 ? (
-            <Text style={{ textAlign: "center", color: Colors.textSecondary, padding: 20 }}>
-              No customers found matching "{pickerSearch}"
-            </Text>
+            <View style={{ paddingVertical: 24, alignItems: "center" }}>
+              <MaterialCommunityIcons name="account-search-outline" size={44} color={Colors.textMuted} />
+              <Text style={{ textAlign: "center", color: Colors.textSecondary, marginTop: 8, marginBottom: 16 }}>
+                No existing customers found matching "{pickerSearch}"
+              </Text>
+              <Button
+                mode="contained"
+                onPress={handleCreateAndLinkCustomer}
+                loading={isCreatingCustomer}
+                disabled={isCreatingCustomer || Boolean(linkingId)}
+                buttonColor={waColors.greenDark}
+                textColor="#ffffff"
+                icon="account-plus"
+                style={{ borderRadius: 20, paddingHorizontal: 8 }}
+              >
+                Create & Link "{contactName}"
+              </Button>
+            </View>
           ) : (
             filteredCustomers.map((cust: any) => (
               <TouchableOpacity
                 key={cust.id}
                 style={styles.customerSelectItem}
                 onPress={() => handleLinkCustomer(cust)}
-                disabled={Boolean(linkingId)}
+                disabled={Boolean(linkingId) || isCreatingCustomer}
               >
                 <View style={styles.customerAvatarCircle}>
                   <Text style={styles.customerAvatarText}>{initials(cust.name || "C")}</Text>
@@ -867,6 +935,34 @@ const styles = StyleSheet.create({
   },
   customerSelectSub: {
     fontSize: 12,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
+  createAndLinkCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f0fdf4",
+    borderWidth: 1,
+    borderColor: "#bbf7d0",
+    borderRadius: radius.md,
+    padding: spacing.sm,
+    marginBottom: spacing.xs,
+  },
+  createAndLinkAvatar: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: waColors.greenDark,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  createAndLinkTitle: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: waColors.greenDark,
+  },
+  createAndLinkSub: {
+    fontSize: fontSize.xs,
     color: Colors.textSecondary,
     marginTop: 2,
   },
