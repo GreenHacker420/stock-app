@@ -4,6 +4,7 @@ import { formatRecordNumber } from "../utils/recordNumber.js";
 import { getDayRange } from "../utils/dateRange.js";
 import { money, add, sub, mul, div, isZero } from "../utils/money.js";
 import { createNotification, notifyShopOwner } from "./notification.service.js";
+import { postLedgerEntry } from "./customer-ledger.service.js";
 
 export async function generateRecordNumber(tx, { shopId, model, field, prefix, date = new Date(), dateField = "createdAt" }) {
   const { start, end } = getDayRange(date);
@@ -182,7 +183,7 @@ async function resolveCashSessionForPayment(tx, shopId, paymentMode, receivedAt)
 }
 
 /**
- * Apply payments simply by summing them and adjusting the customer's balance.
+ * Apply payments cleanly, recording payments and posting verified ones to customer ledger.
  */
 export async function applyPayments(tx, { user, shopId, saleId, dmId, orderId, customerId, totalAmount, existingPaidAmount = 0, payments }) {
   let newPaid = money(existingPaidAmount);
@@ -213,10 +214,14 @@ export async function applyPayments(tx, { user, shopId, saleId, dmId, orderId, c
       }
     }
 
-    newPaid = add(newPaid, amt);
     const isAutoVerified = user?.role === "OWNER" || payment.paymentMode === "CASH";
     const receivedAt = resolvePaymentDate(payment.paymentDate);
     const cashSessionId = await resolveCashSessionForPayment(tx, shopId, payment.paymentMode, receivedAt);
+
+    // Only verified payments contribute to bill paidAmount immediately
+    if (isAutoVerified) {
+      newPaid = add(newPaid, amt);
+    }
 
     // Create the payment record
     const createdPayment = await tx.payment.create({
@@ -248,23 +253,21 @@ export async function applyPayments(tx, { user, shopId, saleId, dmId, orderId, c
       });
     }
 
-    // Update Customer outstanding (reduces with payment)
-    if (customerId) {
-      await decreaseCustomerDebt(tx, customerId, amt);
-      if (dmId) {
-        await tx.customerLedgerEntry.create({
-          data: {
-            shopId,
-            customerId,
-            sourceType: "PAYMENT",
-            sourceId: createdPayment.id,
-            entryType: "PAYMENT_RECEIVED",
-            direction: "CREDIT",
-            amount: amt,
-            createdById: user.id,
-            effectiveAt: receivedAt,
-            notes: `Payment allocated to delivery memo ${dmId}`,
-          },
+    // Post to Customer Ledger ONLY if verified and customerId is present (Walk-in check handled inside postLedgerEntry)
+    if (customerId && isAutoVerified) {
+      const customer = await tx.customer.findUnique({ where: { id: customerId } });
+      if (customer && customer.type !== "WALK_IN") {
+        await postLedgerEntry(tx, {
+          shopId,
+          customerId,
+          sourceType: "PAYMENT",
+          sourceId: createdPayment.id,
+          entryType: "PAYMENT_RECEIVED",
+          direction: "CREDIT",
+          amount: amt,
+          createdById: user.id,
+          effectiveAt: receivedAt,
+          notes: paymentNotes || `Payment of ₹${amt} received via ${payment.paymentMode}`,
         });
       }
     }
@@ -333,25 +336,45 @@ function getIndiaDateKey(date = new Date()) {
 }
 
 /**
- * Update Customer Balance when a Sale/DM increases debt.
+ * Legacy compatibility wrapper that delegates debt increase to CustomerLedger.
  */
-export async function increaseCustomerDebt(tx, customerId, amount) {
+export async function increaseCustomerDebt(tx, customerId, amount, details = {}) {
   if (!customerId) return;
   const customer = await tx.customer.findUnique({ where: { id: customerId } });
   if (!customer || customer.type === "WALK_IN") return;
   
   const amt = money(amount);
-  const outAmt = add(customer.outstandingAmount, amt);
+  if (amt.lte(0)) return;
 
-  await tx.customer.update({
-    where: { id: customerId },
-    data: {
-      outstandingAmount: outAmt
-    }
-  });
+  if (details.shopId && details.sourceType && details.sourceId && details.createdById) {
+    await postLedgerEntry(tx, {
+      shopId: details.shopId,
+      customerId,
+      sourceType: details.sourceType,
+      sourceId: details.sourceId,
+      entryType: details.entryType || "SALE_POSTED",
+      direction: "DEBIT",
+      amount: amt,
+      createdById: details.createdById,
+      effectiveAt: details.effectiveAt || new Date(),
+      notes: details.notes || null,
+    });
+  } else {
+    // Basic fallback lock and update
+    const currentNet = sub(customer.outstandingAmount, customer.advanceBalance);
+    const newNet = add(currentNet, amt);
+    await tx.customer.update({
+      where: { id: customerId },
+      data: {
+        outstandingAmount: newNet.gt(0) ? newNet : money(0),
+        advanceBalance: newNet.lt(0) ? sub(0, newNet) : money(0),
+        ledgerVersion: { increment: 1 },
+      },
+    });
+  }
 }
 
-export async function postCustomerReceivable(tx, customerId, amount) {
+export async function postCustomerReceivable(tx, customerId, amount, details = {}) {
   if (!customerId) return { advanceApplied: money(0), outstandingCreated: money(0) };
   const customer = await tx.customer.findUnique({ where: { id: customerId } });
   if (!customer || customer.type === "WALK_IN") {
@@ -361,33 +384,72 @@ export async function postCustomerReceivable(tx, customerId, amount) {
   const availableAdvance = money(customer.advanceBalance || 0);
   const advanceApplied = availableAdvance.lt(total) ? availableAdvance : total;
   const outstandingCreated = sub(total, advanceApplied);
-  await tx.customer.update({
-    where: { id: customerId },
-    data: {
-      advanceBalance: sub(availableAdvance, advanceApplied),
-      outstandingAmount: add(customer.outstandingAmount, outstandingCreated),
-    },
-  });
+
+  if (details.shopId && details.sourceType && details.sourceId && details.createdById) {
+    await postLedgerEntry(tx, {
+      shopId: details.shopId,
+      customerId,
+      sourceType: details.sourceType,
+      sourceId: details.sourceId,
+      entryType: details.entryType || "SALE_POSTED",
+      direction: "DEBIT",
+      amount: total,
+      createdById: details.createdById,
+      effectiveAt: details.effectiveAt || new Date(),
+      notes: details.notes || null,
+    });
+  } else {
+    const currentNet = sub(customer.outstandingAmount, customer.advanceBalance);
+    const newNet = add(currentNet, total);
+    await tx.customer.update({
+      where: { id: customerId },
+      data: {
+        outstandingAmount: newNet.gt(0) ? newNet : money(0),
+        advanceBalance: newNet.lt(0) ? sub(0, newNet) : money(0),
+        ledgerVersion: { increment: 1 },
+      },
+    });
+  }
+
   return { advanceApplied, outstandingCreated };
 }
 
 /**
- * Update Customer Balance when a Return/Payment decreases debt.
+ * Legacy compatibility wrapper that delegates debt decrease to CustomerLedger.
  */
-export async function decreaseCustomerDebt(tx, customerId, amount) {
+export async function decreaseCustomerDebt(tx, customerId, amount, details = {}) {
   if (!customerId) return;
   const customer = await tx.customer.findUnique({ where: { id: customerId } });
   if (!customer || customer.type === "WALK_IN") return;
 
   const amt = money(amount);
-  const outAmt = sub(customer.outstandingAmount, amt);
+  if (amt.lte(0)) return;
 
-  await tx.customer.update({
-    where: { id: customerId },
-    data: {
-      outstandingAmount: outAmt
-    }
-  });
+  if (details.shopId && details.sourceType && details.sourceId && details.createdById) {
+    await postLedgerEntry(tx, {
+      shopId: details.shopId,
+      customerId,
+      sourceType: details.sourceType,
+      sourceId: details.sourceId,
+      entryType: details.entryType || "PAYMENT_RECEIVED",
+      direction: "CREDIT",
+      amount: amt,
+      createdById: details.createdById,
+      effectiveAt: details.effectiveAt || new Date(),
+      notes: details.notes || null,
+    });
+  } else {
+    const currentNet = sub(customer.outstandingAmount, customer.advanceBalance);
+    const newNet = sub(currentNet, amt);
+    await tx.customer.update({
+      where: { id: customerId },
+      data: {
+        outstandingAmount: newNet.gt(0) ? newNet : money(0),
+        advanceBalance: newNet.lt(0) ? sub(0, newNet) : money(0),
+        ledgerVersion: { increment: 1 },
+      },
+    });
+  }
 }
 
 export { prisma };

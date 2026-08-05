@@ -22,6 +22,7 @@ import { checkAndLockAvailableStock, expandStockRequirements } from "./stock.ser
 import { captureCustomer, getOrCreateWalkIn } from "./customer.service.js";
 import { EntityType, AuditAction } from "../generated/prisma/index.js";
 import { createDomainEvent, enqueueDomainEvent, enqueueManyDomainEvents } from "./domain-event.service.js";
+import { postLedgerEntry, reverseLedgerEntry } from "./customer-ledger.service.js";
 
 const getIndiaDateKey = (date = new Date()) => {
   const parts = new Intl.DateTimeFormat("en-GB", {
@@ -148,8 +149,15 @@ export async function createSale(user, data) {
       });
     }
 
-    // Every sale increases debt/reduces advance for the linked customer
-    await increaseCustomerDebt(tx, customer.id, totalVal);
+    // Every sale increases debt/reduces advance for the linked customer via CustomerLedger
+    await increaseCustomerDebt(tx, customer.id, totalVal, {
+      shopId: data.shopId,
+      sourceType: "SALE",
+      sourceId: sale.id,
+      entryType: "SALE_POSTED",
+      createdById: user.id,
+      effectiveAt: data.saleDate || new Date(),
+    });
 
     const paymentResult = await applyPayments(tx, {
       user,
@@ -650,10 +658,36 @@ export async function amendSale(user, id, data) {
     const prevTotal = Number(sale.totalAmount);
     const financialDelta = newTotalAmount - prevTotal;
 
-    if (financialDelta > 0) {
-      await increaseCustomerDebt(tx, sale.customerId, financialDelta);
-    } else if (financialDelta < 0) {
-      await decreaseCustomerDebt(tx, sale.customerId, Math.abs(financialDelta));
+    if (financialDelta > 0 && sale.customerId) {
+      const customer = await tx.customer.findUnique({ where: { id: sale.customerId } });
+      if (customer && customer.type !== "WALK_IN") {
+        await postLedgerEntry(tx, {
+          shopId: sale.shopId,
+          customerId: sale.customerId,
+          sourceType: "SALE_AMENDMENT",
+          sourceId: sale.id,
+          entryType: "SALE_VALUE_INCREASE",
+          direction: "DEBIT",
+          amount: Math.abs(financialDelta),
+          createdById: user.id,
+          notes: `Sale Amendment value increase: ${data.reason}`,
+        });
+      }
+    } else if (financialDelta < 0 && sale.customerId) {
+      const customer = await tx.customer.findUnique({ where: { id: sale.customerId } });
+      if (customer && customer.type !== "WALK_IN") {
+        await postLedgerEntry(tx, {
+          shopId: sale.shopId,
+          customerId: sale.customerId,
+          sourceType: "SALE_AMENDMENT",
+          sourceId: sale.id,
+          entryType: "SALE_VALUE_DECREASE",
+          direction: "CREDIT",
+          amount: Math.abs(financialDelta),
+          createdById: user.id,
+          notes: `Sale Amendment value decrease: ${data.reason}`,
+        });
+      }
     }
 
     // 7. Recalculate Payment Statuses
@@ -928,9 +962,21 @@ export async function cancelSale(user, id, { reason = "Cancelled by owner" } = {
       });
     }
 
-    // 2. Revert Customer Debt
+    // 2. Revert Customer Debt by reversing original SALE_POSTED debit entry
     if (sale.customerId) {
-      await decreaseCustomerDebt(tx, sale.customerId, sale.balanceAmount);
+      const originalEntry = await tx.customerLedgerEntry.findFirst({
+        where: { shopId: sale.shopId, sourceType: "SALE", sourceId: sale.id, entryType: "SALE_POSTED" },
+      });
+      if (originalEntry) {
+        await reverseLedgerEntry(tx, {
+          shopId: sale.shopId,
+          entryId: originalEntry.id,
+          reversalReason: reason,
+          createdById: user.id,
+        });
+      } else {
+        await decreaseCustomerDebt(tx, sale.customerId, sale.balanceAmount);
+      }
     }
 
     // 3. Mark Sale as CANCELLED

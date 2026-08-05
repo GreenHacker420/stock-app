@@ -24,6 +24,7 @@ export {
   deriveDeliveryMemoDueStatus,
   withDerivedMemoState,
 } from "./deliveryMemo.domain.js";
+import { postLedgerEntry } from "./customer-ledger.service.js";
 
 const RECEIVABLE_PURPOSES = { has: purposeCreatesReceivable };
 const IMPLEMENTED_PURPOSE = "CREDIT_DELIVERY";
@@ -119,18 +120,18 @@ async function assignMemoSerials(tx, user, dm, items) {
 
 async function appendCustomerLedger(tx, { shopId, customerId, sourceId, entryType, direction, amount, userId, notes }) {
   if (!customerId || money(amount).lte(0)) return;
-  await tx.customerLedgerEntry.create({
-    data: {
-      shopId,
-      customerId,
-      sourceType: "DELIVERY_MEMO",
-      sourceId,
-      entryType,
-      direction,
-      amount: money(amount),
-      createdById: userId,
-      notes,
-    },
+  const mappedEntryType = entryType === "DM_POSTED" ? "DELIVERY_MEMO_POSTED" : entryType;
+  const mappedSourceType = "DELIVERY_MEMO";
+  await postLedgerEntry(tx, {
+    shopId,
+    customerId,
+    sourceType: mappedSourceType,
+    sourceId,
+    entryType: mappedEntryType,
+    direction: direction || "DEBIT",
+    amount,
+    createdById: userId,
+    notes,
   });
 }
 
@@ -479,31 +480,15 @@ export async function createDeliveryMemo(user, data) {
       if (user.role === "STAFF" && customer.creditLimit != null && projectedDebt > Number(customer.creditLimit)) {
         throw new ApiError(409, "Posting would exceed the customer credit limit", { code: "CUSTOMER_CREDIT_LIMIT_EXCEEDED" });
       }
-      const receivable = await postCustomerReceivable(tx, customer.id, totalVal);
-      advanceApplied = receivable.advanceApplied;
-      await appendCustomerLedger(tx, {
+      const receivable = await postCustomerReceivable(tx, customer.id, totalVal, {
         shopId: data.shopId,
-        customerId: customer.id,
+        sourceType: "DELIVERY_MEMO",
         sourceId: dm.id,
-        entryType: "DM_POSTED",
-        direction: "DEBIT",
-        amount: totalVal,
-        userId: user.id,
+        entryType: "DELIVERY_MEMO_POSTED",
+        createdById: user.id,
         notes: `Posted ${dmNumber}`,
       });
-      if (receivable.advanceApplied.gt(0)) {
-        await tx.customerLedgerEntry.create({ data: {
-          shopId: data.shopId,
-          customerId: customer.id,
-          sourceType: "DELIVERY_MEMO",
-          sourceId: dm.id,
-          entryType: "ADVANCE_APPLIED",
-          direction: "CREDIT",
-          amount: receivable.advanceApplied,
-          createdById: user.id,
-          notes: `Advance applied to ${dmNumber}`,
-        } });
-      }
+      advanceApplied = receivable.advanceApplied;
     }
 
     const paymentResult = await applyPayments(tx, {

@@ -21,6 +21,7 @@ import correctionRoutes from "./correction.routes.js";
 import whatsappRoutes from "./whatsapp.routes.js";
 import syncRoutes from "./sync.routes.js";
 import attendanceRoutes from "./attendance.routes.js";
+import uploadRoutes from "./upload.routes.js";
 
 export const appRoutes = [
   ["/auth", authRoutes],
@@ -47,6 +48,7 @@ export const appRoutes = [
   ["/whatsapp", whatsappRoutes],
   ["/sync", syncRoutes],
   ["/attendance", attendanceRoutes],
+  ["/assets", uploadRoutes],
 ];
 
 export function mountAppRoutes(app) {

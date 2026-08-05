@@ -7,6 +7,7 @@ import {
   decreaseCustomerDebt,
   getBillPaymentStatus,
 } from "./transactionHelpers.js";
+import { postLedgerEntry, reverseLedgerEntry } from "./customer-ledger.service.js";
 import { money, sub, add, isZero } from "../utils/money.js";
 import { writeAuditLog } from "../utils/auditLog.js";
 import { getOrCreateWalkIn } from "./customer.service.js";
@@ -178,15 +179,37 @@ export async function verifyPayment(user, id, { note }) {
     throw new ApiError(400, `Cannot verify a ${payment.status.toLowerCase()} payment`);
   }
 
-  const updated = await prisma.payment.update({
-    where: { id },
-    data: {
-      status: "VERIFIED",
-      verifiedById: user.id,
-      verifiedAt: new Date(),
-      notes: note || payment.notes,
-    },
-    include: { details: true },
+  const updated = await prisma.$transaction(async (tx) => {
+    const row = await tx.payment.update({
+      where: { id },
+      data: {
+        status: "VERIFIED",
+        verifiedById: user.id,
+        verifiedAt: new Date(),
+        notes: note || payment.notes,
+      },
+      include: { details: true },
+    });
+
+    if (payment.customerId) {
+      const customer = await tx.customer.findUnique({ where: { id: payment.customerId } });
+      if (customer && customer.type !== "WALK_IN") {
+        await postLedgerEntry(tx, {
+          shopId: payment.shopId,
+          customerId: payment.customerId,
+          sourceType: "PAYMENT",
+          sourceId: payment.id,
+          entryType: "PAYMENT_RECEIVED",
+          direction: "CREDIT",
+          amount: payment.amount,
+          createdById: user.id,
+          effectiveAt: payment.receivedAt || new Date(),
+          notes: note || payment.notes || `Verified payment of ₹${payment.amount} via ${payment.paymentMode}`,
+        });
+      }
+    }
+
+    return row;
   });
 
   await enqueueDomainEvent(prisma, createDomainEvent({
@@ -270,9 +293,22 @@ export async function voidPayment(user, id, { reason } = {}) {
       include: { details: true }
     });
 
-    // 2. Adjust Customer balance
-    // Cancelling a payment means their debt increases back.
-    await increaseCustomerDebt(tx, existing.customerId, existing.amount);
+    // 2. Adjust Customer balance via single-use reversal if payment was VERIFIED
+    if (existing.status === "VERIFIED" && existing.customerId) {
+      const ledgerEntry = await tx.customerLedgerEntry.findFirst({
+        where: { shopId: existing.shopId, sourceType: "PAYMENT", sourceId: id, entryType: "PAYMENT_RECEIVED" },
+      });
+      if (ledgerEntry) {
+        await reverseLedgerEntry(tx, {
+          shopId: existing.shopId,
+          entryId: ledgerEntry.id,
+          reversalReason: reason || "Payment voided/cancelled",
+          createdById: user.id,
+        });
+      } else {
+        await increaseCustomerDebt(tx, existing.customerId, existing.amount);
+      }
+    }
 
     if (existing.paymentMode === "CASH" && existing.cashSessionId) {
       await tx.cashSession.update({

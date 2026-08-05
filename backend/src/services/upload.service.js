@@ -1,6 +1,8 @@
 import crypto from "crypto";
 import prisma from "../lib/db.js";
 import { uploadBufferToS3 } from "../lib/s3-storage.js";
+import { createPresignedPutUrl, verifyS3Object, getBucketName } from "./s3.service.js";
+import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 
 export const PRODUCT_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
@@ -57,6 +59,7 @@ export async function uploadProductImageAsset({
     data: {
       shopId,
       createdById,
+      domain: "PRODUCT",
       kind: "IMAGE",
       source: "INTERNAL",
       status: "UPLOADING",
@@ -65,7 +68,7 @@ export async function uploadProductImageAsset({
       sizeBytes: BigInt(file.size),
       checksumSha256,
       metadata: {
-        domain: "product",
+        domain: "PRODUCT",
         categoryPath: categoryPath || "uncategorised",
         itemPath: itemPath || "new",
       },
@@ -110,4 +113,89 @@ export async function uploadProductImageAsset({
     }).catch(() => {});
     throw error;
   }
+}
+
+export async function createPresignedUploadIntent(user, { shopId, domain = "OTHER", kind = "IMAGE", fileName, mimeType, sizeBytes }) {
+  await assertShopAccess(user, shopId);
+  const maxAllowedBytes = 15 * 1024 * 1024;
+  if (sizeBytes && Number(sizeBytes) > maxAllowedBytes) {
+    throw new ApiError(400, "File size exceeds maximum allowed limit (15MB)");
+  }
+
+  const asset = await prisma.asset.create({
+    data: {
+      shopId,
+      createdById: user.id,
+      domain,
+      kind,
+      source: "INTERNAL",
+      status: "UPLOADING",
+      mimeType,
+      fileName,
+      sizeBytes: sizeBytes ? BigInt(sizeBytes) : undefined,
+    },
+  });
+
+  const baseName = safeFileName(fileName, "file");
+  const storageKey = `shops/${shopId}/${domain.toLowerCase()}/${asset.id}/${baseName}`;
+  const bucketName = getBucketName();
+
+  const presigned = await createPresignedPutUrl({
+    key: storageKey,
+    mimeType,
+    expiresInSeconds: 600,
+    bucket: bucketName,
+  });
+
+  await prisma.asset.update({
+    where: { id: asset.id },
+    data: {
+      storageProvider: "S3",
+      storageBucket: presigned.bucket,
+      storageKey: presigned.key,
+    },
+  });
+
+  return {
+    assetId: asset.id,
+    uploadUrl: presigned.uploadUrl,
+    bucket: presigned.bucket,
+    key: presigned.key,
+    expiresInSeconds: 600,
+  };
+}
+
+export async function completeUploadIntent(user, { assetId, shopId }) {
+  await assertShopAccess(user, shopId);
+  const asset = await prisma.asset.findFirst({
+    where: { id: assetId, shopId },
+  });
+  if (!asset) {
+    throw new ApiError(404, "Asset intent not found");
+  }
+
+  if (asset.status === "READY") {
+    return { success: true, asset };
+  }
+
+  if (asset.status !== "UPLOADING") {
+    throw new ApiError(400, `Asset is not in UPLOADING status (status: ${asset.status})`);
+  }
+
+  const verification = await verifyS3Object({
+    key: asset.storageKey,
+    bucket: asset.storageBucket,
+  });
+
+  const updated = await prisma.asset.update({
+    where: { id: assetId },
+    data: {
+      status: "READY",
+      sizeBytes: verification.contentLength ? BigInt(verification.contentLength) : asset.sizeBytes,
+      mimeType: verification.contentType || asset.mimeType,
+      readyAt: new Date(),
+    },
+  });
+
+  return { success: true, asset: updated };
 }

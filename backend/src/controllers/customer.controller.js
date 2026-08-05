@@ -1,6 +1,10 @@
 import * as customerService from "../services/customer.service.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { runIdempotentCreate } from "../services/idempotency.service.js";
+import { getCustomerLedger } from "../services/customer-ledger.service.js";
+import { getCustomerLedgerSummary } from "../services/customer-ledger.service.js"
+import { postLedgerEntry } from "../services/customer-ledger.service.js";
+
 
 export const listCustomers = asyncHandler(async (req, res) => {
   const customers = await customerService.listCustomers(req.user, req.validated.query);
@@ -73,4 +77,42 @@ export const getReturns = asyncHandler(async (req, res) => {
 export const getPriceHistory = asyncHandler(async (req, res) => {
   const history = await customerService.getPriceHistory(req.user, req.params.id, req.validated.query);
   res.json({ success: true, data: history });
+});
+
+export const getLedger = asyncHandler(async (req, res) => {
+  const result = await getCustomerLedger(req.user, req.params.id, {
+    ...req.query,
+    shopId: req.query.shopId,
+  });
+  res.json({ success: true, data: result });
+});
+
+export const getLedgerSummary = asyncHandler(async (req, res) => {
+  const summary = await getCustomerLedgerSummary(req.user, req.params.id, { shopId: req.query.shopId });
+  res.json({ success: true, data: summary });
+});
+
+export const setOpeningBalance = asyncHandler(async (req, res) => {
+  const { shopId, direction, amount, notes, attachmentAssetIds, effectiveAt } = req.body;
+  const customerId = req.params.id;
+
+  const entryType = direction === "DEBIT" ? "OPENING_RECEIVABLE" : "OPENING_ADVANCE";
+
+  const result = await customerService.prisma.$transaction(async (tx) => {
+    return postLedgerEntry(tx, {
+      shopId,
+      customerId,
+      sourceType: "OPENING_BALANCE",
+      sourceId: customerId,
+      entryType,
+      direction,
+      amount,
+      createdById: req.user.id,
+      effectiveAt: effectiveAt || new Date(),
+      notes: notes || "Opening Balance",
+      attachmentAssetIds,
+    });
+  });
+
+  res.json({ success: true, data: result });
 });
