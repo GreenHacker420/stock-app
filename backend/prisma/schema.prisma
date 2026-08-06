@@ -1376,14 +1376,15 @@ model CustomerLedgerAttachment {
 }
 
 model CustomerLedgerAllocation {
-  id            String   @id @default(cuid())
-  shopId        String
-  customerId    String
-  debitEntryId  String
-  creditEntryId String
-  amount        Decimal  @db.Decimal(12, 2)
-  createdById   String
-  createdAt     DateTime @default(now())
+  id               String   @id @default(cuid())
+  shopId           String
+  customerId       String
+  debitEntryId     String
+  creditEntryId    String
+  amount           Decimal  @db.Decimal(12, 2)
+  createdById      String
+  clientMutationId String?
+  createdAt        DateTime @default(now())
 
   shop        Shop                @relation(fields: [shopId], references: [id], onDelete: Cascade)
   customer    Customer            @relation(fields: [customerId], references: [id], onDelete: Cascade)
@@ -1392,6 +1393,7 @@ model CustomerLedgerAllocation {
   creditEntry CustomerLedgerEntry @relation("LedgerCreditAllocations", fields: [creditEntryId], references: [id], onDelete: Restrict)
 
   @@unique([debitEntryId, creditEntryId])
+  @@unique([shopId, clientMutationId])
   @@index([creditEntryId])
   @@index([shopId, customerId, createdAt])
 }

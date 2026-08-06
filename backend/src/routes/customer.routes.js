@@ -33,9 +33,20 @@ const createSchema = z.object({
     gstin: z.string().optional(),
     contactPerson: z.string().optional(),
     creditLimit: z.number().optional(),
-    outstandingAmount: z.number().optional(),
-    advanceBalance: z.number().optional(),
     notes: z.string().optional(),
+  }),
+});
+
+const openingBalanceSchema = z.object({
+  body: z.object({
+    amount: z.number().positive("Amount must be positive"),
+    direction: z.enum(["DEBIT", "CREDIT"]),
+    notes: z.string().optional(),
+    effectiveAt: z.string().datetime().optional(),
+    attachmentAssetIds: z.array(z.union([
+      z.string(),
+      z.object({ assetId: z.string(), purpose: z.string().optional(), sortOrder: z.number().optional() }),
+    ])).optional(),
   }),
 });
 
@@ -68,8 +79,10 @@ router.get("/:id/delivery-memos", requirePermission(PERMISSIONS.CUSTOMER_VIEW), 
 router.get("/:id/returns", requirePermission(PERMISSIONS.CUSTOMER_VIEW), customerController.getReturns);
 router.get("/:id/price-history", requirePermission(PERMISSIONS.CUSTOMER_VIEW), validate(z.object({ query: z.object({ itemId: z.string().optional() }) })), customerController.getPriceHistory);
 router.get("/:id/ledger", requirePermission(PERMISSIONS.CUSTOMER_VIEW), customerController.getLedger);
+router.get("/:id/ledger/summary", requirePermission(PERMISSIONS.CUSTOMER_VIEW), customerController.getLedgerSummary);
+router.get("/:id/ledger/statement", requirePermission(PERMISSIONS.CUSTOMER_VIEW), customerController.getLedgerStatement);
 router.get("/:id/ledger-summary", requirePermission(PERMISSIONS.CUSTOMER_VIEW), customerController.getLedgerSummary);
-router.post("/:id/opening-balance", requirePermission(PERMISSIONS.CUSTOMER_UPDATE), customerController.setOpeningBalance);
+router.post("/:id/opening-balance", requirePermission(PERMISSIONS.CUSTOMER_UPDATE), validate(openingBalanceSchema), customerController.setOpeningBalance);
 router.patch("/:id", requirePermission(PERMISSIONS.CUSTOMER_UPDATE), validate(updateSchema), customerController.updateCustomer);
 router.delete("/:id", requirePermission(PERMISSIONS.CUSTOMER_UPDATE), validate(z.object({ params: z.object({ id: z.string().min(1) }), body: z.object({}).optional(), query: z.object({}).optional() })), customerController.deleteCustomer);
 

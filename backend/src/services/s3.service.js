@@ -11,6 +11,8 @@ export function getBucketName() {
 export async function createPresignedPutUrl({ key, mimeType, expiresInSeconds = 600, bucket }) {
   const bucketName = bucket || getS3BucketName();
 
+  const isMockEnv = process.env.NODE_ENV === "test" || process.env.MOCK_S3 === "true";
+
   const command = new PutObjectCommand({
     Bucket: bucketName,
     Key: key,
@@ -19,31 +21,30 @@ export async function createPresignedPutUrl({ key, mimeType, expiresInSeconds = 
 
   try {
     const uploadUrl = await getSignedUrl(s3Client, command, { expiresIn: expiresInSeconds });
-    return {
-      uploadUrl,
-      bucket: bucketName,
-      key,
-      expiresInSeconds,
-    };
+    return { uploadUrl, bucket: bucketName, key, expiresInSeconds };
   } catch (err) {
-    // In local / test environment without AWS credentials, provide fallback URL structure
-    return {
-      uploadUrl: `${getPublicS3ObjectUrl(key)}?mockPresigned=true`,
-      bucket: bucketName,
-      key,
-      expiresInSeconds,
-    };
+    if (isMockEnv) {
+      // Test-only fallback — never reaches production
+      return {
+        uploadUrl: `${getPublicS3ObjectUrl(key)}?mockPresigned=true`,
+        bucket: bucketName,
+        key,
+        expiresInSeconds,
+        isMock: true,
+      };
+    }
+    // Production: surface the credential / configuration error
+    throw new ApiError(500, `Failed to generate presigned upload URL: ${err.message}`);
   }
 }
 
+
 export async function verifyS3Object({ key, bucket }) {
   const bucketName = bucket || getS3BucketName();
+  const isMockEnv = process.env.NODE_ENV === "test" || process.env.MOCK_S3 === "true";
 
   try {
-    const command = new HeadObjectCommand({
-      Bucket: bucketName,
-      Key: key,
-    });
+    const command = new HeadObjectCommand({ Bucket: bucketName, Key: key });
     const headResult = await s3Client.send(command);
 
     return {
@@ -54,16 +55,18 @@ export async function verifyS3Object({ key, bucket }) {
       lastModified: headResult.LastModified || null,
     };
   } catch (err) {
-    // In test environment without real S3 object uploaded, return mock verification
-    if (process.env.NODE_ENV === "test" || process.env.MOCK_S3 === "true") {
+    if (isMockEnv) {
+      // Test-only fallback — returns predictable mock metadata
       return {
         exists: true,
         contentLength: 1024,
         contentType: "image/jpeg",
         eTag: '"mock-etag"',
         lastModified: new Date(),
+        isMock: true,
       };
     }
+    // Production: never silently succeed — propagate the error
     throw new ApiError(400, `S3 object verification failed for key "${key}": ${err.message}`);
   }
 }
@@ -74,10 +77,7 @@ export async function deleteS3Object({ key, bucket }) {
   const bucketName = bucket || getS3BucketName();
 
   try {
-    const command = new DeleteObjectCommand({
-      Bucket: bucketName,
-      Key: key,
-    });
+    const command = new DeleteObjectCommand({ Bucket: bucketName, Key: key });
     await s3Client.send(command);
     return { success: true };
   } catch (err) {
@@ -86,18 +86,18 @@ export async function deleteS3Object({ key, bucket }) {
   }
 }
 
-//  Generate a short-lived signed GET URL for downloading private assets.
+
 export async function getSignedGetUrl({ key, expiresInSeconds = 3600, bucket }) {
   if (!key) return null;
   const bucketName = bucket || getS3BucketName();
 
   try {
-    const command = new GetObjectCommand({
-      Bucket: bucketName,
-      Key: key,
-    });
+    const command = new GetObjectCommand({ Bucket: bucketName, Key: key });
     return await getSignedUrl(s3Client, command, { expiresIn: expiresInSeconds });
   } catch (err) {
-    return getPublicS3ObjectUrl(key);
+    if (process.env.NODE_ENV === "test" || process.env.MOCK_S3 === "true") {
+      return getPublicS3ObjectUrl(key);
+    }
+    throw new ApiError(500, `Failed to generate signed GET URL for key "${key}": ${err.message}`);
   }
 }

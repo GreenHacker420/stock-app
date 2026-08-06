@@ -312,8 +312,8 @@ export async function createCustomer(user, data) {
         creditLimit: data.creditLimit ? money(data.creditLimit) : null,
         notes: data.notes,
         createdById: user.id,
-        outstandingAmount: money(data.outstandingAmount || 0),
-        advanceBalance: money(data.advanceBalance || 0),
+        outstandingAmount: money(0),
+        advanceBalance: money(0),
       },
     });
 

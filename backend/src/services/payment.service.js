@@ -3,10 +3,9 @@ import { ApiError } from "../utils/ApiError.js";
 import {
   applyPayments,
   prisma,
-  increaseCustomerDebt,
-  decreaseCustomerDebt,
   getBillPaymentStatus,
 } from "./transactionHelpers.js";
+
 import { postLedgerEntry, reverseLedgerEntry } from "./customer-ledger.service.js";
 import { money, sub, add, isZero } from "../utils/money.js";
 import { writeAuditLog } from "../utils/auditLog.js";
@@ -209,6 +208,51 @@ export async function verifyPayment(user, id, { note }) {
       }
     }
 
+    // Update linked Sale paidAmount/paymentStatus
+    if (payment.saleId) {
+      const sale = await tx.sale.findUnique({ where: { id: payment.saleId } });
+      if (sale) {
+        const verifiedPayments = await tx.payment.aggregate({
+          where: { saleId: payment.saleId, status: "VERIFIED" },
+          _sum: { amount: true },
+        });
+        const newPaid = money(verifiedPayments._sum.amount || 0);
+        const newBalance = money(Math.max(0, Number(sale.totalAmount) - Number(newPaid)));
+        const newStatus = newPaid.gte(money(sale.totalAmount)) ? "PAID" : newPaid.gt(0) ? "PARTIALLY_PAID" : "UNPAID";
+        await tx.sale.update({
+          where: { id: payment.saleId },
+          data: {
+            paidAmount: newPaid,
+            balanceAmount: newBalance,
+            paymentStatus: newStatus,
+            saleStatus: newStatus === "PAID" ? "PAID" : "CONFIRMED",
+          },
+        });
+      }
+    }
+
+    // Update linked DeliveryMemo paidAmount/paymentStatus
+    if (payment.dmId) {
+      const dm = await tx.deliveryMemo.findUnique({ where: { id: payment.dmId } });
+      if (dm) {
+        const verifiedDmPayments = await tx.payment.aggregate({
+          where: { dmId: payment.dmId, status: "VERIFIED" },
+          _sum: { amount: true },
+        });
+        const newDmPaid = money(verifiedDmPayments._sum.amount || 0);
+        const newDmBalance = money(Math.max(0, Number(dm.estimatedAmount) - Number(newDmPaid)));
+        const newDmStatus = newDmPaid.gte(money(dm.estimatedAmount)) ? "FULLY_PAID" : newDmPaid.gt(0) ? "PARTIALLY_PAID" : "CREATED";
+        await tx.deliveryMemo.update({
+          where: { id: payment.dmId },
+          data: {
+            paidAmount: newDmPaid,
+            balanceAmount: newDmBalance,
+            status: newDmStatus,
+          },
+        });
+      }
+    }
+
     return row;
   });
 
@@ -240,8 +284,10 @@ export async function rejectPayment(user, id, { note }) {
     throw new ApiError(400, `Cannot reject a ${payment.status.toLowerCase()} payment`);
   }
 
+  // A RECORDED payment has never been posted to the ledger, so we ONLY update the
+  // payment status. No ledger mutation. No balance change.
   const updated = await prisma.$transaction(async (tx) => {
-    const row = await tx.payment.update({
+    return tx.payment.update({
       where: { id },
       data: {
         status: "REJECTED",
@@ -251,10 +297,6 @@ export async function rejectPayment(user, id, { note }) {
       },
       include: { details: true },
     });
-
-    await increaseCustomerDebt(tx, payment.customerId, payment.amount);
-
-    return row;
   });
 
   await enqueueDomainEvent(prisma, createDomainEvent({
@@ -298,16 +340,15 @@ export async function voidPayment(user, id, { reason } = {}) {
       const ledgerEntry = await tx.customerLedgerEntry.findFirst({
         where: { shopId: existing.shopId, sourceType: "PAYMENT", sourceId: id, entryType: "PAYMENT_RECEIVED" },
       });
-      if (ledgerEntry) {
-        await reverseLedgerEntry(tx, {
-          shopId: existing.shopId,
-          entryId: ledgerEntry.id,
-          reversalReason: reason || "Payment voided/cancelled",
-          createdById: user.id,
-        });
-      } else {
-        await increaseCustomerDebt(tx, existing.customerId, existing.amount);
+      if (!ledgerEntry) {
+        throw new ApiError(409, "Cannot void payment: PAYMENT_RECEIVED ledger entry not found. Data integrity issue — contact support.", { code: "LEDGER_ENTRY_MISSING" });
       }
+      await reverseLedgerEntry(tx, {
+        shopId: existing.shopId,
+        entryId: ledgerEntry.id,
+        reversalReason: reason || "Payment voided/cancelled",
+        createdById: user.id,
+      });
     }
 
     if (existing.paymentMode === "CASH" && existing.cashSessionId) {

@@ -3,7 +3,7 @@ import { ApiError } from "../utils/ApiError.js";
 import { EntityType, ApprovalType, AuditAction } from "../generated/prisma/index.js";
 import { createApprovalRequest } from "./approval.service.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
-import { decreaseCustomerDebt } from "./transactionHelpers.js";
+import { reverseLedgerEntry } from "./customer-ledger.service.js";
 import { createDomainEvent, enqueueManyDomainEvents, enqueueDomainEvent } from "./domain-event.service.js";
 
 function mapEntityType(clientType) {
@@ -191,7 +191,27 @@ export async function approveCorrectionRequest(user, id) {
         },
       });
 
-      await decreaseCustomerDebt(tx, sale.customerId, sale.balanceAmount);
+      if (sale.customerId) {
+        // Find the original SALE_POSTED ledger entry and reverse it
+        const originalEntry = await tx.customerLedgerEntry.findFirst({
+          where: {
+            shopId: approval.shopId,
+            customerId: sale.customerId,
+            sourceType: "SALE",
+            sourceId: approval.entityId,
+            entryType: "SALE_POSTED",
+          },
+        });
+        if (!originalEntry) {
+          throw new ApiError(409, "Cannot cancel sale: original ledger entry (SALE_POSTED) not found. Run reconciliation first.", { code: "LEDGER_ENTRY_MISSING" });
+        }
+        await reverseLedgerEntry(tx, {
+          shopId: approval.shopId,
+          entryId: originalEntry.id,
+          reversalReason: `Sale cancelled: ${approval.reason || "Approved by owner"}`,
+          createdById: user.id,
+        });
+      }
 
       const saleItems = await tx.saleItem.findMany({ where: { saleId: approval.entityId } });
       for (const item of saleItems) {
@@ -226,21 +246,27 @@ export async function approveCorrectionRequest(user, id) {
         },
       });
 
-      await decreaseCustomerDebt(tx, dm.customerId, dm.balanceAmount);
-
-      await tx.customerLedgerEntry.create({
-        data: {
+      if (dm.customerId) {
+        // Find the original DELIVERY_MEMO_POSTED entry and reverse it
+        const originalEntry = await tx.customerLedgerEntry.findFirst({
+          where: {
+            shopId: dm.shopId,
+            customerId: dm.customerId,
+            sourceType: "DELIVERY_MEMO",
+            sourceId: dm.id,
+            entryType: "DELIVERY_MEMO_POSTED",
+          },
+        });
+        if (!originalEntry) {
+          throw new ApiError(409, "Cannot cancel delivery memo: original ledger entry (DELIVERY_MEMO_POSTED) not found. Run reconciliation first.", { code: "LEDGER_ENTRY_MISSING" });
+        }
+        await reverseLedgerEntry(tx, {
           shopId: dm.shopId,
-          customerId: dm.customerId,
-          sourceType: "DELIVERY_MEMO",
-          sourceId: dm.id,
-          entryType: "DM_CANCELLED",
-          direction: "CREDIT",
-          amount: dm.balanceAmount,
+          entryId: originalEntry.id,
+          reversalReason: `DM cancelled: ${approval.reason || "Approved by owner"}`,
           createdById: user.id,
-          notes: approval.reason,
-        },
-      });
+        });
+      }
 
       await tx.deliveryMemoSerialAssignment.updateMany({
         where: { dmId: dm.id, status: "ACTIVE" },

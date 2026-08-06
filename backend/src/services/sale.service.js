@@ -654,41 +654,23 @@ export async function amendSale(user, id, data) {
       }
     }
 
-    // 6. financial Delta & receivable Correction
+    // 6. Create SaleAmendment record FIRST — its ID is the sourceId for all ledger entries
     const prevTotal = Number(sale.totalAmount);
     const financialDelta = newTotalAmount - prevTotal;
 
-    if (financialDelta > 0 && sale.customerId) {
-      const customer = await tx.customer.findUnique({ where: { id: sale.customerId } });
-      if (customer && customer.type !== "WALK_IN") {
-        await postLedgerEntry(tx, {
-          shopId: sale.shopId,
-          customerId: sale.customerId,
-          sourceType: "SALE_AMENDMENT",
-          sourceId: sale.id,
-          entryType: "SALE_VALUE_INCREASE",
-          direction: "DEBIT",
-          amount: Math.abs(financialDelta),
-          createdById: user.id,
-          notes: `Sale Amendment value increase: ${data.reason}`,
-        });
-      }
-    } else if (financialDelta < 0 && sale.customerId) {
-      const customer = await tx.customer.findUnique({ where: { id: sale.customerId } });
-      if (customer && customer.type !== "WALK_IN") {
-        await postLedgerEntry(tx, {
-          shopId: sale.shopId,
-          customerId: sale.customerId,
-          sourceType: "SALE_AMENDMENT",
-          sourceId: sale.id,
-          entryType: "SALE_VALUE_DECREASE",
-          direction: "CREDIT",
-          amount: Math.abs(financialDelta),
-          createdById: user.id,
-          notes: `Sale Amendment value decrease: ${data.reason}`,
-        });
-      }
-    }
+    const beforeSnapshot = sale.items.map(item => ({
+      itemId: item.itemId,
+      quantity: Number(item.quantity),
+      rate: Number(item.rate),
+      discountAmount: Number(item.discountAmount),
+    }));
+
+    const afterSnapshot = newItems.map(item => ({
+      itemId: item.itemId,
+      quantity: Number(item.quantity),
+      rate: Number(item.rate),
+      discountAmount: Number(item.discountAmount),
+    }));
 
     // 7. Recalculate Payment Statuses
     const totalVal = money(newTotalAmount);
@@ -698,6 +680,7 @@ export async function amendSale(user, id, data) {
     const paidAmount = sale.payments
       .filter(p => p.status === "VERIFIED" || p.status === "APPROVED" || p.status === "RECEIVED")
       .reduce((sum, p) => sum + Number(p.amount), 0);
+
     const paidVal = money(paidAmount);
     const balanceVal = money(Math.max(0, newTotalAmount - paidAmount));
     const newPaymentStatus = getBillPaymentStatus(totalVal, paidVal);
@@ -747,22 +730,8 @@ export async function amendSale(user, id, data) {
       include: { customer: true, items: { include: { item: true } }, payments: true },
     });
 
-    // 9. Save Amendment log
-    const beforeSnapshot = sale.items.map(item => ({
-      itemId: item.itemId,
-      quantity: Number(item.quantity),
-      rate: Number(item.rate),
-      discountAmount: Number(item.discountAmount),
-    }));
-
-    const afterSnapshot = newItems.map(item => ({
-      itemId: item.itemId,
-      quantity: Number(item.quantity),
-      rate: Number(item.rate),
-      discountAmount: Number(item.discountAmount),
-    }));
-
-    await tx.saleAmendment.create({
+    // 9. Save Amendment log FIRST — use amendment.id as ledger sourceId (prevents collision on multi-amendment)
+    const saleAmendment = await tx.saleAmendment.create({
       data: {
         saleId: sale.id,
         version: updatedSale.version,
@@ -783,7 +752,41 @@ export async function amendSale(user, id, data) {
       }
     });
 
-    // 10. Audit Log and Event outbox
+    // 10. Post financial delta to customer ledger using amendment.id as sourceId
+    if (Math.abs(financialDelta) > 0.001 && sale.customerId) {
+      const customer = await tx.customer.findUnique({ where: { id: sale.customerId } });
+      if (customer && customer.type !== "WALK_IN") {
+        if (financialDelta > 0) {
+          await postLedgerEntry(tx, {
+            shopId: sale.shopId,
+            customerId: sale.customerId,
+            sourceType: "SALE_AMENDMENT",
+            sourceId: saleAmendment.id,
+            entryType: "SALE_VALUE_INCREASE",
+            direction: "DEBIT",
+            amount: Math.abs(financialDelta),
+            createdById: user.id,
+            notes: `Sale Amendment (v${updatedSale.version}) value increase: ${data.reason}`,
+            metadata: { saleId: sale.id, amendmentId: saleAmendment.id },
+          });
+        } else {
+          await postLedgerEntry(tx, {
+            shopId: sale.shopId,
+            customerId: sale.customerId,
+            sourceType: "SALE_AMENDMENT",
+            sourceId: saleAmendment.id,
+            entryType: "SALE_VALUE_DECREASE",
+            direction: "CREDIT",
+            amount: Math.abs(financialDelta),
+            createdById: user.id,
+            notes: `Sale Amendment (v${updatedSale.version}) value decrease: ${data.reason}`,
+            metadata: { saleId: sale.id, amendmentId: saleAmendment.id },
+          });
+        }
+      }
+    }
+
+    // 11. Audit Log and Event outbox
     await tx.auditLog.create({
       data: {
         userId: user.id,
@@ -808,6 +811,7 @@ export async function amendSale(user, id, data) {
     return updatedSale;
   });
 }
+
 
 export async function issueInvoice(user, id, data) {
   const sale = await prisma.sale.findUnique({

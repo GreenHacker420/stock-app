@@ -342,36 +342,26 @@ export async function increaseCustomerDebt(tx, customerId, amount, details = {})
   if (!customerId) return;
   const customer = await tx.customer.findUnique({ where: { id: customerId } });
   if (!customer || customer.type === "WALK_IN") return;
-  
+
   const amt = money(amount);
   if (amt.lte(0)) return;
 
-  if (details.shopId && details.sourceType && details.sourceId && details.createdById) {
-    await postLedgerEntry(tx, {
-      shopId: details.shopId,
-      customerId,
-      sourceType: details.sourceType,
-      sourceId: details.sourceId,
-      entryType: details.entryType || "SALE_POSTED",
-      direction: "DEBIT",
-      amount: amt,
-      createdById: details.createdById,
-      effectiveAt: details.effectiveAt || new Date(),
-      notes: details.notes || null,
-    });
-  } else {
-    // Basic fallback lock and update
-    const currentNet = sub(customer.outstandingAmount, customer.advanceBalance);
-    const newNet = add(currentNet, amt);
-    await tx.customer.update({
-      where: { id: customerId },
-      data: {
-        outstandingAmount: newNet.gt(0) ? newNet : money(0),
-        advanceBalance: newNet.lt(0) ? sub(0, newNet) : money(0),
-        ledgerVersion: { increment: 1 },
-      },
-    });
+  if (!details.shopId || !details.sourceType || !details.sourceId || !details.createdById) {
+    throw new ApiError(500, "[increaseCustomerDebt] Full ledger posting metadata (shopId, sourceType, sourceId, createdById) is required. Direct balance mutation is forbidden.");
   }
+
+  await postLedgerEntry(tx, {
+    shopId: details.shopId,
+    customerId,
+    sourceType: details.sourceType,
+    sourceId: details.sourceId,
+    entryType: details.entryType || "SALE_POSTED",
+    direction: "DEBIT",
+    amount: amt,
+    createdById: details.createdById,
+    effectiveAt: details.effectiveAt || new Date(),
+    notes: details.notes || null,
+  });
 }
 
 export async function postCustomerReceivable(tx, customerId, amount, details = {}) {
@@ -385,31 +375,22 @@ export async function postCustomerReceivable(tx, customerId, amount, details = {
   const advanceApplied = availableAdvance.lt(total) ? availableAdvance : total;
   const outstandingCreated = sub(total, advanceApplied);
 
-  if (details.shopId && details.sourceType && details.sourceId && details.createdById) {
-    await postLedgerEntry(tx, {
-      shopId: details.shopId,
-      customerId,
-      sourceType: details.sourceType,
-      sourceId: details.sourceId,
-      entryType: details.entryType || "SALE_POSTED",
-      direction: "DEBIT",
-      amount: total,
-      createdById: details.createdById,
-      effectiveAt: details.effectiveAt || new Date(),
-      notes: details.notes || null,
-    });
-  } else {
-    const currentNet = sub(customer.outstandingAmount, customer.advanceBalance);
-    const newNet = add(currentNet, total);
-    await tx.customer.update({
-      where: { id: customerId },
-      data: {
-        outstandingAmount: newNet.gt(0) ? newNet : money(0),
-        advanceBalance: newNet.lt(0) ? sub(0, newNet) : money(0),
-        ledgerVersion: { increment: 1 },
-      },
-    });
+  if (!details.shopId || !details.sourceType || !details.sourceId || !details.createdById) {
+    throw new ApiError(500, "[postCustomerReceivable] Full ledger posting metadata (shopId, sourceType, sourceId, createdById) is required. Direct balance mutation is forbidden.");
   }
+
+  await postLedgerEntry(tx, {
+    shopId: details.shopId,
+    customerId,
+    sourceType: details.sourceType,
+    sourceId: details.sourceId,
+    entryType: details.entryType || "SALE_POSTED",
+    direction: "DEBIT",
+    amount: total,
+    createdById: details.createdById,
+    effectiveAt: details.effectiveAt || new Date(),
+    notes: details.notes || null,
+  });
 
   return { advanceApplied, outstandingCreated };
 }
@@ -425,31 +406,22 @@ export async function decreaseCustomerDebt(tx, customerId, amount, details = {})
   const amt = money(amount);
   if (amt.lte(0)) return;
 
-  if (details.shopId && details.sourceType && details.sourceId && details.createdById) {
-    await postLedgerEntry(tx, {
-      shopId: details.shopId,
-      customerId,
-      sourceType: details.sourceType,
-      sourceId: details.sourceId,
-      entryType: details.entryType || "PAYMENT_RECEIVED",
-      direction: "CREDIT",
-      amount: amt,
-      createdById: details.createdById,
-      effectiveAt: details.effectiveAt || new Date(),
-      notes: details.notes || null,
-    });
-  } else {
-    const currentNet = sub(customer.outstandingAmount, customer.advanceBalance);
-    const newNet = sub(currentNet, amt);
-    await tx.customer.update({
-      where: { id: customerId },
-      data: {
-        outstandingAmount: newNet.gt(0) ? newNet : money(0),
-        advanceBalance: newNet.lt(0) ? sub(0, newNet) : money(0),
-        ledgerVersion: { increment: 1 },
-      },
-    });
+  if (!details.shopId || !details.sourceType || !details.sourceId || !details.createdById) {
+    throw new ApiError(500, "[decreaseCustomerDebt] Full ledger posting metadata (shopId, sourceType, sourceId, createdById) is required. Direct balance mutation is forbidden.");
   }
+
+  await postLedgerEntry(tx, {
+    shopId: details.shopId,
+    customerId,
+    sourceType: details.sourceType,
+    sourceId: details.sourceId,
+    entryType: details.entryType || "PAYMENT_RECEIVED",
+    direction: "CREDIT",
+    amount: amt,
+    createdById: details.createdById,
+    effectiveAt: details.effectiveAt || new Date(),
+    notes: details.notes || null,
+  });
 }
 
 export { prisma };
