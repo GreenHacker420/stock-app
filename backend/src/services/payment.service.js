@@ -466,11 +466,34 @@ export async function amendPayment(user, id, { amount, reason, expectedUpdatedAt
       throw new ApiError(409, "This payment changed on another device. Refresh and try again.");
     }
 
-    if (delta.gt(0)) {
-      await decreaseCustomerDebt(tx, current.customerId, delta);
-    } else {
-      await increaseCustomerDebt(tx, current.customerId, delta.abs());
+    if (current.status === "VERIFIED" && current.customerId && current.customer?.type !== "WALK_IN") {
+      if (delta.gt(0)) {
+        await postLedgerEntry(tx, {
+          shopId: current.shopId,
+          customerId: current.customerId,
+          sourceType: "PAYMENT_AMENDMENT",
+          sourceId: current.id,
+          entryType: "PAYMENT_VALUE_INCREASE",
+          direction: "CREDIT",
+          amount: delta.abs(),
+          createdById: user.id,
+          notes: `Payment amount increased by ${delta.abs()}: ${reason}`,
+        });
+      } else if (delta.lt(0)) {
+        await postLedgerEntry(tx, {
+          shopId: current.shopId,
+          customerId: current.customerId,
+          sourceType: "PAYMENT_AMENDMENT",
+          sourceId: current.id,
+          entryType: "PAYMENT_VALUE_DECREASE",
+          direction: "DEBIT",
+          amount: delta.abs(),
+          createdById: user.id,
+          notes: `Payment amount decreased by ${delta.abs()}: ${reason}`,
+        });
+      }
     }
+
 
     if (current.paymentMode === "CASH" && current.cashSessionId) {
       await tx.cashSession.update({

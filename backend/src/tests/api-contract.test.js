@@ -334,7 +334,8 @@ test("sale cancellation uses sale lifecycle fields and outstanding debt", () => 
   assert.ok(cancelSaleSrc.includes("saleStatus: \"CANCELLED\""));
   assert.ok(cancelSaleSrc.includes("cancelledAt: new Date()"));
   assert.ok(cancelSaleSrc.includes("cancelReason: reason"));
-  assert.ok(cancelSaleSrc.includes("decreaseCustomerDebt(tx, sale.customerId, sale.balanceAmount)"));
+  assert.ok(cancelSaleSrc.includes("reverseLedgerEntry(tx, {"));
+
   assert.ok(!cancelSaleSrc.includes("paymentStatus: \"CANCELLED\""));
   assert.ok(!cancelSaleSrc.includes("notes:"));
 });

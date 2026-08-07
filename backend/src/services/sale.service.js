@@ -13,10 +13,9 @@ import {
   createStockIn,
   generateRecordNumber,
   prisma,
-  increaseCustomerDebt,
-  decreaseCustomerDebt,
   getBillPaymentStatus,
 } from "./transactionHelpers.js";
+
 import { money, sub, add } from "../utils/money.js";
 import { checkAndLockAvailableStock, expandStockRequirements } from "./stock.service.js";
 import { captureCustomer, getOrCreateWalkIn } from "./customer.service.js";
@@ -149,15 +148,21 @@ export async function createSale(user, data) {
       });
     }
 
-    // Every sale increases debt/reduces advance for the linked customer via CustomerLedger
-    await increaseCustomerDebt(tx, customer.id, totalVal, {
-      shopId: data.shopId,
-      sourceType: "SALE",
-      sourceId: sale.id,
-      entryType: "SALE_POSTED",
-      createdById: user.id,
-      effectiveAt: data.saleDate || new Date(),
-    });
+    // Every non-walkin sale posts a SALE_POSTED DEBIT to CustomerLedger
+    if (customer.type !== "WALK_IN") {
+      await postLedgerEntry(tx, {
+        shopId: data.shopId,
+        customerId: customer.id,
+        sourceType: "SALE",
+        sourceId: sale.id,
+        entryType: "SALE_POSTED",
+        direction: "DEBIT",
+        amount: totalVal,
+        createdById: user.id,
+        effectiveAt: data.saleDate || new Date(),
+      });
+    }
+
 
     const paymentResult = await applyPayments(tx, {
       user,
@@ -967,21 +972,21 @@ export async function cancelSale(user, id, { reason = "Cancelled by owner" } = {
     }
 
     // 2. Revert Customer Debt by reversing original SALE_POSTED debit entry
-    if (sale.customerId) {
+    if (sale.customerId && sale.customer?.type !== "WALK_IN") {
       const originalEntry = await tx.customerLedgerEntry.findFirst({
         where: { shopId: sale.shopId, sourceType: "SALE", sourceId: sale.id, entryType: "SALE_POSTED" },
       });
-      if (originalEntry) {
-        await reverseLedgerEntry(tx, {
-          shopId: sale.shopId,
-          entryId: originalEntry.id,
-          reversalReason: reason,
-          createdById: user.id,
-        });
-      } else {
-        await decreaseCustomerDebt(tx, sale.customerId, sale.balanceAmount);
+      if (!originalEntry) {
+        throw new ApiError(409, "Original SALE_POSTED ledger entry is missing; sale cannot be cancelled");
       }
+      await reverseLedgerEntry(tx, {
+        shopId: sale.shopId,
+        entryId: originalEntry.id,
+        reversalReason: reason,
+        createdById: user.id,
+      });
     }
+
 
     // 3. Mark Sale as CANCELLED
     const updatedSale = await tx.sale.update({

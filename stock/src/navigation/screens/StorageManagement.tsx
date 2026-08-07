@@ -1024,20 +1024,45 @@ export function StorageManagement() {
   const handleLongPress = useCallback(
     (item: StorageObject) => {
       triggerMediumHaptic();
-      setSelectedIds((prev) => {
-        if (prev.size === 0) {
-          // Enter selection mode with this item
-          return new Set([item.id]);
-        }
-        // Already in selection mode — toggle this item (don't wipe other selections)
-        const next = new Set(prev);
-        if (next.has(item.id)) next.delete(item.id);
-        else next.add(item.id);
-        return next;
-      });
+      Alert.alert(
+        item.productName || item.fileName,
+        "Choose an action for this file",
+        [
+          {
+            text: "Share",
+            onPress: () => {
+              void handleShare(item);
+            },
+          },
+          {
+            text: "Delete",
+            style: "destructive",
+            onPress: () => {
+              handleDelete(item);
+            },
+          },
+          {
+            text: "Select Multiple",
+            onPress: () => {
+              setSelectedIds(new Set([item.id]));
+            },
+          },
+          {
+            text: "View Details",
+            onPress: () => {
+              setInfoFile(item);
+            },
+          },
+          {
+            text: "Cancel",
+            style: "cancel",
+          },
+        ]
+      );
     },
-    []
+    [handleShare, handleDelete]
   );
+
 
   const handleToggleSelect = useCallback((id: string) => {
     triggerLightHaptic();

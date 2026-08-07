@@ -5,8 +5,9 @@ import { writeAuditLog } from "../utils/auditLog.js";
 import { notifyShopOwner, createNotification } from "./notification.service.js";
 import { money, add, sub, isZero } from "../utils/money.js";
 import { EntityType, AuditAction } from "../generated/prisma/index.js";
-import { increaseCustomerDebt } from "./transactionHelpers.js";
+import { postLedgerEntry, reverseLedgerEntry } from "./customer-ledger.service.js";
 import { createDomainEvent, enqueueDomainEvent } from "./domain-event.service.js";
+
 
 async function getChequePayment(user, id) {
   const payment = await prisma.payment.findUnique({
@@ -84,8 +85,22 @@ export async function updateChequeStatus(user, id, status, { reason } = {}) {
       include: { details: true, customer: true },
     });
 
-    if (status === "BOUNCED" && existing.customerId) {
-      await increaseCustomerDebt(tx, existing.customerId, existing.amount);
+    if (status === "BOUNCED" && existing.customerId && existing.customer?.type !== "WALK_IN") {
+      // If the cheque was already verified, reverse the payment credit
+      if (existing.status === "VERIFIED") {
+        const originalCredit = await tx.customerLedgerEntry.findFirst({
+          where: { shopId: existing.shopId, sourceType: "PAYMENT", sourceId: existing.id, entryType: "PAYMENT_RECEIVED" },
+        });
+        if (originalCredit) {
+          await reverseLedgerEntry(tx, {
+            shopId: existing.shopId,
+            entryId: originalCredit.id,
+            reversalReason: `Cheque bounced: ${reason || "Bounced"}`,
+            createdById: user.id,
+          });
+        }
+      }
+
 
       const msg = `Cheque bounced for customer ${existing.customer?.name || "Walk-In"} for ₹${existing.amount}`;
       await notifyShopOwner(tx, {

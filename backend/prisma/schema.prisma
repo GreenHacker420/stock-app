@@ -136,7 +136,9 @@ enum CustomerLedgerSourceType {
   PAYMENT
   RETURN
   SALE_AMENDMENT
+  PAYMENT_AMENDMENT
   MANUAL_ADJUSTMENT
+  CHEQUE
   REVERSAL
   LEGACY_RECONCILIATION
 }
@@ -147,15 +149,19 @@ enum CustomerLedgerEntryType {
   SALE_POSTED
   DELIVERY_MEMO_POSTED
   PAYMENT_RECEIVED
+  PAYMENT_VALUE_INCREASE
+  PAYMENT_VALUE_DECREASE
   RETURN_CREDIT
   SALE_VALUE_INCREASE
   SALE_VALUE_DECREASE
+  CHEQUE_BOUNCED
   ADJUSTMENT_DEBIT
   ADJUSTMENT_CREDIT
   REVERSAL
   LEGACY_RECONCILIATION
   ADVANCE_APPLIED
 }
+
 
 enum LedgerAttachmentPurpose {
   OPENING_BALANCE_BILL
@@ -687,12 +693,12 @@ model Shop {
   expenses              Expense[]
   approvalRequests      ApprovalRequest[]
   attendance            Attendance[]
-  dmSerialAssignments         DeliveryMemoSerialAssignment[]
-  customerLedgerEntries       CustomerLedgerEntry[]
-  ledgerAttachments           CustomerLedgerAttachment[]
-  ledgerAllocations           CustomerLedgerAllocation[]
-  itemAssets                  ItemAsset[]
-  assetDeletionOutboxes       AssetDeletionOutbox[]
+  dmSerialAssignments   DeliveryMemoSerialAssignment[]
+  customerLedgerEntries CustomerLedgerEntry[]
+  ledgerAttachments     CustomerLedgerAttachment[]
+  ledgerAllocations     CustomerLedgerAllocation[]
+  itemAssets            ItemAsset[]
+  assetDeletionOutboxes AssetDeletionOutbox[]
 
   waConversations             WaConversation[]             @relation("WaConversationHomeShop")
   waContextConversations      WaConversation[]             @relation("WaConversationContextShop")
@@ -1170,33 +1176,33 @@ model DispatchItem {
 }
 
 model Sale {
-  id                    String            @id @default(cuid())
+  id                    String               @id @default(cuid())
   saleNumber            String
   shopId                String
   staffId               String
   customerId            String
   orderId               String?
   dmId                  String?
-  isWalkin              Boolean           @default(false)
-  gstRequired           Boolean           @default(false)
-  gstInvoiceStatus      GstInvoiceStatus  @default(NOT_REQUIRED)
+  isWalkin              Boolean              @default(false)
+  gstRequired           Boolean              @default(false)
+  gstInvoiceStatus      GstInvoiceStatus     @default(NOT_REQUIRED)
   gstInvoiceNumber      String?
   gstInvoiceGeneratedAt DateTime?
-  subtotal              Decimal           @default(0) @db.Decimal(12, 2)
-  discountAmount        Decimal           @default(0) @db.Decimal(12, 2)
-  totalAmount           Decimal           @default(0) @db.Decimal(12, 2)
-  paidAmount            Decimal           @default(0) @db.Decimal(12, 2)
-  balanceAmount         Decimal           @default(0) @db.Decimal(12, 2)
-  paymentStatus         BillPaymentStatus @default(UNPAID)
+  subtotal              Decimal              @default(0) @db.Decimal(12, 2)
+  discountAmount        Decimal              @default(0) @db.Decimal(12, 2)
+  totalAmount           Decimal              @default(0) @db.Decimal(12, 2)
+  paidAmount            Decimal              @default(0) @db.Decimal(12, 2)
+  balanceAmount         Decimal              @default(0) @db.Decimal(12, 2)
+  paymentStatus         BillPaymentStatus    @default(UNPAID)
   saleStatus            SaleStatus           @default(DRAFT)
   receivableOrigin      SaleReceivableOrigin @default(DIRECT_SALE)
   customerSignature     String?
-  saleDate              DateTime          @default(now())
-  createdAt             DateTime          @default(now())
-  updatedAt             DateTime          @updatedAt
+  saleDate              DateTime             @default(now())
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
   cancelledAt           DateTime?
   cancelReason          String?
-  version               Int               @default(1)
+  version               Int                  @default(1)
 
   shop              Shop                           @relation(fields: [shopId], references: [id], onDelete: Restrict)
   amendments        SaleAmendment[]
@@ -1321,33 +1327,33 @@ model DeliveryMemoSerialAssignment {
 }
 
 model CustomerLedgerEntry {
-  id               String                  @id @default(cuid())
+  id               String                   @id @default(cuid())
   shopId           String
   customerId       String
   sourceType       CustomerLedgerSourceType
   sourceId         String
   entryType        CustomerLedgerEntryType
   direction        CustomerLedgerDirection
-  amount           Decimal                 @db.Decimal(12, 2)
+  amount           Decimal                  @db.Decimal(12, 2)
   createdById      String
-  reversalOfId     String?                 @unique
+  reversalOfId     String?                  @unique
   idempotencyKey   String?
   clientMutationId String?
   reversalReason   String?
   notes            String?
   metadata         Json?
-  effectiveAt      DateTime                @default(now())
-  createdAt        DateTime                @default(now())
-  updatedAt        DateTime                @updatedAt
+  effectiveAt      DateTime                 @default(now())
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
 
-  shop               Shop                       @relation(fields: [shopId], references: [id], onDelete: Restrict)
-  customer           Customer                   @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  createdBy          User                       @relation(fields: [createdById], references: [id], onDelete: Restrict)
-  reversalOf         CustomerLedgerEntry?       @relation("CustomerLedgerReversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
-  reversals          CustomerLedgerEntry[]      @relation("CustomerLedgerReversal")
-  ledgerAttachments  CustomerLedgerAttachment[]
-  debitAllocations   CustomerLedgerAllocation[] @relation("LedgerDebitAllocations")
-  creditAllocations  CustomerLedgerAllocation[] @relation("LedgerCreditAllocations")
+  shop              Shop                       @relation(fields: [shopId], references: [id], onDelete: Restrict)
+  customer          Customer                   @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  createdBy         User                       @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  reversalOf        CustomerLedgerEntry?       @relation("CustomerLedgerReversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
+  reversals         CustomerLedgerEntry[]      @relation("CustomerLedgerReversal")
+  ledgerAttachments CustomerLedgerAttachment[]
+  debitAllocations  CustomerLedgerAllocation[] @relation("LedgerDebitAllocations")
+  creditAllocations CustomerLedgerAllocation[] @relation("LedgerCreditAllocations")
 
   @@unique([shopId, idempotencyKey])
   @@unique([shopId, clientMutationId])

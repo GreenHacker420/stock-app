@@ -10,9 +10,9 @@ import {
   generateRecordNumber,
   getBillPaymentStatus,
   prisma,
-  increaseCustomerDebt,
-  postCustomerReceivable,
 } from "./transactionHelpers.js";
+import { postLedgerEntry } from "./customer-ledger.service.js";
+
 import { reserveStockForOrder, expandStockRequirements } from "./stock.service.js";
 import { qty, money } from "../utils/money.js";
 import { EntityType, AuditAction } from "../generated/prisma/index.js";
@@ -729,41 +729,21 @@ export async function createDmFromOrder(user, id, data) {
       });
     }
     
-    // Increase global customer debt
-    const receivable = await postCustomerReceivable(tx, order.customerId, totalAmount);
-    await tx.customerLedgerEntry.create({ data: {
-      shopId: order.shopId,
-      customerId: order.customerId,
-      sourceType: "DELIVERY_MEMO",
-      sourceId: dm.id,
-      entryType: "DM_POSTED",
-      direction: "DEBIT",
-      amount: totalAmount,
-      createdById: user.id,
-      notes: `Posted ${dmNumber} from order ${order.orderNumber}`,
-    } });
-    if (receivable.advanceApplied.gt(0)) {
-      await tx.customerLedgerEntry.create({ data: {
+    // Post DELIVERY_MEMO_POSTED ledger entry for non-walk-in customer
+    if (order.customer?.type !== "WALK_IN") {
+      await postLedgerEntry(tx, {
         shopId: order.shopId,
         customerId: order.customerId,
         sourceType: "DELIVERY_MEMO",
         sourceId: dm.id,
-        entryType: "ADVANCE_APPLIED",
-        direction: "CREDIT",
-        amount: receivable.advanceApplied,
+        entryType: "DELIVERY_MEMO_POSTED",
+        direction: "DEBIT",
+        amount: totalAmount,
         createdById: user.id,
-        notes: `Advance applied to ${dmNumber}`,
-      } });
-      await tx.deliveryMemo.update({
-        where: { id: dm.id },
-        data: {
-          paidAmount: receivable.advanceApplied,
-          balanceAmount: receivable.outstandingCreated,
-          paymentStatus: receivable.outstandingCreated.lte(0) ? "PAID" : "PARTIALLY_PAID",
-          status: receivable.outstandingCreated.lte(0) ? "FULLY_PAID" : "PARTIALLY_PAID",
-        },
+        notes: `Posted ${dmNumber} from order ${order.orderNumber}`,
       });
     }
+
 
     await createDispatchFromOrder(tx, user, order, items, { dmId: dm.id });
     const remainingLines = await tx.orderItem.count({
@@ -893,8 +873,21 @@ export async function convertOrderToSale(user, id, data) {
       });
     }
 
-    // Increase global customer debt
-    await increaseCustomerDebt(tx, order.customerId, totalAmount);
+    // Post SALE_POSTED ledger entry for non-walk-in customer
+    if (order.customer?.type !== "WALK_IN") {
+      await postLedgerEntry(tx, {
+        shopId: order.shopId,
+        customerId: order.customerId,
+        sourceType: "SALE",
+        sourceId: sale.id,
+        entryType: "SALE_POSTED",
+        direction: "DEBIT",
+        amount: totalAmount,
+        createdById: user.id,
+        notes: `Sale created from order ${order.orderNumber}`,
+      });
+    }
+
 
     const paymentResult = await applyPayments(tx, {
       user,

@@ -1,0 +1,228 @@
+import { apiRequest } from "./client";
+import { useAuthStore } from "../auth/auth-store";
+
+export interface CustomerLedgerEntry {
+  id: string;
+  shopId: string;
+  customerId: string;
+  sourceType: string;
+  sourceId: string;
+  entryType: string;
+  direction: "DEBIT" | "CREDIT";
+  amount: number;
+  createdById: string;
+  reversalOfId?: string | null;
+  idempotencyKey?: string | null;
+  clientMutationId?: string | null;
+  reversalReason?: string | null;
+  notes?: string | null;
+  effectiveAt: string;
+  createdAt: string;
+  updatedAt: string;
+  runningBalance: number;
+  isReversal: boolean;
+  isReversed: boolean;
+  reversalEntryId?: string | null;
+  ledgerAttachments?: CustomerLedgerAttachment[];
+}
+
+export interface CustomerLedgerAttachment {
+  id: string;
+  shopId: string;
+  ledgerEntryId: string;
+  assetId: string;
+  purpose: string;
+  sortOrder: number;
+  createdAt: string;
+  asset?: {
+    id: string;
+    fileName?: string;
+    mimeType?: string;
+    sizeBytes?: number;
+    url?: string;
+  };
+}
+
+export interface CustomerLedgerSummary {
+  openingBalance: number;
+  periodDebits: number;
+  periodCredits: number;
+  closingBalance: number;
+  outstandingAmount: number;
+  advanceBalance: number;
+}
+
+export interface CustomerLedgerStatement {
+  shop: {
+    id: string;
+    name: string;
+    city?: string;
+  };
+  customer: {
+    id: string;
+    name: string;
+    phone?: string;
+    gstin?: string;
+    address?: string;
+  };
+  dateRange: {
+    from: string;
+    to: string;
+  };
+  openingBalance: number;
+  periodDebits: number;
+  periodCredits: number;
+  closingBalance: number;
+  outstandingAmount: number;
+  advanceBalance: number;
+  entries: CustomerLedgerEntry[];
+}
+
+export interface LedgerQueryParams {
+  shopId: string;
+  cursor?: string;
+  limit?: number;
+  from?: string;
+  to?: string;
+  direction?: "DEBIT" | "CREDIT";
+  entryType?: string;
+  sourceType?: string;
+  search?: string;
+}
+
+function getToken() {
+  return useAuthStore.getState().token || "";
+}
+
+function buildQueryString(params: Record<string, any>): string {
+  const query = Object.entries(params)
+    .filter(([_, v]) => v !== undefined && v !== null && v !== "")
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
+    .join("&");
+  return query ? `?${query}` : "";
+}
+
+export async function getCustomerLedger(customerId: string, params: LedgerQueryParams) {
+  const token = getToken();
+  const query = buildQueryString(params);
+  return apiRequest<{
+    entries: CustomerLedgerEntry[];
+    nextCursor: string | null;
+    hasMore: boolean;
+  }>(`/customers/${customerId}/ledger${query}`, { token });
+}
+
+export async function getCustomerLedgerSummary(customerId: string, params: { shopId: string; from?: string; to?: string }) {
+  const token = getToken();
+  const query = buildQueryString(params);
+  return apiRequest<CustomerLedgerSummary>(`/customers/${customerId}/ledger/summary${query}`, { token });
+}
+
+export async function getCustomerLedgerStatement(customerId: string, params: { shopId: string; from: string; to: string }) {
+  const token = getToken();
+  const query = buildQueryString(params);
+  return apiRequest<CustomerLedgerStatement>(`/customers/${customerId}/ledger/statement${query}`, { token });
+}
+
+export async function postOpeningBalance(
+  customerId: string,
+  payload: {
+    shopId: string;
+    direction: "DEBIT" | "CREDIT";
+    amount: number;
+    effectiveAt?: string;
+    notes?: string;
+    clientMutationId?: string;
+    attachmentAssetIds?: { assetId: string; purpose?: string; sortOrder?: number }[];
+  }
+) {
+  const token = getToken();
+  return apiRequest(`/customers/${customerId}/opening-balance`, {
+    method: "POST",
+    token,
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function postLedgerAdjustment(
+  customerId: string,
+  payload: {
+    shopId: string;
+    direction: "DEBIT" | "CREDIT";
+    amount: number;
+    reason: string;
+    effectiveAt?: string;
+    clientMutationId?: string;
+    attachmentAssetIds?: { assetId: string; purpose?: string; sortOrder?: number }[];
+  }
+) {
+  const token = getToken();
+  return apiRequest(`/customers/${customerId}/ledger-adjustments`, {
+    method: "POST",
+    token,
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function reverseLedgerEntry(
+  customerId: string,
+  entryId: string,
+  payload: {
+    shopId: string;
+    reversalReason: string;
+  }
+) {
+  const token = getToken();
+  return apiRequest(`/customers/${customerId}/ledger-entries/${entryId}/reverse`, {
+    method: "POST",
+    token,
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function createUploadIntent(payload: {
+  shopId: string;
+  domain: string;
+  kind?: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  checksumSha256?: string;
+}) {
+  const token = getToken();
+  return apiRequest<{
+    assetId: string;
+    uploadUrl: string;
+    bucket: string;
+    key: string;
+    expiresInSeconds: number;
+  }>("/assets/upload-intents", {
+    method: "POST",
+    token,
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function completeAssetUpload(assetId: string, payload: { shopId: string }) {
+  const token = getToken();
+  return apiRequest(`/assets/${assetId}/complete`, {
+    method: "POST",
+    token,
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function getAssetDownloadUrl(assetId: string, params: { shopId: string }) {
+  const token = getToken();
+  const query = buildQueryString(params);
+  return apiRequest<{ downloadUrl: string }>(`/assets/${assetId}/download-url${query}`, { token });
+}
+
+export async function requestAssetDeletion(assetId: string, payload: { shopId: string; reason?: string }) {
+  const token = getToken();
+  return apiRequest(`/assets/${assetId}/delete-request`, {
+    method: "POST",
+    token,
+    body: JSON.stringify(payload),
+  });
+}

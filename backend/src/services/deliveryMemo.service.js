@@ -4,11 +4,10 @@ import {
   applyPayments,
   calculateItemTotals,
   createStockOut,
-  generateRecordNumber,
-  prisma,
-  postCustomerReceivable,
   getBillPaymentStatus,
 } from "./transactionHelpers.js";
+import { postLedgerEntry } from "./customer-ledger.service.js";
+
 import { money, sub } from "../utils/money.js";
 import { getOrCreateWalkIn } from "./customer.service.js";
 import { createDomainEvent, enqueueManyDomainEvents } from "./domain-event.service.js";
@@ -287,7 +286,6 @@ export async function postDeliveryMemo(user, id, data = {}) {
     }
 
     const totalVal = money(totalAmount);
-    let advanceApplied = money(0);
     if (RECEIVABLE_PURPOSES.has(dm.documentPurpose)) {
       const account = await tx.customer.findUnique({ where: { id: dm.customerId } });
       if (!account || account.shopId !== dm.shopId || account.status !== "ACTIVE" || account.type === "WALK_IN") {
@@ -297,32 +295,18 @@ export async function postDeliveryMemo(user, id, data = {}) {
       if (user.role === "STAFF" && account.creditLimit != null && projectedDebt > Number(account.creditLimit)) {
         throw new ApiError(409, "Posting would exceed the customer credit limit", { code: "CUSTOMER_CREDIT_LIMIT_EXCEEDED" });
       }
-      const receivable = await postCustomerReceivable(tx, dm.customerId, totalVal);
-      advanceApplied = receivable.advanceApplied;
       await appendCustomerLedger(tx, {
         shopId: dm.shopId,
         customerId: dm.customerId,
         sourceId: dm.id,
-        entryType: "DM_POSTED",
+        entryType: "DELIVERY_MEMO_POSTED",
         direction: "DEBIT",
         amount: totalVal,
         userId: user.id,
         notes: `Posted ${dmNumber}`,
       });
-      if (receivable.advanceApplied.gt(0)) {
-        await tx.customerLedgerEntry.create({ data: {
-          shopId: dm.shopId,
-          customerId: dm.customerId,
-          sourceType: "DELIVERY_MEMO",
-          sourceId: dm.id,
-          entryType: "ADVANCE_APPLIED",
-          direction: "CREDIT",
-          amount: receivable.advanceApplied,
-          createdById: user.id,
-          notes: `Advance applied to ${dmNumber}`,
-        } });
-      }
     }
+
 
     const paymentResult = await applyPayments(tx, {
       user,
@@ -473,23 +457,24 @@ export async function createDeliveryMemo(user, data) {
       });
     }
 
-    // Increase global customer debt (decreases advance or increases outstanding)
-    let advanceApplied = money(0);
+    // Post DELIVERY_MEMO_POSTED ledger entry
     if (RECEIVABLE_PURPOSES.has(documentPurpose)) {
       const projectedDebt = Math.max(0, Number(totalVal) - Number(customer.advanceBalance || 0)) + Number(customer.outstandingAmount || 0);
       if (user.role === "STAFF" && customer.creditLimit != null && projectedDebt > Number(customer.creditLimit)) {
         throw new ApiError(409, "Posting would exceed the customer credit limit", { code: "CUSTOMER_CREDIT_LIMIT_EXCEEDED" });
       }
-      const receivable = await postCustomerReceivable(tx, customer.id, totalVal, {
+      await appendCustomerLedger(tx, {
         shopId: data.shopId,
-        sourceType: "DELIVERY_MEMO",
+        customerId: customer.id,
         sourceId: dm.id,
         entryType: "DELIVERY_MEMO_POSTED",
-        createdById: user.id,
+        direction: "DEBIT",
+        amount: totalVal,
+        userId: user.id,
         notes: `Posted ${dmNumber}`,
       });
-      advanceApplied = receivable.advanceApplied;
     }
+
 
     const paymentResult = await applyPayments(tx, {
       user,
@@ -497,8 +482,8 @@ export async function createDeliveryMemo(user, data) {
       dmId: dm.id,
       customerId: customer.id,
       totalAmount: totalVal,
-      existingPaidAmount: advanceApplied,
       payments: data.payments || [],
+
     });
 
     const updated = await tx.deliveryMemo.update({

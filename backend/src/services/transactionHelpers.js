@@ -1,10 +1,9 @@
-import prisma from "../lib/db.js";
 import { ApiError } from "../utils/ApiError.js";
 import { formatRecordNumber } from "../utils/recordNumber.js";
 import { getDayRange } from "../utils/dateRange.js";
 import { money, add, sub, mul, div, isZero } from "../utils/money.js";
 import { createNotification, notifyShopOwner } from "./notification.service.js";
-import { postLedgerEntry } from "./customer-ledger.service.js";
+
 
 export async function generateRecordNumber(tx, { shopId, model, field, prefix, date = new Date(), dateField = "createdAt" }) {
   const { start, end } = getDayRange(date);
@@ -335,93 +334,4 @@ function getIndiaDateKey(date = new Date()) {
   return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
-/**
- * Legacy compatibility wrapper that delegates debt increase to CustomerLedger.
- */
-export async function increaseCustomerDebt(tx, customerId, amount, details = {}) {
-  if (!customerId) return;
-  const customer = await tx.customer.findUnique({ where: { id: customerId } });
-  if (!customer || customer.type === "WALK_IN") return;
 
-  const amt = money(amount);
-  if (amt.lte(0)) return;
-
-  if (!details.shopId || !details.sourceType || !details.sourceId || !details.createdById) {
-    throw new ApiError(500, "[increaseCustomerDebt] Full ledger posting metadata (shopId, sourceType, sourceId, createdById) is required. Direct balance mutation is forbidden.");
-  }
-
-  await postLedgerEntry(tx, {
-    shopId: details.shopId,
-    customerId,
-    sourceType: details.sourceType,
-    sourceId: details.sourceId,
-    entryType: details.entryType || "SALE_POSTED",
-    direction: "DEBIT",
-    amount: amt,
-    createdById: details.createdById,
-    effectiveAt: details.effectiveAt || new Date(),
-    notes: details.notes || null,
-  });
-}
-
-export async function postCustomerReceivable(tx, customerId, amount, details = {}) {
-  if (!customerId) return { advanceApplied: money(0), outstandingCreated: money(0) };
-  const customer = await tx.customer.findUnique({ where: { id: customerId } });
-  if (!customer || customer.type === "WALK_IN") {
-    return { advanceApplied: money(0), outstandingCreated: money(0) };
-  }
-  const total = money(amount);
-  const availableAdvance = money(customer.advanceBalance || 0);
-  const advanceApplied = availableAdvance.lt(total) ? availableAdvance : total;
-  const outstandingCreated = sub(total, advanceApplied);
-
-  if (!details.shopId || !details.sourceType || !details.sourceId || !details.createdById) {
-    throw new ApiError(500, "[postCustomerReceivable] Full ledger posting metadata (shopId, sourceType, sourceId, createdById) is required. Direct balance mutation is forbidden.");
-  }
-
-  await postLedgerEntry(tx, {
-    shopId: details.shopId,
-    customerId,
-    sourceType: details.sourceType,
-    sourceId: details.sourceId,
-    entryType: details.entryType || "SALE_POSTED",
-    direction: "DEBIT",
-    amount: total,
-    createdById: details.createdById,
-    effectiveAt: details.effectiveAt || new Date(),
-    notes: details.notes || null,
-  });
-
-  return { advanceApplied, outstandingCreated };
-}
-
-/**
- * Legacy compatibility wrapper that delegates debt decrease to CustomerLedger.
- */
-export async function decreaseCustomerDebt(tx, customerId, amount, details = {}) {
-  if (!customerId) return;
-  const customer = await tx.customer.findUnique({ where: { id: customerId } });
-  if (!customer || customer.type === "WALK_IN") return;
-
-  const amt = money(amount);
-  if (amt.lte(0)) return;
-
-  if (!details.shopId || !details.sourceType || !details.sourceId || !details.createdById) {
-    throw new ApiError(500, "[decreaseCustomerDebt] Full ledger posting metadata (shopId, sourceType, sourceId, createdById) is required. Direct balance mutation is forbidden.");
-  }
-
-  await postLedgerEntry(tx, {
-    shopId: details.shopId,
-    customerId,
-    sourceType: details.sourceType,
-    sourceId: details.sourceId,
-    entryType: details.entryType || "PAYMENT_RECEIVED",
-    direction: "CREDIT",
-    amount: amt,
-    createdById: details.createdById,
-    effectiveAt: details.effectiveAt || new Date(),
-    notes: details.notes || null,
-  });
-}
-
-export { prisma };
