@@ -6,6 +6,9 @@ import { AttachmentUploader, UploadedAttachment } from "../../ui/AttachmentUploa
 import { useOpeningBalance } from "../../../hooks/useCustomerLedger";
 import { newIdempotencyKey } from "../../../utils/idempotency";
 import { colors, spacing, radius, fontSize } from "../../../theme";
+import { useNetworkStore } from "../../../auth/network-store";
+import { queueLedgerMutationOrSubmitOnline } from "../../../offline/ledgerMutationProcessor";
+
 
 interface OpeningBalanceSheetProps {
   visible: boolean;
@@ -44,23 +47,40 @@ export function OpeningBalanceSheet({
 
   const handleConfirmSubmit = async () => {
     const numAmount = parseFloat(amount);
+    const payload = {
+      shopId,
+      direction,
+      amount: numAmount,
+      notes: notes || undefined,
+      clientMutationId,
+      attachmentAssetIds: attachments.map((a, idx) => ({
+        assetId: a.assetId,
+        purpose: "OPENING_BALANCE_BILL" as const,
+        sortOrder: idx,
+      })),
+    };
+
     try {
-      await openingBalanceMutation.mutateAsync({
+      const online = useNetworkStore.getState().isServerReachable !== false;
+
+      const outcome = await queueLedgerMutationOrSubmitOnline({
+        online,
+        id: clientMutationId,
+        type: "OPENING_BALANCE",
         shopId,
-        direction,
-        amount: numAmount,
-        notes: notes || undefined,
+        customerId,
         clientMutationId,
-        attachmentAssetIds: attachments.map((a, idx) => ({
-          assetId: a.assetId,
-          purpose: "OPENING_BALANCE_BILL",
-          sortOrder: idx,
-        })),
+        payload,
+        submitOnline: () => openingBalanceMutation.mutateAsync(payload),
       });
 
       setConfirmVisible(false);
       onDismiss();
-      Alert.alert("Success", "Opening balance posted successfully");
+      if (outcome.queued) {
+        Alert.alert("Pending sync", "Opening balance saved offline and will sync when connectivity returns. Confirmed balance is unchanged until sync succeeds.");
+      } else {
+        Alert.alert("Success", "Opening balance posted successfully");
+      }
     } catch (err: any) {
       setConfirmVisible(false);
       Alert.alert("Error", err?.response?.data?.message || err?.message || "Failed to post opening balance");

@@ -8,7 +8,7 @@ const textSchema = z.object({
 
 const mediaMetadata = {
   assetId: z.string().trim().min(1).optional(),
-  link: z.string().url().optional(),
+  link: z.url().optional(),
   mimeType: z.string().trim().min(1).optional(),
   caption: z.string().max(1024).optional(),
 };
@@ -26,7 +26,7 @@ const videoSchema = z.object({
 const audioSchema = z.object({
   kind: z.literal("audio"),
   assetId: z.string().trim().min(1).optional(),
-  link: z.string().url().optional(),
+  link: z.url().optional(),
   mimeType: z.string().trim().min(1).optional(),
   voice: z.boolean().optional().default(false),
 });
@@ -40,7 +40,7 @@ const documentSchema = z.object({
 const stickerSchema = z.object({
   kind: z.literal("sticker"),
   assetId: z.string().trim().min(1).optional(),
-  link: z.string().url().optional(),
+  link: z.url().optional(),
   mimeType: z.string().trim().min(1).optional(),
 });
 
@@ -67,7 +67,7 @@ const contactSchema = z.object({
     wa_id: z.string().optional(),
   })).optional(),
   emails: z.array(z.object({
-    email: z.string().email(),
+    email: z.email(),
     type: z.string().optional(),
   })).optional(),
   org: z.object({
@@ -77,7 +77,7 @@ const contactSchema = z.object({
   }).optional(),
   addresses: z.array(z.record(z.string(), z.any())).optional(),
   urls: z.array(z.object({
-    url: z.string().url(),
+    url: z.url(),
     type: z.string().optional(),
   })).optional(),
   birthday: z.string().optional(),
@@ -128,11 +128,11 @@ const listSchema = z.object({
 
 const templateSchema = z.object({
   kind: z.literal("template"),
-  template: z.object({
+  template: z.looseObject({
     name: z.string().trim().min(1),
     language: z.object({ code: z.string().trim().min(1) }),
     components: z.array(z.any()).optional(),
-  }).passthrough(),
+  }),
   localPreview: z.object({
     title: z.string().trim().min(1).max(120),
     body: z.string().trim().min(1).max(1024),
@@ -190,7 +190,7 @@ export const outboundCommandSchema = z.object({
   message: outboundMessageSchema,
   replyToMessageId: z.string().min(1).optional(),
   replyToMetaMessageId: z.string().min(1).optional(),
-  clientMessageId: z.string().uuid().optional(),
+  clientMessageId: z.uuid().optional(),
   sourceDeviceId: z.string().min(1).max(200).optional(),
   requestId: z.string().min(1).max(200).optional(),
   idempotencyKey: z.string().min(1).max(500).optional(),

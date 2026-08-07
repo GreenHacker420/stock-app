@@ -1,9 +1,91 @@
-import { Prisma, CustomerLedgerEntryType, CustomerLedgerDirection, CustomerLedgerSourceType } from "../generated/prisma/index.js";
+import {
+  Prisma,
+  CustomerLedgerEntryType,
+  CustomerLedgerDirection,
+  CustomerLedgerSourceType,
+  LedgerAttachmentPurpose,
+} from "../generated/prisma/index.js";
 import prisma from "../lib/db.js";
 import { ApiError } from "../utils/ApiError.js";
 import { money, add, sub } from "../utils/money.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
+import { createDomainEvent, enqueueDomainEvent } from "./domain-event.service.js";
 
+const VALID_SOURCE_TYPES = new Set(Object.values(CustomerLedgerSourceType));
+const VALID_ENTRY_TYPES = new Set(Object.values(CustomerLedgerEntryType));
+const VALID_DIRECTIONS = new Set(Object.values(CustomerLedgerDirection));
+const VALID_ATTACHMENT_PURPOSES = new Set(Object.values(LedgerAttachmentPurpose));
+
+/** Sensible source/entry combinations */
+const SOURCE_ENTRY_COMPAT = {
+  OPENING_BALANCE: new Set(["OPENING_RECEIVABLE", "OPENING_ADVANCE"]),
+  SALE: new Set(["SALE_POSTED"]),
+  DELIVERY_MEMO: new Set(["DELIVERY_MEMO_POSTED"]),
+  PAYMENT: new Set(["PAYMENT_RECEIVED"]),
+  PAYMENT_AMENDMENT: new Set(["PAYMENT_VALUE_INCREASE", "PAYMENT_VALUE_DECREASE"]),
+  RETURN: new Set(["RETURN_CREDIT"]),
+  SALE_AMENDMENT: new Set(["SALE_VALUE_INCREASE", "SALE_VALUE_DECREASE"]),
+  MANUAL_ADJUSTMENT: new Set(["ADJUSTMENT_DEBIT", "ADJUSTMENT_CREDIT"]),
+  CHEQUE: new Set(["CHEQUE_BOUNCED"]),
+  REVERSAL: new Set(["REVERSAL"]),
+  LEGACY_RECONCILIATION: new Set(["LEGACY_RECONCILIATION"]),
+};
+
+function assertCompatibleEnums({ sourceType, entryType, direction }) {
+  if (!VALID_SOURCE_TYPES.has(sourceType)) {
+    throw new ApiError(400, `Invalid sourceType: ${sourceType}`, { code: "INVALID_LEDGER_SOURCE_TYPE" });
+  }
+  if (!VALID_ENTRY_TYPES.has(entryType)) {
+    throw new ApiError(400, `Invalid entryType: ${entryType}`, { code: "INVALID_LEDGER_ENTRY_TYPE" });
+  }
+  if (!VALID_DIRECTIONS.has(direction)) {
+    throw new ApiError(400, `Invalid direction: ${direction}`, { code: "INVALID_LEDGER_DIRECTION" });
+  }
+  const allowed = SOURCE_ENTRY_COMPAT[sourceType];
+  if (allowed && !allowed.has(entryType)) {
+    throw new ApiError(400, `Incompatible ledger combination: ${sourceType} + ${entryType}`, {
+      code: "INVALID_LEDGER_COMBINATION",
+    });
+  }
+}
+
+function assertIdempotencyPayloadMatch(existing, expected) {
+  const mismatches = [];
+  if (existing.customerId !== expected.customerId) mismatches.push("customerId");
+  if (existing.sourceType !== expected.sourceType) mismatches.push("sourceType");
+  if (existing.sourceId !== expected.sourceId) mismatches.push("sourceId");
+  if (existing.entryType !== expected.entryType) mismatches.push("entryType");
+  if (existing.direction !== expected.direction) mismatches.push("direction");
+  if (Number(existing.amount) !== Number(expected.amount)) mismatches.push("amount");
+  if (mismatches.length > 0) {
+    throw new ApiError(409, `Idempotency key reused with incompatible payload (${mismatches.join(", ")})`, {
+      code: "IDEMPOTENCY_KEY_REUSED",
+    });
+  }
+}
+
+async function validateLedgerAttachments(tx, shopId, attachmentAssetIds) {
+  if (!attachmentAssetIds || attachmentAssetIds.length === 0) return;
+
+  for (const item of attachmentAssetIds) {
+    const assetId = typeof item === "string" ? item : item.assetId;
+    const purpose = typeof item === "object" && item.purpose ? item.purpose : "OTHER";
+    if (!VALID_ATTACHMENT_PURPOSES.has(purpose)) {
+      throw new ApiError(400, `Invalid attachment purpose: ${purpose}`, { code: "INVALID_ATTACHMENT_PURPOSE" });
+    }
+    const asset = await tx.asset.findFirst({ where: { id: assetId, shopId } });
+    if (!asset) throw new ApiError(400, `Asset ${assetId} not found`);
+    if (asset.status !== "READY") {
+      throw new ApiError(400, `Asset ${assetId} is not ready (status: ${asset.status})`);
+    }
+    if (asset.domain !== "CUSTOMER_LEDGER") {
+      throw new ApiError(400, `Asset ${assetId} domain must be CUSTOMER_LEDGER`, { code: "ATTACHMENT_WRONG_DOMAIN" });
+    }
+    if (asset.deletionStatus && asset.deletionStatus !== "NONE") {
+      throw new ApiError(400, `Asset ${assetId} is pending deletion`, { code: "ATTACHMENT_PENDING_DELETION" });
+    }
+  }
+}
 
 export async function postLedgerEntry(tx, input) {
   const {
@@ -30,7 +112,8 @@ export async function postLedgerEntry(tx, input) {
   }
   const amtDecimal = money(amtNum);
 
-  // 1. Lock customer row for update
+  assertCompatibleEnums({ sourceType, entryType, direction });
+
   const customerRows = await tx.$queryRaw`
     SELECT * FROM "Customer" WHERE "id" = ${customerId} AND "shopId" = ${shopId} FOR UPDATE
   `;
@@ -42,7 +125,6 @@ export async function postLedgerEntry(tx, input) {
     throw new ApiError(400, "Walk-in customers cannot carry debt or credit balance");
   }
 
-  // 2. Idempotency: check for duplicate entry
   let existingEntry = null;
   if (idempotencyKey) {
     existingEntry = await tx.customerLedgerEntry.findFirst({
@@ -64,6 +146,14 @@ export async function postLedgerEntry(tx, input) {
   }
 
   if (existingEntry) {
+    assertIdempotencyPayloadMatch(existingEntry, {
+      customerId,
+      sourceType,
+      sourceId,
+      entryType,
+      direction,
+      amount: amtNum,
+    });
     const currentCustomer = await tx.customer.findUnique({ where: { id: customerId } });
     return {
       entry: existingEntry,
@@ -72,17 +162,8 @@ export async function postLedgerEntry(tx, input) {
     };
   }
 
-  // 3. Validate attachments if provided
-  if (attachmentAssetIds && attachmentAssetIds.length > 0) {
-    for (const item of attachmentAssetIds) {
-      const assetId = typeof item === "string" ? item : item.assetId;
-      const asset = await tx.asset.findFirst({ where: { id: assetId, shopId } });
-      if (!asset) throw new ApiError(400, `Asset ${assetId} not found`);
-      if (asset.status !== "READY") throw new ApiError(400, `Asset ${assetId} is not ready (status: ${asset.status})`);
-    }
-  }
+  await validateLedgerAttachments(tx, shopId, attachmentAssetIds);
 
-  // 4. Create immutable CustomerLedgerEntry
   const createdEntry = await tx.customerLedgerEntry.create({
     data: {
       shopId,
@@ -101,20 +182,18 @@ export async function postLedgerEntry(tx, input) {
     },
   });
 
-  // 5. Create attachments
   if (attachmentAssetIds && attachmentAssetIds.length > 0) {
     for (let i = 0; i < attachmentAssetIds.length; i++) {
       const item = attachmentAssetIds[i];
       const assetId = typeof item === "string" ? item : item.assetId;
-      const purpose = (typeof item === "object" && item.purpose) ? item.purpose : "OTHER";
-      const sortOrder = (typeof item === "object" && typeof item.sortOrder === "number") ? item.sortOrder : i;
+      const purpose = typeof item === "object" && item.purpose ? item.purpose : "OTHER";
+      const sortOrder = typeof item === "object" && typeof item.sortOrder === "number" ? item.sortOrder : i;
       await tx.customerLedgerAttachment.create({
         data: { shopId, ledgerEntryId: createdEntry.id, assetId, purpose, sortOrder },
       });
     }
   }
 
-  // 6. Compute new net balance from the row-locked cached state
   const currentNet = sub(customer.outstandingAmount, customer.advanceBalance);
   const delta = direction === "DEBIT" ? amtDecimal : sub(0, amtDecimal);
   const newNet = add(currentNet, delta);
@@ -123,13 +202,11 @@ export async function postLedgerEntry(tx, input) {
   const newAdvance = newNet.lt(0) ? sub(0, newNet) : money(0);
   const newVersion = (Number(customer.ledgerVersion) || 0) + 1;
 
-  // 7. Update Customer cached balances and version
   const updatedCustomer = await tx.customer.update({
     where: { id: customerId },
     data: { outstandingAmount: newOutstanding, advanceBalance: newAdvance, ledgerVersion: newVersion },
   });
 
-  // 8. Process allocations
   if (allocations && allocations.length > 0) {
     for (const alloc of allocations) {
       await allocateLedgerCredit(tx, {
@@ -144,7 +221,6 @@ export async function postLedgerEntry(tx, input) {
     }
   }
 
-  // 9. Audit Log
   await tx.auditLog.create({
     data: {
       shopId,
@@ -165,6 +241,23 @@ export async function postLedgerEntry(tx, input) {
     },
   });
 
+  await enqueueDomainEvent(tx, createDomainEvent({
+    shopId,
+    entity: "customerLedgerEntry",
+    action: "posted",
+    entityId: createdEntry.id,
+    actorUserId: createdById,
+    visibility: { owners: true, staff: true },
+  }));
+  await enqueueDomainEvent(tx, createDomainEvent({
+    shopId,
+    entity: "customer",
+    action: "updated",
+    entityId: customerId,
+    actorUserId: createdById,
+    visibility: { owners: true, staff: true },
+  }));
+
   const fullEntry = await tx.customerLedgerEntry.findUnique({
     where: { id: createdEntry.id },
     include: { ledgerAttachments: { include: { asset: true } }, debitAllocations: true, creditAllocations: true },
@@ -172,10 +265,6 @@ export async function postLedgerEntry(tx, input) {
 
   return { entry: fullEntry, customer: updatedCustomer, isDuplicate: false };
 }
-
-// ---------------------------------------------------------------------------
-// reverseLedgerEntry
-// ---------------------------------------------------------------------------
 
 export async function reverseLedgerEntry(tx, input) {
   const { shopId, entryId, reversalReason, createdById, effectiveAt = new Date() } = input;
@@ -193,20 +282,25 @@ export async function reverseLedgerEntry(tx, input) {
 
   const oppositeDirection = originalEntry.direction === "DEBIT" ? "CREDIT" : "DEBIT";
 
-  // Row-lock customer
   const customerRows = await tx.$queryRaw`
     SELECT * FROM "Customer" WHERE "id" = ${originalEntry.customerId} AND "shopId" = ${shopId} FOR UPDATE
   `;
   const customer = customerRows[0];
   if (!customer) throw new ApiError(404, "Customer not found");
 
-  // Create the reversal entry — sourceId is the original entry id, not the original source entity
+  await reverseLedgerAllocations(tx, {
+    shopId,
+    entryId,
+    createdById,
+    reason: reversalReason.trim(),
+  });
+
   const reversalEntry = await tx.customerLedgerEntry.create({
     data: {
       shopId,
       customerId: originalEntry.customerId,
       sourceType: CustomerLedgerSourceType.REVERSAL,
-      sourceId: originalEntry.id,  // CRITICAL: entry id, not originalEntry.sourceId
+      sourceId: originalEntry.id,
       entryType: CustomerLedgerEntryType.REVERSAL,
       direction: oppositeDirection,
       amount: originalEntry.amount,
@@ -224,7 +318,6 @@ export async function reverseLedgerEntry(tx, input) {
     },
   });
 
-  // Compute balance adjustment
   const currentNet = sub(customer.outstandingAmount, customer.advanceBalance);
   const amtDecimal = money(originalEntry.amount);
   const delta = oppositeDirection === "DEBIT" ? amtDecimal : sub(0, amtDecimal);
@@ -255,12 +348,25 @@ export async function reverseLedgerEntry(tx, input) {
     },
   });
 
+  await enqueueDomainEvent(tx, createDomainEvent({
+    shopId,
+    entity: "customerLedgerEntry",
+    action: "reversed",
+    entityId: entryId,
+    actorUserId: createdById,
+    visibility: { owners: true, staff: true },
+  }));
+  await enqueueDomainEvent(tx, createDomainEvent({
+    shopId,
+    entity: "customer",
+    action: "updated",
+    entityId: originalEntry.customerId,
+    actorUserId: createdById,
+    visibility: { owners: true, staff: true },
+  }));
+
   return { reversalEntry, customer: updatedCustomer };
 }
-
-// ---------------------------------------------------------------------------
-// insertReconciliationEntryWithoutBalanceMutation
-// ---------------------------------------------------------------------------
 
 export async function insertReconciliationEntryWithoutBalanceMutation(tx, input) {
   const { shopId, customerId, direction, amount, createdById, notes, metadata } = input;
@@ -291,7 +397,6 @@ export async function insertReconciliationEntryWithoutBalanceMutation(tx, input)
     },
   });
 
-  // Re-read cached state and write it back unchanged (bump version only)
   const cachedNet = sub(customer.outstandingAmount, customer.advanceBalance);
   const targetOutstanding = cachedNet.gt(0) ? cachedNet : money(0);
   const targetAdvance = cachedNet.lt(0) ? sub(0, cachedNet) : money(0);
@@ -308,10 +413,6 @@ export async function insertReconciliationEntryWithoutBalanceMutation(tx, input)
   return { entry, customer: updatedCustomer };
 }
 
-// ---------------------------------------------------------------------------
-// allocateLedgerCredit  (concurrency-safe, immutable rows)
-// ---------------------------------------------------------------------------
-
 export async function allocateLedgerCredit(tx, input) {
   const { shopId, customerId, debitEntryId, creditEntryId, amount, createdById, clientMutationId } = input;
 
@@ -321,13 +422,13 @@ export async function allocateLedgerCredit(tx, input) {
 
   if (debitEntryId === creditEntryId) throw new ApiError(400, "Cannot allocate a debit entry to itself");
 
-  // Idempotency: return existing allocation on retry
   if (clientMutationId) {
-    const existing = await tx.customerLedgerAllocation.findFirst({ where: { shopId, clientMutationId } });
+    const existing = await tx.customerLedgerAllocation.findFirst({
+      where: { shopId, clientMutationId, reversedAt: null },
+    });
     if (existing) return existing;
   }
 
-  // Row-lock both entries in deterministic order to prevent deadlocks
   const [lowId, highId] = [debitEntryId, creditEntryId].sort();
   await tx.$queryRaw`
     SELECT id FROM "CustomerLedgerEntry"
@@ -344,10 +445,20 @@ export async function allocateLedgerCredit(tx, input) {
   if (!debitEntry || debitEntry.direction !== "DEBIT") throw new ApiError(400, "Invalid debit entry for allocation");
   if (!creditEntry || creditEntry.direction !== "CREDIT") throw new ApiError(400, "Invalid credit entry for allocation");
 
-  // Re-validate unallocated capacity
+  const debitReversed = await tx.customerLedgerEntry.findFirst({ where: { reversalOfId: debitEntryId } });
+  const creditReversed = await tx.customerLedgerEntry.findFirst({ where: { reversalOfId: creditEntryId } });
+  if (debitReversed) throw new ApiError(400, "Cannot allocate against a reversed debit entry");
+  if (creditReversed) throw new ApiError(400, "Cannot allocate against a reversed credit entry");
+
   const [existingDebitAllocations, existingCreditAllocations] = await Promise.all([
-    tx.customerLedgerAllocation.aggregate({ where: { debitEntryId }, _sum: { amount: true } }),
-    tx.customerLedgerAllocation.aggregate({ where: { creditEntryId }, _sum: { amount: true } }),
+    tx.customerLedgerAllocation.aggregate({
+      where: { debitEntryId, reversedAt: null },
+      _sum: { amount: true },
+    }),
+    tx.customerLedgerAllocation.aggregate({
+      where: { creditEntryId, reversedAt: null },
+      _sum: { amount: true },
+    }),
   ]);
 
   const allocatedDebit = money(existingDebitAllocations._sum.amount || 0);
@@ -363,7 +474,6 @@ export async function allocateLedgerCredit(tx, input) {
     throw new ApiError(400, `Allocation ₹${allocAmt} exceeds unallocated credit ₹${unallocatedCredit}`);
   }
 
-  // Create immutable allocation row
   return tx.customerLedgerAllocation.create({
     data: {
       shopId,
@@ -377,9 +487,42 @@ export async function allocateLedgerCredit(tx, input) {
   });
 }
 
-// ---------------------------------------------------------------------------
-// getCustomerLedger
-// ---------------------------------------------------------------------------
+/**
+ * Immutable reversal of all active allocations referencing a ledger entry.
+ */
+export async function reverseLedgerAllocations(tx, { shopId, entryId, createdById, reason }) {
+  const active = await tx.customerLedgerAllocation.findMany({
+    where: {
+      shopId,
+      reversedAt: null,
+      OR: [{ debitEntryId: entryId }, { creditEntryId: entryId }],
+    },
+  });
+
+  const results = [];
+  for (const alloc of active) {
+    const now = new Date();
+    await tx.customerLedgerAllocation.update({
+      where: { id: alloc.id },
+      data: { reversedAt: now },
+    });
+    const reversal = await tx.customerLedgerAllocation.create({
+      data: {
+        shopId: alloc.shopId,
+        customerId: alloc.customerId,
+        debitEntryId: alloc.debitEntryId,
+        creditEntryId: alloc.creditEntryId,
+        amount: alloc.amount,
+        createdById,
+        reversalOfId: alloc.id,
+        reversedAt: now,
+        clientMutationId: `rev-alloc:${alloc.id}`,
+      },
+    });
+    results.push(reversal);
+  }
+  return results;
+}
 
 export async function getCustomerLedger(user, customerId, filters = {}) {
   const {
@@ -394,16 +537,13 @@ export async function getCustomerLedger(user, customerId, filters = {}) {
     search,
   } = filters;
 
-  // Authorization
   await assertShopAccess(user, shopId);
 
   const take = Math.min(Math.max(Number(limit) || 20, 1), 100);
 
-  // Validate customer belongs to shop
   const customer = await prisma.customer.findFirst({ where: { id: customerId, shopId } });
   if (!customer) throw new ApiError(404, "Customer not found");
 
-  // Parse cursor
   let cursorEffectiveAt = null;
   let cursorId = null;
   if (cursor) {
@@ -420,12 +560,22 @@ export async function getCustomerLedger(user, customerId, filters = {}) {
     }
   }
 
-  // Validate direction enum
-  if (direction && !["DEBIT", "CREDIT"].includes(direction)) {
+  if (direction && !VALID_DIRECTIONS.has(direction)) {
     throw new ApiError(400, `Invalid direction: ${direction}`);
   }
+  if (entryType && !VALID_ENTRY_TYPES.has(entryType)) {
+    throw new ApiError(400, `Invalid entryType: ${entryType}`);
+  }
+  if (sourceType && !VALID_SOURCE_TYPES.has(sourceType)) {
+    throw new ApiError(400, `Invalid sourceType: ${sourceType}`);
+  }
+  if (search && String(search).length > 100) {
+    throw new ApiError(400, "Search term too long");
+  }
+  if (from && to && new Date(from) > new Date(to)) {
+    throw new ApiError(400, "from must be before or equal to to");
+  }
 
-  // Build display filter conditions for the outer CTE
   const displayConditions = [
     Prisma.sql`entry."customerId" = ${customerId}`,
     Prisma.sql`entry."shopId" = ${shopId}`,
@@ -439,12 +589,10 @@ export async function getCustomerLedger(user, customerId, filters = {}) {
 
   const displayWhereSql = Prisma.sql`WHERE ${Prisma.join(displayConditions, " AND ")}`;
 
-  const cursorSql = (cursorEffectiveAt && cursorId)
+  const cursorSql = cursorEffectiveAt && cursorId
     ? Prisma.sql`WHERE ("effectiveAt", id) < (${cursorEffectiveAt}, ${cursorId})`
     : Prisma.empty;
 
-  // CTE: compute running balance over ALL customer entries (not filtered)
-  // then filter + paginate in outer query.
   const rawRows = await prisma.$queryRaw`
     WITH full_ledger AS (
       SELECT
@@ -487,12 +635,13 @@ export async function getCustomerLedger(user, customerId, filters = {}) {
   const hasMore = rawRows.length > take;
   const items = hasMore ? rawRows.slice(0, take) : rawRows;
 
-  // Enrich with attachments
   const entryIds = items.map((r) => r.id);
-  const attachments = entryIds.length > 0 ? await prisma.customerLedgerAttachment.findMany({
-    where: { ledgerEntryId: { in: entryIds } },
-    include: { asset: true },
-  }) : [];
+  const attachments = entryIds.length > 0
+    ? await prisma.customerLedgerAttachment.findMany({
+        where: { ledgerEntryId: { in: entryIds } },
+        include: { asset: true },
+      })
+    : [];
 
   const attachmentMap = new Map();
   attachments.forEach((att) => {
@@ -500,34 +649,43 @@ export async function getCustomerLedger(user, customerId, filters = {}) {
     attachmentMap.get(att.ledgerEntryId).push(att);
   });
 
-  // Collect all reversal entry IDs so we can mark originals as "reversed"
-  const reversedEntryIds = new Set(
-    items.filter((r) => r.reversalOfId).map((r) => r.reversalOfId)
-  );
+  // Reversal status across pages: query reversals for displayed originals
+  const originalIds = items.filter((r) => !r.reversalOfId).map((r) => r.id);
+  const reversals = originalIds.length > 0
+    ? await prisma.customerLedgerEntry.findMany({
+        where: { reversalOfId: { in: originalIds } },
+        select: { id: true, reversalOfId: true, reversalReason: true },
+      })
+    : [];
+  const reversalByOriginal = new Map(reversals.map((r) => [r.reversalOfId, r]));
 
-  const formattedEntries = items.map((row) => ({
-    id: row.id,
-    shopId: row.shopId,
-    customerId: row.customerId,
-    sourceType: row.sourceType,
-    sourceId: row.sourceId,
-    entryType: row.entryType,
-    direction: row.direction,
-    amount: Number(row.amount),
-    debit: row.direction === "DEBIT" ? Number(row.amount) : 0,
-    credit: row.direction === "CREDIT" ? Number(row.amount) : 0,
-    runningBalance: Number(row.runningBalance),
-    createdById: row.createdById,
-    reversalOfId: row.reversalOfId,
-    isReversal: Boolean(row.reversalOfId),
-    isReversed: reversedEntryIds.has(row.id),
-    reversalReason: row.reversalReason,
-    notes: row.notes,
-    metadata: row.metadata,
-    effectiveAt: row.effectiveAt,
-    createdAt: row.createdAt,
-    attachments: attachmentMap.get(row.id) || [],
-  }));
+  const formattedEntries = items.map((row) => {
+    const reversal = reversalByOriginal.get(row.id);
+    return {
+      id: row.id,
+      shopId: row.shopId,
+      customerId: row.customerId,
+      sourceType: row.sourceType,
+      sourceId: row.sourceId,
+      entryType: row.entryType,
+      direction: row.direction,
+      amount: Number(row.amount),
+      debit: row.direction === "DEBIT" ? Number(row.amount) : 0,
+      credit: row.direction === "CREDIT" ? Number(row.amount) : 0,
+      runningBalance: Number(row.runningBalance),
+      createdById: row.createdById,
+      reversalOfId: row.reversalOfId,
+      isReversal: Boolean(row.reversalOfId),
+      isReversed: Boolean(reversal),
+      reversalEntryId: reversal?.id || null,
+      reversalReason: reversal?.reversalReason || row.reversalReason || null,
+      notes: row.notes,
+      metadata: row.metadata,
+      effectiveAt: row.effectiveAt,
+      createdAt: row.createdAt,
+      attachments: attachmentMap.get(row.id) || [],
+    };
+  });
 
   let nextCursor = null;
   if (hasMore && items.length > 0) {
@@ -535,7 +693,7 @@ export async function getCustomerLedger(user, customerId, filters = {}) {
     nextCursor = Buffer.from(`${new Date(lastItem.effectiveAt).toISOString()}::${lastItem.id}`).toString("base64");
   }
 
-  const summary = await getCustomerLedgerSummary(user, customerId, { shopId });
+  const summary = await getCustomerLedgerSummary(user, customerId, { shopId, from, to });
 
   return {
     customer: {
@@ -546,58 +704,93 @@ export async function getCustomerLedger(user, customerId, filters = {}) {
       outstandingAmount: Number(customer.outstandingAmount),
       advanceBalance: Number(customer.advanceBalance),
       creditLimit: customer.creditLimit ? Number(customer.creditLimit) : null,
+      ledgerVersion: customer.ledgerVersion,
     },
     summary,
     entries: formattedEntries,
     nextCursor,
+    hasMore,
   };
 }
 
-// ---------------------------------------------------------------------------
-// getCustomerLedgerSummary
-// ---------------------------------------------------------------------------
-export async function getCustomerLedgerSummary(user, customerId, { shopId }) {
+export async function getCustomerLedgerSummary(user, customerId, { shopId, from, to } = {}) {
   await assertShopAccess(user, shopId);
 
   const customer = await prisma.customer.findFirst({ where: { id: customerId, shopId } });
   if (!customer) throw new ApiError(404, "Customer not found");
 
-  const totals = await prisma.customerLedgerEntry.groupBy({
+  if (from && to && new Date(from) > new Date(to)) {
+    throw new ApiError(400, "from must be before or equal to to");
+  }
+
+  const fromDate = from ? new Date(from) : null;
+  const toDate = to ? new Date(to) : null;
+
+  let openingBalance = 0;
+  if (fromDate) {
+    const openingTotals = await prisma.customerLedgerEntry.groupBy({
+      by: ["direction"],
+      where: { customerId, shopId, effectiveAt: { lt: fromDate } },
+      _sum: { amount: true },
+    });
+    let openingDebits = 0;
+    let openingCredits = 0;
+    openingTotals.forEach((t) => {
+      if (t.direction === "DEBIT") openingDebits = Number(t._sum.amount || 0);
+      if (t.direction === "CREDIT") openingCredits = Number(t._sum.amount || 0);
+    });
+    openingBalance = openingDebits - openingCredits;
+  }
+
+  const periodWhere = {
+    customerId,
+    shopId,
+    ...(fromDate || toDate
+      ? {
+          effectiveAt: {
+            ...(fromDate ? { gte: fromDate } : {}),
+            ...(toDate ? { lte: toDate } : {}),
+          },
+        }
+      : {}),
+  };
+
+  const periodTotals = await prisma.customerLedgerEntry.groupBy({
     by: ["direction"],
-    where: { customerId, shopId },
+    where: periodWhere,
     _sum: { amount: true },
   });
 
-  let totalDebits = 0;
-  let totalCredits = 0;
-  totals.forEach((t) => {
-    if (t.direction === "DEBIT") totalDebits = Number(t._sum.amount || 0);
-    if (t.direction === "CREDIT") totalCredits = Number(t._sum.amount || 0);
+  let periodDebits = 0;
+  let periodCredits = 0;
+  periodTotals.forEach((t) => {
+    if (t.direction === "DEBIT") periodDebits = Number(t._sum.amount || 0);
+    if (t.direction === "CREDIT") periodCredits = Number(t._sum.amount || 0);
   });
 
-  const netBalance = totalDebits - totalCredits;
-  const outstandingAmount = Math.max(netBalance, 0);
-  const advanceBalance = Math.max(-netBalance, 0);
+  const closingBalance = openingBalance + periodDebits - periodCredits;
 
   return {
-    openingBalance: 0,
-    periodDebits: totalDebits,
-    periodCredits: totalCredits,
-    closingBalance: netBalance,
-    outstandingAmount,
-    advanceBalance,
+    customerId,
+    from: fromDate ? fromDate.toISOString() : null,
+    to: toDate ? toDate.toISOString() : null,
+    openingBalance,
+    periodDebits,
+    periodCredits,
+    closingBalance,
+    outstandingAmount: Math.max(closingBalance, 0),
+    advanceBalance: Math.max(-closingBalance, 0),
   };
 }
-
-// ---------------------------------------------------------------------------
-// getCustomerLedgerStatement
-// ---------------------------------------------------------------------------
 
 export async function getCustomerLedgerStatement(user, customerId, { shopId, from, to }) {
   await assertShopAccess(user, shopId);
 
   const customer = await prisma.customer.findFirst({ where: { id: customerId, shopId } });
   if (!customer) throw new ApiError(404, "Customer not found");
+
+  const shop = await prisma.shop.findUnique({ where: { id: shopId } });
+  if (!shop) throw new ApiError(404, "Shop not found");
 
   if (!from || !to) throw new ApiError(400, "Both from and to dates are required for a statement");
 
@@ -608,38 +801,24 @@ export async function getCustomerLedgerStatement(user, customerId, { shopId, fro
   }
   if (fromDate > toDate) throw new ApiError(400, "from must be before to");
 
-  // Opening balance = net before fromDate
-  const openingTotals = await prisma.customerLedgerEntry.groupBy({
-    by: ["direction"],
-    where: { customerId, shopId, effectiveAt: { lt: fromDate } },
-    _sum: { amount: true },
-  });
-  let openingDebits = 0;
-  let openingCredits = 0;
-  openingTotals.forEach((t) => {
-    if (t.direction === "DEBIT") openingDebits = Number(t._sum.amount || 0);
-    if (t.direction === "CREDIT") openingCredits = Number(t._sum.amount || 0);
-  });
-  const openingBalance = openingDebits - openingCredits;
+  const summary = await getCustomerLedgerSummary(user, customerId, { shopId, from, to });
 
-  // Period entries
   const periodEntries = await prisma.customerLedgerEntry.findMany({
     where: { customerId, shopId, effectiveAt: { gte: fromDate, lte: toDate } },
     orderBy: [{ effectiveAt: "asc" }, { id: "asc" }],
     include: { ledgerAttachments: { include: { asset: true } } },
   });
 
-  let periodDebits = 0;
-  let periodCredits = 0;
-  let running = openingBalance;
-
+  let running = summary.openingBalance;
   const entries = periodEntries.map((e) => {
     const amt = Number(e.amount);
-    if (e.direction === "DEBIT") { running += amt; periodDebits += amt; }
-    else { running -= amt; periodCredits += amt; }
+    if (e.direction === "DEBIT") running += amt;
+    else running -= amt;
     return {
       id: e.id,
       entryType: e.entryType,
+      sourceType: e.sourceType,
+      sourceId: e.sourceId,
       direction: e.direction,
       amount: amt,
       debit: e.direction === "DEBIT" ? amt : 0,
@@ -651,34 +830,67 @@ export async function getCustomerLedgerStatement(user, customerId, { shopId, fro
     };
   });
 
-  const closingBalance = running;
-
   return {
+    shop: {
+      id: shop.id,
+      name: shop.name,
+      address: shop.address,
+      phone: shop.phone,
+      gstin: shop.gstin,
+      city: shop.city,
+    },
     customer: {
       id: customer.id,
       name: customer.name,
       phone: customer.phone,
       type: customer.type,
+      address: customer.address,
+      gstin: customer.gstin,
     },
-    period: { from: fromDate, to: toDate },
-    openingBalance,
-    periodDebits,
-    periodCredits,
-    closingBalance,
-    outstandingAmount: Math.max(closingBalance, 0),
-    advanceBalance: Math.max(-closingBalance, 0),
+    dateRange: { from: fromDate.toISOString(), to: toDate.toISOString() },
+    openingBalance: summary.openingBalance,
+    periodDebits: summary.periodDebits,
+    periodCredits: summary.periodCredits,
+    closingBalance: summary.closingBalance,
+    outstandingAmount: summary.outstandingAmount,
+    advanceBalance: summary.advanceBalance,
     entries,
   };
 }
 
-// ---------------------------------------------------------------------------
-// postOpeningBalance
-// ---------------------------------------------------------------------------
-
 export async function postOpeningBalance(tx, input) {
-  const { shopId, customerId, amount, direction, createdById, effectiveAt, notes, attachmentAssetIds } = input;
+  const {
+    shopId,
+    customerId,
+    amount,
+    direction,
+    createdById,
+    effectiveAt,
+    notes,
+    attachmentAssetIds,
+    clientMutationId,
+    idempotencyKey,
+  } = input;
 
-  // Check existing opening balance
+  if (clientMutationId) {
+    const byMutation = await tx.customerLedgerEntry.findFirst({
+      where: { shopId, clientMutationId },
+      include: { ledgerAttachments: { include: { asset: true } } },
+    });
+    if (byMutation) {
+      assertIdempotencyPayloadMatch(byMutation, {
+        customerId,
+        sourceType: "OPENING_BALANCE",
+        sourceId: customerId,
+        entryType: direction === "DEBIT" ? "OPENING_RECEIVABLE" : "OPENING_ADVANCE",
+        direction,
+        amount: Number(amount),
+      });
+      const currentCustomer = await tx.customer.findUnique({ where: { id: customerId } });
+      return { entry: byMutation, customer: currentCustomer, isDuplicate: true };
+    }
+  }
+
   const existing = await tx.customerLedgerEntry.findFirst({
     where: {
       shopId,
@@ -687,7 +899,9 @@ export async function postOpeningBalance(tx, input) {
     },
   });
   if (existing) {
-    throw new ApiError(409, "Opening balance has already been set for this customer. Use a manual adjustment to correct it.");
+    throw new ApiError(409, "Opening balance has already been set for this customer. Use a manual adjustment to correct it.", {
+      code: "OPENING_BALANCE_EXISTS",
+    });
   }
 
   const entryType = direction === "DEBIT"
@@ -706,5 +920,49 @@ export async function postOpeningBalance(tx, input) {
     effectiveAt: effectiveAt || new Date(),
     notes: notes || (direction === "DEBIT" ? "Opening receivable balance" : "Opening advance balance"),
     attachmentAssetIds: attachmentAssetIds || [],
+    clientMutationId,
+    idempotencyKey,
+  });
+}
+
+export async function postManualAdjustment(tx, input) {
+  const {
+    shopId,
+    customerId,
+    amount,
+    direction,
+    reason,
+    createdById,
+    effectiveAt,
+    attachmentAssetIds,
+    clientMutationId,
+    idempotencyKey,
+  } = input;
+
+  if (!reason || !String(reason).trim()) {
+    throw new ApiError(400, "Adjustment reason is mandatory");
+  }
+
+  const entryType = direction === "DEBIT"
+    ? CustomerLedgerEntryType.ADJUSTMENT_DEBIT
+    : CustomerLedgerEntryType.ADJUSTMENT_CREDIT;
+
+  const sourceId = clientMutationId || idempotencyKey || `adj:${customerId}:${Date.now()}`;
+
+  return postLedgerEntry(tx, {
+    shopId,
+    customerId,
+    sourceType: CustomerLedgerSourceType.MANUAL_ADJUSTMENT,
+    sourceId,
+    entryType,
+    direction,
+    amount,
+    createdById,
+    effectiveAt: effectiveAt || new Date(),
+    notes: reason.trim(),
+    attachmentAssetIds: attachmentAssetIds || [],
+    clientMutationId,
+    idempotencyKey,
+    metadata: { reason: reason.trim() },
   });
 }

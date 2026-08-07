@@ -7,14 +7,14 @@ import { whatsappService } from "./whatsapp.service.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 import {
-  applyPayments,
   calculateItemTotals,
   createStockOut,
   createStockIn,
   generateRecordNumber,
-  prisma,
   getBillPaymentStatus,
 } from "./transactionHelpers.js";
+import { applyPayments } from "./payment-accounting.service.js";
+import prisma from "../lib/db.js";
 
 import { money, sub, add } from "../utils/money.js";
 import { checkAndLockAvailableStock, expandStockRequirements } from "./stock.service.js";
@@ -944,7 +944,7 @@ export async function cancelInvoice(user, id, data) {
 export async function cancelSale(user, id, { reason = "Cancelled by owner" } = {}) {
   const sale = await prisma.sale.findUnique({
     where: { id },
-    include: { items: true, payments: true },
+    include: { items: true, payments: true, customer: true },
   });
 
   if (!sale) {
@@ -972,19 +972,32 @@ export async function cancelSale(user, id, { reason = "Cancelled by owner" } = {
     }
 
     // 2. Revert Customer Debt by reversing original SALE_POSTED debit entry
-    if (sale.customerId && sale.customer?.type !== "WALK_IN") {
-      const originalEntry = await tx.customerLedgerEntry.findFirst({
-        where: { shopId: sale.shopId, sourceType: "SALE", sourceId: sale.id, entryType: "SALE_POSTED" },
-      });
-      if (!originalEntry) {
-        throw new ApiError(409, "Original SALE_POSTED ledger entry is missing; sale cannot be cancelled");
+    // Walk-in sales have no receivable ledger entry — skip ledger lookup.
+    const customerType = sale.customer?.type
+      || (sale.customerId
+        ? (await tx.customer.findUnique({ where: { id: sale.customerId }, select: { type: true } }))?.type
+        : null);
+
+    if (sale.customerId && customerType && customerType !== "WALK_IN") {
+      // DM-originated sales must not reverse SALE_POSTED (debt came from DM)
+      if (sale.receivableOrigin === "DELIVERY_MEMO") {
+        // No SALE_POSTED to reverse — DM debit remains until DM is cancelled/reversed separately
+      } else {
+        const originalEntry = await tx.customerLedgerEntry.findFirst({
+          where: { shopId: sale.shopId, sourceType: "SALE", sourceId: sale.id, entryType: "SALE_POSTED" },
+        });
+        if (!originalEntry) {
+          throw new ApiError(409, "Original SALE_POSTED ledger entry is missing; sale cannot be cancelled", {
+            code: "LEDGER_ENTRY_MISSING",
+          });
+        }
+        await reverseLedgerEntry(tx, {
+          shopId: sale.shopId,
+          entryId: originalEntry.id,
+          reversalReason: reason,
+          createdById: user.id,
+        });
       }
-      await reverseLedgerEntry(tx, {
-        shopId: sale.shopId,
-        entryId: originalEntry.id,
-        reversalReason: reason,
-        createdById: user.id,
-      });
     }
 
 

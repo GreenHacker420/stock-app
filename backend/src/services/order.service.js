@@ -4,14 +4,14 @@ import { createNotification } from "./notification.service.js";
 import { createDomainEvent, enqueueDomainEvent, enqueueManyDomainEvents } from "./domain-event.service.js";
 import { checkAndLockAvailableStock } from "./stock.service.js";
 import {
-  applyPayments,
   calculateItemTotals,
   createStockOut,
   generateRecordNumber,
   getBillPaymentStatus,
-  prisma,
 } from "./transactionHelpers.js";
+import { applyPayments } from "./payment-accounting.service.js";
 import { postLedgerEntry } from "./customer-ledger.service.js";
+import prisma from "../lib/db.js";
 
 import { reserveStockForOrder, expandStockRequirements } from "./stock.service.js";
 import { qty, money } from "../utils/money.js";
@@ -730,7 +730,7 @@ export async function createDmFromOrder(user, id, data) {
     }
     
     // Post DELIVERY_MEMO_POSTED ledger entry for non-walk-in customer
-    if (order.customer?.type !== "WALK_IN") {
+    if (customer && customer.type !== "WALK_IN") {
       await postLedgerEntry(tx, {
         shopId: order.shopId,
         customerId: order.customerId,
@@ -874,7 +874,8 @@ export async function convertOrderToSale(user, id, data) {
     }
 
     // Post SALE_POSTED ledger entry for non-walk-in customer
-    if (order.customer?.type !== "WALK_IN") {
+    const saleCustomer = await tx.customer.findUnique({ where: { id: order.customerId }, select: { type: true } });
+    if (saleCustomer && saleCustomer.type !== "WALK_IN") {
       await postLedgerEntry(tx, {
         shopId: order.shopId,
         customerId: order.customerId,

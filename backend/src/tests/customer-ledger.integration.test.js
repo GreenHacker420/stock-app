@@ -18,8 +18,14 @@ import {
 let shopId, ownerId, regularCustomerId, walkinCustomerId;
 
 async function cleanup() {
-  await prisma.customerLedgerAllocation.deleteMany({ where: { shop: { id: shopId } } }).catch(() => {});
+  await prisma.customerLedgerAllocation.deleteMany({
+    where: { shopId, reversalOfId: { not: null } },
+  }).catch(() => {});
+  await prisma.customerLedgerAllocation.deleteMany({ where: { shopId } }).catch(() => {});
   await prisma.customerLedgerAttachment.deleteMany({ where: { shopId } }).catch(() => {});
+  await prisma.customerLedgerEntry.deleteMany({
+    where: { shopId, reversalOfId: { not: null } },
+  }).catch(() => {});
   await prisma.customerLedgerEntry.deleteMany({ where: { shopId } }).catch(() => {});
   await prisma.customer.deleteMany({ where: { shopId } }).catch(() => {});
   await prisma.auditLog.deleteMany({ where: { shopId } }).catch(() => {});

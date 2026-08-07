@@ -6,6 +6,8 @@ import { AttachmentUploader, UploadedAttachment } from "../../ui/AttachmentUploa
 import { useLedgerAdjustment } from "../../../hooks/useCustomerLedger";
 import { newIdempotencyKey } from "../../../utils/idempotency";
 import { colors, spacing, radius, fontSize } from "../../../theme";
+import { useNetworkStore } from "../../../auth/network-store";
+import { queueLedgerMutationOrSubmitOnline } from "../../../offline/ledgerMutationProcessor";
 
 interface ManualAdjustmentSheetProps {
   visible: boolean;
@@ -46,23 +48,39 @@ export function ManualAdjustmentSheet({
 
   const handleConfirmSubmit = async () => {
     const numAmount = parseFloat(amount);
+    const payload = {
+      shopId,
+      direction,
+      amount: numAmount,
+      reason: reason.trim(),
+      clientMutationId,
+      attachmentAssetIds: attachments.map((a, idx) => ({
+        assetId: a.assetId,
+        purpose: "ADJUSTMENT_PROOF" as const,
+        sortOrder: idx,
+      })),
+    };
+
     try {
-      await adjustmentMutation.mutateAsync({
+      const online = useNetworkStore.getState().isServerReachable !== false;
+      const outcome = await queueLedgerMutationOrSubmitOnline({
+        online,
+        id: clientMutationId,
+        type: "MANUAL_ADJUSTMENT",
         shopId,
-        direction,
-        amount: numAmount,
-        reason: reason.trim(),
+        customerId,
         clientMutationId,
-        attachmentAssetIds: attachments.map((a, idx) => ({
-          assetId: a.assetId,
-          purpose: "ADJUSTMENT_PROOF",
-          sortOrder: idx,
-        })),
+        payload,
+        submitOnline: () => adjustmentMutation.mutateAsync(payload),
       });
 
       setConfirmVisible(false);
       onDismiss();
-      Alert.alert("Success", "Manual adjustment posted successfully");
+      if (outcome.queued) {
+        Alert.alert("Pending sync", "Adjustment saved offline and will sync when connectivity returns. Confirmed balance is unchanged until sync succeeds.");
+      } else {
+        Alert.alert("Success", "Manual adjustment posted successfully");
+      }
     } catch (err: any) {
       setConfirmVisible(false);
       Alert.alert("Error", err?.response?.data?.message || err?.message || "Failed to post manual adjustment");

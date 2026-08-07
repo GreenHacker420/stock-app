@@ -18,12 +18,12 @@ export interface CustomerLedgerEntry {
   notes?: string | null;
   effectiveAt: string;
   createdAt: string;
-  updatedAt: string;
+  updatedAt?: string;
   runningBalance: number;
   isReversal: boolean;
   isReversed: boolean;
   reversalEntryId?: string | null;
-  ledgerAttachments?: CustomerLedgerAttachment[];
+  attachments?: CustomerLedgerAttachment[];
 }
 
 export interface CustomerLedgerAttachment {
@@ -44,6 +44,9 @@ export interface CustomerLedgerAttachment {
 }
 
 export interface CustomerLedgerSummary {
+  customerId?: string;
+  from?: string | null;
+  to?: string | null;
   openingBalance: number;
   periodDebits: number;
   periodCredits: number;
@@ -56,6 +59,9 @@ export interface CustomerLedgerStatement {
   shop: {
     id: string;
     name: string;
+    address?: string | null;
+    phone?: string | null;
+    gstin?: string | null;
     city?: string;
   };
   customer: {
@@ -187,7 +193,7 @@ export async function createUploadIntent(payload: {
   fileName: string;
   mimeType: string;
   sizeBytes: number;
-  checksumSha256?: string;
+  checksumSha256: string;
 }) {
   const token = getToken();
   return apiRequest<{
@@ -196,6 +202,7 @@ export async function createUploadIntent(payload: {
     bucket: string;
     key: string;
     expiresInSeconds: number;
+    headers?: Record<string, string>;
   }>("/assets/upload-intents", {
     method: "POST",
     token,

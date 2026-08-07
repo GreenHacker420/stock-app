@@ -12,7 +12,7 @@ const idParams = z.object({ id: z.string().min(1) });
 const paymentSchema = z.object({
   paymentMode: z.enum(["CASH", "UPI", "CARD", "BANK_TRANSFER", "CHEQUE"]),
   amount: z.coerce.number().nonnegative(),
-  paymentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Payment date must be YYYY-MM-DD").optional(),
+  paymentDate: z.iso.date({ error: "Payment date must be YYYY-MM-DD" }).optional(),
   referenceNumber: z.string().optional(),
   proofImageUrl: z.string().optional(),
   notes: z.string().optional(),
@@ -40,7 +40,7 @@ const createSchema = z.object({
     customerId: z.string().optional(),
     customerInfo: customerInfoSchema.optional(),
     isWalkin: z.boolean().optional(),
-    saleDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Sale date must be YYYY-MM-DD").optional(),
+    saleDate: z.iso.date({ error: "Sale date must be YYYY-MM-DD" }).optional(),
     dueDate: z.coerce.date().optional(),
     items: z.array(saleItemSchema).min(1),
     payments: z.array(paymentSchema).optional(),

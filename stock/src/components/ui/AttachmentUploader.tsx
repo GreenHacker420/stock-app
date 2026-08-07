@@ -4,6 +4,7 @@ import { Text, ActivityIndicator, IconButton } from "react-native-paper";
 import { launchImageLibraryAsync, useMediaLibraryPermissions } from "expo-image-picker";
 import { getDocumentAsync } from "expo-document-picker";
 import { File, UploadType } from "expo-file-system";
+import * as Crypto from "expo-crypto";
 import { createUploadIntent, completeAssetUpload } from "../../api/ledger.api";
 import { colors, spacing, radius, fontSize } from "../../theme";
 
@@ -14,6 +15,7 @@ export interface UploadedAttachment {
   sizeBytes: number;
   uri: string;
   purpose?: string;
+  checksumSha256?: string;
 }
 
 interface AttachmentUploaderProps {
@@ -22,6 +24,28 @@ interface AttachmentUploaderProps {
   attachments: UploadedAttachment[];
   onAttachmentsChange: (attachments: UploadedAttachment[]) => void;
   maxFiles?: number;
+}
+
+async function resolveFileMetadata(uri: string, fallbackSize?: number | null) {
+  const localFile = new File(uri);
+  let sizeBytes = Number(fallbackSize || 0);
+  try {
+    const info = typeof (localFile as any).info === "function" ? await (localFile as any).info() : null;
+    if (info?.size && Number(info.size) > 0) sizeBytes = Number(info.size);
+  } catch {
+    // fall through
+  }
+  if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) {
+    throw new Error("Could not determine file size. Please reselect the file.");
+  }
+
+  const bytes = await localFile.bytes();
+  const digest = await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, bytes);
+  const checksumSha256 = Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+
+  return { sizeBytes, checksumSha256, localFile };
 }
 
 export function AttachmentUploader({
@@ -60,7 +84,7 @@ export function AttachmentUploader({
         uri: asset.uri,
         fileName: asset.fileName || `photo_${Date.now()}.jpg`,
         mimeType: asset.mimeType || "image/jpeg",
-        sizeBytes: asset.fileSize || 1024,
+        sizeBytes: asset.fileSize ?? null,
       });
     }
   };
@@ -82,33 +106,42 @@ export function AttachmentUploader({
         uri: doc.uri,
         fileName: doc.name || `doc_${Date.now()}`,
         mimeType: doc.mimeType || "application/pdf",
-        sizeBytes: doc.size || 1024,
+        sizeBytes: doc.size ?? null,
       });
     }
   };
 
-  const uploadFile = async (fileInfo: { uri: string; fileName: string; mimeType: string; sizeBytes: number }) => {
+  const uploadFile = async (fileInfo: {
+    uri: string;
+    fileName: string;
+    mimeType: string;
+    sizeBytes: number | null;
+  }) => {
     try {
       setUploading(true);
       setUploadProgress("Preparing...");
 
-      // 1. Create upload intent
+      const { sizeBytes, checksumSha256, localFile } = await resolveFileMetadata(
+        fileInfo.uri,
+        fileInfo.sizeBytes,
+      );
+
       const intent = await createUploadIntent({
         shopId,
         domain,
         fileName: fileInfo.fileName,
         mimeType: fileInfo.mimeType,
-        sizeBytes: fileInfo.sizeBytes,
+        sizeBytes,
+        checksumSha256,
       });
 
       setUploadProgress("Uploading...");
 
-      // 2. Direct binary upload to S3 presigned URL using modern SDK 56 File class upload task
-      const localFile = new File(fileInfo.uri);
       const uploadTask = localFile.createUploadTask(intent.uploadUrl, {
         httpMethod: "PUT",
         headers: {
           "Content-Type": fileInfo.mimeType,
+          ...(intent.headers || {}),
         },
         uploadType: UploadType.BINARY_CONTENT,
         onProgress: ({ bytesSent, totalBytes }) => {
@@ -126,16 +159,15 @@ export function AttachmentUploader({
       }
 
       setUploadProgress("Completing...");
-
-      // 3. Complete asset intent on server
       await completeAssetUpload(intent.assetId, { shopId });
 
       const newAttachment: UploadedAttachment = {
         assetId: intent.assetId,
         fileName: fileInfo.fileName,
         mimeType: fileInfo.mimeType,
-        sizeBytes: fileInfo.sizeBytes,
+        sizeBytes,
         uri: fileInfo.uri,
+        checksumSha256,
       };
 
       onAttachmentsChange([...attachments, newAttachment]);

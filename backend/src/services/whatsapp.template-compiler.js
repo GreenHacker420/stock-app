@@ -17,7 +17,7 @@ const buttonSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("URL"),
     text: z.string().trim().min(1).max(25),
-    url: z.string().url().max(2000),
+    url: z.url().max(2000),
     example: z.string().max(2000).optional(),
   }),
   z.object({

@@ -324,9 +324,13 @@ function LedgerRow({
       {item.notes ? <Text style={styles.rowNotes}>{item.notes}</Text> : null}
 
       <View style={styles.rowFooter}>
-        <Text style={styles.rowRunning}>Running Net: {money(item.runningBalance)}</Text>
-        {item.ledgerAttachments && item.ledgerAttachments.length > 0 && (
-          <Text style={styles.attachmentBadge}>📎 {item.ledgerAttachments.length} file(s)</Text>
+        <Text style={styles.rowRunning}>
+          {Number(item.runningBalance) < 0
+            ? `${money(Math.abs(Number(item.runningBalance)))} Advance`
+            : `${money(item.runningBalance)} Outstanding`}
+        </Text>
+        {item.attachments && item.attachments.length > 0 && (
+          <Text style={styles.attachmentBadge}>{item.attachments.length} file(s)</Text>
         )}
       </View>
     </View>

@@ -33,8 +33,8 @@ const addSchema = z.object({
     orderId: z.string().optional(),
     customerId: z.string().optional(),
     paymentMode,
-    amount: z.coerce.number().positive("Payment amount must be greater than zero"),
-    paymentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Payment date must be YYYY-MM-DD").optional(),
+    amount: z.coerce.number().positive({ error: "Payment amount must be greater than zero" }),
+    paymentDate: z.iso.date().optional(),
     referenceNumber: z.string().optional(),
     proofImageUrl: z.string().optional(),
     notes: z.string().optional(),
@@ -44,7 +44,7 @@ const addSchema = z.object({
     if (refs.length > 1) return false;
     return true;
   }, {
-    message: "Target invoice references (saleId, dmId, orderId) are mutually exclusive.",
+    error: "Target invoice references (saleId, dmId, orderId) are mutually exclusive.",
   }),
   params: z.object({}).optional(),
   query: z.object({}).optional(),
@@ -66,7 +66,7 @@ const attachSchema = z.object({
     const refs = [data.saleId, data.dmId, data.orderId].filter(Boolean);
     return refs.length === 1;
   }, {
-    message: "Must provide exactly one target (saleId, dmId, or orderId)",
+    error: "Must provide exactly one target (saleId, dmId, or orderId)",
   }),
   query: z.object({}).optional(),
 });
@@ -74,9 +74,9 @@ const attachSchema = z.object({
 const amendSchema = z.object({
   params: idParams,
   body: z.object({
-    amount: z.coerce.number().positive("Payment amount must be greater than zero"),
-    reason: z.string().trim().min(3, "A correction reason is required").max(500),
-    expectedUpdatedAt: z.string().datetime().optional(),
+    amount: z.coerce.number().positive({ error: "Payment amount must be greater than zero" }),
+    reason: z.string().trim().min(3, { error: "A correction reason is required" }).max(500),
+    expectedUpdatedAt: z.iso.datetime({ offset: true }).optional(),
   }),
   query: z.object({}).optional(),
 });

@@ -1,4 +1,5 @@
 import { VALIDATION_PATTERNS, CLEANING_PATTERNS } from "../regex";
+import { z } from "zod";
 
 export function parseAmount(value: string, fallback: number | null = null): number | null {
   if (!value.trim()) return fallback;
@@ -42,5 +43,5 @@ export function isValidGstin(gstin: string): boolean {
 }
 
 export function isValidEmail(email: string): boolean {
-  return VALIDATION_PATTERNS.EMAIL.test(email.trim());
+  return z.email().safeParse(email.trim()).success;
 }

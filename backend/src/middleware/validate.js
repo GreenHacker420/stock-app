@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { ApiError } from "../utils/ApiError.js";
 
 export const validate = (schema) => (req, _res, next) => {
@@ -8,8 +9,9 @@ export const validate = (schema) => (req, _res, next) => {
   });
 
   if (!parsed.success) {
-    console.log("Validation Error:", JSON.stringify(parsed.error.flatten(), null, 2));
-    return next(new ApiError(400, "Validation failed", parsed.error.flatten()));
+    const details = z.flattenError(parsed.error);
+    console.log("Validation Error:", JSON.stringify(details, null, 2));
+    return next(new ApiError(400, "Validation failed", details));
   }
 
   req.validated = parsed.data;

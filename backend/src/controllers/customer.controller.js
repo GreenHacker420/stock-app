@@ -6,6 +6,8 @@ import {
   getLedgerSummary as getLedgerSummaryHandler,
   getLedgerStatement as getLedgerStatementHandler,
   setOpeningBalance as setOpeningBalanceHandler,
+  postLedgerAdjustment as postLedgerAdjustmentHandler,
+  reverseCustomerLedgerEntry as reverseCustomerLedgerEntryHandler,
 } from "./customer-ledger.controller.js";
 
 
@@ -86,3 +88,5 @@ export const getLedger = asyncHandler(getLedgerHandler);
 export const getLedgerSummary = asyncHandler(getLedgerSummaryHandler);
 export const getLedgerStatement = asyncHandler(getLedgerStatementHandler);
 export const setOpeningBalance = asyncHandler(setOpeningBalanceHandler);
+export const postLedgerAdjustment = asyncHandler(postLedgerAdjustmentHandler);
+export const reverseCustomerLedgerEntry = asyncHandler(reverseCustomerLedgerEntryHandler);

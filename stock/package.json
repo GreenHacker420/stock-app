@@ -8,6 +8,7 @@
     "android": "expo run:android",
     "ios": "expo run:ios",
     "typecheck": "tsc --noEmit",
+    "test": "tsx --test src/**/*.test.ts src/**/*.test.tsx src/offline/**/*.test.ts src/api/**/*.test.ts",
     "test:sales": "tsx --test src/features/sales/create/core/*.test.ts",
     "test:whatsapp": "tsx --test src/modules/whatsapp/whatsapp-query-cache.test.ts",
     "doctor": "expo-doctor",

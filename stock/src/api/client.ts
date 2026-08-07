@@ -95,9 +95,11 @@ export type Customer = {
   contactPerson?: string | null;
   creditLimit?: string | null;
   outstandingAmount?: string;
+  advanceBalance?: string;
+  ledgerVersion?: number;
   notes?: string | null;
   status?: "ACTIVE" | "INACTIVE";
-  type?: "REGULAR" | "WALK_IN";
+  type?: "REGULAR" | "BUSINESS" | "WALK_IN";
 };
 
 export type CashSession = {

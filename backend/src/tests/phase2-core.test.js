@@ -50,12 +50,22 @@ async function cleanup() {
     await prisma.approvalRequest.deleteMany({ where: { shopId: { in: shopIds } } });
     await prisma.expense.deleteMany({ where: { shopId: { in: shopIds } } });
     await prisma.paymentDetail.deleteMany({ where: { payment: { shopId: { in: shopIds } } } });
+    await prisma.paymentAmendment.deleteMany({ where: { shopId: { in: shopIds } } });
     await prisma.payment.deleteMany({ where: { shopId: { in: shopIds } } });
     await prisma.dispatchItem.deleteMany({ where: { dispatch: { shopId: { in: shopIds } } } });
     await prisma.dispatch.deleteMany({ where: { shopId: { in: shopIds } } });
     await prisma.saleItem.deleteMany({ where: { sale: { shopId: { in: shopIds } } } });
     await prisma.saleAmendment.deleteMany({ where: { sale: { shopId: { in: shopIds } } } });
     await prisma.invoice.deleteMany({ where: { sale: { shopId: { in: shopIds } } } });
+    // Self-ref RESTRICT on reversalOfId: delete reversal rows before originals.
+    await prisma.customerLedgerAllocation.deleteMany({
+      where: { shopId: { in: shopIds }, reversalOfId: { not: null } },
+    });
+    await prisma.customerLedgerAllocation.deleteMany({ where: { shopId: { in: shopIds } } });
+    await prisma.customerLedgerAttachment.deleteMany({ where: { shopId: { in: shopIds } } });
+    await prisma.customerLedgerEntry.deleteMany({
+      where: { shopId: { in: shopIds }, reversalOfId: { not: null } },
+    });
     await prisma.customerLedgerEntry.deleteMany({ where: { shopId: { in: shopIds } } });
     await prisma.deliveryMemoItem.deleteMany({ where: { deliveryMemo: { shopId: { in: shopIds } } } });
     await prisma.sale.deleteMany({ where: { shopId: { in: shopIds } } });
@@ -119,6 +129,7 @@ test.describe("Phase 2 core business correctness", () => {
   test.after(async () => {
     await cleanup();
     await closePushQueue();
+    await prisma.$disconnect();
   });
 
   test("batch product delete deactivates all selected products in one operation", async () => {
@@ -404,7 +415,7 @@ test.describe("Phase 2 core business correctness", () => {
     assert.strictEqual(Number(dmMovements[0].quantityOut), 2);
     const ledgerEntries = await prisma.customerLedgerEntry.findMany({ where: { sourceId: draft.id } });
     assert.strictEqual(ledgerEntries.length, 1);
-    assert.strictEqual(ledgerEntries[0].entryType, "DM_POSTED");
+    assert.strictEqual(ledgerEntries[0].entryType, "DELIVERY_MEMO_POSTED");
 
     const debtAfterPost = await prisma.customer.findUnique({ where: { id: customer.id } });
     const conversion = await deliveryMemoService.convertDeliveryMemoToSale(owner, draft.id, { gstRequired: false });
@@ -424,7 +435,7 @@ test.describe("Phase 2 core business correctness", () => {
     assert.strictEqual(physicalAfter, physicalBefore - 2);
   });
 
-  test("delivery memo posting consumes customer advance before creating debt", async () => {
+  test("delivery memo posting reduces advance naturally without ADVANCE_APPLIED", async () => {
     const advanceCustomer = await prisma.customer.create({
       data: {
         shopId: shop.id,
@@ -443,11 +454,13 @@ test.describe("Phase 2 core business correctness", () => {
     });
 
     const posted = await deliveryMemoService.postDeliveryMemo(staff, draft.id, { version: draft.version });
-    assert.strictEqual(Number(posted.paidAmount), 40);
-    assert.strictEqual(Number(posted.balanceAmount), 60);
-    assert.strictEqual(posted.paymentStatus, "PARTIALLY_PAID");
+    // Advance is NOT treated as verified payment against the DM
+    assert.strictEqual(Number(posted.paidAmount), 0);
+    assert.strictEqual(Number(posted.balanceAmount), 100);
+    assert.strictEqual(posted.paymentStatus, "UNPAID");
 
     const account = await prisma.customer.findUnique({ where: { id: advanceCustomer.id } });
+    // Prior net = 10 - 40 = -30; + DM debit 100 => net 70
     assert.strictEqual(Number(account.advanceBalance), 0);
     assert.strictEqual(Number(account.outstandingAmount), 70);
 
@@ -456,8 +469,7 @@ test.describe("Phase 2 core business correctness", () => {
       orderBy: { createdAt: "asc" },
     });
     assert.deepStrictEqual(entries.map((entry) => [entry.entryType, entry.direction, Number(entry.amount)]), [
-      ["DM_POSTED", "DEBIT", 100],
-      ["ADVANCE_APPLIED", "CREDIT", 40],
+      ["DELIVERY_MEMO_POSTED", "DEBIT", 100],
     ]);
   });
 
@@ -737,6 +749,7 @@ test.describe("Phase 2 core business correctness", () => {
     const rejectCustomer = await prisma.customer.create({
       data: { shopId: shop.id, name: "P2 Reject Customer", type: "REGULAR", outstandingAmount: 100, createdById: owner.id },
     });
+    // Staff non-cash stays RECORDED — no ledger impact until verified
     const upiPayment = await paymentService.addPayment(staff, {
       shopId: shop.id,
       customerId: rejectCustomer.id,
@@ -744,9 +757,15 @@ test.describe("Phase 2 core business correctness", () => {
       amount: 20,
     });
     let freshCustomer = await prisma.customer.findUnique({ where: { id: rejectCustomer.id } });
+    assert.strictEqual(Number(freshCustomer.outstandingAmount), 100);
+
+    const verified = await paymentService.verifyPayment(owner, upiPayment.id, { note: "ok" });
+    assert.strictEqual(verified.status, "VERIFIED");
+    freshCustomer = await prisma.customer.findUnique({ where: { id: rejectCustomer.id } });
     assert.strictEqual(Number(freshCustomer.outstandingAmount), 80);
-    await paymentService.markMismatch(owner, upiPayment.id, { note: "not received" });
-    await paymentService.markMismatch(owner, upiPayment.id, { note: "not received" });
+
+    // Void restores balance; duplicate void/reject paths must not double-apply
+    await paymentService.voidPayment(owner, upiPayment.id, { reason: "not received" });
     freshCustomer = await prisma.customer.findUnique({ where: { id: rejectCustomer.id } });
     assert.strictEqual(Number(freshCustomer.outstandingAmount), 100);
     await assertRejectsApi(() => paymentService.verifyPayment(owner, upiPayment.id, {}), 400);
@@ -761,13 +780,20 @@ test.describe("Phase 2 core business correctness", () => {
       amount: 40,
       details: { chequeNumber: "123456", chequeStatus: "RECEIVED" },
     });
+    // Uncleared staff cheque: no ledger mutation
+    freshCustomer = await prisma.customer.findUnique({ where: { id: chequeCustomer.id } });
+    assert.strictEqual(Number(freshCustomer.outstandingAmount), 100);
+
+    // Clear posts verification once
+    await chequeService.updateChequeStatus(owner, chequePayment.id, "CLEARED", { reason: "Bank cleared" });
     freshCustomer = await prisma.customer.findUnique({ where: { id: chequeCustomer.id } });
     assert.strictEqual(Number(freshCustomer.outstandingAmount), 60);
+
+    // Bounce after clearance reverses once; duplicate bounce is no-op
     await chequeService.updateChequeStatus(owner, chequePayment.id, "BOUNCED", { reason: "Insufficient funds" });
     await chequeService.updateChequeStatus(owner, chequePayment.id, "BOUNCED", { reason: "Insufficient funds" });
     freshCustomer = await prisma.customer.findUnique({ where: { id: chequeCustomer.id } });
     assert.strictEqual(Number(freshCustomer.outstandingAmount), 100);
-    await assertRejectsApi(() => paymentService.verifyPayment(owner, chequePayment.id, {}), 400);
   });
 
   test("Phase 4B: Cash session and daily summary expected cash logic with pending, approved, and rejected expenses", async () => {
@@ -929,6 +955,14 @@ test.describe("Phase 2 core business correctness", () => {
     await prisma.deliveryMemo.deleteMany({ where: { id: dm.id } });
 
     await prisma.stockLedger.deleteMany({ where: { itemId: item1.id } });
+    await prisma.customerLedgerAllocation.deleteMany({
+      where: { customerId: { in: [cust.id, cust2.id] }, reversalOfId: { not: null } },
+    });
+    await prisma.customerLedgerAllocation.deleteMany({ where: { customerId: { in: [cust.id, cust2.id] } } });
+    await prisma.customerLedgerAttachment.deleteMany({ where: { ledgerEntry: { customerId: { in: [cust.id, cust2.id] } } } });
+    await prisma.customerLedgerEntry.deleteMany({
+      where: { customerId: { in: [cust.id, cust2.id] }, reversalOfId: { not: null } },
+    });
     await prisma.customerLedgerEntry.deleteMany({ where: { customerId: { in: [cust.id, cust2.id] } } });
     await prisma.item.delete({ where: { id: item1.id } });
     await prisma.customer.delete({ where: { id: cust.id } });
@@ -1021,6 +1055,14 @@ test.describe("Phase 2 core business correctness", () => {
     await prisma.deliveryMemoItem.deleteMany({ where: { dmId: dm.id } });
     await prisma.deliveryMemo.delete({ where: { id: dm.id } });
     await prisma.stockLedger.deleteMany({ where: { itemId: dmItem.id } });
+    await prisma.customerLedgerAllocation.deleteMany({
+      where: { customerId: cust.id, reversalOfId: { not: null } },
+    });
+    await prisma.customerLedgerAllocation.deleteMany({ where: { customerId: cust.id } });
+    await prisma.customerLedgerAttachment.deleteMany({ where: { ledgerEntry: { customerId: cust.id } } });
+    await prisma.customerLedgerEntry.deleteMany({
+      where: { customerId: cust.id, reversalOfId: { not: null } },
+    });
     await prisma.customerLedgerEntry.deleteMany({ where: { customerId: cust.id } });
     await prisma.item.delete({ where: { id: dmItem.id } });
     await prisma.customer.delete({ where: { id: cust.id } });

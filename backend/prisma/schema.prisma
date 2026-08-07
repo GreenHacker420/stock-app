@@ -159,9 +159,7 @@ enum CustomerLedgerEntryType {
   ADJUSTMENT_CREDIT
   REVERSAL
   LEGACY_RECONCILIATION
-  ADVANCE_APPLIED
 }
-
 
 enum LedgerAttachmentPurpose {
   OPENING_BALANCE_BILL
@@ -547,6 +545,7 @@ model User {
   expensesCreated        Expense[]
   expensesVerified       Expense[]                      @relation("ExpenseVerifiedBy")
   amendmentsCreated      SaleAmendment[]                @relation("AmendmentCreator")
+  paymentAmendments      PaymentAmendment[]             @relation("PaymentAmendmentCreator")
   priceChanges           ItemPriceHistory[]
   attendance             Attendance[]
   leaveRequests          LeaveRequest[]
@@ -685,6 +684,7 @@ model Shop {
   sales                 Sale[]
   deliveryMemos         DeliveryMemo[]
   payments              Payment[]
+  paymentAmendments     PaymentAmendment[]
   cashSessions          CashSession[]
   notifications         Notification[]
   dailySummaries        DailySummary[]
@@ -1382,26 +1382,30 @@ model CustomerLedgerAttachment {
 }
 
 model CustomerLedgerAllocation {
-  id               String   @id @default(cuid())
+  id               String    @id @default(cuid())
   shopId           String
   customerId       String
   debitEntryId     String
   creditEntryId    String
-  amount           Decimal  @db.Decimal(12, 2)
+  amount           Decimal   @db.Decimal(12, 2)
+  reversalOfId     String?   @unique
+  reversedAt       DateTime?
   createdById      String
   clientMutationId String?
-  createdAt        DateTime @default(now())
+  createdAt        DateTime  @default(now())
 
-  shop        Shop                @relation(fields: [shopId], references: [id], onDelete: Cascade)
-  customer    Customer            @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  createdBy   User                @relation(fields: [createdById], references: [id], onDelete: Restrict)
-  debitEntry  CustomerLedgerEntry @relation("LedgerDebitAllocations", fields: [debitEntryId], references: [id], onDelete: Restrict)
-  creditEntry CustomerLedgerEntry @relation("LedgerCreditAllocations", fields: [creditEntryId], references: [id], onDelete: Restrict)
+  shop        Shop                       @relation(fields: [shopId], references: [id], onDelete: Cascade)
+  customer    Customer                   @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  createdBy   User                       @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  debitEntry  CustomerLedgerEntry        @relation("LedgerDebitAllocations", fields: [debitEntryId], references: [id], onDelete: Restrict)
+  creditEntry CustomerLedgerEntry        @relation("LedgerCreditAllocations", fields: [creditEntryId], references: [id], onDelete: Restrict)
+  reversalOf  CustomerLedgerAllocation?  @relation("AllocationReversal", fields: [reversalOfId], references: [id], onDelete: Restrict)
+  reversals   CustomerLedgerAllocation[] @relation("AllocationReversal")
 
-  @@unique([debitEntryId, creditEntryId])
-  @@unique([shopId, clientMutationId])
+  @@index([debitEntryId, creditEntryId])
   @@index([creditEntryId])
   @@index([shopId, customerId, createdAt])
+  @@index([shopId, clientMutationId])
 }
 
 model Payment {
@@ -1425,20 +1429,39 @@ model Payment {
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
-  shop         Shop           @relation(fields: [shopId], references: [id], onDelete: Restrict)
-  sale         Sale?          @relation(fields: [saleId], references: [id], onDelete: Restrict)
-  deliveryMemo DeliveryMemo?  @relation(fields: [dmId], references: [id], onDelete: Restrict)
-  order        Order?         @relation(fields: [orderId], references: [id], onDelete: Restrict)
-  customer     Customer       @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  cashSession  CashSession?   @relation(fields: [cashSessionId], references: [id])
-  receivedBy   User           @relation("PaymentReceivedBy", fields: [receivedById], references: [id])
-  verifiedBy   User?          @relation("PaymentVerifiedBy", fields: [verifiedById], references: [id])
+  shop         Shop               @relation(fields: [shopId], references: [id], onDelete: Restrict)
+  sale         Sale?              @relation(fields: [saleId], references: [id], onDelete: Restrict)
+  deliveryMemo DeliveryMemo?      @relation(fields: [dmId], references: [id], onDelete: Restrict)
+  order        Order?             @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  customer     Customer           @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  cashSession  CashSession?       @relation(fields: [cashSessionId], references: [id])
+  receivedBy   User               @relation("PaymentReceivedBy", fields: [receivedById], references: [id])
+  verifiedBy   User?              @relation("PaymentVerifiedBy", fields: [verifiedById], references: [id])
   details      PaymentDetail?
+  amendments   PaymentAmendment[]
 
   @@index([shopId, receivedAt])
   @@index([shopId, createdAt])
   @@index([customerId])
   @@index([saleId])
+}
+
+model PaymentAmendment {
+  id             String   @id @default(cuid())
+  paymentId      String
+  shopId         String
+  previousAmount Decimal  @db.Decimal(12, 2)
+  newAmount      Decimal  @db.Decimal(12, 2)
+  reason         String
+  createdById    String
+  createdAt      DateTime @default(now())
+
+  payment   Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  shop      Shop    @relation(fields: [shopId], references: [id], onDelete: Restrict)
+  createdBy User    @relation("PaymentAmendmentCreator", fields: [createdById], references: [id], onDelete: Restrict)
+
+  @@index([paymentId, createdAt])
+  @@index([shopId, createdAt])
 }
 
 model PaymentDetail {

@@ -1,7 +1,7 @@
 import prisma from "../lib/db.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
-import { IS_DATE_REGEX } from "../lib/validate.js";
+import { z } from "zod";
 import { createDomainEvent, enqueueDomainEvent } from "./domain-event.service.js";
 
 export async function getSummary(user, { shopId, date }) {
@@ -122,7 +122,7 @@ async function accessibleShopIds(user) {
 
 export async function getSummaryById(user, id, shopIdQuery) {
   // Check if ID is a valid date string (YYYY-MM-DD)
-  const isDate = IS_DATE_REGEX.test(id);
+  const isDate = z.iso.date().safeParse(id).success;
   
   let summary = null;
 

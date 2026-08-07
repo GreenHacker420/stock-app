@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { UUID_REGEX } from "../lib/validate.js";
+import { z } from "zod";
 import axios from "axios";
 import { whatsappService } from "../services/whatsapp.service.js";
 import { whatsappBroadcastService } from "../services/whatsapp.broadcast.service.js";
@@ -381,7 +381,7 @@ class WhatsAppController {
       assertMatchingWhatsAppScope(req.body, req.waScope);
       if (
         typeof req.body.clientMessageId !== "string"
-        || !UUID_REGEX.test(req.body.clientMessageId)
+        || !z.uuid().safeParse(req.body.clientMessageId).success
       ) {
         throw new ApiError(400, "A valid clientMessageId is required", {
           code: "INVALID_CLIENT_MESSAGE_ID",

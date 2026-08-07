@@ -163,7 +163,7 @@ test.describe("DATA-01A read-model bootstrap snapshot", () => {
     assert.strictEqual(snapshot.complete, true);
 
     const { z } = await import("zod");
-    const schema = z.object({ shopId: z.string().min(1) }).strict();
+    const schema = z.strictObject({ shopId: z.string().min(1) });
     assert.strictEqual(schema.safeParse({ shopId: shop.id }).success, true, "shopId alone must pass");
     assert.strictEqual(schema.safeParse({ shopId: shop.id, page: 1 }).success, false, "page must be rejected");
     assert.strictEqual(schema.safeParse({ shopId: shop.id, search: "x" }).success, false, "search must be rejected");

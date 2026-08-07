@@ -27,6 +27,7 @@ import { queryClient } from './query/queryClient';
 import NetInfo from '@react-native-community/netinfo';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { OfflineBanner } from './components/OfflineBanner';
+import { LedgerOfflineSync } from './components/LedgerOfflineSync';
 import { checkAppUpdatesBackground } from './utils/inAppUpdates';
 import { whatsappDb } from './modules/whatsapp/services/whatsapp-db';
 
@@ -111,6 +112,7 @@ export function App() {
                   prefix={prefix}
                 />
                 <OfflineBanner />
+                <LedgerOfflineSync />
               </ErrorBoundary>
             </RneThemeProvider>
           </PaperProvider>

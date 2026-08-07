@@ -11,7 +11,7 @@ const router = Router();
 const querySchema = z.object({
   query: z.object({
     shopId: z.string().optional(),
-    date: z.string().optional(),
+    date: z.iso.date().optional(),
   }),
   params: z.object({}).optional(),
   body: z.object({}).optional(),
@@ -20,8 +20,8 @@ const querySchema = z.object({
 const analyticsQuerySchema = z.object({
   query: z.object({
     shopId: z.string().optional(),
-    dateFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid dateFrom format (YYYY-MM-DD)"),
-    dateTo: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Invalid dateTo format (YYYY-MM-DD)"),
+    dateFrom: z.iso.date({ error: "Invalid dateFrom format (YYYY-MM-DD)" }),
+    dateTo: z.iso.date({ error: "Invalid dateTo format (YYYY-MM-DD)" }),
     granularity: z.enum(["AUTO", "DAY", "WEEK", "MONTH"]).optional(),
     topLimit: z.string().optional(),
   }),
@@ -32,10 +32,10 @@ const analyticsQuerySchema = z.object({
 const staffQuerySchema = z.object({
   query: z.object({
     shopId: z.string().min(1),
-    date: z.string().optional(),
+    date: z.iso.date().optional(),
     staffId: z.string().optional(),
-    dateFrom: z.string().optional(),
-    dateTo: z.string().optional(),
+    dateFrom: z.iso.date().optional(),
+    dateTo: z.iso.date().optional(),
   }),
   params: z.object({}).optional(),
   body: z.object({}).optional(),

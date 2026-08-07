@@ -1,12 +1,14 @@
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 import {
-  applyPayments,
   calculateItemTotals,
   createStockOut,
+  generateRecordNumber,
   getBillPaymentStatus,
 } from "./transactionHelpers.js";
+import { applyPayments } from "./payment-accounting.service.js";
 import { postLedgerEntry } from "./customer-ledger.service.js";
+import prisma from "../lib/db.js";
 
 import { money, sub } from "../utils/money.js";
 import { getOrCreateWalkIn } from "./customer.service.js";
@@ -23,7 +25,6 @@ export {
   deriveDeliveryMemoDueStatus,
   withDerivedMemoState,
 } from "./deliveryMemo.domain.js";
-import { postLedgerEntry } from "./customer-ledger.service.js";
 
 const RECEIVABLE_PURPOSES = { has: purposeCreatesReceivable };
 const IMPLEMENTED_PURPOSE = "CREDIT_DELIVERY";
@@ -115,23 +116,6 @@ async function assignMemoSerials(tx, user, dm, items) {
       }
     }
   }
-}
-
-async function appendCustomerLedger(tx, { shopId, customerId, sourceId, entryType, direction, amount, userId, notes }) {
-  if (!customerId || money(amount).lte(0)) return;
-  const mappedEntryType = entryType === "DM_POSTED" ? "DELIVERY_MEMO_POSTED" : entryType;
-  const mappedSourceType = "DELIVERY_MEMO";
-  await postLedgerEntry(tx, {
-    shopId,
-    customerId,
-    sourceType: mappedSourceType,
-    sourceId,
-    entryType: mappedEntryType,
-    direction: direction || "DEBIT",
-    amount,
-    createdById: userId,
-    notes,
-  });
 }
 
 export async function createDeliveryMemoDraft(user, data) {
@@ -295,18 +279,18 @@ export async function postDeliveryMemo(user, id, data = {}) {
       if (user.role === "STAFF" && account.creditLimit != null && projectedDebt > Number(account.creditLimit)) {
         throw new ApiError(409, "Posting would exceed the customer credit limit", { code: "CUSTOMER_CREDIT_LIMIT_EXCEEDED" });
       }
-      await appendCustomerLedger(tx, {
+      await postLedgerEntry(tx, {
         shopId: dm.shopId,
         customerId: dm.customerId,
+        sourceType: "DELIVERY_MEMO",
         sourceId: dm.id,
         entryType: "DELIVERY_MEMO_POSTED",
         direction: "DEBIT",
         amount: totalVal,
-        userId: user.id,
+        createdById: user.id,
         notes: `Posted ${dmNumber}`,
       });
     }
-
 
     const paymentResult = await applyPayments(tx, {
       user,
@@ -314,7 +298,7 @@ export async function postDeliveryMemo(user, id, data = {}) {
       dmId: dm.id,
       customerId: dm.customerId,
       totalAmount: totalVal,
-      existingPaidAmount: advanceApplied,
+      existingPaidAmount: 0,
       payments: data.payments || [],
     });
     const posted = await tx.deliveryMemo.update({
@@ -463,18 +447,18 @@ export async function createDeliveryMemo(user, data) {
       if (user.role === "STAFF" && customer.creditLimit != null && projectedDebt > Number(customer.creditLimit)) {
         throw new ApiError(409, "Posting would exceed the customer credit limit", { code: "CUSTOMER_CREDIT_LIMIT_EXCEEDED" });
       }
-      await appendCustomerLedger(tx, {
+      await postLedgerEntry(tx, {
         shopId: data.shopId,
         customerId: customer.id,
+        sourceType: "DELIVERY_MEMO",
         sourceId: dm.id,
         entryType: "DELIVERY_MEMO_POSTED",
         direction: "DEBIT",
         amount: totalVal,
-        userId: user.id,
+        createdById: user.id,
         notes: `Posted ${dmNumber}`,
       });
     }
-
 
     const paymentResult = await applyPayments(tx, {
       user,
@@ -482,8 +466,8 @@ export async function createDeliveryMemo(user, data) {
       dmId: dm.id,
       customerId: customer.id,
       totalAmount: totalVal,
+      existingPaidAmount: 0,
       payments: data.payments || [],
-
     });
 
     const updated = await tx.deliveryMemo.update({

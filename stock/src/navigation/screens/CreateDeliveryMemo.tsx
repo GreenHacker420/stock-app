@@ -13,6 +13,7 @@ import { SearchablePicker } from "../../components/forms/SearchablePicker";
 import { SerialNumberScannerModal } from "../../components/items/SerialNumberScannerModal";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { goBack, navigate } from "../navigation-ref";
+import { z } from "zod";
 
 const money = (value?: string | number | null) => "₹" + Number(value ?? 0).toLocaleString("en-IN");
 
@@ -173,12 +174,9 @@ export function CreateDeliveryMemo() {
     }
 
     // Prepare expected payment date
-    if (expectedPaymentDate) {
-      const dateVal = Date.parse(expectedPaymentDate);
-      if (isNaN(dateVal)) {
-        Alert.alert("Validation Error", "Please enter expected date in YYYY-MM-DD format.");
-        return false;
-      }
+    if (expectedPaymentDate && !z.iso.date().safeParse(expectedPaymentDate).success) {
+      Alert.alert("Validation Error", "Please enter expected date in YYYY-MM-DD format.");
+      return false;
     }
 
     return true;

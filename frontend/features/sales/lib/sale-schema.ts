@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { getTodayIST } from "./sale-money";
 
-const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
 const PAYMENT_MODES = ["CASH", "UPI", "CARD", "BANK_TRANSFER", "CHEQUE"] as const;
 
 // ─── Payment schema ─────────────────────────────────────────────────────────
@@ -9,11 +8,8 @@ const PAYMENT_MODES = ["CASH", "UPI", "CARD", "BANK_TRANSFER", "CHEQUE"] as cons
 export const salePaymentSchema = z.object({
   _paymentId: z.string().min(1),
   paymentMode: z.enum(PAYMENT_MODES),
-  amount: z.number().nonnegative("Amount must be non-negative"),
-  paymentDate: z
-    .string()
-    .regex(DATE_REGEX, "Date must be YYYY-MM-DD")
-    .default(() => getTodayIST()),
+  amount: z.number().nonnegative({ error: "Amount must be non-negative" }),
+  paymentDate: z.iso.date().default(() => getTodayIST()),
   referenceNumber: z.string().default(""),
   notes: z.string().default(""),
 });
@@ -30,9 +26,9 @@ export const saleLineSchema = z.object({
   requiresSerialNumber: z.boolean().default(false),
   defaultSellingPrice: z.number().default(0),
   minimumAllowedPrice: z.number().nullable(),
-  quantity: z.number().positive("Quantity must be greater than 0"),
-  rate: z.number().nonnegative("Rate must be non-negative"),
-  discountAmount: z.number().nonnegative("Discount must be non-negative").default(0),
+  quantity: z.number().positive({ error: "Quantity must be greater than 0" }),
+  rate: z.number().nonnegative({ error: "Rate must be non-negative" }),
+  discountAmount: z.number().nonnegative({ error: "Discount must be non-negative" }).default(0),
   serialNumbers: z.array(z.string().trim().min(1, "Serial number cannot be blank")),
   description: z.string().default(""),
 }).superRefine((line, ctx) => {
@@ -58,20 +54,17 @@ export const saleLineSchema = z.object({
 
 export const saleFormSchema = z
   .object({
-    shopId: z.string().min(1, "Active shop is required"),
+    shopId: z.string().min(1, { error: "Active shop is required" }),
     customerMode: z.enum(["existing", "walkin", "capture"]),
     customerId: z.string().default(""),
     customerName: z.string().default(""),
     customerPhone: z.string().default(""),
     customerEmail: z.string().default(""),
     isWalkin: z.boolean().default(false),
-    saleDate: z
-      .string()
-      .regex(DATE_REGEX, "Date must be YYYY-MM-DD")
-      .default(() => getTodayIST()),
+    saleDate: z.iso.date().default(() => getTodayIST()),
     gstRequired: z.boolean().default(false),
     notes: z.string().default(""),
-    lines: z.array(saleLineSchema).min(1, "At least one product is required"),
+    lines: z.array(saleLineSchema).min(1, { error: "At least one product is required" }),
     payments: z.array(salePaymentSchema).default([]),
   })
   .superRefine((data, ctx) => {

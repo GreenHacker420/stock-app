@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 export function sanitizeEmail(value?: string): string {
   const email = value?.trim();
   if (
@@ -5,7 +7,7 @@ export function sanitizeEmail(value?: string): string {
     email.includes("\r") ||
     email.includes("\n") ||
     email.includes("?") ||
-    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+    !z.email().safeParse(email).success
   ) {
     return "";
   }

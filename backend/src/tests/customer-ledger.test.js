@@ -57,8 +57,14 @@ describe("Customer Ledger Service Tests", () => {
 
   after(async () => {
     if (testShop) {
+      await prisma.customerLedgerAllocation.deleteMany({
+        where: { shopId: testShop.id, reversalOfId: { not: null } },
+      });
       await prisma.customerLedgerAllocation.deleteMany({ where: { shopId: testShop.id } });
       await prisma.customerLedgerAttachment.deleteMany({ where: { shopId: testShop.id } });
+      await prisma.customerLedgerEntry.deleteMany({
+        where: { shopId: testShop.id, reversalOfId: { not: null } },
+      });
       await prisma.customerLedgerEntry.deleteMany({ where: { shopId: testShop.id } });
       await prisma.customer.deleteMany({ where: { shopId: testShop.id } });
       await prisma.shop.delete({ where: { id: testShop.id } });

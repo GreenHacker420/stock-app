@@ -22,6 +22,7 @@ import { StatusPill } from "../../components/ui/StatusPill";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { navigate, goBack } from "../navigation-ref";
 import { KeyboardAwareScreen } from "../../components/keyboard/KeyboardAwareScreen";
+import { z } from "zod";
 
 function getInitials(name: string) {
   if (!name) return "ST";
@@ -1381,8 +1382,11 @@ export function StaffDetail() {
             <Button onPress={() => setCustomDatesModalVisible(false)} textColor={colors.textSecondary}>Cancel</Button>
             <Button
               onPress={() => {
-                const regex = /^\d{4}-\d{2}-\d{2}$/;
-                if (!regex.test(customDates.from) || !regex.test(customDates.to)) {
+                const dateSchema = z.iso.date();
+                if (
+                  !dateSchema.safeParse(customDates.from).success
+                  || !dateSchema.safeParse(customDates.to).success
+                ) {
                   Alert.alert("Invalid Format", "Please enter dates as YYYY-MM-DD.");
                   return;
                 }

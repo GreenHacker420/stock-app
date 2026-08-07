@@ -30,11 +30,18 @@ async function ensureTableInitialized() {
         status TEXT NOT NULL DEFAULT 'QUEUED',
         attemptCount INTEGER NOT NULL DEFAULT 0,
         lastError TEXT,
+        nextRetryAt TEXT,
         createdAt TEXT NOT NULL,
         updatedAt TEXT NOT NULL
       );
       CREATE INDEX IF NOT EXISTS idx_queued_mutations_status ON queued_ledger_mutations(status, shopId);
     `);
+    // Backward-compatible column add for existing installs
+    try {
+      await db.exec(`ALTER TABLE queued_ledger_mutations ADD COLUMN nextRetryAt TEXT;`);
+    } catch {
+      // column already exists
+    }
   });
   isInitialized = true;
 }
@@ -76,10 +83,15 @@ export async function enqueueLedgerMutation(mutation: {
 
 export async function getPendingMutations(shopId: string): Promise<QueuedLedgerMutation[]> {
   await ensureTableInitialized();
+  const now = new Date().toISOString();
   return sqliteClient.read(async (db) => {
     return db.all<QueuedLedgerMutation>(
-      `SELECT * FROM queued_ledger_mutations WHERE shopId = ? AND status IN ('QUEUED', 'FAILED_RETRYABLE') ORDER BY createdAt ASC;`,
-      [shopId]
+      `SELECT * FROM queued_ledger_mutations
+       WHERE shopId = ?
+         AND status IN ('QUEUED', 'FAILED_RETRYABLE', 'READY_TO_SUBMIT')
+         AND (nextRetryAt IS NULL OR nextRetryAt <= ?)
+       ORDER BY createdAt ASC;`,
+      [shopId, now]
     );
   });
 }
@@ -87,14 +99,17 @@ export async function getPendingMutations(shopId: string): Promise<QueuedLedgerM
 export async function updateMutationStatus(
   id: string,
   status: QueuedLedgerMutation["status"],
-  lastError?: string
+  lastError?: string,
+  nextRetryAt?: string | null
 ): Promise<void> {
   await ensureTableInitialized();
   const now = new Date().toISOString();
   await sqliteClient.write(async (db) => {
     await db.run(
-      `UPDATE queued_ledger_mutations SET status = ?, attemptCount = attemptCount + 1, lastError = ?, updatedAt = ? WHERE id = ?;`,
-      [status, lastError || null, now, id]
+      `UPDATE queued_ledger_mutations
+       SET status = ?, attemptCount = attemptCount + 1, lastError = ?, nextRetryAt = ?, updatedAt = ?
+       WHERE id = ?;`,
+      [status, lastError || null, nextRetryAt ?? null, now, id]
     );
   });
 }

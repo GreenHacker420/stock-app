@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import { z } from "zod";
 import prisma from "../lib/db.js";
 import { uploadBufferToS3, deleteS3Object as deleteS3ObjectFromLib } from "../lib/s3-storage.js";
 import { createPresignedPutUrl, verifyS3Object, getBucketName, deleteS3Object } from "./s3.service.js";
@@ -131,16 +132,21 @@ export async function uploadProductImageAsset({
 export async function createPresignedUploadIntent(user, { shopId, domain = "OTHER", kind = "IMAGE", fileName, mimeType, sizeBytes, checksumSha256 }) {
   await assertShopAccess(user, shopId);
 
+  if (!fileName) throw new ApiError(400, "fileName is required");
+  if (!mimeType) throw new ApiError(400, "mimeType is required");
   if (!sizeBytes || Number(sizeBytes) <= 0) {
     throw new ApiError(400, "sizeBytes is required and must be positive");
   }
   if (Number(sizeBytes) > MAX_SIZE_BYTES) {
     throw new ApiError(400, "File size exceeds maximum allowed limit (15MB)");
   }
+  if (!z.hash("sha256").safeParse(checksumSha256).success) {
+    throw new ApiError(400, "checksumSha256 is required and must be a 64-character hex SHA-256 digest");
+  }
 
   // Validate MIME against domain allowlist
   const allowedMimes = DOMAIN_MIME_ALLOWLISTS[domain] || DOMAIN_MIME_ALLOWLISTS.OTHER;
-  if (mimeType && !allowedMimes.has(mimeType)) {
+  if (!allowedMimes.has(mimeType)) {
     throw new ApiError(400, `MIME type "${mimeType}" is not allowed for domain "${domain}". Allowed: ${[...allowedMimes].join(", ")}`);
   }
 
@@ -155,7 +161,7 @@ export async function createPresignedUploadIntent(user, { shopId, domain = "OTHE
       mimeType,
       fileName,
       sizeBytes: BigInt(sizeBytes),
-      checksumSha256: checksumSha256 || null,
+      checksumSha256: checksumSha256.toLowerCase(),
     },
   });
 
@@ -168,6 +174,8 @@ export async function createPresignedUploadIntent(user, { shopId, domain = "OTHE
     mimeType,
     expiresInSeconds: 600,
     bucket: bucketName,
+    checksumSha256: checksumSha256.toLowerCase(),
+    contentLength: Number(sizeBytes),
   });
 
   await prisma.asset.update({
@@ -185,6 +193,7 @@ export async function createPresignedUploadIntent(user, { shopId, domain = "OTHE
     bucket: presigned.bucket,
     key: presigned.key,
     expiresInSeconds: 600,
+    headers: presigned.headers || {},
     isMock: presigned.isMock || false,
   };
 }
@@ -211,13 +220,11 @@ export async function completeUploadIntent(user, { assetId, shopId }) {
     throw err;
   }
 
-  // Size mismatch check (only when we have both declared and actual sizes)
-  if (!verification.isMock && asset.sizeBytes && verification.contentLength) {
+  // Exact size match — no tolerance
+  if (!verification.isMock && asset.sizeBytes != null && verification.contentLength != null) {
     const declaredSize = Number(asset.sizeBytes);
     const actualSize = Number(verification.contentLength);
-    const toleranceBytes = 512; // allow minor S3 metadata overhead
-    if (Math.abs(actualSize - declaredSize) > toleranceBytes) {
-      // Delete the mismatched object and mark FAILED
+    if (actualSize !== declaredSize) {
       await deleteS3Object({ key: asset.storageKey, bucket: asset.storageBucket }).catch(() => {});
       await prisma.asset.update({
         where: { id: assetId },
@@ -241,6 +248,20 @@ export async function completeUploadIntent(user, { assetId, shopId }) {
     }
   }
 
+  // Checksum verification when S3 returns checksum metadata
+  if (!verification.isMock && asset.checksumSha256 && verification.checksumSha256) {
+    const expected = String(asset.checksumSha256).toLowerCase();
+    const actual = String(verification.checksumSha256).toLowerCase().replace(/[^a-f0-9]/g, "");
+    if (actual && actual !== expected) {
+      await deleteS3Object({ key: asset.storageKey, bucket: asset.storageBucket }).catch(() => {});
+      await prisma.asset.update({
+        where: { id: assetId },
+        data: { status: "FAILED", errorMessage: `Checksum mismatch: declared ${expected}, uploaded ${actual}` },
+      }).catch(() => {});
+      throw new ApiError(400, "Checksum mismatch. Upload rejected.");
+    }
+  }
+
   const updated = await prisma.asset.update({
     where: { id: assetId },
     data: {
@@ -250,6 +271,94 @@ export async function completeUploadIntent(user, { assetId, shopId }) {
       readyAt: new Date(),
     },
   });
+
+  return { success: true, asset: updated };
+}
+
+export async function getAssetDownloadUrl(user, { assetId, shopId }) {
+  await assertShopAccess(user, shopId);
+  const asset = await prisma.asset.findFirst({ where: { id: assetId, shopId } });
+  if (!asset) throw new ApiError(404, "Asset not found");
+  if (asset.status !== "READY") throw new ApiError(400, "Asset is not ready for download");
+  if (asset.storageDeletedAt || asset.deletionStatus === "COMPLETED") {
+    throw new ApiError(410, "Asset storage has been deleted");
+  }
+  if (!asset.storageKey) throw new ApiError(400, "Asset has no storage key");
+
+  const { getSignedGetUrl } = await import("./s3.service.js");
+  const downloadUrl = await getSignedGetUrl({
+    key: asset.storageKey,
+    bucket: asset.storageBucket,
+    expiresInSeconds: 300,
+  });
+  if (!downloadUrl) throw new ApiError(500, "Failed to generate download URL");
+
+  return { downloadUrl, expiresInSeconds: 300 };
+}
+
+export async function requestAssetDeletion(user, { assetId, shopId, reason }) {
+  await assertShopAccess(user, shopId);
+  const asset = await prisma.asset.findFirst({ where: { id: assetId, shopId } });
+  if (!asset) throw new ApiError(404, "Asset not found");
+  if (["REQUESTED", "PROCESSING", "COMPLETED"].includes(asset.deletionStatus)) {
+    return { success: true, asset, alreadyRequested: true };
+  }
+
+  // Financial evidence protection
+  const ledgerRefs = await prisma.customerLedgerAttachment.count({ where: { assetId } });
+  if (ledgerRefs > 0) {
+    throw new ApiError(409, "This file is linked to a financial ledger entry and cannot be deleted.", {
+      code: "FINANCIAL_ASSET_REFERENCED",
+      referenceCount: ledgerRefs,
+    });
+  }
+
+  const updated = await prisma.$transaction(async (tx) => {
+    const next = await tx.asset.update({
+      where: { id: assetId },
+      data: {
+        deletionStatus: "REQUESTED",
+        deleteRequestedAt: new Date(),
+        deleteRequestedById: user.id,
+        deleteReason: reason || null,
+      },
+    });
+
+    await tx.assetDeletionOutbox.create({
+      data: {
+        shopId,
+        assetId,
+        storageBucket: asset.storageBucket,
+        storageKey: asset.storageKey,
+        status: "REQUESTED",
+      },
+    });
+
+    await tx.auditLog.create({
+      data: {
+        userId: user.id,
+        shopId,
+        action: "DELETE_REQUESTED",
+        entityType: "ASSET",
+        entityId: assetId,
+        reason: reason || "Asset delete requested",
+      },
+    });
+
+    return next;
+  });
+
+  // Enqueue async deletion (non-blocking; failures are retried by worker)
+  try {
+    const { enqueueAssetDeletion } = await import("./asset-deletion.queue.js");
+    const outbox = await prisma.assetDeletionOutbox.findFirst({
+      where: { assetId, status: "REQUESTED" },
+      orderBy: { createdAt: "desc" },
+    });
+    if (outbox) await enqueueAssetDeletion(outbox.id);
+  } catch (err) {
+    console.error("[AssetDelete] Failed to enqueue deletion job:", err.message);
+  }
 
   return { success: true, asset: updated };
 }

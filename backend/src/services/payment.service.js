@@ -2,9 +2,11 @@ import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 import {
   applyPayments,
-  prisma,
-  getBillPaymentStatus,
-} from "./transactionHelpers.js";
+  recomputeLinkedDocumentPaymentState,
+  allocateVerifiedPayment,
+} from "./payment-accounting.service.js";
+import { getBillPaymentStatus } from "./transactionHelpers.js";
+import prisma from "../lib/db.js";
 
 import { postLedgerEntry, reverseLedgerEntry } from "./customer-ledger.service.js";
 import { money, sub, add, isZero } from "../utils/money.js";
@@ -178,102 +180,98 @@ export async function verifyPayment(user, id, { note }) {
     throw new ApiError(400, `Cannot verify a ${payment.status.toLowerCase()} payment`);
   }
 
-  const updated = await prisma.$transaction(async (tx) => {
-    const row = await tx.payment.update({
+  return prisma.$transaction(async (tx) => {
+    // Lock payment row
+    const locked = await tx.$queryRaw`
+      SELECT * FROM "Payment" WHERE id = ${id} FOR UPDATE
+    `;
+    const row = locked[0];
+    if (!row) throw new ApiError(404, "Payment not found");
+    if (row.status === "VERIFIED") {
+      return tx.payment.findUnique({ where: { id }, include: { details: true, customer: true } });
+    }
+    if (row.status !== "RECORDED") {
+      throw new ApiError(400, `Cannot verify a ${String(row.status).toLowerCase()} payment`);
+    }
+
+    const updated = await tx.payment.update({
       where: { id },
       data: {
         status: "VERIFIED",
         verifiedById: user.id,
         verifiedAt: new Date(),
-        notes: note || payment.notes,
+        notes: note || row.notes,
       },
-      include: { details: true },
+      include: { details: true, customer: true },
     });
 
-    if (payment.customerId) {
-      const customer = await tx.customer.findUnique({ where: { id: payment.customerId } });
+    if (row.customerId) {
+      const customer = await tx.customer.findUnique({ where: { id: row.customerId } });
       if (customer && customer.type !== "WALK_IN") {
-        await postLedgerEntry(tx, {
-          shopId: payment.shopId,
-          customerId: payment.customerId,
+        const ledgerResult = await postLedgerEntry(tx, {
+          shopId: row.shopId,
+          customerId: row.customerId,
           sourceType: "PAYMENT",
-          sourceId: payment.id,
+          sourceId: row.id,
           entryType: "PAYMENT_RECEIVED",
           direction: "CREDIT",
-          amount: payment.amount,
+          amount: row.amount,
           createdById: user.id,
-          effectiveAt: payment.receivedAt || new Date(),
-          notes: note || payment.notes || `Verified payment of ₹${payment.amount} via ${payment.paymentMode}`,
+          effectiveAt: row.receivedAt || new Date(),
+          notes: note || row.notes || `Verified payment of ₹${row.amount} via ${row.paymentMode}`,
         });
+
+        if (!ledgerResult.isDuplicate) {
+          await allocateVerifiedPayment(tx, {
+            shopId: row.shopId,
+            customerId: row.customerId,
+            paymentId: row.id,
+            creditEntryId: ledgerResult.entry.id,
+            amount: row.amount,
+            createdById: user.id,
+            saleId: row.saleId,
+            dmId: row.dmId,
+          });
+        }
       }
     }
 
-    // Update linked Sale paidAmount/paymentStatus
-    if (payment.saleId) {
-      const sale = await tx.sale.findUnique({ where: { id: payment.saleId } });
-      if (sale) {
-        const verifiedPayments = await tx.payment.aggregate({
-          where: { saleId: payment.saleId, status: "VERIFIED" },
-          _sum: { amount: true },
-        });
-        const newPaid = money(verifiedPayments._sum.amount || 0);
-        const newBalance = money(Math.max(0, Number(sale.totalAmount) - Number(newPaid)));
-        const newStatus = newPaid.gte(money(sale.totalAmount)) ? "PAID" : newPaid.gt(0) ? "PARTIALLY_PAID" : "UNPAID";
-        await tx.sale.update({
-          where: { id: payment.saleId },
-          data: {
-            paidAmount: newPaid,
-            balanceAmount: newBalance,
-            paymentStatus: newStatus,
-            saleStatus: newStatus === "PAID" ? "PAID" : "CONFIRMED",
-          },
-        });
-      }
-    }
+    await recomputeLinkedDocumentPaymentState(tx, {
+      saleId: row.saleId,
+      dmId: row.dmId,
+      orderId: row.orderId,
+    });
 
-    // Update linked DeliveryMemo paidAmount/paymentStatus
-    if (payment.dmId) {
-      const dm = await tx.deliveryMemo.findUnique({ where: { id: payment.dmId } });
-      if (dm) {
-        const verifiedDmPayments = await tx.payment.aggregate({
-          where: { dmId: payment.dmId, status: "VERIFIED" },
-          _sum: { amount: true },
-        });
-        const newDmPaid = money(verifiedDmPayments._sum.amount || 0);
-        const newDmBalance = money(Math.max(0, Number(dm.estimatedAmount) - Number(newDmPaid)));
-        const newDmStatus = newDmPaid.gte(money(dm.estimatedAmount)) ? "FULLY_PAID" : newDmPaid.gt(0) ? "PARTIALLY_PAID" : "CREATED";
-        await tx.deliveryMemo.update({
-          where: { id: payment.dmId },
-          data: {
-            paidAmount: newDmPaid,
-            balanceAmount: newDmBalance,
-            status: newDmStatus,
-          },
-        });
-      }
-    }
+    await enqueueManyDomainEvents(tx, [
+      createDomainEvent({
+        shopId: row.shopId,
+        entity: "payment",
+        action: "verified",
+        entityId: id,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true, targetUserIds: [row.receivedById] },
+        notification: {
+          sendPush: true,
+          title: "Payment verified",
+          body: `Payment of ₹${row.amount} has been verified by the owner.`,
+          severity: "success",
+          deepLink: `stock://payments/${id}`,
+        },
+      }),
+      createDomainEvent({
+        shopId: row.shopId,
+        entity: "customer",
+        action: "updated",
+        entityId: row.customerId,
+        actorUserId: user.id,
+        actorRole: user.role,
+        visibility: { owners: true, staff: true },
+      }),
+    ]);
 
-    return row;
+    return updated;
   });
-
-  await enqueueDomainEvent(prisma, createDomainEvent({
-    shopId: payment.shopId,
-    entity: "payment",
-    action: "verified",
-    entityId: id,
-    actorUserId: user.id,
-    actorRole: user.role,
-    visibility: { owners: true, staff: true, targetUserIds: [payment.receivedById] },
-    notification: {
-      sendPush: true,
-      title: "Payment verified",
-      body: `Payment of ₹${payment.amount} collected by you from customer ${payment.customer?.name || "Walk-In"} has been verified by the owner.`,
-      severity: "success",
-      deepLink: `stock://payments/${id}`,
-    },
-  }));
-
-  return updated;
 }
 
 export async function rejectPayment(user, id, { note }) {
@@ -325,30 +323,35 @@ export async function voidPayment(user, id, { reason } = {}) {
   if (existing.status === "CANCELLED") throw new ApiError(400, "Payment is already cancelled");
 
   return prisma.$transaction(async (tx) => {
-    // 1. Mark Payment as cancelled
+    await tx.$queryRaw`SELECT id FROM "Payment" WHERE id = ${id} FOR UPDATE`;
+
     const payment = await tx.payment.update({
       where: { id },
       data: {
         status: "CANCELLED",
-        notes: reason || existing.notes
+        notes: reason || existing.notes,
       },
-      include: { details: true }
+      include: { details: true },
     });
 
-    // 2. Adjust Customer balance via single-use reversal if payment was VERIFIED
     if (existing.status === "VERIFIED" && existing.customerId) {
-      const ledgerEntry = await tx.customerLedgerEntry.findFirst({
-        where: { shopId: existing.shopId, sourceType: "PAYMENT", sourceId: id, entryType: "PAYMENT_RECEIVED" },
-      });
-      if (!ledgerEntry) {
-        throw new ApiError(409, "Cannot void payment: PAYMENT_RECEIVED ledger entry not found. Data integrity issue — contact support.", { code: "LEDGER_ENTRY_MISSING" });
+      const customer = await tx.customer.findUnique({ where: { id: existing.customerId } });
+      if (customer && customer.type !== "WALK_IN") {
+        const ledgerEntry = await tx.customerLedgerEntry.findFirst({
+          where: { shopId: existing.shopId, sourceType: "PAYMENT", sourceId: id, entryType: "PAYMENT_RECEIVED" },
+        });
+        if (!ledgerEntry) {
+          throw new ApiError(409, "Cannot void payment: PAYMENT_RECEIVED ledger entry not found. Data integrity issue — contact support.", {
+            code: "LEDGER_ENTRY_MISSING",
+          });
+        }
+        await reverseLedgerEntry(tx, {
+          shopId: existing.shopId,
+          entryId: ledgerEntry.id,
+          reversalReason: reason || "Payment voided/cancelled",
+          createdById: user.id,
+        });
       }
-      await reverseLedgerEntry(tx, {
-        shopId: existing.shopId,
-        entryId: ledgerEntry.id,
-        reversalReason: reason || "Payment voided/cancelled",
-        createdById: user.id,
-      });
     }
 
     if (existing.paymentMode === "CASH" && existing.cashSessionId) {
@@ -358,6 +361,12 @@ export async function voidPayment(user, id, { reason } = {}) {
       });
     }
 
+    await recomputeLinkedDocumentPaymentState(tx, {
+      saleId: existing.saleId,
+      dmId: existing.dmId,
+      orderId: existing.orderId,
+    });
+
     await writeAuditLog({
       userId: user.id,
       shopId: existing.shopId,
@@ -366,7 +375,7 @@ export async function voidPayment(user, id, { reason } = {}) {
       entityId: id,
       oldValueJson: existing,
       newValueJson: payment,
-      reason
+      reason,
     });
 
     await enqueueManyDomainEvents(tx, [
@@ -396,7 +405,7 @@ export async function voidPayment(user, id, { reason } = {}) {
         actorUserId: user.id,
         actorRole: user.role,
         visibility: { owners: true, staff: true },
-      })
+      }),
     ]);
 
     return payment;
@@ -450,6 +459,18 @@ export async function amendPayment(user, id, { amount, reason, expectedUpdatedAt
     }
 
     const delta = sub(nextAmount, current.amount);
+
+    const amendment = await tx.paymentAmendment.create({
+      data: {
+        paymentId: id,
+        shopId: current.shopId,
+        previousAmount: current.amount,
+        newAmount: nextAmount,
+        reason: reason || "Payment amount correction",
+        createdById: user.id,
+      },
+    });
+
     const updateResult = await tx.payment.updateMany({
       where: {
         id,
@@ -466,30 +487,48 @@ export async function amendPayment(user, id, { amount, reason, expectedUpdatedAt
       throw new ApiError(409, "This payment changed on another device. Refresh and try again.");
     }
 
-    if (current.status === "VERIFIED" && current.customerId && current.customer?.type !== "WALK_IN") {
+    let customerType = current.customer?.type;
+    if (!customerType && current.customerId) {
+      const cust = await tx.customer.findUnique({ where: { id: current.customerId }, select: { type: true } });
+      customerType = cust?.type;
+    }
+
+    if (current.status === "VERIFIED" && current.customerId && customerType !== "WALK_IN") {
       if (delta.gt(0)) {
         await postLedgerEntry(tx, {
           shopId: current.shopId,
           customerId: current.customerId,
           sourceType: "PAYMENT_AMENDMENT",
-          sourceId: current.id,
+          sourceId: amendment.id,
           entryType: "PAYMENT_VALUE_INCREASE",
           direction: "CREDIT",
           amount: delta.abs(),
           createdById: user.id,
           notes: `Payment amount increased by ${delta.abs()}: ${reason}`,
+          metadata: {
+            paymentId: id,
+            paymentAmendmentId: amendment.id,
+            previousAmount: Number(current.amount),
+            newAmount: Number(nextAmount),
+          },
         });
       } else if (delta.lt(0)) {
         await postLedgerEntry(tx, {
           shopId: current.shopId,
           customerId: current.customerId,
           sourceType: "PAYMENT_AMENDMENT",
-          sourceId: current.id,
+          sourceId: amendment.id,
           entryType: "PAYMENT_VALUE_DECREASE",
           direction: "DEBIT",
           amount: delta.abs(),
           createdById: user.id,
           notes: `Payment amount decreased by ${delta.abs()}: ${reason}`,
+          metadata: {
+            paymentId: id,
+            paymentAmendmentId: amendment.id,
+            previousAmount: Number(current.amount),
+            newAmount: Number(nextAmount),
+          },
         });
       }
     }

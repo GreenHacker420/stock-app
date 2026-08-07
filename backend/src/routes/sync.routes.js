@@ -29,9 +29,9 @@ router.get(
 );
 
 const readModelBootstrapQuerySchema = z.object({
-  query: z.object({
+  query: z.strictObject({
     shopId: z.string().min(1),
-  }).strict(),
+  }),
 });
 
 router.get(

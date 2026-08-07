@@ -10,6 +10,19 @@ const router = Router();
 
 router.use(requireAuth);
 
+const LEDGER_SOURCE_TYPES = [
+  "OPENING_BALANCE", "SALE", "DELIVERY_MEMO", "PAYMENT", "RETURN",
+  "SALE_AMENDMENT", "PAYMENT_AMENDMENT", "MANUAL_ADJUSTMENT",
+  "CHEQUE", "REVERSAL", "LEGACY_RECONCILIATION",
+];
+const LEDGER_ENTRY_TYPES = [
+  "OPENING_RECEIVABLE", "OPENING_ADVANCE", "SALE_POSTED", "DELIVERY_MEMO_POSTED",
+  "PAYMENT_RECEIVED", "PAYMENT_VALUE_INCREASE", "PAYMENT_VALUE_DECREASE",
+  "RETURN_CREDIT", "SALE_VALUE_INCREASE", "SALE_VALUE_DECREASE",
+  "CHEQUE_BOUNCED", "ADJUSTMENT_DEBIT", "ADJUSTMENT_CREDIT",
+  "REVERSAL", "LEGACY_RECONCILIATION",
+];
+
 const querySchema = z.object({
   query: z.object({
     shopId: z.string(),
@@ -39,14 +52,89 @@ const createSchema = z.object({
 
 const openingBalanceSchema = z.object({
   body: z.object({
-    amount: z.number().positive("Amount must be positive"),
+    shopId: z.string().optional(),
+    amount: z.number().positive({ error: "Amount must be positive" }),
     direction: z.enum(["DEBIT", "CREDIT"]),
     notes: z.string().optional(),
-    effectiveAt: z.string().datetime().optional(),
+    effectiveAt: z.iso.datetime({ offset: true }).optional(),
+    clientMutationId: z.string().min(1).max(128).optional(),
     attachmentAssetIds: z.array(z.union([
       z.string(),
-      z.object({ assetId: z.string(), purpose: z.string().optional(), sortOrder: z.number().optional() }),
+      z.object({
+        assetId: z.string(),
+        purpose: z.enum(["OPENING_BALANCE_BILL", "PAYMENT_PROOF", "ADJUSTMENT_PROOF", "RETURN_PROOF", "OTHER"]).optional(),
+        sortOrder: z.number().optional(),
+      }),
     ])).optional(),
+  }),
+});
+
+const ledgerAdjustmentSchema = z.object({
+  body: z.object({
+    shopId: z.string().optional(),
+    amount: z.number().positive({ error: "Amount must be positive" }),
+    direction: z.enum(["DEBIT", "CREDIT"]),
+    reason: z.string().min(1).max(500),
+    effectiveAt: z.iso.datetime({ offset: true }).optional(),
+    clientMutationId: z.string().min(1).max(128).optional(),
+    attachmentAssetIds: z.array(z.union([
+      z.string(),
+      z.object({
+        assetId: z.string(),
+        purpose: z.enum(["OPENING_BALANCE_BILL", "PAYMENT_PROOF", "ADJUSTMENT_PROOF", "RETURN_PROOF", "OTHER"]).optional(),
+        sortOrder: z.number().optional(),
+      }),
+    ])).optional(),
+  }),
+});
+
+const reverseLedgerSchema = z.object({
+  params: z.object({
+    id: z.string().min(1),
+    entryId: z.string().min(1),
+  }),
+  body: z.object({
+    shopId: z.string().optional(),
+    reversalReason: z.string().min(1).max(500),
+  }),
+});
+
+const ledgerQuerySchema = z.object({
+  query: z.object({
+    shopId: z.string().min(1),
+    cursor: z.string().optional(),
+    limit: z.coerce.number().int().min(1).max(100).optional(),
+    from: z.iso.date().optional(),
+    to: z.iso.date().optional(),
+    direction: z.enum(["DEBIT", "CREDIT"]).optional(),
+    entryType: z.enum(LEDGER_ENTRY_TYPES).optional(),
+    sourceType: z.enum(LEDGER_SOURCE_TYPES).optional(),
+    search: z.string().max(100).optional(),
+  }).refine((q) => !(q.from && q.to) || q.from <= q.to, {
+    error: "from must be before or equal to to",
+    path: ["from"],
+  }),
+});
+
+const ledgerSummaryQuerySchema = z.object({
+  query: z.object({
+    shopId: z.string().min(1),
+    from: z.iso.date().optional(),
+    to: z.iso.date().optional(),
+  }).refine((q) => !(q.from && q.to) || q.from <= q.to, {
+    error: "from must be before or equal to to",
+    path: ["from"],
+  }),
+});
+
+const ledgerStatementQuerySchema = z.object({
+  query: z.object({
+    shopId: z.string().min(1),
+    from: z.iso.date(),
+    to: z.iso.date(),
+  }).refine((q) => q.from <= q.to, {
+    error: "from must be before or equal to to",
+    path: ["from"],
   }),
 });
 
@@ -78,11 +166,13 @@ router.get("/:id/dms", requirePermission(PERMISSIONS.CUSTOMER_VIEW), customerCon
 router.get("/:id/delivery-memos", requirePermission(PERMISSIONS.CUSTOMER_VIEW), customerController.getDMs);
 router.get("/:id/returns", requirePermission(PERMISSIONS.CUSTOMER_VIEW), customerController.getReturns);
 router.get("/:id/price-history", requirePermission(PERMISSIONS.CUSTOMER_VIEW), validate(z.object({ query: z.object({ itemId: z.string().optional() }) })), customerController.getPriceHistory);
-router.get("/:id/ledger", requirePermission(PERMISSIONS.CUSTOMER_VIEW), customerController.getLedger);
-router.get("/:id/ledger/summary", requirePermission(PERMISSIONS.CUSTOMER_VIEW), customerController.getLedgerSummary);
-router.get("/:id/ledger/statement", requirePermission(PERMISSIONS.CUSTOMER_VIEW), customerController.getLedgerStatement);
-router.get("/:id/ledger-summary", requirePermission(PERMISSIONS.CUSTOMER_VIEW), customerController.getLedgerSummary);
+router.get("/:id/ledger", requirePermission(PERMISSIONS.CUSTOMER_VIEW), validate(ledgerQuerySchema), customerController.getLedger);
+router.get("/:id/ledger/summary", requirePermission(PERMISSIONS.CUSTOMER_VIEW), validate(ledgerSummaryQuerySchema), customerController.getLedgerSummary);
+router.get("/:id/ledger/statement", requirePermission(PERMISSIONS.CUSTOMER_VIEW), validate(ledgerStatementQuerySchema), customerController.getLedgerStatement);
+router.get("/:id/ledger-summary", requirePermission(PERMISSIONS.CUSTOMER_VIEW), validate(ledgerSummaryQuerySchema), customerController.getLedgerSummary);
 router.post("/:id/opening-balance", requirePermission(PERMISSIONS.CUSTOMER_UPDATE), validate(openingBalanceSchema), customerController.setOpeningBalance);
+router.post("/:id/ledger-adjustments", requirePermission(PERMISSIONS.CUSTOMER_UPDATE), validate(ledgerAdjustmentSchema), customerController.postLedgerAdjustment);
+router.post("/:id/ledger-entries/:entryId/reverse", requirePermission(PERMISSIONS.CUSTOMER_UPDATE), validate(reverseLedgerSchema), customerController.reverseCustomerLedgerEntry);
 router.patch("/:id", requirePermission(PERMISSIONS.CUSTOMER_UPDATE), validate(updateSchema), customerController.updateCustomer);
 router.delete("/:id", requirePermission(PERMISSIONS.CUSTOMER_UPDATE), validate(z.object({ params: z.object({ id: z.string().min(1) }), body: z.object({}).optional(), query: z.object({}).optional() })), customerController.deleteCustomer);
 
