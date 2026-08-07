@@ -18,6 +18,7 @@ import {
   NativeScrollEvent,
   NativeSyntheticEvent,
   type ScrollViewProps,
+  BackHandler,
 } from "react-native";
 import { FlashList } from "@shopify/flash-list";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
@@ -357,6 +358,26 @@ export const ChatDetailScreen = () => {
     };
   }, [recipientPhone]);
 
+  const handleBack = useCallback(() => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+    } else {
+      navigation.navigate("WhatsAppChats", {
+        shopId: activeShopId,
+        integrationId,
+      });
+    }
+  }, [navigation, activeShopId, integrationId]);
+
+  useEffect(() => {
+    const onHardwareBack = () => {
+      handleBack();
+      return true;
+    };
+    const subscription = BackHandler.addEventListener("hardwareBackPress", onHardwareBack);
+    return () => subscription.remove();
+  }, [handleBack]);
+
   // Set custom header with contact name, avatar, and linked customer shortcut
   useLayoutEffect(() => {
     const contactName = deviceContactName || conversation?.contactName || formatWhatsAppPhone(recipientPhone);
@@ -370,6 +391,17 @@ export const ChatDetailScreen = () => {
         headerStyle: { backgroundColor: waColors.greenDark },
         headerTintColor: "#fff",
         headerShadowVisible: false,
+        headerLeft: () => (
+          <TouchableOpacity
+            onPress={handleBack}
+            style={{ marginRight: 8, padding: 4 }}
+            accessibilityRole="button"
+            accessibilityLabel="Go back to chat list"
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          >
+            <MaterialCommunityIcons name="arrow-left" size={24} color="#fff" />
+          </TouchableOpacity>
+        ),
         headerTitle: () => (
           <TouchableOpacity
             onPress={() => {
@@ -410,7 +442,8 @@ export const ChatDetailScreen = () => {
         headerTitleAlign: "left",
       });
     } catch {}
-  }, [navigation, conversation, deviceContactName, recipientPhone]);
+  }, [navigation, conversation, deviceContactName, recipientPhone, handleBack]);
+
 
   const messageQuery = useWhatsAppMessages(conversationId);
   const messages = messageQuery.messages;
