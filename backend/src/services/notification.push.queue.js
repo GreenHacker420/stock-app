@@ -14,13 +14,17 @@ export const notificationPushQueue = new Queue("notification-push", {
   },
 });
 
-export async function enqueueNotificationPush(notificationId) {
+export async function enqueueNotificationPush(
+  notificationId,
+  { delay = 1000, jobIdSuffix = "" } = {},
+) {
+  const suffix = jobIdSuffix ? `-${jobIdSuffix}` : "";
   return notificationPushQueue.add(
     "deliver",
     { notificationId },
     {
-      jobId: `notification-${notificationId}`,
-      delay: 1000,
+      jobId: `notification-${notificationId}${suffix}`,
+      delay,
     },
   );
 }
