@@ -2,6 +2,7 @@ import { UnrecoverableError, Worker } from "bullmq";
 import Redis from "ioredis";
 import prisma from "../lib/db.js";
 import { EXPO_PUSH_TOKEN_REGEX } from "../lib/validate.js";
+import { enqueueNotificationPush } from "../services/notification.push.queue.js";
 
 const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
 const connection = new Redis(REDIS_URL, { maxRetriesPerRequest: null });
@@ -99,7 +100,7 @@ async function checkExpoPushReceipts() {
         console.warn(`[Notification Push Worker] Ticket ${delivery.ticketId} delivery failed: errorCode=${errorCode}, message=${errorMessage}`);
 
         const retryable = errorCode === "MessageRateExceeded";
-        await prisma.notificationPushDelivery.update({
+        const updatedDelivery = await prisma.notificationPushDelivery.update({
           where: { id: delivery.id },
           data: {
             status: retryable ? "PENDING" : "FAILED",
@@ -108,6 +109,18 @@ async function checkExpoPushReceipts() {
             errorMessage,
           },
         });
+
+        if (retryable) {
+          await enqueueNotificationPush(delivery.notificationId, {
+            delay: 2_000,
+            jobIdSuffix: `receipt-${delivery.id}-${updatedDelivery.attemptCount + 1}`,
+          }).catch((error) => {
+            console.error(
+              `[Notification Push Worker] Could not requeue rate-limited receipt ${delivery.id}:`,
+              error.message,
+            );
+          });
+        }
 
         if (errorCode === "DeviceNotRegistered" || (errorMessage && errorMessage.toLowerCase().includes("invalid"))) {
           console.warn(`[Notification Push Worker] Deactivating push token on device ${delivery.deviceId} due to permanent delivery failure`);
