@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import prisma from "../lib/db.js";
 import { ApiError } from "../utils/ApiError.js";
+import { resolveEffectiveWhatsAppChannelForShop } from "./whatsapp.channel-resolution.js";
 import { connection as redis } from "./whatsapp.queue.js";
 import { normalizePhone } from "./whatsapp.phone.js";
 
@@ -54,33 +55,14 @@ export function normalizeExplicitRecipients(recipients = []) {
 }
 
 async function resolveBroadcastIntegration(shopId, integrationId) {
-  if (integrationId) {
-    return prisma.waIntegration.findFirst({
-      where: {
-        id: integrationId,
-        status: "CONNECTED",
-        isArchived: false,
-        OR: [
-          { shopId },
-          { shopAccesses: { some: { shopId, canSend: true } } },
-        ],
-      },
-      select: { id: true, shopId: true },
-    });
-  }
-
-  return prisma.waIntegration.findFirst({
-    where: {
-      status: "CONNECTED",
-      isArchived: false,
-      OR: [
-        { shopId },
-        { shopAccesses: { some: { shopId, canSend: true, isPrimary: true } } },
-      ],
-    },
-    orderBy: { createdAt: "asc" },
-    select: { id: true, shopId: true },
+  const scope = await resolveEffectiveWhatsAppChannelForShop(shopId, {
+    permission: "canSend",
   });
+  const integration = scope.integration;
+  if (!integration || (integrationId && integration.id !== integrationId)) {
+    return null;
+  }
+  return { id: integration.id, shopId: integration.shopId };
 }
 
 /**
