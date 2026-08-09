@@ -20,8 +20,10 @@ import { navigate } from "../../../navigation/navigation-ref";
 import { triggerLightHaptic, triggerMediumHaptic, triggerSuccessHaptic, triggerErrorHaptic } from "../../../utils/haptics";
 import { Image as ExpoImage } from "expo-image";
 import { useCustomersQuery, useCustomerDetailQuery, useCreateCustomerMutation } from "../../../hooks/useCustomers";
+import { useAuthStore } from "../../../auth/auth-store";
 import { whatsappDb } from "../services/whatsapp-db";
 import { contactsDb } from "../services/contactsDb";
+import { linkScopedWhatsAppCustomer } from "../services/whatsapp-profile.api";
 import { KeyboardAwareScreen } from "../../../components/keyboard/KeyboardAwareScreen";
 import { cleanPhoneNumber } from "../../../utils/items/validation";
 
@@ -54,6 +56,7 @@ export function ChatProfileSheet({
   onCustomerLinked,
   onDeleteChat,
 }: ChatProfileSheetProps) {
+  const token = useAuthStore((state) => state.token);
   const [activeMediaTab, setActiveMediaTab] = useState<"media" | "docs" | "links">("media");
   const [isMuted, setIsMuted] = useState(conversation?.isMuted ?? false);
   const [showCustomerPicker, setShowCustomerPicker] = useState(false);
@@ -110,32 +113,45 @@ export function ChatProfileSheet({
   }, [customersQuery.data, pickerSearch]);
 
   const handleLinkCustomer = async (customer: any) => {
-    if (!conversation) return;
-    
-    // 1. INSTANT OPTIMISTIC UI UPDATE (0ms)
+    if (!conversation || !token || linkingId) return;
+
+    const previousLinkedCustomer = manuallyLinkedCustomer;
+    setLinkingId(customer.id);
     setManuallyLinkedCustomer(customer);
     setShowCustomerPicker(false);
     triggerMediumHaptic();
-    onCustomerLinked?.(customer);
 
-    // 2. ASYNC BACKGROUND PERSISTENCE & IMMEDIATE REFETCH
     try {
-      await whatsappDb.linkCustomerToConversation(
+      const { conversation: serverConversation } = await linkScopedWhatsAppCustomer(
+        token,
         shopId,
         integrationId,
         conversation.id,
         customer.id,
       );
+      await whatsappDb.upsertConversations(
+        { shopId, integrationId },
+        [serverConversation],
+      );
       const contact = await contactsDb.getContactByPhone(conversation.phone);
       if (contact) {
         await contactsDb.linkCustomer(contact.id, customer.id);
       }
-      queryClient.invalidateQueries({ queryKey: ["whatsapp"] });
+      onCustomerLinked?.(customer);
+      triggerSuccessHaptic();
+      queryClient.invalidateQueries({
+        queryKey: ["whatsapp", "conversations", shopId, integrationId],
+      });
       queryClient.invalidateQueries({ queryKey: ["customers"] });
       queryClient.invalidateQueries({ queryKey: ["customer", customer.id] });
       void queryClient.refetchQueries({ queryKey: ["customer", customer.id] });
     } catch (err: any) {
-      console.warn("Background linking error:", err);
+      setManuallyLinkedCustomer(previousLinkedCustomer);
+      setShowCustomerPicker(true);
+      triggerErrorHaptic();
+      Alert.alert("Couldn’t link customer", err?.message || "Please try again.");
+    } finally {
+      setLinkingId(null);
     }
   };
 
@@ -151,7 +167,6 @@ export function ChatProfileSheet({
         phone: cleaned,
       });
       setIsCreatingCustomer(false);
-      triggerSuccessHaptic();
       await handleLinkCustomer(newCust);
     } catch (err: any) {
       setIsCreatingCustomer(false);
