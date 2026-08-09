@@ -1,4 +1,4 @@
-import { Worker } from "bullmq";
+import { UnrecoverableError, Worker } from "bullmq";
 import Redis from "ioredis";
 import prisma from "../lib/db.js";
 import { EXPO_PUSH_TOKEN_REGEX } from "../lib/validate.js";
@@ -6,6 +6,8 @@ import { EXPO_PUSH_TOKEN_REGEX } from "../lib/validate.js";
 const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
 const connection = new Redis(REDIS_URL, { maxRetriesPerRequest: null });
 const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
+const RECEIPT_DELAY_MS = 15 * 60 * 1000;
+const RECEIPT_RETENTION_MS = 24 * 60 * 60 * 1000;
 
 function isExpoPushToken(token) {
   return EXPO_PUSH_TOKEN_REGEX.test(token || "");
@@ -26,16 +28,26 @@ async function sendExpo(messages) {
     body: JSON.stringify(messages),
   });
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(payload.errors?.[0]?.message || `Expo push failed with HTTP ${response.status}`);
+  if (!response.ok) {
+    const message = payload.errors?.[0]?.message || `Expo push failed with HTTP ${response.status}`;
+    if (response.status >= 400 && response.status < 500 && response.status !== 429) {
+      throw new UnrecoverableError(message);
+    }
+    throw new Error(message);
+  }
   return Array.isArray(payload.data) ? payload.data : [];
 }
 
 async function checkExpoPushReceipts() {
+  const now = Date.now();
   const pendingDeliveries = await prisma.notificationPushDelivery.findMany({
     where: {
       status: "SENT",
       ticketId: { not: null },
-      updatedAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+      sentAt: {
+        gte: new Date(now - RECEIPT_RETENTION_MS),
+        lte: new Date(now - RECEIPT_DELAY_MS),
+      },
     },
     take: 100,
   });
@@ -75,7 +87,10 @@ async function checkExpoPushReceipts() {
       if (receipt.status === "ok") {
         await prisma.notificationPushDelivery.update({
           where: { id: delivery.id },
-          data: { status: "SENT" },
+          // A successful provider receipt is terminal for our polling lifecycle.
+          // sentAt remains as the audit timestamp; clearing the ticket prevents
+          // re-checking the same successful receipt for the next 24 hours.
+          data: { status: "SENT", ticketId: null },
         });
       } else if (receipt.status === "error") {
         const errorCode = receipt.details?.error || null;
@@ -83,10 +98,12 @@ async function checkExpoPushReceipts() {
 
         console.warn(`[Notification Push Worker] Ticket ${delivery.ticketId} delivery failed: errorCode=${errorCode}, message=${errorMessage}`);
 
+        const retryable = errorCode === "MessageRateExceeded";
         await prisma.notificationPushDelivery.update({
           where: { id: delivery.id },
           data: {
-            status: "FAILED",
+            status: retryable ? "PENDING" : "FAILED",
+            ticketId: null,
             errorCode,
             errorMessage,
           },
@@ -174,7 +191,12 @@ export async function deliverNotification(notificationId) {
     update: {},
   })));
 
-  const tickets = await sendExpo(devices.map((device) => ({
+  const pending = devices
+    .map((device, index) => ({ device, delivery: deliveries[index] }))
+    .filter(({ delivery }) => delivery.status === "PENDING");
+  if (!pending.length) return { skipped: "NO_PENDING_DELIVERIES" };
+
+  const tickets = await sendExpo(pending.map(({ device }) => ({
     to: device.pushToken,
     sound: "default",
     title: whatsappNotification?.title || notification.shop?.name || "ShopControl",
@@ -190,21 +212,26 @@ export async function deliverNotification(notificationId) {
     },
   })));
 
-  await Promise.all(deliveries.map(async (delivery, index) => {
+  let shouldRetry = false;
+  await Promise.all(pending.map(async ({ delivery }, index) => {
     const ticket = tickets[index] || { status: "error", message: "Missing Expo ticket" };
     const failed = ticket.status !== "ok";
+    const errorCode = ticket.details?.error || null;
+    const retryable = failed && errorCode === "MessageRateExceeded";
+    if (retryable) shouldRetry = true;
+
     await prisma.notificationPushDelivery.update({
       where: { id: delivery.id },
       data: {
-        status: failed ? "FAILED" : "SENT",
-        ticketId: ticket.id,
+        status: retryable ? "PENDING" : (failed ? "FAILED" : "SENT"),
+        ticketId: failed ? null : ticket.id,
         attemptCount: { increment: 1 },
-        errorCode: ticket.details?.error || null,
+        errorCode,
         errorMessage: failed ? ticket.message || "Expo rejected notification" : null,
         sentAt: failed ? null : new Date(),
       },
     });
-    if (ticket.details?.error === "DeviceNotRegistered") {
+    if (errorCode === "DeviceNotRegistered") {
       await prisma.userDevice.update({
         where: { id: delivery.deviceId },
         data: {
@@ -217,6 +244,10 @@ export async function deliverNotification(notificationId) {
     }
   }));
 
+  if (shouldRetry) {
+    throw new Error("Expo push rate exceeded for one or more devices");
+  }
+
   return { delivered: tickets.filter((ticket) => ticket.status === "ok").length };
 }
 
@@ -228,18 +259,31 @@ export function startNotificationPushWorker() {
     async (job) => deliverNotification(job.data.notificationId),
     { connection, concurrency: 5 },
   );
-  worker.on("failed", (job, error) => {
+  worker.on("failed", async (job, error) => {
     console.error(`[Notification Push Worker] Job ${job?.id || "unknown"} failed:`, error.message);
+    if (!job) return;
+    const attempts = job.opts.attempts || 1;
+    const terminal = error instanceof UnrecoverableError || job.attemptsMade >= attempts;
+    if (!terminal) return;
+    await prisma.notificationPushDelivery.updateMany({
+      where: {
+        notificationId: job.data.notificationId,
+        status: "PENDING",
+      },
+      data: {
+        status: "FAILED",
+        errorMessage: error.message || "Push delivery failed after retries",
+      },
+    }).catch(() => undefined);
   });
 
-  // Run receipt check every 5 minutes
+  // Expo recommends checking receipts after roughly 15 minutes.
   receiptTimer = setInterval(() => {
     checkExpoPushReceipts().catch((error) => {
       console.error("[Notification Push Worker] Receipt check failed:", error.message);
     });
-  }, 5 * 60 * 1000);
+  }, RECEIPT_DELAY_MS);
 
-  // Bind custom close method to clear interval
   const originalClose = worker.close.bind(worker);
   worker.close = async () => {
     clearInterval(receiptTimer);
