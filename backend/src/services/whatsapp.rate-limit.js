@@ -1,8 +1,6 @@
 import { connection } from "./whatsapp.queue.js";
 
 const WINDOW_MS = 1000;
-const RETRY_DELAY_MS = 200;
-const RETRY_ATTEMPTS = 3;
 const configuredLimit = Number(process.env.WHATSAPP_SEND_RATE_PER_SECOND || 75);
 const MAX_SENDS_PER_WINDOW = Number.isFinite(configuredLimit) && configuredLimit > 0
   ? Math.floor(configuredLimit)
@@ -17,33 +15,33 @@ local member = ARGV[4]
 
 redis.call("ZREMRANGEBYSCORE", key, 0, now - window)
 if redis.call("ZCARD", key) >= limit then
-  return 0
+  local oldest = redis.call("ZRANGE", key, 0, 0, "WITHSCORES")
+  if oldest[2] then
+    return math.max(1, window - (now - tonumber(oldest[2])))
+  end
+  return window
 end
 
 redis.call("ZADD", key, now, member)
 redis.call("PEXPIRE", key, window * 2)
-return 1
+return 0
 `;
 
 export async function reserveWhatsAppSendSlot(scopeId, jobId) {
   const key = `wa:rate:${scopeId}`;
-  const member = String(jobId);
 
-  for (let attempt = 0; attempt < RETRY_ATTEMPTS; attempt += 1) {
-    const reserved = await connection.eval(
+  while (true) {
+    const now = Date.now();
+    const waitMs = Number(await connection.eval(
       RESERVE_SLOT_SCRIPT,
       1,
       key,
-      Date.now(),
+      now,
       WINDOW_MS,
       MAX_SENDS_PER_WINDOW,
-      member,
-    );
-    if (Number(reserved) === 1) return true;
-    if (attempt < RETRY_ATTEMPTS - 1) {
-      await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
-    }
+      `${jobId}:${now}`,
+    ));
+    if (waitMs <= 0) return true;
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
   }
-
-  return false;
 }
