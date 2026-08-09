@@ -25,6 +25,7 @@ import * as Contacts from "expo-contacts";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { useDebounce } from "use-debounce";
+import { ApiError } from "../../../api/client";
 import {
   addWaBroadcastRecipients,
   cancelWaBroadcast,
@@ -56,6 +57,7 @@ const RECIPIENT_UPLOAD_BATCH = 300;
 
 type TagFilter = "ALL" | "REGULAR" | "BUSINESS" | "NONE";
 type ManualRecipient = { id: string; name: string; phone: string };
+type ScopedWaTemplate = WaTemplate & { integrationId?: string | null };
 type HeaderAsset = {
   id: string;
   fileName: string;
@@ -271,8 +273,8 @@ export function BroadcastComposerScreen() {
     filteredIds.length > 0 && filteredIds.every((id) => selectedIds.has(id));
 
   const templatesQuery = useQuery({
-    queryKey: ["wa-broadcast-templates", shopId, templateSearch],
-    enabled: Boolean(token && shopId && step >= 1),
+    queryKey: ["wa-broadcast-templates", shopId, integrationId, templateSearch],
+    enabled: Boolean(token && shopId && integrationId && step >= 1),
     queryFn: () =>
       fetchWaTemplates(token, shopId, {
         status: "APPROVED",
@@ -281,8 +283,12 @@ export function BroadcastComposerScreen() {
       }),
   });
   const templates = useMemo(
-    () => (templatesQuery.data?.data || []).filter(isBroadcastReady),
-    [templatesQuery.data?.data],
+    () => (templatesQuery.data?.data || []).filter((template) => {
+      const templateIntegrationId = (template as ScopedWaTemplate).integrationId;
+      return isBroadcastReady(template)
+        && (!templateIntegrationId || templateIntegrationId === integrationId);
+    }),
+    [integrationId, templatesQuery.data?.data],
   );
 
   const importMutation = useMutation({
@@ -531,12 +537,26 @@ export function BroadcastComposerScreen() {
           await addWaBroadcastRecipients(token, shopId, broadcast.id, batch);
           setUploadProgress(Math.min(1, (index + batch.length) / recipients.length));
         }
-        await sendWaBroadcast(token, shopId, broadcast.id);
-        return broadcast;
       } catch (error) {
         await cancelWaBroadcast(token, shopId, broadcast.id).catch(() => undefined);
         throw error;
       }
+
+      try {
+        await sendWaBroadcast(token, shopId, broadcast.id);
+      } catch (error) {
+        if (error instanceof ApiError) {
+          await cancelWaBroadcast(token, shopId, broadcast.id).catch(() => undefined);
+          throw error;
+        }
+        queryClient.invalidateQueries({
+          queryKey: ["whatsapp", "broadcasts", shopId],
+        });
+        throw new Error(
+          "Could not confirm whether the broadcast started. Check Broadcasts before retrying.",
+        );
+      }
+      return broadcast;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({
