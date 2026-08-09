@@ -1,35 +1,9 @@
 import { Worker } from "bullmq";
-import Redis from "ioredis";
 import prisma from "../../lib/db.js";
 import { whatsappService } from "../../services/whatsapp.service.js";
 import { enqueueWhatsAppDomainEvent } from "../../services/whatsapp.domain-events.js";
-
-const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
-const connection = new Redis(REDIS_URL, { maxRetriesPerRequest: null });
-
-
-async function checkRateLimit(shopId, jobId) {
-  const key = `wa:rate:${shopId}`;
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const now = Date.now();
-    const clearBefore = now - 1000;
-
-    const multi = connection.multi();
-    multi.zremrangebyscore(key, 0, clearBefore);
-    multi.zcard(key);
-    const results = await multi.exec();
-
-    const count = results[1][1];
-    if (count < 75) {
-      await connection.zadd(key, now, `${now}-${jobId}`);
-      await connection.pexpire(key, 2000);
-      return true;
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 200));
-  }
-  return false;
-}
+import { connection } from "../../services/whatsapp.queue.js";
+import { reserveWhatsAppSendSlot } from "../../services/whatsapp.rate-limit.js";
 
 export function startOutboundWorker() {
   const worker = new Worker(
@@ -47,14 +21,12 @@ export function startOutboundWorker() {
         attempt,
       });
 
-      // 1. Sliding window rate limiting
-      const allowed = await checkRateLimit(shopId, job.id);
+      const allowed = await reserveWhatsAppSendSlot(shopId, `outbound:${job.id}`);
       if (!allowed) {
         console.warn(`[WhatsApp Outbound Worker] Rate limit exceeded for shop ${shopId}, triggering retry.`);
         throw new Error("RATE_LIMIT_EXCEEDED");
       }
 
-      // 2. Process outbound message sending
       try {
         const result = await whatsappService._sendDirect(shopId, { messageId, attempt, payload });
         console.log("[WhatsApp Send Trace]", {
