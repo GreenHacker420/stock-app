@@ -56,3 +56,16 @@ CREATE UNIQUE INDEX "WaBroadcastRecipient_broadcastId_customerPhone_key"
 
 CREATE INDEX "WaBroadcastRecipient_broadcastId_customerId_idx"
   ON "WaBroadcastRecipient"("broadcastId", "customerId");
+
+-- The relation is now optional, so align the database constraint with Prisma's
+-- SetNull/Cascade defaults without scanning the full table during ADD CONSTRAINT.
+ALTER TABLE "WaBroadcastRecipient"
+  DROP CONSTRAINT IF EXISTS "WaBroadcastRecipient_customerId_fkey";
+
+ALTER TABLE "WaBroadcastRecipient"
+  ADD CONSTRAINT "WaBroadcastRecipient_customerId_fkey"
+  FOREIGN KEY ("customerId") REFERENCES "Customer"("id")
+  ON DELETE SET NULL ON UPDATE CASCADE NOT VALID;
+
+ALTER TABLE "WaBroadcastRecipient"
+  VALIDATE CONSTRAINT "WaBroadcastRecipient_customerId_fkey";
