@@ -1,4 +1,4 @@
-import { UnrecoverableError, Worker } from "bullmq";
+import { DelayedError, UnrecoverableError, Worker } from "bullmq";
 import axios from "axios";
 import prisma from "../../lib/db.js";
 import { getWaCredentials } from "../../lib/wa-cache.js";
@@ -226,7 +226,7 @@ async function recordTerminalFailure({ broadcast, recipient, conversation, error
 export function startBroadcastSendWorker() {
   const worker = new Worker(
     "whatsapp-broadcast-send",
-    async (job) => {
+    async (job, token) => {
       const { broadcastId, recipientId } = job.data;
       const recipient = await prisma.waBroadcastRecipient.findFirst({
         where: { id: recipientId, broadcastId },
@@ -275,7 +275,15 @@ export function startBroadcastSendWorker() {
           throw new UnrecoverableError("WhatsApp credentials are unavailable for the broadcast integration");
         }
 
-        await reserveWhatsAppSendSlot(integration.shopId, `broadcast:${job.id}`);
+        const waitMs = await reserveWhatsAppSendSlot(
+          integration.shopId,
+          `broadcast:${job.id}`,
+        );
+        if (waitMs > 0) {
+          await job.moveToDelayed(Date.now() + waitMs, token);
+          throw new DelayedError();
+        }
+
         conversation = await ensureConversation(broadcast, integration, recipient);
         const payload = await buildTemplatePayload(broadcast, broadcast.template, recipient);
         const response = await axios.post(
@@ -349,6 +357,8 @@ export function startBroadcastSendWorker() {
         });
         await syncBroadcastProgress(broadcast.id);
       } catch (error) {
+        if (error instanceof DelayedError) throw error;
+
         const errorMessage = error.response?.data?.error?.message || error.message || "Broadcast send failed";
         const maxAttempts = job.opts.attempts || 3;
         const terminalAttempt = error instanceof UnrecoverableError
