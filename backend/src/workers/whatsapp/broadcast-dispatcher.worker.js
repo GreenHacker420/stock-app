@@ -1,8 +1,66 @@
 import { Worker } from "bullmq";
-import Redis from "ioredis";
 import prisma from "../../lib/db.js";
 import { resolveAudience } from "../../services/whatsapp.broadcast.service.js";
 import { broadcastSendQueue, connection } from "../../services/whatsapp.queue.js";
+
+const FANOUT_BATCH_SIZE = 250;
+
+async function ensureLegacyRecipients(broadcast) {
+  const audience = await resolveAudience(broadcast.shopId, broadcast.audienceFilter);
+  if (audience.length === 0) return [];
+
+  for (let i = 0; i < audience.length; i += FANOUT_BATCH_SIZE) {
+    const batch = audience.slice(i, i + FANOUT_BATCH_SIZE);
+    await prisma.$transaction(
+      batch.map((recipient) => prisma.waBroadcastRecipient.upsert({
+        where: {
+          broadcastId_customerPhone: {
+            broadcastId: broadcast.id,
+            customerPhone: recipient.phone,
+          },
+        },
+        create: {
+          broadcastId: broadcast.id,
+          customerId: recipient.customerId || null,
+          customerPhone: recipient.phone,
+          customerName: recipient.name || null,
+          source: recipient.source || "CUSTOMER",
+          sourceContactId: recipient.sourceContactId || null,
+          status: "PENDING",
+        },
+        update: {
+          customerId: recipient.customerId || null,
+          customerName: recipient.name || null,
+          source: recipient.source || "CUSTOMER",
+          sourceContactId: recipient.sourceContactId || null,
+        },
+      })),
+    );
+  }
+
+  await prisma.waBroadcast.update({
+    where: { id: broadcast.id },
+    data: { audienceCount: audience.length },
+  });
+
+  return prisma.waBroadcastRecipient.findMany({
+    where: { broadcastId: broadcast.id, status: "PENDING" },
+    select: { id: true },
+    orderBy: { createdAt: "asc" },
+  });
+}
+
+async function loadPendingRecipients(broadcast) {
+  if (broadcast.audienceFilter?.mode === "EXPLICIT") {
+    return prisma.waBroadcastRecipient.findMany({
+      where: { broadcastId: broadcast.id, status: "PENDING" },
+      select: { id: true },
+      orderBy: { createdAt: "asc" },
+    });
+  }
+
+  return ensureLegacyRecipients(broadcast);
+}
 
 export function startBroadcastDispatcherWorker() {
   const worker = new Worker(
@@ -20,86 +78,61 @@ export function startBroadcastDispatcherWorker() {
         return;
       }
 
-      // 1. Resolve audience
-      const audience = await resolveAudience(broadcast.shopId, broadcast.audienceFilter);
-      console.log(`[Broadcast Dispatcher] Resolved audience size: ${audience.length} for broadcast ${broadcastId}`);
+      const recipients = await loadPendingRecipients(broadcast);
+      console.log(`[Broadcast Dispatcher] Pending audience size: ${recipients.length} for broadcast ${broadcastId}`);
 
-      if (audience.length === 0) {
+      if (recipients.length === 0) {
         await prisma.waBroadcast.update({
           where: { id: broadcastId },
           data: {
             status: "COMPLETED",
             completedAt: new Date(),
-            updatedAt: new Date(),
           },
         });
+        await connection.del(`broadcast:${broadcastId}:remaining`);
         return;
       }
 
-      // 2. Set Redis counter
-      await connection.set(`broadcast:${broadcastId}:remaining`, audience.length);
+      await connection.set(`broadcast:${broadcastId}:remaining`, recipients.length);
 
-      // 3. Batch insert recipient records and enqueue send jobs
-      const batchSize = 100;
-      for (let i = 0; i < audience.length; i += batchSize) {
-        const batch = audience.slice(i, i + batchSize);
-
-        // Save recipient records in DB
-        await prisma.$transaction(
-          batch.map((c) =>
-            prisma.waBroadcastRecipient.upsert({
-              where: {
-                broadcastId_customerId: {
-                  broadcastId,
-                  customerId: c.id,
-                },
-              },
-              update: {
-                status: "PENDING",
-                customerPhone: c.phone.replace(/\D/g, ""),
-                customerName: c.name,
-              },
-              create: {
-                broadcastId,
-                customerId: c.id,
-                customerPhone: c.phone.replace(/\D/g, ""),
-                customerName: c.name,
-                status: "PENDING",
-              },
-            })
-          )
+      for (let i = 0; i < recipients.length; i += FANOUT_BATCH_SIZE) {
+        const batch = recipients.slice(i, i + FANOUT_BATCH_SIZE);
+        await broadcastSendQueue.addBulk(
+          batch.map((recipient) => ({
+            name: "send-broadcast-recipient",
+            data: {
+              broadcastId,
+              recipientId: recipient.id,
+            },
+            opts: {
+              jobId: `wa-broadcast-${broadcastId}-recipient-${recipient.id}`,
+            },
+          })),
         );
-
-        // Add to Send Queue in bulk
-        const sendJobs = batch.map((c) => ({
-          name: "send-broadcast-recipient",
-          data: {
-            broadcastId,
-            shopId: broadcast.shopId,
-            customerId: c.id,
-            customerPhone: c.phone.replace(/\D/g, ""),
-            templateId: broadcast.templateId,
-            templateVariables: broadcast.templateVariables,
-          },
-        }));
-
-        await broadcastSendQueue.addBulk(sendJobs);
       }
 
-      console.log(`[Broadcast Dispatcher] Successfully queued ${audience.length} recipient sends for broadcast ${broadcastId}`);
+      console.log(`[Broadcast Dispatcher] Queued ${recipients.length} recipient sends for broadcast ${broadcastId}`);
     },
     {
       connection,
       concurrency: 2,
-    }
+    },
   );
 
   worker.on("completed", (job) => {
     console.log(`[Broadcast Dispatcher] Job ${job.id} completed successfully`);
   });
 
-  worker.on("failed", (job, err) => {
-    console.error(`[Broadcast Dispatcher] Job ${job.id} failed:`, err.message);
+  worker.on("failed", async (job, error) => {
+    console.error(`[Broadcast Dispatcher] Job ${job?.id} failed:`, error.message);
+    if (!job) return;
+    const attempts = job.opts.attempts || 1;
+    if (job.attemptsMade >= attempts) {
+      await prisma.waBroadcast.updateMany({
+        where: { id: job.data.broadcastId, status: "SENDING" },
+        data: { status: "FAILED", completedAt: new Date() },
+      }).catch(() => undefined);
+    }
   });
 
   return worker;
