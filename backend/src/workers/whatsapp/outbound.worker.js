@@ -21,11 +21,7 @@ export function startOutboundWorker() {
         attempt,
       });
 
-      const allowed = await reserveWhatsAppSendSlot(shopId, `outbound:${job.id}`);
-      if (!allowed) {
-        console.warn(`[WhatsApp Outbound Worker] Rate limit exceeded for shop ${shopId}, triggering retry.`);
-        throw new Error("RATE_LIMIT_EXCEEDED");
-      }
+      await reserveWhatsAppSendSlot(shopId, `outbound:${job.id}`);
 
       try {
         const result = await whatsappService._sendDirect(shopId, { messageId, attempt, payload });
