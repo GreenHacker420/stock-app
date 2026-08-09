@@ -69,8 +69,9 @@ import { TemplateEditorScreen } from "../modules/whatsapp/screens/TemplateEditor
 import { FlowLibraryScreen } from "../modules/whatsapp/screens/FlowLibraryScreen";
 import { FlowEditorScreen } from "../modules/whatsapp/screens/FlowEditorScreen";
 import { WhatsAppSetupScreen } from "../modules/whatsapp/screens/WhatsAppSetupScreen";
+import { BroadcastListScreen } from "../modules/whatsapp/screens/BroadcastListScreen";
+import { BroadcastComposerScreen } from "../modules/whatsapp/screens/BroadcastComposerScreen";
 import { whatsappCapabilityScreen } from "../modules/whatsapp/WhatsAppFeatureGate";
-// import { colors } from "../theme";
 
 import { shadow } from "../theme";
 import { triggerLightHaptic } from "../utils/haptics";
@@ -207,9 +208,7 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.15,
         shadowRadius: 6,
       },
-      android: {
-        // Flat styling on Android avoids OS elevation bugs drawing a square shadow
-      },
+      android: {},
     }),
   },
   accessDenied: {
@@ -246,6 +245,8 @@ const WhatsAppTemplates = whatsappCapabilityScreen(TemplateLibraryScreen);
 const WhatsAppTemplateEditor = whatsappCapabilityScreen(TemplateEditorScreen);
 const WhatsAppFlows = whatsappCapabilityScreen(FlowLibraryScreen);
 const WhatsAppFlowEditor = whatsappCapabilityScreen(FlowEditorScreen);
+const WhatsAppBroadcasts = whatsappCapabilityScreen(BroadcastListScreen);
+const WhatsAppBroadcastComposer = whatsappCapabilityScreen(BroadcastComposerScreen);
 const WhatsAppSetup = whatsappCapabilityScreen(WhatsAppSetupScreen, { requireConnected: false });
 
 function AccessDeniedScreen() {
@@ -270,30 +271,10 @@ const StaffTabs = createBottomTabNavigator({
   tabBar: (props) => <CustomTabBar {...props} />,
   screenOptions: floatingTabOptions,
   screens: {
-    StaffHome: {
-      screen: Home,
-      options: {
-        title: "Home",
-      },
-    },
-    StaffWork: {
-      screen: StaffWork,
-      options: {
-        title: "Work",
-      },
-    },
-    StaffPayments: {
-      screen: TakePayment,
-      options: {
-        title: "POS",
-      },
-    },
-    Profile: {
-      screen: Profile,
-      options: {
-        title: "Profile",
-      },
-    },
+    StaffHome: { screen: Home, options: { title: "Home" } },
+    StaffWork: { screen: StaffWork, options: { title: "Work" } },
+    StaffPayments: { screen: TakePayment, options: { title: "POS" } },
+    Profile: { screen: Profile, options: { title: "Profile" } },
   },
 });
 
@@ -301,37 +282,14 @@ const OwnerTabs = createBottomTabNavigator({
   tabBar: (props) => <CustomTabBar {...props} />,
   screenOptions: floatingTabOptions,
   screens: {
-    OwnerDashboard: {
-      screen: Home,
-      options: {
-        title: "Dashboard",
-      },
-    },
-    OwnerRecords: {
-      screen: OwnerRecords,
-      options: {
-        title: "Records",
-      },
-    },
-    OwnerStock: {
-      screen: OwnerStock,
-      options: {
-        title: "Stock",
-      },
-    },
+    OwnerDashboard: { screen: Home, options: { title: "Dashboard" } },
+    OwnerRecords: { screen: OwnerRecords, options: { title: "Records" } },
+    OwnerStock: { screen: OwnerStock, options: { title: "Stock" } },
     WhatsApp: {
       screen: WhatsAppChats,
-      options: {
-        title: "WhatsApp",
-        lazy: false,
-      },
+      options: { title: "WhatsApp", lazy: false },
     },
-    Profile: {
-      screen: Profile,
-      options: {
-        title: "Profile",
-      },
-    },
+    Profile: { screen: Profile, options: { title: "Profile" } },
   },
 });
 
@@ -343,14 +301,21 @@ const sharedStackScreens = {
   },
   ChatDetail: {
     screen: WhatsAppChatDetail,
-    getId: ({ params }: { params?: { conversationId?: string } }) =>
-      params?.conversationId,
+    getId: ({ params }: { params?: { conversationId?: string } }) => params?.conversationId,
     options: { title: "Conversation" },
     linking: { path: "shops/:shopId/whatsapp/:integrationId/conversations/:conversationId" },
   },
   ContactBook: {
     screen: WhatsAppContacts,
     options: { title: "WhatsApp contacts" },
+  },
+  BroadcastList: {
+    screen: ownerOnlyScreen(WhatsAppBroadcasts),
+    options: { title: "WhatsApp broadcasts" },
+  },
+  BroadcastComposer: {
+    screen: ownerOnlyScreen(WhatsAppBroadcastComposer),
+    options: { title: "New WhatsApp broadcast" },
   },
   TemplateLibrary: {
     screen: WhatsAppTemplates,
@@ -372,281 +337,83 @@ const sharedStackScreens = {
     screen: WhatsAppSetup,
     options: { title: "WhatsApp settings" },
   },
-  EditSale: {
-    screen: EditSale,
-    options: { title: "Edit Sale Workspace" },
-  },
-  NotFound: {
-    screen: NotFound,
-    options: { title: "404" },
-    linking: { path: "*" },
-  },
-  NotificationHistory: {
-    screen: Notifications,
-    options: { title: "Notifications" },
-  },
-  WalkInSale: {
-    screen: WalkInSale,
-    options: { title: "Walk-in sale" },
-  },
-  NewSaleType: {
-    screen: NewSaleType,
-    options: { title: "New sale" },
-  },
-  RegularSale: {
-    screen: RegularSale,
-    options: { title: "Regular sale" },
-  },
-  InvoiceViewer: {
-    screen: InvoiceViewer,
-    options: { title: "Invoice Preview" },
-  },
-  SplitPayment: {
-    screen: GenericPlannedScreen,
-    options: { title: "Split payment" },
-  },
-  OpenCashSession: {
-    screen: OpenCashSession,
-    options: { title: "Open cash session" },
-  },
-  StockEntry: {
-    screen: StockEntry,
-    options: { title: "Stock entry" },
-  },
-  StockMovementHistory: {
-    screen: StockMovementHistory,
-    options: { title: "Stock movement history" },
-  },
-  OrdersToPack: {
-    screen: OrdersToPack,
-    options: { title: "Orders to pack" },
-  },
-  OrderDetail: {
-    screen: OrderDetail,
-    options: { title: "Order detail" },
-  },
-  Packing: {
-    screen: GenericPlannedScreen,
-    options: { title: "Packing" },
-  },
-  Dispatch: {
-    screen: GenericPlannedScreen,
-    options: { title: "Dispatch" },
-  },
-  CloseDay: {
-    screen: CloseDay,
-    options: { title: "Close day" },
-  },
-  TodaySummary: {
-    screen: ownerOnlyScreen(DailySummary),
-    options: { title: "Today summary" },
-  },
-  Expenses: {
-    screen: ExpenseList,
-    options: { title: "Expenses" },
-  },
-  VerificationQueue: {
-    screen: ownerOnlyScreen(VerificationQueue),
-    options: { title: "Verification Queue" },
-  },
-  CreateDeliveryMemo: {
-    screen: CreateDeliveryMemo,
-    options: { title: "Create delivery memo" },
-  },
-  DeliveryMemoList: {
-    screen: DeliveryMemoList,
-    options: { title: "Delivery memos" },
-  },
-  DeliveryMemoDetail: {
-    screen: DeliveryMemoDetail,
-    options: { title: "Delivery memo detail" },
-  },
-  TakePayment: {
-    screen: TakePayment,
-    options: { title: "Take payment" },
-  },
-  RequestCorrection: {
-    screen: GenericPlannedScreen,
-    options: { title: "Request correction" },
-  },
-  RequestRateChange: {
-    screen: GenericPlannedScreen,
-    options: { title: "Request rate change" },
-  },
-  CreateEditShop: {
-    screen: ownerOnlyScreen(CreateEditShop),
-    options: { title: "Manage shop" },
-  },
-  AssignStaff: {
-    screen: ownerOnlyScreen(AssignStaff),
-    options: { title: "Assign staff" },
-  },
-  SetOpeningStock: {
-    screen: ownerOnlyScreen(SetOpeningStock),
-    options: { title: "Set opening stock" },
-  },
-  PaymentVerification: {
-    screen: ownerOnlyScreen(PaymentVerification),
-    options: { title: "Verify payments" },
-  },
-  CashClosingReview: {
-    screen: ownerOnlyScreen(CashClosingReview),
-    options: { title: "Cash closing review" },
-  },
-  DailySummary: {
-    screen: ownerOnlyScreen(DailySummary),
-    options: { title: "Daily summary" },
-  },
-  UpiConfig: {
-    screen: ownerOnlyScreen(UpiConfig),
-    options: { title: "UPI configuration" },
-  },
-  Updates: {
-    screen: ownerOnlyScreen(Updates),
-    options: { title: "Shops" },
-  },
-  CreateOrder: {
-    screen: CreateOrder,
-    options: { title: "Create order" },
-  },
-  OrderList: {
-    screen: OrderList,
-    options: { title: "Orders" },
-  },
-  RateChangeRequests: {
-    screen: GenericPlannedScreen,
-    options: { title: "Rate change requests" },
-  },
-  PriceHistory: {
-    screen: GenericPlannedScreen,
-    options: { title: "Price history" },
-  },
-  SalesList: {
-    screen: SalesList,
-    options: { title: "Sales" },
-  },
-  SaleDetail: {
-    screen: SaleDetail,
-    options: { title: "Sale detail" },
-  },
-  ChequeList: {
-    screen: ChequeList,
-    options: { title: "Cheques" },
-  },
-  ChequeDetail: {
-    screen: ChequeDetail,
-    options: { title: "Cheque detail" },
-  },
-  CustomerList: {
-    screen: CustomerList,
-    options: { title: "Customers" },
-  },
-  AddEditCustomer: {
-    screen: AddEditCustomer,
-    options: { title: "Add/edit customer" },
-  },
-  CustomerDetail: {
-    screen: CustomerDetail,
-    options: { title: "Customer detail" },
-  },
-  CustomerOutstandingList: {
-    screen: GenericPlannedScreen,
-    options: { title: "Customer outstanding" },
-  },
-  ItemList: {
-    screen: ItemList,
-    options: { title: "Items" },
-  },
-  AddEditItem: {
-    screen: ownerOnlyScreen(AddEditItem),
-    options: { title: "Add/edit item" },
-  },
-  ItemDetail: {
-    screen: ItemDetail,
-    options: { title: "Item detail" },
-  },
-  StorageManagement: {
-    screen: ownerOnlyScreen(StorageManagement),
-    options: { title: "S3 Storage Management" },
-  },
-  StockDashboard: {
-    screen: StockDashboard,
-    options: { title: "Stock dashboard" },
-  },
-  CashSessionDetail: {
-    screen: GenericPlannedScreen,
-    options: { title: "Cash session detail" },
-  },
-  CorrectionRequests: {
-    screen: GenericPlannedScreen,
-    options: { title: "Correction requests" },
-  },
-  DailySummaryList: {
-    screen: ownerOnlyScreen(DailySummaryList),
-    options: { title: "Daily summaries" },
-  },
-  StaffManagement: {
-    screen: ownerOnlyScreen(StaffManagement),
-    options: { title: "Staff management" },
-  },
-  AddEditStaff: {
-    screen: ownerOnlyScreen(AddEditStaff),
-    options: { title: "Add/edit staff" },
-  },
-  StaffDetail: {
-    screen: ownerOnlyScreen(StaffDetail),
-    options: { title: "Staff details" },
-  },
-  AuditLog: {
-    screen: ownerOnlyScreen(GenericPlannedScreen),
-    options: { title: "Audit log" },
-  },
-  Settings: {
-    screen: Settings,
-    options: { title: "Settings" },
-  },
-  ManageCategories: {
-    screen: ownerOnlyScreen(ManageCategories),
-    options: { title: "Manage categories" },
-  },
-  ManageBrands: {
-    screen: ownerOnlyScreen(ManageBrands),
-    options: { title: "Manage brands" },
-  },
-  CopyCatalog: {
-    screen: ownerOnlyScreen(CopyCatalog),
-    options: { title: "Copy Catalog" },
-  },
+  EditSale: { screen: EditSale, options: { title: "Edit Sale Workspace" } },
+  NotFound: { screen: NotFound, options: { title: "404" }, linking: { path: "*" } },
+  NotificationHistory: { screen: Notifications, options: { title: "Notifications" } },
+  WalkInSale: { screen: WalkInSale, options: { title: "Walk-in sale" } },
+  NewSaleType: { screen: NewSaleType, options: { title: "New sale" } },
+  RegularSale: { screen: RegularSale, options: { title: "Regular sale" } },
+  InvoiceViewer: { screen: InvoiceViewer, options: { title: "Invoice Preview" } },
+  SplitPayment: { screen: GenericPlannedScreen, options: { title: "Split payment" } },
+  OpenCashSession: { screen: OpenCashSession, options: { title: "Open cash session" } },
+  StockEntry: { screen: StockEntry, options: { title: "Stock entry" } },
+  StockMovementHistory: { screen: StockMovementHistory, options: { title: "Stock movement history" } },
+  OrdersToPack: { screen: OrdersToPack, options: { title: "Orders to pack" } },
+  OrderDetail: { screen: OrderDetail, options: { title: "Order detail" } },
+  Packing: { screen: GenericPlannedScreen, options: { title: "Packing" } },
+  Dispatch: { screen: GenericPlannedScreen, options: { title: "Dispatch" } },
+  CloseDay: { screen: CloseDay, options: { title: "Close day" } },
+  TodaySummary: { screen: ownerOnlyScreen(DailySummary), options: { title: "Today summary" } },
+  Expenses: { screen: ExpenseList, options: { title: "Expenses" } },
+  VerificationQueue: { screen: ownerOnlyScreen(VerificationQueue), options: { title: "Verification Queue" } },
+  CreateDeliveryMemo: { screen: CreateDeliveryMemo, options: { title: "Create delivery memo" } },
+  DeliveryMemoList: { screen: DeliveryMemoList, options: { title: "Delivery memos" } },
+  DeliveryMemoDetail: { screen: DeliveryMemoDetail, options: { title: "Delivery memo detail" } },
+  TakePayment: { screen: TakePayment, options: { title: "Take payment" } },
+  RequestCorrection: { screen: GenericPlannedScreen, options: { title: "Request correction" } },
+  RequestRateChange: { screen: GenericPlannedScreen, options: { title: "Request rate change" } },
+  CreateEditShop: { screen: ownerOnlyScreen(CreateEditShop), options: { title: "Manage shop" } },
+  AssignStaff: { screen: ownerOnlyScreen(AssignStaff), options: { title: "Assign staff" } },
+  SetOpeningStock: { screen: ownerOnlyScreen(SetOpeningStock), options: { title: "Set opening stock" } },
+  PaymentVerification: { screen: ownerOnlyScreen(PaymentVerification), options: { title: "Verify payments" } },
+  CashClosingReview: { screen: ownerOnlyScreen(CashClosingReview), options: { title: "Cash closing review" } },
+  DailySummary: { screen: ownerOnlyScreen(DailySummary), options: { title: "Daily summary" } },
+  UpiConfig: { screen: ownerOnlyScreen(UpiConfig), options: { title: "UPI configuration" } },
+  Updates: { screen: ownerOnlyScreen(Updates), options: { title: "Shops" } },
+  CreateOrder: { screen: CreateOrder, options: { title: "Create order" } },
+  OrderList: { screen: OrderList, options: { title: "Orders" } },
+  RateChangeRequests: { screen: GenericPlannedScreen, options: { title: "Rate change requests" } },
+  PriceHistory: { screen: GenericPlannedScreen, options: { title: "Price history" } },
+  SalesList: { screen: SalesList, options: { title: "Sales" } },
+  SaleDetail: { screen: SaleDetail, options: { title: "Sale detail" } },
+  ChequeList: { screen: ChequeList, options: { title: "Cheques" } },
+  ChequeDetail: { screen: ChequeDetail, options: { title: "Cheque detail" } },
+  CustomerList: { screen: CustomerList, options: { title: "Customers" } },
+  AddEditCustomer: { screen: AddEditCustomer, options: { title: "Add/edit customer" } },
+  CustomerDetail: { screen: CustomerDetail, options: { title: "Customer detail" } },
+  CustomerOutstandingList: { screen: GenericPlannedScreen, options: { title: "Customer outstanding" } },
+  ItemList: { screen: ItemList, options: { title: "Items" } },
+  AddEditItem: { screen: ownerOnlyScreen(AddEditItem), options: { title: "Add/edit item" } },
+  ItemDetail: { screen: ItemDetail, options: { title: "Item detail" } },
+  StorageManagement: { screen: ownerOnlyScreen(StorageManagement), options: { title: "S3 Storage Management" } },
+  StockDashboard: { screen: StockDashboard, options: { title: "Stock dashboard" } },
+  CashSessionDetail: { screen: GenericPlannedScreen, options: { title: "Cash session detail" } },
+  CorrectionRequests: { screen: GenericPlannedScreen, options: { title: "Correction requests" } },
+  DailySummaryList: { screen: ownerOnlyScreen(DailySummaryList), options: { title: "Daily summaries" } },
+  StaffManagement: { screen: ownerOnlyScreen(StaffManagement), options: { title: "Staff management" } },
+  AddEditStaff: { screen: ownerOnlyScreen(AddEditStaff), options: { title: "Add/edit staff" } },
+  StaffDetail: { screen: ownerOnlyScreen(StaffDetail), options: { title: "Staff details" } },
+  AuditLog: { screen: ownerOnlyScreen(GenericPlannedScreen), options: { title: "Audit log" } },
+  Settings: { screen: Settings, options: { title: "Settings" } },
+  ManageCategories: { screen: ownerOnlyScreen(ManageCategories), options: { title: "Manage categories" } },
+  ManageBrands: { screen: ownerOnlyScreen(ManageBrands), options: { title: "Manage brands" } },
+  CopyCatalog: { screen: ownerOnlyScreen(CopyCatalog), options: { title: "Copy Catalog" } },
 };
 
 const StaffRootStack = createNativeStackNavigator({
   initialRouteName: "StaffTabs",
-  screenOptions: {
-    headerShown: false,
-  },
+  screenOptions: { headerShown: false },
   screens: {
-    StaffTabs: {
-      screen: StaffTabs,
-      options: {
-        title: "Staff",
-      },
-    },
+    StaffTabs: { screen: StaffTabs, options: { title: "Staff" } },
     ...sharedStackScreens,
   },
 });
 
 const OwnerRootStack = createNativeStackNavigator({
   initialRouteName: "OwnerTabs",
-  screenOptions: {
-    headerShown: false,
-  },
+  screenOptions: { headerShown: false },
   screens: {
-    OwnerTabs: {
-      screen: OwnerTabs,
-      options: {
-        title: "Owner",
-      },
-    },
+    OwnerTabs: { screen: OwnerTabs, options: { title: "Owner" } },
     ...sharedStackScreens,
   },
 });
@@ -668,11 +435,8 @@ export type OwnerTabParamList = {
 };
 
 export type RootStackParamList = {
-  // Tabs
   StaffTabs: NavigatorScreenParams<StaffTabParamList>;
   OwnerTabs: NavigatorScreenParams<OwnerTabParamList>;
-
-  // Shared Stack Screens
   NotFound: undefined;
   NotificationHistory: undefined;
   WalkInSale: { draftId?: string } | undefined;
@@ -754,6 +518,8 @@ export type RootStackParamList = {
     eventId?: string;
   };
   ContactBook: { shopId?: string; integrationId?: string } | undefined;
+  BroadcastList: { shopId?: string; integrationId?: string; phoneNumberId?: string } | undefined;
+  BroadcastComposer: { shopId?: string; integrationId?: string; phoneNumberId?: string } | undefined;
   TemplateLibrary: { shopId?: string; integrationId?: string } | undefined;
   TemplateEditor: { shopId?: string; integrationId?: string; templateId?: string } | undefined;
   FlowLibrary: { shopId?: string; integrationId?: string } | undefined;
