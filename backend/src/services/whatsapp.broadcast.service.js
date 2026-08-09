@@ -138,7 +138,7 @@ class WhatsAppBroadcastService {
     const template = await prisma.waTemplate.findFirst({
       where: {
         id: templateId,
-        shopId,
+        shopId: integration.shopId,
         status: "APPROVED",
         OR: [
           { integrationId: null },
@@ -205,23 +205,29 @@ class WhatsAppBroadcastService {
     const requestedCustomerIds = [...new Set(
       normalized.recipients.map((recipient) => recipient.customerId).filter(Boolean),
     )];
-    const validCustomerIds = requestedCustomerIds.length
-      ? new Set((await prisma.customer.findMany({
+    const customerPhones = requestedCustomerIds.length
+      ? new Map((await prisma.customer.findMany({
           where: { id: { in: requestedCustomerIds }, shopId, status: "ACTIVE" },
-          select: { id: true },
-        })).map((customer) => customer.id))
-      : new Set();
+          select: { id: true, phone: true },
+        })).map((customer) => [customer.id, normalizeRecipientPhone(customer.phone)]))
+      : new Map();
 
     const rows = normalized.recipients.map((recipient) => {
-      const customerId = recipient.customerId && validCustomerIds.has(recipient.customerId)
+      const customerId = recipient.customerId
+        && customerPhones.get(recipient.customerId) === recipient.phone
         ? recipient.customerId
         : null;
+      const source = customerId
+        ? "CUSTOMER"
+        : recipient.source === "CUSTOMER"
+          ? "DEVICE_CONTACT"
+          : recipient.source;
       return {
         broadcastId,
         customerId,
         customerName: recipient.name,
         customerPhone: recipient.phone,
-        source: customerId ? "CUSTOMER" : recipient.source,
+        source,
         sourceContactId: recipient.sourceContactId,
         status: "PENDING",
       };
