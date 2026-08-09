@@ -1,26 +1,19 @@
 import { sqliteClient } from "../../../database/sqlite-client";
-import { contactsDb, type LocalContact } from "./contactsDb";
+import type { LocalContact } from "./contactsDb";
 
 const CHUNK_SIZE = 350;
 
-async function ensureContactsDb() {
-  await contactsDb.getFilteredContactsCount({
-    searchQuery: "",
-    syncFilter: "ALL",
-    linkFilter: "ALL",
-    tagFilter: "ALL",
-    customerPhoneSuffixes: [],
-  });
+export interface LocalContactSelection {
+  contacts: LocalContact[];
+  missingIds: string[];
 }
 
 /**
- * Reads only the locally-selected rows from SQLite. This is used at the final
- * broadcast review step so the full phonebook never needs to be loaded into JS
- * or sent to the server.
+ * Reads only the locally-selected rows from SQLite. Non-empty IDs come from the
+ * local_contacts query itself, so no separate initialization scan is needed.
  */
-export async function getLocalContactsByIds(ids: string[]): Promise<LocalContact[]> {
-  if (ids.length === 0) return [];
-  await ensureContactsDb();
+export async function getLocalContactsByIds(ids: string[]): Promise<LocalContactSelection> {
+  if (ids.length === 0) return { contacts: [], missingIds: [] };
 
   const uniqueIds = [...new Set(ids)];
   const contacts: LocalContact[] = [];
@@ -37,7 +30,13 @@ export async function getLocalContactsByIds(ids: string[]): Promise<LocalContact
   }
 
   const order = new Map(uniqueIds.map((id, index) => [id, index]));
-  return contacts.sort((left, right) =>
+  contacts.sort((left, right) =>
     (order.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (order.get(right.id) ?? Number.MAX_SAFE_INTEGER),
   );
+  const foundIds = new Set(contacts.map((contact) => contact.id));
+
+  return {
+    contacts,
+    missingIds: uniqueIds.filter((id) => !foundIds.has(id)),
+  };
 }
