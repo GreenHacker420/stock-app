@@ -329,7 +329,7 @@ class WhatsAppBroadcastService {
         data: {
           status: broadcast.status,
           startedAt: null,
-          scheduledAt: broadcast.status === "SCHEDULED" ? undefined : null,
+          ...(broadcast.status === "DRAFT" ? { scheduledAt: null } : {}),
         },
       }).catch(() => undefined);
       throw error;
@@ -344,11 +344,15 @@ class WhatsAppBroadcastService {
     }
 
     return prisma.$transaction(async (tx) => {
-      await tx.waBroadcastRecipient.deleteMany({ where: { broadcastId } });
-      return tx.waBroadcast.update({
-        where: { id: broadcastId },
+      const cancelled = await tx.waBroadcast.updateMany({
+        where: { id: broadcastId, status: { in: ["DRAFT", "SCHEDULED"] } },
         data: { status: "CANCELLED", audienceCount: 0 },
       });
+      if (cancelled.count === 0) {
+        throw new ApiError(409, "Can only cancel draft or scheduled broadcasts");
+      }
+      await tx.waBroadcastRecipient.deleteMany({ where: { broadcastId } });
+      return tx.waBroadcast.findUnique({ where: { id: broadcastId } });
     });
   }
 
