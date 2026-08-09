@@ -1,14 +1,16 @@
+import crypto from "crypto";
 import prisma from "../lib/db.js";
+import { ApiError } from "../utils/ApiError.js";
 import { connection as redis } from "./whatsapp.queue.js";
 import { normalizePhone } from "./whatsapp.phone.js";
 
-const MAX_RECIPIENT_BATCH = 500;
+export const MAX_BROADCAST_RECIPIENT_BATCH = 500;
 
 function normalizeRecipientPhone(phone) {
   const normalized = normalizePhone(phone);
   const digits = normalized.replace(/\D/g, "");
   if (digits.length < 10 || digits.length > 15) return null;
-  return digits;
+  return `+${digits}`;
 }
 
 export function normalizeExplicitRecipients(recipients = []) {
@@ -27,6 +29,7 @@ export function normalizeExplicitRecipients(recipients = []) {
       duplicateCount += 1;
       continue;
     }
+
     seen.add(phone);
     normalized.push({
       phone,
@@ -129,7 +132,7 @@ class WhatsAppBroadcastService {
   }) {
     const integration = await resolveBroadcastIntegration(shopId, integrationId);
     if (!integration) {
-      throw new Error("No connected WhatsApp integration is available for this shop");
+      throw new ApiError(400, "No connected WhatsApp integration is available for this shop");
     }
 
     const template = await prisma.waTemplate.findFirst({
@@ -144,7 +147,7 @@ class WhatsAppBroadcastService {
       },
     });
     if (!template) {
-      throw new Error("Approved template not found for this shop and WhatsApp integration");
+      throw new ApiError(404, "Approved template not found for this shop and WhatsApp integration");
     }
 
     const filter = audienceFilter || { mode: "EXPLICIT" };
@@ -169,24 +172,24 @@ class WhatsAppBroadcastService {
   }
 
   /**
-   * Adds only the selected device/manual contacts to a draft campaign.
-   * The full phonebook never reaches the backend.
+   * Stores only the selected audience snapshot. createMany keeps the request
+   * bounded to a small, constant number of database operations.
    */
   async addRecipients(broadcastId, shopId, inputRecipients) {
     if (!Array.isArray(inputRecipients) || inputRecipients.length === 0) {
-      throw new Error("recipients must be a non-empty array");
+      throw new ApiError(400, "recipients must be a non-empty array");
     }
-    if (inputRecipients.length > MAX_RECIPIENT_BATCH) {
-      throw new Error(`A maximum of ${MAX_RECIPIENT_BATCH} recipients can be uploaded per request`);
+    if (inputRecipients.length > MAX_BROADCAST_RECIPIENT_BATCH) {
+      throw new ApiError(400, `A maximum of ${MAX_BROADCAST_RECIPIENT_BATCH} recipients can be uploaded per request`);
     }
 
     const broadcast = await prisma.waBroadcast.findFirst({
       where: { id: broadcastId, shopId },
-      select: { id: true, status: true, audienceFilter: true },
+      select: { id: true, status: true },
     });
-    if (!broadcast) throw new Error("Broadcast not found");
+    if (!broadcast) throw new ApiError(404, "Broadcast not found");
     if (broadcast.status !== "DRAFT") {
-      throw new Error("Recipients can only be changed while a broadcast is in draft");
+      throw new ApiError(409, "Recipients can only be changed while a broadcast is in draft");
     }
 
     const normalized = normalizeExplicitRecipients(inputRecipients);
@@ -209,73 +212,62 @@ class WhatsAppBroadcastService {
         })).map((customer) => customer.id))
       : new Set();
 
-    await prisma.$transaction(async (tx) => {
-      for (const recipient of normalized.recipients) {
-        const customerId = recipient.customerId && validCustomerIds.has(recipient.customerId)
-          ? recipient.customerId
-          : null;
-        const source = customerId ? "CUSTOMER" : recipient.source;
+    const rows = normalized.recipients.map((recipient) => {
+      const customerId = recipient.customerId && validCustomerIds.has(recipient.customerId)
+        ? recipient.customerId
+        : null;
+      return {
+        broadcastId,
+        customerId,
+        customerName: recipient.name,
+        customerPhone: recipient.phone,
+        source: customerId ? "CUSTOMER" : recipient.source,
+        sourceContactId: recipient.sourceContactId,
+        status: "PENDING",
+      };
+    });
 
-        await tx.waBroadcastRecipient.upsert({
-          where: {
-            broadcastId_customerPhone: {
-              broadcastId,
-              customerPhone: recipient.phone,
-            },
-          },
-          create: {
-            broadcastId,
-            customerId,
-            customerName: recipient.name,
-            customerPhone: recipient.phone,
-            source,
-            sourceContactId: recipient.sourceContactId,
-            status: "PENDING",
-          },
-          update: {
-            customerId,
-            customerName: recipient.name,
-            source,
-            sourceContactId: recipient.sourceContactId,
-            status: "PENDING",
-            errorMessage: null,
-            metaMessageId: null,
-            sentAt: null,
-            deliveredAt: null,
-            readAt: null,
-          },
-        });
-      }
-
+    const result = await prisma.$transaction(async (tx) => {
+      const created = await tx.waBroadcastRecipient.createMany({
+        data: rows,
+        skipDuplicates: true,
+      });
       const totalCount = await tx.waBroadcastRecipient.count({ where: { broadcastId } });
-      await tx.waBroadcast.update({
-        where: { id: broadcastId },
+      const updated = await tx.waBroadcast.updateMany({
+        where: { id: broadcastId, shopId, status: "DRAFT" },
         data: {
           audienceFilter: { mode: "EXPLICIT" },
           audienceCount: totalCount,
         },
       });
+      if (updated.count === 0) {
+        throw new ApiError(409, "Broadcast audience can no longer be changed");
+      }
+      return { createdCount: created.count, totalCount };
     });
 
-    const totalCount = await prisma.waBroadcastRecipient.count({ where: { broadcastId } });
     return {
-      acceptedCount: normalized.recipients.length,
+      acceptedCount: result.createdCount,
       invalidCount: normalized.invalidCount,
-      duplicateCount: normalized.duplicateCount,
-      totalCount,
+      duplicateCount: normalized.duplicateCount + rows.length - result.createdCount,
+      totalCount: result.totalCount,
     };
   }
 
   async scheduleBroadcast(broadcastId, scheduledAt) {
     const parsedDate = new Date(scheduledAt);
     if (Number.isNaN(parsedDate.getTime()) || parsedDate.getTime() <= Date.now()) {
-      throw new Error("Invalid schedule date. Must be in the future.");
+      throw new ApiError(400, "Invalid schedule date. Must be in the future.");
     }
 
-    return prisma.waBroadcast.update({
-      where: { id: broadcastId },
+    const scheduled = await prisma.waBroadcast.updateMany({
+      where: { id: broadcastId, status: "DRAFT" },
       data: { status: "SCHEDULED", scheduledAt: parsedDate },
     });
+    if (scheduled.count === 0) {
+      throw new ApiError(409, "Only draft broadcasts can be scheduled");
+    }
+    return prisma.waBroadcast.findUnique({ where: { id: broadcastId } });
   }
 
   async dispatchBroadcast(broadcastId) {
@@ -289,9 +281,9 @@ class WhatsAppBroadcastService {
       },
     });
 
-    if (!broadcast) throw new Error("Broadcast not found");
+    if (!broadcast) throw new ApiError(404, "Broadcast not found");
     if (!["DRAFT", "SCHEDULED"].includes(broadcast.status)) {
-      throw new Error(`Cannot dispatch broadcast in status: ${broadcast.status}`);
+      throw new ApiError(409, `Cannot dispatch broadcast in status: ${broadcast.status}`);
     }
 
     let audienceCount = broadcast.audienceCount;
@@ -300,16 +292,18 @@ class WhatsAppBroadcastService {
         where: { broadcastId, status: "PENDING" },
       });
       if (audienceCount === 0) {
-        throw new Error("Select at least one valid recipient before sending the broadcast");
+        throw new ApiError(400, "Select at least one valid recipient before sending the broadcast");
       }
     }
 
-    await prisma.waBroadcast.update({
-      where: { id: broadcastId },
+    const startedAt = new Date();
+    const runId = crypto.randomUUID();
+    const transition = await prisma.waBroadcast.updateMany({
+      where: { id: broadcastId, status: { in: ["DRAFT", "SCHEDULED"] } },
       data: {
         audienceCount,
         status: "SENDING",
-        startedAt: new Date(),
+        startedAt,
         completedAt: null,
         sentCount: 0,
         deliveredCount: 0,
@@ -318,18 +312,25 @@ class WhatsAppBroadcastService {
         skippedCount: 0,
       },
     });
+    if (transition.count === 0) {
+      throw new ApiError(409, "Broadcast is already dispatching");
+    }
 
     try {
       const { broadcastQueue } = await import("./whatsapp.queue.js");
       await broadcastQueue.add(
         "dispatch",
-        { broadcastId },
-        { jobId: `wa-broadcast-${broadcastId}-dispatch` },
+        { broadcastId, runId },
+        { jobId: `wa-broadcast-${broadcastId}-${runId}` },
       );
     } catch (error) {
-      await prisma.waBroadcast.update({
-        where: { id: broadcastId },
-        data: { status: "DRAFT", startedAt: null },
+      await prisma.waBroadcast.updateMany({
+        where: { id: broadcastId, status: "SENDING", startedAt },
+        data: {
+          status: broadcast.status,
+          startedAt: null,
+          scheduledAt: broadcast.status === "SCHEDULED" ? undefined : null,
+        },
       }).catch(() => undefined);
       throw error;
     }
@@ -337,14 +338,17 @@ class WhatsAppBroadcastService {
 
   async cancelBroadcast(broadcastId) {
     const broadcast = await prisma.waBroadcast.findUnique({ where: { id: broadcastId } });
-    if (!broadcast) throw new Error("Broadcast not found");
+    if (!broadcast) throw new ApiError(404, "Broadcast not found");
     if (!["DRAFT", "SCHEDULED"].includes(broadcast.status)) {
-      throw new Error("Can only cancel draft or scheduled broadcasts");
+      throw new ApiError(409, "Can only cancel draft or scheduled broadcasts");
     }
 
-    return prisma.waBroadcast.update({
-      where: { id: broadcastId },
-      data: { status: "CANCELLED" },
+    return prisma.$transaction(async (tx) => {
+      await tx.waBroadcastRecipient.deleteMany({ where: { broadcastId } });
+      return tx.waBroadcast.update({
+        where: { id: broadcastId },
+        data: { status: "CANCELLED", audienceCount: 0 },
+      });
     });
   }
 
@@ -368,7 +372,7 @@ class WhatsAppBroadcastService {
         template: { select: { id: true, name: true, language: true, category: true } },
       },
     });
-    if (!broadcast) throw new Error("Broadcast not found");
+    if (!broadcast) throw new ApiError(404, "Broadcast not found");
 
     let remaining = null;
     try {
