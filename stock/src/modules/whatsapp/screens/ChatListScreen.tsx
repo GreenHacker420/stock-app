@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { useCallback, useContext, useDeferredValue, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -25,13 +25,16 @@ import {
   type WaMessage,
 } from "../../../api/whatsapp.api";
 import { useAuthStore } from "../../../auth/auth-store";
+import { AppBottomSheetModal } from "../../../components/overlays/AppBottomSheetModal";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { SkeletonList } from "../../../components/ui/SkeletonCard";
-import { queryKeys } from "../../../hooks/query-keys";
 import { triggerLightHaptic } from "../../../utils/haptics";
 import { useWhatsAppConversations } from "../hooks/use-whatsapp-data";
 import { whatsappDb } from "../services/whatsapp-db";
-import { contactsDb } from "../services/contactsDb";
+import {
+  getFastChatContactNames,
+  loadChatContactNames,
+} from "../services/chat-contact-names";
 import { useWhatsAppScope } from "../whatsapp-scope";
 import { formatWhatsAppPhone, initials, waColors } from "../whatsapp-ui";
 import {
@@ -94,6 +97,9 @@ function DeliveryIcon({ message }: { message?: WaMessage }) {
     message.operationState === "WAITING_FOR_NETWORK"
     || message.operationState === "QUEUED"
     || message.operationState === "SUBMITTING"
+    || message.operationState === "PROCESSING"
+    || message.operationState === "RETRY_SCHEDULED"
+    || message.providerStatus === "PENDING"
   ) {
     return <MaterialCommunityIcons name="clock-outline" size={16} color={waColors.textMuted} />;
   }
@@ -125,32 +131,35 @@ export function ChatListScreen() {
   const [selected, setSelected] = useState<WaConversation | null>(null);
   const [showTools, setShowTools] = useState(false);
   const [deviceContactNames, setDeviceContactNames] = useState<Record<string, string>>({});
+  const deferredSearch = useDeferredValue(search.trim());
+
+  const conversationPhonesKey = useMemo(
+    () => [...new Set(query.conversations.map((conversation) => conversation.phone).filter(Boolean))]
+      .sort()
+      .join("\u0001"),
+    [query.conversations],
+  );
 
   useEffect(() => {
     let active = true;
-    const uniquePhones = [...new Set(query.conversations.map((conversation) => conversation.phone))];
-    Promise.all(
-      uniquePhones.map(async (phone) => ({
-        suffix: phoneSuffix(phone),
-        contact: await contactsDb.getContactByPhone(phone),
-      })),
-    )
-      .then((matches) => {
-        if (!active) return;
-        const nextNames: Record<string, string> = {};
-        for (const match of matches) {
-          const name = match.contact?.name?.trim();
-          if (match.suffix && name) nextNames[match.suffix] = name;
-        }
-        setDeviceContactNames(nextNames);
-      })
-      .catch(() => {
-        if (active) setDeviceContactNames({});
-      });
+    const phones = conversationPhonesKey ? conversationPhonesKey.split("\u0001") : [];
+    const fastNames = getFastChatContactNames(phones);
+    setDeviceContactNames(fastNames);
+
+    if (phones.length > 0) {
+      void loadChatContactNames(phones)
+        .then((names) => {
+          if (active) setDeviceContactNames(names);
+        })
+        .catch(() => {
+          // Keep the MMKV/in-memory names already rendered if SQLite hydration fails.
+        });
+    }
+
     return () => {
       active = false;
     };
-  }, [query.conversations]);
+  }, [conversationPhonesKey]);
 
   useEffect(() => {
     if (!isFocused || query.isPending) return;
@@ -159,10 +168,11 @@ export function ChatListScreen() {
       `conversations=${query.conversations.length}`,
     );
   }, [isFocused, query.conversations.length, query.isPending]);
+
   const messageSearch = useQuery({
-    queryKey: ["whatsapp", "local-search", shopId, integrationId, search.trim()],
-    enabled: search.trim().length >= 2,
-    queryFn: () => whatsappDb.searchMessages(shopId, integrationId, search),
+    queryKey: ["whatsapp", "local-search", shopId, integrationId, deferredSearch],
+    enabled: deferredSearch.length >= 2,
+    queryFn: () => whatsappDb.searchMessages(shopId, integrationId, deferredSearch),
     staleTime: 5_000,
   });
   const matchedConversationIds = useMemo(
@@ -270,14 +280,22 @@ export function ChatListScreen() {
     onError: (error) => Alert.alert("Couldn’t update chat", error.message),
   });
 
-  const counts = useMemo(() => ({
-    unread: query.conversations.filter((conversation) => conversation.unreadCount > 0).length,
-    assigned: query.conversations.filter((conversation) => conversation.assignedToId === currentUser?.id).length,
-    archived: query.conversations.filter((conversation) => conversation.isArchived).length,
-  }), [currentUser?.id, query.conversations]);
+  const counts = useMemo(() => query.conversations.reduce(
+    (summary, conversation) => {
+      if (conversation.isArchived) {
+        summary.archived += 1;
+        return summary;
+      }
+      summary.all += 1;
+      if (conversation.unreadCount > 0) summary.unread += 1;
+      if (conversation.assignedToId === currentUser?.id) summary.assigned += 1;
+      return summary;
+    },
+    { all: 0, unread: 0, assigned: 0, archived: 0 },
+  ), [currentUser?.id, query.conversations]);
 
   const conversations = useMemo(() => {
-    const needle = search.trim().toLocaleLowerCase();
+    const needle = deferredSearch.toLocaleLowerCase();
     const filtered = query.conversations.filter((conversation) => {
       if (conversation.isArchived !== showArchived) return false;
       if (filter === "UNREAD" && conversation.unreadCount === 0) return false;
@@ -296,14 +314,20 @@ export function ChatListScreen() {
     return [...filtered].sort((a, b) => {
       const aPinned = a.isPinned ? 1 : 0;
       const bPinned = b.isPinned ? 1 : 0;
-      if (aPinned !== bPinned) {
-        return bPinned - aPinned;
-      }
+      if (aPinned !== bPinned) return bPinned - aPinned;
       const aTime = new Date(a.updatedAt || a.lastCustomerMessageAt || 0).getTime();
       const bTime = new Date(b.updatedAt || b.lastCustomerMessageAt || 0).getTime();
       return bTime - aTime;
     });
-  }, [currentUser?.id, deviceContactNames, filter, matchedConversationIds, query.conversations, search, showArchived]);
+  }, [
+    currentUser?.id,
+    deferredSearch,
+    deviceContactNames,
+    filter,
+    matchedConversationIds,
+    query.conversations,
+    showArchived,
+  ]);
 
   const openConversation = useCallback((conversation: WaConversation) => {
     startWhatsAppOpenMeasurement(conversation.id);
@@ -375,6 +399,24 @@ export function ChatListScreen() {
     );
   }, [deviceContactNames, openConversation]);
 
+  const listContentStyle = useMemo(
+    () => ({ paddingBottom: tabBarHeight + 94 }),
+    [tabBarHeight],
+  );
+  const handleEndReached = useCallback(() => {
+    if (query.hasNextPage && !query.isFetchingNextPage) {
+      void query.fetchNextPage();
+    }
+  }, [query.fetchNextPage, query.hasNextPage, query.isFetchingNextPage]);
+  const handleListLoad = useCallback(({ elapsedTimeInMs }: { elapsedTimeInMs: number }) => {
+    if (isFocused) {
+      markWhatsAppListMeasurement(
+        "list-drawn",
+        `flashList=${Math.round(elapsedTimeInMs)}`,
+      );
+    }
+  }, [isFocused]);
+
   return (
     <View style={styles.screen}>
       <View style={styles.topPanel}>
@@ -403,9 +445,10 @@ export function ChatListScreen() {
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.filters}
+          keyboardShouldPersistTaps="handled"
         >
           {([
-            ["ALL", "All", query.conversations.filter((item) => !item.isArchived).length],
+            ["ALL", "All", counts.all],
             ["UNREAD", "Unread", counts.unread],
             ["ASSIGNED", "Assigned to me", counts.assigned],
           ] as const).map(([value, label, count]) => {
@@ -413,6 +456,8 @@ export function ChatListScreen() {
             return (
               <Pressable
                 key={value}
+                accessibilityRole="button"
+                accessibilityState={{ selected: active }}
                 onPress={() => {
                   triggerLightHaptic();
                   setFilter(value);
@@ -471,14 +516,7 @@ export function ChatListScreen() {
           keyExtractor={(item) => item.id}
           keyboardShouldPersistTaps="handled"
           contentInsetAdjustmentBehavior="automatic"
-          onLoad={({ elapsedTimeInMs }) => {
-            if (isFocused) {
-              markWhatsAppListMeasurement(
-                "list-drawn",
-                `flashList=${Math.round(elapsedTimeInMs)}`,
-              );
-            }
-          }}
+          onLoad={handleListLoad}
           refreshControl={
             <RefreshControl
               refreshing={query.isRefetching && !query.isFetchingNextPage}
@@ -486,12 +524,8 @@ export function ChatListScreen() {
               tintColor={waColors.green}
             />
           }
-          contentContainerStyle={{ paddingBottom: tabBarHeight + 94 }}
-          onEndReached={() => {
-            if (query.hasNextPage && !query.isFetchingNextPage) {
-              void query.fetchNextPage();
-            }
-          }}
+          contentContainerStyle={listContentStyle}
+          onEndReached={handleEndReached}
           onEndReachedThreshold={0.35}
           ListFooterComponent={
             query.isFetchingNextPage
@@ -500,10 +534,10 @@ export function ChatListScreen() {
           }
           ListEmptyComponent={
             <EmptyState
-              icon={search ? "magnify-close" : showArchived ? "archive-outline" : "message-text-outline"}
-              title={search ? "No matching conversations" : showArchived ? "No archived chats" : "Your inbox is ready"}
+              icon={deferredSearch ? "magnify-close" : showArchived ? "archive-outline" : "message-text-outline"}
+              title={deferredSearch ? "No matching conversations" : showArchived ? "No archived chats" : "Your inbox is ready"}
               subtitle={
-                search
+                deferredSearch
                   ? "Try another name, phone number, or message."
                   : "Start a conversation or wait for a customer to message your business."
               }
@@ -549,93 +583,87 @@ export function ChatListScreen() {
         </Pressable>
       </Modal>
 
-      <Modal visible={Boolean(selected)} transparent animationType="slide" onRequestClose={() => setSelected(null)}>
-        <Pressable style={styles.overlayBottom} onPress={() => setSelected(null)}>
-          <Pressable style={styles.actionSheet} onPress={(event) => event.stopPropagation()}>
-            <View style={styles.grabber} />
+      <AppBottomSheetModal
+        visible={Boolean(selected)}
+        onDismiss={() => setSelected(null)}
+        title="Chat options"
+        subtitle={selected ? formatWhatsAppPhone(selected.phone) : undefined}
+        maxHeight={0.58}
+        isBusy={archiveMutation.isPending || deleteMutation.isPending || controlMutation.isPending}
+      >
+        {selected ? (
+          <View style={styles.actionSheetContent}>
             <View style={styles.sheetContact}>
-              <View style={[styles.sheetAvatar, { backgroundColor: avatarColor(selected?.phone || "") }]}>
+              <View style={[styles.sheetAvatar, { backgroundColor: avatarColor(selected.phone) }]}>
                 <Text style={styles.sheetAvatarText}>
-                  {initials(selected?.contactName || selected?.phone)}
+                  {initials(deviceContactNames[phoneSuffix(selected.phone)] || selected.contactName || selected.phone)}
                 </Text>
               </View>
               <View style={styles.sheetContactText}>
-                <Text style={styles.sheetTitle}>{selected?.contactName || selected?.phone}</Text>
-                <Text style={styles.sheetSubtitle}>{formatWhatsAppPhone(selected?.phone)}</Text>
+                <Text style={styles.sheetTitle} numberOfLines={1}>
+                  {deviceContactNames[phoneSuffix(selected.phone)] || selected.contactName || selected.phone}
+                </Text>
+                <Text style={styles.sheetSubtitle}>{formatWhatsAppPhone(selected.phone)}</Text>
               </View>
             </View>
             <Pressable
               style={styles.sheetAction}
-              onPress={() => selected && controlMutation.mutate({
-                kind: "pin",
-                conversation: selected,
-              })}
+              onPress={() => controlMutation.mutate({ kind: "pin", conversation: selected })}
             >
               <MaterialCommunityIcons
-                name={selected?.isPinned ? "pin-off-outline" : "pin-outline"}
+                name={selected.isPinned ? "pin-off-outline" : "pin-outline"}
+                size={23}
+                color={waColors.text}
+              />
+              <Text style={styles.sheetActionText}>{selected.isPinned ? "Unpin chat" : "Pin chat"}</Text>
+            </Pressable>
+            <Pressable
+              style={styles.sheetAction}
+              onPress={() => controlMutation.mutate({ kind: "mute", conversation: selected })}
+            >
+              <MaterialCommunityIcons
+                name={selected.isMuted ? "bell-outline" : "bell-off-outline"}
                 size={23}
                 color={waColors.text}
               />
               <Text style={styles.sheetActionText}>
-                {selected?.isPinned ? "Unpin chat" : "Pin chat"}
+                {selected.isMuted ? "Unmute notifications" : "Mute notifications"}
               </Text>
             </Pressable>
             <Pressable
               style={styles.sheetAction}
-              onPress={() => selected && controlMutation.mutate({
-                kind: "mute",
-                conversation: selected,
-              })}
+              onPress={() => archiveMutation.mutate({ id: selected.id, archive: !selected.isArchived })}
             >
               <MaterialCommunityIcons
-                name={selected?.isMuted ? "bell-outline" : "bell-off-outline"}
+                name={selected.isArchived ? "archive-arrow-up-outline" : "archive-arrow-down-outline"}
                 size={23}
                 color={waColors.text}
               />
               <Text style={styles.sheetActionText}>
-                {selected?.isMuted ? "Unmute notifications" : "Mute notifications"}
+                {selected.isArchived ? "Move to chats" : "Archive chat"}
               </Text>
             </Pressable>
             <Pressable
               style={styles.sheetAction}
-              onPress={() => selected && archiveMutation.mutate({
-                id: selected.id,
-                archive: !selected.isArchived,
-              })}
-            >
-              <MaterialCommunityIcons
-                name={selected?.isArchived ? "archive-arrow-up-outline" : "archive-arrow-down-outline"}
-                size={23}
-                color={waColors.text}
-              />
-              <Text style={styles.sheetActionText}>
-                {selected?.isArchived ? "Move to chats" : "Archive chat"}
-              </Text>
-            </Pressable>
-            <Pressable
-              style={styles.sheetAction}
-              onPress={() => {
-                if (!selected) return;
-                Alert.alert(
-                  "Delete conversation?",
-                  "This removes the conversation from ShopControl. This cannot be undone.",
-                  [
-                    { text: "Cancel", style: "cancel" },
-                    {
-                      text: "Delete",
-                      style: "destructive",
-                      onPress: () => deleteMutation.mutate(selected.id),
-                    },
-                  ],
-                );
-              }}
+              onPress={() => Alert.alert(
+                "Delete conversation?",
+                "This removes the conversation from ShopControl. This cannot be undone.",
+                [
+                  { text: "Cancel", style: "cancel" },
+                  {
+                    text: "Delete",
+                    style: "destructive",
+                    onPress: () => deleteMutation.mutate(selected.id),
+                  },
+                ],
+              )}
             >
               <MaterialCommunityIcons name="trash-can-outline" size={23} color={waColors.danger} />
               <Text style={[styles.sheetActionText, styles.destructiveText]}>Delete conversation</Text>
             </Pressable>
-          </Pressable>
-        </Pressable>
-      </Modal>
+          </View>
+        ) : null}
+      </AppBottomSheetModal>
     </View>
   );
 }
@@ -787,17 +815,8 @@ const styles = StyleSheet.create({
   },
   toolItem: { minHeight: 52, paddingHorizontal: 16, flexDirection: "row", alignItems: "center", gap: 13 },
   toolText: { color: waColors.text, fontSize: 15, fontWeight: "600" },
-  overlayBottom: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(15,23,42,0.42)" },
-  actionSheet: {
-    paddingHorizontal: 18,
-    paddingTop: 9,
-    paddingBottom: 34,
-    borderTopLeftRadius: 28,
-    borderTopRightRadius: 28,
-    backgroundColor: "#fff",
-  },
-  grabber: { width: 42, height: 5, alignSelf: "center", borderRadius: 3, backgroundColor: "#d5ddda" },
-  sheetContact: { minHeight: 78, flexDirection: "row", alignItems: "center", gap: 12 },
+  actionSheetContent: { paddingHorizontal: 12, paddingBottom: 10 },
+  sheetContact: { minHeight: 72, flexDirection: "row", alignItems: "center", gap: 12 },
   sheetAvatar: { width: 46, height: 46, borderRadius: 16, alignItems: "center", justifyContent: "center" },
   sheetAvatarText: { color: "#fff", fontSize: 16, fontWeight: "800" },
   sheetContactText: { flex: 1 },
