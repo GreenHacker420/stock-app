@@ -1,5 +1,4 @@
 import { Worker } from "bullmq";
-import Redis from "ioredis";
 import axios from "axios";
 import prisma from "../../lib/db.js";
 import { getWaCredentials } from "../../lib/wa-cache.js";
@@ -9,139 +8,270 @@ import { publishWhatsAppEvent } from "../../utils/realtime.js";
 const API_VERSION = "v25.0";
 const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
 
-/**
- * Decrements Redis counter and checks if broadcast is complete.
- */
-async function decrementCounter(broadcastId) {
-  const remaining = await connection.decr(`broadcast:${broadcastId}:remaining`);
-  if (remaining <= 0) {
-    const counts = await prisma.waBroadcastRecipient.groupBy({
-      by: ["status"],
-      where: { broadcastId },
-      _count: { id: true },
+function recipientValue(value, recipient) {
+  if (value == null) return "";
+  const name = recipient.customerName || recipient.customerPhone;
+  return String(value)
+    .replaceAll("{{recipient.name}}", name)
+    .replaceAll("{{recipient.phone}}", recipient.customerPhone);
+}
+
+function headerFormat(template) {
+  const components = Array.isArray(template.components) ? template.components : [];
+  return components.find((component) => String(component?.type || "").toUpperCase() === "HEADER")?.format?.toUpperCase();
+}
+
+async function resolveHeaderMedia(broadcast, template) {
+  const variables = broadcast.templateVariables || {};
+  const assetId = variables.headerAssetId;
+  const format = headerFormat(template);
+  if (!assetId || !["IMAGE", "VIDEO", "DOCUMENT"].includes(format)) return null;
+
+  const asset = await prisma.asset.findFirst({
+    where: {
+      id: assetId,
+      shopId: broadcast.shopId,
+      status: "READY",
+      kind: format,
+    },
+    select: {
+      externalProvider: true,
+      externalId: true,
+      fileName: true,
+    },
+  });
+  if (!asset?.externalId || asset.externalProvider !== "META_WHATSAPP") {
+    throw new Error("Broadcast header media is not available in WhatsApp");
+  }
+
+  const type = format.toLowerCase();
+  return {
+    type,
+    [type]: {
+      id: asset.externalId,
+      ...(format === "DOCUMENT"
+        ? { filename: variables.headerFileName || asset.fileName || "document" }
+        : {}),
+    },
+  };
+}
+
+async function buildTemplatePayload(broadcast, template, recipient) {
+  const variables = broadcast.templateVariables || {};
+  const components = [];
+  const mediaParameter = await resolveHeaderMedia(broadcast, template);
+
+  if (mediaParameter) {
+    components.push({ type: "header", parameters: [mediaParameter] });
+  } else if (Array.isArray(variables.header) && variables.header.length > 0) {
+    components.push({
+      type: "header",
+      parameters: variables.header.map((value) => ({
+        type: "text",
+        text: recipientValue(value, recipient),
+      })),
     });
+  }
 
-    const stats = {
-      sent: 0,
-      delivered: 0,
-      read: 0,
-      failed: 0,
-      skipped: 0,
-    };
-
-    counts.forEach((c) => {
-      const status = c.status;
-      const count = c._count.id;
-      if (status === "SENT") stats.sent += count;
-      if (status === "DELIVERED") stats.delivered += count;
-      if (status === "READ") stats.read += count;
-      if (status === "FAILED") stats.failed += count;
-      if (status === "SKIPPED") stats.skipped += count;
+  if (Array.isArray(variables.body) && variables.body.length > 0) {
+    components.push({
+      type: "body",
+      parameters: variables.body.map((value) => ({
+        type: "text",
+        text: recipientValue(value, recipient),
+      })),
     });
+  }
 
-    await prisma.waBroadcast.update({
-      where: { id: broadcastId },
+  return {
+    messaging_product: "whatsapp",
+    recipient_type: "individual",
+    to: recipient.customerPhone,
+    type: "template",
+    template: {
+      name: template.name,
+      language: { code: template.language },
+      ...(components.length > 0 ? { components } : {}),
+    },
+  };
+}
+
+async function ensureConversation(broadcast, integration, recipient) {
+  let conversation = await prisma.waConversation.findFirst({
+    where: {
+      integrationId: integration.id,
+      phone: recipient.customerPhone,
+    },
+  });
+
+  if (!conversation) {
+    conversation = await prisma.waConversation.create({
       data: {
-        status: "COMPLETED",
-        completedAt: new Date(),
-        sentCount: stats.sent + stats.delivered + stats.read,
-        deliveredCount: stats.delivered + stats.read,
-        readCount: stats.read,
-        failedCount: stats.failed,
-        skippedCount: stats.skipped,
-        updatedAt: new Date(),
+        shopId: integration.shopId,
+        integrationId: integration.id,
+        contextShopId: broadcast.shopId,
+        phone: recipient.customerPhone,
+        contactName: recipient.customerName || null,
+        customerId: integration.shopId === broadcast.shopId ? recipient.customerId : null,
+        unreadCount: 0,
+      },
+    });
+  } else {
+    conversation = await prisma.waConversation.update({
+      where: { id: conversation.id },
+      data: {
+        contextShopId: broadcast.shopId,
+        contactName: conversation.contactName || recipient.customerName || undefined,
+        ...(integration.shopId === broadcast.shopId && !conversation.customerId && recipient.customerId
+          ? { customerId: recipient.customerId }
+          : {}),
+      },
+    });
+  }
+
+  if (recipient.customerId) {
+    await prisma.waConversationCustomerLink.upsert({
+      where: {
+        conversationId_shopId: {
+          conversationId: conversation.id,
+          shopId: broadcast.shopId,
+        },
+      },
+      create: {
+        conversationId: conversation.id,
+        shopId: broadcast.shopId,
+        customerId: recipient.customerId,
+      },
+      update: { customerId: recipient.customerId },
+    });
+  }
+
+  return conversation;
+}
+
+async function finalizeBroadcastIfDone(broadcastId) {
+  const remaining = await connection.decr(`broadcast:${broadcastId}:remaining`);
+  if (remaining > 0) return;
+
+  const counts = await prisma.waBroadcastRecipient.groupBy({
+    by: ["status"],
+    where: { broadcastId },
+    _count: { id: true },
+  });
+  const byStatus = Object.fromEntries(counts.map((entry) => [entry.status, entry._count.id]));
+
+  await prisma.waBroadcast.updateMany({
+    where: { id: broadcastId, status: "SENDING" },
+    data: {
+      status: "COMPLETED",
+      completedAt: new Date(),
+      sentCount: (byStatus.SENT || 0) + (byStatus.DELIVERED || 0) + (byStatus.READ || 0),
+      deliveredCount: (byStatus.DELIVERED || 0) + (byStatus.READ || 0),
+      readCount: byStatus.READ || 0,
+      failedCount: byStatus.FAILED || 0,
+      skippedCount: byStatus.SKIPPED || 0,
+    },
+  });
+  await connection.del(`broadcast:${broadcastId}:remaining`);
+}
+
+async function recordTerminalFailure({ broadcast, recipient, conversation, template, errorMessage }) {
+  await prisma.$transaction(async (tx) => {
+    await tx.waBroadcastRecipient.update({
+      where: { id: recipient.id },
+      data: {
+        status: "FAILED",
+        errorMessage,
       },
     });
 
-    await connection.del(`broadcast:${broadcastId}:remaining`);
-    console.log(`[Broadcast Send Worker] Broadcast ${broadcastId} marked COMPLETED.`);
-  }
+    await tx.waMessage.upsert({
+      where: {
+        conversationId_clientMessageId: {
+          conversationId: conversation.id,
+          clientMessageId: `broadcast:${broadcast.id}:${recipient.id}`,
+        },
+      },
+      create: {
+        conversationId: conversation.id,
+        contextShopId: broadcast.shopId,
+        clientMessageId: `broadcast:${broadcast.id}:${recipient.id}`,
+        direction: "OUTBOUND",
+        status: "FAILED",
+        operationState: "TERMINALLY_FAILED",
+        providerStatus: "FAILED",
+        providerStatusAt: new Date(),
+        type: "TEMPLATE",
+        content: { template: { name: template.name, language: template.language } },
+        templateId: template.id,
+        templateName: template.name,
+        templateLanguage: template.language,
+        broadcastRecipientId: recipient.id,
+        errorMessage,
+        failedAt: new Date(),
+      },
+      update: {
+        status: "FAILED",
+        operationState: "TERMINALLY_FAILED",
+        providerStatus: "FAILED",
+        providerStatusAt: new Date(),
+        broadcastRecipientId: recipient.id,
+        errorMessage,
+        failedAt: new Date(),
+        entityVersion: { increment: 1 },
+      },
+    });
+  });
 }
 
 export function startBroadcastSendWorker() {
   const worker = new Worker(
     "whatsapp-broadcast-send",
     async (job) => {
-      const { broadcastId, shopId, customerId, customerPhone, templateId, templateVariables } = job.data;
-      console.log(`[Broadcast Send Worker] Processing recipient send for customer ${customerId} (phone ${customerPhone})`);
+      const { broadcastId, recipientId } = job.data;
 
-      const credentials = await getWaCredentials(shopId);
-      if (!credentials) {
-        throw new Error(`WhatsApp credentials not found for shop ${shopId}`);
+      const recipient = await prisma.waBroadcastRecipient.findFirst({
+        where: { id: recipientId, broadcastId },
+      });
+      if (!recipient) {
+        console.warn(`[Broadcast Send] Recipient ${recipientId} not found for ${broadcastId}`);
+        await finalizeBroadcastIfDone(broadcastId);
+        return;
+      }
+      if (["SENT", "DELIVERED", "READ", "SKIPPED"].includes(recipient.status)) {
+        return;
       }
 
-      // 1. Get Template Details
-      const template = await prisma.waTemplate.findUnique({
-        where: { id: templateId },
+      const broadcast = await prisma.waBroadcast.findUnique({
+        where: { id: broadcastId },
+        include: { template: true },
       });
-
-      if (!template) {
-        throw new Error(`Template not found for ID: ${templateId}`);
+      if (!broadcast || broadcast.status !== "SENDING" || !broadcast.template) {
+        throw new Error(`Broadcast ${broadcastId} is not sendable`);
       }
 
-      // 2. Find or Create Conversation
-      let conversation = await prisma.waConversation.findFirst({
-        where: {
-          integrationId: credentials.id,
-          phone: customerPhone,
-        },
-      });
-      conversation = conversation
-        ? await prisma.waConversation.update({
-            where: { id: conversation.id },
-            data: { updatedAt: new Date() },
+      const integration = broadcast.integrationId
+        ? await prisma.waIntegration.findUnique({
+            where: { id: broadcast.integrationId },
+            select: { id: true, shopId: true, status: true },
           })
-        : await prisma.waConversation.create({
-            data: {
-              shopId,
-              integrationId: credentials.id,
-              contextShopId: shopId,
-              phone: customerPhone,
-              unreadCount: 0,
-            },
+        : await prisma.waIntegration.findUnique({
+            where: { shopId: broadcast.shopId },
+            select: { id: true, shopId: true, status: true },
           });
-
-      // Link customer to conversation if not already linked
-      if (!conversation.customerId) {
-        conversation = await prisma.waConversation.update({
-          where: { id: conversation.id },
-          data: { customerId },
-        });
+      if (!integration || integration.status !== "CONNECTED") {
+        throw new Error("WhatsApp integration is not connected");
       }
 
-      // 3. Prepare Meta Send Payload
-      const payload = {
-        messaging_product: "whatsapp",
-        recipient_type: "individual",
-        to: customerPhone,
-        type: "template",
-        template: {
-          name: template.name,
-          language: {
-            code: template.language,
-          },
-        },
-      };
-
-      // If there are template variables, format them for components:
-      if (templateVariables && (templateVariables.body || templateVariables.header)) {
-        payload.template.components = [];
-        if (templateVariables.header) {
-          payload.template.components.push({
-            type: "header",
-            parameters: templateVariables.header.map((val) => ({ type: "text", text: String(val) })),
-          });
-        }
-        if (templateVariables.body) {
-          payload.template.components.push({
-            type: "body",
-            parameters: templateVariables.body.map((val) => ({ type: "text", text: String(val) })),
-          });
-        }
+      const credentials = await getWaCredentials(integration.shopId);
+      if (!credentials || credentials.id !== integration.id) {
+        throw new Error("WhatsApp credentials are unavailable for the broadcast integration");
       }
+
+      const conversation = await ensureConversation(broadcast, integration, recipient);
+      const payload = await buildTemplatePayload(broadcast, broadcast.template, recipient);
 
       try {
-        // 4. Send Message to Meta
         const response = await axios.post(
           `${BASE_URL}/${credentials.phoneNumberId}/messages`,
           payload,
@@ -150,105 +280,108 @@ export function startBroadcastSendWorker() {
               Authorization: `Bearer ${credentials.accessToken}`,
               "Content-Type": "application/json",
             },
-          }
+          },
         );
-
         const metaMessageId = response.data.messages?.[0]?.id;
+        if (!metaMessageId) throw new Error("WhatsApp did not return a message id");
+        const now = new Date();
 
-        // 5. Update Recipient Record
-        const recipient = await prisma.waBroadcastRecipient.update({
-          where: {
-            broadcastId_customerId: {
-              broadcastId,
-              customerId,
+        const message = await prisma.$transaction(async (tx) => {
+          await tx.waBroadcastRecipient.update({
+            where: { id: recipient.id },
+            data: {
+              status: "SENT",
+              metaMessageId,
+              sentAt: now,
+              errorMessage: null,
             },
-          },
-          data: {
-            status: "SENT",
-            metaMessageId,
-            sentAt: new Date(),
-          },
+          });
+
+          return tx.waMessage.upsert({
+            where: {
+              conversationId_clientMessageId: {
+                conversationId: conversation.id,
+                clientMessageId: `broadcast:${broadcast.id}:${recipient.id}`,
+              },
+            },
+            create: {
+              conversationId: conversation.id,
+              contextShopId: broadcast.shopId,
+              clientMessageId: `broadcast:${broadcast.id}:${recipient.id}`,
+              metaMessageId,
+              direction: "OUTBOUND",
+              status: "SENT",
+              operationState: "COMPLETED",
+              providerStatus: "SENT",
+              providerStatusAt: now,
+              type: "TEMPLATE",
+              content: { template: { name: broadcast.template.name, language: broadcast.template.language } },
+              payload: { broadcastId: broadcast.id },
+              templateId: broadcast.template.id,
+              templateName: broadcast.template.name,
+              templateLanguage: broadcast.template.language,
+              broadcastRecipientId: recipient.id,
+              createdAt: now,
+            },
+            update: {
+              metaMessageId,
+              status: "SENT",
+              operationState: "COMPLETED",
+              providerStatus: "SENT",
+              providerStatusAt: now,
+              broadcastRecipientId: recipient.id,
+              errorMessage: null,
+              entityVersion: { increment: 1 },
+            },
+          });
         });
 
-        // 6. Create Outbound WaMessage record in DB
-        const message = await prisma.waMessage.create({
-          data: {
-            conversationId: conversation.id,
-            metaMessageId,
-            direction: "OUTBOUND",
-            status: "SENT",
-            type: "TEMPLATE",
-            content: { template: { name: template.name, language: template.language } },
-            templateId: template.id,
-            templateName: template.name,
-            templateLanguage: template.language,
-            broadcastRecipientId: recipient.id,
-            createdAt: new Date(),
-          },
-        });
-
-        // Notify client UI
-        await publishWhatsAppEvent(shopId, "wa:status_updated", {
+        await publishWhatsAppEvent(broadcast.shopId, "wa:status_updated", {
           messageId: message.id,
           conversationId: conversation.id,
           status: "SENT",
         });
+        await finalizeBroadcastIfDone(broadcast.id);
+      } catch (error) {
+        const errorMessage = error.response?.data?.error?.message || error.message || "Broadcast send failed";
+        const maxAttempts = job.opts.attempts || 3;
+        const terminalAttempt = job.attemptsMade + 1 >= maxAttempts;
+        console.error(`[Broadcast Send] ${recipient.customerPhone} failed (${job.attemptsMade + 1}/${maxAttempts}):`, errorMessage);
 
-      } catch (sendErr) {
-        const errMsg = sendErr.response?.data?.error?.message || sendErr.message;
-        console.error(`[Broadcast Send Worker] Failed to send to ${customerPhone}:`, errMsg);
+        if (!terminalAttempt) {
+          await prisma.waBroadcastRecipient.updateMany({
+            where: { id: recipient.id, status: "PENDING" },
+            data: { errorMessage },
+          });
+          throw error;
+        }
 
-        // Update Recipient Record with failure status
-        await prisma.waBroadcastRecipient.update({
-          where: {
-            broadcastId_customerId: {
-              broadcastId,
-              customerId,
-            },
-          },
-          data: {
-            status: "FAILED",
-            errorMessage: errMsg,
-          },
+        await recordTerminalFailure({
+          broadcast,
+          recipient,
+          conversation,
+          template: broadcast.template,
+          errorMessage,
         });
-
-        // Create FAILED WaMessage local record for tracking
-        await prisma.waMessage.create({
-          data: {
-            conversationId: conversation.id,
-            direction: "OUTBOUND",
-            status: "FAILED",
-            type: "TEMPLATE",
-            content: { template: { name: template.name, language: template.language } },
-            templateId: template.id,
-            templateName: template.name,
-            templateLanguage: template.language,
-            errorMessage: errMsg,
-            failedAt: new Date(),
-            createdAt: new Date(),
-          },
-        });
-      } finally {
-        // 7. Decrement counter and update broadcast lifecycle state
-        await decrementCounter(broadcastId);
+        await finalizeBroadcastIfDone(broadcast.id);
       }
     },
     {
       connection,
       concurrency: 10,
-    }
+      limiter: {
+        max: 60,
+        duration: 1000,
+      },
+    },
   );
 
   worker.on("completed", (job) => {
-    console.log(`[Broadcast Send Worker] Job ${job.id} completed successfully`);
+    console.log(`[Broadcast Send] Job ${job.id} completed`);
   });
 
-  worker.on("failed", async (job, err) => {
-    console.error(`[Broadcast Send Worker] Job ${job.id} failed:`, err.message);
-    if (job) {
-      const { broadcastId } = job.data;
-      await decrementCounter(broadcastId);
-    }
+  worker.on("failed", (job, error) => {
+    console.error(`[Broadcast Send] Job ${job?.id} scheduled for retry or failed:`, error.message);
   });
 
   return worker;
