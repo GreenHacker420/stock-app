@@ -3,6 +3,7 @@ import axios from "axios";
 import prisma from "../../lib/db.js";
 import { getWaCredentials } from "../../lib/wa-cache.js";
 import { connection } from "../../services/whatsapp.queue.js";
+import { reserveWhatsAppSendSlot } from "../../services/whatsapp.rate-limit.js";
 import { publishWhatsAppEvent } from "../../utils/realtime.js";
 
 const API_VERSION = "v25.0";
@@ -274,6 +275,7 @@ export function startBroadcastSendWorker() {
           throw new UnrecoverableError("WhatsApp credentials are unavailable for the broadcast integration");
         }
 
+        await reserveWhatsAppSendSlot(integration.shopId, `broadcast:${job.id}`);
         conversation = await ensureConversation(broadcast, integration, recipient);
         const payload = await buildTemplatePayload(broadcast, broadcast.template, recipient);
         const response = await axios.post(
@@ -376,10 +378,6 @@ export function startBroadcastSendWorker() {
     {
       connection,
       concurrency: 10,
-      limiter: {
-        max: 60,
-        duration: 1000,
-      },
     },
   );
 
