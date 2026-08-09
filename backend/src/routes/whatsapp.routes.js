@@ -18,6 +18,7 @@ import {
   MAX_BROADCAST_RECIPIENT_BATCH,
   whatsappBroadcastService,
 } from "../services/whatsapp.broadcast.service.js";
+import { linkWhatsAppConversationCustomer } from "../services/whatsapp.customer-link.service.js";
 import { validate } from "../middleware/validate.js";
 import { z } from "zod";
 import multer from "multer";
@@ -39,6 +40,18 @@ router.get("/flow-endpoint/:shopId", whatsappFlowEndpointController.verifyWebhoo
 router.post("/flow-endpoint/:shopId", whatsappFlowEndpointController.handleFlowRequest);
 router.get("/onboarding/launch/:sessionId", whatsappOnboardingController.launchSession);
 router.post("/onboarding/sessions/:sessionId/complete", whatsappOnboardingController.completeSession);
+
+const conversationCustomerLinkSchema = z.object({
+  body: z.object({
+    customerId: z.string().min(1).nullable(),
+    sourceDeviceId: z.string().min(1).optional(),
+  }),
+  params: z.object({
+    integrationId: z.string().min(1),
+    conversationId: z.string().min(1),
+  }),
+  query: z.object({}).optional(),
+});
 
 // Protected UI routes
 router.get(
@@ -100,6 +113,27 @@ router.post(
   requireAuth,
   requireWhatsAppConversation,
   whatsappController.muteScopedConversation,
+);
+router.patch(
+  "/integrations/:integrationId/conversations/:conversationId/customer",
+  requireAuth,
+  validate(conversationCustomerLinkSchema),
+  requireWhatsAppConversation,
+  async (req, res, next) => {
+    try {
+      const conversation = await linkWhatsAppConversationCustomer({
+        shopId: req.shop.id,
+        integration: req.waScope.integration,
+        conversation: req.waScope.conversation,
+        customerId: req.validated.body.customerId,
+        actorUserId: req.user.id,
+        sourceDeviceId: req.validated.body.sourceDeviceId,
+      });
+      res.json({ success: true, data: { conversation } });
+    } catch (error) {
+      next(error);
+    }
+  },
 );
 router.delete(
   "/integrations/:integrationId/conversations/:conversationId",
