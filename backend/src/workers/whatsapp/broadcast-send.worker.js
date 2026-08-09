@@ -4,6 +4,7 @@ import prisma from "../../lib/db.js";
 import { getWaCredentials } from "../../lib/wa-cache.js";
 import { connection } from "../../services/whatsapp.queue.js";
 import { reserveWhatsAppSendSlot } from "../../services/whatsapp.rate-limit.js";
+import { enqueueWhatsAppDomainEvent } from "../../services/whatsapp.domain-events.js";
 import { publishWhatsAppEvent } from "../../utils/realtime.js";
 
 const API_VERSION = "v25.0";
@@ -138,6 +139,56 @@ async function ensureConversation(broadcast, integration, recipient) {
   return conversation;
 }
 
+function broadcastMessagePatch(message) {
+  return {
+    id: message.id,
+    clientMessageId: message.clientMessageId,
+    conversationId: message.conversationId,
+    metaMessageId: message.metaMessageId,
+    operationState: message.operationState,
+    providerStatus: message.providerStatus,
+    providerStatusAt: message.providerStatusAt,
+    contentState: message.contentState,
+    attempt: message.attempt,
+    entityVersion: message.entityVersion,
+    direction: message.direction,
+    type: message.type,
+    content: message.content,
+    assetId: message.assetId,
+    templateId: message.templateId,
+    templateName: message.templateName,
+    templateLanguage: message.templateLanguage,
+    errorMessage: message.errorMessage,
+    createdAt: message.createdAt,
+  };
+}
+
+async function enqueueBroadcastMessageEvent(tx, {
+  broadcast,
+  integration,
+  credentials,
+  conversation,
+  recipient,
+  message,
+}) {
+  if (!broadcast || !integration || !credentials || !conversation || !message) return;
+  await enqueueWhatsAppDomainEvent(tx, {
+    shopId: broadcast.shopId,
+    integration: {
+      id: integration.id,
+      phoneNumberId: credentials.phoneNumberId,
+    },
+    entity: "waMessage",
+    entityId: message.id,
+    entityVersion: message.entityVersion,
+    action: "created",
+    conversationId: conversation.id,
+    actorUserId: broadcast.createdById || "system:whatsapp",
+    idempotencyKey: `wa-broadcast-message:${broadcast.id}:${recipient.id}:created`,
+    patch: broadcastMessagePatch(message),
+  });
+}
+
 async function syncBroadcastProgress(broadcastId) {
   const counts = await prisma.waBroadcastRecipient.groupBy({
     by: ["status"],
@@ -172,7 +223,14 @@ async function syncBroadcastProgress(broadcastId) {
   }
 }
 
-async function recordTerminalFailure({ broadcast, recipient, conversation, errorMessage }) {
+async function recordTerminalFailure({
+  broadcast,
+  integration,
+  credentials,
+  recipient,
+  conversation,
+  errorMessage,
+}) {
   await prisma.$transaction(async (tx) => {
     await tx.waBroadcastRecipient.update({
       where: { id: recipient.id },
@@ -184,7 +242,7 @@ async function recordTerminalFailure({ broadcast, recipient, conversation, error
 
     if (!broadcast?.template || !conversation) return;
 
-    await tx.waMessage.upsert({
+    const failedMessage = await tx.waMessage.upsert({
       where: {
         conversationId_clientMessageId: {
           conversationId: conversation.id,
@@ -220,6 +278,15 @@ async function recordTerminalFailure({ broadcast, recipient, conversation, error
         entityVersion: { increment: 1 },
       },
     });
+
+    await enqueueBroadcastMessageEvent(tx, {
+      broadcast,
+      integration,
+      credentials,
+      conversation,
+      recipient,
+      message: failedMessage,
+    });
   });
 }
 
@@ -244,6 +311,8 @@ export function startBroadcastSendWorker() {
 
       let broadcast;
       let conversation;
+      let integration;
+      let credentials;
       try {
         broadcast = await prisma.waBroadcast.findUnique({
           where: { id: broadcastId },
@@ -257,7 +326,7 @@ export function startBroadcastSendWorker() {
           throw new UnrecoverableError("Broadcast template is unavailable");
         }
 
-        const integration = broadcast.integrationId
+        integration = broadcast.integrationId
           ? await prisma.waIntegration.findUnique({
               where: { id: broadcast.integrationId },
               select: { id: true, shopId: true, status: true },
@@ -270,7 +339,7 @@ export function startBroadcastSendWorker() {
           throw new UnrecoverableError("WhatsApp integration is not connected");
         }
 
-        const credentials = await getWaCredentials(integration.shopId);
+        credentials = await getWaCredentials(integration.shopId);
         if (!credentials || credentials.id !== integration.id) {
           throw new UnrecoverableError("WhatsApp credentials are unavailable for the broadcast integration");
         }
@@ -311,7 +380,7 @@ export function startBroadcastSendWorker() {
             },
           });
 
-          return tx.waMessage.upsert({
+          const savedMessage = await tx.waMessage.upsert({
             where: {
               conversationId_clientMessageId: {
                 conversationId: conversation.id,
@@ -348,8 +417,20 @@ export function startBroadcastSendWorker() {
               entityVersion: { increment: 1 },
             },
           });
+
+          await enqueueBroadcastMessageEvent(tx, {
+            broadcast,
+            integration,
+            credentials,
+            conversation,
+            recipient,
+            message: savedMessage,
+          });
+          return savedMessage;
         });
 
+        // Keep the legacy low-latency event for older clients. The durable domain
+        // event written above is authoritative for replay/reconciliation.
         await publishWhatsAppEvent(broadcast.shopId, "wa:status_updated", {
           messageId: message.id,
           conversationId: conversation.id,
@@ -378,6 +459,8 @@ export function startBroadcastSendWorker() {
 
         await recordTerminalFailure({
           broadcast,
+          integration,
+          credentials,
           recipient,
           conversation,
           errorMessage,
