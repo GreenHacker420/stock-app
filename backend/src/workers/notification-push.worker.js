@@ -259,7 +259,23 @@ export async function deliverNotification(notificationId) {
 
   let shouldRetry = false;
   await Promise.all(pending.map(async ({ delivery }, index) => {
-    const ticket = tickets[index] || { status: "error", message: "Missing Expo ticket" };
+    const ticket = tickets[index];
+    if (!ticket) {
+      shouldRetry = true;
+      await prisma.notificationPushDelivery.update({
+        where: { id: delivery.id },
+        data: {
+          status: "PENDING",
+          ticketId: null,
+          attemptCount: { increment: 1 },
+          errorCode: "MISSING_EXPO_TICKET",
+          errorMessage: "Expo did not return a push ticket",
+          sentAt: null,
+        },
+      });
+      return;
+    }
+
     const failed = ticket.status !== "ok";
     const errorCode = ticket.details?.error || null;
     const retryable = failed && errorCode === "MessageRateExceeded";
@@ -290,10 +306,10 @@ export async function deliverNotification(notificationId) {
   }));
 
   if (shouldRetry) {
-    throw new Error("Expo push rate exceeded for one or more devices");
+    throw new Error("Expo push delivery needs retry for one or more devices");
   }
 
-  return { delivered: tickets.filter((ticket) => ticket.status === "ok").length };
+  return { delivered: tickets.filter((ticket) => ticket?.status === "ok").length };
 }
 
 let receiptTimer;
