@@ -1,4 +1,4 @@
-import { Worker } from "bullmq";
+import { DelayedError, Worker } from "bullmq";
 import prisma from "../../lib/db.js";
 import { whatsappService } from "../../services/whatsapp.service.js";
 import { enqueueWhatsAppDomainEvent } from "../../services/whatsapp.domain-events.js";
@@ -8,7 +8,7 @@ import { reserveWhatsAppSendSlot } from "../../services/whatsapp.rate-limit.js";
 export function startOutboundWorker() {
   const worker = new Worker(
     "whatsapp-outbound",
-    async (job) => {
+    async (job, token) => {
       const { shopId, payload, messageId, attempt, clientMessageId, requestId } = job.data;
       const startedAt = Date.now();
       console.log("[WhatsApp Send Trace]", {
@@ -21,7 +21,11 @@ export function startOutboundWorker() {
         attempt,
       });
 
-      await reserveWhatsAppSendSlot(shopId, `outbound:${job.id}`);
+      const waitMs = await reserveWhatsAppSendSlot(shopId, `outbound:${job.id}`);
+      if (waitMs > 0) {
+        await job.moveToDelayed(Date.now() + waitMs, token);
+        throw new DelayedError();
+      }
 
       try {
         const result = await whatsappService._sendDirect(shopId, { messageId, attempt, payload });
