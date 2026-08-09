@@ -9,6 +9,7 @@ const connection = new Redis(REDIS_URL, { maxRetriesPerRequest: null });
 const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
 const RECEIPT_DELAY_MS = 15 * 60 * 1000;
 const RECEIPT_RETENTION_MS = 24 * 60 * 60 * 1000;
+const PUSH_RECOVERY_INTERVAL_MS = 30 * 1000;
 
 function isExpoPushToken(token) {
   return EXPO_PUSH_TOKEN_REGEX.test(token || "");
@@ -37,6 +38,37 @@ async function sendExpo(messages) {
     throw new Error(message);
   }
   return Array.isArray(payload.data) ? payload.data : [];
+}
+
+async function recoverUnqueuedNotifications() {
+  const recentCutoff = new Date(Date.now() - RECEIPT_RETENTION_MS);
+  const notifications = await prisma.notification.findMany({
+    where: {
+      createdAt: { gte: recentCutoff },
+      pushDeliveries: { none: {} },
+      user: {
+        devices: {
+          some: {
+            revokedAt: null,
+            notificationsEnabled: true,
+            pushToken: { not: null },
+          },
+        },
+      },
+    },
+    select: { id: true },
+    orderBy: { createdAt: "asc" },
+    take: 50,
+  });
+
+  for (const notification of notifications) {
+    await enqueueNotificationPush(notification.id).catch((error) => {
+      console.error(
+        `[Notification Push Worker] Could not recover push enqueue for ${notification.id}:`,
+        error.message,
+      );
+    });
+  }
 }
 
 async function checkExpoPushReceipts() {
@@ -265,6 +297,7 @@ export async function deliverNotification(notificationId) {
 }
 
 let receiptTimer;
+let recoveryTimer;
 
 export function startNotificationPushWorker() {
   const worker = new Worker(
@@ -290,6 +323,16 @@ export function startNotificationPushWorker() {
     }).catch(() => undefined);
   });
 
+  // Recover the DB->BullMQ boundary if notification creation succeeded but queue
+  // enqueue was temporarily unavailable. The deterministic default job ID keeps
+  // this scan idempotent while a job is already queued/active.
+  recoveryTimer = setInterval(() => {
+    recoverUnqueuedNotifications().catch((error) => {
+      console.error("[Notification Push Worker] Recovery scan failed:", error.message);
+    });
+  }, PUSH_RECOVERY_INTERVAL_MS);
+  void recoverUnqueuedNotifications().catch(() => undefined);
+
   // Expo recommends checking receipts after roughly 15 minutes.
   receiptTimer = setInterval(() => {
     checkExpoPushReceipts().catch((error) => {
@@ -300,6 +343,7 @@ export function startNotificationPushWorker() {
   const originalClose = worker.close.bind(worker);
   worker.close = async () => {
     clearInterval(receiptTimer);
+    clearInterval(recoveryTimer);
     await originalClose();
   };
 
