@@ -174,9 +174,13 @@ function ContactRow({
   selected: boolean;
   onToggle: () => void;
 }) {
+  const label = item.name || formatWhatsAppPhone(item.phone);
   return (
     <Pressable
       onPress={onToggle}
+      accessibilityRole="checkbox"
+      accessibilityState={{ checked: selected }}
+      accessibilityLabel={`${label}, ${formatWhatsAppPhone(item.phone)}`}
       style={({ pressed }) => [styles.contactRow, pressed && styles.rowPressed]}
     >
       <View style={[styles.avatar, selected && styles.avatarSelected]}>
@@ -188,7 +192,7 @@ function ContactRow({
       </View>
       <View style={styles.contactText}>
         <Text style={styles.contactName} numberOfLines={1}>
-          {item.name || formatWhatsAppPhone(item.phone)}
+          {label}
         </Text>
         <Text style={styles.contactPhone}>{formatWhatsAppPhone(item.phone)}</Text>
       </View>
@@ -298,7 +302,11 @@ export function BroadcastComposerScreen() {
 
       const formatted = data
         .map((contact) => {
-          const phone = digitsOnly(contact.phones?.[0]?.number || "");
+          const phones = contact.phones || [];
+          const mobile = phones.find((entry) =>
+            /(mobile|cell|iphone)/i.test(entry.label || ""),
+          );
+          const phone = digitsOnly(mobile?.number || phones[0]?.number || "");
           const name = (
             contact.fullName ||
             [contact.givenName, contact.familyName].filter(Boolean).join(" ") ||
@@ -317,7 +325,9 @@ export function BroadcastComposerScreen() {
       return formatted.length;
     },
     onSuccess: (count) => {
-      queryClient.invalidateQueries({ queryKey: ["localContacts"] });
+      queryClient.invalidateQueries({ queryKey: ["contacts-local"] });
+      queryClient.invalidateQueries({ queryKey: ["contacts-filtered-ids"] });
+      queryClient.invalidateQueries({ queryKey: ["contacts-stats"] });
       Alert.alert(
         "Contacts refreshed",
         `${count} device contacts are available locally.`,
@@ -623,7 +633,13 @@ export function BroadcastComposerScreen() {
           ))}
         </ScrollView>
 
-        <Pressable onPress={toggleAllFiltered} style={styles.selectAllLine}>
+        <Pressable
+          onPress={toggleAllFiltered}
+          accessibilityRole="checkbox"
+          accessibilityState={{ checked: allFilteredSelected }}
+          accessibilityLabel={`${allFilteredSelected ? "Deselect" : "Select"} all ${filteredIds.length} matching contacts`}
+          style={styles.selectAllLine}
+        >
           <View
             style={[
               styles.selectionCircle,
