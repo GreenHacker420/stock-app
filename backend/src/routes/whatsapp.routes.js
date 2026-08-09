@@ -14,7 +14,10 @@ import {
   requireWhatsAppSendIntegration,
   requireWhatsAppSendMessage,
 } from "../services/whatsapp.authorization.js";
-import { whatsappBroadcastService } from "../services/whatsapp.broadcast.service.js";
+import {
+  MAX_BROADCAST_RECIPIENT_BATCH,
+  whatsappBroadcastService,
+} from "../services/whatsapp.broadcast.service.js";
 import { validate } from "../middleware/validate.js";
 import { z } from "zod";
 import multer from "multer";
@@ -229,6 +232,20 @@ const onboardingContinueSchema = z.object({
   query: z.object({}).optional(),
 });
 
+const broadcastRecipientsSchema = z.object({
+  body: z.object({
+    recipients: z.array(z.object({
+      phone: z.string().min(1),
+      name: z.string().max(200).optional(),
+      customerId: z.string().optional(),
+      sourceContactId: z.string().max(250).optional(),
+      source: z.enum(["CUSTOMER", "DEVICE_CONTACT", "MANUAL"]).optional(),
+    })).min(1).max(MAX_BROADCAST_RECIPIENT_BATCH),
+  }),
+  params: z.object({ id: z.string().min(1) }),
+  query: z.object({}).optional(),
+});
+
 router.post(
   "/onboarding/sessions",
   requireAuth,
@@ -394,17 +411,18 @@ router.post(
   "/broadcasts/:id/recipients",
   requireAuth,
   requireOwner,
+  validate(broadcastRecipientsSchema),
   requireWhatsAppBroadcast,
-  async (req, res) => {
+  async (req, res, next) => {
     try {
       const result = await whatsappBroadcastService.addRecipients(
         req.params.id,
         req.shop.id,
-        req.body?.recipients,
+        req.validated.body.recipients,
       );
       res.json({ success: true, data: result });
     } catch (error) {
-      res.status(400).json({ success: false, message: error.message });
+      next(error);
     }
   },
 );
