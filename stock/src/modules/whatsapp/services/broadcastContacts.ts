@@ -3,17 +3,12 @@ import type { LocalContact } from "./contactsDb";
 
 const CHUNK_SIZE = 350;
 
-export interface LocalContactSelection {
-  contacts: LocalContact[];
-  missingIds: string[];
-}
-
 /**
  * Reads only the locally-selected rows from SQLite. Non-empty IDs come from the
  * local_contacts query itself, so no separate initialization scan is needed.
  */
-export async function getLocalContactsByIds(ids: string[]): Promise<LocalContactSelection> {
-  if (ids.length === 0) return { contacts: [], missingIds: [] };
+export async function getLocalContactsByIds(ids: string[]): Promise<LocalContact[]> {
+  if (ids.length === 0) return [];
 
   const uniqueIds = [...new Set(ids)];
   const contacts: LocalContact[] = [];
@@ -29,14 +24,19 @@ export async function getLocalContactsByIds(ids: string[]): Promise<LocalContact
     contacts.push(...rows);
   }
 
+  const foundIds = new Set(contacts.map((contact) => contact.id));
+  const missingCount = uniqueIds.reduce(
+    (count, id) => count + (foundIds.has(id) ? 0 : 1),
+    0,
+  );
+  if (missingCount > 0) {
+    throw new Error(
+      `${missingCount} selected contact${missingCount === 1 ? " is" : "s are"} no longer available. Refresh contacts and review the audience.`,
+    );
+  }
+
   const order = new Map(uniqueIds.map((id, index) => [id, index]));
-  contacts.sort((left, right) =>
+  return contacts.sort((left, right) =>
     (order.get(left.id) ?? Number.MAX_SAFE_INTEGER) - (order.get(right.id) ?? Number.MAX_SAFE_INTEGER),
   );
-  const foundIds = new Set(contacts.map((contact) => contact.id));
-
-  return {
-    contacts,
-    missingIds: uniqueIds.filter((id) => !foundIds.has(id)),
-  };
 }
