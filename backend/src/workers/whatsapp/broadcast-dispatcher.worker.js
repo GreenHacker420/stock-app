@@ -26,14 +26,19 @@ async function ensureLegacyRecipients(broadcast) {
     });
   }
 
-  const recipients = await prisma.waBroadcastRecipient.findMany({
-    where: { broadcastId: broadcast.id, status: "PENDING" },
-    select: { id: true },
-    orderBy: { createdAt: "asc" },
-  });
+  const [recipients, audienceCount] = await Promise.all([
+    prisma.waBroadcastRecipient.findMany({
+      where: { broadcastId: broadcast.id, status: "PENDING" },
+      select: { id: true },
+      orderBy: { createdAt: "asc" },
+    }),
+    prisma.waBroadcastRecipient.count({
+      where: { broadcastId: broadcast.id },
+    }),
+  ]);
   await prisma.waBroadcast.update({
     where: { id: broadcast.id },
-    data: { audienceCount: recipients.length },
+    data: { audienceCount },
   });
   return recipients;
 }
