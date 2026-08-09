@@ -28,20 +28,14 @@ return 0
 `;
 
 export async function reserveWhatsAppSendSlot(scopeId, jobId) {
-  const key = `wa:rate:${scopeId}`;
-
-  while (true) {
-    const now = Date.now();
-    const waitMs = Number(await connection.eval(
-      RESERVE_SLOT_SCRIPT,
-      1,
-      key,
-      now,
-      WINDOW_MS,
-      MAX_SENDS_PER_WINDOW,
-      `${jobId}:${now}`,
-    ));
-    if (waitMs <= 0) return true;
-    await new Promise((resolve) => setTimeout(resolve, waitMs));
-  }
+  const now = Date.now();
+  return Number(await connection.eval(
+    RESERVE_SLOT_SCRIPT,
+    1,
+    `wa:rate:${scopeId}`,
+    now,
+    WINDOW_MS,
+    MAX_SENDS_PER_WINDOW,
+    `${jobId}:${now}`,
+  ));
 }
