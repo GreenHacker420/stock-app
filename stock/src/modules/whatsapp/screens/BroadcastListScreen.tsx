@@ -125,9 +125,9 @@ export function BroadcastListScreen() {
         }
         renderItem={({ item }) => {
           const tone = statusTone(item.status);
-          const sent = item.sentCount + item.deliveredCount + item.readCount;
+          const processed = item.sentCount + item.failedCount + item.skippedCount;
           const progress = item.status === "SENDING"
-            ? metricPercent(sent, item.audienceCount)
+            ? metricPercent(processed, item.audienceCount)
             : 100;
           return (
             <View style={styles.row}>
