@@ -173,3 +173,25 @@ export const resolveEffectiveWhatsAppChannel =
 export const resolveWhatsAppChannelById =
   resolver.resolveWhatsAppChannelById;
 
+const authorizedShopResolver = createWhatsAppChannelResolver({
+  authorizeShop: async (_user, shopId) => {
+    const shop = await prisma.shop.findUnique({
+      where: { id: shopId },
+      select: {
+        id: true,
+        tenantId: true,
+        shopGroupId: true,
+      },
+    });
+    if (!shop) throw resourceNotFound();
+    return shop;
+  },
+});
+
+/**
+ * Internal resolver for service code whose caller has already authorized the shop.
+ * Keeps channel precedence identical to the request-level capability resolver.
+ */
+export function resolveEffectiveWhatsAppChannelForShop(shopId, options) {
+  return authorizedShopResolver.resolveEffectiveWhatsAppChannel(null, shopId, options);
+}
