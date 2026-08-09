@@ -3,6 +3,7 @@ import crypto from "crypto";
 import prisma from "../lib/db.js";
 import { getWaCredentials } from "../lib/wa-cache.js";
 import { getSignedMediaUrl, uploadToS3 } from "../lib/wa-media.js";
+import { resolveEffectiveWhatsAppChannelForShop } from "./whatsapp.channel-resolution.js";
 import { validateWhatsAppMedia } from "./whatsapp.media-policy.js";
 
 const API_VERSION = "v25.0";
@@ -20,6 +21,15 @@ function optionalPositiveInteger(value) {
   if (value == null || value === "") return undefined;
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+async function getEffectiveWaCredentials(shopId) {
+  const scope = await resolveEffectiveWhatsAppChannelForShop(shopId, {
+    permission: "canSend",
+  });
+  if (!scope.integration) return null;
+  const credentials = await getWaCredentials(scope.integration.shopId);
+  return credentials?.id === scope.integration.id ? credentials : null;
 }
 
 export async function getPublicAsset(asset) {
@@ -114,7 +124,7 @@ export async function resolveOutboundMediaAsset({ shopId, message }) {
 
 export async function uploadWhatsAppMedia({ shopId, createdById, kind, file, metadata = {} }) {
   const parsedKind = validateWhatsAppMedia({ kind, file });
-  const integration = await getWaCredentials(shopId);
+  const integration = await getEffectiveWaCredentials(shopId);
   if (!integration) {
     throw new Error("WhatsApp integration not connected for this shop");
   }
@@ -198,7 +208,7 @@ export async function uploadWhatsAppTemplateExample({ shopId, createdById, kind,
   if (!["image", "video", "document"].includes(parsedKind)) {
     throw new Error("Template examples support image, video, or document files");
   }
-  const integration = await getWaCredentials(shopId);
+  const integration = await getEffectiveWaCredentials(shopId);
   if (!integration) throw new Error("WhatsApp integration not connected for this shop");
   const appId = process.env.WHATSAPP_APP_ID;
   if (!appId) throw new Error("WHATSAPP_APP_ID is required for template media uploads");
