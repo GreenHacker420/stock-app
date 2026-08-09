@@ -15,6 +15,11 @@ import {
   type WhatsAppMessagePages,
 } from "../whatsapp-query-cache";
 import { removePersistedWhatsAppMedia } from "../services/whatsapp-media-files";
+import {
+  isRetryableWhatsAppClientError,
+  WHATSAPP_CLIENT_MAX_ATTEMPTS,
+  whatsappClientRetryDelayMs,
+} from "../whatsapp-retry";
 
 export function WhatsAppPendingOperationSync() {
   const token = useAuthStore((state) => state.token);
@@ -28,7 +33,7 @@ export function WhatsAppPendingOperationSync() {
     const flush = async () => {
       if (!token || flushing.current) return;
       const network = await NetInfo.fetch();
-      if (network.isConnected === false) return;
+      if (network.isConnected === false || network.isInternetReachable === false) return;
       flushing.current = true;
       try {
         const operations = await whatsappDb.getReadyOperations(shopId, integrationId);
@@ -130,12 +135,14 @@ export function WhatsAppPendingOperationSync() {
               queryKey: ["whatsapp", "conversations", shopId, integrationId],
             });
           } catch (error) {
-            const terminal = attempt >= 6;
-            const retryDelay = Math.min(2 ** attempt * 1_000, 60_000);
+            const retryable = isRetryableWhatsAppClientError(error);
+            const terminal = !retryable || attempt >= WHATSAPP_CLIENT_MAX_ATTEMPTS;
             await whatsappDb.updateOperation(operation.id, {
               operationState: terminal ? "TERMINALLY_FAILED" : "RETRY_SCHEDULED",
               attempt,
-              nextAttemptAt: Date.now() + retryDelay,
+              nextAttemptAt: terminal
+                ? Date.now()
+                : Date.now() + whatsappClientRetryDelayMs(attempt),
               lastError: error instanceof Error ? error.message : "Message send failed",
             });
           }
@@ -150,7 +157,7 @@ export function WhatsAppPendingOperationSync() {
       void flush();
     }, 3000);
     const unsubscribe = NetInfo.addEventListener((state) => {
-      if (state.isConnected) void flush();
+      if (state.isConnected && state.isInternetReachable !== false) void flush();
     });
     return () => {
       clearInterval(interval);
