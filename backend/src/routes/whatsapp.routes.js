@@ -14,6 +14,7 @@ import {
   requireWhatsAppSendIntegration,
   requireWhatsAppSendMessage,
 } from "../services/whatsapp.authorization.js";
+import { whatsappBroadcastService } from "../services/whatsapp.broadcast.service.js";
 import { validate } from "../middleware/validate.js";
 import { z } from "zod";
 import multer from "multer";
@@ -385,11 +386,28 @@ router.post("/setup", requireAuth, requireOwner, requireShopAccess((req) => req.
 router.delete("/setup", requireAuth, requireOwner, requireShopAccess((req) => req.query.shopId || req.body.shopId), whatsappController.deleteSetup);
 router.post("/rotate-keys", requireAuth, requireOwner, requireShopAccess((req) => req.body.shopId), whatsappController.rotateKeys);
 
-
 // Campaign / Broadcast routes (Owner Only)
 router.get("/broadcasts", requireAuth, requireOwner, requireShopAccess((req) => req.query.shopId), whatsappController.getBroadcasts);
 router.post("/broadcasts", requireAuth, requireOwner, requireShopAccess((req) => req.body.shopId), whatsappController.createBroadcast);
 router.get("/broadcasts/:id", requireAuth, requireOwner, requireWhatsAppBroadcast, whatsappController.getBroadcast);
+router.post(
+  "/broadcasts/:id/recipients",
+  requireAuth,
+  requireOwner,
+  requireWhatsAppBroadcast,
+  async (req, res) => {
+    try {
+      const result = await whatsappBroadcastService.addRecipients(
+        req.params.id,
+        req.shop.id,
+        req.body?.recipients,
+      );
+      res.json({ success: true, data: result });
+    } catch (error) {
+      res.status(400).json({ success: false, message: error.message });
+    }
+  },
+);
 router.post("/broadcasts/:id/send", requireAuth, requireOwner, requireWhatsAppBroadcast, whatsappController.sendBroadcast);
 router.post("/broadcasts/:id/schedule", requireAuth, requireOwner, requireWhatsAppBroadcast, whatsappController.scheduleBroadcast);
 router.post("/broadcasts/:id/cancel", requireAuth, requireOwner, requireWhatsAppBroadcast, whatsappController.cancelBroadcast);
