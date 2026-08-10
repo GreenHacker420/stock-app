@@ -7,12 +7,7 @@ import * as Sharing from "expo-sharing";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { ActivityIndicator, Text } from "react-native-paper";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
-import Animated, {
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-  withTiming,
-} from "react-native-reanimated";
+import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getWaAsset } from "../../../api/whatsapp.api";
@@ -27,18 +22,8 @@ export type WhatsAppViewerImage = {
   height?: number;
 };
 
-type Props = {
-  image: WhatsAppViewerImage | null;
-  token?: string | null;
-  onClose: () => void;
-};
-
-type MountedProps = {
-  image: WhatsAppViewerImage;
-  token?: string | null;
-  onClose: () => void;
-};
-
+type Props = { image: WhatsAppViewerImage | null; token?: string | null; onClose: () => void };
+type MountedProps = { image: WhatsAppViewerImage; token?: string | null; onClose: () => void };
 const MIN_SCALE = 1;
 const MAX_SCALE = 5;
 const DOUBLE_TAP_SCALE = 2.5;
@@ -65,23 +50,19 @@ function MountedWhatsAppImageViewer({ image, token, onClose }: MountedProps) {
   const [failed, setFailed] = useState(false);
   const [action, setAction] = useState<"share" | "save" | null>(null);
   const [displayUrl, setDisplayUrl] = useState(image.url);
-
   const scale = useSharedValue(1);
   const savedScale = useSharedValue(1);
   const translateX = useSharedValue(0);
   const translateY = useSharedValue(0);
   const savedX = useSharedValue(0);
   const savedY = useSharedValue(0);
-
   const viewportHeight = Math.max(1, screenHeight - insets.top - insets.bottom);
+
   const fittedSize = useMemo(() => {
     const rawWidth = image.width || screenWidth;
     const rawHeight = image.height || viewportHeight;
     const fitScale = Math.min(screenWidth / rawWidth, viewportHeight / rawHeight);
-    return {
-      width: Math.max(1, rawWidth * fitScale),
-      height: Math.max(1, rawHeight * fitScale),
-    };
+    return { width: Math.max(1, rawWidth * fitScale), height: Math.max(1, rawHeight * fitScale) };
   }, [image.height, image.width, screenWidth, viewportHeight]);
 
   const resetTransform = useCallback((animated = true) => {
@@ -107,15 +88,11 @@ function MountedWhatsAppImageViewer({ image, token, onClose }: MountedProps) {
         })
         .catch(() => undefined);
     }
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [image.assetId, image.url, resetTransform, token]);
 
   const pinch = useMemo(() => Gesture.Pinch()
-    .onUpdate((event) => {
-      scale.value = clamp(savedScale.value * event.scale, MIN_SCALE, MAX_SCALE);
-    })
+    .onUpdate((event) => { scale.value = clamp(savedScale.value * event.scale, MIN_SCALE, MAX_SCALE); })
     .onEnd(() => {
       savedScale.value = scale.value;
       const maxX = Math.max(0, (fittedSize.width * scale.value - screenWidth) / 2);
@@ -165,13 +142,7 @@ function MountedWhatsAppImageViewer({ image, token, onClose }: MountedProps) {
     }), [savedScale, savedX, savedY, scale, translateX, translateY]);
 
   const composedGesture = useMemo(() => Gesture.Simultaneous(pinch, pan, doubleTap), [doubleTap, pan, pinch]);
-  const imageStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateX: translateX.value },
-      { translateY: translateY.value },
-      { scale: scale.value },
-    ],
-  }));
+  const imageStyle = useAnimatedStyle(() => ({ transform: [{ translateX: translateX.value }, { translateY: translateY.value }, { scale: scale.value }] }));
 
   const downloadImage = useCallback(async () => {
     const freshAsset = image.assetId && token ? await getWaAsset(token, image.assetId) : null;
@@ -194,9 +165,7 @@ function MountedWhatsAppImageViewer({ image, token, onClose }: MountedProps) {
     } catch (error) {
       triggerErrorHaptic();
       Alert.alert("Share failed", error instanceof Error ? error.message : "Could not share this image.");
-    } finally {
-      setAction(null);
-    }
+    } finally { setAction(null); }
   }, [action, downloadImage, image.fileName, image.mimeType]);
 
   const saveImage = useCallback(async () => {
@@ -212,9 +181,7 @@ function MountedWhatsAppImageViewer({ image, token, onClose }: MountedProps) {
     } catch (error) {
       triggerErrorHaptic();
       Alert.alert("Save failed", error instanceof Error ? error.message : "Could not save this image.");
-    } finally {
-      setAction(null);
-    }
+    } finally { setAction(null); }
   }, [action, downloadImage]);
 
   return (
@@ -222,50 +189,25 @@ function MountedWhatsAppImageViewer({ image, token, onClose }: MountedProps) {
       <View style={styles.container}>
         <GestureDetector gesture={composedGesture}>
           <Animated.View style={[styles.stage, imageStyle]}>
-            <Image
-              source={{ uri: displayUrl }}
-              style={fittedSize}
-              contentFit="contain"
-              cachePolicy="memory-disk"
-              recyclingKey={image.assetId || displayUrl}
-              onLoad={() => setLoading(false)}
-              onError={() => {
-                setLoading(false);
-                setFailed(true);
-              }}
-            />
+            <Image source={{ uri: displayUrl }} style={fittedSize} contentFit="contain" cachePolicy="memory-disk" recyclingKey={image.assetId || displayUrl} onLoad={() => setLoading(false)} onError={() => { setLoading(false); setFailed(true); }} />
           </Animated.View>
         </GestureDetector>
-
         {(loading || failed) && (
           <View pointerEvents="none" style={styles.stateOverlay}>
-            {loading ? <ActivityIndicator size="large" color="#ffffff" /> : (
-              <>
-                <MaterialCommunityIcons name="image-off-outline" size={42} color="#ffffff" />
-                <Text style={styles.stateText}>Image could not be loaded</Text>
-              </>
-            )}
+            {loading ? <ActivityIndicator size="large" color="#ffffff" /> : <><MaterialCommunityIcons name="image-off-outline" size={42} color="#ffffff" /><Text style={styles.stateText}>Image could not be loaded</Text></>}
           </View>
         )}
-
         <View style={[styles.topBar, { paddingTop: insets.top + 8 }]}>
-          <Pressable accessibilityRole="button" accessibilityLabel="Close image" style={styles.iconButton} onPress={onClose}>
-            <MaterialCommunityIcons name="close" size={28} color="#ffffff" />
-          </Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Close image" style={styles.iconButton} onPress={onClose}><MaterialCommunityIcons name="close" size={28} color="#ffffff" /></Pressable>
           <Text numberOfLines={1} style={styles.fileName}>{image.fileName || "Photo"}</Text>
-          <Pressable accessibilityRole="button" accessibilityLabel="Reset zoom" style={styles.iconButton} onPress={() => { triggerMediumHaptic(); resetTransform(); }}>
-            <MaterialCommunityIcons name="fit-to-screen-outline" size={24} color="#ffffff" />
-          </Pressable>
+          <Pressable accessibilityRole="button" accessibilityLabel="Reset zoom" style={styles.iconButton} onPress={() => { triggerMediumHaptic(); resetTransform(); }}><MaterialCommunityIcons name="fit-to-screen-outline" size={24} color="#ffffff" /></Pressable>
         </View>
-
         <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 14 }]}>
           <Pressable accessibilityRole="button" accessibilityLabel="Save image" style={styles.actionButton} disabled={action !== null} onPress={saveImage}>
-            {action === "save" ? <ActivityIndicator size={20} color="#ffffff" /> : <MaterialCommunityIcons name="download-outline" size={23} color="#ffffff" />}
-            <Text style={styles.actionText}>Save</Text>
+            {action === "save" ? <ActivityIndicator size={20} color="#ffffff" /> : <MaterialCommunityIcons name="download-outline" size={23} color="#ffffff" />}<Text style={styles.actionText}>Save</Text>
           </Pressable>
           <Pressable accessibilityRole="button" accessibilityLabel="Share image" style={styles.actionButton} disabled={action !== null} onPress={shareImage}>
-            {action === "share" ? <ActivityIndicator size={20} color="#ffffff" /> : <MaterialCommunityIcons name="share-variant-outline" size={23} color="#ffffff" />}
-            <Text style={styles.actionText}>Share</Text>
+            {action === "share" ? <ActivityIndicator size={20} color="#ffffff" /> : <MaterialCommunityIcons name="share-variant-outline" size={23} color="#ffffff" />}<Text style={styles.actionText}>Share</Text>
           </Pressable>
         </View>
       </View>
@@ -282,6 +224,6 @@ const styles = StyleSheet.create({
   fileName: { flex: 1, color: "#ffffff", fontSize: 15, fontWeight: "700" },
   actionButton: { minWidth: 108, minHeight: 48, paddingHorizontal: 18, borderRadius: 24, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: "rgba(255,255,255,0.14)" },
   actionText: { color: "#ffffff", fontWeight: "700" },
-  stateOverlay: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center", gap: 10, backgroundColor: "rgba(5,7,6,0.38)" },
+  stateOverlay: { ...StyleSheet.absoluteFill, alignItems: "center", justifyContent: "center", gap: 10, backgroundColor: "rgba(5,7,6,0.38)" },
   stateText: { color: "#ffffff" },
 });
