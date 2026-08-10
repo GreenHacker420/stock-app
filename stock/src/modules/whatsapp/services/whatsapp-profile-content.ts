@@ -4,7 +4,6 @@ import { parseStoredMessage } from "../whatsapp-validation";
 import { whatsappDb } from "./whatsapp-db";
 
 type MessageRow = { payload_json: string };
-type CountRow = { count: number };
 
 export type WhatsAppProfileLink = {
   message: WaMessage;
