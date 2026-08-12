@@ -1,3 +1,20 @@
+export type InventoryCatalogQueryKeyParams = {
+  shopId: string;
+  search?: string;
+  categoryId?: string;
+  brandId?: string;
+  page: number;
+  limit: number;
+};
+
+export type InventoryMovementQueryKeyParams = {
+  shopId: string;
+  itemId?: string;
+  movementType?: string;
+  page: number;
+  limit: number;
+};
+
 export const queryKeys = {
   auth: {
     me: () => ["auth", "me"] as const,
@@ -21,16 +38,43 @@ export const queryKeys = {
       ["whatsapp", "capability", shopId] as const,
   },
   sales: {
-    list: (shopId: string, filters?: Record<string, any>) =>
+    list: (shopId: string, filters?: Record<string, unknown>) =>
       ["sales", shopId, filters] as const,
     detail: (id: string) => ["sales", "detail", id] as const,
   },
   items: {
-    list: (shopId: string, filters?: Record<string, any>) =>
+    list: (shopId: string, filters?: Record<string, unknown>) =>
       ["items", shopId, filters] as const,
     stock: (itemId: string) => ["items", "stock", itemId] as const,
     rateSuggestion: (itemId: string, customerId: string) =>
       ["items", "rate-suggestion", itemId, customerId] as const,
+  },
+  inventory: {
+    summary: (shopId: string) => ["inventory", "summary", shopId] as const,
+    stock: (shopId: string) => ["inventory", "stock-position", shopId] as const,
+    catalog: (params: InventoryCatalogQueryKeyParams) =>
+      [
+        "inventory",
+        "catalog",
+        params.shopId,
+        params.search || "",
+        params.categoryId || "all",
+        params.brandId || "all",
+        params.page,
+        params.limit,
+      ] as const,
+    categories: (shopId: string) => ["inventory", "categories", shopId] as const,
+    brands: (shopId: string) => ["inventory", "brands", shopId] as const,
+    movements: (params: InventoryMovementQueryKeyParams) =>
+      [
+        "inventory",
+        "movements",
+        params.shopId,
+        params.itemId || "all",
+        params.movementType || "all",
+        params.page,
+        params.limit,
+      ] as const,
   },
   customers: {
     list: (shopId: string, search?: string) =>
@@ -42,4 +86,3 @@ export const queryKeys = {
     list: (shopId: string) => ["payments", shopId] as const,
   },
 };
-
