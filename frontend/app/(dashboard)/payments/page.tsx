@@ -1,137 +1,133 @@
 "use client";
 
-import Link from "next/link";
-import { useState } from "react";
+import * as React from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { useAuthStore } from "@/lib/auth/auth-store";
-import { apiRequest } from "@/lib/api/client";
-import { formatINR, formatDate } from "@/lib/utils";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import type { ColumnDef } from "@tanstack/react-table";
+import { BadgeCheck, CircleDollarSign, CreditCard, RefreshCw, Search, WalletCards } from "lucide-react";
+
+import { OperationalDataTable } from "@/components/data-grid/OperationalDataTable";
 import { Badge } from "@/components/ui/badge";
-import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { Plus, Search, CreditCard, ArrowLeft, RefreshCw } from "lucide-react";
+import { FeatureActionButton } from "@/components/workspace/FeatureActionButton";
+import { WorkspaceMetric, WorkspaceMetricGrid } from "@/components/workspace/WorkspaceMetrics";
+import { WorkspacePage, WorkspacePageHeader, WorkspacePanel, WorkspaceToolbar } from "@/components/workspace/WorkspacePage";
+import { fetchPaymentsRegister } from "@/features/registers/api/register.queries";
+import type { PaymentMode, PaymentRegisterRow, PaymentStatus } from "@/features/registers/lib/register-types";
+import { useAuthStore } from "@/lib/auth/auth-store";
+import { queryKeys } from "@/lib/query/query-keys";
+import { formatDate, formatINR } from "@/lib/utils";
+
+const PAGE_SIZE = 50;
+const MODES: PaymentMode[] = ["CASH", "UPI", "CARD", "BANK_TRANSFER", "CHEQUE"];
+const STATUSES: PaymentStatus[] = ["RECORDED", "VERIFIED", "REJECTED", "CANCELLED"];
+
+function statusBadge(status: PaymentStatus) {
+  if (status === "VERIFIED") return <Badge className="bg-emerald-600 text-[9px] text-white">Verified</Badge>;
+  if (status === "RECORDED") return <Badge variant="outline" className="border-amber-300 bg-amber-50 text-[9px] text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">Recorded</Badge>;
+  return <Badge variant="outline" className="border-rose-200 bg-rose-50 text-[9px] text-rose-700 dark:bg-rose-950/30 dark:text-rose-300">{status}</Badge>;
+}
+
+function referenceOf(payment: PaymentRegisterRow) {
+  if (payment.sale) return payment.sale.saleNumber;
+  if (payment.order) return payment.order.orderNumber;
+  if (payment.dmId) return `DM · ${payment.dmId.slice(0, 8)}`;
+  return "Unlinked";
+}
 
 export default function PaymentsPage() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { token, shops, activeShopId } = useAuthStore();
-  const [searchTerm, setSearchTerm] = useState("");
-  const currentShopId = activeShopId || (shops.length > 0 ? shops[0].id : "");
+  const shopId = activeShopId || shops[0]?.id || "";
+  const page = Math.max(1, Number(searchParams.get("page") || "1") || 1);
+  const modeParam = searchParams.get("mode");
+  const statusParam = searchParams.get("status");
+  const paymentMode = MODES.includes(modeParam as PaymentMode) ? modeParam as PaymentMode : undefined;
+  const status = STATUSES.includes(statusParam as PaymentStatus) ? statusParam as PaymentStatus : undefined;
+  const unlinked = searchParams.get("unlinked") === "true";
+  const [pageFilter, setPageFilter] = React.useState("");
 
-  const { data: paymentsResponse, isLoading, refetch } = useQuery({
-    queryKey: ["payments", currentShopId],
-    queryFn: () => apiRequest(`/payments?shopId=${currentShopId}`, { token: token || undefined }),
-    enabled: !!token && !!currentShopId,
+  const query = useQuery({
+    queryKey: queryKeys.payments.register({ shopId, page, limit: PAGE_SIZE, paymentMode, status, unlinked }),
+    queryFn: () => fetchPaymentsRegister(token ?? "", { shopId, page, limit: PAGE_SIZE, paymentMode, status, unlinked: unlinked || undefined }),
+    enabled: Boolean(token && shopId),
+    placeholderData: (previous) => previous,
+    staleTime: 30_000,
   });
 
-  const rawPayments = Array.isArray(paymentsResponse)
-    ? paymentsResponse
-    : paymentsResponse?.payments && Array.isArray(paymentsResponse.payments)
-    ? paymentsResponse.payments
-    : paymentsResponse?.data && Array.isArray(paymentsResponse.data)
-    ? paymentsResponse.data
-    : paymentsResponse?.data?.payments && Array.isArray(paymentsResponse.data.payments)
-    ? paymentsResponse.data.payments
-    : [];
+  const rows = React.useMemo(() => {
+    const value = pageFilter.trim().toLowerCase();
+    if (!value) return query.data ?? [];
+    return (query.data ?? []).filter((payment) => payment.customer?.name?.toLowerCase().includes(value) || payment.referenceNumber?.toLowerCase().includes(value) || referenceOf(payment).toLowerCase().includes(value));
+  }, [pageFilter, query.data]);
 
-  const filteredPayments = rawPayments.filter((p: any) =>
-    p.customerName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.customer?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    p.referenceNumber?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const totals = React.useMemo(() => (query.data ?? []).reduce((acc, payment) => {
+    acc.amount += Number(payment.amount);
+    if (payment.status === "VERIFIED") acc.verified += Number(payment.amount);
+    if (payment.status === "RECORDED") acc.pending += Number(payment.amount);
+    if (!payment.saleId && !payment.dmId && !payment.orderId) acc.unlinked += 1;
+    return acc;
+  }, { amount: 0, verified: 0, pending: 0, unlinked: 0 }), [query.data]);
+
+  const setParams = (patch: Record<string, string | null>) => {
+    const next = new URLSearchParams(searchParams.toString());
+    Object.entries(patch).forEach(([key, value]) => value ? next.set(key, value) : next.delete(key));
+    router.replace(`${pathname}?${next.toString()}`, { scroll: false });
+  };
+
+  const columns = React.useMemo<ColumnDef<PaymentRegisterRow>[]>(() => [
+    { accessorKey: "receivedAt", header: "Received", cell: ({ row }) => <span className="whitespace-nowrap text-muted-foreground">{formatDate(row.original.receivedAt)}</span> },
+    { id: "customer", header: "Customer", cell: ({ row }) => <div className="min-w-[clamp(10rem,16vw,17rem)]"><div className="truncate font-semibold">{row.original.customer?.name || "Walk-in / unassigned"}</div><div className="truncate text-[10px] text-muted-foreground">{row.original.customer?.phone || row.original.receivedBy?.name || "—"}</div></div> },
+    { accessorKey: "paymentMode", header: "Mode", cell: ({ row }) => <Badge variant="secondary" className="text-[9px]">{row.original.paymentMode.replaceAll("_", " ")}</Badge> },
+    { id: "reference", header: "Linked document", cell: ({ row }) => <span className="font-mono text-[10px] text-muted-foreground">{referenceOf(row.original)}</span> },
+    { accessorKey: "referenceNumber", header: "Reference", cell: ({ row }) => <span className="font-mono text-[10px] text-muted-foreground">{row.original.referenceNumber || "—"}</span> },
+    { accessorKey: "amount", header: "Amount", cell: ({ row }) => <span className="numeric-cell block text-right font-semibold">{formatINR(row.original.amount)}</span> },
+    { accessorKey: "status", header: "Status", cell: ({ row }) => <div className="text-right">{statusBadge(row.original.status)}</div> },
+  ], []);
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <Link href="/dashboard">
-            <Button variant="ghost" size="icon" className="h-9 w-9">
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-          </Link>
-          <div>
-            <h1 className="text-2xl font-black tracking-tight">Payments & Receipts</h1>
-            <p className="text-xs text-muted-foreground">Receive payments, record cash/UPI/cheque entries, and verify collections.</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => refetch()} className="h-9 gap-1 text-xs">
-            <RefreshCw className="h-3.5 w-3.5" />
-            <span>Refresh</span>
-          </Button>
-          <Link href="/payments/new">
-            <Button size="sm" className="h-9 gap-1 font-bold text-xs">
-              <Plus className="h-4 w-4" />
-              <span>Receive Payment (F6)</span>
-            </Button>
-          </Link>
-        </div>
-      </div>
+    <WorkspacePage>
+      <WorkspacePageHeader
+        kicker="Records · Collections"
+        title="Payment register"
+        description="Receipts are shown with the backend's RECORDED / VERIFIED / REJECTED / CANCELLED workflow and real linked-document references."
+        icon={CreditCard}
+        actions={<><Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={() => void query.refetch()}><RefreshCw className="size-3.5" />Refresh</Button><FeatureActionButton featureId="PAYMENT_CREATE" icon={CircleDollarSign} /></>}
+      />
 
-      <Card>
-        <CardHeader className="pb-3 flex flex-row items-center justify-between">
-          <CardTitle className="text-sm font-bold">Collections & Receipts Register</CardTitle>
-          <div className="w-72 relative">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search reference # or customer..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9 h-9 text-xs"
-            />
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="border rounded-md overflow-x-auto">
-            <Table>
-              <TableHeader className="bg-muted/50">
-                <TableRow>
-                  <TableHead className="w-28 text-xs">Date</TableHead>
-                  <TableHead className="text-xs">Customer</TableHead>
-                  <TableHead className="text-xs">Payment Mode</TableHead>
-                  <TableHead className="text-xs">Ref / UTR Number</TableHead>
-                  <TableHead className="text-xs text-right">Amount (₹)</TableHead>
-                  <TableHead className="text-xs text-center">Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {isLoading ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-xs text-muted-foreground">
-                      Loading payment receipts...
-                    </TableCell>
-                  </TableRow>
-                ) : filteredPayments.length > 0 ? (
-                  filteredPayments.map((p: any) => (
-                    <TableRow key={p.id} className="hover:bg-muted/40 text-xs cursor-pointer">
-                      <TableCell>{formatDate(p.receivedAt || p.paymentDate || p.createdAt)}</TableCell>
-                      <TableCell className="font-semibold">{p.customerName || p.customer?.name || "Customer"}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="text-[10px] font-mono">
-                          {p.paymentMode}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="font-mono text-muted-foreground">{p.referenceNumber || p.details?.upiReference || p.details?.bankUtr || "—"}</TableCell>
-                      <TableCell className="text-right font-black text-emerald-600">{formatINR(p.amount)}</TableCell>
-                      <TableCell className="text-center">
-                        <Badge variant={p.status === "VERIFIED" ? "default" : "secondary"} className="text-[10px]">
-                          {p.status || "RECORDED"}
-                        </Badge>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                ) : (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-xs text-muted-foreground">
-                      No payment receipts recorded for shop.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
+      <WorkspaceMetricGrid>
+        <WorkspaceMetric label="Received on page" value={formatINR(totals.amount)} detail={`${(query.data ?? []).length} payments returned`} icon={WalletCards} loading={query.isLoading} />
+        <WorkspaceMetric label="Verified value" value={formatINR(totals.verified)} detail="Backend VERIFIED receipts" icon={BadgeCheck} tone="success" loading={query.isLoading} />
+        <WorkspaceMetric label="Awaiting verification" value={formatINR(totals.pending)} detail="Backend RECORDED receipts" icon={CreditCard} tone={totals.pending > 0 ? "warning" : "neutral"} loading={query.isLoading} />
+        <WorkspaceMetric label="Unlinked receipts" value={totals.unlinked} detail="No sale, DM or order reference" icon={CircleDollarSign} tone={totals.unlinked > 0 ? "info" : "neutral"} loading={query.isLoading} />
+      </WorkspaceMetricGrid>
+
+      <WorkspacePanel title="Collections and verification" description="Mode, status and unlinked filters are server-side. Text search filters only the current returned page.">
+        <WorkspaceToolbar>
+          <div className="relative w-[clamp(13rem,25vw,29rem)] max-w-full flex-1 sm:flex-none"><Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" /><Input value={pageFilter} onChange={(event) => setPageFilter(event.target.value)} placeholder="Filter current page by customer or reference…" className="h-9 bg-background pl-9 text-xs" /></div>
+          <DropdownMenu><DropdownMenuTrigger className="inline-flex h-9 items-center rounded-lg border bg-background px-3 text-xs font-medium hover:bg-muted">{paymentMode ? paymentMode.replaceAll("_", " ") : "All modes"}</DropdownMenuTrigger><DropdownMenuContent align="start"><DropdownMenuLabel>Payment mode</DropdownMenuLabel><DropdownMenuSeparator/><DropdownMenuItem onClick={() => setParams({ mode: null, page: null })}>All modes</DropdownMenuItem>{MODES.map((item) => <DropdownMenuItem key={item} onClick={() => setParams({ mode: item, page: null })}>{item.replaceAll("_", " ")}</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu>
+          <DropdownMenu><DropdownMenuTrigger className="inline-flex h-9 items-center rounded-lg border bg-background px-3 text-xs font-medium hover:bg-muted">{status || "All statuses"}</DropdownMenuTrigger><DropdownMenuContent align="start"><DropdownMenuLabel>Verification status</DropdownMenuLabel><DropdownMenuSeparator/><DropdownMenuItem onClick={() => setParams({ status: null, page: null })}>All statuses</DropdownMenuItem>{STATUSES.map((item) => <DropdownMenuItem key={item} onClick={() => setParams({ status: item, page: null })}>{item}</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu>
+          <Button variant={unlinked ? "secondary" : "outline"} size="sm" className="h-9" onClick={() => setParams({ unlinked: unlinked ? null : "true", page: null })}>Unlinked only</Button>
+        </WorkspaceToolbar>
+
+        <OperationalDataTable
+          data={rows}
+          columns={columns}
+          getRowId={(payment) => payment.id}
+          isLoading={query.isLoading}
+          isError={query.isError}
+          onRetry={() => void query.refetch()}
+          emptyTitle="No payments found"
+          emptyDescription={pageFilter ? "No payment on this page matches the filter." : "No payment was returned for the selected backend filters."}
+          renderMobileCard={(payment) => <div className="rounded-xl border bg-card p-3"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="text-sm font-semibold">{payment.customer?.name || "Walk-in / unassigned"}</p><p className="mt-0.5 text-[10px] text-muted-foreground">{formatDate(payment.receivedAt)} · {payment.paymentMode.replaceAll("_", " ")}</p><p className="mt-1 font-mono text-[9px] text-muted-foreground">{referenceOf(payment)}</p></div>{statusBadge(payment.status)}</div><div className="mt-3 border-t pt-2 text-right numeric-cell text-base font-semibold">{formatINR(payment.amount)}</div></div>}
+        />
+
+        <div className="flex items-center justify-between border-t bg-muted/20 px-[clamp(0.7rem,1vw,1rem)] py-2.5 text-[10px] text-muted-foreground"><span>Page {page} · {(query.data ?? []).length} records</span><div className="flex gap-1.5"><Button variant="outline" size="sm" className="h-8" disabled={page <= 1} onClick={() => setParams({ page: String(page - 1) })}>Previous</Button><Button variant="outline" size="sm" className="h-8" disabled={(query.data ?? []).length < PAGE_SIZE} onClick={() => setParams({ page: String(page + 1) })}>Next</Button></div></div>
+      </WorkspacePanel>
+    </WorkspacePage>
   );
 }
