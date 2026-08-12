@@ -1,121 +1,112 @@
 "use client";
 
-import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { useAuthStore } from "@/lib/auth/auth-store";
-import { apiRequest } from "@/lib/api/client";
-import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { AlertCircle, MessageSquare, Radio, RefreshCw, ShieldCheck, TimerReset } from "lucide-react";
+
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { ArrowLeft, MessageSquare, RefreshCw, AlertCircle, Radio } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { WorkspaceMetric, WorkspaceMetricGrid } from "@/components/workspace/WorkspaceMetrics";
+import { WorkspacePage, WorkspacePageHeader, WorkspacePanel } from "@/components/workspace/WorkspacePage";
+import { apiRequest } from "@/lib/api/client";
+import { useAuthStore } from "@/lib/auth/auth-store";
+import { queryKeys } from "@/lib/query/query-keys";
+
+type WhatsAppCapability = {
+  enabled: boolean;
+  integrationId: string | null;
+  phoneNumberId: string | null;
+  channelScope: string;
+  activeShopId: string;
+  runtimeConfig: {
+    socketGraceMs: number;
+    notificationPreviewsEnabled: boolean;
+    messagingWindowHours: number;
+    mediaPolicy: Record<string, unknown>;
+    retention: {
+      messageTextRetentionDays: number | null;
+      mediaFileRetentionDays: number;
+      thumbnailRetentionDays: number;
+      failedOperationRetentionDays: number;
+      draftRetentionDays: number;
+    };
+  };
+};
 
 export default function WhatsAppPage() {
   const { token, shops, activeShopId } = useAuthStore();
-  const currentShopId = activeShopId || (shops.length > 0 ? shops[0].id : "");
+  const shopId = activeShopId || shops[0]?.id || "";
 
-  const {
-    data: capability,
-    isLoading,
-    isError,
-    error,
-    refetch,
-  } = useQuery({
-    queryKey: ["whatsapp", "capability", currentShopId],
-    queryFn: () => apiRequest(`/whatsapp/capability?shopId=${currentShopId}`, { token: token || undefined }),
-    enabled: !!token && !!currentShopId,
+  const query = useQuery({
+    queryKey: queryKeys.whatsapp.capability(shopId),
+    queryFn: () => apiRequest<WhatsAppCapability>(`/whatsapp/capability?shopId=${encodeURIComponent(shopId)}`, { token }),
+    enabled: Boolean(token && shopId),
+    staleTime: 60_000,
   });
 
   return (
-    <div className="space-y-6 max-w-5xl mx-auto">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Link href="/dashboard">
-            <Button variant="ghost" size="icon" className="h-9 w-9">
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-          </Link>
-          <div>
-            <h1 className="text-2xl font-black tracking-tight">WhatsApp Communications</h1>
-            <p className="text-xs text-muted-foreground">
-              Cloud API integration status, capabilities, and automated channel health for active shop.
-            </p>
+    <WorkspacePage>
+      <WorkspacePageHeader
+        kicker="Channels · WhatsApp"
+        title="WhatsApp operations"
+        description="Effective channel capability for the active shop. This page now displays only fields returned by the real capability endpoint."
+        icon={MessageSquare}
+        actions={<Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={() => void query.refetch()}><RefreshCw className="size-3.5" />Refresh capability</Button>}
+      />
+
+      {query.isLoading ? (
+        <><div className="workspace-metric-grid">{Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-[clamp(5.5rem,10vh,7rem)] rounded-xl" />)}</div><Skeleton className="h-[42vh] w-full rounded-xl" /></>
+      ) : query.isError ? (
+        <WorkspacePanel><div className="p-[clamp(0.8rem,1.2vw,1.25rem)]"><Alert variant="destructive"><AlertCircle className="size-4"/><AlertTitle>Capability check failed</AlertTitle><AlertDescription>{query.error instanceof Error ? query.error.message : "The WhatsApp capability endpoint could not be queried."}</AlertDescription></Alert></div></WorkspacePanel>
+      ) : query.data ? (
+        <>
+          <WorkspaceMetricGrid>
+            <WorkspaceMetric label="Channel" value={query.data.enabled ? "Enabled" : "Not connected"} detail={`Resolution · ${query.data.channelScope}`} icon={Radio} tone={query.data.enabled ? "success" : "warning"} />
+            <WorkspaceMetric label="Messaging window" value={`${query.data.runtimeConfig.messagingWindowHours}h`} detail="Runtime-configured customer messaging window" icon={TimerReset} />
+            <WorkspaceMetric label="Socket grace" value={`${query.data.runtimeConfig.socketGraceMs} ms`} detail="Realtime connection grace period" icon={Radio} tone="info" />
+            <WorkspaceMetric label="Notification previews" value={query.data.runtimeConfig.notificationPreviewsEnabled ? "Enabled" : "Disabled"} detail="Capability runtime policy" icon={ShieldCheck} />
+          </WorkspaceMetricGrid>
+
+          <div className="workspace-two-column">
+            <WorkspacePanel title="Effective channel" description="Safe identifiers returned by GET /whatsapp/capability.">
+              <div className="divide-y px-[clamp(0.75rem,1vw,1rem)] text-xs">
+                <InfoLine label="Active shop" value={query.data.activeShopId} mono />
+                <InfoLine label="Integration ID" value={query.data.integrationId || "Not connected"} mono />
+                <InfoLine label="Phone number ID" value={query.data.phoneNumberId || "Not connected"} mono />
+                <InfoLine label="Channel scope" value={query.data.channelScope} />
+              </div>
+            </WorkspacePanel>
+
+            <WorkspacePanel title="Retention policy" description="Runtime retention values exposed by the backend capability response.">
+              <div className="divide-y px-[clamp(0.75rem,1vw,1rem)] text-xs">
+                <InfoLine label="Media files" value={`${query.data.runtimeConfig.retention.mediaFileRetentionDays} days`} />
+                <InfoLine label="Thumbnails" value={`${query.data.runtimeConfig.retention.thumbnailRetentionDays} days`} />
+                <InfoLine label="Failed operations" value={`${query.data.runtimeConfig.retention.failedOperationRetentionDays} days`} />
+                <InfoLine label="Drafts" value={`${query.data.runtimeConfig.retention.draftRetentionDays} days`} />
+              </div>
+            </WorkspacePanel>
           </div>
-        </div>
-        <Button variant="outline" size="sm" onClick={() => refetch()} className="h-9 gap-1 text-xs">
-          <RefreshCw className="h-3.5 w-3.5" />
-          <span>Retry / Refresh</span>
-        </Button>
-      </div>
 
-      {isLoading ? (
-        <Card>
-          <CardContent className="p-8 text-center text-xs text-muted-foreground">
-            Verifying WhatsApp integration capability...
-          </CardContent>
-        </Card>
-      ) : isError ? (
-        <Alert variant="destructive">
-          <AlertCircle className="h-4 w-4" />
-          <AlertTitle className="text-sm font-bold">Failed to load WhatsApp Status</AlertTitle>
-          <AlertDescription className="text-xs mt-1">
-            {(error as any)?.message || "An unexpected error occurred while querying WhatsApp integration capability."}
-          </AlertDescription>
-        </Alert>
-      ) : !capability || !capability.hasAccessToken ? (
-        <Card className="border-dashed">
-          <CardHeader className="text-center py-8">
-            <div className="mx-auto h-12 w-12 rounded-full bg-amber-50 dark:bg-amber-950/30 text-amber-600 flex items-center justify-center mb-3">
-              <MessageSquare className="h-6 w-6" />
-            </div>
-            <CardTitle className="text-base font-bold">WhatsApp integration is not connected for this shop.</CardTitle>
-            <CardDescription className="text-xs max-w-md mx-auto mt-1">
-              Configure WhatsApp Cloud API credentials in Meta Business Suite to enable automated invoice receipts and customer broadcasts.
-            </CardDescription>
-          </CardHeader>
-        </Card>
-      ) : (
-        <div className="space-y-6">
-          <Card>
-            <CardHeader className="pb-3 flex flex-row items-center justify-between">
-              <div>
-                <CardTitle className="text-sm font-bold flex items-center gap-2">
-                  <Radio className="h-4 w-4 text-emerald-500" />
-                  <span>Channel Capability & Integration Details</span>
-                </CardTitle>
-                <CardDescription className="text-xs">Active Meta Cloud API Integration</CardDescription>
-              </div>
-              <Badge variant="outline" className="text-xs text-emerald-600 bg-emerald-50 border-emerald-200">
-                {capability.status || "CONNECTED"}
-              </Badge>
-            </CardHeader>
-            <CardContent className="space-y-4 text-xs">
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 p-4 border rounded-lg bg-muted/20">
-                <div>
-                  <span className="text-muted-foreground font-semibold">Business Name:</span>
-                  <p className="font-bold text-slate-900 dark:text-slate-100">{capability.businessName || "—"}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground font-semibold">Phone Number:</span>
-                  <p className="font-mono font-bold">{capability.phoneNumber || "—"}</p>
-                </div>
-                <div>
-                  <span className="text-muted-foreground font-semibold">Messaging Limit:</span>
-                  <p className="font-mono">{capability.messagingLimitTier || "STANDARD"}</p>
-                </div>
-              </div>
-
+          <WorkspacePanel title="Web inbox status" description="No synthetic conversation data is shown.">
+            <div className="p-[clamp(0.75rem,1vw,1rem)]">
               <Alert>
-                <AlertCircle className="h-4 w-4 text-primary" />
-                <AlertTitle className="text-xs font-bold">Web Dashboard Inbox Limitation</AlertTitle>
-                <AlertDescription className="text-xs mt-1">
-                  WhatsApp conversations are not implemented in the web dashboard yet. Outbound receipts are dispatched directly via Cloud API services.
+                <MessageSquare className="size-4" />
+                <AlertTitle>{query.data.enabled ? "Channel connected; inbox UI is still deferred" : "WhatsApp integration is not connected for this shop"}</AlertTitle>
+                <AlertDescription>
+                  {query.data.enabled
+                    ? "The backend exposes integration-scoped conversation and messaging APIs, but this web inbox has not yet been implemented on this branch. Existing backend notification and receipt services remain the source of truth."
+                    : "Connect a valid WhatsApp integration through the supported onboarding workflow before conversation tooling can be used."}
                 </AlertDescription>
               </Alert>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-    </div>
+            </div>
+          </WorkspacePanel>
+        </>
+      ) : null}
+    </WorkspacePage>
   );
+}
+
+function InfoLine({ label, value, mono = false }: { label: string; value: string; mono?: boolean }) {
+  return <div className="flex min-h-[clamp(2.6rem,5vh,3.15rem)] items-center justify-between gap-4"><span className="text-muted-foreground">{label}</span><span className={`min-w-0 truncate text-right font-semibold ${mono ? "font-mono text-[10px]" : ""}`} title={value}>{value}</span></div>;
 }
