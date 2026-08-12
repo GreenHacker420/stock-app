@@ -110,7 +110,7 @@ function DashboardShellContent({ children }: { children: React.ReactNode }) {
       <Header onOpenCommandPalette={() => setCommandPaletteOpen(true)} />
       <div className="flex min-h-0 flex-1 overflow-hidden">
         <Sidebar />
-        <main className="min-w-0 flex-1 overflow-y-auto bg-[linear-gradient(to_bottom,var(--background),color-mix(in_srgb,var(--muted)_32%,var(--background)))] p-3 sm:p-4 lg:p-5 xl:p-6">
+        <main className="min-w-0 flex-1 overflow-y-auto bg-muted/20 p-3 sm:p-4 lg:p-5 xl:p-6">
           {children}
         </main>
         <RightActionRail
