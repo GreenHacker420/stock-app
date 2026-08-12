@@ -53,6 +53,12 @@ type Props = {
   onClose: () => void;
 };
 
+type MountedProps = {
+  image: WhatsAppViewerImage;
+  token?: string | null;
+  onClose: () => void;
+};
+
 type GalleryPageProps = {
   image: WhatsAppViewerImage;
   pageIndex: number;
@@ -220,7 +226,7 @@ export function WhatsAppImageViewer({ image, token, onClose }: Props) {
   );
 }
 
-function MountedWhatsAppImageViewer({ image, token, onClose }: Required<Pick<Props, "image" | "onClose">> & Pick<Props, "token">) {
+function MountedWhatsAppImageViewer({ image, token, onClose }: MountedProps) {
   const { width: screenWidth, height: screenHeight } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const [gallery, setGallery] = useState<WhatsAppViewerImage[]>([image]);
@@ -249,7 +255,7 @@ function MountedWhatsAppImageViewer({ image, token, onClose }: Required<Pick<Pro
 
   const panStartX = useSharedValue(0);
   const panStartY = useSharedValue(0);
-  const panAxis = useSharedValue(0); // 0 undecided, 1 page, 2 dismiss
+  const panAxis = useSharedValue(0);
 
   const fittedSize = useMemo(
     () => fitImage(current, screenWidth, screenHeight),
@@ -322,9 +328,6 @@ function MountedWhatsAppImageViewer({ image, token, onClose }: Required<Pick<Pro
           .filter((item): item is WhatsAppViewerImage => Boolean(item));
         const tappedIndex = resolved.findIndex((item) => sameImage(item, image));
         if (tappedIndex < 0 || resolved.length <= 1) return;
-
-        // The tapped image remains at virtual position 0, so expanding the
-        // gallery never visually moves or remounts the image already on screen.
         setGallery(resolved);
         setAnchorIndex(tappedIndex);
         setCurrentIndex(tappedIndex);
@@ -356,10 +359,11 @@ function MountedWhatsAppImageViewer({ image, token, onClose }: Required<Pick<Pro
       if (!failedImage.assetId || !token) return false;
       try {
         const asset = await getWaAsset(token, failedImage.assetId);
-        if (!asset?.url || asset.url === failedImage.url) return false;
+        const freshUrl = asset?.url;
+        if (!freshUrl || freshUrl === failedImage.url) return false;
         setGallery((items) =>
           items.map((item) =>
-            sameImage(item, failedImage) ? { ...item, url: asset.url } : item,
+            sameImage(item, failedImage) ? { ...item, url: freshUrl } : item,
           ),
         );
         return true;
