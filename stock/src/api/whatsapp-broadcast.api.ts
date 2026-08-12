@@ -2,18 +2,34 @@ import { apiRequest } from "./client";
 
 export type WaBroadcastStatus = "DRAFT" | "SCHEDULED" | "SENDING" | "COMPLETED" | "CANCELLED" | "FAILED";
 
+export type WaBroadcastTemplateBinding = {
+  component: "HEADER" | "BODY" | "BUTTON" | "CARD";
+  position: number;
+  buttonIndex?: number;
+  cardIndex?: number;
+  mode: "ATTRIBUTE" | "FIXED";
+  attributeId?: string;
+  value?: string;
+  fallbackValue?: string;
+};
+
+export type WaBroadcastTemplateVariables = {
+  /** New runtime binding contract. Values are resolved for each recipient when sending. */
+  bindings?: WaBroadcastTemplateBinding[];
+  /** Legacy positional payload kept for existing drafts/campaigns. */
+  header?: string[];
+  body?: string[];
+  headerAssetId?: string;
+  headerFileName?: string;
+};
+
 export type WaBroadcast = {
   id: string;
   shopId: string;
   integrationId?: string | null;
   name: string;
   templateId?: string | null;
-  templateVariables?: {
-    header?: string[];
-    body?: string[];
-    headerAssetId?: string;
-    headerFileName?: string;
-  } | null;
+  templateVariables?: WaBroadcastTemplateVariables | null;
   audienceCount: number;
   status: WaBroadcastStatus;
   sentCount: number;
@@ -76,7 +92,7 @@ export function createWaBroadcast(
     integrationId?: string;
     name: string;
     templateId: string;
-    templateVariables?: WaBroadcast["templateVariables"];
+    templateVariables?: WaBroadcastTemplateVariables;
   },
 ) {
   return apiRequest<WaBroadcast>("/whatsapp/broadcasts", {
