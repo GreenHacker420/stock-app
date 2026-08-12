@@ -4,7 +4,7 @@ import Link from "next/link";
 import type { ComponentType, ReactNode } from "react";
 import { ArrowLeft } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 export function WorkspacePage({ children, className }: { children: ReactNode; className?: string }) {
@@ -32,11 +32,13 @@ export function WorkspacePageHeader({
     <header className="workspace-page-header">
       <div className="flex min-w-0 items-start gap-[clamp(0.5rem,0.8vw,0.875rem)]">
         {backHref ? (
-          <Button asChild variant="ghost" size="icon" className="mt-0.5 size-9 shrink-0 rounded-lg">
-            <Link href={backHref} aria-label="Back">
-              <ArrowLeft className="size-4" />
-            </Link>
-          </Button>
+          <Link
+            href={backHref}
+            aria-label="Back"
+            className={cn(buttonVariants({ variant: "ghost", size: "icon" }), "mt-0.5 size-9 shrink-0 rounded-lg")}
+          >
+            <ArrowLeft className="size-4" />
+          </Link>
         ) : null}
 
         {Icon ? (
