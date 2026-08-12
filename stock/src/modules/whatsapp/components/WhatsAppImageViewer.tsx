@@ -1,4 +1,4 @@
 export {
   WhatsAppImageViewer,
   type WhatsAppViewerImage,
-} from "./WhatsAppImageViewerNative";
+} from "./WhatsAppImageViewerSmooth";
