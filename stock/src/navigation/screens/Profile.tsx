@@ -1049,6 +1049,5 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: fontWeight.medium,
   },
-  flex1: { flex: 1 },
   pressed: { opacity: 0.72 },
 });
