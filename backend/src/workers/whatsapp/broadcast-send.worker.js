@@ -10,6 +10,8 @@ import { publishWhatsAppEvent } from "../../utils/realtime.js";
 const API_VERSION = "v25.0";
 const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
 const PROGRESS_TTL_SECONDS = 7 * 24 * 60 * 60;
+const BINDING_PLAN_TTL_MS = 5 * 60 * 1000;
+const bindingPlanCache = new Map();
 
 function recipientValue(value, recipient) {
   if (value == null) return "";
@@ -19,9 +21,40 @@ function recipientValue(value, recipient) {
     .replaceAll("{{recipient.phone}}", recipient.customerPhone);
 }
 
+function getPath(source, path) {
+  if (!source || !path) return undefined;
+  return path.split(".").reduce((value, key) => value?.[key], source);
+}
+
+function formatAttributeValue(value, type) {
+  if (value == null || value === "") return "";
+  if (type === "CURRENCY") {
+    const number = Number(value);
+    return Number.isFinite(number)
+      ? number.toLocaleString("en-IN", { style: "currency", currency: "INR" })
+      : String(value);
+  }
+  if (type === "DATE") {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleDateString("en-IN");
+  }
+  if (type === "DATETIME") {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString("en-IN");
+  }
+  if (type === "BOOLEAN") return value ? "Yes" : "No";
+  return String(value);
+}
+
 function headerFormat(template) {
   const components = Array.isArray(template.components) ? template.components : [];
   return components.find((component) => String(component?.type || "").toUpperCase() === "HEADER")?.format?.toUpperCase();
+}
+
+function buttonSubType(template, buttonIndex) {
+  const components = Array.isArray(template.components) ? template.components : [];
+  const buttons = components.find((component) => String(component?.type || "").toUpperCase() === "BUTTONS")?.buttons || [];
+  return String(buttons[buttonIndex]?.type || "URL").toLowerCase();
 }
 
 async function resolveHeaderMedia(broadcast, template) {
@@ -59,31 +92,188 @@ async function resolveHeaderMedia(broadcast, template) {
   };
 }
 
-async function buildTemplatePayload(broadcast, template, recipient) {
+async function getBindingPlan(broadcast) {
+  const bindings = Array.isArray(broadcast.templateVariables?.bindings)
+    ? broadcast.templateVariables.bindings
+    : [];
+  if (!bindings.length) return null;
+
+  const cached = bindingPlanCache.get(broadcast.id);
+  if (cached && Date.now() - cached.loadedAt < BINDING_PLAN_TTL_MS) return cached;
+
+  const attributeIds = [...new Set(
+    bindings
+      .filter((binding) => binding?.mode === "ATTRIBUTE" && typeof binding.attributeId === "string")
+      .map((binding) => binding.attributeId),
+  )];
+
+  const [attributes, shop] = await Promise.all([
+    attributeIds.length
+      ? prisma.waTemplateAttribute.findMany({
+          where: {
+            id: { in: attributeIds },
+            shopId: broadcast.shopId,
+            isActive: true,
+          },
+          select: {
+            id: true,
+            source: true,
+            sourcePath: true,
+            type: true,
+            fallbackValue: true,
+            label: true,
+          },
+        })
+      : Promise.resolve([]),
+    prisma.shop.findUnique({
+      where: { id: broadcast.shopId },
+      select: { id: true, name: true, phone: true, address: true, email: true, city: true, gstin: true },
+    }),
+  ]);
+
+  const plan = {
+    loadedAt: Date.now(),
+    bindings,
+    attributes: new Map(attributes.map((attribute) => [attribute.id, attribute])),
+    shop,
+  };
+  bindingPlanCache.set(broadcast.id, plan);
+  return plan;
+}
+
+async function buildBindingContext(broadcast, recipient, conversation, plan) {
+  const customer = recipient.customerId
+    ? await prisma.customer.findFirst({
+        where: { id: recipient.customerId, shopId: broadcast.shopId },
+      })
+    : null;
+
+  // Name/phone are always present in the immutable campaign recipient snapshot,
+  // so device-only contacts can still use the common Customer name/phone sources.
+  const customerContext = {
+    ...(customer || {}),
+    name: customer?.name || recipient.customerName || recipient.customerPhone,
+    phone: customer?.phone || recipient.customerPhone,
+  };
+
+  return {
+    CUSTOMER: customerContext,
+    CONVERSATION: {
+      ...conversation,
+      contactName: conversation?.contactName || recipient.customerName || recipient.customerPhone,
+      phone: conversation?.phone || recipient.customerPhone,
+    },
+    SHOP: plan?.shop || null,
+  };
+}
+
+function resolveRuntimeBinding(binding, recipient, plan, context) {
+  if (!binding || !binding.mode) return "";
+
+  if (binding.mode === "FIXED") {
+    return recipientValue(binding.value || binding.fallbackValue || "", recipient).trim();
+  }
+
+  const attribute = plan?.attributes.get(binding.attributeId);
+  if (!attribute) {
+    return recipientValue(binding.fallbackValue || "", recipient).trim();
+  }
+
+  const source = context[attribute.source];
+  const resolved = formatAttributeValue(getPath(source, attribute.sourcePath), attribute.type);
+  return recipientValue(
+    resolved || binding.fallbackValue || attribute.fallbackValue || "",
+    recipient,
+  ).trim();
+}
+
+async function buildTemplatePayload(broadcast, template, recipient, conversation) {
   const variables = broadcast.templateVariables || {};
   const components = [];
   const mediaParameter = await resolveHeaderMedia(broadcast, template);
+  const plan = await getBindingPlan(broadcast);
 
-  if (mediaParameter) {
-    components.push({ type: "header", parameters: [mediaParameter] });
-  } else if (Array.isArray(variables.header) && variables.header.length > 0) {
-    components.push({
-      type: "header",
-      parameters: variables.header.map((value) => ({
-        type: "text",
-        text: recipientValue(value, recipient),
-      })),
-    });
-  }
+  if (plan) {
+    const context = await buildBindingContext(broadcast, recipient, conversation, plan);
+    const resolved = plan.bindings.map((binding) => ({
+      ...binding,
+      resolvedValue: resolveRuntimeBinding(binding, recipient, plan, context),
+    }));
 
-  if (Array.isArray(variables.body) && variables.body.length > 0) {
-    components.push({
-      type: "body",
-      parameters: variables.body.map((value) => ({
-        type: "text",
-        text: recipientValue(value, recipient),
-      })),
-    });
+    const missing = resolved.find((binding) => !binding.resolvedValue);
+    if (missing) {
+      throw new UnrecoverableError(
+        `No value could be resolved for ${missing.component} {{${missing.position}}}`,
+      );
+    }
+
+    const headerBindings = resolved
+      .filter((binding) => binding.component === "HEADER")
+      .sort((left, right) => left.position - right.position);
+    const bodyBindings = resolved
+      .filter((binding) => binding.component === "BODY")
+      .sort((left, right) => left.position - right.position);
+    const buttonBindings = resolved
+      .filter((binding) => binding.component === "BUTTON")
+      .sort((left, right) => (left.buttonIndex ?? 0) - (right.buttonIndex ?? 0) || left.position - right.position);
+    const cardBindings = resolved.filter((binding) => binding.component === "CARD");
+
+    if (cardBindings.length) {
+      throw new UnrecoverableError("Carousel runtime bindings are not enabled for broadcasts yet");
+    }
+
+    if (mediaParameter) {
+      components.push({ type: "header", parameters: [mediaParameter] });
+    } else if (headerBindings.length) {
+      components.push({
+        type: "header",
+        parameters: headerBindings.map((binding) => ({ type: "text", text: binding.resolvedValue })),
+      });
+    }
+
+    if (bodyBindings.length) {
+      components.push({
+        type: "body",
+        parameters: bodyBindings.map((binding) => ({ type: "text", text: binding.resolvedValue })),
+      });
+    }
+
+    for (const binding of buttonBindings) {
+      const index = binding.buttonIndex ?? 0;
+      const subType = buttonSubType(template, index);
+      if (subType !== "url") {
+        throw new UnrecoverableError(`Runtime ${subType} button bindings are not enabled for broadcasts yet`);
+      }
+      components.push({
+        type: "button",
+        sub_type: "url",
+        index: String(index),
+        parameters: [{ type: "text", text: binding.resolvedValue }],
+      });
+    }
+  } else {
+    // Backwards compatibility for broadcasts created before runtime bindings.
+    if (mediaParameter) {
+      components.push({ type: "header", parameters: [mediaParameter] });
+    } else if (Array.isArray(variables.header) && variables.header.length > 0) {
+      components.push({
+        type: "header",
+        parameters: variables.header.map((value) => ({
+          type: "text",
+          text: recipientValue(value, recipient),
+        })),
+      });
+    }
+
+    if (Array.isArray(variables.body) && variables.body.length > 0) {
+      components.push({
+        type: "body",
+        parameters: variables.body.map((value) => ({
+          type: "text",
+          text: recipientValue(value, recipient),
+        })),
+      });
+    }
   }
 
   return {
@@ -213,6 +403,7 @@ async function syncBroadcastProgress(broadcastId) {
 
   if (remaining === 0) {
     await connection.del(`broadcast:${broadcastId}:remaining`);
+    bindingPlanCache.delete(broadcastId);
   } else {
     await connection.set(
       `broadcast:${broadcastId}:remaining`,
@@ -320,6 +511,7 @@ export function startBroadcastSendWorker() {
         });
         if (!broadcast || broadcast.status !== "SENDING") {
           await connection.del(`broadcast:${broadcastId}:remaining`);
+          bindingPlanCache.delete(broadcastId);
           return;
         }
         if (!broadcast.template) {
@@ -354,7 +546,7 @@ export function startBroadcastSendWorker() {
         }
 
         conversation = await ensureConversation(broadcast, integration, recipient);
-        const payload = await buildTemplatePayload(broadcast, broadcast.template, recipient);
+        const payload = await buildTemplatePayload(broadcast, broadcast.template, recipient, conversation);
         const response = await axios.post(
           `${BASE_URL}/${credentials.phoneNumberId}/messages`,
           payload,
