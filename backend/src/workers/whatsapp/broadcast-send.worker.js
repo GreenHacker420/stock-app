@@ -423,13 +423,16 @@ async function recordTerminalFailure({
   errorMessage,
 }) {
   await prisma.$transaction(async (tx) => {
-    await tx.waBroadcastRecipient.update({
-      where: { id: recipient.id },
+    const transitioned = await tx.waBroadcastRecipient.updateMany({
+      where: { id: recipient.id, status: "PENDING" },
       data: {
         status: "FAILED",
         errorMessage,
       },
     });
+    // A stop/cancel can mark a recipient SKIPPED while an in-flight worker is
+    // unwinding. Never resurrect that terminal operator decision as FAILED.
+    if (!transitioned.count) return;
 
     if (!broadcast?.template || !conversation) return;
 
@@ -547,6 +550,26 @@ export function startBroadcastSendWorker() {
 
         conversation = await ensureConversation(broadcast, integration, recipient);
         const payload = await buildTemplatePayload(broadcast, broadcast.template, recipient, conversation);
+
+        // Stop/cancel can happen while the worker is waiting on the shared rate
+        // limit or resolving live attributes. Re-check both authoritative rows at
+        // the final provider boundary so a queued recipient does not leak through
+        // after the operator has stopped pending sends.
+        const [liveBroadcast, liveRecipient] = await Promise.all([
+          prisma.waBroadcast.findUnique({
+            where: { id: broadcastId },
+            select: { status: true },
+          }),
+          prisma.waBroadcastRecipient.findUnique({
+            where: { id: recipient.id },
+            select: { status: true },
+          }),
+        ]);
+        if (liveBroadcast?.status !== "SENDING" || liveRecipient?.status !== "PENDING") {
+          await syncBroadcastProgress(broadcastId);
+          return;
+        }
+
         const response = await axios.post(
           `${BASE_URL}/${credentials.phoneNumberId}/messages`,
           payload,
@@ -606,6 +629,7 @@ export function startBroadcastSendWorker() {
               providerStatusAt: now,
               broadcastRecipientId: recipient.id,
               errorMessage: null,
+              failedAt: null,
               entityVersion: { increment: 1 },
             },
           });
@@ -642,10 +666,14 @@ export function startBroadcastSendWorker() {
         );
 
         if (!terminalAttempt) {
-          await prisma.waBroadcastRecipient.updateMany({
+          const stillPending = await prisma.waBroadcastRecipient.updateMany({
             where: { id: recipient.id, status: "PENDING" },
             data: { errorMessage },
           });
+          if (!stillPending.count) {
+            await syncBroadcastProgress(broadcastId);
+            return;
+          }
           throw error;
         }
 
