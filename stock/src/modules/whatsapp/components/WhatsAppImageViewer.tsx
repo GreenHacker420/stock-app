@@ -22,6 +22,7 @@ import {
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
+  withDecay,
   withSpring,
   withTiming,
 } from "react-native-reanimated";
@@ -340,7 +341,34 @@ function MountedWhatsAppImageViewer({ image, token, onClose }: MountedProps) {
               overshootClamping: true,
             });
             dismissProgress.value = withTiming(0, { duration: 150 });
+            return;
           }
+
+          // Preserve release velocity while zoomed instead of stopping the
+          // image abruptly. The clamp keeps inertial motion inside real image
+          // bounds and the light rubber-band effect gives it native friction.
+          const maxX = Math.max(
+            0,
+            (fittedSize.width * scale.value - screenWidth) / 2,
+          );
+          const maxY = Math.max(
+            0,
+            (fittedSize.height * scale.value - screenHeight) / 2,
+          );
+          translateX.value = withDecay({
+            velocity: event.velocityX,
+            deceleration: 0.995,
+            clamp: [-maxX, maxX],
+            rubberBandEffect: true,
+            rubberBandFactor: 0.16,
+          });
+          translateY.value = withDecay({
+            velocity: event.velocityY,
+            deceleration: 0.995,
+            clamp: [-maxY, maxY],
+            rubberBandEffect: true,
+            rubberBandFactor: 0.16,
+          });
         }),
     [
       dismissProgress,
@@ -523,7 +551,7 @@ function MountedWhatsAppImageViewer({ image, token, onClose }: MountedProps) {
       onRequestClose={onClose}
     >
       <GestureHandlerRootView style={styles.root}>
-        <StatusBar style="light" translucent backgroundColor="transparent" />
+        <StatusBar style="light" backgroundColor="transparent" />
         <View style={styles.container}>
           <Animated.View
             pointerEvents="none"
