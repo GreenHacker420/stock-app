@@ -551,7 +551,7 @@ function MountedWhatsAppImageViewer({ image, token, onClose }: MountedProps) {
       onRequestClose={onClose}
     >
       <GestureHandlerRootView style={styles.root}>
-        <StatusBar style="light" backgroundColor="transparent" />
+        <StatusBar style="light" />
         <View style={styles.container}>
           <Animated.View
             pointerEvents="none"
