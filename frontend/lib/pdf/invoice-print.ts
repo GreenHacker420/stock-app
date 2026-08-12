@@ -1,11 +1,16 @@
 "use client";
 
-const formatMoney = (val?: string | number | null): string => {
-  const num = Number(val) || 0;
-  return `₹${num.toLocaleString("en-IN", {
+import type { Shop } from "@/lib/api/client";
+import type { SaleDetail } from "@/features/sales/lib/sale-detail-types";
+
+const formatMoney = (value?: string | number | null): string => {
+  const amount = Number(value ?? 0);
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: "INR",
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
-  })}`;
+  }).format(Number.isFinite(amount) ? amount : 0);
 };
 
 const formatDate = (dateStr?: string | Date | null): string => {
@@ -19,233 +24,123 @@ const formatDate = (dateStr?: string | Date | null): string => {
   });
 };
 
-export async function printInvoiceDocument(sale: any, shop?: any): Promise<void> {
+function escapeHtml(value: string | null | undefined) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+export async function printInvoiceDocument(sale: SaleDetail, shop?: Shop): Promise<void> {
   if (typeof window === "undefined") return;
 
-  const shopName = shop?.name || "SHOP CONTROL RETAIL";
+  const shopName = shop?.name || "Shop Control";
   const shopCity = shop?.city || "";
   const shopAddress = shop?.address || "";
   const shopPhone = shop?.phone || "";
   const shopEmail = shop?.email || "";
   const shopGstin = shop?.gstin || "";
 
-  const customerName = sale.customerName || sale.customer?.name || "Walk-in Customer";
+  const customerName = sale.customer?.name || "Walk-in Customer";
   const customerPhone = sale.customer?.phone || "";
   const customerGstin = sale.customer?.gstin || "";
-
-  const saleNumber = sale.invoiceNumber || (sale.id ? sale.id.slice(0, 8).toUpperCase() : "INV-001");
   const saleDate = formatDate(sale.saleDate || sale.createdAt);
+  const invoiceIssued = sale.gstRequired && sale.gstInvoiceStatus === "GENERATED" && Boolean(sale.gstInvoiceNumber);
+  const documentNumber = invoiceIssued ? sale.gstInvoiceNumber! : sale.saleNumber;
+  const documentTitle = invoiceIssued ? "TAX INVOICE" : "SALE RECEIPT";
 
-  const items = Array.isArray(sale.items) ? sale.items : [];
-  const totalAmount = Number(sale.totalAmount || sale.finalAmount || 0);
-  const paidAmount = Number(sale.paidAmount || (sale.paymentStatus === "PAID" ? totalAmount : 0));
-  const balanceDue = Math.max(totalAmount - paidAmount, 0);
-  const changeReturned = Math.max(paidAmount - totalAmount, 0);
+  const totalAmount = Number(sale.totalAmount || 0);
+  const verifiedPaid = Number(sale.verifiedPaidAmount || 0);
+  const recordedPaid = Number(sale.recordedPaymentAmount || 0);
+  const balanceDue = Number(sale.balanceAmount || 0);
+  const statusText = sale.paymentStatus === "PAID" ? "PAID" : sale.paymentStatus.replaceAll("_", " ");
 
-  const statusText = sale.paymentStatus === "PAID" || paidAmount >= totalAmount ? "PAID" : "PAYMENT DUE";
-
-  const itemsHtml = items.map((item: any) => {
-    const name = item.item?.name || item.name || "Product Item";
-    const sku = item.item?.sku ? `(${item.item.sku})` : "";
-    const qty = Number(item.quantity || 1);
-    const rate = Number(item.rate || 0);
-    const lineTotal = qty * rate;
-
+  const itemsHtml = sale.items.map((line) => {
+    const itemName = escapeHtml(line.item?.name || "Product item");
+    const sku = line.item?.sku ? escapeHtml(line.item.sku) : "";
+    const serials = line.serialNumbers?.length ? `S/N: ${escapeHtml(line.serialNumbers.join(", "))}` : "";
     return `
-      <tr style="border-bottom: 1px solid #e2e8f0;">
-        <td style="padding: 10px 8px; text-align: left;">
-          <div style="font-weight: 700; color: #0f172a;">${name}</div>
-          <div style="font-size: 11px; color: #64748b;">${sku}</div>
+      <tr style="border-bottom:1px solid #e5e7eb;">
+        <td style="padding:9px 8px;text-align:left;">
+          <div style="font-weight:700;color:#111827;">${itemName}</div>
+          <div style="font-size:10px;color:#6b7280;">${[sku, serials].filter(Boolean).join(" · ")}</div>
         </td>
-        <td style="padding: 10px 8px; text-align: center; color: #334155; font-family: monospace;">${qty}</td>
-        <td style="padding: 10px 8px; text-align: right; color: #334155; font-family: monospace;">${formatMoney(rate)}</td>
-        <td style="padding: 10px 8px; text-align: right; font-weight: 700; color: #0f172a; font-family: monospace;">${formatMoney(lineTotal)}</td>
-      </tr>
-    `;
+        <td style="padding:9px 8px;text-align:right;font-family:monospace;">${escapeHtml(String(line.quantity))}</td>
+        <td style="padding:9px 8px;text-align:right;font-family:monospace;">${formatMoney(line.rate)}</td>
+        <td style="padding:9px 8px;text-align:right;font-family:monospace;">${formatMoney(line.discountAmount)}</td>
+        <td style="padding:9px 8px;text-align:right;font-weight:700;font-family:monospace;">${formatMoney(line.totalAmount)}</td>
+      </tr>`;
   }).join("");
 
-  const html = `
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-      <meta charset="UTF-8">
-      <title>Tax Invoice #${saleNumber}</title>
-      <style>
-        body {
-          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-          margin: 0;
-          padding: 24px;
-          color: #0f172a;
-          background: #ffffff;
-        }
-        .invoice-box {
-          max-width: 700px;
-          margin: 0 auto;
-          border: 1px solid #e2e8f0;
-          border-radius: 8px;
-          padding: 24px;
-        }
-        .header {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-          border-bottom: 2px solid #0f172a;
-          padding-bottom: 16px;
-          margin-bottom: 20px;
-        }
-        .shop-title {
-          font-size: 22px;
-          font-weight: 900;
-          text-transform: uppercase;
-          letter-spacing: -0.5px;
-          margin: 0;
-        }
-        .shop-sub {
-          font-size: 11px;
-          color: #64748b;
-          margin: 4px 0 0 0;
-        }
-        .meta-grid {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 16px;
-          margin-bottom: 24px;
-          background: #f8fafc;
-          padding: 12px;
-          border-radius: 6px;
-          font-size: 12px;
-        }
-        .table {
-          width: 100%;
-          border-collapse: collapse;
-          margin-bottom: 24px;
-        }
-        .th {
-          border-bottom: 2px solid #0f172a;
-          font-size: 11px;
-          font-weight: 800;
-          text-transform: uppercase;
-          color: #475569;
-          padding: 8px;
-        }
-        .totals-box {
-          margin-left: auto;
-          width: 260px;
-          border-top: 2px solid #0f172a;
-          padding-top: 8px;
-          font-size: 13px;
-        }
-        .totals-row {
-          display: flex;
-          justify-content: space-between;
-          padding: 4px 0;
-        }
-        .grand-total {
-          font-size: 16px;
-          font-weight: 900;
-          border-top: 1px solid #e2e8f0;
-          padding-top: 8px;
-          margin-top: 4px;
-        }
-        .footer {
-          margin-top: 32px;
-          text-align: center;
-          font-size: 11px;
-          color: #64748b;
-          border-top: 1px dashed #cbd5e1;
-          padding-top: 16px;
-        }
-        @media print {
-          body { padding: 0 !important; }
-          .invoice-box { border: none !important; padding: 0 !important; }
-        }
-      </style>
-    </head>
-    <body>
-      <div class="invoice-box">
-        <div class="header">
-          <div>
-            <h1 class="shop-title">${shopName}</h1>
-            <p class="shop-sub">${[shopCity, shopAddress].filter(Boolean).join(" • ")}</p>
-            ${shopPhone || shopEmail ? `<p class="shop-sub">${[shopPhone && `Ph: ${shopPhone}`, shopEmail && `Email: ${shopEmail}`].filter(Boolean).join(" | ")}</p>` : ""}
-            ${shopGstin ? `<p class="shop-sub" style="font-weight: 700;">GSTIN: ${shopGstin}</p>` : ""}
-          </div>
-          <div style="text-align: right;">
-            <div style="font-size: 16px; font-weight: 900; color: #4338ca;">TAX INVOICE</div>
-            <div style="font-size: 12px; font-weight: 700; margin-top: 2px;">#${saleNumber}</div>
-            <div style="font-size: 11px; color: #64748b; margin-top: 2px;">${saleDate}</div>
-            <div style="margin-top: 6px;">
-              <span style="display: inline-block; padding: 3px 8px; border-radius: 4px; font-size: 10px; font-weight: 800; background: ${statusText === "PAID" ? "#dcfce7" : "#ffe4e6"}; color: ${statusText === "PAID" ? "#15803d" : "#be123c"}; border: 1px solid ${statusText === "PAID" ? "#86efac" : "#fca5a5"};">
-                ${statusText}
-              </span>
-            </div>
-          </div>
-        </div>
+  const paymentHtml = sale.payments.length
+    ? sale.payments.map((payment) => `
+      <div class="row small">
+        <span>${escapeHtml(payment.paymentMode.replaceAll("_", " "))} · ${escapeHtml(payment.status)}</span>
+        <span>${formatMoney(payment.amount)}</span>
+      </div>`).join("")
+    : `<div class="small muted">No payment records attached to this sale.</div>`;
 
-        <div class="meta-grid">
-          <div>
-            <div style="color: #64748b; font-size: 10px; font-weight: 700; text-transform: uppercase;">Customer Details</div>
-            <div style="font-[14px]; font-weight: 800; color: #0f172a; margin-top: 2px;">${customerName}</div>
-            ${customerPhone ? `<div>Ph: ${customerPhone}</div>` : ""}
-            ${customerGstin ? `<div>GSTIN: ${customerGstin}</div>` : ""}
-          </div>
-          <div style="text-align: right;">
-            <div style="color: #64748b; font-size: 10px; font-weight: 700; text-transform: uppercase;">Invoice Summary</div>
-            <div style="margin-top: 2px;">Items: <b>${items.length}</b></div>
-            ${changeReturned > 0 ? `<div>Change Returned: <b style="color: #0284c7;">${formatMoney(changeReturned)}</b></div>` : ""}
-            <div>GST: <b>${sale.gstRequired ? "18% Included" : "Non-GST"}</b></div>
-          </div>
-        </div>
+  const html = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>${documentTitle} ${escapeHtml(documentNumber)}</title>
+  <style>
+    *{box-sizing:border-box} body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;margin:0;padding:20px;color:#111827;background:#fff}
+    .document{width:100%;max-width:760px;margin:0 auto;padding:22px;border:1px solid #e5e7eb;border-radius:10px}
+    .header{display:flex;justify-content:space-between;gap:24px;border-bottom:2px solid #111827;padding-bottom:14px;margin-bottom:18px}
+    .title{font-size:22px;font-weight:800;margin:0}.muted{color:#6b7280}.small{font-size:11px}.label{font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:#6b7280;font-weight:700}
+    .meta{display:grid;grid-template-columns:1fr 1fr;gap:14px;background:#f9fafb;border:1px solid #e5e7eb;padding:12px;border-radius:8px;margin-bottom:18px}
+    table{width:100%;border-collapse:collapse;margin-bottom:18px} th{padding:8px;border-bottom:2px solid #111827;font-size:9px;text-transform:uppercase;letter-spacing:.06em;color:#6b7280;text-align:right} th:first-child{text-align:left}
+    .totals{margin-left:auto;width:310px;border:1px solid #e5e7eb;border-radius:8px;padding:12px}.row{display:flex;justify-content:space-between;gap:16px;padding:4px 0}.grand{font-size:15px;font-weight:800;border-top:1px solid #e5e7eb;margin-top:5px;padding-top:8px}
+    .status{display:inline-block;border:1px solid #d1d5db;border-radius:999px;padding:3px 8px;font-size:9px;font-weight:800}.footer{margin-top:24px;border-top:1px dashed #d1d5db;padding-top:12px;text-align:center;font-size:10px;color:#6b7280}
+    @media print{body{padding:0}.document{max-width:none;border:0;padding:0}}
+  </style>
+</head>
+<body>
+<div class="document">
+  <div class="header">
+    <div>
+      <h1 class="title">${escapeHtml(shopName)}</h1>
+      <div class="small muted">${escapeHtml([shopCity, shopAddress].filter(Boolean).join(" · "))}</div>
+      ${shopPhone || shopEmail ? `<div class="small muted">${escapeHtml([shopPhone, shopEmail].filter(Boolean).join(" · "))}</div>` : ""}
+      ${shopGstin ? `<div class="small" style="font-weight:700;margin-top:3px">GSTIN ${escapeHtml(shopGstin)}</div>` : ""}
+    </div>
+    <div style="text-align:right">
+      <div style="font-size:16px;font-weight:800">${documentTitle}</div>
+      <div style="font-size:12px;font-weight:700;margin-top:2px">#${escapeHtml(documentNumber)}</div>
+      <div class="small muted">Sale ${escapeHtml(sale.saleNumber)} · ${saleDate}</div>
+      <div style="margin-top:6px"><span class="status">${escapeHtml(statusText)}</span></div>
+    </div>
+  </div>
 
-        <table class="table">
-          <thead>
-            <tr>
-              <th class="th" style="text-align: left;">Product Item</th>
-              <th class="th" style="text-align: center;">Qty</th>
-              <th class="th" style="text-align: right;">Rate</th>
-              <th class="th" style="text-align: right;">Total</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${itemsHtml}
-          </tbody>
-        </table>
+  <div class="meta">
+    <div><div class="label">Customer</div><div style="font-size:13px;font-weight:700;margin-top:3px">${escapeHtml(customerName)}</div>${customerPhone ? `<div class="small">${escapeHtml(customerPhone)}</div>` : ""}${customerGstin ? `<div class="small">GSTIN ${escapeHtml(customerGstin)}</div>` : ""}</div>
+    <div style="text-align:right"><div class="label">Document state</div><div class="small" style="margin-top:3px">GST requested: <b>${sale.gstRequired ? "Yes" : "No"}</b></div><div class="small">GST invoice: <b>${escapeHtml(sale.gstInvoiceStatus.replaceAll("_", " "))}</b></div><div class="small">Sale status: <b>${escapeHtml(sale.saleStatus)}</b></div></div>
+  </div>
 
-        <div class="totals-box">
-          <div class="totals-row">
-            <span style="color: #64748b;">Subtotal</span>
-            <span style="font-weight: 700; font-family: monospace;">${formatMoney(totalAmount)}</span>
-          </div>
-          <div class="totals-row grand-total">
-            <span>Grand Total</span>
-            <span style="font-family: monospace;">${formatMoney(totalAmount)}</span>
-          </div>
-          <div class="totals-row" style="margin-top: 6px;">
-            <span style="color: #64748b;">Amount Paid</span>
-            <span style="font-weight: 700; color: #16a34a; font-family: monospace;">${formatMoney(paidAmount)}</span>
-          </div>
-          ${changeReturned > 0 ? `
-          <div class="totals-row">
-            <span style="color: #64748b;">Change Returned</span>
-            <span style="font-weight: 700; color: #0284c7; font-family: monospace;">${formatMoney(changeReturned)}</span>
-          </div>
-          ` : ""}
-          <div class="totals-row">
-            <span style="color: #64748b;">Balance Due</span>
-            <span style="font-weight: 700; color: ${balanceDue > 0 ? "#dc2626" : "#0f172a"}; font-family: monospace;">${formatMoney(balanceDue)}</span>
-          </div>
-        </div>
+  <table>
+    <thead><tr><th>Product</th><th>Qty</th><th>Rate</th><th>Discount</th><th>Line total</th></tr></thead>
+    <tbody>${itemsHtml}</tbody>
+  </table>
 
-        <div class="footer">
-          <div style="font-weight: 700;">Thank you for your business!</div>
-          <div>This is a computer-generated tax invoice verified by ShopControl.</div>
-        </div>
-      </div>
-    </body>
-    </html>
-  `;
+  <div class="totals">
+    <div class="row"><span class="muted">Subtotal</span><b>${formatMoney(sale.subtotal)}</b></div>
+    <div class="row"><span class="muted">Discount</span><b>${formatMoney(sale.discountAmount)}</b></div>
+    <div class="row grand"><span>Total</span><span>${formatMoney(totalAmount)}</span></div>
+    <div class="row"><span class="muted">Verified payments</span><b>${formatMoney(verifiedPaid)}</b></div>
+    <div class="row"><span class="muted">Recorded, unverified</span><b>${formatMoney(recordedPaid)}</b></div>
+    <div class="row"><span class="muted">Balance due</span><b>${formatMoney(balanceDue)}</b></div>
+    <div style="border-top:1px solid #e5e7eb;margin-top:7px;padding-top:7px">${paymentHtml}</div>
+  </div>
 
-  // Create clean print iframe
+  <div class="footer">Generated from the server-authoritative sale record. Tax values are not guessed in the browser.</div>
+</div>
+</body>
+</html>`;
+
   const iframe = document.createElement("iframe");
   iframe.style.position = "fixed";
   iframe.style.right = "0";
@@ -253,30 +148,23 @@ export async function printInvoiceDocument(sale: any, shop?: any): Promise<void>
   iframe.style.width = "0";
   iframe.style.height = "0";
   iframe.style.border = "0";
-
   document.body.appendChild(iframe);
 
   const doc = iframe.contentWindow?.document || iframe.contentDocument;
-  if (!doc) return;
-
+  if (!doc) {
+    iframe.remove();
+    return;
+  }
   doc.open();
   doc.write(html);
   doc.close();
 
-  iframe.onload = () => {
+  const print = () => {
     iframe.contentWindow?.focus();
     iframe.contentWindow?.print();
-    setTimeout(() => {
-      if (iframe.parentNode) document.body.removeChild(iframe);
-    }, 1000);
+    window.setTimeout(() => iframe.remove(), 1000);
   };
 
-  // Fallback trigger if onload fires immediately
-  setTimeout(() => {
-    iframe.contentWindow?.focus();
-    iframe.contentWindow?.print();
-    setTimeout(() => {
-      if (iframe.parentNode) document.body.removeChild(iframe);
-    }, 1000);
-  }, 300);
+  iframe.onload = print;
+  window.setTimeout(print, 350);
 }
