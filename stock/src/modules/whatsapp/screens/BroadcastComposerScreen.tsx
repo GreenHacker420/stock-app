@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, Pressable, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
+import { Alert, Platform, Pressable, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { FlashList } from "@shopify/flash-list";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ActivityIndicator, Button, Dialog, IconButton, Portal, Searchbar, Text, TextInput } from "react-native-paper";
+import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import * as Contacts from "expo-contacts";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
@@ -13,10 +14,13 @@ import { useDebounce } from "use-debounce";
 import { ApiError } from "../../../api/client";
 import {
   addWaBroadcastRecipients,
-  cancelWaBroadcast,
   createWaBroadcast,
+  discardWaBroadcastDraft,
+  scheduleWaBroadcast,
   sendWaBroadcast,
+  sendWaBroadcastTest,
   type WaBroadcastRecipientInput,
+  type WaBroadcastTemplateVariables,
 } from "../../../api/whatsapp-broadcast.api";
 import {
   fetchWaTemplateAttributes,
@@ -28,6 +32,7 @@ import {
   type WaTemplateDefinition,
 } from "../../../api/whatsapp.api";
 import { useAuthStore } from "../../../auth/auth-store";
+import { AppBottomSheetModal } from "../../../components/overlays/AppBottomSheetModal";
 import { colors, fontSize, fontWeight, radius, spacing } from "../../../theme";
 import { triggerLightHaptic } from "../../../utils/haptics";
 import {
@@ -43,9 +48,10 @@ import {
   useContactsLocalQuery,
 } from "../hooks/useContactsLocal";
 import { getLocalContactsByIds } from "../services/broadcastContacts";
+import { broadcastDraftDb } from "../services/broadcastDraftDb";
 import { contactsDb, type LocalContact } from "../services/contactsDb";
 import { useWhatsAppScope } from "../whatsapp-scope";
-import { formatWhatsAppPhone, initials, waColors } from "../whatsapp-ui";
+import { formatWhatsAppPhone, initials } from "../whatsapp-ui";
 
 const STEPS = [
   { key: "audience", label: "Audience", icon: "account-multiple-outline" },
@@ -54,11 +60,13 @@ const STEPS = [
   { key: "review", label: "Review", icon: "check-circle-outline" },
 ] as const;
 const RECIPIENT_UPLOAD_BATCH = 300;
+const AUTOSAVE_DELAY_MS = 450;
 
 type TagFilter = "ALL" | "REGULAR" | "BUSINESS" | "NONE";
 type ManualRecipient = { id: string; name: string; phone: string };
 type ScopedWaTemplate = WaTemplate & { integrationId?: string | null };
 type HeaderAsset = { id: string; fileName: string; kind: "IMAGE" | "VIDEO" | "DOCUMENT" };
+type LaunchMode = "SEND_NOW" | "SCHEDULE";
 
 function digitsOnly(phone: string) {
   return phone.replace(/\D/g, "");
@@ -126,6 +134,18 @@ function previewDefinition(template: WaTemplate, bindings: RuntimeBindingMap, at
   } as Partial<WaTemplateDefinition>;
 }
 
+function bindingsFromList(bindings: NonNullable<WaBroadcastTemplateVariables["bindings"]>): RuntimeBindingMap {
+  return Object.fromEntries(bindings.map((binding) => [runtimeBindingKey(binding), binding]));
+}
+
+function scheduleDateLabel(value: Date) {
+  return value.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+}
+
+function scheduleTimeLabel(value: Date) {
+  return value.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+}
+
 function ContactRow({ item, selected, onToggle }: { item: LocalContact; selected: boolean; onToggle: () => void }) {
   const label = item.name || formatWhatsAppPhone(item.phone);
   return (
@@ -173,11 +193,23 @@ export function BroadcastComposerScreen() {
 
   const [templateSearch, setTemplateSearch] = useState("");
   const [selectedTemplate, setSelectedTemplate] = useState<WaTemplate | null>(null);
+  const [restoredTemplateId, setRestoredTemplateId] = useState<string | null>(null);
   const [bindings, setBindings] = useState<RuntimeBindingMap>({});
   const [headerAsset, setHeaderAsset] = useState<HeaderAsset | null>(null);
   const [uploadingHeader, setUploadingHeader] = useState(false);
   const [campaignName, setCampaignName] = useState("");
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [draftHydrated, setDraftHydrated] = useState(false);
+
+  const [testDialog, setTestDialog] = useState(false);
+  const [testPhone, setTestPhone] = useState("");
+  const [testName, setTestName] = useState("");
+
+  const [scheduleSheet, setScheduleSheet] = useState(false);
+  const [scheduledFor, setScheduledFor] = useState(() => new Date(Date.now() + 60 * 60 * 1000));
+  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [showTimePicker, setShowTimePicker] = useState(false);
+  const timezone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || "Device local time", []);
 
   useEffect(() => {
     navigation.setOptions({
@@ -189,6 +221,25 @@ export function BroadcastComposerScreen() {
       headerTitleStyle: { fontWeight: "800" },
     });
   }, [navigation]);
+
+  useEffect(() => {
+    let active = true;
+    setDraftHydrated(false);
+    broadcastDraftDb.get(shopId, integrationId).then((draft) => {
+      if (!active) return;
+      if (draft) {
+        setStep(Math.min(Math.max(draft.step, 0), STEPS.length - 1));
+        setSelectedIds(new Set(draft.selectedContactIds));
+        setManualRecipients(draft.manualRecipients);
+        setRestoredTemplateId(draft.templateId || null);
+        setBindings(bindingsFromList(draft.bindings));
+        setHeaderAsset(draft.headerAsset || null);
+        setCampaignName(draft.campaignName || "");
+      }
+      setDraftHydrated(true);
+    }).catch(() => setDraftHydrated(true));
+    return () => { active = false; };
+  }, [integrationId, shopId]);
 
   const contactParams = useMemo(() => ({
     searchQuery: debouncedSearch,
@@ -206,7 +257,7 @@ export function BroadcastComposerScreen() {
 
   const templatesQuery = useQuery({
     queryKey: ["wa-broadcast-templates", shopId, integrationId, templateSearch],
-    enabled: Boolean(token && shopId && integrationId && step >= 1),
+    enabled: Boolean(token && shopId && integrationId && (step >= 1 || restoredTemplateId)),
     queryFn: () => fetchWaTemplates(token, shopId, {
       status: "APPROVED",
       search: templateSearch.trim() || undefined,
@@ -221,12 +272,68 @@ export function BroadcastComposerScreen() {
     [integrationId, templatesQuery.data?.data],
   );
 
+  useEffect(() => {
+    if (!restoredTemplateId || selectedTemplate || !templatesQuery.isSuccess) return;
+    const template = templates.find((item) => item.id === restoredTemplateId);
+    if (template) {
+      setSelectedTemplate(template);
+      return;
+    }
+    setRestoredTemplateId(null);
+    setBindings({});
+    setHeaderAsset(null);
+    setStep((current) => Math.min(current, 1));
+  }, [restoredTemplateId, selectedTemplate, templates, templatesQuery.isSuccess]);
+
   const attributesQuery = useQuery({
     queryKey: ["wa-template-attributes", shopId],
     enabled: Boolean(token && shopId && selectedTemplate),
     queryFn: () => fetchWaTemplateAttributes(token, shopId),
   });
   const attributes = attributesQuery.data || [];
+
+  useEffect(() => {
+    if (!draftHydrated) return;
+    const templateId = selectedTemplate?.id || restoredTemplateId || undefined;
+    const hasContent = selectedIds.size > 0
+      || manualRecipients.length > 0
+      || Boolean(templateId)
+      || Boolean(campaignName.trim())
+      || Object.keys(bindings).length > 0
+      || Boolean(headerAsset);
+
+    const timer = setTimeout(() => {
+      if (!hasContent) {
+        broadcastDraftDb.clear(shopId, integrationId).catch(() => undefined);
+        return;
+      }
+      broadcastDraftDb.save({
+        shopId,
+        integrationId,
+        step,
+        selectedContactIds: [...selectedIds],
+        manualRecipients,
+        templateId,
+        bindings: Object.values(bindings),
+        headerAsset,
+        campaignName,
+        updatedAt: Date.now(),
+      }).catch(() => undefined);
+    }, AUTOSAVE_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [
+    bindings,
+    campaignName,
+    draftHydrated,
+    headerAsset,
+    integrationId,
+    manualRecipients,
+    restoredTemplateId,
+    selectedIds,
+    selectedTemplate?.id,
+    shopId,
+    step,
+  ]);
 
   const importMutation = useMutation({
     mutationFn: async () => {
@@ -268,7 +375,7 @@ export function BroadcastComposerScreen() {
       queryClient.invalidateQueries({ queryKey: ["contacts-stats"] });
       Alert.alert("Contacts refreshed", `${count} device contacts are available locally.`);
     },
-    onError: (error) => Alert.alert("Contacts unavailable", error.message),
+    onError: (error) => Alert.alert("Contacts unavailable", error instanceof Error ? error.message : "Could not refresh contacts."),
   });
 
   const toggleContact = useCallback((id: string) => {
@@ -314,6 +421,7 @@ export function BroadcastComposerScreen() {
   const chooseTemplate = (template: WaTemplate) => {
     triggerLightHaptic();
     setSelectedTemplate(template);
+    setRestoredTemplateId(template.id);
     setHeaderAsset(null);
     setBindings(createInitialRuntimeBindings(template.variableMappings));
     setCampaignName((current) => current || template.name.replaceAll("_", " "));
@@ -381,80 +489,169 @@ export function BroadcastComposerScreen() {
     }),
   );
   const mediaRequired = ["IMAGE", "VIDEO", "DOCUMENT"].includes(headerFormat(selectedTemplate));
-  const campaignReady = Boolean(
+  const personalizationReady = Boolean(
     selectedTemplate
-    && campaignName.trim()
-    && audienceCount > 0
     && mappingsReady
     && (!mediaRequired || headerAsset),
   );
+  const campaignReady = Boolean(
+    personalizationReady
+    && campaignName.trim()
+    && audienceCount > 0,
+  );
 
-  const sendMutation = useMutation({
-    mutationFn: async () => {
-      if (!selectedTemplate) throw new Error("Choose a template first.");
-      if (!campaignName.trim()) throw new Error("Give this campaign a name.");
-      if (!mappingsReady) throw new Error("Configure every template variable before sending.");
-      if (mediaRequired && !headerAsset) throw new Error(`Choose the ${headerFormat(selectedTemplate).toLowerCase()} header for this campaign.`);
+  const templateVariables = useCallback((): WaBroadcastTemplateVariables => ({
+    bindings: Object.values(bindings),
+    ...(headerAsset ? { headerAssetId: headerAsset.id, headerFileName: headerAsset.fileName } : {}),
+  }), [bindings, headerAsset]);
 
-      const local = await getLocalContactsByIds([...selectedIds]);
-      const recipients: WaBroadcastRecipientInput[] = [
-        ...local.map((contact) => ({
-          phone: contact.phone,
-          name: contact.name,
-          customerId: contact.customerId || undefined,
-          sourceContactId: contact.id,
-          source: contact.customerId ? ("CUSTOMER" as const) : ("DEVICE_CONTACT" as const),
-        })),
-        ...manualRecipients.map((recipient) => ({
-          phone: recipient.phone,
-          name: recipient.name,
-          sourceContactId: recipient.id,
-          source: "MANUAL" as const,
-        })),
-      ];
-      if (!recipients.length) throw new Error("No recipients selected.");
+  const collectRecipients = useCallback(async () => {
+    const local = await getLocalContactsByIds([...selectedIds]);
+    const recipients: WaBroadcastRecipientInput[] = [
+      ...local.map((contact) => ({
+        phone: contact.phone,
+        name: contact.name,
+        customerId: contact.customerId || undefined,
+        sourceContactId: contact.id,
+        source: contact.customerId ? ("CUSTOMER" as const) : ("DEVICE_CONTACT" as const),
+      })),
+      ...manualRecipients.map((recipient) => ({
+        phone: recipient.phone,
+        name: recipient.name,
+        sourceContactId: recipient.id,
+        source: "MANUAL" as const,
+      })),
+    ];
+    if (!recipients.length) throw new Error("No recipients selected.");
+    return recipients;
+  }, [manualRecipients, selectedIds]);
 
-      const broadcast = await createWaBroadcast(token, {
-        shopId,
-        integrationId,
-        name: campaignName.trim(),
-        templateId: selectedTemplate.id,
-        templateVariables: {
-          bindings: Object.values(bindings),
-          ...(headerAsset ? { headerAssetId: headerAsset.id, headerFileName: headerAsset.fileName } : {}),
-        },
-      });
+  const materializeCampaign = useCallback(async () => {
+    if (!selectedTemplate) throw new Error("Choose a template first.");
+    if (!campaignName.trim()) throw new Error("Give this campaign a name.");
+    if (!mappingsReady) throw new Error("Configure every template variable before sending.");
+    if (mediaRequired && !headerAsset) {
+      throw new Error(`Choose the ${headerFormat(selectedTemplate).toLowerCase()} header for this campaign.`);
+    }
 
+    const recipients = await collectRecipients();
+    const broadcast = await createWaBroadcast(token, {
+      shopId,
+      integrationId,
+      name: campaignName.trim(),
+      templateId: selectedTemplate.id,
+      templateVariables: templateVariables(),
+    });
+
+    try {
+      for (let index = 0; index < recipients.length; index += RECIPIENT_UPLOAD_BATCH) {
+        const batch = recipients.slice(index, index + RECIPIENT_UPLOAD_BATCH);
+        await addWaBroadcastRecipients(token, shopId, broadcast.id, batch);
+        setUploadProgress(Math.min(1, (index + batch.length) / recipients.length));
+      }
+    } catch (error) {
+      await discardWaBroadcastDraft(token, shopId, broadcast.id).catch(() => undefined);
+      throw error;
+    }
+    return broadcast;
+  }, [
+    campaignName,
+    collectRecipients,
+    headerAsset,
+    integrationId,
+    mappingsReady,
+    mediaRequired,
+    selectedTemplate,
+    shopId,
+    templateVariables,
+    token,
+  ]);
+
+  const launchMutation = useMutation({
+    mutationFn: async ({ mode, scheduledAt }: { mode: LaunchMode; scheduledAt?: string }) => {
+      const broadcast = await materializeCampaign();
       try {
-        for (let index = 0; index < recipients.length; index += RECIPIENT_UPLOAD_BATCH) {
-          const batch = recipients.slice(index, index + RECIPIENT_UPLOAD_BATCH);
-          await addWaBroadcastRecipients(token, shopId, broadcast.id, batch);
-          setUploadProgress(Math.min(1, (index + batch.length) / recipients.length));
+        if (mode === "SCHEDULE") {
+          if (!scheduledAt) throw new Error("Choose a schedule time.");
+          await scheduleWaBroadcast(token, shopId, broadcast.id, scheduledAt);
+        } else {
+          await sendWaBroadcast(token, shopId, broadcast.id);
         }
       } catch (error) {
-        await cancelWaBroadcast(token, shopId, broadcast.id).catch(() => undefined);
-        throw error;
-      }
-
-      try {
-        await sendWaBroadcast(token, shopId, broadcast.id);
-      } catch (error) {
         if (error instanceof ApiError) {
-          await cancelWaBroadcast(token, shopId, broadcast.id).catch(() => undefined);
+          await discardWaBroadcastDraft(token, shopId, broadcast.id).catch(() => undefined);
           throw error;
         }
         queryClient.invalidateQueries({ queryKey: ["whatsapp", "broadcasts", shopId] });
-        throw new Error("Could not confirm whether the campaign started. Check Campaigns before retrying.");
+        throw new Error(
+          mode === "SCHEDULE"
+            ? "Could not confirm whether the campaign was scheduled. Check Campaigns before retrying."
+            : "Could not confirm whether the campaign started. Check Campaigns before retrying.",
+        );
       }
       return broadcast;
     },
-    onSuccess: () => {
+    onSuccess: async (broadcast) => {
+      await broadcastDraftDb.clear(shopId, integrationId).catch(() => undefined);
       queryClient.invalidateQueries({ queryKey: ["whatsapp", "broadcasts", shopId] });
-      navigation.replace("BroadcastList", { shopId, integrationId });
+      setScheduleSheet(false);
+      navigation.replace("BroadcastDetail", { shopId, integrationId, broadcastId: broadcast.id });
     },
-    onError: (error) => Alert.alert("Campaign not started", error.message),
+    onError: (error) => Alert.alert("Campaign not launched", error instanceof Error ? error.message : "Could not launch campaign."),
     onSettled: () => setUploadProgress(0),
   });
+
+  const testMutation = useMutation({
+    mutationFn: async () => {
+      if (!selectedTemplate || !personalizationReady) {
+        throw new Error("Finish template personalization before sending a test.");
+      }
+      const phone = digitsOnly(testPhone);
+      if (phone.length < 10 || phone.length > 15) throw new Error("Enter a valid WhatsApp test number.");
+      return sendWaBroadcastTest(token, {
+        shopId,
+        integrationId,
+        templateId: selectedTemplate.id,
+        templateVariables: templateVariables(),
+        phone,
+        name: testName.trim() || undefined,
+      });
+    },
+    onSuccess: () => {
+      triggerLightHaptic();
+      setTestDialog(false);
+      Alert.alert("Test queued", "The test uses the same template values and media as this campaign draft.");
+    },
+    onError: (error) => Alert.alert("Test not sent", error instanceof Error ? error.message : "Could not queue test message."),
+  });
+
+  const resetComposer = () => {
+    Alert.alert(
+      "Start over?",
+      "This clears the local campaign draft. It does not delete contacts or templates.",
+      [
+        { text: "Keep draft", style: "cancel" },
+        {
+          text: "Start over",
+          style: "destructive",
+          onPress: async () => {
+            await broadcastDraftDb.clear(shopId, integrationId).catch(() => undefined);
+            setStep(0);
+            setSelectedIds(new Set());
+            setManualRecipients([]);
+            setSelectedTemplate(null);
+            setRestoredTemplateId(null);
+            setBindings({});
+            setHeaderAsset(null);
+            setCampaignName("");
+            setTemplateSearch("");
+            setSearch("");
+            setUploadProgress(0);
+          },
+        },
+      ],
+    );
+  };
 
   const continueForward = () => {
     if (step === 0) {
@@ -477,6 +674,45 @@ export function BroadcastComposerScreen() {
       }
       setStep(3);
     }
+  };
+
+  const openSchedule = () => {
+    if (!campaignReady) {
+      Alert.alert("Campaign incomplete", "Complete the audience, template, personalization and campaign name first.");
+      return;
+    }
+    if (scheduledFor.getTime() < Date.now() + 60_000) {
+      setScheduledFor(new Date(Date.now() + 60 * 60 * 1000));
+    }
+    setScheduleSheet(true);
+  };
+
+  const updateScheduleDate = (event: DateTimePickerEvent, selected?: Date) => {
+    if (Platform.OS !== "ios") setShowDatePicker(false);
+    if (event.type !== "set" || !selected) return;
+    setScheduledFor((current) => new Date(
+      selected.getFullYear(),
+      selected.getMonth(),
+      selected.getDate(),
+      current.getHours(),
+      current.getMinutes(),
+      0,
+      0,
+    ));
+  };
+
+  const updateScheduleTime = (event: DateTimePickerEvent, selected?: Date) => {
+    if (Platform.OS !== "ios") setShowTimePicker(false);
+    if (event.type !== "set" || !selected) return;
+    setScheduledFor((current) => new Date(
+      current.getFullYear(),
+      current.getMonth(),
+      current.getDate(),
+      selected.getHours(),
+      selected.getMinutes(),
+      0,
+      0,
+    ));
   };
 
   const renderAudience = () => (
@@ -656,16 +892,31 @@ export function BroadcastComposerScreen() {
         </View>
         <View style={styles.reviewLine}>
           <Text style={styles.reviewLabel}>Variables</Text>
-          <Text style={styles.reviewValue}>{selectedTemplate.variableMappings.length ? "Configured at send time" : "None"}</Text>
+          <Text style={styles.reviewValue}>{selectedTemplate.variableMappings.length ? "Resolved when each message sends" : "None"}</Text>
         </View>
         <View style={styles.reviewLine}>
           <Text style={styles.reviewLabel}>Header</Text>
           <Text style={styles.reviewValue}>{headerAsset?.fileName || headerFormat(selectedTemplate).toLowerCase()}</Text>
         </View>
 
+        <Pressable
+          onPress={() => setTestDialog(true)}
+          disabled={!personalizationReady || testMutation.isPending}
+          style={({ pressed }) => [styles.testRow, pressed && styles.pressed, !personalizationReady && styles.disabledRow]}
+        >
+          <View style={styles.testIcon}>
+            <MaterialCommunityIcons name="cellphone-message" size={22} color={colors.primary} />
+          </View>
+          <View style={styles.flex}>
+            <Text style={styles.testTitle}>Send a test first</Text>
+            <Text style={styles.testCopy}>Use the exact runtime values and campaign media on one WhatsApp number.</Text>
+          </View>
+          <MaterialCommunityIcons name="chevron-right" size={22} color={colors.textMuted} />
+        </Pressable>
+
         <View style={styles.privacyNote}>
           <MaterialCommunityIcons name="shield-lock-outline" size={21} color={colors.primary} />
-          <Text style={styles.privacyText}>Only the selected recipient snapshot is sent to the server for this campaign. Your full phone contact book remains local.</Text>
+          <Text style={styles.privacyText}>Only the selected recipient snapshot is sent to the server when you launch or schedule this campaign. The full phone contact book and this unfinished draft remain on this device.</Text>
         </View>
 
         <Text style={styles.previewHeading}>MESSAGE PREVIEW</Text>
@@ -674,37 +925,66 @@ export function BroadcastComposerScreen() {
     );
   };
 
+  const isLaunching = launchMutation.isPending;
+
   return (
     <View style={styles.screen}>
       <StepRail step={step} onChange={(next) => {
         if (next <= step) setStep(next);
       }} />
 
+      {draftHydrated && (
+        selectedIds.size > 0
+        || manualRecipients.length > 0
+        || selectedTemplate
+        || restoredTemplateId
+        || campaignName.trim()
+      ) ? (
+        <View style={styles.draftBar}>
+          <MaterialCommunityIcons name="cloud-off-outline" size={15} color={colors.textSecondary} />
+          <Text style={styles.draftText}>Draft saved on this device</Text>
+          <Pressable onPress={resetComposer} hitSlop={8}>
+            <Text style={styles.startOver}>Start over</Text>
+          </Pressable>
+        </View>
+      ) : null}
+
       <View style={styles.flex}>
         {step === 0 ? renderAudience() : step === 1 ? renderTemplates() : step === 2 ? renderPersonalize() : renderReview()}
       </View>
 
       <View style={styles.bottomBar}>
-        <View>
+        <View style={styles.bottomCount}>
           <Text style={styles.bottomStrong}>{audienceCount.toLocaleString("en-IN")}</Text>
           <Text style={styles.bottomMuted}>recipients</Text>
         </View>
-        {step > 0 ? <Button mode="text" onPress={() => setStep((current) => Math.max(0, current - 1))}>Back</Button> : null}
+        {step > 0 ? <Button mode="text" compact onPress={() => setStep((current) => Math.max(0, current - 1))}>Back</Button> : null}
         {step === 0 || step === 2 ? (
           <Button mode="contained" icon="arrow-right" onPress={continueForward} style={styles.primaryButton}>Continue</Button>
         ) : step === 1 ? (
           <Button mode="contained" icon="plus" onPress={() => navigation.navigate("TemplateEditor")} style={styles.primaryButton}>New template</Button>
         ) : (
-          <Button
-            mode="contained"
-            icon="send"
-            loading={sendMutation.isPending}
-            disabled={!campaignReady || sendMutation.isPending}
-            onPress={() => sendMutation.mutate()}
-            style={styles.primaryButton}
-          >
-            {sendMutation.isPending && uploadProgress > 0 ? `${Math.round(uploadProgress * 100)}%` : "Send campaign"}
-          </Button>
+          <>
+            <Button
+              mode="text"
+              compact
+              icon="clock-outline"
+              disabled={!campaignReady || isLaunching}
+              onPress={openSchedule}
+            >
+              Schedule
+            </Button>
+            <Button
+              mode="contained"
+              icon="send"
+              loading={isLaunching}
+              disabled={!campaignReady || isLaunching}
+              onPress={() => launchMutation.mutate({ mode: "SEND_NOW" })}
+              style={styles.primaryButton}
+            >
+              {isLaunching && uploadProgress > 0 ? `${Math.round(uploadProgress * 100)}%` : "Send now"}
+            </Button>
+          </>
         )}
       </View>
 
@@ -720,7 +1000,98 @@ export function BroadcastComposerScreen() {
             <Button onPress={addManualRecipient}>Add</Button>
           </Dialog.Actions>
         </Dialog>
+
+        <Dialog visible={testDialog} onDismiss={() => !testMutation.isPending && setTestDialog(false)} style={styles.dialog}>
+          <Dialog.Title>Send campaign test</Dialog.Title>
+          <Dialog.Content>
+            <Text style={styles.dialogCopy}>Use a number you can check now. Live customer fields resolve against this test number when possible.</Text>
+            <TextInput mode="outlined" label="Name (optional)" value={testName} onChangeText={setTestName} />
+            <TextInput mode="outlined" label="WhatsApp number" keyboardType="phone-pad" value={testPhone} onChangeText={setTestPhone} style={styles.dialogInput} />
+          </Dialog.Content>
+          <Dialog.Actions>
+            <Button disabled={testMutation.isPending} onPress={() => setTestDialog(false)}>Cancel</Button>
+            <Button icon="send" loading={testMutation.isPending} disabled={testMutation.isPending} onPress={() => testMutation.mutate()}>Send test</Button>
+          </Dialog.Actions>
+        </Dialog>
       </Portal>
+
+      <AppBottomSheetModal
+        visible={scheduleSheet}
+        title="Schedule campaign"
+        subtitle={`Times shown in ${timezone}`}
+        onDismiss={() => {
+          if (!isLaunching) {
+            setScheduleSheet(false);
+            setShowDatePicker(false);
+            setShowTimePicker(false);
+          }
+        }}
+        isBusy={isLaunching}
+        maxHeight={0.82}
+        scrollable
+      >
+        <View style={styles.scheduleContent}>
+          <Pressable onPress={() => setShowDatePicker((current) => !current)} style={styles.scheduleRow}>
+            <View style={styles.scheduleIcon}>
+              <MaterialCommunityIcons name="calendar-outline" size={21} color={colors.primary} />
+            </View>
+            <View style={styles.flex}>
+              <Text style={styles.scheduleLabel}>Date</Text>
+              <Text style={styles.scheduleValue}>{scheduleDateLabel(scheduledFor)}</Text>
+            </View>
+            <MaterialCommunityIcons name="chevron-down" size={20} color={colors.textMuted} />
+          </Pressable>
+          {showDatePicker ? (
+            <DateTimePicker
+              value={scheduledFor}
+              mode="date"
+              minimumDate={new Date()}
+              display={Platform.OS === "ios" ? "inline" : "default"}
+              onChange={updateScheduleDate}
+            />
+          ) : null}
+
+          <Pressable onPress={() => setShowTimePicker((current) => !current)} style={styles.scheduleRow}>
+            <View style={styles.scheduleIcon}>
+              <MaterialCommunityIcons name="clock-outline" size={21} color={colors.primary} />
+            </View>
+            <View style={styles.flex}>
+              <Text style={styles.scheduleLabel}>Time</Text>
+              <Text style={styles.scheduleValue}>{scheduleTimeLabel(scheduledFor)}</Text>
+            </View>
+            <MaterialCommunityIcons name="chevron-down" size={20} color={colors.textMuted} />
+          </Pressable>
+          {showTimePicker ? (
+            <DateTimePicker
+              value={scheduledFor}
+              mode="time"
+              display={Platform.OS === "ios" ? "spinner" : "default"}
+              onChange={updateScheduleTime}
+            />
+          ) : null}
+
+          <View style={styles.scheduleSummary}>
+            <MaterialCommunityIcons name="information-outline" size={19} color={colors.info} />
+            <Text style={styles.scheduleSummaryText}>
+              At launch time the server uses the saved recipient snapshot and resolves each live template field for that recipient. You do not need to keep this phone online.
+            </Text>
+          </View>
+
+          <Button
+            mode="contained"
+            icon="calendar-check"
+            loading={isLaunching}
+            disabled={isLaunching || scheduledFor.getTime() < Date.now() + 60_000}
+            onPress={() => launchMutation.mutate({ mode: "SCHEDULE", scheduledAt: scheduledFor.toISOString() })}
+            style={styles.scheduleButton}
+          >
+            {isLaunching && uploadProgress > 0 ? `${Math.round(uploadProgress * 100)}%` : `Schedule for ${scheduleTimeLabel(scheduledFor)}`}
+          </Button>
+          {scheduledFor.getTime() < Date.now() + 60_000 ? (
+            <Text style={styles.scheduleWarning}>Choose a time at least one minute from now.</Text>
+          ) : null}
+        </View>
+      </AppBottomSheetModal>
     </View>
   );
 }
@@ -749,6 +1120,7 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   flex: { flex: 1 },
   pressed: { opacity: 0.68 },
+  disabledRow: { opacity: 0.45 },
   stepRail: { minHeight: 64, paddingHorizontal: spacing.md, flexDirection: "row", alignItems: "center", backgroundColor: colors.surface, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   stepItem: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center" },
   stepDot: { width: 27, height: 27, borderRadius: 14, alignItems: "center", justifyContent: "center", backgroundColor: colors.surfaceOffset, borderWidth: 1, borderColor: colors.border },
@@ -757,6 +1129,9 @@ const styles = StyleSheet.create({
   stepTextActive: { color: colors.textPrimary, fontWeight: fontWeight.black },
   stepLine: { flex: 1, height: 1, marginHorizontal: 4, backgroundColor: colors.border },
   stepLineActive: { backgroundColor: colors.primary },
+  draftBar: { minHeight: 34, paddingHorizontal: spacing.lg, flexDirection: "row", alignItems: "center", gap: 7, backgroundColor: colors.surfaceOffset, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  draftText: { flex: 1, color: colors.textSecondary, fontSize: 10 },
+  startOver: { color: colors.danger, fontSize: 10, fontWeight: fontWeight.bold },
   audienceTools: { backgroundColor: colors.surface, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   searchRow: { paddingHorizontal: spacing.md, paddingTop: spacing.sm, flexDirection: "row", alignItems: "center", gap: spacing.xs },
   searchbar: { flex: 1, height: 44, borderRadius: 22, backgroundColor: colors.surfaceOffset },
@@ -823,13 +1198,28 @@ const styles = StyleSheet.create({
   reviewLine: { minHeight: 46, flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.lg, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
   reviewLabel: { color: colors.textSecondary, fontSize: fontSize.sm },
   reviewValue: { flex: 1, color: colors.textPrimary, fontSize: fontSize.sm, fontWeight: fontWeight.bold, textAlign: "right" },
+  testRow: { minHeight: 76, marginTop: spacing.lg, flexDirection: "row", alignItems: "center", gap: spacing.md, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
+  testIcon: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: colors.primaryLight },
+  testTitle: { color: colors.textPrimary, fontSize: fontSize.sm, fontWeight: fontWeight.bold },
+  testCopy: { marginTop: 2, color: colors.textSecondary, fontSize: fontSize.xs, lineHeight: 17 },
   privacyNote: { marginTop: spacing.xl, flexDirection: "row", alignItems: "flex-start", gap: spacing.sm, paddingVertical: spacing.md },
   privacyText: { flex: 1, color: colors.textSecondary, fontSize: fontSize.xs, lineHeight: 18 },
   previewHeading: { marginTop: spacing.xl, marginBottom: spacing.sm, color: colors.textMuted, fontSize: 10, fontWeight: fontWeight.black, letterSpacing: 1 },
-  bottomBar: { minHeight: 74, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: spacing.sm, backgroundColor: colors.surface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+  bottomBar: { minHeight: 74, paddingHorizontal: spacing.md, paddingVertical: spacing.sm, flexDirection: "row", alignItems: "center", justifyContent: "flex-end", gap: spacing.xs, backgroundColor: colors.surface, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: colors.border },
+  bottomCount: { marginRight: "auto" },
   bottomStrong: { color: colors.textPrimary, fontSize: fontSize.sm, fontWeight: fontWeight.black },
   bottomMuted: { color: colors.textMuted, fontSize: 10 },
   primaryButton: { borderRadius: radius.lg, backgroundColor: colors.primary },
   dialog: { backgroundColor: colors.surface },
+  dialogCopy: { marginBottom: spacing.md, color: colors.textSecondary, fontSize: fontSize.xs, lineHeight: 18 },
   dialogInput: { marginTop: spacing.md },
+  scheduleContent: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xxl },
+  scheduleRow: { minHeight: 66, flexDirection: "row", alignItems: "center", gap: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  scheduleIcon: { width: 38, height: 38, borderRadius: 19, alignItems: "center", justifyContent: "center", backgroundColor: colors.primaryLight },
+  scheduleLabel: { color: colors.textMuted, fontSize: 10, fontWeight: fontWeight.bold, textTransform: "uppercase" },
+  scheduleValue: { marginTop: 2, color: colors.textPrimary, fontSize: fontSize.sm, fontWeight: fontWeight.extrabold },
+  scheduleSummary: { marginTop: spacing.xl, flexDirection: "row", alignItems: "flex-start", gap: spacing.sm, paddingVertical: spacing.md, borderTopWidth: StyleSheet.hairlineWidth, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
+  scheduleSummaryText: { flex: 1, color: colors.textSecondary, fontSize: fontSize.xs, lineHeight: 18 },
+  scheduleButton: { marginTop: spacing.xl, borderRadius: radius.lg, backgroundColor: colors.primary },
+  scheduleWarning: { marginTop: spacing.sm, color: colors.danger, fontSize: fontSize.xs, textAlign: "center" },
 });
