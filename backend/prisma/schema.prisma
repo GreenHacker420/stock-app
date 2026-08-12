@@ -1922,6 +1922,12 @@ enum WaBroadcastRecipientStatus {
   SKIPPED
 }
 
+enum WaBroadcastRecipientSource {
+  CUSTOMER
+  DEVICE_CONTACT
+  MANUAL
+}
+
 enum WaMessagingLimitTier {
   TIER_250
   TIER_1K
@@ -2444,24 +2450,27 @@ model WaBroadcast {
 }
 
 model WaBroadcastRecipient {
-  id            String                     @id @default(cuid())
-  broadcastId   String
-  customerId    String
-  customerName  String?
-  customerPhone String
-  status        WaBroadcastRecipientStatus @default(PENDING)
-  metaMessageId String?
-  errorMessage  String?
-  sentAt        DateTime?
-  deliveredAt   DateTime?
-  readAt        DateTime?
-  createdAt     DateTime                   @default(now())
+  id              String                     @id @default(cuid())
+  broadcastId     String
+  customerId      String?
+  customerName    String?
+  customerPhone   String
+  source           WaBroadcastRecipientSource @default(CUSTOMER)
+  sourceContactId  String?
+  status           WaBroadcastRecipientStatus @default(PENDING)
+  metaMessageId    String?
+  errorMessage     String?
+  sentAt           DateTime?
+  deliveredAt      DateTime?
+  readAt           DateTime?
+  createdAt        DateTime                   @default(now())
 
   broadcast WaBroadcast @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
-  customer  Customer    @relation(fields: [customerId], references: [id])
+  customer  Customer?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
 
-  @@unique([broadcastId, customerId])
+  @@unique([broadcastId, customerPhone])
   @@index([broadcastId, status])
+  @@index([broadcastId, customerId])
 }
 
 model SaleAmendment {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useDeferredValue, useState } from "react";
 import { Alert, Pressable, StyleSheet, View } from "react-native";
 import { ActivityIndicator, Button, IconButton, Searchbar, Text, TextInput } from "react-native-paper";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -20,6 +20,7 @@ export function FlowSendSheet({ visible, shopId, integrationId, conversationId, 
   const token = useAuthStore((state) => state.token) || "";
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
+  const deferredSearch = useDeferredValue(search.trim());
   const [selected, setSelected] = useState<WaFlow | null>(null);
   const [cta, setCta] = useState("Open form");
   const [body, setBody] = useState("Please complete this form.");
@@ -29,11 +30,11 @@ export function FlowSendSheet({ visible, shopId, integrationId, conversationId, 
   const [seedJson, setSeedJson] = useState("{}");
 
   const query = useQuery({
-    queryKey: ["wa-flow-send", shopId, search],
-    enabled: Boolean(shopId),
+    queryKey: ["wa-flow-send", shopId, deferredSearch],
+    enabled: visible && Boolean(shopId),
     queryFn: () => fetchWaFlows(token, shopId!, {
       status: "PUBLISHED",
-      search: search.trim() || undefined,
+      search: deferredSearch || undefined,
       pageSize: 100,
     }),
     staleTime: 10 * 60 * 1000,
@@ -88,72 +89,47 @@ export function FlowSendSheet({ visible, shopId, integrationId, conversationId, 
       maxHeight={0.94}
       scrollable
     >
-          {selected ? (
-            <View style={styles.content}>
-              <View style={styles.flowPreview}>
-                <View style={styles.previewIcon}>
-                  <IconButton icon="form-select" iconColor="#fff" />
-                </View>
-                <View style={styles.previewBody}>
-                  {!!header && <Text style={styles.previewHeader}>{header}</Text>}
-                  <Text style={styles.previewText}>{body || "Please complete this form."}</Text>
-                  {!!footer && <Text style={styles.previewFooter}>{footer}</Text>}
-                </View>
-                <View style={styles.previewButton}>
-                  <Text style={styles.previewButtonText}>{cta || "Open form"}</Text>
-                </View>
-              </View>
-              <TextInput mode="outlined" label="Button text" maxLength={30} value={cta} onChangeText={setCta} />
-              <TextInput mode="outlined" label="Message" multiline maxLength={1024} value={body} onChangeText={setBody} />
-              <TextInput mode="outlined" label="Header (optional)" maxLength={60} value={header} onChangeText={setHeader} />
-              <TextInput mode="outlined" label="Footer (optional)" maxLength={60} value={footer} onChangeText={setFooter} />
-              {!selected.endpointEnabled && (
-                <TextInput mode="outlined" label="Initial screen ID" value={initialScreen} onChangeText={setInitialScreen} />
-              )}
-              <TextInput
-                mode="outlined"
-                label="Initial data JSON"
-                multiline
-                value={seedJson}
-                onChangeText={setSeedJson}
-                contentStyle={styles.json}
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-              <Button
-                mode="contained"
-                icon="send"
-                style={styles.send}
-                loading={mutation.isPending}
-                disabled={!cta.trim() || !body.trim() || mutation.isPending}
-                onPress={() => mutation.mutate()}
-              >
-                Send Flow
-              </Button>
+      {selected ? (
+        <View style={styles.content}>
+          <View style={styles.flowPreview}>
+            <View style={styles.previewIcon}><IconButton icon="form-select" iconColor="#fff" /></View>
+            <View style={styles.previewBody}>
+              {!!header && <Text style={styles.previewHeader}>{header}</Text>}
+              <Text style={styles.previewText}>{body || "Please complete this form."}</Text>
+              {!!footer && <Text style={styles.previewFooter}>{footer}</Text>}
             </View>
+            <View style={styles.previewButton}><Text style={styles.previewButtonText}>{cta || "Open form"}</Text></View>
+          </View>
+          <TextInput mode="outlined" label="Button text" maxLength={30} value={cta} onChangeText={setCta} />
+          <TextInput mode="outlined" label="Message" multiline maxLength={1024} value={body} onChangeText={setBody} />
+          <TextInput mode="outlined" label="Header (optional)" maxLength={60} value={header} onChangeText={setHeader} />
+          <TextInput mode="outlined" label="Footer (optional)" maxLength={60} value={footer} onChangeText={setFooter} />
+          {!selected.endpointEnabled && <TextInput mode="outlined" label="Initial screen ID" value={initialScreen} onChangeText={setInitialScreen} />}
+          <TextInput mode="outlined" label="Initial data JSON" multiline value={seedJson} onChangeText={setSeedJson} contentStyle={styles.json} autoCapitalize="none" autoCorrect={false} />
+          <Button mode="contained" icon="send" style={styles.send} loading={mutation.isPending} disabled={!cta.trim() || !body.trim() || mutation.isPending} onPress={() => mutation.mutate()}>
+            Send Flow
+          </Button>
+        </View>
+      ) : (
+        <View style={styles.browser}>
+          <Searchbar value={search} onChangeText={setSearch} placeholder="Search published Flows" style={styles.search} />
+          {query.isLoading ? (
+            <ActivityIndicator style={styles.loader} color={waColors.green} />
           ) : (
-            <View style={styles.browser}>
-              <Searchbar value={search} onChangeText={setSearch} placeholder="Search published Flows" style={styles.search} />
-              {query.isLoading ? (
-                <ActivityIndicator style={styles.loader} color={waColors.green} />
-              ) : (
-                <View style={styles.list}>
-                  {(query.data?.data || []).map((flow) => (
-                    <Pressable key={flow.id} onPress={() => setSelected(flow)} style={styles.row}>
-                      <View style={styles.rowIcon}><IconButton icon="form-select" iconColor="#fff" /></View>
-                      <View style={styles.rowBody}>
-                        <Text style={styles.rowName}>{flow.name}</Text>
-                        <Text style={styles.rowMeta}>
-                          {(flow.categories || ["OTHER"]).join(" · ")}
-                          {flow.endpointEnabled ? " · Data endpoint" : " · Static"}
-                        </Text>
-                      </View>
-                    </Pressable>
-                  ))}
-                </View>
-              )}
+            <View style={styles.list}>
+              {(query.data?.data || []).map((flow) => (
+                <Pressable key={flow.id} onPress={() => setSelected(flow)} style={styles.row}>
+                  <View style={styles.rowIcon}><IconButton icon="form-select" iconColor="#fff" /></View>
+                  <View style={styles.rowBody}>
+                    <Text style={styles.rowName}>{flow.name}</Text>
+                    <Text style={styles.rowMeta}>{(flow.categories || ["OTHER"]).join(" · ")}{flow.endpointEnabled ? " · Data endpoint" : " · Static"}</Text>
+                  </View>
+                </Pressable>
+              ))}
             </View>
           )}
+        </View>
+      )}
     </AppBottomSheetModal>
   );
 }

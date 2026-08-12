@@ -17,8 +17,14 @@ function formatDuration(seconds: number) {
 }
 
 export function AudioMessagePlayer({ url, voice, fallbackDurationMs }: Props) {
-  const player = useAudioPlayer(url ? { uri: url } : null, { updateInterval: 200 });
+  const player = useAudioPlayer(null, { updateInterval: 500 });
   const status = useAudioPlayerStatus(player);
+
+  useEffect(() => {
+    player.pause();
+    player.replace(url ? { uri: url } : null);
+  }, [player, url]);
+
   const duration = status.duration || (fallbackDurationMs || 0) / 1000;
   const progress = duration > 0 ? Math.min(status.currentTime / duration, 1) : 0;
 
@@ -71,13 +77,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 4,
   },
-  control: {
-    margin: 0,
-  },
-  timeline: {
-    flex: 1,
-    gap: 5,
-  },
+  control: { margin: 0 },
+  timeline: { flex: 1, gap: 5 },
   progress: {
     height: 4,
     borderRadius: 2,
@@ -97,4 +98,3 @@ const styles = StyleSheet.create({
     fontVariant: ["tabular-nums"],
   },
 });
-

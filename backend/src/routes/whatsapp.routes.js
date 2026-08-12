@@ -14,6 +14,11 @@ import {
   requireWhatsAppSendIntegration,
   requireWhatsAppSendMessage,
 } from "../services/whatsapp.authorization.js";
+import {
+  MAX_BROADCAST_RECIPIENT_BATCH,
+  whatsappBroadcastService,
+} from "../services/whatsapp.broadcast.service.js";
+import { linkWhatsAppConversationCustomer } from "../services/whatsapp.customer-link.service.js";
 import { validate } from "../middleware/validate.js";
 import { z } from "zod";
 import multer from "multer";
@@ -35,6 +40,18 @@ router.get("/flow-endpoint/:shopId", whatsappFlowEndpointController.verifyWebhoo
 router.post("/flow-endpoint/:shopId", whatsappFlowEndpointController.handleFlowRequest);
 router.get("/onboarding/launch/:sessionId", whatsappOnboardingController.launchSession);
 router.post("/onboarding/sessions/:sessionId/complete", whatsappOnboardingController.completeSession);
+
+const conversationCustomerLinkSchema = z.object({
+  body: z.object({
+    customerId: z.string().min(1).nullable(),
+    sourceDeviceId: z.string().min(1).optional(),
+  }),
+  params: z.object({
+    integrationId: z.string().min(1),
+    conversationId: z.string().min(1),
+  }),
+  query: z.object({}).optional(),
+});
 
 // Protected UI routes
 router.get(
@@ -96,6 +113,27 @@ router.post(
   requireAuth,
   requireWhatsAppConversation,
   whatsappController.muteScopedConversation,
+);
+router.patch(
+  "/integrations/:integrationId/conversations/:conversationId/customer",
+  requireAuth,
+  validate(conversationCustomerLinkSchema),
+  requireWhatsAppConversation,
+  async (req, res, next) => {
+    try {
+      const conversation = await linkWhatsAppConversationCustomer({
+        shopId: req.shop.id,
+        integration: req.waScope.integration,
+        conversation: req.waScope.conversation,
+        customerId: req.validated.body.customerId,
+        actorUserId: req.user.id,
+        sourceDeviceId: req.validated.body.sourceDeviceId,
+      });
+      res.json({ success: true, data: { conversation } });
+    } catch (error) {
+      next(error);
+    }
+  },
 );
 router.delete(
   "/integrations/:integrationId/conversations/:conversationId",
@@ -225,6 +263,52 @@ const onboardingSessionSchema = z.object({
 const onboardingContinueSchema = z.object({
   body: z.object({ shopId: z.string().min(1) }),
   params: z.object({ sessionId: z.string().min(1) }),
+  query: z.object({}).optional(),
+});
+
+const broadcastBindingSchema = z.object({
+  component: z.enum(["HEADER", "BODY", "BUTTON", "CARD"]),
+  position: z.number().int().min(1),
+  buttonIndex: z.number().int().min(0).optional(),
+  cardIndex: z.number().int().min(0).optional(),
+  mode: z.enum(["ATTRIBUTE", "FIXED"]),
+  attributeId: z.string().min(1).optional(),
+  value: z.string().max(2000).optional(),
+  fallbackValue: z.string().max(2000).optional(),
+});
+
+const broadcastTemplateVariablesSchema = z.object({
+  bindings: z.array(broadcastBindingSchema).max(100).optional(),
+  header: z.array(z.string().max(2000)).max(20).optional(),
+  body: z.array(z.string().max(2000)).max(100).optional(),
+  headerAssetId: z.string().min(1).optional(),
+  headerFileName: z.string().max(240).optional(),
+}).default({});
+
+const broadcastRecipientsSchema = z.object({
+  body: z.object({
+    recipients: z.array(z.object({
+      phone: z.string().min(1),
+      name: z.string().max(200).optional(),
+      customerId: z.string().optional(),
+      sourceContactId: z.string().max(250).optional(),
+      source: z.enum(["CUSTOMER", "DEVICE_CONTACT", "MANUAL"]).optional(),
+    })).min(1).max(MAX_BROADCAST_RECIPIENT_BATCH),
+  }),
+  params: z.object({ id: z.string().min(1) }),
+  query: z.object({}).optional(),
+});
+
+const broadcastTestSchema = z.object({
+  body: z.object({
+    shopId: z.string().min(1),
+    integrationId: z.string().min(1).optional(),
+    templateId: z.string().min(1),
+    templateVariables: broadcastTemplateVariablesSchema,
+    phone: z.string().min(5).max(40),
+    name: z.string().max(200).optional(),
+  }),
+  params: z.object({}).optional(),
   query: z.object({}).optional(),
 });
 
@@ -385,14 +469,95 @@ router.post("/setup", requireAuth, requireOwner, requireShopAccess((req) => req.
 router.delete("/setup", requireAuth, requireOwner, requireShopAccess((req) => req.query.shopId || req.body.shopId), whatsappController.deleteSetup);
 router.post("/rotate-keys", requireAuth, requireOwner, requireShopAccess((req) => req.body.shopId), whatsappController.rotateKeys);
 
-
 // Campaign / Broadcast routes (Owner Only)
 router.get("/broadcasts", requireAuth, requireOwner, requireShopAccess((req) => req.query.shopId), whatsappController.getBroadcasts);
 router.post("/broadcasts", requireAuth, requireOwner, requireShopAccess((req) => req.body.shopId), whatsappController.createBroadcast);
+
+// Keep static campaign routes before /:id so Express never treats "test" as a broadcast id.
+router.post(
+  "/broadcasts/test",
+  requireAuth,
+  requireOwner,
+  validate(broadcastTestSchema),
+  requireShopAccess((req) => req.body.shopId),
+  async (req, res, next) => {
+    try {
+      const result = await whatsappBroadcastService.sendTest(req.shop.id, {
+        ...req.validated.body,
+        actorUserId: req.user.id,
+      });
+      res.status(202).json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
 router.get("/broadcasts/:id", requireAuth, requireOwner, requireWhatsAppBroadcast, whatsappController.getBroadcast);
+router.post(
+  "/broadcasts/:id/recipients",
+  requireAuth,
+  requireOwner,
+  validate(broadcastRecipientsSchema),
+  requireWhatsAppBroadcast,
+  async (req, res, next) => {
+    try {
+      const result = await whatsappBroadcastService.addRecipients(
+        req.params.id,
+        req.shop.id,
+        req.validated.body.recipients,
+      );
+      res.json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 router.post("/broadcasts/:id/send", requireAuth, requireOwner, requireWhatsAppBroadcast, whatsappController.sendBroadcast);
 router.post("/broadcasts/:id/schedule", requireAuth, requireOwner, requireWhatsAppBroadcast, whatsappController.scheduleBroadcast);
 router.post("/broadcasts/:id/cancel", requireAuth, requireOwner, requireWhatsAppBroadcast, whatsappController.cancelBroadcast);
+router.post(
+  "/broadcasts/:id/retry-failed",
+  requireAuth,
+  requireOwner,
+  requireWhatsAppBroadcast,
+  async (req, res, next) => {
+    try {
+      const result = await whatsappBroadcastService.retryFailedRecipients(req.params.id);
+      res.status(202).json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+router.post(
+  "/broadcasts/:id/stop",
+  requireAuth,
+  requireOwner,
+  requireWhatsAppBroadcast,
+  async (req, res, next) => {
+    try {
+      const result = await whatsappBroadcastService.stopBroadcast(req.params.id);
+      res.json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+router.delete(
+  "/broadcasts/:id/draft",
+  requireAuth,
+  requireOwner,
+  requireWhatsAppBroadcast,
+  async (req, res, next) => {
+    try {
+      const result = await whatsappBroadcastService.discardDraft(req.params.id);
+      res.json({ success: true, data: result });
+    } catch (error) {
+      next(error);
+    }
+  },
+);
 router.get("/broadcasts/:id/recipients", requireAuth, requireOwner, requireWhatsAppBroadcast, whatsappController.getBroadcastRecipients);
 
 export default router;

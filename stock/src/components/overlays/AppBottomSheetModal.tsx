@@ -263,7 +263,7 @@ export const AppBottomSheetModal = forwardRef<
   const panGesture = useMemo(
     () => Gesture.Pan()
       .enabled(!isBusy && !dismissing && !keyboardVisible)
-      .activeOffsetY([-5, 10])
+      .activeOffsetY(scrollable ? [12, 18] : [-5, 10])
       .failOffsetX([-15, 15])
       .cancelsTouchesInView(false)
       .simultaneousWithExternalGesture(contentNativeGesture)
@@ -536,7 +536,7 @@ export const AppBottomSheetModal = forwardRef<
                   <GHScrollView
                     style={[
                       styles.scrollView,
-                      Boolean(safeMinHeight) && styles.scrollViewFill,
+                      (Boolean(safeMinHeight) || safeMaxHeight >= 0.98) && styles.scrollViewFill,
                       { maxHeight: maxContentHeight },
                     ]}
                     contentContainerStyle={[

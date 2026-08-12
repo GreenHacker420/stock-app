@@ -1,21 +1,27 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Alert, Pressable, StyleSheet, View } from "react-native";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { ActivityIndicator, Button, Searchbar, Text, TextInput } from "react-native-paper";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import * as Location from "expo-location";
+
 import {
   fetchWaTemplates,
   sendWaTemplate,
   uploadWaMedia,
-  WaTemplate,
-  WaTemplateDefinition,
+  type WaTemplate,
+  type WaTemplateDefinition,
+  type WaTemplateMapping,
 } from "../../../api/whatsapp.api";
 import { useAuthStore } from "../../../auth/auth-store";
 import { AppBottomSheetModal } from "../../../components/overlays/AppBottomSheetModal";
+import { colors, fontSize, fontWeight, radius, spacing } from "../../../theme";
+import { triggerLightHaptic } from "../../../utils/haptics";
 import { WhatsAppTemplatePreview } from "./WhatsAppTemplatePreview";
-import { waColors } from "../whatsapp-ui";
+
+const EMPTY_LOCATION = { latitude: "", longitude: "", name: "", address: "" };
 
 type Props = {
   visible: boolean;
@@ -26,6 +32,64 @@ type Props = {
   replyToMessageId?: string;
   onClose: () => void;
 };
+
+type CardInput = {
+  assetId?: string;
+  assetName?: string;
+  catalogId?: string;
+  productRetailerId?: string;
+};
+
+function mappingTitle(mapping: WaTemplateMapping) {
+  if (mapping.component === "HEADER") return `Header {{${mapping.position}}}`;
+  if (mapping.component === "BODY") return `Message {{${mapping.position}}}`;
+  if (mapping.component === "BUTTON") return `Button ${(mapping.buttonIndex ?? 0) + 1} {{${mapping.position}}}`;
+  return `Card ${(mapping.cardIndex ?? 0) + 1} {{${mapping.position}}}`;
+}
+
+function mappingDefaultLabel(mapping: WaTemplateMapping) {
+  if (mapping.attribute?.label) return mapping.attribute.label;
+  if (mapping.fallbackValue || mapping.attribute?.fallbackValue) return "Template fallback";
+  return "Enter for this send";
+}
+
+function mappingsReady(template: WaTemplate, values: Record<string, string>) {
+  return template.variableMappings.every((mapping) => {
+    if (!mapping.required) return true;
+    return Boolean(
+      values[mapping.id]?.trim()
+      || mapping.attributeId
+      || mapping.fallbackValue?.trim()
+      || mapping.attribute?.fallbackValue?.trim(),
+    );
+  });
+}
+
+function previewDefinition(template: WaTemplate, values: Record<string, string>): Partial<WaTemplateDefinition> {
+  const base = template.draftDefinition || {
+    name: template.name,
+    language: template.language,
+    category: template.category,
+    body: {
+      text: template.components?.find((component: any) => String(component?.type).toUpperCase() === "BODY")?.text || "",
+    },
+  };
+
+  return {
+    ...base,
+    mappings: template.variableMappings.map((mapping) => ({
+      component: mapping.component,
+      position: mapping.position,
+      buttonIndex: mapping.buttonIndex,
+      cardIndex: mapping.cardIndex,
+      sampleValue: values[mapping.id]?.trim()
+        || mapping.fallbackValue
+        || mapping.attribute?.fallbackValue
+        || mapping.sampleValue,
+      required: mapping.required,
+    })),
+  };
+}
 
 export function TemplateSendSheet({
   visible,
@@ -41,26 +105,16 @@ export function TemplateSendSheet({
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<WaTemplate | null>(null);
   const [values, setValues] = useState<Record<string, string>>({});
-  const [cards, setCards] = useState<Array<{
-    assetId?: string;
-    assetName?: string;
-    catalogId?: string;
-    productRetailerId?: string;
-  }>>([]);
+  const [cards, setCards] = useState<CardInput[]>([]);
   const [uploadingCard, setUploadingCard] = useState<number | null>(null);
   const [headerAsset, setHeaderAsset] = useState<{ assetId?: string; assetName?: string }>({});
-  const [headerLocation, setHeaderLocation] = useState({
-    latitude: "",
-    longitude: "",
-    name: "",
-    address: "",
-  });
+  const [headerLocation, setHeaderLocation] = useState(EMPTY_LOCATION);
   const [uploadingHeader, setUploadingHeader] = useState(false);
   const [locating, setLocating] = useState(false);
 
   const query = useQuery({
     queryKey: ["wa-template-send", shopId, search],
-    enabled: Boolean(shopId),
+    enabled: Boolean(visible && shopId),
     queryFn: () => fetchWaTemplates(token, shopId!, {
       status: "APPROVED",
       search: search.trim() || undefined,
@@ -70,22 +124,43 @@ export function TemplateSendSheet({
     gcTime: 60 * 60 * 1000,
   });
 
+  const sendReady = useMemo(() => Boolean(
+    selected
+    && mappingsReady(selected, values)
+    && templateHeaderReady(selected, headerAsset, headerLocation)
+    && carouselCardsReady(selected, cards),
+  ), [cards, headerAsset, headerLocation, selected, values]);
+
+  const close = () => {
+    setSelected(null);
+    setValues({});
+    setCards([]);
+    setHeaderAsset({});
+    setHeaderLocation(EMPTY_LOCATION);
+    setSearch("");
+    onClose();
+  };
+
   const sendMutation = useMutation({
     mutationFn: () => sendWaTemplate(token, selected!.id, {
       shopId: shopId!,
       conversationId,
       to,
-      values,
+      values: Object.fromEntries(
+        Object.entries(values).filter(([, value]) => value.trim().length > 0),
+      ),
       header: {
         ...(headerAsset.assetId ? { assetId: headerAsset.assetId } : {}),
-        ...(headerLocation.latitude && headerLocation.longitude ? {
-          location: {
-            latitude: Number(headerLocation.latitude),
-            longitude: Number(headerLocation.longitude),
-            name: headerLocation.name || undefined,
-            address: headerLocation.address || undefined,
-          },
-        } : {}),
+        ...(headerLocation.latitude && headerLocation.longitude
+          ? {
+              location: {
+                latitude: Number(headerLocation.latitude),
+                longitude: Number(headerLocation.longitude),
+                name: headerLocation.name || undefined,
+                address: headerLocation.address || undefined,
+              },
+            }
+          : {}),
       },
       cards: cards.map(({ assetName: _assetName, ...card }) => card),
       replyToMessageId,
@@ -98,20 +173,12 @@ export function TemplateSendSheet({
     onError: (error) => Alert.alert("Template not sent", error.message),
   });
 
-  const close = () => {
-    setSelected(null);
-    setValues({});
-    setCards([]);
-    setHeaderAsset({});
-    setHeaderLocation({ latitude: "", longitude: "", name: "", address: "" });
-    setSearch("");
-    onClose();
-  };
-
   const selectTemplate = (template: WaTemplate) => {
+    triggerLightHaptic();
     setSelected(template);
+    setValues({});
     setHeaderAsset({});
-    setHeaderLocation({ latitude: "", longitude: "", name: "", address: "" });
+    setHeaderLocation(EMPTY_LOCATION);
     const carousel = getCarouselDefinition(template);
     setCards(carousel?.cards.map(() => ({})) || []);
   };
@@ -120,10 +187,7 @@ export function TemplateSendSheet({
     try {
       let media;
       if (format === "DOCUMENT") {
-        const result = await DocumentPicker.getDocumentAsync({
-          copyToCacheDirectory: true,
-          multiple: false,
-        });
+        const result = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true, multiple: false });
         if (result.canceled) return;
         const asset = result.assets[0];
         media = {
@@ -158,13 +222,11 @@ export function TemplateSendSheet({
           durationMs: asset.duration ? Math.round(asset.duration) : undefined,
         };
       }
+
       setUploadingHeader(true);
       if (!shopId) throw new Error("Select a shop before uploading media.");
       const uploaded = await uploadWaMedia(token, shopId, integrationId, media);
-      setHeaderAsset({
-        assetId: uploaded.id,
-        assetName: uploaded.fileName || "Template header media",
-      });
+      setHeaderAsset({ assetId: uploaded.id, assetName: uploaded.fileName || "Template header media" });
     } catch (error) {
       Alert.alert("Header upload failed", error instanceof Error ? error.message : "Could not upload media.");
     } finally {
@@ -235,206 +297,258 @@ export function TemplateSendSheet({
   return (
     <AppBottomSheetModal
       visible={visible}
-      title={selected?.name || "Message template"}
-      subtitle={selected ? `${selected.language} · ${selected.category}` : "Choose an approved WhatsApp template"}
+      title={selected?.name || "Send template"}
+      subtitle={selected
+        ? `${selected.language} · ${selected.category.toLowerCase()} · values for this message`
+        : "Choose an approved WhatsApp template"}
       onDismiss={close}
-      onBack={selected ? () => { setSelected(null); setValues({}); } : undefined}
+      onBack={selected ? () => {
+        setSelected(null);
+        setValues({});
+        setCards([]);
+        setHeaderAsset({});
+        setHeaderLocation(EMPTY_LOCATION);
+      } : undefined}
       backAccessibilityLabel="Back to templates"
       isBusy={sendMutation.isPending || uploadingHeader || uploadingCard != null}
       maxHeight={0.94}
       scrollable
     >
-          {selected ? (
-            <View style={styles.content}>
-              <WhatsAppTemplatePreview definition={selected.draftDefinition || {
-                name: selected.name,
-                language: selected.language,
-                category: selected.category,
-                body: { text: selected.components?.find((component: any) => component.type === "BODY")?.text || "" },
-                mappings: selected.variableMappings,
-              }} />
-              {["IMAGE", "VIDEO", "DOCUMENT"].includes(getHeaderFormat(selected) || "") && (
-                <View style={styles.mapping}>
-                  <Text style={styles.mappingTitle}>Header media</Text>
-                  <Button
-                    mode="outlined"
-                    icon="paperclip"
-                    loading={uploadingHeader}
-                    disabled={uploadingHeader}
-                    onPress={() => pickHeaderMedia(getHeaderFormat(selected) as "IMAGE" | "VIDEO" | "DOCUMENT")}
-                  >
-                    {headerAsset.assetName || `Choose ${getHeaderFormat(selected)?.toLowerCase()}`}
-                  </Button>
+      {selected ? (
+        <View style={styles.content}>
+          <WhatsAppTemplatePreview definition={previewDefinition(selected, values)} />
+
+          {selected.variableMappings.length ? (
+            <View style={styles.runtimeIntro}>
+              <Text style={styles.eyebrow}>VALUES FOR THIS MESSAGE</Text>
+              <Text style={styles.runtimeTitle}>Use the saved default or override it now.</Text>
+              <Text style={styles.runtimeCopy}>
+                A saved customer/shop attribute resolves automatically. Enter a value only when this particular message should use something different.
+              </Text>
+            </View>
+          ) : null}
+
+          {selected.variableMappings.map((mapping) => {
+            const explicit = values[mapping.id] || "";
+            const hasDefault = Boolean(
+              mapping.attributeId
+              || mapping.fallbackValue?.trim()
+              || mapping.attribute?.fallbackValue?.trim(),
+            );
+            return (
+              <View key={mapping.id} style={styles.valueRow}>
+                <View style={styles.variableBadge}>
+                  <Text style={styles.variableText}>{`{{${mapping.position}}}`}</Text>
                 </View>
-              )}
-              {getHeaderFormat(selected) === "LOCATION" && (
-                <View style={styles.mapping}>
-                  <View style={styles.mappingHeader}>
-                    <Text style={styles.mappingTitle}>Location header</Text>
-                    <Button compact icon="crosshairs-gps" loading={locating} onPress={useCurrentLocation}>
-                      Current
-                    </Button>
-                  </View>
-                  <View style={styles.locationRow}>
-                    <TextInput
-                      mode="outlined"
-                      label="Latitude"
-                      keyboardType="numbers-and-punctuation"
-                      style={styles.locationCoordinate}
-                      value={headerLocation.latitude}
-                      onChangeText={(latitude) => setHeaderLocation((current) => ({ ...current, latitude }))}
-                    />
-                    <TextInput
-                      mode="outlined"
-                      label="Longitude"
-                      keyboardType="numbers-and-punctuation"
-                      style={styles.locationCoordinate}
-                      value={headerLocation.longitude}
-                      onChangeText={(longitude) => setHeaderLocation((current) => ({ ...current, longitude }))}
-                    />
-                  </View>
-                  <TextInput
-                    mode="outlined"
-                    label="Location name"
-                    value={headerLocation.name}
-                    onChangeText={(name) => setHeaderLocation((current) => ({ ...current, name }))}
-                  />
-                  <TextInput
-                    mode="outlined"
-                    label="Address"
-                    value={headerLocation.address}
-                    onChangeText={(address) => setHeaderLocation((current) => ({ ...current, address }))}
-                  />
-                </View>
-              )}
-              {selected.variableMappings.map((mapping) => (
-                <View key={mapping.id} style={styles.mapping}>
-                  <View style={styles.mappingHeader}>
-                    <Text style={styles.mappingTitle}>
-                      {mapping.component} {"{{"}{mapping.position}{"}}"}
-                    </Text>
-                    <Text style={styles.attribute}>
-                      {mapping.attribute?.label || "Manual value"}
+                <View style={styles.valueBody}>
+                  <View style={styles.valueTopline}>
+                    <Text style={styles.valueTitle}>{mappingTitle(mapping)}</Text>
+                    <Text style={[styles.defaultState, !hasDefault && !explicit.trim() && styles.requiredState]}>
+                      {explicit.trim() ? "OVERRIDE" : hasDefault ? "AUTO" : "REQUIRED"}
                     </Text>
                   </View>
+                  <Text style={styles.defaultLabel} numberOfLines={1}>
+                    {explicit.trim()
+                      ? `This send · ${explicit}`
+                      : mapping.attribute?.label
+                        ? `Auto · ${mapping.attribute.label}`
+                        : mapping.fallbackValue || mapping.attribute?.fallbackValue
+                          ? `Fallback · ${mapping.fallbackValue || mapping.attribute?.fallbackValue}`
+                          : mappingDefaultLabel(mapping)}
+                  </Text>
                   <TextInput
-                    mode="outlined"
-                    label="Override value (optional)"
-                    value={values[mapping.id] || ""}
-                    placeholder={mapping.fallbackValue || mapping.attribute?.fallbackValue || mapping.sampleValue}
+                    mode="flat"
+                    value={explicit}
+                    placeholder={hasDefault
+                      ? "Override for this send (optional)"
+                      : mapping.sampleValue || "Enter value for this send"}
                     onChangeText={(value) => setValues((current) => ({ ...current, [mapping.id]: value }))}
+                    style={styles.runtimeInput}
+                    underlineColor={colors.borderStrong}
+                    activeUnderlineColor={colors.primary}
                   />
+                </View>
+              </View>
+            );
+          })}
+
+          {["IMAGE", "VIDEO", "DOCUMENT"].includes(getHeaderFormat(selected)) ? (
+            <View style={styles.section}>
+              <Text style={styles.eyebrow}>MEDIA FOR THIS MESSAGE</Text>
+              <Pressable
+                onPress={() => pickHeaderMedia(getHeaderFormat(selected) as "IMAGE" | "VIDEO" | "DOCUMENT")}
+                disabled={uploadingHeader}
+                style={({ pressed }) => [styles.actionRow, pressed && styles.pressed]}
+              >
+                <View style={styles.actionIcon}>
+                  <MaterialCommunityIcons
+                    name={getHeaderFormat(selected) === "VIDEO"
+                      ? "video-outline"
+                      : getHeaderFormat(selected) === "DOCUMENT"
+                        ? "file-document-outline"
+                        : "image-outline"}
+                    size={21}
+                    color={colors.primary}
+                  />
+                </View>
+                <View style={styles.flex}>
+                  <Text style={styles.actionTitle}>{headerAsset.assetName || `Choose ${getHeaderFormat(selected).toLowerCase()}`}</Text>
+                  <Text style={styles.actionCopy}>{headerAsset.assetId ? "Ready to send" : "Required by this approved template"}</Text>
+                </View>
+                {uploadingHeader
+                  ? <ActivityIndicator size="small" color={colors.primary} />
+                  : <MaterialCommunityIcons name="chevron-right" size={22} color={colors.textMuted} />}
+              </Pressable>
+            </View>
+          ) : null}
+
+          {getHeaderFormat(selected) === "LOCATION" ? (
+            <View style={styles.section}>
+              <View style={styles.sectionTopline}>
+                <Text style={styles.eyebrow}>LOCATION FOR THIS MESSAGE</Text>
+                <Button compact icon="crosshairs-gps" loading={locating} onPress={useCurrentLocation}>Current</Button>
+              </View>
+              <View style={styles.locationRow}>
+                <TextInput
+                  mode="flat"
+                  label="Latitude"
+                  keyboardType="numbers-and-punctuation"
+                  style={styles.locationCoordinate}
+                  value={headerLocation.latitude}
+                  onChangeText={(latitude) => setHeaderLocation((current) => ({ ...current, latitude }))}
+                />
+                <TextInput
+                  mode="flat"
+                  label="Longitude"
+                  keyboardType="numbers-and-punctuation"
+                  style={styles.locationCoordinate}
+                  value={headerLocation.longitude}
+                  onChangeText={(longitude) => setHeaderLocation((current) => ({ ...current, longitude }))}
+                />
+              </View>
+              <TextInput mode="flat" label="Location name" value={headerLocation.name} onChangeText={(name) => setHeaderLocation((current) => ({ ...current, name }))} />
+              <TextInput mode="flat" label="Address" value={headerLocation.address} onChangeText={(address) => setHeaderLocation((current) => ({ ...current, address }))} />
+            </View>
+          ) : null}
+
+          {getCarouselDefinition(selected) ? (
+            <View style={styles.section}>
+              <Text style={styles.eyebrow}>CAROUSEL FOR THIS MESSAGE</Text>
+              {getCarouselDefinition(selected)!.cards.map((cardDefinition, cardIndex) => (
+                <View key={cardIndex} style={styles.carouselRow}>
+                  <Text style={styles.cardNumber}>{cardIndex + 1}</Text>
+                  <View style={styles.flex}>
+                    <Text style={styles.actionTitle}>Card {cardIndex + 1}</Text>
+                    {cardDefinition.header.format === "PRODUCT" ? (
+                      <>
+                        <TextInput
+                          mode="flat"
+                          label="Catalog ID"
+                          value={cards[cardIndex]?.catalogId || ""}
+                          onChangeText={(catalogId) => setCards((current) => current.map((card, index) => index === cardIndex ? { ...card, catalogId } : card))}
+                        />
+                        <TextInput
+                          mode="flat"
+                          label="Product retailer ID"
+                          value={cards[cardIndex]?.productRetailerId || ""}
+                          onChangeText={(productRetailerId) => setCards((current) => current.map((card, index) => index === cardIndex ? { ...card, productRetailerId } : card))}
+                        />
+                      </>
+                    ) : (
+                      <Pressable
+                        onPress={() => pickCarouselMedia(cardIndex, cardDefinition.header.format as "IMAGE" | "VIDEO")}
+                        disabled={uploadingCard != null}
+                        style={({ pressed }) => [styles.smallAction, pressed && styles.pressed]}
+                      >
+                        <MaterialCommunityIcons name={cardDefinition.header.format === "VIDEO" ? "video-plus-outline" : "image-plus"} size={18} color={colors.primary} />
+                        <Text style={styles.smallActionText}>{cards[cardIndex]?.assetName || `Choose ${cardDefinition.header.format.toLowerCase()}`}</Text>
+                        {uploadingCard === cardIndex ? <ActivityIndicator size="small" color={colors.primary} /> : null}
+                      </Pressable>
+                    )}
+                  </View>
                 </View>
               ))}
-              {!!getCarouselDefinition(selected) && (
-                <View style={styles.carouselInputs}>
-                  <Text style={styles.carouselTitle}>Carousel content</Text>
-                  {getCarouselDefinition(selected)!.cards.map((cardDefinition, cardIndex) => (
-                    <View key={cardIndex} style={styles.cardInput}>
-                      <Text style={styles.cardTitle}>Card {cardIndex + 1}</Text>
-                      {cardDefinition.header.format === "PRODUCT" ? (
-                        <>
-                          <TextInput
-                            mode="outlined"
-                            label="Catalog ID"
-                            value={cards[cardIndex]?.catalogId || ""}
-                            onChangeText={(catalogId) => setCards((current) => current.map((card, index) => (
-                              index === cardIndex ? { ...card, catalogId } : card
-                            )))}
-                          />
-                          <TextInput
-                            mode="outlined"
-                            label="Product retailer ID"
-                            value={cards[cardIndex]?.productRetailerId || ""}
-                            onChangeText={(productRetailerId) => setCards((current) => current.map((card, index) => (
-                              index === cardIndex ? { ...card, productRetailerId } : card
-                            )))}
-                          />
-                        </>
-                      ) : (
-                        <Button
-                          mode="outlined"
-                          icon={cardDefinition.header.format === "VIDEO" ? "video-plus-outline" : "image-plus"}
-                          loading={uploadingCard === cardIndex}
-                          disabled={uploadingCard != null}
-                          onPress={() => pickCarouselMedia(cardIndex, cardDefinition.header.format as "IMAGE" | "VIDEO")}
-                        >
-                          {cards[cardIndex]?.assetName || `Choose ${cardDefinition.header.format.toLowerCase()}`}
-                        </Button>
-                      )}
-                    </View>
-                  ))}
-                </View>
-              )}
-              <Button
-                mode="contained"
-                icon="send"
-                loading={sendMutation.isPending}
-                disabled={
-                  sendMutation.isPending
-                  || selected.mappingStatus !== "VALID"
-                  || !templateHeaderReady(selected, headerAsset, headerLocation)
-                  || !carouselCardsReady(selected, cards)
-                }
-                onPress={() => sendMutation.mutate()}
-                style={styles.send}
-              >
-                Send template
-              </Button>
-              {selected.mappingStatus !== "VALID" && (
-                <Text style={styles.warning}>Complete this template’s attribute mappings before sending.</Text>
-              )}
             </View>
+          ) : null}
+
+          {!sendReady ? (
+            <View style={styles.notice}>
+              <MaterialCommunityIcons name="information-outline" size={20} color={colors.warning} />
+              <Text style={styles.noticeText}>
+                Fill only the values or media this message still needs. Saved template attributes resolve automatically on the server.
+              </Text>
+            </View>
+          ) : null}
+
+          <Button
+            mode="contained"
+            icon="send"
+            loading={sendMutation.isPending}
+            disabled={!sendReady || sendMutation.isPending}
+            onPress={() => sendMutation.mutate()}
+            style={styles.send}
+            contentStyle={styles.sendContent}
+          >
+            Send template
+          </Button>
+        </View>
+      ) : (
+        <View style={styles.browser}>
+          <View style={styles.browserHeader}>
+            <Text style={styles.eyebrow}>APPROVED TEMPLATES</Text>
+            <Text style={styles.browserTitle}>Choose the message, then fill what changes.</Text>
+            <Text style={styles.browserCopy}>Templates are reusable structure. Runtime values and media are supplied after you choose one.</Text>
+          </View>
+          <Searchbar value={search} onChangeText={setSearch} placeholder="Search approved templates" style={styles.search} inputStyle={styles.searchInput} />
+          {query.isLoading ? (
+            <ActivityIndicator style={styles.loader} color={colors.primary} />
           ) : (
-            <View style={styles.browser}>
-              <Searchbar
-                value={search}
-                onChangeText={setSearch}
-                placeholder="Search approved templates"
-                style={styles.search}
-              />
-              {query.isLoading ? (
-                <ActivityIndicator style={styles.loader} color={waColors.green} />
-              ) : (
-                <View style={styles.list}>
-                  {(query.data?.data || []).map((template) => (
-                    <Pressable
-                      key={template.id}
-                      onPress={() => selectTemplate(template)}
-                      style={styles.templateRow}
-                    >
-                      <View style={styles.templateIcon}>
-                        <Text style={styles.templateIconText}>{template.category[0]}</Text>
-                      </View>
-                      <View style={styles.templateBody}>
-                        <Text style={styles.templateName}>{template.name}</Text>
-                        <Text style={styles.templatePreview} numberOfLines={2}>
-                          {template.components?.find((component: any) => component.type === "BODY")?.text || template.category}
-                        </Text>
-                        <Text style={template.mappingStatus === "VALID" ? styles.ready : styles.warning}>
-                          {template.language} · {template.mappingStatus === "VALID" ? "Ready" : "Mapping incomplete"}
-                        </Text>
-                      </View>
-                    </Pressable>
-                  ))}
+            <View style={styles.list}>
+              {(query.data?.data || []).map((template) => (
+                <Pressable key={template.id} onPress={() => selectTemplate(template)} style={({ pressed }) => [styles.templateRow, pressed && styles.pressed]}>
+                  <View style={styles.templateIcon}>
+                    <MaterialCommunityIcons name="message-text-outline" size={21} color={colors.primaryDark} />
+                  </View>
+                  <View style={styles.templateBody}>
+                    <View style={styles.templateTopline}>
+                      <Text style={styles.templateName} numberOfLines={1}>{template.name}</Text>
+                      <Text style={styles.approved}>APPROVED</Text>
+                    </View>
+                    <Text style={styles.templatePreview} numberOfLines={2}>
+                      {template.draftDefinition?.body?.text || template.components?.find((component: any) => String(component.type).toUpperCase() === "BODY")?.text || template.category}
+                    </Text>
+                    <Text style={styles.templateMeta}>
+                      {template.language} · {template.variableMappings.length} variables · {template.mappingStatus === "VALID" ? "defaults available" : "fill at send"}
+                    </Text>
+                  </View>
+                  <MaterialCommunityIcons name="chevron-right" size={21} color={colors.textMuted} />
+                </Pressable>
+              ))}
+              {!query.data?.data?.length ? (
+                <View style={styles.empty}>
+                  <MaterialCommunityIcons name="message-off-outline" size={36} color={colors.textMuted} />
+                  <Text style={styles.emptyTitle}>No approved templates</Text>
+                  <Text style={styles.emptyCopy}>Create or sync a template first, then return here after Meta approves it.</Text>
                 </View>
-              )}
+              ) : null}
             </View>
           )}
+        </View>
+      )}
     </AppBottomSheetModal>
   );
 }
 
 function getCarouselDefinition(template: WaTemplate): WaTemplateDefinition["carousel"] | null {
   if (template.draftDefinition?.carousel) return template.draftDefinition.carousel;
-  const carousel = template.components?.find((component: any) => component.type?.toUpperCase() === "CAROUSEL");
+  const carousel = template.components?.find((component: any) => String(component.type).toUpperCase() === "CAROUSEL");
   if (!carousel) return null;
   return {
-    type: carousel.cards?.[0]?.components?.find((component: any) => component.type?.toUpperCase() === "HEADER")?.format === "PRODUCT"
+    type: carousel.cards?.[0]?.components?.find((component: any) => String(component.type).toUpperCase() === "HEADER")?.format === "PRODUCT"
       ? "PRODUCT" as const
       : "MEDIA" as const,
     cards: carousel.cards.map((card: any) => {
-      const header = card.components.find((component: any) => component.type?.toUpperCase() === "HEADER");
+      const header = card.components.find((component: any) => String(component.type).toUpperCase() === "HEADER");
       return {
         header: { format: header?.format?.toUpperCase() as "IMAGE" | "VIDEO" | "PRODUCT" },
         buttons: [],
@@ -444,9 +558,11 @@ function getCarouselDefinition(template: WaTemplate): WaTemplateDefinition["caro
 }
 
 function getHeaderFormat(template: WaTemplate) {
-  return template.draftDefinition?.header?.format
-    || template.components?.find((component: any) => component.type?.toUpperCase() === "HEADER")?.format?.toUpperCase()
-    || "NONE";
+  return String(
+    template.draftDefinition?.header?.format
+    || template.components?.find((component: any) => String(component.type).toUpperCase() === "HEADER")?.format
+    || "NONE",
+  ).toUpperCase();
 }
 
 function templateHeaderReady(
@@ -466,14 +582,10 @@ function templateHeaderReady(
   return true;
 }
 
-function carouselCardsReady(template: WaTemplate, cards: Array<{
-  assetId?: string;
-  catalogId?: string;
-  productRetailerId?: string;
-}>) {
+function carouselCardsReady(template: WaTemplate, cards: CardInput[]) {
   const definition = getCarouselDefinition(template);
   if (!definition) return true;
-  return definition.cards.every((card: NonNullable<WaTemplateDefinition["carousel"]>["cards"][number], index: number) => (
+  return definition.cards.every((card, index) => (
     card.header.format === "PRODUCT"
       ? Boolean(cards[index]?.catalogId && cards[index]?.productRetailerId)
       : Boolean(cards[index]?.assetId)
@@ -481,28 +593,56 @@ function carouselCardsReady(template: WaTemplate, cards: Array<{
 }
 
 const styles = StyleSheet.create({
-  browser: { gap: 10 },
-  search: { backgroundColor: waColors.surfaceMuted, borderRadius: 14 },
+  flex: { flex: 1 },
+  content: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xxl },
+  browser: { paddingHorizontal: spacing.lg, paddingBottom: spacing.xxl },
+  browserHeader: { paddingTop: spacing.xs, paddingBottom: spacing.md },
+  eyebrow: { color: colors.primary, fontSize: 10, fontWeight: fontWeight.black, letterSpacing: 1 },
+  browserTitle: { marginTop: 5, color: colors.textPrimary, fontSize: fontSize.lg, lineHeight: 23, fontWeight: fontWeight.extrabold },
+  browserCopy: { marginTop: 4, color: colors.textSecondary, fontSize: fontSize.xs, lineHeight: 18 },
+  search: { height: 44, borderRadius: 22, backgroundColor: colors.surfaceOffset },
+  searchInput: { minHeight: 44, fontSize: fontSize.sm },
   loader: { height: 180, justifyContent: "center" },
-  list: { paddingBottom: 12 },
-  templateRow: { minHeight: 88, flexDirection: "row", padding: 12 },
-  templateIcon: { width: 48, height: 48, borderRadius: 24, alignItems: "center", justifyContent: "center", backgroundColor: waColors.green },
-  templateIconText: { color: "#fff", fontWeight: "700", fontSize: 18 },
-  templateBody: { flex: 1, marginLeft: 12, paddingBottom: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: waColors.border },
-  templateName: { color: waColors.text, fontSize: 16, fontWeight: "600" },
-  templatePreview: { color: waColors.textSecondary, fontSize: 13, paddingTop: 3 },
-  ready: { color: waColors.green, fontSize: 11, paddingTop: 4 },
-  warning: { color: "#B7791F", fontSize: 11, paddingTop: 4 },
-  content: { gap: 14, paddingBottom: 12 },
-  mapping: { gap: 7, padding: 12, borderRadius: 14, backgroundColor: waColors.surfaceMuted },
-  mappingHeader: { flexDirection: "row", justifyContent: "space-between" },
-  mappingTitle: { color: waColors.greenDark, fontWeight: "700" },
-  attribute: { color: waColors.textSecondary, fontSize: 12 },
-  send: { backgroundColor: waColors.green },
-  carouselInputs: { gap: 10 },
-  carouselTitle: { color: waColors.text, fontSize: 14, fontWeight: "700" },
-  cardInput: { gap: 8, padding: 12, borderWidth: StyleSheet.hairlineWidth, borderColor: waColors.border, borderRadius: 14 },
-  cardTitle: { color: waColors.greenDark, fontSize: 12, fontWeight: "700" },
-  locationRow: { flexDirection: "row", gap: 8 },
+  list: { paddingTop: spacing.sm },
+  templateRow: { minHeight: 92, flexDirection: "row", alignItems: "flex-start", gap: spacing.md, paddingVertical: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  templateIcon: { width: 42, height: 42, borderRadius: 21, alignItems: "center", justifyContent: "center", backgroundColor: colors.primaryLight },
+  templateBody: { flex: 1, minWidth: 0 },
+  templateTopline: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  templateName: { flex: 1, color: colors.textPrimary, fontSize: fontSize.sm, fontWeight: fontWeight.extrabold },
+  approved: { color: colors.success, fontSize: 9, fontWeight: fontWeight.black },
+  templatePreview: { marginTop: 4, color: colors.textSecondary, fontSize: fontSize.xs, lineHeight: 17 },
+  templateMeta: { marginTop: 4, color: colors.textMuted, fontSize: 10 },
+  runtimeIntro: { paddingTop: spacing.xl, paddingBottom: spacing.sm },
+  runtimeTitle: { marginTop: 4, color: colors.textPrimary, fontSize: fontSize.md, fontWeight: fontWeight.extrabold },
+  runtimeCopy: { marginTop: 4, color: colors.textSecondary, fontSize: fontSize.xs, lineHeight: 18 },
+  valueRow: { minHeight: 88, flexDirection: "row", alignItems: "flex-start", gap: spacing.md, paddingVertical: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  variableBadge: { minWidth: 44, height: 31, borderRadius: radius.md, alignItems: "center", justifyContent: "center", backgroundColor: colors.primaryLight, marginTop: 6 },
+  variableText: { color: colors.primaryDark, fontSize: fontSize.xs, fontWeight: fontWeight.black },
+  valueBody: { flex: 1, minWidth: 0 },
+  valueTopline: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+  valueTitle: { flex: 1, color: colors.textPrimary, fontSize: fontSize.sm, fontWeight: fontWeight.bold },
+  defaultState: { color: colors.primary, fontSize: 9, fontWeight: fontWeight.black },
+  requiredState: { color: colors.warning },
+  defaultLabel: { marginTop: 2, color: colors.textSecondary, fontSize: fontSize.xs },
+  runtimeInput: { marginTop: 1, backgroundColor: "transparent", paddingHorizontal: 0 },
+  section: { marginTop: spacing.xxl },
+  sectionTopline: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  actionRow: { minHeight: 68, flexDirection: "row", alignItems: "center", gap: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  actionIcon: { width: 39, height: 39, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: colors.primaryLight },
+  actionTitle: { color: colors.textPrimary, fontSize: fontSize.sm, fontWeight: fontWeight.bold },
+  actionCopy: { marginTop: 2, color: colors.textSecondary, fontSize: fontSize.xs },
+  locationRow: { flexDirection: "row", gap: spacing.sm },
   locationCoordinate: { flex: 1 },
+  carouselRow: { minHeight: 74, flexDirection: "row", alignItems: "flex-start", gap: spacing.md, paddingVertical: spacing.md, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  cardNumber: { width: 30, height: 30, borderRadius: 15, textAlign: "center", textAlignVertical: "center", color: colors.primaryDark, backgroundColor: colors.primaryLight, fontSize: fontSize.xs, fontWeight: fontWeight.black },
+  smallAction: { minHeight: 42, flexDirection: "row", alignItems: "center", gap: spacing.sm, marginTop: spacing.xs },
+  smallActionText: { flex: 1, color: colors.primaryDark, fontSize: fontSize.xs, fontWeight: fontWeight.bold },
+  notice: { marginTop: spacing.xl, flexDirection: "row", alignItems: "flex-start", gap: spacing.sm, paddingVertical: spacing.md },
+  noticeText: { flex: 1, color: colors.textSecondary, fontSize: fontSize.xs, lineHeight: 18 },
+  send: { marginTop: spacing.lg, borderRadius: radius.lg, backgroundColor: colors.primary },
+  sendContent: { minHeight: 48 },
+  pressed: { opacity: 0.68 },
+  empty: { paddingVertical: 56, alignItems: "center", paddingHorizontal: 24 },
+  emptyTitle: { marginTop: spacing.md, color: colors.textPrimary, fontSize: fontSize.sm, fontWeight: fontWeight.bold },
+  emptyCopy: { marginTop: 4, color: colors.textSecondary, fontSize: fontSize.xs, lineHeight: 18, textAlign: "center" },
 });

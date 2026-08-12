@@ -88,12 +88,57 @@ import {
   replaceWhatsAppMessage,
   type WhatsAppMessagePages,
 } from "../whatsapp-query-cache";
+import {
+  isRetryableWhatsAppClientError,
+  whatsappClientRetryDelayMs,
+} from "../whatsapp-retry";
 import { getWhatsAppMediaRule } from "../whatsapp-runtime-config";
 import {
   persistWhatsAppMedia,
   removePersistedWhatsAppMedia,
 } from "../services/whatsapp-media-files";
 import { markWhatsAppOpenMeasurement } from "../whatsapp-open-performance";
+
+const DATE_KEY_CACHE = new Map<string, string>();
+const DATE_SEP_CACHE = new Map<string, string>();
+const TIME_SEP_CACHE = new Map<string, string>();
+
+function getFastDateKey(isoString?: string): string {
+  if (!isoString) return "";
+  let value = DATE_KEY_CACHE.get(isoString);
+  if (!value) {
+    value = isoString.slice(0, 10);
+    if (DATE_KEY_CACHE.size > 300) DATE_KEY_CACHE.clear();
+    DATE_KEY_CACHE.set(isoString, value);
+  }
+  return value;
+}
+
+function getFastDateSep(isoString?: string): string {
+  if (!isoString) return "";
+  let value = DATE_SEP_CACHE.get(isoString);
+  if (!value) {
+    value = format(new Date(isoString), "EEE, d MMM");
+    if (DATE_SEP_CACHE.size > 300) DATE_SEP_CACHE.clear();
+    DATE_SEP_CACHE.set(isoString, value);
+  }
+  return value;
+}
+
+function getFastTimeSep(isoString?: string): string {
+  if (!isoString) return "";
+  let value = TIME_SEP_CACHE.get(isoString);
+  if (!value) {
+    value = format(new Date(isoString), "hh:mm a");
+    if (TIME_SEP_CACHE.size > 300) TIME_SEP_CACHE.clear();
+    TIME_SEP_CACHE.set(isoString, value);
+  }
+  return value;
+}
+
+function messageKey(item: WaMessage) {
+  return item.clientMessageId || item.id;
+}
 
 function toMessageType(message: WaOutboundMessage): WaMessage["type"] {
   switch (message.kind) {
@@ -211,6 +256,23 @@ function SwipeReplyRow({
     [crossedThreshold, replyEnabled, replyFromGesture, translateX],
   );
 
+  const longPressGesture = useMemo(
+    () => Gesture.LongPress()
+      .enabled(actionsEnabled)
+      .minDuration(360)
+      .maxDistance(12)
+      .onStart((event) => {
+        scheduleOnRN(triggerMediumHaptic);
+        scheduleOnRN(longPressFromGesture, event.absoluteX, event.absoluteY);
+      }),
+    [actionsEnabled, longPressFromGesture],
+  );
+
+  const composedGesture = useMemo(
+    () => Gesture.Race(swipeGesture, longPressGesture),
+    [longPressGesture, swipeGesture],
+  );
+
   const messageStyle = useAnimatedStyle(() => ({
     transform: [{ translateX: translateX.value }],
   }));
@@ -247,7 +309,7 @@ function SwipeReplyRow({
           <MaterialCommunityIcons name="reply" size={20} color="#fff" />
         </View>
       </Animated.View>
-      <GestureDetector gesture={swipeGesture}>
+      <GestureDetector gesture={composedGesture}>
         <Animated.View style={messageStyle}>
           {children}
         </Animated.View>
@@ -285,10 +347,9 @@ export const ChatDetailScreen = () => {
   const [mediaUploadProgress, setMediaUploadProgress] = useState(0);
   const [uploadingMedia, setUploadingMedia] = useState(false);
   const [newMessageCount, setNewMessageCount] = useState(0);
-  const [isNearBottom, setIsNearBottom] = useState(true);
   const [composerHeight, setComposerHeight] = useState(0);
+  const [linkedCustomerId, setLinkedCustomerId] = useState(conversation?.customerId || "");
 
-  // Template Picker State
   const [showTemplateSheet, setShowTemplateSheet] = useState(false);
   const [templateReplyToMessageId, setTemplateReplyToMessageId] = useState<string>();
   const [showFlowSheet, setShowFlowSheet] = useState(false);
@@ -301,6 +362,7 @@ export const ChatDetailScreen = () => {
   const mediaUploadControllerRef = useRef<AbortController | null>(null);
   const activeUploadRef = useRef<{ operationId: string; mediaUri: string } | null>(null);
   const didMarkInitialRender = useRef(false);
+  const isNearBottomRef = useRef(true);
   const mountedOverlays = useRef({
     actions: false,
     media: false,
@@ -325,12 +387,18 @@ export const ChatDetailScreen = () => {
   }
 
   useEffect(() => {
-    if (!isFocused || profilePreloaded) return;
-    const timer = setTimeout(() => setProfilePreloaded(true), 250);
-    return () => clearTimeout(timer);
-  }, [isFocused, profilePreloaded]);
+    setLinkedCustomerId(conversation?.customerId || "");
+  }, [conversation?.customerId, conversationId]);
 
-  const { data: customerRecord } = useCustomerDetailQuery(conversation?.customerId || "");
+  useEffect(() => {
+    if (!isFocused || profilePreloaded) return;
+    const unsubscribe = navigation.addListener("transitionEnd", (event) => {
+      if (!event.data?.closing) setProfilePreloaded(true);
+    });
+    return unsubscribe;
+  }, [isFocused, navigation, profilePreloaded]);
+
+  const { data: customerRecord } = useCustomerDetailQuery(linkedCustomerId);
   const [deviceContactName, setDeviceContactName] = useState(
     () => contactsDb.getFastContactByPhone(recipientPhone)?.name?.trim() || "",
   );
@@ -378,72 +446,75 @@ export const ChatDetailScreen = () => {
     return () => subscription.remove();
   }, [handleBack]);
 
-  // Set custom header with contact name, avatar, and linked customer shortcut
   useLayoutEffect(() => {
     const contactName = deviceContactName || conversation?.contactName || formatWhatsAppPhone(recipientPhone);
     const initials = initialsFor(deviceContactName || conversation?.contactName || recipientPhone);
 
-    try {
-      navigation.setOptions({
-        // Keep the route header mounted. Hiding it for a modal profile sheet can
-        // leave the chat without its contact header if dismissal is interrupted.
-        headerShown: true,
-        headerStyle: { backgroundColor: waColors.greenDark },
-        headerTintColor: "#fff",
-        headerShadowVisible: false,
-        headerLeft: () => (
-          <TouchableOpacity
-            onPress={handleBack}
-            style={{ marginRight: 8, padding: 4 }}
-            accessibilityRole="button"
-            accessibilityLabel="Go back to chat list"
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          >
-            <MaterialCommunityIcons name="arrow-left" size={24} color="#fff" />
-          </TouchableOpacity>
-        ),
-        headerTitle: () => (
-          <TouchableOpacity
-            onPress={() => {
-              setProfilePreloaded(true);
-              setShowProfileSheet(true);
-            }}
-            style={{ flexDirection: "row", alignItems: "center" }}
-          >
-            <View style={{
-              width: 36,
-              height: 36,
-              borderRadius: 18,
-              backgroundColor: "rgba(255,255,255,0.2)",
-              justifyContent: "center",
-              alignItems: "center",
-              marginRight: 10,
-            }}>
-              <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>{initials}</Text>
-            </View>
-            <View style={{ maxWidth: 190 }}>
-              <Text style={{ fontWeight: "700", fontSize: 16, color: "#fff" }} numberOfLines={1}>
-                {contactName}
-              </Text>
-              <Text style={{ fontSize: 11, color: "rgba(255,255,255,0.78)" }} numberOfLines={1}>
-                {conversation?.customerId ? "Linked customer" : formatWhatsAppPhone(recipientPhone)}
-              </Text>
-            </View>
-          </TouchableOpacity>
-        ),
-        headerRight: () => conversation?.customerId ? (
-          <TouchableOpacity
-            onPress={() => navigation.navigate("CustomerDetail", { customerId: conversation.customerId! })}
-            style={{ marginRight: 12, padding: 4 }}
-          >
-            <MaterialCommunityIcons name="account-details" size={23} color="#fff" />
-          </TouchableOpacity>
-        ) : null,
-        headerTitleAlign: "left",
-      });
-    } catch {}
-  }, [navigation, conversation, deviceContactName, recipientPhone, handleBack]);
-
+    navigation.setOptions({
+      headerShown: true,
+      headerStyle: { backgroundColor: waColors.greenDark },
+      headerTintColor: "#fff",
+      headerShadowVisible: false,
+      headerLeft: () => (
+        <TouchableOpacity
+          onPress={handleBack}
+          style={{ marginRight: 8, padding: 4 }}
+          accessibilityRole="button"
+          accessibilityLabel="Go back to chat list"
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <MaterialCommunityIcons name="arrow-left" size={24} color="#fff" />
+        </TouchableOpacity>
+      ),
+      headerTitle: () => (
+        <TouchableOpacity
+          onPress={() => {
+            setProfilePreloaded(true);
+            setShowProfileSheet(true);
+          }}
+          style={{ flexDirection: "row", alignItems: "center" }}
+        >
+          <View style={{
+            width: 36,
+            height: 36,
+            borderRadius: 18,
+            backgroundColor: "rgba(255,255,255,0.2)",
+            justifyContent: "center",
+            alignItems: "center",
+            marginRight: 10,
+          }}>
+            <Text style={{ color: "#fff", fontWeight: "700", fontSize: 13 }}>{initials}</Text>
+          </View>
+          <View style={{ maxWidth: 190 }}>
+            <Text style={{ fontWeight: "700", fontSize: 16, color: "#fff" }} numberOfLines={1}>
+              {contactName}
+            </Text>
+            <Text style={{ fontSize: 11, color: "rgba(255,255,255,0.78)" }} numberOfLines={1}>
+              {linkedCustomerId ? "Linked customer" : formatWhatsAppPhone(recipientPhone)}
+            </Text>
+          </View>
+        </TouchableOpacity>
+      ),
+      headerRight: () => linkedCustomerId ? (
+        <TouchableOpacity
+          onPress={() => navigation.navigate("CustomerDetail", { customerId: linkedCustomerId })}
+          style={{ marginRight: 12, padding: 4 }}
+          accessibilityRole="button"
+          accessibilityLabel="Open linked customer"
+        >
+          <MaterialCommunityIcons name="account-details" size={23} color="#fff" />
+        </TouchableOpacity>
+      ) : null,
+      headerTitleAlign: "left",
+    });
+  }, [
+    conversation?.contactName,
+    deviceContactName,
+    handleBack,
+    linkedCustomerId,
+    navigation,
+    recipientPhone,
+  ]);
 
   const messageQuery = useWhatsAppMessages(conversationId);
   const messages = messageQuery.messages;
@@ -452,9 +523,9 @@ export const ChatDetailScreen = () => {
     || customerRecord?.name
     || formatWhatsAppPhone(recipientPhone)
     || "Customer";
-  const replySenderName = (message: WaMessage) => (
+  const replySenderName = useCallback((message: WaMessage) => (
     message.direction === "OUTBOUND" ? "You" : inboundReplyName
-  );
+  ), [inboundReplyName]);
   const draftLoaded = useRef(false);
   const pendingDraftReplyId = useRef<string | null>(null);
 
@@ -520,9 +591,7 @@ export const ChatDetailScreen = () => {
     return () => clearTimeout(timer);
   }, [activeShopId, conversationId, inputText, integrationId, replyingTo?.id]);
 
-  // Intentionally disabled by product policy. The backend remains authoritative.
   const messagingWindowOpen = true;
-  // Send Message Mutation
   type SendVariables = {
     clientMessageId: string;
     message: WaOutboundMessage;
@@ -554,12 +623,14 @@ export const ChatDetailScreen = () => {
     input: SendVariables,
     operationState: NonNullable<WaMessage["operationState"]>,
     errorMessage?: string,
+    retry?: { attempt?: number; nextAttemptAt?: number },
   ) => {
     const now = Date.now();
     const operationId = input.operationId || `send:${input.clientMessageId}`;
     const optimistic = {
       ...buildOptimisticMessage(input, operationState),
       providerStatus: operationState === "TERMINALLY_FAILED" ? "FAILED" as const : "PENDING" as const,
+      attempt: retry?.attempt ?? 0,
       errorMessage,
     };
     await whatsappDb.persistPendingMessageAndOperation(
@@ -577,8 +648,9 @@ export const ChatDetailScreen = () => {
           message: input.message,
           replyToMessageId: input.replyToMessageId,
         },
-        attempt: 0,
-        nextAttemptAt: operationState === "SUBMITTING" ? now + 60_000 : now,
+        attempt: retry?.attempt ?? 0,
+        nextAttemptAt: retry?.nextAttemptAt
+          ?? (operationState === "SUBMITTING" ? now + 60_000 : now),
         lastError: errorMessage,
         createdAt: now,
         updatedAt: now,
@@ -591,17 +663,17 @@ export const ChatDetailScreen = () => {
     mutationFn: async (input: SendVariables) => {
       if (!token) throw new Error("Your session expired. Sign in again.");
       const network = await NetInfo.fetch();
-      if (network.isConnected === false) {
+      if (network.isConnected === false || network.isInternetReachable === false) {
         return {
           message: buildOptimisticMessage(input, "WAITING_FOR_NETWORK"),
           queued: true,
         };
       }
       const response = await sendScopedWaMessage(token, {
-          shopId: activeShopId,
-          integrationId,
-          conversationId,
-        }, input);
+        shopId: activeShopId,
+        integrationId,
+        conversationId,
+      }, input);
       return { ...response, queued: false };
     },
     onMutate: async (input) => {
@@ -612,7 +684,7 @@ export const ChatDetailScreen = () => {
         messagesKey,
         (current) => appendWhatsAppMessage(current, persisted.message),
       );
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 30);
+      requestAnimationFrame(() => flatListRef.current?.scrollToEnd({ animated: true }));
       return { previous, operationId: persisted.operationId };
     },
     onSuccess: ({ message, queued }, input, context) => {
@@ -647,20 +719,30 @@ export const ChatDetailScreen = () => {
     onError: async (err: Error, input, context) => {
       const message = err.message || "Failed to send message";
       const network = await NetInfo.fetch();
-      const operationState = network.isConnected === false
+      const offline = network.isConnected === false || network.isInternetReachable === false;
+      const retryable = !offline && isRetryableWhatsAppClientError(err);
+      const operationState = offline
         ? "WAITING_FOR_NETWORK" as const
-        : "TERMINALLY_FAILED" as const;
+        : retryable
+          ? "RETRY_SCHEDULED" as const
+          : "TERMINALLY_FAILED" as const;
+      const attempt = retryable ? 1 : 0;
+      const nextAttemptAt = retryable
+        ? Date.now() + whatsappClientRetryDelayMs(attempt)
+        : Date.now();
+
       queryClient.setQueryData<WhatsAppMessagePages>(
         messagesKey,
         (current) => replaceWhatsAppMessage(current, input.clientMessageId, (failed) => ({
           ...failed,
+          attempt,
           operationState,
           providerStatus: operationState === "TERMINALLY_FAILED" ? "FAILED" : "PENDING",
           errorMessage: message,
         })),
       );
       try {
-        await persistSendIntent(input, operationState, message);
+        await persistSendIntent(input, operationState, message, { attempt, nextAttemptAt });
       } catch {
         if (context?.previous) {
           queryClient.setQueryData(messagesKey, context.previous);
@@ -671,7 +753,7 @@ export const ChatDetailScreen = () => {
       if (operationState === "TERMINALLY_FAILED") {
         Alert.alert("Message not sent", `${message}\n\nTap the failed message to retry.`);
       }
-    }
+    },
   });
 
   const displayedMessages = messages;
@@ -696,13 +778,9 @@ export const ChatDetailScreen = () => {
   useEffect(() => {
     previousLastMessageId.current = undefined;
     previousMessageCount.current = 0;
+    isNearBottomRef.current = true;
     setNewMessageCount(0);
   }, [conversationId]);
-
-  const isNearBottomRef = useRef(isNearBottom);
-  useEffect(() => {
-    isNearBottomRef.current = isNearBottom;
-  }, [isNearBottom]);
 
   useEffect(() => {
     const lastMessage = displayedMessages.at(-1);
@@ -727,10 +805,12 @@ export const ChatDetailScreen = () => {
     }
   }, [displayedMessages]);
 
-  const lastInboundMessageId = useMemo(
-    () => [...messages].reverse().find((message) => message.direction === "INBOUND")?.id,
-    [messages],
-  );
+  const lastInboundMessageId = useMemo(() => {
+    for (let index = messages.length - 1; index >= 0; index -= 1) {
+      if (messages[index].direction === "INBOUND") return messages[index].id;
+    }
+    return undefined;
+  }, [messages]);
 
   useEffect(() => {
     if (!isFocused || !lastInboundMessageId || !activeShopId || !integrationId || !token) return;
@@ -773,7 +853,6 @@ export const ChatDetailScreen = () => {
     token,
   ]);
 
-  // Send Reaction Mutation
   const reactionMutation = useMutation({
     mutationFn: async ({ messageId, emoji }: { messageId: string; emoji: string }) => {
       if (!token) throw new Error("Your session expired. Sign in again.");
@@ -787,10 +866,9 @@ export const ChatDetailScreen = () => {
     },
     onError: (err) => {
       Alert.alert("Reaction Error", err.message || "Failed to add reaction");
-    }
+    },
   });
 
-  // Delete Message Mutation
   const deleteMutation = useMutation({
     mutationFn: async (messageId: string) => {
       if (!token) throw new Error("Your session expired. Sign in again.");
@@ -803,7 +881,7 @@ export const ChatDetailScreen = () => {
     },
     onError: (err) => {
       Alert.alert("Delete Error", err.message || "Failed to delete message");
-    }
+    },
   });
 
   const retryMutation = useMutation({
@@ -816,7 +894,13 @@ export const ChatDetailScreen = () => {
           message.clientMessageId,
         );
         if (!requeued) throw new Error("The saved send operation is missing.");
-        return { message: { ...message, operationState: "RETRY_SCHEDULED" as const, providerStatus: "PENDING" as const } };
+        return {
+          message: {
+            ...message,
+            operationState: "RETRY_SCHEDULED" as const,
+            providerStatus: "PENDING" as const,
+          },
+        };
       }
       return retryScopedWaMessage(token, activeShopId, integrationId, message.id);
     },
@@ -841,8 +925,9 @@ export const ChatDetailScreen = () => {
     onError: (error) => Alert.alert("Couldn’t retry message", error.message),
   });
 
-  const handleSend = () => {
-    if (!inputText.trim() || !activeShopId || !token || !messagingWindowOpen) return;
+  const handleSend = useCallback(() => {
+    const text = inputText.trim();
+    if (!text || !activeShopId || !token || !messagingWindowOpen) return;
 
     const replyToMessageId = replyingTo?.id;
     setReplyingTo(null);
@@ -850,8 +935,8 @@ export const ChatDetailScreen = () => {
       clientMessageId: Crypto.randomUUID(),
       message: {
         kind: "text",
-        text: inputText.trim(),
-        previewUrl: /https?:\/\/\S+/i.test(inputText),
+        text,
+        previewUrl: /https?:\/\/\S+/i.test(text),
       },
       replyToMessageId,
     });
@@ -861,9 +946,9 @@ export const ChatDetailScreen = () => {
       { shopId: activeShopId, integrationId, conversationId },
       "",
     ).catch(() => undefined);
-  };
+  }, [activeShopId, conversationId, inputText, integrationId, replyingTo?.id, sendMutation.mutate, token]);
 
-  const sendStructuredMessage = (
+  const sendStructuredMessage = useCallback((
     message: WaOutboundMessage,
     clientMessageId = Crypto.randomUUID(),
   ) => {
@@ -875,15 +960,15 @@ export const ChatDetailScreen = () => {
       message,
       replyToMessageId,
     });
-  };
+  }, [activeShopId, replyingTo?.id, sendMutation.mutate]);
 
-  const openTemplateSheet = () => {
+  const openTemplateSheet = useCallback(() => {
     setTemplateReplyToMessageId(replyingTo?.id);
     setReplyingTo(null);
     setShowTemplateSheet(true);
-  };
+  }, [replyingTo?.id]);
 
-  const shareLinkedContact = () => {
+  const shareLinkedContact = useCallback(() => {
     if (!customerRecord?.name || !customerRecord?.phone) {
       Alert.alert("Contact unavailable", "Link this conversation to a customer with a phone number first.");
       return;
@@ -896,7 +981,7 @@ export const ChatDetailScreen = () => {
         phones: [{ phone: customerRecord.phone, type: "WORK" }],
       }],
     });
-  };
+  }, [customerRecord?.name, customerRecord?.phone, sendStructuredMessage]);
 
   const shareCurrentLocation = async () => {
     if (!activeShopId || locating) return false;
@@ -1127,7 +1212,7 @@ export const ChatDetailScreen = () => {
       await whatsappDb.updateOperation(operationId, {
         operationState: "RETRY_SCHEDULED",
         attempt: 1,
-        nextAttemptAt: Date.now() + 2_000,
+        nextAttemptAt: Date.now() + whatsappClientRetryDelayMs(1),
         lastError: error instanceof Error ? error.message : "Media upload failed",
       }).catch(() => undefined);
       Alert.alert(
@@ -1213,7 +1298,7 @@ export const ChatDetailScreen = () => {
       await whatsappDb.updateOperation(operationId, {
         operationState: "RETRY_SCHEDULED",
         attempt: 1,
-        nextAttemptAt: Date.now() + 2_000,
+        nextAttemptAt: Date.now() + whatsappClientRetryDelayMs(1),
         lastError: error instanceof Error ? error.message : "Voice upload failed",
       }).catch(() => undefined);
       Alert.alert(
@@ -1239,12 +1324,12 @@ export const ChatDetailScreen = () => {
     setMediaUploadProgress(0);
   };
 
-  const handleLongPress = (message: WaMessage, x: number, y: number) => {
+  const handleLongPress = useCallback((message: WaMessage, x: number, y: number) => {
     if (message.contentState === "DELETED") return;
     setSelectedMessage(message);
     setReactionAnchor({ x, y: Math.max(0, y - headerHeight) });
     setReactionMenuVisible(true);
-  };
+  }, [headerHeight]);
 
   const handleCopyText = async () => {
     if (selectedMessage?.content?.text) {
@@ -1254,9 +1339,9 @@ export const ChatDetailScreen = () => {
     setSelectedMessage(null);
   };
 
-  const beginReply = (message: WaMessage) => {
+  const beginReply = useCallback((message: WaMessage) => {
     setReplyingTo(message);
-  };
+  }, []);
 
   const handleReplyPress = () => {
     if (selectedMessage && isServerMessage(selectedMessage)) {
@@ -1268,8 +1353,7 @@ export const ChatDetailScreen = () => {
 
   const handleReactionPress = (emoji: string) => {
     if (!selectedMessage || !isServerMessage(selectedMessage)) return;
-    // Toggle reaction off if tapping the same one
-    const myExistingReaction = selectedMessage.payload?.reactions?.find(r => r.from === "me");
+    const myExistingReaction = selectedMessage.payload?.reactions?.find((reaction) => reaction.from === "me");
     const resolvedEmoji = myExistingReaction?.emoji === emoji ? "" : emoji;
 
     reactionMutation.mutate({
@@ -1298,26 +1382,25 @@ export const ChatDetailScreen = () => {
           style: "destructive",
           onPress: () => deleteMutation.mutate(selectedMessage.id),
         },
-      ]
+      ],
     );
   };
 
-  const scrollToParent = (replyToMetaId: string) => {
-    const index = messages.findIndex((m) => m.metaMessageId === replyToMetaId);
+  const scrollToParent = useCallback((replyToMetaId: string) => {
+    const index = messages.findIndex((message) => message.metaMessageId === replyToMetaId);
     if (index !== -1) {
       try {
         flatListRef.current?.scrollToIndex({ index, animated: true, viewPosition: 0.5 });
-      } catch (err) {
-        // Fallback if layout hasn't computed yet
+      } catch {
         flatListRef.current?.scrollToOffset({
           offset: index * 80,
           animated: true,
         });
       }
     }
-  };
+  }, [messages]);
 
-  const renderMessageStatus = (message: WaMessage) => {
+  const renderMessageStatus = useCallback((message: WaMessage) => {
     if (
       message.operationState === "SUBMITTING"
       || message.operationState === "PROCESSING"
@@ -1325,7 +1408,9 @@ export const ChatDetailScreen = () => {
       return <ActivityIndicator size="small" color={Colors.primary} style={{ width: 14, height: 14 }} />;
     }
     if (
-      message.operationState === "QUEUED"
+      message.operationState === "WAITING_FOR_NETWORK"
+      || message.operationState === "QUEUED"
+      || message.operationState === "RETRY_SCHEDULED"
       || message.providerStatus === "PENDING"
     ) {
       return <MaterialCommunityIcons name="clock-outline" size={14} color={Colors.textSecondary} />;
@@ -1347,93 +1432,33 @@ export const ChatDetailScreen = () => {
         }
         return null;
     }
-  };
+  }, []);
 
   const getItemType = useCallback((item: WaMessage) => {
     if (item.contentState === "DELETED") return "DELETED";
     return `${item.direction || "IN"}_${item.type || "TEXT"}`;
   }, []);
 
-  // Height hints per message type so FlashList can position items without measuring.
-  const overrideItemLayout = useCallback(
-    (layout: { span?: number; size?: number }, item: WaMessage) => {
-      if (item.contentState === "DELETED") { layout.size = 48; return; }
-      switch (item.type) {
-        case "IMAGE": layout.size = 230; break;
-        case "VIDEO": layout.size = 220; break;
-        case "AUDIO": layout.size = 72; break;
-        case "DOCUMENT": layout.size = 84; break;
-        case "LOCATION": layout.size = 180; break;
-        case "STICKER": layout.size = 160; break;
-        default: layout.size = 72; break;
-      }
-    },
-    [],
-  );
-
-const DATE_KEY_CACHE = new Map<string, string>();
-function getFastDateKey(isoString?: string): string {
-  if (!isoString) return "";
-  let val = DATE_KEY_CACHE.get(isoString);
-  if (!val) {
-    val = isoString.slice(0, 10);
-    if (DATE_KEY_CACHE.size > 200) DATE_KEY_CACHE.clear();
-    DATE_KEY_CACHE.set(isoString, val);
-  }
-  return val;
-}
-
-const DATE_SEP_CACHE = new Map<string, string>();
-function getFastDateSep(isoString?: string): string {
-  if (!isoString) return "";
-  let val = DATE_SEP_CACHE.get(isoString);
-  if (!val) {
-    val = format(new Date(isoString), "EEE, d MMM");
-    if (DATE_SEP_CACHE.size > 200) DATE_SEP_CACHE.clear();
-    DATE_SEP_CACHE.set(isoString, val);
-  }
-  return val;
-}
-
-const TIME_SEP_CACHE = new Map<string, string>();
-function getFastTimeSep(isoString?: string): string {
-  if (!isoString) return "";
-  let val = TIME_SEP_CACHE.get(isoString);
-  if (!val) {
-    val = format(new Date(isoString), "hh:mm a");
-    if (TIME_SEP_CACHE.size > 200) TIME_SEP_CACHE.clear();
-    TIME_SEP_CACHE.set(isoString, val);
-  }
-  return val;
-}
-
   const renderMessage = useCallback(({ item, index }: { item: WaMessage; index: number }) => {
     const isOutbound = item.direction === "OUTBOUND";
     const isDeleted = item.contentState === "DELETED";
     const previous = messages[index - 1];
     const showDate = !previous || getFastDateKey(previous.createdAt) !== getFastDateKey(item.createdAt);
-
-    // Find parent message for reply rendering
     const parentMessage = item.replyToMetaMessageId
       ? messagesByMetaId.get(item.replyToMetaMessageId)
       : undefined;
-
-    // Aggregate reaction emojis and counts
     const reactions = item.payload?.reactions || [];
-    const reactionSummary = reactions.reduce((acc: { [emoji: string]: number }, cur) => {
-      acc[cur.emoji] = (acc[cur.emoji] || 0) + 1;
-      return acc;
+    const reactionSummary = reactions.reduce((summary: Record<string, number>, reaction) => {
+      summary[reaction.emoji] = (summary[reaction.emoji] || 0) + 1;
+      return summary;
     }, {});
-
     const uniqueEmojis = Object.keys(reactionSummary);
 
     return (
       <>
         {showDate && (
           <View style={styles.dateSeparator}>
-            <Text style={styles.dateSeparatorText}>
-              {getFastDateSep(item.createdAt)}
-            </Text>
+            <Text style={styles.dateSeparatorText}>{getFastDateSep(item.createdAt)}</Text>
           </View>
         )}
         <SwipeReplyRow
@@ -1443,7 +1468,7 @@ function getFastTimeSep(isoString?: string): string {
           onReply={() => beginReply(item)}
           onLongPress={(x, y) => handleLongPress(item, x, y)}
         >
-          <View style={[styles.messageRow, isOutbound ? { justifyContent: "flex-end" } : { justifyContent: "flex-start" }]}>
+          <View style={[styles.messageRow, isOutbound ? styles.outboundRow : styles.inboundRow]}>
             <TouchableOpacity
               activeOpacity={0.9}
               onPress={() => {
@@ -1454,80 +1479,86 @@ function getFastTimeSep(isoString?: string): string {
                   retryMutation.mutate(item);
                 }
               }}
-              onLongPress={(e) => {
-                if (!isDeleted) {
-                  triggerMediumHaptic();
-                  handleLongPress(item, e.nativeEvent.pageX, e.nativeEvent.pageY);
-                }
-              }}
               style={[
                 styles.bubble,
                 isOutbound ? styles.outboundBubble : styles.inboundBubble,
                 isDeleted && styles.deletedBubble,
-                { marginBottom: uniqueEmojis.length > 0 ? 12 : 6 }
+                uniqueEmojis.length > 0 ? styles.bubbleWithReaction : styles.bubbleWithoutReaction,
               ]}
             >
-            {/* Reply Quote Display */}
-            {!isDeleted && parentMessage && (
-              <TouchableOpacity
-                style={styles.replyQuoteBox}
-                onPress={() => scrollToParent(item.replyToMetaMessageId!)}
-              >
-                <View style={styles.replyQuoteBorder} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.replyQuoteSender} numberOfLines={1}>
-                    {replySenderName(parentMessage)}
-                  </Text>
-                  <Text style={styles.replyQuoteText} numberOfLines={1}>
-                    {getReplyPreview(parentMessage)}
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            )}
-
-            {isDeleted ? (
-              <View style={styles.deletedRow}>
-                <MaterialCommunityIcons name="block-helper" size={15} color={Colors.textSecondary} style={{ marginRight: 6 }} />
-                <Text style={styles.deletedText}>This message was deleted</Text>
-              </View>
-            ) : (
-              <MessageContentRenderer message={item} onOpenImage={setViewerImage} />
-            )}
-
-            <View style={styles.messageFooter}>
-              <Text style={styles.messageTime}>{getFastTimeSep(item.createdAt)}</Text>
-              {isOutbound && (
-                <View style={{ marginLeft: 4 }}>
-                  {renderMessageStatus(item)}
-                </View>
+              {!isDeleted && parentMessage && (
+                <TouchableOpacity
+                  style={styles.replyQuoteBox}
+                  onPress={() => scrollToParent(item.replyToMetaMessageId!)}
+                >
+                  <View style={styles.replyQuoteBorder} />
+                  <View style={styles.flexOne}>
+                    <Text style={styles.replyQuoteSender} numberOfLines={1}>
+                      {replySenderName(parentMessage)}
+                    </Text>
+                    <Text style={styles.replyQuoteText} numberOfLines={1}>
+                      {getReplyPreview(parentMessage)}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
               )}
-            </View>
 
-            {/* Corner Reaction Badges */}
-            {!isDeleted && uniqueEmojis.length > 0 && (
-              <View style={[styles.reactionBadgeContainer, isOutbound ? { right: 8 } : { left: 8 }]}>
-                {uniqueEmojis.map((emoji) => (
-                  <Text key={emoji} style={styles.reactionBadgeEmoji}>{emoji}</Text>
-                ))}
-                {reactions.length > 1 && (
-                  <Text style={styles.reactionBadgeCount}>{reactions.length}</Text>
+              {isDeleted ? (
+                <View style={styles.deletedRow}>
+                  <MaterialCommunityIcons name="block-helper" size={15} color={Colors.textSecondary} style={styles.deletedIcon} />
+                  <Text style={styles.deletedText}>This message was deleted</Text>
+                </View>
+              ) : (
+                <MessageContentRenderer message={item} onOpenImage={setViewerImage} />
+              )}
+
+              <View style={styles.messageFooter}>
+                <Text style={styles.messageTime}>{getFastTimeSep(item.createdAt)}</Text>
+                {isOutbound && (
+                  <View style={styles.statusIcon}>
+                    {renderMessageStatus(item)}
+                  </View>
                 )}
               </View>
-            )}
+
+              {!isDeleted && uniqueEmojis.length > 0 && (
+                <View style={[
+                  styles.reactionBadgeContainer,
+                  isOutbound ? styles.reactionBadgeRight : styles.reactionBadgeLeft,
+                ]}>
+                  {uniqueEmojis.map((emoji) => (
+                    <Text key={emoji} style={styles.reactionBadgeEmoji}>{emoji}</Text>
+                  ))}
+                  {reactions.length > 1 && (
+                    <Text style={styles.reactionBadgeCount}>{reactions.length}</Text>
+                  )}
+                </View>
+              )}
             </TouchableOpacity>
           </View>
         </SwipeReplyRow>
       </>
     );
-  }, [messages, messagesByMetaId, retryMutation]);
+  }, [
+    beginReply,
+    handleLongPress,
+    messages,
+    messagesByMetaId,
+    renderMessageStatus,
+    replySenderName,
+    retryMutation.mutate,
+    scrollToParent,
+  ]);
 
-  const handleTimelineScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
+  const handleTimelineScroll = useCallback((event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent;
     const distanceFromBottom = contentSize.height - layoutMeasurement.height - contentOffset.y;
     const nearBottom = distanceFromBottom < 110;
-    setIsNearBottom(nearBottom);
-    if (nearBottom && newMessageCount) setNewMessageCount(0);
-  };
+    isNearBottomRef.current = nearBottom;
+    if (nearBottom) {
+      setNewMessageCount((count) => count === 0 ? count : 0);
+    }
+  }, []);
 
   const renderKeyboardAwareScroll = useCallback(
     (props: ScrollViewProps) => (
@@ -1539,6 +1570,20 @@ function getFastTimeSep(isoString?: string): string {
     [composerHeight],
   );
 
+  const handleStartReached = useCallback(() => {
+    if (messageQuery.hasNextPage && !messageQuery.isFetchingNextPage) {
+      void messageQuery.fetchNextPage();
+    }
+  }, [messageQuery.fetchNextPage, messageQuery.hasNextPage, messageQuery.isFetchingNextPage]);
+
+  const handleListLoad = useCallback(({ elapsedTimeInMs }: { elapsedTimeInMs: number }) => {
+    markWhatsAppOpenMeasurement(
+      conversationId,
+      "timeline-drawn",
+      `flashList=${Math.round(elapsedTimeInMs)}`,
+    );
+  }, [conversationId]);
+
   return (
     <View style={styles.container}>
       <FlashList
@@ -1547,9 +1592,8 @@ function getFastTimeSep(isoString?: string): string {
         data={displayedMessages}
         renderItem={renderMessage}
         getItemType={getItemType}
-        overrideItemLayout={overrideItemLayout}
         drawDistance={1500}
-        keyExtractor={(item) => item.clientMessageId || item.id}
+        keyExtractor={messageKey}
         scrollEnabled={!reactionMenuVisible}
         contentInsetAdjustmentBehavior="never"
         keyboardDismissMode="interactive"
@@ -1558,23 +1602,13 @@ function getFastTimeSep(isoString?: string): string {
         contentContainerStyle={styles.listContent}
         maintainVisibleContentPosition={maintainVisibleContentConfig}
         onScroll={handleTimelineScroll}
-        onLoad={({ elapsedTimeInMs }) => {
-          markWhatsAppOpenMeasurement(
-            conversationId,
-            "timeline-drawn",
-            `flashList=${Math.round(elapsedTimeInMs)}`,
-          );
-        }}
+        onLoad={handleListLoad}
         scrollEventThrottle={32}
-        onStartReached={() => {
-          if (messageQuery.hasNextPage && !messageQuery.isFetchingNextPage) {
-            void messageQuery.fetchNextPage();
-          }
-        }}
+        onStartReached={handleStartReached}
         onStartReachedThreshold={0.25}
         ListHeaderComponent={
           messageQuery.isFetchingNextPage
-            ? <ActivityIndicator color={waColors.green} style={{ paddingVertical: 12 }} />
+            ? <ActivityIndicator color={waColors.green} style={styles.pageHeaderLoader} />
             : null
         }
         ListEmptyComponent={
@@ -1611,6 +1645,7 @@ function getFastTimeSep(isoString?: string): string {
           style={styles.newMessageButton}
           onPress={() => {
             setNewMessageCount(0);
+            isNearBottomRef.current = true;
             flatListRef.current?.scrollToEnd({ animated: true });
           }}
         >
@@ -1627,11 +1662,10 @@ function getFastTimeSep(isoString?: string): string {
           setComposerHeight((current) => current === nextHeight ? current : nextHeight);
         }}
       >
-        {/* Reply Quoting Bar (if replying) */}
         {replyingTo && (
           <View style={styles.replyingBar}>
             <View style={styles.replyingBorder} />
-            <View style={{ flex: 1, paddingHorizontal: 10 }}>
+            <View style={styles.replyingBody}>
               <Text style={styles.replyingTitle}>
                 Replying to {replySenderName(replyingTo)}
               </Text>
@@ -1660,7 +1694,6 @@ function getFastTimeSep(isoString?: string): string {
           </View>
         )}
 
-        {/* Message Input Bar */}
         <View style={[styles.inputToolbar, { paddingBottom: Math.max(insets.bottom, 7) }]}>
           <TouchableOpacity
             style={styles.templateToolbarBtn}
@@ -1827,11 +1860,7 @@ function getFastTimeSep(isoString?: string): string {
         customerRecord={customerRecord}
         deviceContactName={deviceContactName}
         messages={messages}
-        onCustomerLinked={(customer) => {
-          if (conversation) {
-            conversation.customerId = customer.id;
-          }
-        }}
+        onCustomerLinked={(customer) => setLinkedCustomerId(customer.id)}
         onDeleteChat={() => navigation.goBack()}
       />}
 
@@ -1848,6 +1877,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#e9efec" },
   timeline: { flex: 1 },
   listContent: { paddingHorizontal: 10, paddingTop: 12, paddingBottom: 16 },
+  pageHeaderLoader: { paddingVertical: 12 },
   timelineState: {
     minHeight: 420,
     alignItems: "center",
@@ -1885,10 +1915,9 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.84)",
   },
   messageRow: { flexDirection: "row", width: "100%", paddingHorizontal: 1 },
-  swipeableMessage: {
-    width: "100%",
-    position: "relative",
-  },
+  inboundRow: { justifyContent: "flex-start" },
+  outboundRow: { justifyContent: "flex-end" },
+  swipeableMessage: { width: "100%", position: "relative" },
   swipeReplyAction: {
     position: "absolute",
     top: 0,
@@ -1897,12 +1926,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  swipeReplyActionLeft: {
-    left: 5,
-  },
-  swipeReplyActionRight: {
-    right: 5,
-  },
+  swipeReplyActionLeft: { left: 5 },
+  swipeReplyActionRight: { right: 5 },
   swipeReplyIcon: {
     width: 38,
     height: 38,
@@ -1919,15 +1944,18 @@ const styles = StyleSheet.create({
     maxWidth: "84%",
     boxShadow: "0 1px 2px rgba(15, 23, 42, 0.08)",
   },
+  bubbleWithReaction: { marginBottom: 12 },
+  bubbleWithoutReaction: { marginBottom: 6 },
   inboundBubble: { backgroundColor: "#fff", borderTopLeftRadius: 5 },
   outboundBubble: { backgroundColor: "#d9fdd3", borderTopRightRadius: 5 },
   deletedBubble: { backgroundColor: waColors.surfaceMuted, borderStyle: "dashed" },
   messageFooter: { flexDirection: "row", justifyContent: "flex-end", alignItems: "center", marginTop: 4 },
   messageTime: { fontSize: 10, color: Colors.textSecondary },
+  statusIcon: { marginLeft: 4 },
   deletedRow: { flexDirection: "row", alignItems: "center" },
+  deletedIcon: { marginRight: 6 },
   deletedText: { fontStyle: "italic", color: Colors.textSecondary, fontSize: 14 },
-
-  // Reply Quote Box Inside Message Bubble
+  flexOne: { flex: 1 },
   replyQuoteBox: {
     flexDirection: "row",
     backgroundColor: "rgba(0,0,0,0.05)",
@@ -1944,8 +1972,6 @@ const styles = StyleSheet.create({
   },
   replyQuoteSender: { fontSize: 12, fontWeight: "bold", color: waColors.greenDark },
   replyQuoteText: { fontSize: 13, color: Colors.textSecondary },
-
-  // Reaction Badge Layout on Bubble Corner
   reactionBadgeContainer: {
     position: "absolute",
     bottom: -10,
@@ -1959,10 +1985,10 @@ const styles = StyleSheet.create({
     borderColor: Colors.border,
     boxShadow: "0 1px 3px rgba(15, 23, 42, 0.16)",
   },
+  reactionBadgeRight: { right: 8 },
+  reactionBadgeLeft: { left: 8 },
   reactionBadgeEmoji: { fontSize: 12, marginHorizontal: 0.5 },
   reactionBadgeCount: { fontSize: 10, fontWeight: "600", marginLeft: 2, color: Colors.textSecondary },
-
-  // Reply Bar (Above Keyboard Input)
   replyingBar: {
     flexDirection: "row",
     backgroundColor: "#fff",
@@ -1975,10 +2001,10 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 14,
   },
   replyingBorder: { width: 4, height: "100%", backgroundColor: waColors.green, borderRadius: 2 },
+  replyingBody: { flex: 1, paddingHorizontal: 10 },
   replyingTitle: { fontSize: 12, fontWeight: "bold", color: waColors.greenDark },
   replyingText: { fontSize: 13, color: Colors.textSecondary },
   replyingClose: { padding: 4 },
-
   newMessageButton: {
     position: "absolute",
     right: 14,
@@ -2020,8 +2046,6 @@ const styles = StyleSheet.create({
   windowNoticeText: { marginTop: 2, color: "#806617", fontSize: 11, lineHeight: 15 },
   windowTemplateButton: { paddingHorizontal: 10, paddingVertical: 8, borderRadius: 11, backgroundColor: "#fce7a8" },
   windowTemplateText: { color: "#6b4f00", fontSize: 11, fontWeight: "800" },
-
-  // Input Toolbar
   inputToolbar: {
     flexDirection: "row",
     paddingHorizontal: 6,
@@ -2060,11 +2084,7 @@ const styles = StyleSheet.create({
     marginLeft: 6,
   },
   sendButtonDisabled: { backgroundColor: waColors.textMuted },
-
-  nativeEmojiContainer: {
-    alignItems: "center",
-    gap: 14,
-  },
+  nativeEmojiContainer: { alignItems: "center", gap: 14 },
   nativeEmojiSub: {
     fontSize: 13,
     lineHeight: 18,
@@ -2080,162 +2100,5 @@ const styles = StyleSheet.create({
     fontSize: 40,
     color: "#000",
   },
-  templateToolbarBtn: {
-    padding: 6,
-    marginRight: 4,
-  },
-  bottomSheetContainer: {
-    backgroundColor: "#fff",
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    height: "80%",
-    width: "100%",
-  },
-  formContainer: {
-    flex: 1,
-  },
-  listContainer: {
-    flex: 1,
-    padding: 15,
-  },
-  sheetHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    padding: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-  },
-  sheetTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: Colors.textPrimary,
-    flex: 1,
-    textAlign: "center",
-    marginHorizontal: 10,
-  },
-  sheetContent: {
-    padding: 15,
-  },
-  formHeading: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: Colors.textPrimary,
-  },
-  formSub: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-    marginBottom: 15,
-  },
-  previewCard: {
-    backgroundColor: "#F9FAFB",
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  previewLabel: {
-    fontSize: 11,
-    fontWeight: "bold",
-    color: Colors.textSecondary,
-    textTransform: "uppercase",
-    marginBottom: 4,
-  },
-  previewText: {
-    fontSize: 14,
-    color: Colors.textPrimary,
-  },
-  paramInputGroup: {
-    marginBottom: 20,
-  },
-  paramLabel: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: Colors.textPrimary,
-    marginBottom: 6,
-  },
-  paramInput: {
-    backgroundColor: "#F3F4F6",
-    borderRadius: 8,
-    padding: 10,
-    fontSize: 15,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    color: Colors.textPrimary,
-  },
-  autofillRow: {
-    flexDirection: "row",
-    marginTop: 8,
-    flexWrap: "wrap",
-  },
-  autofillPill: {
-    backgroundColor: Colors.primaryLight,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 12,
-    marginRight: 6,
-    marginBottom: 6,
-  },
-  autofillPillText: {
-    fontSize: 11,
-    fontWeight: "600",
-    color: Colors.primaryDark,
-  },
-  sendTemplateBtn: {
-    backgroundColor: Colors.primary,
-    borderRadius: 8,
-    marginTop: 10,
-    paddingVertical: 4,
-    marginBottom: 40,
-  },
-  emptyTemplates: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 40,
-  },
-  emptyTemplatesText: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: Colors.textPrimary,
-    marginTop: 10,
-  },
-  emptyTemplatesSub: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-    marginTop: 4,
-    textAlign: "center",
-  },
-  templateItem: {
-    padding: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.border,
-  },
-  templateItemHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 6,
-  },
-  templateItemName: {
-    fontSize: 15,
-    fontWeight: "bold",
-    color: Colors.textPrimary,
-    flex: 1,
-    marginRight: 10,
-  },
-  templateCategoryBadge: {
-    backgroundColor: "#E0F2FE",
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  templateCategoryBadgeText: {
-    fontSize: 10,
-    fontWeight: "bold",
-    color: "#0369A1",
-  },
-  templateItemPreview: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-  },
+  templateToolbarBtn: { padding: 6, marginRight: 4 },
 });

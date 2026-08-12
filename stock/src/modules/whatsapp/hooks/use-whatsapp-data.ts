@@ -190,14 +190,23 @@ export function useWhatsAppMessages(conversationId: string) {
     if (imageUrls.length === 0) return;
 
     let cancelled = false;
-    const idleTask = requestIdleCallback(() => {
+    const prefetchImages = () => {
       if (cancelled) return;
       void ExpoImage.prefetch(imageUrls, "memory-disk").catch(() => undefined);
-    }, { timeout: 1_500 });
+    };
 
+    if (typeof requestIdleCallback === "function") {
+      const idleTask = requestIdleCallback(prefetchImages, { timeout: 1_500 });
+      return () => {
+        cancelled = true;
+        cancelIdleCallback(idleTask);
+      };
+    }
+
+    const timer = setTimeout(prefetchImages, 500);
     return () => {
       cancelled = true;
-      cancelIdleCallback(idleTask);
+      clearTimeout(timer);
     };
   }, [messages]);
 

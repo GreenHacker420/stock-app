@@ -35,7 +35,7 @@ export function VoiceRecorderSheet({
   onSend,
 }: Props) {
   const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
-  const recorderState = useAudioRecorderState(recorder, 100);
+  const recorderState = useAudioRecorderState(recorder, visible ? 100 : 2_000);
   const [recordedUri, setRecordedUri] = useState<string | null>(null);
   const [recordedDuration, setRecordedDuration] = useState(0);
 
@@ -53,19 +53,13 @@ export function VoiceRecorderSheet({
         Alert.alert("Microphone permission required", "Allow microphone access to record a voice message.");
         return;
       }
-      await setAudioModeAsync({
-        allowsRecording: true,
-        playsInSilentMode: true,
-      });
+      await setAudioModeAsync({ allowsRecording: true, playsInSilentMode: true });
       await recorder.prepareToRecordAsync();
       recorder.record({ forDuration: 15 * 60 });
       setRecordedUri(null);
       setRecordedDuration(0);
     } catch (error) {
-      Alert.alert(
-        "Recording unavailable",
-        error instanceof Error ? error.message : "Could not start voice recording.",
-      );
+      Alert.alert("Recording unavailable", error instanceof Error ? error.message : "Could not start voice recording.");
     }
   };
 
@@ -73,10 +67,7 @@ export function VoiceRecorderSheet({
     try {
       const duration = recorderState.durationMillis;
       await recorder.stop();
-      await setAudioModeAsync({
-        allowsRecording: false,
-        playsInSilentMode: true,
-      });
+      await setAudioModeAsync({ allowsRecording: false, playsInSilentMode: true });
       if (!recorder.uri || duration < 500) {
         Alert.alert("Recording too short", "Record at least half a second before sending.");
         return;
@@ -84,10 +75,7 @@ export function VoiceRecorderSheet({
       setRecordedUri(recorder.uri);
       setRecordedDuration(duration);
     } catch (error) {
-      Alert.alert(
-        "Recording failed",
-        error instanceof Error ? error.message : "Could not finish voice recording.",
-      );
+      Alert.alert("Recording failed", error instanceof Error ? error.message : "Could not finish voice recording.");
     }
   };
 
@@ -133,9 +121,7 @@ export function VoiceRecorderSheet({
               onPress={recorderState.isRecording ? stopRecording : startRecording}
             />
           </View>
-          <Text style={styles.time}>
-            {formatDuration(recordedUri ? recordedDuration : recorderState.durationMillis)}
-          </Text>
+          <Text style={styles.time}>{formatDuration(recordedUri ? recordedDuration : recorderState.durationMillis)}</Text>
         </View>
 
         {uploading && (
@@ -161,48 +147,14 @@ export function VoiceRecorderSheet({
 }
 
 const styles = StyleSheet.create({
-  content: {
-    gap: 16,
-  },
-  recorder: {
-    height: 150,
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 12,
-  },
-  pulse: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: Colors.primary,
-  },
-  pulseActive: {
-    backgroundColor: "#DC2626",
-  },
-  time: {
-    color: Colors.textPrimary,
-    fontSize: 28,
-    fontWeight: "600",
-    fontVariant: ["tabular-nums"],
-  },
+  content: { gap: 16 },
+  recorder: { height: 150, alignItems: "center", justifyContent: "center", gap: 12 },
+  pulse: { width: 76, height: 76, borderRadius: 38, alignItems: "center", justifyContent: "center", backgroundColor: Colors.primary },
+  pulseActive: { backgroundColor: "#DC2626" },
+  time: { color: Colors.textPrimary, fontSize: 28, fontWeight: "600", fontVariant: ["tabular-nums"] },
   progressRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   progress: { flex: 1, height: 6, borderRadius: 3 },
-  progressText: {
-    width: 42,
-    color: Colors.textSecondary,
-    textAlign: "right",
-    fontVariant: ["tabular-nums"],
-  },
-  actions: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    gap: 10,
-  },
-  helper: {
-    color: Colors.textSecondary,
-    textAlign: "center",
-    fontSize: 12,
-  },
+  progressText: { width: 42, color: Colors.textSecondary, textAlign: "right", fontVariant: ["tabular-nums"] },
+  actions: { flexDirection: "row", justifyContent: "flex-end", gap: 10 },
+  helper: { color: Colors.textSecondary, textAlign: "center", fontSize: 12 },
 });

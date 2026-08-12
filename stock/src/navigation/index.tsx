@@ -69,6 +69,9 @@ import { TemplateEditorScreen } from "../modules/whatsapp/screens/TemplateEditor
 import { FlowLibraryScreen } from "../modules/whatsapp/screens/FlowLibraryScreen";
 import { FlowEditorScreen } from "../modules/whatsapp/screens/FlowEditorScreen";
 import { WhatsAppSetupScreen } from "../modules/whatsapp/screens/WhatsAppSetupScreen";
+import { BroadcastListScreen } from "../modules/whatsapp/screens/BroadcastListScreen";
+import { BroadcastComposerScreen } from "../modules/whatsapp/screens/BroadcastComposerScreen";
+import { BroadcastDetailScreen } from "../modules/whatsapp/screens/BroadcastDetailScreen";
 import { whatsappCapabilityScreen } from "../modules/whatsapp/WhatsAppFeatureGate";
 // import { colors } from "../theme";
 
@@ -246,6 +249,9 @@ const WhatsAppTemplates = whatsappCapabilityScreen(TemplateLibraryScreen);
 const WhatsAppTemplateEditor = whatsappCapabilityScreen(TemplateEditorScreen);
 const WhatsAppFlows = whatsappCapabilityScreen(FlowLibraryScreen);
 const WhatsAppFlowEditor = whatsappCapabilityScreen(FlowEditorScreen);
+const WhatsAppBroadcasts = whatsappCapabilityScreen(BroadcastListScreen);
+const WhatsAppBroadcastComposer = whatsappCapabilityScreen(BroadcastComposerScreen);
+const WhatsAppBroadcastDetail = whatsappCapabilityScreen(BroadcastDetailScreen);
 const WhatsAppSetup = whatsappCapabilityScreen(WhatsAppSetupScreen, { requireConnected: false });
 
 function AccessDeniedScreen() {
@@ -351,6 +357,18 @@ const sharedStackScreens = {
   ContactBook: {
     screen: WhatsAppContacts,
     options: { title: "WhatsApp contacts" },
+  },
+  BroadcastList: {
+    screen: ownerOnlyScreen(WhatsAppBroadcasts),
+    options: { title: "WhatsApp broadcasts" },
+  },
+  BroadcastComposer: {
+    screen: ownerOnlyScreen(WhatsAppBroadcastComposer),
+    options: { title: "New WhatsApp broadcast" },
+  },
+  BroadcastDetail: {
+    screen: ownerOnlyScreen(WhatsAppBroadcastDetail),
+    options: { title: "Campaign details" },
   },
   TemplateLibrary: {
     screen: WhatsAppTemplates,
@@ -754,6 +772,9 @@ export type RootStackParamList = {
     eventId?: string;
   };
   ContactBook: { shopId?: string; integrationId?: string } | undefined;
+  BroadcastList: { shopId?: string; integrationId?: string; phoneNumberId?: string } | undefined;
+  BroadcastComposer: { shopId?: string; integrationId?: string; phoneNumberId?: string } | undefined;
+  BroadcastDetail: { shopId?: string; integrationId?: string; phoneNumberId?: string; broadcastId: string };
   TemplateLibrary: { shopId?: string; integrationId?: string } | undefined;
   TemplateEditor: { shopId?: string; integrationId?: string; templateId?: string } | undefined;
   FlowLibrary: { shopId?: string; integrationId?: string } | undefined;

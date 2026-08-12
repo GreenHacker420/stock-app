@@ -8,7 +8,6 @@ import { createRealtimeSocket, type RealtimeEvent } from "./socket";
 import { NotificationToast } from "../components/ui/NotificationToast";
 import { getDeviceInstallationId } from "../notifications/device-identity";
 import { handleDomainEvent, type DomainEvent } from "./domainEvents";
-import { getDomainEventCursor } from "./domainEventCursor";
 import { reconcileDomainEventsForShop } from "./domainEventReconciliation";
 import {
   activateReadModelContext,
@@ -31,6 +30,8 @@ const legacyEvents: RealtimeEvent[] = [
   "notification:created",
   "notification:updated",
 ];
+
+const LIVE_RECONCILE_DELAY_MS = 250;
 
 export function RealtimeProvider({ children }: PropsWithChildren) {
   const token = useAuthStore((state) => state.token);
@@ -116,6 +117,7 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
     let socket: Socket | null = null;
     let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
     let backgroundDisconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let reconcileTimer: ReturnType<typeof setTimeout> | null = null;
     let currentAppState: AppStateStatus = AppState.currentState;
     let deviceIdResolved = "";
 
@@ -124,16 +126,23 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
       if (__DEV__) console.warn("[read-model] bootstrap failed", error);
     });
 
-    const reconcile = () => {
+    const reconcileNow = () => {
       if (currentAppState !== "active") return;
       if (!token || !activeShopId || !deviceIdResolved) return;
       void reconcileDomainEventsForShop(userId, activeShopId, token, queryClient, deviceIdResolved);
     };
 
-    const requestSocketSync = async () => {
-      if (!socket?.connected) return;
-      const since = await getDomainEventCursor(userId, activeShopId) ?? undefined;
-      socket.emit("sync:request", { shopId: activeShopId, since });
+    const cancelScheduledReconcile = () => {
+      if (reconcileTimer) clearTimeout(reconcileTimer);
+      reconcileTimer = null;
+    };
+
+    const scheduleReconcile = (delayMs = LIVE_RECONCILE_DELAY_MS) => {
+      if (currentAppState !== "active" || reconcileTimer) return;
+      reconcileTimer = setTimeout(() => {
+        reconcileTimer = null;
+        reconcileNow();
+      }, delayMs);
     };
 
     const emitPresence = (state: AppStateStatus = AppState.currentState) => {
@@ -172,8 +181,7 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
           else {
             emitPresence("active");
             startHeartbeat();
-            void requestSocketSync();
-            reconcile();
+            reconcileNow();
           }
         }
         return;
@@ -182,6 +190,7 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
       // Presence and retry work stop as soon as the app leaves the foreground.
       emitPresence(nextAppState);
       stopHeartbeat();
+      cancelScheduledReconcile();
       (socket?.io as any)?.reconnection?.(false);
       cancelBackgroundDisconnect();
 
@@ -209,13 +218,14 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
         socket?.emit("shop:join", { shopId: activeShopId });
         emitPresence();
         startHeartbeat();
-        void requestSocketSync();
-        reconcile();
+        // The Socket.IO/Redis path is for live low-latency patches. Missed events
+        // are recovered once from the durable Postgres outbox over HTTP.
+        reconcileNow();
       });
 
       socket.on("shop:joined", ({ shopId }: { shopId: string }) => {
         if (shopId === activeShopId) {
-          reconcile();
+          scheduleReconcile(0);
         }
       });
 
@@ -246,21 +256,17 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
           clearActiveShop();
         }
         if (event?.shopId === activeShopId && !wasUnassignedFromActiveShop) {
-          reconcile();
+          scheduleReconcile();
         }
-        if (handled) {
-          if (event.notification) {
-            setToast({
-              visible: true,
-              title: event.notification.title || "New activity",
-              message: event.notification.body || "Updates are available.",
-              type: event.notification.severity === "critical" ? "danger" : (event.notification.severity ?? "info"),
-            });
-          }
+        if (handled && event.notification) {
+          setToast({
+            visible: true,
+            title: event.notification.title || "New activity",
+            message: event.notification.body || "Updates are available.",
+            type: event.notification.severity === "critical" ? "danger" : (event.notification.severity ?? "info"),
+          });
         }
       });
-
-      socket.on("sync:complete", () => {});
 
       // Legacy events for non-migrated core paths
       for (const event of legacyEvents) {
@@ -282,10 +288,10 @@ export function RealtimeProvider({ children }: PropsWithChildren) {
       appStateSubscription.remove();
       stopHeartbeat();
       cancelBackgroundDisconnect();
+      cancelScheduledReconcile();
       (socket?.io as any)?.reconnection?.(false);
       socket?.emit("shop:leave", { shopId: activeShopId });
       socket?.off("domain:event");
-      socket?.off("sync:complete");
       socket?.off("shop:joined");
       for (const event of legacyEvents) {
         socket?.off(event);
