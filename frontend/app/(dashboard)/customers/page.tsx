@@ -1,138 +1,119 @@
 "use client";
 
-import Link from "next/link";
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import * as React from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { useAuthStore } from "@/lib/auth/auth-store";
-import { apiRequest } from "@/lib/api/client";
-import { formatINR } from "@/lib/utils";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import type { ColumnDef } from "@tanstack/react-table";
+import { Building2, RefreshCw, Search, UserRound, UsersRound, WalletCards } from "lucide-react";
+
+import { OperationalDataTable } from "@/components/data-grid/OperationalDataTable";
 import { Badge } from "@/components/ui/badge";
-import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { Search, Users, ArrowLeft, RefreshCw, FileText, ChevronRight } from "lucide-react";
+import { WorkspaceMetric, WorkspaceMetricGrid } from "@/components/workspace/WorkspaceMetrics";
+import { WorkspacePage, WorkspacePageHeader, WorkspacePanel, WorkspaceToolbar } from "@/components/workspace/WorkspacePage";
+import { fetchCustomersRegister } from "@/features/registers/api/register.queries";
+import type { CustomerRegisterRow } from "@/features/registers/lib/register-types";
+import { useAuthStore } from "@/lib/auth/auth-store";
+import { queryKeys } from "@/lib/query/query-keys";
+import { formatINR } from "@/lib/utils";
+
+const PAGE_SIZE = 50;
+const CUSTOMER_TYPES: CustomerRegisterRow["type"][] = ["REGULAR", "BUSINESS", "WALK_IN"];
 
 export default function CustomersPage() {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { token, shops, activeShopId } = useAuthStore();
-  const [searchTerm, setSearchTerm] = useState("");
-  const currentShopId = activeShopId || (shops.length > 0 ? shops[0].id : "");
+  const shopId = activeShopId || shops[0]?.id || "";
+  const page = Math.max(1, Number(searchParams.get("page") || "1") || 1);
+  const typeParam = searchParams.get("type");
+  const type = CUSTOMER_TYPES.includes(typeParam as CustomerRegisterRow["type"]) ? typeParam as CustomerRegisterRow["type"] : undefined;
+  const initialSearch = searchParams.get("search") || "";
+  const [searchDraft, setSearchDraft] = React.useState(initialSearch);
+  const [search, setSearch] = React.useState(initialSearch);
 
-  const { data: customersResponse, isLoading, refetch } = useQuery({
-    queryKey: ["customers", currentShopId],
-    queryFn: () => apiRequest(`/customers?shopId=${currentShopId}`, { token: token || undefined }),
-    enabled: !!token && !!currentShopId,
+  const setParams = React.useCallback((patch: Record<string, string | null>) => {
+    const next = new URLSearchParams(searchParams.toString());
+    Object.entries(patch).forEach(([key, value]) => value ? next.set(key, value) : next.delete(key));
+    router.replace(`${pathname}?${next.toString()}`, { scroll: false });
+  }, [pathname, router, searchParams]);
+
+  React.useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      const normalized = searchDraft.trim();
+      setSearch(normalized);
+      if (normalized !== (searchParams.get("search") || "")) setParams({ search: normalized || null, page: null });
+    }, 300);
+    return () => window.clearTimeout(timeout);
+  }, [searchDraft, searchParams, setParams]);
+
+  const query = useQuery({
+    queryKey: queryKeys.customers.register({ shopId, page, limit: PAGE_SIZE, search, type }),
+    queryFn: () => fetchCustomersRegister(token ?? "", { shopId, page, limit: PAGE_SIZE, search: search || undefined, type, includeWalkin: type === "WALK_IN" ? true : undefined }),
+    enabled: Boolean(token && shopId),
+    placeholderData: (previous) => previous,
+    staleTime: 45_000,
   });
 
-  const rawCustomers = Array.isArray(customersResponse)
-    ? customersResponse
-    : customersResponse?.data && Array.isArray(customersResponse.data)
-    ? customersResponse.data
-    : [];
+  const totals = React.useMemo(() => (query.data ?? []).reduce((acc, customer) => {
+    acc.outstanding += Number(customer.outstandingAmount || 0);
+    acc.advance += Number(customer.advanceBalance || 0);
+    if (customer.type === "BUSINESS") acc.business += 1;
+    if (Number(customer.outstandingAmount || 0) > 0) acc.dueCount += 1;
+    return acc;
+  }, { outstanding: 0, advance: 0, business: 0, dueCount: 0 }), [query.data]);
 
-  const filteredCustomers = rawCustomers.filter((c: any) =>
-    c.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    c.phone?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    c.gstin?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const columns = React.useMemo<ColumnDef<CustomerRegisterRow>[]>(() => [
+    { accessorKey: "name", header: "Customer", cell: ({ row }) => <div className="min-w-[clamp(10rem,17vw,18rem)]"><div className="truncate font-semibold">{row.original.name}</div><div className="truncate text-[10px] text-muted-foreground">{row.original.contactPerson || row.original.email || ""}</div></div> },
+    { accessorKey: "phone", header: "Phone", cell: ({ row }) => <span className="font-mono text-[11px] text-muted-foreground">{row.original.phone || "—"}</span> },
+    { accessorKey: "city", header: "City", cell: ({ row }) => <span className="text-muted-foreground">{row.original.city || "—"}</span> },
+    { accessorKey: "type", header: "Type", cell: ({ row }) => <Badge variant="secondary" className="text-[9px]">{row.original.type.replaceAll("_", " ")}</Badge> },
+    { accessorKey: "creditLimit", header: "Credit limit", cell: ({ row }) => <span className="numeric-cell block text-right text-muted-foreground">{row.original.creditLimit == null ? "—" : formatINR(row.original.creditLimit)}</span> },
+    { accessorKey: "advanceBalance", header: "Advance", cell: ({ row }) => <span className="numeric-cell block text-right text-emerald-700 dark:text-emerald-300">{formatINR(row.original.advanceBalance)}</span> },
+    { accessorKey: "outstandingAmount", header: "Outstanding", cell: ({ row }) => <span className={`numeric-cell block text-right font-semibold ${Number(row.original.outstandingAmount) > 0 ? "text-rose-600 dark:text-rose-300" : "text-muted-foreground"}`}>{formatINR(row.original.outstandingAmount)}</span> },
+  ], []);
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <Link href="/dashboard">
-            <Button variant="ghost" size="icon" className="h-9 w-9">
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-          </Link>
-          <div>
-            <h1 className="text-2xl font-black tracking-tight">Customers & Ledgers</h1>
-            <p className="text-xs text-muted-foreground">Click any row to open full customer ledger profile and transaction history.</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => refetch()} className="h-9 gap-1 text-xs">
-            <RefreshCw className="h-3.5 w-3.5" />
-            <span>Refresh</span>
-          </Button>
-        </div>
-      </div>
+    <WorkspacePage>
+      <WorkspacePageHeader
+        kicker="Records · Accounts"
+        title="Customer directory"
+        description="Shop-scoped customer master with server-side name, phone, city, GSTIN and contact-person search. Open a row for ledger and activity details."
+        icon={UsersRound}
+        actions={<Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={() => void query.refetch()}><RefreshCw className="size-3.5" />Refresh</Button>}
+      />
 
-      <Card>
-        <CardHeader className="pb-3 flex flex-row items-center justify-between">
-          <CardTitle className="text-sm font-bold">Customer Directory</CardTitle>
-          <div className="w-72 relative">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search customer name, phone or GSTIN..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9 h-9 text-xs"
-            />
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="border rounded-md overflow-x-auto">
-            <Table>
-              <TableHeader className="bg-muted/50">
-                <TableRow>
-                  <TableHead className="text-xs">Customer Name</TableHead>
-                  <TableHead className="text-xs">Phone</TableHead>
-                  <TableHead className="text-xs">GSTIN</TableHead>
-                  <TableHead className="text-xs text-right">Credit Limit</TableHead>
-                  <TableHead className="text-xs text-right">Outstanding Dues</TableHead>
-                  <TableHead className="w-24 text-xs text-center">Ledger</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {isLoading ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-xs text-muted-foreground">
-                      Loading customer directory...
-                    </TableCell>
-                  </TableRow>
-                ) : filteredCustomers.length > 0 ? (
-                  filteredCustomers.map((cust: any) => {
-                    const dues = parseFloat(cust.outstandingAmount || "0");
-                    return (
-                      <TableRow
-                        key={cust.id}
-                        onClick={() => router.push(`/customers/${cust.id}`)}
-                        className="hover:bg-indigo-50/50 dark:hover:bg-slate-800/50 text-xs cursor-pointer transition-colors group"
-                      >
-                        <TableCell className="font-bold text-slate-900 dark:text-slate-100 group-hover:text-primary">
-                          {cust.name}
-                        </TableCell>
-                        <TableCell className="font-mono text-muted-foreground">{cust.phone || "—"}</TableCell>
-                        <TableCell className="font-mono text-muted-foreground">{cust.gstin || "—"}</TableCell>
-                        <TableCell className="text-right font-semibold">{formatINR(cust.creditLimit)}</TableCell>
-                        <TableCell className="text-right font-black text-rose-600">
-                          {formatINR(dues)}
-                        </TableCell>
-                        <TableCell className="text-center">
-                          <Button variant="ghost" size="sm" className="h-7 text-[11px] font-bold text-primary gap-1">
-                            <FileText className="h-3.5 w-3.5" />
-                            <span>View</span>
-                            <ChevronRight className="h-3 w-3" />
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })
-                ) : (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-xs text-muted-foreground">
-                      No customers found for this shop.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
+      <WorkspaceMetricGrid>
+        <WorkspaceMetric label="Customers on page" value={(query.data ?? []).length} detail={`Page ${page} · server searched`} icon={UserRound} loading={query.isLoading} />
+        <WorkspaceMetric label="Outstanding" value={formatINR(totals.outstanding)} detail={`${totals.dueCount} customers with due balance on this page`} icon={WalletCards} tone={totals.outstanding > 0 ? "warning" : "neutral"} loading={query.isLoading} />
+        <WorkspaceMetric label="Advance balances" value={formatINR(totals.advance)} detail="Customer credit held on this page" icon={WalletCards} tone={totals.advance > 0 ? "success" : "neutral"} loading={query.isLoading} />
+        <WorkspaceMetric label="Business accounts" value={totals.business} detail="BUSINESS customers on current page" icon={Building2} tone="info" loading={query.isLoading} />
+      </WorkspaceMetricGrid>
+
+      <WorkspacePanel title="Customer master" description="Search and customer type are sent to the backend. Walk-in customers stay excluded unless explicitly selected.">
+        <WorkspaceToolbar>
+          <div className="relative w-[clamp(14rem,30vw,34rem)] max-w-full flex-1 sm:flex-none"><Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"/><Input value={searchDraft} onChange={(event) => setSearchDraft(event.target.value)} placeholder="Search name, phone, city, GSTIN or contact person…" className="h-9 bg-background pl-9 text-xs" /></div>
+          <DropdownMenu><DropdownMenuTrigger className="inline-flex h-9 items-center rounded-lg border bg-background px-3 text-xs font-medium hover:bg-muted">{type ? type.replaceAll("_", " ") : "Regular + business"}</DropdownMenuTrigger><DropdownMenuContent align="start"><DropdownMenuLabel>Customer type</DropdownMenuLabel><DropdownMenuSeparator/><DropdownMenuItem onClick={() => setParams({ type: null, page: null })}>Regular + business</DropdownMenuItem>{CUSTOMER_TYPES.map((item) => <DropdownMenuItem key={item} onClick={() => setParams({ type: item, page: null })}>{item.replaceAll("_", " ")}</DropdownMenuItem>)}</DropdownMenuContent></DropdownMenu>
+        </WorkspaceToolbar>
+
+        <OperationalDataTable
+          data={query.data ?? []}
+          columns={columns}
+          getRowId={(customer) => customer.id}
+          isLoading={query.isLoading}
+          isError={query.isError}
+          onRetry={() => void query.refetch()}
+          onRowOpen={(customer) => router.push(`/customers/${customer.id}`)}
+          emptyTitle="No customers found"
+          emptyDescription={search ? "No customer matched the server search." : "No customers are available for this shop and type filter."}
+          renderMobileCard={(customer) => <div className="rounded-xl border bg-card p-3"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-semibold">{customer.name}</p><p className="mt-0.5 font-mono text-[10px] text-muted-foreground">{customer.phone || "No phone"}</p><p className="mt-1 text-[10px] text-muted-foreground">{customer.city || "No city"}</p></div><Badge variant="secondary" className="text-[9px]">{customer.type.replaceAll("_", " ")}</Badge></div><div className="mt-3 flex items-end justify-between border-t pt-2"><span className="text-[10px] text-muted-foreground">Advance {formatINR(customer.advanceBalance)}</span><div className="text-right"><p className="workspace-kicker">Outstanding</p><p className={`numeric-cell mt-0.5 text-sm font-semibold ${Number(customer.outstandingAmount) > 0 ? "text-rose-600" : ""}`}>{formatINR(customer.outstandingAmount)}</p></div></div></div>}
+        />
+
+        <div className="flex items-center justify-between border-t bg-muted/20 px-[clamp(0.7rem,1vw,1rem)] py-2.5 text-[10px] text-muted-foreground"><span>Page {page} · {(query.data ?? []).length} records</span><div className="flex gap-1.5"><Button variant="outline" size="sm" className="h-8" disabled={page <= 1} onClick={() => setParams({ page: String(page - 1) })}>Previous</Button><Button variant="outline" size="sm" className="h-8" disabled={(query.data ?? []).length < PAGE_SIZE} onClick={() => setParams({ page: String(page + 1) })}>Next</Button></div></div>
+      </WorkspacePanel>
+    </WorkspacePage>
   );
 }
