@@ -150,7 +150,9 @@ export function Profile() {
         const [hasHardware, isEnrolled, types, savedValue] = await Promise.all([
           LocalAuthentication.hasHardwareAsync().catch(() => false),
           LocalAuthentication.isEnrolledAsync().catch(() => false),
-          LocalAuthentication.supportedAuthenticationTypesAsync().catch(() => []),
+          LocalAuthentication.supportedAuthenticationTypesAsync().catch(
+            () => [] as LocalAuthentication.AuthenticationType[],
+          ),
           getToken("shopcontrol_biometric_enabled").catch(() => null),
         ]);
 
