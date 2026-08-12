@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Header } from "@/components/shell/Header";
@@ -13,7 +13,8 @@ import { ShopSwitcherDialog } from "@/components/shell/ShopSwitcherDialog";
 import { initRealtimeSocket, disconnectRealtimeSocket } from "@/lib/realtime/socket-client";
 import { setUnauthorizedHandler } from "@/lib/api/client";
 import { useAuthStore } from "@/lib/auth/auth-store";
-import { hasPermission, PERMISSIONS } from "@/lib/permissions/permissions";
+import { hasPermission } from "@/lib/permissions/permissions";
+import { getFeature, isShortcutRegistrable } from "@/lib/features/feature-availability";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ShortcutProvider, useShortcut } from "@/components/keyboard/ShortcutProvider";
 
@@ -24,13 +25,18 @@ function DashboardShellContent({ children }: { children: React.ReactNode }) {
   const [dateDialogOpen, setDateDialogOpen] = useState(false);
   const [shopDialogOpen, setShopDialogOpen] = useState(false);
 
-  // Keyboard shortcut registrations
+  const saleFeature = getFeature("SALE_CREATE");
+  const dmFeature = getFeature("DM_CREATE");
+  const orderFeature = getFeature("ORDER_CREATE");
+  const paymentFeature = getFeature("PAYMENT_CREATE");
+  const stockEntryFeature = getFeature("STOCK_ENTRY");
+
   useShortcut({
     id: "global-f2-date",
     key: "f2",
     scope: "GLOBAL",
     description: "Open Select Date / Period Dialog",
-    action: () => setDateDialogOpen((prev) => !prev),
+    action: () => setDateDialogOpen((previous) => !previous),
   });
 
   useShortcut({
@@ -38,55 +44,54 @@ function DashboardShellContent({ children }: { children: React.ReactNode }) {
     key: "f3",
     scope: "GLOBAL",
     description: "Open Switch Shop Dialog",
-    action: () => setShopDialogOpen((prev) => !prev),
+    action: () => setShopDialogOpen((previous) => !previous),
   });
 
   useShortcut({
     id: "global-f8-new-sale",
-    key: "f8",
+    key: saleFeature.shortcut || "f8",
     scope: "GLOBAL",
     description: "Navigate to New Sale",
-    disabled: !hasPermission(user, PERMISSIONS.SALE_CREATE),
-    action: () => router.push("/sales/new"),
+    disabled: !isShortcutRegistrable(saleFeature) || !hasPermission(user, saleFeature.requiredPermission),
+    action: () => router.push(saleFeature.route),
   });
 
   useShortcut({
     id: "global-alt-f8-new-dm",
-    key: "alt+f8",
+    key: dmFeature.shortcut || "alt+f8",
     scope: "GLOBAL",
     description: "Navigate to New Delivery Memo",
-    disabled: !hasPermission(user, PERMISSIONS.DM_CREATE),
-    action: () => router.push("/delivery-memos/new"),
+    disabled: !isShortcutRegistrable(dmFeature) || !hasPermission(user, dmFeature.requiredPermission),
+    action: () => router.push(dmFeature.route),
   });
 
   useShortcut({
     id: "global-ctrl-f8-new-order",
-    key: "ctrl+f8",
+    key: orderFeature.shortcut || "ctrl+f8",
     scope: "GLOBAL",
     description: "Navigate to New Order",
-    disabled: !hasPermission(user, PERMISSIONS.ORDER_CREATE),
-    action: () => router.push("/orders/new"),
+    disabled: !isShortcutRegistrable(orderFeature) || !hasPermission(user, orderFeature.requiredPermission),
+    action: () => router.push(orderFeature.route),
   });
 
   useShortcut({
     id: "global-f6-payment",
-    key: "f6",
+    key: paymentFeature.shortcut || "f6",
     scope: "GLOBAL",
     description: "Navigate to Receive Payment",
-    disabled: !hasPermission(user, PERMISSIONS.PAYMENT_CREATE),
-    action: () => router.push("/payments/new"),
+    disabled: !isShortcutRegistrable(paymentFeature) || !hasPermission(user, paymentFeature.requiredPermission),
+    action: () => router.push(paymentFeature.route),
   });
 
   useShortcut({
     id: "global-f9-stock-entry",
-    key: "f9",
+    key: stockEntryFeature.shortcut || "f9",
     scope: "GLOBAL",
     description: "Navigate to Stock Entry",
-    disabled: !hasPermission(user, PERMISSIONS.STOCK_CREATE_MOVEMENT),
-    action: () => router.push("/inventory/stock-entry"),
+    disabled: !isShortcutRegistrable(stockEntryFeature) || !hasPermission(user, stockEntryFeature.requiredPermission),
+    action: () => router.push(stockEntryFeature.route),
   });
 
-  // Escape key handler: closes active dialog top-layer only, never calls router.back()
   useShortcut({
     id: "global-escape-handler",
     key: "esc",
@@ -94,22 +99,18 @@ function DashboardShellContent({ children }: { children: React.ReactNode }) {
     description: "Close active interactive layer",
     preventInInput: false,
     action: () => {
-      if (commandPaletteOpen) {
-        setCommandPaletteOpen(false);
-      } else if (dateDialogOpen) {
-        setDateDialogOpen(false);
-      } else if (shopDialogOpen) {
-        setShopDialogOpen(false);
-      }
+      if (commandPaletteOpen) setCommandPaletteOpen(false);
+      else if (dateDialogOpen) setDateDialogOpen(false);
+      else if (shopDialogOpen) setShopDialogOpen(false);
     },
   });
 
   return (
-    <div className="min-h-screen flex flex-col bg-background text-foreground">
+    <div className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
       <Header onOpenCommandPalette={() => setCommandPaletteOpen(true)} />
-      <div className="flex flex-1">
+      <div className="flex min-h-0 flex-1 overflow-hidden">
         <Sidebar />
-        <main className="flex-1 p-6 overflow-y-auto min-w-0">
+        <main className="min-w-0 flex-1 overflow-y-auto bg-[linear-gradient(to_bottom,var(--background),color-mix(in_srgb,var(--muted)_32%,var(--background)))] p-3 sm:p-4 lg:p-5 xl:p-6">
           {children}
         </main>
         <RightActionRail
@@ -140,10 +141,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             refetchOnWindowFocus: false,
           },
         },
-      })
+      }),
   );
 
-  // Register 401 Unauthorized handler
   useEffect(() => {
     setUnauthorizedHandler(() => {
       logout();
@@ -153,15 +153,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     });
   }, [logout, queryClient, router]);
 
-  // Auth Protection Guard
   useEffect(() => {
     setAuthResolved(true);
-    if (!isAuthenticated || !token) {
-      router.push("/login");
-    }
+    if (!isAuthenticated || !token) router.push("/login");
   }, [isAuthenticated, token, router]);
 
-  // Realtime Socket Initialization
   useEffect(() => {
     if (isAuthenticated && token) {
       const cleanup = initRealtimeSocket(queryClient, activeShopId);
@@ -169,11 +165,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, [queryClient, activeShopId, isAuthenticated, token]);
 
-  // Do not render protected content while auth status is unverified or user is unauthenticated
   if (!authResolved || !isAuthenticated || !token) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-background text-xs text-muted-foreground">
-        Verifying session authorization...
+      <div className="flex min-h-screen items-center justify-center bg-background text-xs text-muted-foreground">
+        Verifying session authorization…
       </div>
     );
   }
