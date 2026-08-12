@@ -17,31 +17,20 @@ export function CustomerGrowthChart({ data, granularity }: CustomerGrowthChartPr
     newCustomers: { label: "New Accounts", color: "#8b5cf6" },
   };
 
-  const formattedData = data.map((d) => ({
-    ...d,
-    label: formatPeriodLabel(d.period, granularity),
-  }));
-
+  const formattedData = data.map((item) => ({ ...item, label: formatPeriodLabel(item.period, granularity) }));
   const hasData = formattedData.length > 0;
 
   return (
-    <Card className="col-span-12 lg:col-span-4">
-      <CardHeader className="pb-3">
-        <CardTitle className="text-sm font-bold flex items-center gap-2">
-          <UserPlus className="h-4 w-4 text-purple-600" />
-          <span>New Customer Growth</span>
-        </CardTitle>
-        <CardDescription className="text-xs">
-          New non-walk-in customer accounts created per bucket in selected range.
-        </CardDescription>
+    <Card className="col-span-12 overflow-hidden rounded-xl shadow-none lg:col-span-4">
+      <CardHeader className="p-[clamp(0.8rem,1vw,1rem)] pb-2">
+        <CardTitle className="flex items-center gap-2 text-sm font-semibold"><UserPlus className="size-4 text-purple-600" /><span>New customer growth</span></CardTitle>
+        <CardDescription className="text-[11px]">New non-walk-in customer accounts created per bucket in the selected range.</CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="p-[clamp(0.6rem,0.9vw,0.9rem)] pt-0">
         {!hasData ? (
-          <div className="h-56 flex items-center justify-center text-xs text-muted-foreground border border-dashed rounded-lg">
-            No new customer accounts created in selected range.
-          </div>
+          <div className="flex h-[clamp(13rem,27vh,20rem)] items-center justify-center rounded-lg border border-dashed text-xs text-muted-foreground">No new customer accounts created in selected range.</div>
         ) : (
-          <div className="h-56 w-full">
+          <div className="h-[clamp(13rem,27vh,20rem)] w-full min-w-0">
             <ChartContainer config={chartConfig} className="h-full w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={formattedData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }} accessibilityLayer>
