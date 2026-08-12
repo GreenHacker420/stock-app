@@ -7,6 +7,7 @@ type ScopeRow = {
   shop_id: string;
   integration_id: string;
   conversation_id: string;
+  created_at: number;
 };
 
 type MessageRow = {
@@ -22,7 +23,7 @@ export async function getWhatsAppImageGalleryForMessage(
   await whatsappDb.initialize();
 
   const scope = await sqliteClient.read((database) => database.first<ScopeRow>(
-    `SELECT shop_id, integration_id, conversation_id
+    `SELECT shop_id, integration_id, conversation_id, created_at
      FROM wa_messages
      WHERE id = ?
      LIMIT 1`,
@@ -32,18 +33,23 @@ export async function getWhatsAppImageGalleryForMessage(
 
   const rows = await sqliteClient.read((database) => database.all<MessageRow>(
     `SELECT payload_json
-     FROM wa_messages
-     WHERE shop_id = ?
-       AND integration_id = ?
-       AND conversation_id = ?
-       AND message_type = 'IMAGE'
-       AND COALESCE(content_state, 'VISIBLE') != 'DELETED'
-     ORDER BY created_at ASC, id ASC
-     LIMIT ?`,
+     FROM (
+       SELECT id, created_at, payload_json
+       FROM wa_messages
+       WHERE shop_id = ?
+         AND integration_id = ?
+         AND conversation_id = ?
+         AND message_type = 'IMAGE'
+         AND COALESCE(content_state, 'VISIBLE') != 'DELETED'
+       ORDER BY ABS(created_at - ?) ASC, created_at ASC, id ASC
+       LIMIT ?
+     )
+     ORDER BY created_at ASC, id ASC`,
     [
       scope.shop_id,
       scope.integration_id,
       scope.conversation_id,
+      scope.created_at,
       MAX_GALLERY_IMAGES,
     ],
   ));
