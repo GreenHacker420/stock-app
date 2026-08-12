@@ -1,4 +1,4 @@
-import { Worker } from "bullmq";
+import { DelayedError, Worker } from "bullmq";
 import prisma from "../../lib/db.js";
 import { resolveAudience } from "../../services/whatsapp.broadcast.service.js";
 import { broadcastSendQueue, connection } from "../../services/whatsapp.queue.js";
@@ -54,15 +54,53 @@ function loadPendingRecipients(broadcast) {
   return ensureLegacyRecipients(broadcast);
 }
 
+async function activateScheduledBroadcast(job, token, broadcast) {
+  if (broadcast.status !== "SCHEDULED") return broadcast;
+  if (!broadcast.scheduledAt) return null;
+
+  const dueAt = new Date(broadcast.scheduledAt).getTime();
+  if (Number.isFinite(dueAt) && dueAt > Date.now() + 500) {
+    await job.moveToDelayed(dueAt, token);
+    throw new DelayedError();
+  }
+
+  const transitioned = await prisma.waBroadcast.updateMany({
+    where: {
+      id: broadcast.id,
+      status: "SCHEDULED",
+      scheduledAt: broadcast.scheduledAt,
+    },
+    data: {
+      status: "SENDING",
+      scheduledAt: null,
+      startedAt: new Date(),
+      completedAt: null,
+      sentCount: 0,
+      deliveredCount: 0,
+      readCount: 0,
+      failedCount: 0,
+      skippedCount: 0,
+    },
+  });
+  if (!transitioned.count) return null;
+  return prisma.waBroadcast.findUnique({ where: { id: broadcast.id } });
+}
+
 export function startBroadcastDispatcherWorker() {
   const worker = new Worker(
     "whatsapp-broadcast-dispatcher",
-    async (job) => {
+    async (job, token) => {
       const { broadcastId } = job.data;
       const runId = job.data.runId || String(job.id);
       console.log(`[Broadcast Dispatcher] Starting dispatch for broadcast: ${broadcastId}`);
 
-      const broadcast = await prisma.waBroadcast.findUnique({ where: { id: broadcastId } });
+      let broadcast = await prisma.waBroadcast.findUnique({ where: { id: broadcastId } });
+      if (!broadcast) {
+        await connection.del(`broadcast:${broadcastId}:remaining`);
+        return;
+      }
+
+      broadcast = await activateScheduledBroadcast(job, token, broadcast);
       if (!broadcast || broadcast.status !== "SENDING") {
         await connection.del(`broadcast:${broadcastId}:remaining`);
         return;
@@ -111,6 +149,7 @@ export function startBroadcastDispatcherWorker() {
   });
 
   worker.on("failed", async (job, error) => {
+    if (error instanceof DelayedError) return;
     console.error(`[Broadcast Dispatcher] Job ${job?.id} failed:`, error.message);
     if (!job) return;
     const attempts = job.opts.attempts || 1;
