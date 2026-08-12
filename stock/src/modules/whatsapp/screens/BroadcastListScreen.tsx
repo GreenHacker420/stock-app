@@ -1,8 +1,8 @@
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pressable, RefreshControl, StyleSheet, View } from "react-native";
 import { FlashList } from "@shopify/flash-list";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
-import { useNavigation } from "@react-navigation/native";
+import { useFocusEffect, useNavigation } from "@react-navigation/native";
 import { useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import { ActivityIndicator, IconButton, Text } from "react-native-paper";
@@ -10,6 +10,7 @@ import { fetchWaBroadcasts, type WaBroadcast } from "../../../api/whatsapp-broad
 import { useAuthStore } from "../../../auth/auth-store";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { ErrorState } from "../../../components/feedback/ErrorState";
+import { broadcastDraftDb, type LocalBroadcastDraft } from "../services/broadcastDraftDb";
 import { useWhatsAppScope } from "../whatsapp-scope";
 import { waColors } from "../whatsapp-ui";
 
@@ -26,10 +27,18 @@ function metricPercent(value: number, audience: number) {
   return Math.min(100, Math.max(0, Math.round((value / audience) * 100)));
 }
 
+function scheduleLabel(value?: string | null) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return ` · ${date.toLocaleString("en-IN", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })}`;
+}
+
 export function BroadcastListScreen() {
   const navigation = useNavigation<any>();
   const token = useAuthStore((state) => state.token) || "";
   const { shopId, integrationId, phoneNumberId } = useWhatsAppScope();
+  const [localDraft, setLocalDraft] = useState<LocalBroadcastDraft | null>(null);
 
   const query = useQuery({
     queryKey: ["whatsapp", "broadcasts", shopId],
@@ -38,6 +47,18 @@ export function BroadcastListScreen() {
     refetchInterval: (state) =>
       state.state.data?.some((item) => item.status === "SENDING") ? 4_000 : false,
   });
+
+  const loadLocalDraft = useCallback(() => {
+    let active = true;
+    broadcastDraftDb.get(shopId, integrationId).then((draft) => {
+      if (active) setLocalDraft(draft);
+    }).catch(() => {
+      if (active) setLocalDraft(null);
+    });
+    return () => { active = false; };
+  }, [integrationId, shopId]);
+
+  useFocusEffect(loadLocalDraft);
 
   useEffect(() => {
     navigation.setOptions({
@@ -94,7 +115,7 @@ export function BroadcastListScreen() {
           style={({ pressed }) => [styles.newButton, pressed && styles.pressed]}
         >
           <MaterialCommunityIcons name="bullhorn-outline" size={19} color="#fff" />
-          <Text style={styles.newButtonText}>New broadcast</Text>
+          <Text style={styles.newButtonText}>{localDraft ? "Continue draft" : "New broadcast"}</Text>
         </Pressable>
         <View style={styles.statsLine}>
           <Text style={styles.stat}><Text style={styles.statStrong}>{summary.campaigns}</Text> campaigns</Text>
@@ -104,6 +125,27 @@ export function BroadcastListScreen() {
           <Text style={styles.stat}><Text style={styles.statStrong}>{summary.read}</Text> reads</Text>
         </View>
       </View>
+
+      {localDraft ? (
+        <Pressable
+          onPress={() => navigation.navigate("BroadcastComposer", { shopId, integrationId, phoneNumberId })}
+          style={({ pressed }) => [styles.draftRow, pressed && styles.pressed]}
+        >
+          <View style={styles.draftIcon}>
+            <MaterialCommunityIcons name="cellphone-lock" size={20} color={waColors.greenDark} />
+          </View>
+          <View style={styles.draftBody}>
+            <View style={styles.draftTitleLine}>
+              <Text style={styles.draftTitle} numberOfLines={1}>{localDraft.campaignName || "Campaign draft"}</Text>
+              <Text style={styles.localBadge}>ON DEVICE</Text>
+            </View>
+            <Text style={styles.draftMeta}>
+              {localDraft.selectedContactIds.length + localDraft.manualRecipients.length} recipients · step {Math.min(localDraft.step + 1, 4)} of 4 · saved {formatDistanceToNow(new Date(localDraft.updatedAt), { addSuffix: true })}
+            </Text>
+          </View>
+          <MaterialCommunityIcons name="chevron-right" size={22} color={waColors.textMuted} />
+        </Pressable>
+      ) : null}
 
       <View style={styles.sectionHeader}>
         <Text style={styles.sectionTitle}>Recent campaigns</Text>
@@ -130,7 +172,15 @@ export function BroadcastListScreen() {
             ? metricPercent(processed, item.audienceCount)
             : 100;
           return (
-            <View style={styles.row}>
+            <Pressable
+              onPress={() => navigation.navigate("BroadcastDetail", {
+                shopId,
+                integrationId,
+                phoneNumberId,
+                broadcastId: item.id,
+              })}
+              style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+            >
               <View style={styles.rowIcon}>
                 <MaterialCommunityIcons name="bullhorn-outline" size={21} color={waColors.greenDark} />
               </View>
@@ -142,7 +192,7 @@ export function BroadcastListScreen() {
                   </View>
                 </View>
                 <Text style={styles.templateName} numberOfLines={1}>
-                  {item.template?.name || "Template"} · {item.audienceCount} recipients
+                  {item.template?.name || "Template"} · {item.audienceCount} recipients{item.status === "SCHEDULED" ? scheduleLabel(item.scheduledAt) : ""}
                 </Text>
                 {item.status === "SENDING" && (
                   <View style={styles.progressTrack}>
@@ -156,10 +206,13 @@ export function BroadcastListScreen() {
                   {!!item.failedCount && <Text style={styles.failedMetric}>Failed {item.failedCount}</Text>}
                 </View>
               </View>
-              <Text style={styles.time}>
-                {item.createdAt ? formatDistanceToNow(new Date(item.createdAt), { addSuffix: true }) : ""}
-              </Text>
-            </View>
+              <View style={styles.rowEnd}>
+                <Text style={styles.time}>
+                  {item.createdAt ? formatDistanceToNow(new Date(item.createdAt), { addSuffix: true }) : ""}
+                </Text>
+                <MaterialCommunityIcons name="chevron-right" size={18} color={waColors.textMuted} />
+              </View>
+            </Pressable>
           );
         }}
       />
@@ -177,11 +230,18 @@ const styles = StyleSheet.create({
   subtitle: { marginTop: 6, fontSize: 13, lineHeight: 19, color: waColors.textSecondary },
   newButton: { marginTop: 16, alignSelf: "flex-start", flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 16, height: 42, borderRadius: 21, backgroundColor: waColors.greenDark },
   newButtonText: { color: "#fff", fontSize: 14, fontWeight: "800" },
-  pressed: { opacity: 0.82 },
+  pressed: { opacity: 0.72 },
   statsLine: { marginTop: 17, flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8 },
   stat: { fontSize: 12, color: waColors.textSecondary },
   statStrong: { color: waColors.text, fontWeight: "800" },
   statDot: { width: 3, height: 3, borderRadius: 2, backgroundColor: waColors.textMuted },
+  draftRow: { minHeight: 72, paddingHorizontal: 18, flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: "#F7FBF8", borderBottomWidth: 1, borderBottomColor: waColors.border },
+  draftIcon: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: "#E7F7F1" },
+  draftBody: { flex: 1, minWidth: 0 },
+  draftTitleLine: { flexDirection: "row", alignItems: "center", gap: 8 },
+  draftTitle: { flex: 1, color: waColors.text, fontSize: 14, fontWeight: "800" },
+  localBadge: { color: waColors.greenDark, fontSize: 9, fontWeight: "900", letterSpacing: 0.7 },
+  draftMeta: { marginTop: 4, color: waColors.textSecondary, fontSize: 11 },
   sectionHeader: { height: 48, paddingHorizontal: 20, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
   sectionTitle: { fontSize: 14, fontWeight: "800", color: waColors.text },
   sectionCount: { fontSize: 12, color: waColors.textMuted },
@@ -200,5 +260,6 @@ const styles = StyleSheet.create({
   deliveryLine: { marginTop: 7, flexDirection: "row", flexWrap: "wrap", gap: 10 },
   deliveryMetric: { fontSize: 10, color: waColors.textMuted },
   failedMetric: { fontSize: 10, color: waColors.danger },
-  time: { marginLeft: 8, paddingTop: 2, maxWidth: 72, fontSize: 10, color: waColors.textMuted, textAlign: "right" },
+  rowEnd: { marginLeft: 8, minHeight: 54, alignItems: "flex-end", justifyContent: "space-between" },
+  time: { paddingTop: 2, maxWidth: 72, fontSize: 10, color: waColors.textMuted, textAlign: "right" },
 });
