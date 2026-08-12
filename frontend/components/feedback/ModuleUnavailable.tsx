@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { AlertCircle, ShieldAlert } from "lucide-react";
+
 import { Badge } from "@/components/ui/badge";
-import { AlertCircle, ArrowLeft, ShieldAlert } from "lucide-react";
-import { hasPermission } from "@/lib/permissions/permissions";
+import { Button } from "@/components/ui/button";
+import { WorkspacePage, WorkspacePageHeader, WorkspacePanel } from "@/components/workspace/WorkspacePage";
 import { useAuthStore } from "@/lib/auth/auth-store";
+import { hasPermission } from "@/lib/permissions/permissions";
 
 interface ModuleUnavailableProps {
   title: string;
@@ -29,69 +30,39 @@ export function ModuleUnavailable({
   const isPermitted = requiredPermission ? hasPermission(user, requiredPermission) : true;
 
   return (
-    <div className="space-y-6 max-w-3xl mx-auto py-8">
-      <div className="flex items-center gap-3">
-        <Link href={backHref}>
-          <Button variant="ghost" size="icon" className="h-9 w-9">
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-        </Link>
-        <div>
-          <h1 className="text-2xl font-black tracking-tight">{title}</h1>
-          <p className="text-xs text-muted-foreground">{description}</p>
-        </div>
-      </div>
+    <WorkspacePage>
+      <WorkspacePageHeader
+        kicker="Workflow availability"
+        title={title}
+        description={description}
+        backHref={backHref}
+        icon={isPermitted ? AlertCircle : ShieldAlert}
+        meta={plannedShortcut ? <Badge variant="outline" className="font-mono text-[9px]">Planned · {plannedShortcut}</Badge> : undefined}
+      />
 
-      {!isPermitted ? (
-        <Card className="border-destructive/40 bg-destructive/5">
-          <CardHeader className="py-6">
-            <div className="flex items-center gap-3 text-destructive">
-              <ShieldAlert className="h-6 w-6 shrink-0" />
-              <div>
-                <CardTitle className="text-base font-bold">Access Denied</CardTitle>
-                <CardDescription className="text-xs text-destructive/80 mt-0.5">
-                  Your staff role does not have the required permission ({requiredPermission}) to access this module.
-                </CardDescription>
-              </div>
+      <div className="grid min-h-[58vh] place-items-center">
+        <WorkspacePanel className="w-[min(94vw,clamp(20rem,58vw,52rem))]">
+          <div className="p-[clamp(1rem,2.1vw,2rem)]">
+            <div className={`flex size-[clamp(2.7rem,5.5vh,3.4rem)] items-center justify-center rounded-xl border ${isPermitted ? "border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-950 dark:bg-amber-950/30 dark:text-amber-300" : "border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-950 dark:bg-rose-950/30 dark:text-rose-300"}`}>
+              {isPermitted ? <AlertCircle className="size-5" /> : <ShieldAlert className="size-5" />}
             </div>
-          </CardHeader>
-        </Card>
-      ) : (
-        <Card className="border-amber-200 bg-amber-50/50 dark:bg-amber-950/20 dark:border-amber-900/40">
-          <CardHeader className="py-6">
-            <div className="flex items-start gap-4">
-              <div className="p-3 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-600 dark:text-amber-400 shrink-0">
-                <AlertCircle className="h-6 w-6" />
+
+            <h2 className="mt-[clamp(0.8rem,1.6vh,1.2rem)] text-[clamp(1rem,1.35vw,1.35rem)] font-semibold tracking-tight">
+              {isPermitted ? "Workflow intentionally disabled" : "Access denied"}
+            </h2>
+            <p className="mt-2 text-xs leading-6 text-muted-foreground">
+              {isPermitted ? reason : `Your current account does not include the required permission${requiredPermission ? ` (${requiredPermission})` : ""}. The backend remains the final authorization layer.`}
+            </p>
+
+            <div className="mt-[clamp(1rem,2vh,1.5rem)] flex flex-wrap items-center justify-between gap-3 border-t pt-[clamp(0.8rem,1.5vh,1rem)]">
+              <div className="text-[10px] leading-4 text-muted-foreground">
+                {isPermitted ? "No write request is sent from this page until the workflow is production-safe." : "No protected action has been attempted."}
               </div>
-              <div className="space-y-2">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <CardTitle className="text-base font-bold text-slate-900 dark:text-slate-100">
-                    Module Temporarily Unavailable
-                  </CardTitle>
-                  {plannedShortcut && (
-                    <Badge variant="outline" className="text-[10px] font-mono border-amber-300 text-amber-700 dark:text-amber-300">
-                      Shortcut: {plannedShortcut}
-                    </Badge>
-                  )}
-                </div>
-                <CardDescription className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
-                  {reason}
-                </CardDescription>
-              </div>
+              <Button render={<Link href={backHref} />} variant="outline" size="sm" className="h-9 text-xs font-semibold">Return to register</Button>
             </div>
-          </CardHeader>
-          <CardContent className="pt-0 flex items-center justify-between border-t border-amber-200/60 dark:border-amber-900/40 mt-4 py-3">
-            <span className="text-[11px] text-muted-foreground">
-              Foundation Stabilization Sprint — Unsafe write API calls are disabled.
-            </span>
-            <Link href={backHref}>
-              <Button variant="outline" size="sm" className="h-8 text-xs font-bold">
-                Return to Register
-              </Button>
-            </Link>
-          </CardContent>
-        </Card>
-      )}
-    </div>
+          </div>
+        </WorkspacePanel>
+      </div>
+    </WorkspacePage>
   );
 }
