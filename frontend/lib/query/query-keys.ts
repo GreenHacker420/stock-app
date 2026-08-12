@@ -122,6 +122,7 @@ export const queryKeys = {
     detail: (id: string) => ["customers", "detail", id] as const,
     outstanding: (id: string) => ["customers", "outstanding", id] as const,
     ledger: (id: string, filters?: Record<string, unknown>) => ["customers", "ledger", id, filters] as const,
+    ledgerSummary: (id: string, shopId: string, from?: string, to?: string) => ["customers", "ledger-summary", id, shopId, from || "all", to || "all"] as const,
   },
   payments: {
     list: (shopId: string) => ["payments", shopId] as const,
