@@ -37,10 +37,12 @@ export type WaBroadcast = {
   readCount: number;
   failedCount: number;
   skippedCount: number;
+  pendingCount?: number;
   scheduledAt?: string | null;
   startedAt?: string | null;
   completedAt?: string | null;
   createdAt?: string;
+  updatedAt?: string;
   template?: {
     id?: string;
     name: string;
@@ -131,6 +133,24 @@ export function sendWaBroadcast(token: string, shopId: string, broadcastId: stri
   );
 }
 
+export function sendWaBroadcastTest(
+  token: string,
+  input: {
+    shopId: string;
+    integrationId?: string;
+    templateId: string;
+    templateVariables?: WaBroadcastTemplateVariables;
+    phone: string;
+    name?: string;
+  },
+) {
+  return apiRequest<{ id?: string; conversationId?: string }>("/whatsapp/broadcasts/test", {
+    method: "POST",
+    token,
+    body: JSON.stringify(input),
+  });
+}
+
 export function scheduleWaBroadcast(
   token: string,
   shopId: string,
@@ -152,6 +172,27 @@ export function cancelWaBroadcast(token: string, shopId: string, broadcastId: st
   return apiRequest<WaBroadcast>(
     `/whatsapp/broadcasts/${encodeURIComponent(broadcastId)}/cancel`,
     { method: "POST", token, headers: { "X-Shop-Id": shopId } },
+  );
+}
+
+export function retryFailedWaBroadcast(token: string, shopId: string, broadcastId: string) {
+  return apiRequest<{ retriedCount: number; startedAt?: string }>(
+    `/whatsapp/broadcasts/${encodeURIComponent(broadcastId)}/retry-failed`,
+    { method: "POST", token, headers: { "X-Shop-Id": shopId } },
+  );
+}
+
+export function stopWaBroadcast(token: string, shopId: string, broadcastId: string) {
+  return apiRequest<WaBroadcast>(
+    `/whatsapp/broadcasts/${encodeURIComponent(broadcastId)}/stop`,
+    { method: "POST", token, headers: { "X-Shop-Id": shopId } },
+  );
+}
+
+export function discardWaBroadcastDraft(token: string, shopId: string, broadcastId: string) {
+  return apiRequest<{ deleted: true }>(
+    `/whatsapp/broadcasts/${encodeURIComponent(broadcastId)}/draft`,
+    { method: "DELETE", token, headers: { "X-Shop-Id": shopId } },
   );
 }
 
