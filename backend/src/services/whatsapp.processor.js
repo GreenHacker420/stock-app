@@ -75,18 +75,44 @@ async function handleStatusUpdate(event, shopId, eventId, integrationId) {
       data: updateData,
     });
 
-    if (message.broadcastRecipientId) {
-      const recipientUpdate = { status: nextStatus };
-      if (nextStatus === "FAILED") {
-        recipientUpdate.errorMessage = event.errors?.[0]?.message || "Unknown Meta error";
-      }
-      if (nextStatus === "DELIVERED") recipientUpdate.deliveredAt = nextTimestamp;
-      if (nextStatus === "READ") recipientUpdate.readAt = nextTimestamp;
-
-      await tx.waBroadcastRecipient.updateMany({
+    if (message.broadcastRecipientId && ["SENT", "DELIVERED", "READ", "FAILED"].includes(nextStatus)) {
+      const recipient = await tx.waBroadcastRecipient.findUnique({
         where: { id: message.broadcastRecipientId },
-        data: recipientUpdate,
+        select: { id: true, broadcastId: true },
       });
+      if (recipient) {
+        const recipientUpdate = { status: nextStatus };
+        if (nextStatus === "FAILED") {
+          recipientUpdate.errorMessage = event.errors?.[0]?.message || "Unknown Meta error";
+        }
+        if (nextStatus === "DELIVERED") recipientUpdate.deliveredAt = nextTimestamp;
+        if (nextStatus === "READ") recipientUpdate.readAt = nextTimestamp;
+
+        await tx.waBroadcastRecipient.update({
+          where: { id: recipient.id },
+          data: recipientUpdate,
+        });
+
+        // Provider delivery/read callbacks continue after the sender jobs finish.
+        // Keep the campaign list counters authoritative by deriving them from the
+        // recipient rows in the same transaction as the status transition.
+        const groups = await tx.waBroadcastRecipient.groupBy({
+          by: ["status"],
+          where: { broadcastId: recipient.broadcastId },
+          _count: { id: true },
+        });
+        const counts = Object.fromEntries(groups.map((entry) => [entry.status, entry._count.id]));
+        await tx.waBroadcast.updateMany({
+          where: { id: recipient.broadcastId },
+          data: {
+            sentCount: (counts.SENT || 0) + (counts.DELIVERED || 0) + (counts.READ || 0),
+            deliveredCount: (counts.DELIVERED || 0) + (counts.READ || 0),
+            readCount: counts.READ || 0,
+            failedCount: counts.FAILED || 0,
+            skippedCount: counts.SKIPPED || 0,
+          },
+        });
+      }
     }
 
     const domainEvent = await enqueueWhatsAppDomainEvent(tx, {
