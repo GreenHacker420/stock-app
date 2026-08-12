@@ -154,8 +154,22 @@ export function ChatProfileSheet({
       setDetailsReady(false);
       return;
     }
-    const task = requestIdleCallback(() => setDetailsReady(true), { timeout: 650 });
-    return () => cancelIdleCallback(task);
+    let cancelled = false;
+    const scheduleTask = typeof requestIdleCallback === "function"
+      ? (cb: () => void) => requestIdleCallback(cb, { timeout: 650 })
+      : (cb: () => void) => setTimeout(cb, 150);
+    const cancelTask = typeof cancelIdleCallback === "function"
+      ? (id: any) => cancelIdleCallback(id)
+      : (id: any) => clearTimeout(id);
+
+    const task = scheduleTask(() => {
+      if (!cancelled) setDetailsReady(true);
+    });
+
+    return () => {
+      cancelled = true;
+      cancelTask(task);
+    };
   }, [visible]);
 
   const fallback = useMemo(() => fallbackContent(messages), [messages]);
