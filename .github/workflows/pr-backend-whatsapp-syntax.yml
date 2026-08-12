@@ -1,0 +1,36 @@
+name: WhatsApp Backend Syntax
+
+on:
+  pull_request:
+    paths:
+      - "backend/src/services/whatsapp*.js"
+      - "backend/src/routes/whatsapp.routes.js"
+      - "backend/src/workers/whatsapp/**"
+      - ".github/workflows/pr-backend-whatsapp-syntax.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  syntax:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Parse changed WhatsApp backend modules
+        shell: bash
+        run: |
+          set -euo pipefail
+          files=(
+            backend/src/routes/whatsapp.routes.js
+            backend/src/services/whatsapp.broadcast.service.js
+            backend/src/services/whatsapp.processor.js
+            backend/src/workers/whatsapp/broadcast-dispatcher.worker.js
+            backend/src/workers/whatsapp/broadcast-send.worker.js
+          )
+          for file in "${files[@]}"; do
+            echo "node --check $file"
+            node --check "$file"
+          done
