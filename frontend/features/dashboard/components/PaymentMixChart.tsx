@@ -2,7 +2,7 @@
 
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from "@/components/ui/chart";
-import { PieChart, Pie, ResponsiveContainer, Sector } from "recharts";
+import { PieChart, Pie, ResponsiveContainer } from "recharts";
 import { PaymentMixItem } from "../lib/analytics-types";
 import { formatINR } from "../lib/analytics-formatters";
 import { CreditCard } from "lucide-react";
@@ -29,71 +29,31 @@ const MODE_LABELS: Record<string, string> = {
 };
 
 export function PaymentMixChart({ data, totalCollected }: PaymentMixChartProps) {
-  // Embed fill directly on each data item — the modern Recharts approach, no Cell needed
-  const enrichedData = data.map((d) => ({
-    ...d,
-    fill: MODE_COLORS[d.paymentMode] ?? "#94a3b8",
-    name: MODE_LABELS[d.paymentMode] ?? d.paymentMode,
+  const enrichedData = data.map((item) => ({
+    ...item,
+    fill: MODE_COLORS[item.paymentMode] ?? "#94a3b8",
+    name: MODE_LABELS[item.paymentMode] ?? item.paymentMode,
   }));
 
-  const chartConfig = Object.fromEntries(
-    enrichedData.map((d) => [d.paymentMode, { label: d.name, color: d.fill }])
-  );
-
+  const chartConfig = Object.fromEntries(enrichedData.map((item) => [item.paymentMode, { label: item.name, color: item.fill }]));
   const hasData = enrichedData.length > 0 && totalCollected > 0;
 
   return (
-    <Card className="col-span-12 lg:col-span-4">
-      <CardHeader className="pb-3">
-        <div>
-          <CardTitle className="text-sm font-bold flex items-center gap-2">
-            <CreditCard className="h-4 w-4 text-indigo-600" />
-            <span>Collection Mix</span>
-          </CardTitle>
-          <CardDescription className="text-xs">
-            Total Collections:{" "}
-            <span className="font-bold text-slate-900 dark:text-slate-100">
-              {formatINR(totalCollected)}
-            </span>
-          </CardDescription>
-        </div>
+    <Card className="col-span-12 overflow-hidden rounded-xl shadow-none xl:col-span-4">
+      <CardHeader className="p-[clamp(0.8rem,1vw,1rem)] pb-2">
+        <CardTitle className="flex items-center gap-2 text-sm font-semibold"><CreditCard className="size-4 text-indigo-600" /><span>Collection mix</span></CardTitle>
+        <CardDescription className="text-[11px]">Total collections <span className="font-semibold text-foreground">{formatINR(totalCollected)}</span></CardDescription>
       </CardHeader>
-      <CardContent>
+      <CardContent className="p-[clamp(0.6rem,0.9vw,0.9rem)] pt-0">
         {!hasData ? (
-          <div className="h-64 flex items-center justify-center text-xs text-muted-foreground border border-dashed rounded-lg">
-            No collection payments recorded for selected range.
-          </div>
+          <div className="flex h-[clamp(15rem,34vh,24rem)] items-center justify-center rounded-lg border border-dashed text-xs text-muted-foreground">No collection payments recorded for the selected range.</div>
         ) : (
-          <div className="h-72 w-full">
+          <div className="h-[clamp(15rem,34vh,24rem)] w-full min-w-0">
             <ChartContainer config={chartConfig} className="h-full w-full">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart accessibilityLayer>
-                  <ChartTooltip
-                    content={
-                      <ChartTooltipContent
-                        formatter={(val, name) => (
-                          <div className="flex items-center justify-between w-full gap-4 text-xs font-mono">
-                            <span className="text-muted-foreground">{String(name)}:</span>
-                            <span className="font-bold">{formatINR(Number(val))}</span>
-                          </div>
-                        )}
-                      />
-                    }
-                  />
-                  {/*
-                    fill is read directly from each data object — no Cell needed.
-                    Recharts Pie reads `fill` from the data array per item.
-                  */}
-                  <Pie
-                    data={enrichedData}
-                    dataKey="amount"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={60}
-                    outerRadius={85}
-                    paddingAngle={3}
-                  />
+                  <ChartTooltip content={<ChartTooltipContent formatter={(value, name) => <div className="flex min-w-[clamp(9rem,12vw,12rem)] items-center justify-between gap-4 text-xs font-mono"><span className="text-muted-foreground">{String(name)}:</span><span className="font-bold">{formatINR(Number(value))}</span></div>} />} />
+                  <Pie data={enrichedData} dataKey="amount" nameKey="name" cx="50%" cy="50%" innerRadius="34%" outerRadius="54%" paddingAngle={3} />
                   <ChartLegend content={<ChartLegendContent nameKey="name" />} />
                 </PieChart>
               </ResponsiveContainer>
