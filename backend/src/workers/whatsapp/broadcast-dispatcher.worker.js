@@ -1,10 +1,13 @@
 import { DelayedError, Worker } from "bullmq";
 import prisma from "../../lib/db.js";
 import { resolveAudience } from "../../services/whatsapp.broadcast.service.js";
-import { broadcastSendQueue, connection } from "../../services/whatsapp.queue.js";
+import { broadcastQueue, broadcastSendQueue, connection } from "../../services/whatsapp.queue.js";
 
 const FANOUT_BATCH_SIZE = 250;
 const PROGRESS_TTL_SECONDS = 7 * 24 * 60 * 60;
+const SCHEDULE_RECOVERY_INTERVAL_MS = 60_000;
+const SCHEDULE_RECOVERY_LOOKAHEAD_MS = 2 * 60_000;
+const SCHEDULE_JOB_PREFIX = "wa-broadcast-scheduled";
 
 async function ensureLegacyRecipients(broadcast) {
   const audience = await resolveAudience(broadcast.shopId, broadcast.audienceFilter);
@@ -86,6 +89,45 @@ async function activateScheduledBroadcast(job, token, broadcast) {
   return prisma.waBroadcast.findUnique({ where: { id: broadcast.id } });
 }
 
+async function recoverScheduledBroadcasts() {
+  const horizon = new Date(Date.now() + SCHEDULE_RECOVERY_LOOKAHEAD_MS);
+  const scheduled = await prisma.waBroadcast.findMany({
+    where: {
+      status: "SCHEDULED",
+      scheduledAt: { not: null, lte: horizon },
+    },
+    select: { id: true, scheduledAt: true },
+    orderBy: { scheduledAt: "asc" },
+    take: 100,
+  });
+
+  for (const broadcast of scheduled) {
+    if (!broadcast.scheduledAt) continue;
+    const jobId = `${SCHEDULE_JOB_PREFIX}-${broadcast.id}`;
+    const existing = await broadcastQueue.getJob(jobId);
+    if (existing) {
+      const state = await existing.getState();
+      if (["completed", "failed"].includes(state)) {
+        await existing.remove().catch(() => undefined);
+      } else {
+        continue;
+      }
+    }
+
+    await broadcastQueue.add(
+      "scheduled-dispatch",
+      {
+        broadcastId: broadcast.id,
+        runId: `scheduled-${broadcast.id}-${broadcast.scheduledAt.getTime()}`,
+      },
+      {
+        jobId,
+        delay: Math.max(0, broadcast.scheduledAt.getTime() - Date.now()),
+      },
+    );
+  }
+}
+
 export function startBroadcastDispatcherWorker() {
   const worker = new Worker(
     "whatsapp-broadcast-dispatcher",
@@ -144,6 +186,13 @@ export function startBroadcastDispatcherWorker() {
     },
   );
 
+  const recover = () => recoverScheduledBroadcasts().catch((error) => {
+    console.error("[Broadcast Dispatcher] Scheduled campaign recovery failed:", error.message);
+  });
+  recover();
+  const recoveryTimer = setInterval(recover, SCHEDULE_RECOVERY_INTERVAL_MS);
+  recoveryTimer.unref?.();
+
   worker.on("completed", (job) => {
     console.log(`[Broadcast Dispatcher] Job ${job.id} completed successfully`);
   });
@@ -163,6 +212,8 @@ export function startBroadcastDispatcherWorker() {
       ]).catch(() => undefined);
     }
   });
+
+  worker.on("closed", () => clearInterval(recoveryTimer));
 
   return worker;
 }
