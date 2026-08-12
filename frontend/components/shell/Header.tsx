@@ -1,14 +1,24 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useAuthStore } from "@/lib/auth/auth-store";
+import { hasPermission } from "@/lib/permissions/permissions";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Store, Search, Bell, Shield, LogOut, Wifi, User } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Bell, CalendarDays, LogOut, Menu, Search, Store, User } from "lucide-react";
 import { formatDate } from "@/lib/utils";
 import { useOS, formatShortcutForOS } from "@/lib/keyboard/os";
+import { NAVIGATION_GROUPS } from "@/components/shell/navigation";
 
 interface HeaderProps {
   onOpenCommandPalette: () => void;
@@ -16,134 +26,130 @@ interface HeaderProps {
 }
 
 export function Header({ onOpenCommandPalette, approvalsCount = 0 }: HeaderProps) {
+  const pathname = usePathname();
   const { user, shops, activeShopId, setActiveShopId, logout, startDate, endDate } = useAuthStore();
   const { isMac } = useOS();
 
-  const selectedShop = shops.find((s) => s.id === activeShopId);
+  const selectedShop = shops.find((shop) => shop.id === activeShopId);
   const canSwitchShop = user?.role === "OWNER" && shops.length > 1;
-
-  const displayPeriod =
-    startDate === endDate
-      ? formatDate(startDate)
-      : `${formatDate(startDate)} – ${formatDate(endDate)}`;
+  const displayPeriod = startDate === endDate ? formatDate(startDate) : `${formatDate(startDate)} – ${formatDate(endDate)}`;
 
   const initials = user?.name
     ? user.name
-      .split(/\s+/)
-      .map((n) => n[0])
-      .join("")
-      .toUpperCase()
-      .slice(0, 2)
+        .split(/\s+/)
+        .map((part) => part[0])
+        .join("")
+        .toUpperCase()
+        .slice(0, 2)
     : "SC";
 
+  const shopControlClass = "inline-flex h-[clamp(2.15rem,4.5vh,2.5rem)] w-[clamp(8.5rem,15vw,18rem)] min-w-0 items-center gap-2 rounded-lg border bg-card px-[clamp(0.55rem,0.7vw,0.8rem)] text-xs font-semibold shadow-xs";
+
   return (
-    <header className="h-14 border-b bg-card px-4 flex items-center justify-between sticky top-0 z-30 shadow-xs">
-      {/* Left: Active Shop & Date Period */}
-      <div className="flex items-center gap-3">
+    <header
+      className="sticky top-0 z-40 flex shrink-0 items-center gap-[clamp(0.45rem,0.7vw,0.85rem)] border-b bg-background/95 px-[var(--workspace-gutter-x)] backdrop-blur supports-[backdrop-filter]:bg-background/88"
+      style={{ height: "var(--shell-header-height)" }}
+    >
+      <DropdownMenu>
+        <DropdownMenuTrigger className="inline-flex size-[clamp(2.15rem,4.5vh,2.5rem)] shrink-0 items-center justify-center rounded-lg border bg-background text-muted-foreground transition-colors hover:bg-muted hover:text-foreground md:hidden">
+          <Menu className="size-4" />
+          <span className="sr-only">Open navigation</span>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-[min(88vw,19rem)]">
+          <DropdownMenuLabel>Navigate</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          {NAVIGATION_GROUPS.map((group) => {
+            const items = group.items.filter((item) => hasPermission(user, item.permission));
+            if (items.length === 0) return null;
+            return (
+              <div key={group.label}>
+                <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{group.label}</div>
+                {items.map((item) => {
+                  const Icon = item.icon;
+                  const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+                  return (
+                    <DropdownMenuItem key={item.href} className={active ? "bg-muted font-medium" : undefined}>
+                      <Link href={item.href} className="flex w-full items-center gap-2.5">
+                        <Icon className="size-4 text-muted-foreground" />
+                        {item.label}
+                      </Link>
+                    </DropdownMenuItem>
+                  );
+                })}
+                <DropdownMenuSeparator />
+              </div>
+            );
+          })}
+        </DropdownMenuContent>
+      </DropdownMenu>
+
+      <div className="flex min-w-0 shrink-0 items-center gap-[clamp(0.4rem,0.55vw,0.7rem)]">
         {canSwitchShop ? (
           <DropdownMenu>
-            <DropdownMenuTrigger className="inline-flex items-center gap-2 h-9 px-3 text-xs font-semibold rounded-md border border-input bg-background hover:bg-muted text-primary cursor-pointer">
-              <Store className="h-4 w-4" />
-              <span>{selectedShop?.name ?? "Select Shop"}</span>
+            <DropdownMenuTrigger className={`${shopControlClass} transition-colors hover:bg-muted`}>
+              <Store className="size-3.5 shrink-0 text-muted-foreground" />
+              <span className="truncate">{selectedShop?.name ?? "Select shop"}</span>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="w-56">
-              <DropdownMenuLabel>Select Active Shop</DropdownMenuLabel>
+            <DropdownMenuContent align="start" className="w-[min(88vw,19rem)]">
+              <DropdownMenuLabel>Active shop</DropdownMenuLabel>
               <DropdownMenuSeparator />
               {shops.map((shop) => (
-                <DropdownMenuItem
-                  key={shop.id}
-                  onClick={() => setActiveShopId(shop.id)}
-                  className="flex items-center justify-between cursor-pointer"
-                >
-                  <span>{shop.name} ({shop.city})</span>
-                  {shop.id === activeShopId && <Badge variant="secondary" className="text-[10px]">Active</Badge>}
+                <DropdownMenuItem key={shop.id} onClick={() => setActiveShopId(shop.id)} className="flex cursor-pointer items-center justify-between gap-3">
+                  <span className="min-w-0 truncate">{shop.name}{shop.city ? <span className="ml-1 text-muted-foreground">· {shop.city}</span> : null}</span>
+                  {shop.id === activeShopId ? <Badge variant="secondary" className="text-[9px]">Active</Badge> : null}
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
         ) : (
-          <div className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-slate-100">
-            <Store className="h-4 w-4 text-primary" />
-            <span>{selectedShop?.name ?? "Shop Control"}</span>
+          <div className={shopControlClass}>
+            <Store className="size-3.5 shrink-0 text-muted-foreground" />
+            <span className="truncate">{selectedShop?.name ?? "Shop Control"}</span>
           </div>
         )}
 
-        <Badge variant="outline" className="hidden sm:inline-flex text-xs font-medium text-muted-foreground">
-          Period: {displayPeriod}
-        </Badge>
+        <div className="hidden h-[clamp(2.15rem,4.5vh,2.5rem)] items-center gap-2 rounded-lg border bg-muted/40 px-[clamp(0.55rem,0.7vw,0.8rem)] text-[11px] font-medium text-muted-foreground lg:flex">
+          <CalendarDays className="size-3.5" />
+          <span className="whitespace-nowrap">{displayPeriod}</span>
+        </div>
       </div>
 
-      {/* Center: Global Search trigger */}
-      <div className="flex-1 max-w-md mx-4 hidden md:block">
+      <div className="hidden min-w-0 flex-1 justify-center md:flex">
         <Button
           variant="outline"
           onClick={onOpenCommandPalette}
-          className="w-full justify-between h-9 text-xs text-muted-foreground font-normal bg-muted/40 hover:bg-muted"
+          className="h-[clamp(2.15rem,4.5vh,2.5rem)] w-[clamp(16rem,36vw,44rem)] justify-between rounded-lg bg-muted/35 px-[clamp(0.65rem,0.8vw,0.9rem)] text-xs font-normal text-muted-foreground shadow-none hover:bg-muted/70 hover:text-foreground"
         >
-          <span className="flex items-center gap-2">
-            <Search className="h-3.5 w-3.5" />
-            <span>Search pages, actions, customers...</span>
+          <span className="flex min-w-0 items-center gap-2">
+            <Search className="size-3.5 shrink-0" />
+            <span className="truncate">Search pages, actions, customers, products…</span>
           </span>
-          <kbd className="pointer-events-none inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium opacity-100">
-            {formatShortcutForOS("alt+g", isMac)}
-          </kbd>
+          <kbd className="ml-3 inline-flex h-5 shrink-0 items-center rounded border bg-background px-1.5 font-mono text-[9px] font-semibold text-muted-foreground">{formatShortcutForOS("alt+g", isMac)}</kbd>
         </Button>
       </div>
 
-      {/* Right: Actions, Badges & Profile */}
-      <div className="flex items-center gap-2">
-        <Button variant="ghost" size="icon" onClick={onOpenCommandPalette} className="md:hidden h-9 w-9">
-          <Search className="h-4 w-4" />
+      <div className="ml-auto flex shrink-0 items-center gap-[clamp(0.2rem,0.35vw,0.45rem)]">
+        <Button variant="ghost" size="icon" onClick={onOpenCommandPalette} className="size-[clamp(2.15rem,4.5vh,2.5rem)] md:hidden">
+          <Search className="size-4" />
+          <span className="sr-only">Open global search</span>
         </Button>
 
-        <div className="relative">
-          <Button variant="ghost" size="icon" className="h-9 w-9 relative">
-            <Bell className="h-4 w-4 text-slate-700 dark:text-slate-300" />
-            {approvalsCount > 0 && (
-              <span className="absolute -top-1 -right-1 bg-destructive text-destructive-foreground text-[10px] font-extrabold h-4 min-w-[16px] px-1 rounded-full flex items-center justify-center">
-                {approvalsCount > 99 ? "99+" : approvalsCount}
-              </span>
-            )}
-          </Button>
-        </div>
-
-        <Badge variant="outline" className="gap-1 text-[11px] text-emerald-600 bg-emerald-50 border-emerald-200 dark:bg-emerald-950/40">
-          <Wifi className="h-3 w-3 text-emerald-500" />
-          <span>Online</span>
-        </Badge>
+        <Button variant="ghost" size="icon" className="relative size-[clamp(2.15rem,4.5vh,2.5rem)] text-muted-foreground hover:text-foreground">
+          <Bell className="size-4" />
+          {approvalsCount > 0 ? <span className="absolute right-0 top-0 flex min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[9px] font-bold leading-4 text-white">{approvalsCount > 99 ? "99+" : approvalsCount}</span> : null}
+          <span className="sr-only">Notifications</span>
+        </Button>
 
         <DropdownMenu>
-          <DropdownMenuTrigger className="relative h-9 w-9 rounded-full cursor-pointer">
-            <Avatar className="h-9 w-9 border border-primary/20">
-              <AvatarFallback className="bg-primary text-primary-foreground font-bold text-xs">
-                {initials}
-              </AvatarFallback>
-            </Avatar>
+          <DropdownMenuTrigger className="relative size-[clamp(2.15rem,4.5vh,2.5rem)] rounded-full outline-none ring-offset-background focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2">
+            <Avatar className="size-full border shadow-xs"><AvatarFallback className="bg-foreground text-[11px] font-semibold text-background">{initials}</AvatarFallback></Avatar>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56">
-            <DropdownMenuLabel className="font-normal">
-              <div className="flex flex-col space-y-1">
-                <p className="text-sm font-semibold leading-none">{user?.name}</p>
-                <p className="text-xs leading-none text-muted-foreground">{user?.mobile}</p>
-                <div className="pt-1">
-                  <Badge variant={user?.role === "OWNER" ? "default" : "secondary"} className="text-[10px]">
-                    {user?.role}
-                  </Badge>
-                </div>
-              </div>
-            </DropdownMenuLabel>
+          <DropdownMenuContent align="end" className="w-[min(88vw,17rem)]">
+            <DropdownMenuLabel className="font-normal"><div className="space-y-1"><p className="truncate text-sm font-semibold">{user?.name}</p><p className="truncate text-xs text-muted-foreground">{user?.mobile}</p><Badge variant="secondary" className="mt-1 text-[9px]">{user?.role}</Badge></div></DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem className="cursor-pointer">
-              <Link href="/profile" className="flex items-center w-full">
-                <User className="mr-2 h-4 w-4" />
-                <span>My Profile</span>
-              </Link>
-            </DropdownMenuItem>
+            <DropdownMenuItem><Link href="/profile" className="flex w-full items-center"><User className="mr-2 size-4" />My Profile</Link></DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={logout} className="text-destructive cursor-pointer">
-              <LogOut className="mr-2 h-4 w-4" />
-              <span>Log out</span>
-            </DropdownMenuItem>
+            <DropdownMenuItem onClick={logout} className="cursor-pointer text-destructive"><LogOut className="mr-2 size-4" />Log out</DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

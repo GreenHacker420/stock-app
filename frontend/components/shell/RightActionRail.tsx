@@ -1,13 +1,14 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useOS, formatShortcutForOS } from "@/lib/keyboard/os";
 import { useAuthStore } from "@/lib/auth/auth-store";
 import { hasPermission } from "@/lib/permissions/permissions";
-import { getActionableFeatures, FeatureDefinition } from "@/lib/features/feature-availability";
-import { Receipt, Truck, ShoppingBag, CreditCard, Warehouse, Calendar, Store } from "lucide-react";
+import { getActionableFeatures, type FeatureDefinition } from "@/lib/features/feature-availability";
+import { Calendar, CreditCard, Receipt, ShoppingBag, Store, Truck, Warehouse } from "lucide-react";
 
 const FEATURE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   SALE_CREATE: Receipt,
@@ -28,97 +29,54 @@ export function RightActionRail({ onOpenDateDialog, onOpenShopDialog }: RightAct
   const router = useRouter();
   const { user } = useAuthStore();
   const { isMac } = useOS();
-
   const actionableFeatures = getActionableFeatures();
 
   return (
-    <TooltipProvider delay={300}>
-      <aside className="w-52 border-l bg-card flex flex-col shrink-0 h-[calc(100vh-3.5rem)] sticky top-14 hidden lg:flex p-3 space-y-2">
-        <div className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1">
-          Quick Actions
-        </div>
-        <div className="space-y-1.5 flex-1">
-          {actionableFeatures.map((feature: FeatureDefinition) => {
-            const isPermitted = hasPermission(user, feature.requiredPermission);
-            const isEnabled = feature.status === "ENABLED" && isPermitted;
-            const isDisabled = feature.status === "DISABLED" || !isPermitted;
-            const IconComp = FEATURE_ICONS[feature.id] ?? Receipt;
-            const disabledReason = !isPermitted
-              ? "You do not have permission for this action."
-              : feature.disabledReason;
+    <aside className="hidden h-full w-[clamp(10.75rem,12.8vw,14rem)] shrink-0 flex-col border-l bg-card/68 xl:flex">
+      <div className="shrink-0 border-b px-[clamp(0.6rem,0.8vw,0.85rem)] py-[clamp(0.55rem,1vh,0.8rem)]">
+        <div className="text-[9px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">Quick actions</div>
+        <p className="mt-1 text-[9px] leading-4 text-muted-foreground">Only enabled workflows register shortcuts.</p>
+      </div>
 
-            const btn = (
-              <Button
-                key={feature.id}
-                variant={isEnabled ? "default" : "outline"}
-                size="sm"
-                disabled={isDisabled}
-                onClick={isEnabled ? () => router.push(feature.route) : undefined}
-                aria-disabled={isDisabled}
-                className={[
-                  "w-full justify-between h-9 text-xs font-medium",
-                  isEnabled ? "cursor-pointer" : "cursor-not-allowed opacity-50",
-                ].join(" ")}
-              >
-                <span className="flex items-center gap-2">
-                  <IconComp className="h-3.5 w-3.5" />
-                  <span>{feature.label}</span>
-                </span>
-                {feature.shortcut && (
-                  <kbd className="pointer-events-none inline-flex h-4 select-none items-center rounded border bg-muted/60 px-1 font-mono text-[9px] font-extrabold text-muted-foreground">
-                    {formatShortcutForOS(feature.shortcut, isMac)}
-                  </kbd>
-                )}
-              </Button>
-            );
+      <div className="min-h-0 flex-1 space-y-[clamp(0.15rem,0.35vh,0.3rem)] overflow-y-auto p-[clamp(0.45rem,0.65vw,0.7rem)]">
+        {actionableFeatures.map((feature: FeatureDefinition) => {
+          const isPermitted = hasPermission(user, feature.requiredPermission);
+          const isEnabled = feature.status === "ENABLED" && isPermitted;
+          const Icon = FEATURE_ICONS[feature.id] ?? Receipt;
+          const disabledReason = !isPermitted ? "You do not have permission for this action." : feature.disabledReason;
 
-            if (isDisabled && disabledReason) {
-              return (
-                <Tooltip key={feature.id}>
-                  <TooltipTrigger className="w-full" render={btn} />
-                  <TooltipContent side="left" className="max-w-[200px] text-[11px]">
-                    {disabledReason}
-                  </TooltipContent>
-                </Tooltip>
-              );
-            }
+          const action = (
+            <Button
+              key={feature.id}
+              variant={isEnabled ? "secondary" : "ghost"}
+              size="sm"
+              disabled={!isEnabled}
+              onClick={isEnabled ? () => router.push(feature.route) : undefined}
+              className={[
+                "h-[clamp(2.05rem,4.25vh,2.4rem)] w-full justify-start gap-[clamp(0.35rem,0.45vw,0.55rem)] rounded-lg px-[clamp(0.45rem,0.55vw,0.65rem)] text-[clamp(0.62rem,0.66vw,0.72rem)] font-medium",
+                isEnabled ? "text-foreground" : "opacity-45",
+              ].join(" ")}
+            >
+              <span className={isEnabled ? "flex size-[clamp(1.3rem,2.7vh,1.55rem)] items-center justify-center rounded-md bg-background shadow-xs" : "flex size-[clamp(1.3rem,2.7vh,1.55rem)] items-center justify-center rounded-md bg-muted"}>
+                <Icon className="size-3.5" />
+              </span>
+              <span className="min-w-0 flex-1 truncate text-left">{feature.label}</span>
+              {feature.shortcut && isEnabled ? <kbd className="rounded border bg-background px-1 font-mono text-[8px] text-muted-foreground">{formatShortcutForOS(feature.shortcut, isMac)}</kbd> : null}
+              {!isEnabled && feature.status === "DISABLED" ? <Badge variant="outline" className="h-4 px-1 text-[8px]">Soon</Badge> : null}
+            </Button>
+          );
 
-            return btn;
-          })}
-        </div>
+          if (!isEnabled && disabledReason) {
+            return <Tooltip key={feature.id}><TooltipTrigger className="w-full" render={action} /><TooltipContent side="left" className="w-[min(80vw,18rem)] text-[11px]">{disabledReason}</TooltipContent></Tooltip>;
+          }
+          return action;
+        })}
+      </div>
 
-        {/* Utility actions — always functional */}
-        <div className="border-t pt-2 space-y-1.5">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => onOpenDateDialog?.()}
-            className="w-full justify-between h-9 text-xs font-medium cursor-pointer"
-          >
-            <span className="flex items-center gap-2">
-              <Calendar className="h-3.5 w-3.5" />
-              <span>Select Date</span>
-            </span>
-            <kbd className="pointer-events-none inline-flex h-4 select-none items-center rounded border bg-muted/60 px-1 font-mono text-[9px] font-extrabold text-muted-foreground">
-              {formatShortcutForOS("f2", isMac)}
-            </kbd>
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => onOpenShopDialog?.()}
-            className="w-full justify-between h-9 text-xs font-medium cursor-pointer"
-          >
-            <span className="flex items-center gap-2">
-              <Store className="h-3.5 w-3.5" />
-              <span>Switch Shop</span>
-            </span>
-            <kbd className="pointer-events-none inline-flex h-4 select-none items-center rounded border bg-muted/60 px-1 font-mono text-[9px] font-extrabold text-muted-foreground">
-              {formatShortcutForOS("f3", isMac)}
-            </kbd>
-          </Button>
-        </div>
-      </aside>
-    </TooltipProvider>
+      <div className="shrink-0 space-y-1 border-t p-[clamp(0.45rem,0.65vw,0.7rem)]">
+        <Button variant="ghost" size="sm" onClick={() => onOpenDateDialog?.()} className="h-[clamp(2.05rem,4.25vh,2.4rem)] w-full justify-start gap-2 px-2 text-[10px]"><span className="flex size-6 items-center justify-center rounded-md bg-muted"><Calendar className="size-3.5" /></span><span className="flex-1 text-left">Business period</span><kbd className="rounded border bg-background px-1 font-mono text-[8px] text-muted-foreground">{formatShortcutForOS("f2", isMac)}</kbd></Button>
+        <Button variant="ghost" size="sm" onClick={() => onOpenShopDialog?.()} className="h-[clamp(2.05rem,4.25vh,2.4rem)] w-full justify-start gap-2 px-2 text-[10px]"><span className="flex size-6 items-center justify-center rounded-md bg-muted"><Store className="size-3.5" /></span><span className="flex-1 text-left">Switch shop</span><kbd className="rounded border bg-background px-1 font-mono text-[8px] text-muted-foreground">{formatShortcutForOS("f3", isMac)}</kbd></Button>
+      </div>
+    </aside>
   );
 }

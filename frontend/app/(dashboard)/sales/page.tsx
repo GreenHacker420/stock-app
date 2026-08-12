@@ -1,154 +1,206 @@
 "use client";
 
-import Link from "next/link";
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import * as React from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { useAuthStore } from "@/lib/auth/auth-store";
-import { apiRequest } from "@/lib/api/client";
-import { formatINR, formatDate } from "@/lib/utils";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import type { ColumnDef } from "@tanstack/react-table";
+import { FileText, Plus, Receipt, RefreshCw, Search, WalletCards } from "lucide-react";
+
+import { OperationalDataTable } from "@/components/data-grid/OperationalDataTable";
 import { Badge } from "@/components/ui/badge";
-import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Search, Receipt, ArrowLeft, RefreshCw, FileText, ChevronRight } from "lucide-react";
+import { FeatureActionButton } from "@/components/workspace/FeatureActionButton";
+import { WorkspaceMetric, WorkspaceMetricGrid } from "@/components/workspace/WorkspaceMetrics";
+import { WorkspacePage, WorkspacePageHeader, WorkspacePanel, WorkspaceToolbar } from "@/components/workspace/WorkspacePage";
+import { fetchSalesRegister } from "@/features/registers/api/register.queries";
+import type { SaleRegisterRow } from "@/features/registers/lib/register-types";
+import { useAuthStore } from "@/lib/auth/auth-store";
+import { queryKeys } from "@/lib/query/query-keys";
+import { formatDate, formatINR } from "@/lib/utils";
+
+const PAGE_SIZE = 50;
+
+function paymentBadge(status: SaleRegisterRow["paymentStatus"]) {
+  if (status === "PAID") return <Badge className="bg-emerald-600 text-[9px] text-white">Paid</Badge>;
+  if (status === "PARTIALLY_PAID") return <Badge variant="outline" className="border-amber-300 bg-amber-50 text-[9px] text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">Part paid</Badge>;
+  return <Badge variant="outline" className="border-rose-200 bg-rose-50 text-[9px] text-rose-700 dark:bg-rose-950/30 dark:text-rose-300">Unpaid</Badge>;
+}
 
 export default function SalesRegisterPage() {
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { token, shops, activeShopId, startDate, endDate } = useAuthStore();
-  const [searchTerm, setSearchTerm] = useState("");
-  const currentShopId = activeShopId || (shops.length > 0 ? shops[0].id : "");
+  const shopId = activeShopId || shops[0]?.id || "";
+  const page = Math.max(1, Number(searchParams.get("page") || "1") || 1);
+  const [pageFilter, setPageFilter] = React.useState("");
 
-  const { data: salesResponse, isLoading, refetch } = useQuery({
-    queryKey: ["sales", currentShopId, startDate, endDate],
-    queryFn: () =>
-      apiRequest(`/sales?shopId=${currentShopId}&dateFrom=${startDate}&dateTo=${endDate}`, {
-        token: token || undefined,
-      }),
-    enabled: !!token && !!currentShopId,
+  const query = useQuery({
+    queryKey: queryKeys.sales.register({ shopId, page, limit: PAGE_SIZE, dateFrom: startDate, dateTo: endDate }),
+    queryFn: () => fetchSalesRegister(token ?? "", { shopId, page, limit: PAGE_SIZE, dateFrom: startDate, dateTo: endDate }),
+    enabled: Boolean(token && shopId),
+    placeholderData: (previous) => previous,
+    staleTime: 30_000,
   });
 
-  const rawSales = Array.isArray(salesResponse)
-    ? salesResponse
-    : salesResponse?.data && Array.isArray(salesResponse.data)
-    ? salesResponse.data
-    : [];
+  const rows = React.useMemo(() => {
+    const value = pageFilter.trim().toLowerCase();
+    if (!value) return query.data ?? [];
+    return (query.data ?? []).filter((sale) =>
+      sale.saleNumber.toLowerCase().includes(value) ||
+      sale.customer?.name?.toLowerCase().includes(value) ||
+      sale.customer?.phone?.toLowerCase().includes(value),
+    );
+  }, [pageFilter, query.data]);
 
-  const filteredSales = rawSales.filter((s: any) =>
-    s.invoiceNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    s.customerName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    s.customer?.name?.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const pageTotals = React.useMemo(() => (query.data ?? []).reduce(
+    (total, sale) => ({
+      amount: total.amount + Number(sale.totalAmount),
+      paid: total.paid + Number(sale.paidAmount),
+      balance: total.balance + Number(sale.balanceAmount),
+      paidCount: total.paidCount + (sale.paymentStatus === "PAID" ? 1 : 0),
+    }),
+    { amount: 0, paid: 0, balance: 0, paidCount: 0 },
+  ), [query.data]);
+
+  const setPage = (nextPage: number) => {
+    const next = new URLSearchParams(searchParams.toString());
+    if (nextPage <= 1) next.delete("page");
+    else next.set("page", String(nextPage));
+    router.replace(`${pathname}?${next.toString()}`, { scroll: false });
+  };
+
+  const columns = React.useMemo<ColumnDef<SaleRegisterRow>[]>(() => [
+    {
+      accessorKey: "saleNumber",
+      header: "Sale #",
+      cell: ({ row }) => <span className="font-mono text-[11px] font-semibold text-foreground">{row.original.saleNumber}</span>,
+    },
+    {
+      accessorKey: "saleDate",
+      header: "Date",
+      cell: ({ row }) => <span className="whitespace-nowrap text-muted-foreground">{formatDate(row.original.saleDate)}</span>,
+    },
+    {
+      id: "customer",
+      header: "Customer",
+      cell: ({ row }) => (
+        <div className="min-w-[clamp(10rem,16vw,17rem)]">
+          <div className="truncate font-semibold">{row.original.customer?.name || "Walk-in Customer"}</div>
+          <div className="truncate text-[10px] text-muted-foreground">{row.original.customer?.phone || (row.original.isWalkin ? "Walk-in" : "No phone")}</div>
+        </div>
+      ),
+    },
+    {
+      id: "items",
+      header: "Items",
+      cell: ({ row }) => <span className="numeric-cell block text-right text-muted-foreground">{row.original._count.items}</span>,
+    },
+    {
+      accessorKey: "totalAmount",
+      header: "Total",
+      cell: ({ row }) => <span className="numeric-cell block text-right font-semibold">{formatINR(row.original.totalAmount)}</span>,
+    },
+    {
+      accessorKey: "balanceAmount",
+      header: "Balance",
+      cell: ({ row }) => <span className="numeric-cell block text-right font-medium text-rose-600 dark:text-rose-300">{formatINR(row.original.balanceAmount)}</span>,
+    },
+    {
+      accessorKey: "paymentStatus",
+      header: "Payment",
+      cell: ({ row }) => <div className="text-right">{paymentBadge(row.original.paymentStatus)}</div>,
+    },
+    {
+      id: "gst",
+      header: "Invoice",
+      cell: ({ row }) => (
+        <div className="text-right">
+          <Badge variant="secondary" className="text-[9px]">{row.original.gstRequired ? row.original.gstInvoiceStatus.replaceAll("_", " ") : "Non-GST"}</Badge>
+        </div>
+      ),
+    },
+  ], []);
 
   return (
-    <div className="space-y-6 max-w-7xl mx-auto">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <Link href="/dashboard">
-            <Button variant="ghost" size="icon" className="h-9 w-9">
-              <ArrowLeft className="h-4 w-4" />
+    <WorkspacePage>
+      <WorkspacePageHeader
+        kicker="Records · Sales"
+        title="Sales register"
+        description={`Server-authoritative sales for ${startDate} to ${endDate}. Staff automatically see only their own sales.`}
+        icon={Receipt}
+        actions={(
+          <>
+            <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={() => void query.refetch()}>
+              <RefreshCw className="size-3.5" />
+              Refresh
             </Button>
-          </Link>
-          <div>
-            <h1 className="text-2xl font-black tracking-tight">Sales Register</h1>
-            <p className="text-xs text-muted-foreground">View and manage all sales transactions for period ({startDate} to {endDate}).</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => refetch()} className="h-9 gap-1 text-xs">
-            <RefreshCw className="h-3.5 w-3.5" />
-            <span>Refresh</span>
-          </Button>
-          <Link href="/sales/new">
-            <Button size="sm" className="h-9 gap-1 font-bold text-xs">
-              <Plus className="h-4 w-4" />
-              <span>New Sale (F8)</span>
-            </Button>
-          </Link>
-        </div>
-      </div>
+            <FeatureActionButton featureId="SALE_CREATE" icon={Plus} />
+          </>
+        )}
+      />
 
-      <Card>
-        <CardHeader className="pb-3 flex flex-row items-center justify-between">
-          <CardTitle className="text-sm font-bold">Invoices & Transactions</CardTitle>
-          <div className="w-72 relative">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+      <WorkspaceMetricGrid>
+        <WorkspaceMetric label="Invoices on page" value={(query.data ?? []).length.toLocaleString("en-IN")} detail={`Page ${page} · up to ${PAGE_SIZE} records`} icon={FileText} loading={query.isLoading} />
+        <WorkspaceMetric label="Sales value" value={formatINR(pageTotals.amount)} detail="Current server page" icon={Receipt} tone="info" loading={query.isLoading} />
+        <WorkspaceMetric label="Collected" value={formatINR(pageTotals.paid)} detail={`${pageTotals.paidCount} invoices fully paid`} icon={WalletCards} tone="success" loading={query.isLoading} />
+        <WorkspaceMetric label="Balance" value={formatINR(pageTotals.balance)} detail="Outstanding on current page" icon={WalletCards} tone={pageTotals.balance > 0 ? "warning" : "neutral"} loading={query.isLoading} />
+      </WorkspaceMetricGrid>
+
+      <WorkspacePanel title="Invoices and transactions" description="The backend does not expose register-wide text search yet, so this text filter applies only to the current server page.">
+        <WorkspaceToolbar>
+          <div className="relative w-[clamp(13rem,28vw,32rem)] max-w-full flex-1 sm:flex-none">
+            <Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder="Search customer or invoice number..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9 h-9 text-xs"
+              value={pageFilter}
+              onChange={(event) => setPageFilter(event.target.value)}
+              placeholder="Filter this page by sale #, customer or phone…"
+              className="h-9 bg-background pl-9 text-xs"
             />
           </div>
-        </CardHeader>
-        <CardContent>
-          <div className="border rounded-md overflow-x-auto">
-            <Table>
-              <TableHeader className="bg-muted/50">
-                <TableRow>
-                  <TableHead className="w-28 text-xs">Invoice #</TableHead>
-                  <TableHead className="text-xs">Date</TableHead>
-                  <TableHead className="text-xs">Customer</TableHead>
-                  <TableHead className="text-xs text-right">Amount</TableHead>
-                  <TableHead className="text-xs text-right">Payment Status</TableHead>
-                  <TableHead className="text-xs text-center">GST</TableHead>
-                  <TableHead className="w-24 text-xs text-center">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {isLoading ? (
-                  <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8 text-xs text-muted-foreground">
-                      Loading sales register...
-                    </TableCell>
-                  </TableRow>
-                ) : filteredSales.length > 0 ? (
-                  filteredSales.map((sale: any) => (
-                    <TableRow
-                      key={sale.id}
-                      onClick={() => router.push(`/sales/${sale.id}`)}
-                      className="hover:bg-indigo-50/50 dark:hover:bg-slate-800/50 text-xs cursor-pointer transition-colors group"
-                    >
-                      <TableCell className="font-bold text-primary group-hover:underline">
-                        {sale.invoiceNumber || sale.id.slice(0, 8)}
-                      </TableCell>
-                      <TableCell className="text-muted-foreground">{formatDate(sale.saleDate || sale.createdAt)}</TableCell>
-                      <TableCell className="font-semibold text-slate-900 dark:text-slate-100">
-                        {sale.customerName || sale.customer?.name || "Walk-in Customer"}
-                      </TableCell>
-                      <TableCell className="text-right font-black">{formatINR(sale.totalAmount || sale.finalAmount)}</TableCell>
-                      <TableCell className="text-right">
-                        <Badge variant={sale.paymentStatus === "PAID" ? "default" : "secondary"} className="text-[10px]">
-                          {sale.paymentStatus || "RECORDED"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-center">
-                        <Badge variant="outline" className="text-[10px]">
-                          {sale.gstRequired ? "GST" : "Non-GST"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-center">
-                        <Button variant="ghost" size="sm" className="h-7 text-[11px] font-bold text-primary gap-1">
-                          <FileText className="h-3.5 w-3.5" />
-                          <span>View</span>
-                          <ChevronRight className="h-3 w-3" />
-                        </Button>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                ) : (
-                  <TableRow>
-                    <TableCell colSpan={7} className="text-center py-8 text-xs text-muted-foreground">
-                      No sales found for period ({startDate} to {endDate}).
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
+          <Badge variant="outline" className="h-8 text-[10px]">Business period: {startDate} → {endDate}</Badge>
+        </WorkspaceToolbar>
+
+        <OperationalDataTable
+          data={rows}
+          columns={columns}
+          getRowId={(sale) => sale.id}
+          isLoading={query.isLoading}
+          isError={query.isError}
+          onRetry={() => void query.refetch()}
+          onRowOpen={(sale) => router.push(`/sales/${sale.id}`)}
+          emptyTitle="No sales found"
+          emptyDescription={pageFilter ? "No records on this page match the filter." : "No sales were returned for the selected business period."}
+          renderMobileCard={(sale) => (
+            <div className="rounded-xl border bg-card p-3 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-mono text-[10px] font-semibold text-muted-foreground">{sale.saleNumber}</p>
+                  <p className="mt-1 truncate text-sm font-semibold">{sale.customer?.name || "Walk-in Customer"}</p>
+                  <p className="mt-0.5 text-[10px] text-muted-foreground">{formatDate(sale.saleDate)} · {sale._count.items} items</p>
+                </div>
+                {paymentBadge(sale.paymentStatus)}
+              </div>
+              <div className="mt-3 flex items-end justify-between gap-3 border-t pt-2">
+                <div>
+                  <p className="workspace-kicker">Balance</p>
+                  <p className="numeric-cell mt-0.5 text-xs font-semibold text-rose-600">{formatINR(sale.balanceAmount)}</p>
+                </div>
+                <p className="numeric-cell text-base font-semibold">{formatINR(sale.totalAmount)}</p>
+              </div>
+            </div>
+          )}
+        />
+
+        <div className="flex items-center justify-between border-t bg-muted/20 px-[clamp(0.7rem,1vw,1rem)] py-2.5 text-[10px] text-muted-foreground">
+          <span>Page {page} · {(query.data ?? []).length} records returned</span>
+          <div className="flex gap-1.5">
+            <Button variant="outline" size="sm" className="h-8" disabled={page <= 1} onClick={() => setPage(page - 1)}>Previous</Button>
+            <Button variant="outline" size="sm" className="h-8" disabled={(query.data ?? []).length < PAGE_SIZE} onClick={() => setPage(page + 1)}>Next</Button>
           </div>
-        </CardContent>
-      </Card>
-    </div>
+        </div>
+      </WorkspacePanel>
+    </WorkspacePage>
   );
 }

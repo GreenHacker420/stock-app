@@ -1,33 +1,37 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Inter, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
 const inter = Inter({
   variable: "--font-geist-sans",
   subsets: ["latin"],
+  display: "swap",
 });
 
 const geistMono = Geist_Mono({
   variable: "--font-geist-mono",
   subsets: ["latin"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "Shop Control — Desktop Web Dashboard",
-  description: "Production-grade desktop operations console and web dashboard for retail & distribution.",
+  title: {
+    default: "Shop Control",
+    template: "%s · Shop Control",
+  },
+  description: "Keyboard-first operations workspace for sales, inventory, customers, collections and retail controls.",
 };
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  viewportFit: "cover",
+};
+
+export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html
-      lang="en"
-      className={`${inter.variable} ${geistMono.variable} h-full font-sans antialiased`}
-    >
-      <body className="min-h-full flex flex-col font-sans bg-slate-50 text-slate-900 dark:bg-slate-950 dark:text-slate-100">{children}</body>
+    <html lang="en" className={`${inter.variable} ${geistMono.variable} h-full font-sans antialiased`}>
+      <body className="min-h-dvh w-full bg-background font-sans text-foreground">{children}</body>
     </html>
   );
 }

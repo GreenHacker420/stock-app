@@ -1,17 +1,17 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { loginApi, fetchShopsApi } from "@/lib/api/client";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { fetchShopsApi, loginApi } from "@/lib/api/client";
 import { useAuthStore } from "@/lib/auth/auth-store";
-import { Store, ShieldCheck, AlertCircle, Loader2 } from "lucide-react";
+import { AlertCircle, Boxes, Command, Loader2, LockKeyhole, ShieldCheck, Store, Workflow } from "lucide-react";
 
 const loginSchema = z.object({
   identifier: z.string().min(1, "Mobile or email is required"),
@@ -27,119 +27,101 @@ export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    if (isAuthenticated && token) {
-      router.push("/dashboard");
-    }
+    if (isAuthenticated && token) router.push("/dashboard");
   }, [isAuthenticated, token, router]);
 
-  const {
-    register,
-    handleSubmit,
-    formState: { errors },
-  } = useForm<LoginFormValues>({
+  const { register, handleSubmit, formState: { errors } } = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
-    defaultValues: {
-      identifier: "",
-      password: "",
-    },
+    defaultValues: { identifier: "", password: "" },
   });
 
   const onSubmit = async (data: LoginFormValues) => {
     setErrorMsg(null);
     setIsLoading(true);
-
     try {
-      const res = await loginApi(data.identifier, data.password);
-      setAuth(res.user, res.token);
-
-      // Fetch user's shops
+      const result = await loginApi(data.identifier.trim(), data.password);
+      setAuth(result.user, result.token);
       try {
-        const shops = await fetchShopsApi(res.token);
-        setShops(shops);
+        setShops(await fetchShopsApi(result.token));
       } catch {
-        // Continue even if shops fetch succeeds later
+        setShops([]);
       }
-
       router.push("/dashboard");
-    } catch (err: any) {
-      setErrorMsg(err.message || "Invalid mobile/email or password");
+    } catch (error) {
+      setErrorMsg(error instanceof Error ? error.message : "Invalid mobile/email or password");
     } finally {
       setIsLoading(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 p-4">
-      <Card className="w-full max-w-md shadow-lg border border-slate-200 dark:border-slate-800">
-        <CardHeader className="space-y-2 text-center">
-          <div className="mx-auto h-12 w-12 rounded-xl bg-primary/10 flex items-center justify-center text-primary">
-            <Store className="h-6 w-6" />
-          </div>
-          <CardTitle className="text-2xl font-extrabold tracking-tight text-slate-900 dark:text-slate-100">
-            Shop Control
-          </CardTitle>
-          <CardDescription>
-            Desktop Operations Console & Dashboard
-          </CardDescription>
-        </CardHeader>
-        <form onSubmit={handleSubmit(onSubmit)}>
-          <CardContent className="space-y-4">
-            {errorMsg && (
-              <Alert variant="destructive">
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>{errorMsg}</AlertDescription>
-              </Alert>
-            )}
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                Mobile Number / Email
-              </label>
-              <Input
-                placeholder="Enter mobile or email"
-                {...register("identifier")}
-                autoFocus
-                disabled={isLoading}
-              />
-              {errors.identifier && (
-                <p className="text-xs text-destructive font-medium">{errors.identifier.message}</p>
-              )}
+    <main className="subtle-grid-background relative flex min-h-dvh w-screen items-stretch overflow-hidden bg-background">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_18%_18%,color-mix(in_srgb,var(--accent)_76%,transparent),transparent_28%),radial-gradient(circle_at_82%_72%,color-mix(in_srgb,var(--chart-2)_10%,transparent),transparent_30%)]" />
+
+      <section className="relative hidden min-h-dvh flex-1 flex-col justify-between border-r bg-card/54 p-[clamp(1.5rem,3vw,4.5rem)] lg:flex">
+        <div className="flex items-center gap-3">
+          <span className="flex size-[clamp(2.4rem,5vh,3.1rem)] items-center justify-center rounded-xl bg-foreground text-background shadow-lg"><Boxes className="size-5" /></span>
+          <div><p className="text-[clamp(0.95rem,1.1vw,1.2rem)] font-semibold tracking-tight">Shop Control</p><p className="text-[10px] uppercase tracking-[0.16em] text-muted-foreground">Operations workspace</p></div>
+        </div>
+
+        <div className="w-[clamp(22rem,42vw,46rem)]">
+          <p className="workspace-kicker">Desktop operations</p>
+          <h1 className="mt-3 text-[clamp(2rem,4.6vw,5.2rem)] font-semibold leading-[0.98] tracking-[-0.055em] text-foreground">Fast registers.<br />Real stock.<br />One control surface.</h1>
+          <p className="mt-[clamp(1rem,2vh,1.6rem)] w-[clamp(18rem,34vw,38rem)] text-[clamp(0.76rem,0.9vw,1rem)] leading-6 text-muted-foreground">Keyboard-first operations over the same backend contracts, permissions, stock ledger and customer accounts used by the mobile application.</p>
+        </div>
+
+        <div className="grid w-[clamp(24rem,46vw,52rem)] grid-cols-3 gap-[clamp(0.5rem,0.8vw,0.9rem)]">
+          <ValueChip icon={Command} label="Keyboard first" />
+          <ValueChip icon={Workflow} label="Backend aligned" />
+          <ValueChip icon={ShieldCheck} label="RBAC enforced" />
+        </div>
+      </section>
+
+      <section className="relative flex min-h-dvh w-full items-center justify-center p-[clamp(0.85rem,3vw,3rem)] lg:w-[clamp(26rem,38vw,44rem)] lg:shrink-0">
+        <Card
+          className="w-full overflow-hidden rounded-[clamp(1rem,1.3vw,1.4rem)] border bg-card/92 shadow-[0_24px_80px_rgba(15,23,42,0.12)] backdrop-blur"
+          style={{ width: "min(92vw, clamp(19rem, 31vw, 30rem))" }}
+        >
+          <CardContent className="p-[clamp(1rem,2vw,2rem)]">
+            <div className="mb-[clamp(1rem,2.2vh,1.6rem)] lg:hidden">
+              <div className="flex items-center gap-2.5"><span className="flex size-9 items-center justify-center rounded-xl bg-foreground text-background"><Store className="size-4" /></span><div><p className="font-semibold">Shop Control</p><p className="text-[9px] uppercase tracking-[0.14em] text-muted-foreground">Operations workspace</p></div></div>
             </div>
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                Password
-              </label>
-              <Input
-                type="password"
-                placeholder="••••••••"
-                {...register("password")}
-                disabled={isLoading}
-              />
-              {errors.password && (
-                <p className="text-xs text-destructive font-medium">{errors.password.message}</p>
-              )}
+            <div>
+              <p className="workspace-kicker">Authorized access</p>
+              <h2 className="mt-2 text-[clamp(1.45rem,2vw,2rem)] font-semibold tracking-tight">Sign in to operations</h2>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">Use the same account credentials and backend permissions as Shop Control.</p>
             </div>
+
+            <form onSubmit={handleSubmit(onSubmit)} className="mt-[clamp(1rem,2.5vh,1.7rem)] space-y-[clamp(0.8rem,1.6vh,1.1rem)]">
+              {errorMsg ? <Alert variant="destructive"><AlertCircle className="size-4" /><AlertDescription className="text-xs">{errorMsg}</AlertDescription></Alert> : null}
+
+              <div className="space-y-1.5">
+                <label htmlFor="login-identifier" className="text-xs font-semibold">Mobile number or email</label>
+                <Input id="login-identifier" autoComplete="username" placeholder="Enter mobile or email" {...register("identifier")} autoFocus disabled={isLoading} className="h-[clamp(2.5rem,5.2vh,2.9rem)] text-sm" />
+                {errors.identifier ? <p className="text-[10px] font-medium text-destructive">{errors.identifier.message}</p> : null}
+              </div>
+
+              <div className="space-y-1.5">
+                <label htmlFor="login-password" className="text-xs font-semibold">Password</label>
+                <Input id="login-password" type="password" autoComplete="current-password" placeholder="Enter password" {...register("password")} disabled={isLoading} className="h-[clamp(2.5rem,5.2vh,2.9rem)] text-sm" />
+                {errors.password ? <p className="text-[10px] font-medium text-destructive">{errors.password.message}</p> : null}
+              </div>
+
+              <Button type="submit" className="h-[clamp(2.55rem,5.3vh,3rem)] w-full gap-2 font-semibold" disabled={isLoading}>
+                {isLoading ? <Loader2 className="size-4 animate-spin" /> : <LockKeyhole className="size-4" />}
+                {isLoading ? "Signing in…" : "Open workspace"}
+              </Button>
+            </form>
+
+            <div className="mt-[clamp(1rem,2vh,1.4rem)] border-t pt-[clamp(0.8rem,1.6vh,1rem)] text-[10px] leading-4 text-muted-foreground">Authentication is verified by the existing backend. The web client does not bypass role, permission, or shop-access checks.</div>
           </CardContent>
-          <CardFooter className="pt-2 flex flex-col space-y-3">
-            <Button type="submit" className="w-full font-bold h-10" disabled={isLoading}>
-              {isLoading ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Logging in...
-                </>
-              ) : (
-                <>
-                  <ShieldCheck className="mr-2 h-4 w-4" />
-                  Sign In to Dashboard
-                </>
-              )}
-            </Button>
-            <p className="text-[11px] text-center text-muted-foreground">
-              Secure desktop connection. Reuses existing backend permissions.
-            </p>
-          </CardFooter>
-        </form>
-      </Card>
-    </div>
+        </Card>
+      </section>
+    </main>
   );
+}
+
+function ValueChip({ icon: Icon, label }: { icon: React.ComponentType<{ className?: string }>; label: string }) {
+  return <div className="flex min-h-[clamp(3rem,6vh,4rem)] items-center gap-2 rounded-xl border bg-background/70 px-[clamp(0.65rem,0.9vw,0.9rem)] text-[clamp(0.64rem,0.72vw,0.8rem)] font-medium text-muted-foreground backdrop-blur"><Icon className="size-3.5 text-foreground" /><span>{label}</span></div>;
 }
