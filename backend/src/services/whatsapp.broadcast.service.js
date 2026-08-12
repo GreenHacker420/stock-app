@@ -14,6 +14,83 @@ function normalizeRecipientPhone(phone) {
   return `+${digits}`;
 }
 
+function bindingKey(binding) {
+  return `${binding.component}:${binding.cardIndex ?? ""}:${binding.buttonIndex ?? ""}:${binding.position}`;
+}
+
+function templateButtonType(template, buttonIndex = 0) {
+  const draftButton = template.draftDefinition?.buttons?.[buttonIndex];
+  if (draftButton?.type) return String(draftButton.type).toUpperCase();
+  const buttons = Array.isArray(template.components)
+    ? template.components.find((component) => String(component?.type || "").toUpperCase() === "BUTTONS")?.buttons || []
+    : [];
+  return String(buttons[buttonIndex]?.type || "").toUpperCase();
+}
+
+async function validateTemplateVariables(shopId, template, templateVariables) {
+  const bindings = Array.isArray(templateVariables?.bindings) ? templateVariables.bindings : [];
+  if (!bindings.length) return;
+  if (bindings.length > 100) throw new ApiError(400, "Too many broadcast template bindings");
+
+  const expectedMappings = template.variableMappings || [];
+  const expected = new Set(expectedMappings.map(bindingKey));
+  const seen = new Set();
+  const attributeIds = [];
+
+  for (const binding of bindings) {
+    if (!binding || !["HEADER", "BODY", "BUTTON", "CARD"].includes(binding.component)) {
+      throw new ApiError(400, "Invalid broadcast template binding component");
+    }
+    if (!Number.isInteger(binding.position) || binding.position < 1) {
+      throw new ApiError(400, "Invalid broadcast template binding position");
+    }
+    const key = bindingKey(binding);
+    if (seen.has(key)) throw new ApiError(400, `Duplicate runtime binding for ${binding.component} {{${binding.position}}}`);
+    seen.add(key);
+    if (!expected.has(key)) {
+      throw new ApiError(400, `Runtime binding does not match template variable ${binding.component} {{${binding.position}}}`);
+    }
+    if (binding.component === "CARD") {
+      throw new ApiError(400, "Carousel runtime bindings are not enabled for broadcasts yet");
+    }
+    if (binding.component === "BUTTON" && templateButtonType(template, binding.buttonIndex) !== "URL") {
+      throw new ApiError(400, "Only dynamic URL button values are enabled for broadcasts");
+    }
+    if (binding.mode === "FIXED") {
+      if (typeof binding.value !== "string" || !binding.value.trim()) {
+        throw new ApiError(400, `Fixed value required for ${binding.component} {{${binding.position}}}`);
+      }
+    } else if (binding.mode === "ATTRIBUTE") {
+      if (typeof binding.attributeId !== "string" || !binding.attributeId) {
+        throw new ApiError(400, `Attribute required for ${binding.component} {{${binding.position}}}`);
+      }
+      attributeIds.push(binding.attributeId);
+    } else {
+      throw new ApiError(400, "Broadcast template binding mode must be ATTRIBUTE or FIXED");
+    }
+  }
+
+  if (seen.size !== expected.size) {
+    throw new ApiError(400, "Every template variable must be configured for this broadcast");
+  }
+
+  if (attributeIds.length) {
+    const uniqueAttributeIds = [...new Set(attributeIds)];
+    const attributes = await prisma.waTemplateAttribute.findMany({
+      where: {
+        id: { in: uniqueAttributeIds },
+        shopId,
+        isActive: true,
+        source: { in: ["CUSTOMER", "CONVERSATION", "SHOP"] },
+      },
+      select: { id: true },
+    });
+    if (attributes.length !== uniqueAttributeIds.length) {
+      throw new ApiError(400, "One or more runtime template fields are unavailable for this shop");
+    }
+  }
+}
+
 export function normalizeExplicitRecipients(recipients = []) {
   const normalized = [];
   const seen = new Set();
@@ -127,10 +204,13 @@ class WhatsAppBroadcastService {
           { integrationId: integration.id },
         ],
       },
+      include: { variableMappings: true },
     });
     if (!template) {
       throw new ApiError(404, "Approved template not found for this shop and WhatsApp integration");
     }
+
+    await validateTemplateVariables(shopId, template, templateVariables);
 
     const filter = audienceFilter || { mode: "EXPLICIT" };
     const audience = filter.mode === "EXPLICIT"
