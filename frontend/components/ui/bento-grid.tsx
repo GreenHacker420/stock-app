@@ -11,10 +11,11 @@ export const BentoGrid = ({
 }) => {
   return (
     <div
-      className={cn(
-        "grid grid-cols-1 md:grid-cols-3 gap-4 max-w-7xl mx-auto",
-        className
-      )}
+      className={cn("grid w-full min-w-0", className)}
+      style={{
+        gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, clamp(15rem, 22vw, 21rem)), 1fr))",
+        gap: "var(--workspace-gap)",
+      }}
     >
       {children}
     </div>
@@ -37,21 +38,17 @@ export const BentoGridItem = ({
   return (
     <div
       className={cn(
-        "row-span-1 rounded-xl group/bento hover:shadow-xl transition duration-200 shadow-xs p-4 bg-card border border-slate-200/80 dark:border-slate-800 justify-between flex flex-col space-y-3",
-        className
+        "group/bento row-span-1 flex min-w-0 flex-col justify-between space-y-3 rounded-xl border bg-card p-[clamp(0.75rem,1vw,1rem)] shadow-[0_1px_2px_rgba(15,23,42,0.035)] transition-[transform,box-shadow,border-color] duration-200 hover:-translate-y-0.5 hover:border-foreground/15 hover:shadow-[0_12px_30px_rgba(15,23,42,0.07)]",
+        className,
       )}
     >
       {header}
-      <div className="group-hover/bento:translate-x-2 transition duration-200">
-        <div className="flex items-center gap-2 mb-1">
+      <div className="transition-transform duration-200 group-hover/bento:translate-x-0.5">
+        <div className="mb-1 flex items-center gap-2">
           {icon}
-          <div className="font-bold text-slate-900 dark:text-slate-100 text-sm">
-            {title}
-          </div>
+          <div className="text-sm font-semibold text-foreground">{title}</div>
         </div>
-        <div className="font-normal text-muted-foreground text-xs">
-          {description}
-        </div>
+        <div className="text-xs font-normal leading-5 text-muted-foreground">{description}</div>
       </div>
     </div>
   );
