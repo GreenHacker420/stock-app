@@ -106,11 +106,17 @@ function DashboardShellContent({ children }: { children: React.ReactNode }) {
   });
 
   return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
+    <div className="flex h-dvh min-h-0 w-screen min-w-0 flex-col overflow-hidden bg-background text-foreground">
       <Header onOpenCommandPalette={() => setCommandPaletteOpen(true)} />
-      <div className="flex min-h-0 flex-1 overflow-hidden">
+      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         <Sidebar />
-        <main className="min-w-0 flex-1 overflow-y-auto bg-muted/20 p-3 sm:p-4 lg:p-5 xl:p-6">
+        <main
+          className="min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden bg-[radial-gradient(circle_at_top_left,color-mix(in_srgb,var(--accent)_35%,transparent),transparent_36%),linear-gradient(to_bottom,var(--background),color-mix(in_srgb,var(--muted)_28%,var(--background)))]"
+          style={{
+            paddingInline: "var(--workspace-gutter-x)",
+            paddingBlock: "var(--workspace-gutter-y)",
+          }}
+        >
           {children}
         </main>
         <RightActionRail
@@ -138,7 +144,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           queries: {
             staleTime: 30 * 1000,
             gcTime: 5 * 60 * 1000,
-            refetchOnWindowFocus: false,
+            refetchOnWindowFocus: true,
+            refetchOnReconnect: true,
+            retry: 1,
+          },
+          mutations: {
+            retry: 0,
           },
         },
       }),
@@ -167,7 +178,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   if (!authResolved || !isAuthenticated || !token) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background text-xs text-muted-foreground">
+      <div className="flex h-dvh w-screen items-center justify-center bg-background text-xs text-muted-foreground">
         Verifying session authorization…
       </div>
     );
