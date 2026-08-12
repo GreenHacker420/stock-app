@@ -1,117 +1,116 @@
 "use client";
 
-import Link from "next/link";
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { useAuthStore } from "@/lib/auth/auth-store";
-import { apiRequest } from "@/lib/api/client";
-import { formatINR, formatDate } from "@/lib/utils";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import * as React from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { ColumnDef } from "@tanstack/react-table";
+import { CheckCircle2, Clock3, ReceiptIndianRupee, RefreshCw, Search, XCircle } from "lucide-react";
+
+import { OperationalDataTable } from "@/components/data-grid/OperationalDataTable";
 import { Badge } from "@/components/ui/badge";
-import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "@/components/ui/table";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Search, ReceiptIndianRupee, ArrowLeft, RefreshCw } from "lucide-react";
+import { WorkspaceMetric, WorkspaceMetricGrid } from "@/components/workspace/WorkspaceMetrics";
+import { WorkspacePage, WorkspacePageHeader, WorkspacePanel, WorkspaceToolbar } from "@/components/workspace/WorkspacePage";
+import { verifyExpense } from "@/features/registers/api/register.mutations";
+import { fetchExpensesRegister } from "@/features/registers/api/register.queries";
+import type { ExpenseRegisterRow } from "@/features/registers/lib/register-types";
+import { useAuthStore } from "@/lib/auth/auth-store";
+import { hasPermission, PERMISSIONS } from "@/lib/permissions/permissions";
+import { queryKeys } from "@/lib/query/query-keys";
+import { formatDate, formatINR } from "@/lib/utils";
+
+function expenseBadge(status: string) {
+  if (status === "APPROVED") return <Badge className="bg-emerald-600 text-[9px] text-white">Approved</Badge>;
+  if (status === "REJECTED") return <Badge variant="outline" className="border-rose-200 bg-rose-50 text-[9px] text-rose-700 dark:bg-rose-950/30 dark:text-rose-300">Rejected</Badge>;
+  return <Badge variant="outline" className="border-amber-300 bg-amber-50 text-[9px] text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">Pending</Badge>;
+}
 
 export default function ExpensesPage() {
-  const { token, activeShopId } = useAuthStore();
-  const [searchTerm, setSearchTerm] = useState("");
+  const queryClient = useQueryClient();
+  const { token, shops, activeShopId, user } = useAuthStore();
+  const shopId = activeShopId || shops[0]?.id || "";
+  const [filter, setFilter] = React.useState("");
+  const canVerify = hasPermission(user, PERMISSIONS.EXPENSE_VERIFY);
 
-  const { data: expenses = [], isLoading, refetch } = useQuery({
-    queryKey: ["expenses", activeShopId],
-    queryFn: () => apiRequest(`/expenses?shopId=${activeShopId || ""}`, { token: token || undefined }),
-    enabled: !!token,
+  const query = useQuery({
+    queryKey: queryKeys.expenses.list(shopId),
+    queryFn: () => fetchExpensesRegister(token ?? "", shopId),
+    enabled: Boolean(token && shopId),
+    staleTime: 30_000,
   });
 
-  const filteredExpenses = Array.isArray(expenses)
-    ? expenses.filter((e: any) =>
-        e.category?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        e.description?.toLowerCase().includes(searchTerm.toLowerCase())
-      )
-    : [];
+  const verifyMutation = useMutation({
+    mutationFn: ({ id, status }: { id: string; status: "APPROVED" | "REJECTED" }) => verifyExpense(token ?? "", id, status),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: queryKeys.expenses.list(shopId) });
+      await queryClient.invalidateQueries({ queryKey: ["dashboard"] });
+    },
+  });
+
+  const rows = React.useMemo(() => {
+    const value = filter.trim().toLowerCase();
+    if (!value) return query.data ?? [];
+    return (query.data ?? []).filter((expense) => expense.category.toLowerCase().includes(value) || expense.note?.toLowerCase().includes(value) || expense.createdBy?.name?.toLowerCase().includes(value));
+  }, [filter, query.data]);
+
+  const totals = React.useMemo(() => (query.data ?? []).reduce((acc, expense) => {
+    const amount = Number(expense.amount);
+    acc.total += amount;
+    if (expense.status === "APPROVED") acc.approved += amount;
+    else if (expense.status === "REJECTED") acc.rejected += amount;
+    else acc.pending += amount;
+    return acc;
+  }, { total: 0, approved: 0, pending: 0, rejected: 0 }), [query.data]);
+
+  const columns = React.useMemo<ColumnDef<ExpenseRegisterRow>[]>(() => [
+    { accessorKey: "createdAt", header: "Date", cell: ({ row }) => <span className="whitespace-nowrap text-muted-foreground">{formatDate(row.original.createdAt)}</span> },
+    { accessorKey: "category", header: "Category", cell: ({ row }) => <Badge variant="secondary" className="text-[9px]">{row.original.category}</Badge> },
+    { accessorKey: "note", header: "Note", cell: ({ row }) => <div className="min-w-[clamp(12rem,24vw,30rem)] truncate text-muted-foreground" title={row.original.note || undefined}>{row.original.note || "—"}</div> },
+    { id: "createdBy", header: "Recorded by", cell: ({ row }) => <span className="text-muted-foreground">{row.original.createdBy?.name || "—"}</span> },
+    { accessorKey: "amount", header: "Amount", cell: ({ row }) => <span className="numeric-cell block text-right font-semibold">{formatINR(row.original.amount)}</span> },
+    { accessorKey: "status", header: "Status", cell: ({ row }) => <div className="text-right">{expenseBadge(row.original.status)}</div> },
+    { id: "actions", header: "Action", cell: ({ row }) => {
+      const pending = !["APPROVED", "REJECTED"].includes(row.original.status);
+      if (!canVerify || !pending) return <span className="block text-right text-[10px] text-muted-foreground">—</span>;
+      return <div className="flex justify-end gap-1"><Button size="sm" variant="ghost" className="h-7 px-2 text-[10px] text-emerald-700" disabled={verifyMutation.isPending} onClick={(event) => { event.stopPropagation(); verifyMutation.mutate({ id: row.original.id, status: "APPROVED" }); }}>Approve</Button><Button size="sm" variant="ghost" className="h-7 px-2 text-[10px] text-rose-700" disabled={verifyMutation.isPending} onClick={(event) => { event.stopPropagation(); verifyMutation.mutate({ id: row.original.id, status: "REJECTED" }); }}>Reject</Button></div>;
+    } },
+  ], [canVerify, verifyMutation]);
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <Link href="/dashboard">
-            <Button variant="ghost" size="icon" className="h-9 w-9">
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-          </Link>
-          <div>
-            <h1 className="text-2xl font-black tracking-tight">Shop Expenses</h1>
-            <p className="text-xs text-muted-foreground">Log shop operating expenses, petty cash, and vendor payouts.</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => refetch()} className="h-9 gap-1 text-xs">
-            <RefreshCw className="h-3.5 w-3.5" />
-            <span>Refresh</span>
-          </Button>
-        </div>
-      </div>
+    <WorkspacePage>
+      <WorkspacePageHeader
+        kicker="Control · Cash"
+        title="Expense register"
+        description="Cash-session expenses with the backend verification workflow. The UI no longer invents a payment mode or a description field that the expense API does not have."
+        icon={ReceiptIndianRupee}
+        actions={<Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={() => void query.refetch()}><RefreshCw className="size-3.5" />Refresh</Button>}
+      />
 
-      <Card>
-        <CardHeader className="pb-3 flex flex-row items-center justify-between">
-          <CardTitle className="text-sm font-bold">Expense Register</CardTitle>
-          <div className="w-72 relative">
-            <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search category or description..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-9 h-9 text-xs"
-            />
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="border rounded-md overflow-x-auto">
-            <Table>
-              <TableHeader className="bg-muted/50">
-                <TableRow>
-                  <TableHead className="w-28 text-xs">Date</TableHead>
-                  <TableHead className="text-xs">Category</TableHead>
-                  <TableHead className="text-xs">Description</TableHead>
-                  <TableHead className="text-xs">Mode</TableHead>
-                  <TableHead className="text-xs text-right">Amount (₹)</TableHead>
-                  <TableHead className="text-xs text-center">Status</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {isLoading ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-xs text-muted-foreground">
-                      Loading expenses...
-                    </TableCell>
-                  </TableRow>
-                ) : filteredExpenses.length > 0 ? (
-                  filteredExpenses.map((exp: any) => (
-                    <TableRow key={exp.id} className="hover:bg-muted/40 text-xs cursor-pointer">
-                      <TableCell>{formatDate(exp.createdAt)}</TableCell>
-                      <TableCell className="font-bold text-slate-900 dark:text-slate-100">{exp.category}</TableCell>
-                      <TableCell className="text-muted-foreground">{exp.description || "—"}</TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="text-[10px] font-mono">{exp.paymentMode || "CASH"}</Badge>
-                      </TableCell>
-                      <TableCell className="text-right font-black text-rose-600">{formatINR(exp.amount)}</TableCell>
-                      <TableCell className="text-center">
-                        <Badge variant="secondary" className="text-[10px]">{exp.status || "LOGGED"}</Badge>
-                      </TableCell>
-                    </TableRow>
-                  ))
-                ) : (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-xs text-muted-foreground">
-                      No expense entries recorded.
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
+      <WorkspaceMetricGrid>
+        <WorkspaceMetric label="Recorded" value={formatINR(totals.total)} detail={`${(query.data ?? []).length} expense records`} icon={ReceiptIndianRupee} loading={query.isLoading} />
+        <WorkspaceMetric label="Approved" value={formatINR(totals.approved)} detail="Owner-approved expense value" icon={CheckCircle2} tone="success" loading={query.isLoading} />
+        <WorkspaceMetric label="Pending" value={formatINR(totals.pending)} detail="Awaiting verification" icon={Clock3} tone={totals.pending > 0 ? "warning" : "neutral"} loading={query.isLoading} />
+        <WorkspaceMetric label="Rejected" value={formatINR(totals.rejected)} detail="Rejected expense value" icon={XCircle} tone={totals.rejected > 0 ? "danger" : "neutral"} loading={query.isLoading} />
+      </WorkspaceMetricGrid>
+
+      <WorkspacePanel title="Expense activity" description="The current backend expense list returns the complete shop-scoped register; text filtering is therefore performed over that returned set.">
+        <WorkspaceToolbar>
+          <div className="relative w-[clamp(14rem,30vw,34rem)] max-w-full flex-1 sm:flex-none"><Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"/><Input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Filter category, note or staff…" className="h-9 bg-background pl-9 text-xs" /></div>
+          {verifyMutation.isError ? <span className="text-[10px] font-medium text-destructive">Verification failed. The register was not changed.</span> : null}
+        </WorkspaceToolbar>
+
+        <OperationalDataTable
+          data={rows}
+          columns={columns}
+          getRowId={(expense) => expense.id}
+          isLoading={query.isLoading}
+          isError={query.isError}
+          onRetry={() => void query.refetch()}
+          emptyTitle="No expenses found"
+          emptyDescription={filter ? "No expense matches the current filter." : "No expenses are recorded for the active shop."}
+          renderMobileCard={(expense) => <div className="rounded-xl border bg-card p-3"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-semibold">{expense.category}</p><p className="mt-0.5 line-clamp-2 text-[10px] text-muted-foreground">{expense.note || "No note"}</p><p className="mt-1 text-[10px] text-muted-foreground">{formatDate(expense.createdAt)} · {expense.createdBy?.name || "Unknown"}</p></div>{expenseBadge(expense.status)}</div><div className="mt-3 border-t pt-2 text-right numeric-cell text-base font-semibold">{formatINR(expense.amount)}</div></div>}
+        />
+      </WorkspacePanel>
+    </WorkspacePage>
   );
 }
