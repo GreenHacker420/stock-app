@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { use } from "react";
+import { use, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BadgeCheck, CircleAlert, CreditCard, FileText, RefreshCw, UserRound, WalletCards } from "lucide-react";
 
@@ -38,7 +38,7 @@ export default function PaymentDetailPage({ params }: { params: Promise<{ id: st
   const { id } = use(params);
   const queryClient = useQueryClient();
   const { token, user } = useAuthStore();
-  const [decision, setDecision] = React.useState<Decision>(null);
+  const [decision, setDecision] = useState<Decision>(null);
   const canVerify = hasPermission(user, PERMISSIONS.PAYMENT_VERIFY);
 
   const query = useQuery({
@@ -49,10 +49,9 @@ export default function PaymentDetailPage({ params }: { params: Promise<{ id: st
   });
 
   const mutation = useMutation({
-    mutationFn: async ({ action, note }: { action: Exclude<Decision, null>; note?: string }) => {
-      if (action === "VERIFY") return verifyPaymentDetail(token ?? "", id, note);
-      return markPaymentMismatch(token ?? "", id, note);
-    },
+    mutationFn: async ({ action, note }: { action: Exclude<Decision, null>; note?: string }) => action === "VERIFY"
+      ? verifyPaymentDetail(token ?? "", id, note)
+      : markPaymentMismatch(token ?? "", id, note),
     onSuccess: async () => {
       setDecision(null);
       await Promise.all([
@@ -83,13 +82,7 @@ export default function PaymentDetailPage({ params }: { params: Promise<{ id: st
         backHref="/payments"
         icon={CreditCard}
         meta={statusBadge(payment.status)}
-        actions={(
-          <>
-            <Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={() => void query.refetch()}><RefreshCw className="size-3.5" />Refresh</Button>
-            {canAct ? <Button variant="outline" size="sm" className="h-9 gap-1.5 text-amber-700" onClick={() => setDecision("MISMATCH")}><CircleAlert className="size-3.5" />Mark mismatch</Button> : null}
-            {canAct ? <Button size="sm" className="h-9 gap-1.5" onClick={() => setDecision("VERIFY")}><BadgeCheck className="size-3.5" />Verify payment</Button> : null}
-          </>
-        )}
+        actions={<><Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={() => void query.refetch()}><RefreshCw className="size-3.5" />Refresh</Button>{canAct ? <Button variant="outline" size="sm" className="h-9 gap-1.5 text-amber-700" onClick={() => setDecision("MISMATCH")}><CircleAlert className="size-3.5" />Mark mismatch</Button> : null}{canAct ? <Button size="sm" className="h-9 gap-1.5" onClick={() => setDecision("VERIFY")}><BadgeCheck className="size-3.5" />Verify payment</Button> : null}</>}
       />
 
       {mutation.isError ? <Alert variant="destructive"><CircleAlert className="size-4" /><AlertDescription className="text-xs">{mutation.error instanceof Error ? mutation.error.message : "Payment update failed."}</AlertDescription></Alert> : null}
@@ -102,25 +95,8 @@ export default function PaymentDetailPage({ params }: { params: Promise<{ id: st
       </WorkspaceMetricGrid>
 
       <div className="workspace-two-column">
-        <WorkspacePanel title="Receipt details" description="Fields returned by GET /payments/:id.">
-          <div className="divide-y px-[clamp(0.75rem,1vw,1rem)] text-xs">
-            <InfoLine label="Payment mode" value={payment.paymentMode.replaceAll("_", " ")} />
-            <InfoLine label="Received" value={formatDateTime(payment.receivedAt)} />
-            <InfoLine label="Reference" value={payment.referenceNumber || "—"} mono />
-            <InfoLine label="Notes" value={payment.notes || "—"} />
-            <InfoLine label="Payment ID" value={payment.id} mono />
-          </div>
-        </WorkspacePanel>
-
-        <WorkspacePanel title="Linked account" description="The payment service enforces that a payment can target at most one invoice/order document.">
-          <div className="divide-y px-[clamp(0.75rem,1vw,1rem)] text-xs">
-            <InfoLine label="Customer" value={payment.customer?.name || "—"} />
-            <InfoLine label="Linked type" value={link?.type || "Unlinked"} />
-            <InfoLine label="Linked number" value={link?.label || "—"} mono={Boolean(link)} />
-            <InfoLine label="Created" value={formatDateTime(payment.createdAt)} />
-          </div>
-          {link ? <div className="border-t p-3"><Link href={link.href} className={cn(buttonVariants({ variant: "outline", size: "sm" }), "h-9 w-full")}>Open {link.type.toLowerCase()} · {link.label}</Link></div> : null}
-        </WorkspacePanel>
+        <WorkspacePanel title="Receipt details" description="Fields returned by GET /payments/:id."><div className="divide-y px-[clamp(0.75rem,1vw,1rem)] text-xs"><InfoLine label="Payment mode" value={payment.paymentMode.replaceAll("_", " ")} /><InfoLine label="Received" value={formatDateTime(payment.receivedAt)} /><InfoLine label="Reference" value={payment.referenceNumber || "—"} mono /><InfoLine label="Notes" value={payment.notes || "—"} /><InfoLine label="Payment ID" value={payment.id} mono /></div></WorkspacePanel>
+        <WorkspacePanel title="Linked account" description="The payment service enforces that a payment can target at most one invoice/order document."><div className="divide-y px-[clamp(0.75rem,1vw,1rem)] text-xs"><InfoLine label="Customer" value={payment.customer?.name || "—"} /><InfoLine label="Linked type" value={link?.type || "Unlinked"} /><InfoLine label="Linked number" value={link?.label || "—"} mono={Boolean(link)} /><InfoLine label="Created" value={formatDateTime(payment.createdAt)} /></div>{link ? <div className="border-t p-3"><Link href={link.href} className={cn(buttonVariants({ variant: "outline", size: "sm" }), "h-9 w-full")}>Open {link.type.toLowerCase()} · {link.label}</Link></div> : null}</WorkspacePanel>
       </div>
 
       <DecisionDialog
