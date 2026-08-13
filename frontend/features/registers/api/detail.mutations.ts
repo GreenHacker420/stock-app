@@ -16,3 +16,15 @@ export async function markPaymentMismatch(token: string, paymentId: string, note
     body: note ? { note } : {},
   });
 }
+
+export async function amendPaymentAmount(
+  token: string,
+  paymentId: string,
+  payload: { amount: number; reason: string; expectedUpdatedAt: string },
+): Promise<PaymentDetail> {
+  return apiRequest<PaymentDetail>(`/payments/${paymentId}/amend`, {
+    method: "POST",
+    token,
+    body: payload,
+  });
+}

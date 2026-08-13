@@ -31,7 +31,6 @@ export const FEATURE_REGISTRY: Record<FeatureId, FeatureDefinition> = {
     requiredPermission: PERMISSIONS.SALE_CREATE,
     shortcut: "f8",
   },
-
   ORDER_CREATE: {
     id: "ORDER_CREATE",
     label: "New Order",
@@ -40,7 +39,6 @@ export const FEATURE_REGISTRY: Record<FeatureId, FeatureDefinition> = {
     requiredPermission: PERMISSIONS.ORDER_CREATE,
     shortcut: "ctrl+f8",
   },
-
   DM_CREATE: {
     id: "DM_CREATE",
     label: "Delivery Memo",
@@ -49,7 +47,6 @@ export const FEATURE_REGISTRY: Record<FeatureId, FeatureDefinition> = {
     requiredPermission: PERMISSIONS.DM_CREATE,
     shortcut: "alt+f8",
   },
-
   PAYMENT_CREATE: {
     id: "PAYMENT_CREATE",
     label: "Receive Payment",
@@ -58,29 +55,22 @@ export const FEATURE_REGISTRY: Record<FeatureId, FeatureDefinition> = {
     requiredPermission: PERMISSIONS.PAYMENT_CREATE,
     shortcut: "f6",
   },
-
   STOCK_ENTRY: {
     id: "STOCK_ENTRY",
     label: "Stock Entry",
-    status: "DISABLED",
+    status: "ENABLED",
     route: "/inventory/stock-entry",
     requiredPermission: PERMISSIONS.STOCK_CREATE_MOVEMENT,
     shortcut: "f9",
-    disabledReason: "Stock Entry is not available in this sprint. Coming in Write Recovery Sprint 2.",
-    nextSprint: "Write Recovery Sprint 2",
   },
-
   STOCK_TRANSFER: {
     id: "STOCK_TRANSFER",
     label: "Stock Transfer",
-    status: "DISABLED",
+    status: "ENABLED",
     route: "/inventory/stock-transfer",
     requiredPermission: PERMISSIONS.STOCK_CREATE_MOVEMENT,
     shortcut: "alt+f9",
-    disabledReason: "Stock Transfer is not available in this sprint. Coming in Write Recovery Sprint 2.",
-    nextSprint: "Write Recovery Sprint 2",
   },
-
   PHYSICAL_STOCK: {
     id: "PHYSICAL_STOCK",
     label: "Physical Stock",

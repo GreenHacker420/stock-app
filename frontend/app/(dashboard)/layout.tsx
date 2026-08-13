@@ -44,6 +44,8 @@ function DashboardShellContent({ children }: { children: ReactNode }) {
   const orderFeature = getFeature("ORDER_CREATE");
   const deliveryMemoFeature = getFeature("DM_CREATE");
   const paymentFeature = getFeature("PAYMENT_CREATE");
+  const stockEntryFeature = getFeature("STOCK_ENTRY");
+  const stockTransferFeature = getFeature("STOCK_TRANSFER");
   const navigationVersion = useSyncExternalStore(drilldownStack.subscribe, drilldownStack.getVersion, drilldownStack.getServerVersion);
   const canUnwind = navigationVersion >= 0 && drilldownStack.size() > 0;
 
@@ -59,14 +61,17 @@ function DashboardShellContent({ children }: { children: ReactNode }) {
       "permission.orderCreate": hasPermission(user, orderFeature.requiredPermission),
       "permission.dmCreate": hasPermission(user, deliveryMemoFeature.requiredPermission),
       "permission.paymentCreate": hasPermission(user, paymentFeature.requiredPermission),
+      "permission.stockCreateMovement": hasPermission(user, stockEntryFeature.requiredPermission),
       "feature.saleCreate": isShortcutRegistrable(saleFeature),
       "feature.orderCreate": isShortcutRegistrable(orderFeature),
       "feature.dmCreate": isShortcutRegistrable(deliveryMemoFeature),
       "feature.paymentCreate": isShortcutRegistrable(paymentFeature),
+      "feature.stockEntry": isShortcutRegistrable(stockEntryFeature),
+      "feature.stockTransfer": isShortcutRegistrable(stockTransferFeature),
       "navigation.canUnwind": canUnwind,
       "navigation.depth": drilldownStack.size(),
     });
-  }, [activeShopId, canUnwind, commandPaletteOpen, dateDialogOpen, deliveryMemoFeature, navigationVersion, orderFeature, paymentFeature, saleFeature, shopDialogOpen, user]);
+  }, [activeShopId, canUnwind, commandPaletteOpen, dateDialogOpen, deliveryMemoFeature, navigationVersion, orderFeature, paymentFeature, saleFeature, shopDialogOpen, stockEntryFeature, stockTransferFeature, user]);
 
   const unwind = useCallback(() => {
     const frame = drilldownStack.pop();
@@ -137,6 +142,22 @@ function DashboardShellContent({ children }: { children: ReactNode }) {
       when: "permission.paymentCreate && feature.paymentCreate && !dialog.open",
       execute: () => router.push(paymentFeature.route),
     },
+    stockEntry: {
+      id: "inventory.stockEntry.create",
+      title: "Stock Entry",
+      category: "Inventory",
+      description: "Post owner stock adjustments or submit staff stock-entry approval requests.",
+      when: "permission.stockCreateMovement && feature.stockEntry && !dialog.open",
+      execute: () => router.push(stockEntryFeature.route),
+    },
+    stockTransfer: {
+      id: "inventory.stockTransfer.create",
+      title: "Stock Transfer",
+      category: "Inventory",
+      description: "Transfer available inventory between accessible shops.",
+      when: "permission.stockCreateMovement && feature.stockTransfer && !dialog.open",
+      execute: () => router.push(stockTransferFeature.route),
+    },
     dismiss: {
       id: "overlay.dismiss",
       title: "Close Overlay",
@@ -148,7 +169,7 @@ function DashboardShellContent({ children }: { children: ReactNode }) {
         else if (shopDialogOpen) setShopDialogOpen(false);
       },
     },
-  }), [commandPaletteOpen, dateDialogOpen, deliveryMemoFeature.route, orderFeature.route, paymentFeature.route, router, saleFeature.route, shopDialogOpen, unwind]);
+  }), [commandPaletteOpen, dateDialogOpen, deliveryMemoFeature.route, orderFeature.route, paymentFeature.route, router, saleFeature.route, shopDialogOpen, stockEntryFeature.route, stockTransferFeature.route, unwind]);
 
   useCommand(commands.goTo);
   useCommand(commands.unwind);
@@ -158,6 +179,8 @@ function DashboardShellContent({ children }: { children: ReactNode }) {
   useCommand(commands.order);
   useCommand(commands.deliveryMemo);
   useCommand(commands.payment);
+  useCommand(commands.stockEntry);
+  useCommand(commands.stockTransfer);
   useCommand(commands.dismiss);
 
   useKeybinding(useMemo(() => ({ id: "app-alt-g", key: "alt+g", command: "navigation.goTo", when: "!dialog.open", priority: 10 }), []));
@@ -168,6 +191,8 @@ function DashboardShellContent({ children }: { children: ReactNode }) {
   useKeybinding(useMemo(() => ({ id: "app-ctrl-f8", key: orderFeature.shortcut || "ctrl+f8", command: "orders.create", when: "!dialog.open", priority: 1 }), [orderFeature.shortcut]));
   useKeybinding(useMemo(() => ({ id: "app-alt-f8", key: deliveryMemoFeature.shortcut || "alt+f8", command: "deliveryMemos.create", when: "!dialog.open", priority: 1 }), [deliveryMemoFeature.shortcut]));
   useKeybinding(useMemo(() => ({ id: "app-f6", key: paymentFeature.shortcut || "f6", command: "payments.create", when: "!dialog.open", priority: 1 }), [paymentFeature.shortcut]));
+  useKeybinding(useMemo(() => ({ id: "app-f9", key: stockEntryFeature.shortcut || "f9", command: "inventory.stockEntry.create", when: "!dialog.open", priority: 1 }), [stockEntryFeature.shortcut]));
+  useKeybinding(useMemo(() => ({ id: "app-alt-f9", key: stockTransferFeature.shortcut || "alt+f9", command: "inventory.stockTransfer.create", when: "!dialog.open", priority: 1 }), [stockTransferFeature.shortcut]));
   useKeybinding(useMemo(() => ({ id: "overlay-esc", key: "esc", command: "overlay.dismiss", when: SHELL_OVERLAY_WHEN, priority: 100 }), []));
 
   return <div className="flex h-dvh min-h-0 w-screen min-w-0 flex-col overflow-hidden bg-background text-foreground">
