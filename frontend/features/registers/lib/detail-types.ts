@@ -7,7 +7,21 @@ import type {
   PaymentStatus,
 } from "@/features/registers/lib/register-types";
 
-export type OrderDetail = OrderRegisterRow & {
+export type OrderDetailItem = OrderRegisterRow["items"][number] & {
+  quantityPacked: DecimalValue;
+  quantityDispatched: DecimalValue;
+  quantityShortage?: DecimalValue;
+  discountAmount?: DecimalValue;
+  status?: string;
+  item: OrderRegisterRow["items"][number]["item"] & {
+    requiresSerialNumber?: boolean;
+    minimumAllowedPrice?: DecimalValue | null;
+    availableStock?: DecimalValue | null;
+  };
+};
+
+export type OrderDetail = Omit<OrderRegisterRow, "items"> & {
+  items: OrderDetailItem[];
   assignedStaff: { id: string; name: string; mobile: string } | null;
   events: Array<{
     id: string;
@@ -31,7 +45,7 @@ export type OrderDetail = OrderRegisterRow & {
     status: string;
     dispatchedAt?: string | null;
     createdAt?: string;
-    items: Array<{ id: string; quantity: DecimalValue }>;
+    items: Array<{ id: string; orderItemId?: string; quantity?: DecimalValue; quantityDispatched?: DecimalValue }>;
   }>;
 };
 

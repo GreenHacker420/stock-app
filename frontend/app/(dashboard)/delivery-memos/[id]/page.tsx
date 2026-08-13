@@ -14,6 +14,7 @@ import { WorkspaceMetric, WorkspaceMetricGrid } from "@/components/workspace/Wor
 import { WorkspacePage, WorkspacePageHeader, WorkspacePanel } from "@/components/workspace/WorkspacePage";
 import { fetchDeliveryMemoDetail } from "@/features/registers/api/detail.queries";
 import type { DeliveryMemoDetail } from "@/features/registers/lib/detail-types";
+import { DeliveryMemoOperationsPanel } from "@/features/transactions/components/DeliveryMemoOperationsPanel";
 import { useAuthStore } from "@/lib/auth/auth-store";
 import { drilldownStack } from "@/lib/navigation/drilldown-stack";
 import { queueNavigationRestoration } from "@/lib/navigation/navigation-restoration";
@@ -71,6 +72,8 @@ export default function DeliveryMemoDetailPage({ params }: { params: Promise<{ i
       <WorkspacePage>
         <WorkspacePageHeader kicker="Records · Delivery memo" title={memo.dmNumber} description="Credit-delivery document with separate lifecycle, payment, invoicing and return state from the backend domain model." backHref={null} onBack={goBack} icon={Truck} meta={<><Badge variant="secondary" className="text-[9px]">{memo.lifecycleStatus.replaceAll("_", " ")}</Badge><Badge variant="outline" className="text-[9px]">{memo.status.replaceAll("_", " ")}</Badge></>} actions={<Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={() => void query.refetch()}><RefreshCw className="size-3.5"/>Refresh</Button>} />
         <WorkspaceMetricGrid><WorkspaceMetric label="Memo value" value={formatINR(memo.estimatedAmount)} detail={`${memo.items.length} product lines`} icon={Truck} /><WorkspaceMetric label="Paid" value={formatINR(memo.paidAmount)} detail={`${memo.payments.length} payment records`} icon={WalletCards} tone={Number(memo.paidAmount) > 0 ? "success" : "neutral"} /><WorkspaceMetric label="Balance" value={formatINR(memo.balanceAmount)} detail={memo.expectedPaymentDate ? `Expected ${formatDate(memo.expectedPaymentDate)}` : "No expected payment date"} icon={WalletCards} tone={Number(memo.balanceAmount) > 0 ? "warning" : "success"} /><WorkspaceMetric label="Return state" value={(memo.returnStatus || "NO_RETURN").replaceAll("_", " ")} detail={`${memo.inventoryReturns.length} return records`} icon={PackageCheck} tone={memo.returnStatus && memo.returnStatus !== "NO_RETURN" ? "warning" : "neutral"} /></WorkspaceMetricGrid>
+
+        <DeliveryMemoOperationsPanel memo={memo} />
 
         <div className="workspace-two-column">
           <WorkspacePanel title="Customer and dispatch" description="Customer, staff, shop and related order context from GET /delivery-memos/:id."><div className="divide-y px-[clamp(0.75rem,1vw,1rem)] text-xs"><InfoLine label="Customer" value={memo.customer?.name || "—"} /><InfoLine label="Phone" value={memo.customer?.phone || "—"} mono /><InfoLine label="Recorded by" value={memo.staff?.name || "—"} /><InfoLine label="Shop" value={`${memo.shop?.name || "—"}${memo.shop?.city ? ` · ${memo.shop.city}` : ""}`} /><InfoLine label="Related order" value={memo.order?.orderNumber || "Direct delivery"} mono={Boolean(memo.order)} /></div></WorkspacePanel>
