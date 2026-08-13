@@ -41,6 +41,9 @@ function DashboardShellContent({ children }: { children: ReactNode }) {
   const [dateDialogOpen, setDateDialogOpen] = useState(false);
   const [shopDialogOpen, setShopDialogOpen] = useState(false);
   const saleFeature = getFeature("SALE_CREATE");
+  const orderFeature = getFeature("ORDER_CREATE");
+  const deliveryMemoFeature = getFeature("DM_CREATE");
+  const paymentFeature = getFeature("PAYMENT_CREATE");
   const navigationVersion = useSyncExternalStore(drilldownStack.subscribe, drilldownStack.getVersion, drilldownStack.getServerVersion);
   const canUnwind = navigationVersion >= 0 && drilldownStack.size() > 0;
 
@@ -53,11 +56,17 @@ function DashboardShellContent({ children }: { children: ReactNode }) {
       "dialog.datePeriod": dateDialogOpen,
       "dialog.shopSwitcher": shopDialogOpen,
       "permission.saleCreate": hasPermission(user, saleFeature.requiredPermission),
+      "permission.orderCreate": hasPermission(user, orderFeature.requiredPermission),
+      "permission.dmCreate": hasPermission(user, deliveryMemoFeature.requiredPermission),
+      "permission.paymentCreate": hasPermission(user, paymentFeature.requiredPermission),
       "feature.saleCreate": isShortcutRegistrable(saleFeature),
+      "feature.orderCreate": isShortcutRegistrable(orderFeature),
+      "feature.dmCreate": isShortcutRegistrable(deliveryMemoFeature),
+      "feature.paymentCreate": isShortcutRegistrable(paymentFeature),
       "navigation.canUnwind": canUnwind,
       "navigation.depth": drilldownStack.size(),
     });
-  }, [activeShopId, canUnwind, commandPaletteOpen, dateDialogOpen, navigationVersion, shopDialogOpen, saleFeature.requiredPermission, saleFeature, user]);
+  }, [activeShopId, canUnwind, commandPaletteOpen, dateDialogOpen, deliveryMemoFeature, navigationVersion, orderFeature, paymentFeature, saleFeature, shopDialogOpen, user]);
 
   const unwind = useCallback(() => {
     const frame = drilldownStack.pop();
@@ -104,6 +113,30 @@ function DashboardShellContent({ children }: { children: ReactNode }) {
       when: "permission.saleCreate && feature.saleCreate && !dialog.open",
       execute: () => router.push(saleFeature.route),
     },
+    order: {
+      id: "orders.create",
+      title: "New Order",
+      category: "Transactions",
+      description: "Create a new customer order draft.",
+      when: "permission.orderCreate && feature.orderCreate && !dialog.open",
+      execute: () => router.push(orderFeature.route),
+    },
+    deliveryMemo: {
+      id: "deliveryMemos.create",
+      title: "New Delivery Memo",
+      category: "Transactions",
+      description: "Open the delivery memo draft and posting workflow.",
+      when: "permission.dmCreate && feature.dmCreate && !dialog.open",
+      execute: () => router.push(deliveryMemoFeature.route),
+    },
+    payment: {
+      id: "payments.create",
+      title: "Receive Payment",
+      category: "Transactions",
+      description: "Record a standalone or linked customer receipt.",
+      when: "permission.paymentCreate && feature.paymentCreate && !dialog.open",
+      execute: () => router.push(paymentFeature.route),
+    },
     dismiss: {
       id: "overlay.dismiss",
       title: "Close Overlay",
@@ -115,19 +148,26 @@ function DashboardShellContent({ children }: { children: ReactNode }) {
         else if (shopDialogOpen) setShopDialogOpen(false);
       },
     },
-  }), [commandPaletteOpen, dateDialogOpen, router, saleFeature.route, shopDialogOpen, unwind]);
+  }), [commandPaletteOpen, dateDialogOpen, deliveryMemoFeature.route, orderFeature.route, paymentFeature.route, router, saleFeature.route, shopDialogOpen, unwind]);
 
   useCommand(commands.goTo);
   useCommand(commands.unwind);
   useCommand(commands.period);
   useCommand(commands.shop);
   useCommand(commands.sale);
+  useCommand(commands.order);
+  useCommand(commands.deliveryMemo);
+  useCommand(commands.payment);
   useCommand(commands.dismiss);
+
   useKeybinding(useMemo(() => ({ id: "app-alt-g", key: "alt+g", command: "navigation.goTo", when: "!dialog.open", priority: 10 }), []));
   useKeybinding(useMemo(() => ({ id: "app-report-unwind", key: "esc", command: "navigation.unwind", when: "navigation.canUnwind && report.focused && !dialog.open && !input.editable", priority: 25 }), []));
   useKeybinding(useMemo(() => ({ id: "app-f2", key: "f2", command: "report.changePeriod", when: "!dialog.open", priority: 1 }), []));
   useKeybinding(useMemo(() => ({ id: "app-f3", key: "f3", command: "shop.switch", when: "!dialog.open", priority: 1 }), []));
   useKeybinding(useMemo(() => ({ id: "app-f8", key: saleFeature.shortcut || "f8", command: "sales.create", when: "!dialog.open", priority: 1 }), [saleFeature.shortcut]));
+  useKeybinding(useMemo(() => ({ id: "app-ctrl-f8", key: orderFeature.shortcut || "ctrl+f8", command: "orders.create", when: "!dialog.open", priority: 1 }), [orderFeature.shortcut]));
+  useKeybinding(useMemo(() => ({ id: "app-alt-f8", key: deliveryMemoFeature.shortcut || "alt+f8", command: "deliveryMemos.create", when: "!dialog.open", priority: 1 }), [deliveryMemoFeature.shortcut]));
+  useKeybinding(useMemo(() => ({ id: "app-f6", key: paymentFeature.shortcut || "f6", command: "payments.create", when: "!dialog.open", priority: 1 }), [paymentFeature.shortcut]));
   useKeybinding(useMemo(() => ({ id: "overlay-esc", key: "esc", command: "overlay.dismiss", when: SHELL_OVERLAY_WHEN, priority: 100 }), []));
 
   return <div className="flex h-dvh min-h-0 w-screen min-w-0 flex-col overflow-hidden bg-background text-foreground">

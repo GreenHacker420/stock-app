@@ -22,7 +22,6 @@ export interface FeatureDefinition {
   nextSprint?: string;
 }
 
-
 export const FEATURE_REGISTRY: Record<FeatureId, FeatureDefinition> = {
   SALE_CREATE: {
     id: "SALE_CREATE",
@@ -36,34 +35,28 @@ export const FEATURE_REGISTRY: Record<FeatureId, FeatureDefinition> = {
   ORDER_CREATE: {
     id: "ORDER_CREATE",
     label: "New Order",
-    status: "DISABLED",
+    status: "ENABLED",
     route: "/orders/new",
     requiredPermission: PERMISSIONS.ORDER_CREATE,
     shortcut: "ctrl+f8",
-    disabledReason: "Order creation is not available in this sprint. Coming in Write Recovery Sprint 2.",
-    nextSprint: "Write Recovery Sprint 2",
   },
 
   DM_CREATE: {
     id: "DM_CREATE",
     label: "Delivery Memo",
-    status: "DISABLED",
+    status: "ENABLED",
     route: "/delivery-memos/new",
     requiredPermission: PERMISSIONS.DM_CREATE,
     shortcut: "alt+f8",
-    disabledReason: "Delivery Memo creation is not available in this sprint. Coming in Write Recovery Sprint 2.",
-    nextSprint: "Write Recovery Sprint 2",
   },
 
   PAYMENT_CREATE: {
     id: "PAYMENT_CREATE",
     label: "Receive Payment",
-    status: "DISABLED",
+    status: "ENABLED",
     route: "/payments/new",
     requiredPermission: PERMISSIONS.PAYMENT_CREATE,
     shortcut: "f6",
-    disabledReason: "Standalone payment entry is not available in this sprint. Payments can be added within New Sale. Coming in Write Recovery Sprint 2.",
-    nextSprint: "Write Recovery Sprint 2",
   },
 
   STOCK_ENTRY: {
@@ -99,25 +92,17 @@ export const FEATURE_REGISTRY: Record<FeatureId, FeatureDefinition> = {
   },
 };
 
-
 export function getActionableFeatures(): FeatureDefinition[] {
-  return Object.values(FEATURE_REGISTRY).filter(
-    (f) => f.status !== "UNSUPPORTED"
-  );
+  return Object.values(FEATURE_REGISTRY).filter((feature) => feature.status !== "UNSUPPORTED");
 }
-
 
 export function getEnabledFeatures(): FeatureDefinition[] {
-  return Object.values(FEATURE_REGISTRY).filter(
-    (f) => f.status === "ENABLED"
-  );
+  return Object.values(FEATURE_REGISTRY).filter((feature) => feature.status === "ENABLED");
 }
-
 
 export function getFeature(id: FeatureId): FeatureDefinition {
   return FEATURE_REGISTRY[id];
 }
-
 
 export function isShortcutRegistrable(feature: FeatureDefinition): boolean {
   return feature.status === "ENABLED" && feature.shortcut !== null;
