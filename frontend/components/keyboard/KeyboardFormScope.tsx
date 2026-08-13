@@ -60,7 +60,7 @@ export function KeyboardFormScope({
       when: `form.id == ${id} && !form.disabled && !dialog.open`,
       execute: onSubmit,
     },
-  }), [disabled, id, moveNext, movePrevious, onSubmit]);
+  }), [id, moveNext, movePrevious, onSubmit]);
 
   useCommand(commands.next);
   useCommand(commands.previous);

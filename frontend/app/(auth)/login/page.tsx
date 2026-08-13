@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ComponentType } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -122,6 +122,6 @@ export default function LoginPage() {
   );
 }
 
-function ValueChip({ icon: Icon, label }: { icon: React.ComponentType<{ className?: string }>; label: string }) {
+function ValueChip({ icon: Icon, label }: { icon: ComponentType<{ className?: string }>; label: string }) {
   return <div className="flex min-h-[clamp(3rem,6vh,4rem)] items-center gap-2 rounded-xl border bg-background/70 px-[clamp(0.65rem,0.9vw,0.9rem)] text-[clamp(0.64rem,0.72vw,0.8rem)] font-medium text-muted-foreground backdrop-blur"><Icon className="size-3.5 text-foreground" /><span>{label}</span></div>;
 }

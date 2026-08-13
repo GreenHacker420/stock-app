@@ -1,6 +1,6 @@
 "use client";
 
-import * as React from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
@@ -161,12 +161,12 @@ export function InventoryWorkspace() {
   const page = Math.max(1, Number(searchParams.get("page") || "1") || 1);
   const initialSearch = searchParams.get("search") || "";
 
-  const [searchDraft, setSearchDraft] = React.useState(initialSearch);
-  const [debouncedSearch, setDebouncedSearch] = React.useState(initialSearch);
-  const [selectedItem, setSelectedItem] = React.useState<SelectedItem | null>(null);
-  const searchRef = React.useRef<HTMLInputElement>(null);
+  const [searchDraft, setSearchDraft] = useState(initialSearch);
+  const [debouncedSearch, setDebouncedSearch] = useState(initialSearch);
+  const [selectedItem, setSelectedItem] = useState<SelectedItem | null>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
 
-  const setParams = React.useCallback((patch: Record<string, string | null>) => {
+  const setParams = useCallback((patch: Record<string, string | null>) => {
     const next = new URLSearchParams(searchParams.toString());
     Object.entries(patch).forEach(([key, value]) => {
       if (!value) next.delete(key);
@@ -176,7 +176,7 @@ export function InventoryWorkspace() {
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
   }, [pathname, router, searchParams]);
 
-  React.useEffect(() => {
+  useEffect(() => {
     const timeout = window.setTimeout(() => {
       const normalized = searchDraft.trim();
       setDebouncedSearch(normalized);
@@ -244,7 +244,7 @@ export function InventoryWorkspace() {
     staleTime: 30_000,
   });
 
-  const stockRows = React.useMemo(() => {
+  const stockRows = useMemo(() => {
     const query = debouncedSearch.toLowerCase();
     return (stockQuery.data ?? []).filter((row) => {
       const searchMatch = !query || row.item.name.toLowerCase().includes(query) || row.item.sku?.toLowerCase().includes(query);
@@ -264,7 +264,7 @@ export function InventoryWorkspace() {
     });
   }, [debouncedSearch, stockFilter, stockQuery.data]);
 
-  const movementRows = React.useMemo(() => {
+  const movementRows = useMemo(() => {
     const query = debouncedSearch.toLowerCase();
     if (!query) return movementQuery.data ?? [];
     return (movementQuery.data ?? []).filter((row) =>
@@ -274,7 +274,7 @@ export function InventoryWorkspace() {
     );
   }, [debouncedSearch, movementQuery.data]);
 
-  const stockTotals = React.useMemo(() => (stockQuery.data ?? []).reduce((acc, row) => {
+  const stockTotals = useMemo(() => (stockQuery.data ?? []).reduce((acc, row) => {
     acc.physical += asNumber(row.physicalStock);
     acc.reserved += asNumber(row.reservedStock);
     acc.available += asNumber(row.availableStock);
@@ -282,7 +282,7 @@ export function InventoryWorkspace() {
     return acc;
   }, { physical: 0, reserved: 0, available: 0, negative: 0 }), [stockQuery.data]);
 
-  const stockColumns = React.useMemo<ColumnDef<StockPosition>[]>(() => [
+  const stockColumns = useMemo<ColumnDef<StockPosition>[]>(() => [
     { id: "product", header: "Product", cell: ({ row }) => <div className="min-w-[clamp(11rem,20vw,24rem)]"><div className="truncate font-semibold">{row.original.item.name}</div><div className="mt-0.5 text-[10px] text-muted-foreground">{row.original.item.unit}</div></div> },
     { id: "sku", header: "SKU", cell: ({ row }) => <span className="font-mono text-[10px] text-muted-foreground">{row.original.item.sku || "—"}</span> },
     { id: "physical", header: "Physical", cell: ({ row }) => <span className="numeric-cell block text-right font-medium">{asNumber(row.original.physicalStock).toLocaleString("en-IN")}</span> },
@@ -296,7 +296,7 @@ export function InventoryWorkspace() {
     { id: "status", header: "Status", cell: ({ row }) => <div className="text-right">{stockBadge(row.original)}</div> },
   ], []);
 
-  const catalogColumns = React.useMemo<ColumnDef<InventoryCatalogItem>[]>(() => [
+  const catalogColumns = useMemo<ColumnDef<InventoryCatalogItem>[]>(() => [
     { id: "product", header: "Product", cell: ({ row }) => <div className="min-w-[clamp(11rem,20vw,24rem)]"><div className="truncate font-semibold">{row.original.name}</div><div className="mt-0.5 text-[10px] text-muted-foreground">{row.original.unit}{row.original.requiresSerialNumber ? " · Serial tracked" : ""}</div></div> },
     { accessorKey: "sku", header: "SKU", cell: ({ row }) => <span className="font-mono text-[10px] text-muted-foreground">{row.original.sku || "—"}</span> },
     { id: "category", header: "Category", cell: ({ row }) => <span className="text-muted-foreground">{row.original.category?.name || "Uncategorised"}</span> },
@@ -307,7 +307,7 @@ export function InventoryWorkspace() {
     { id: "available", header: "Available", cell: ({ row }) => <span className="numeric-cell block text-right font-semibold">{asNumber(row.original.availableStock).toLocaleString("en-IN")}</span> },
   ], []);
 
-  const movementColumns = React.useMemo<ColumnDef<StockMovement>[]>(() => [
+  const movementColumns = useMemo<ColumnDef<StockMovement>[]>(() => [
     { id: "product", header: "Product", cell: ({ row }) => <div className="min-w-[clamp(10rem,18vw,22rem)]"><div className="font-semibold">{row.original.item.name}</div><div className="mt-0.5 font-mono text-[9px] text-muted-foreground">{row.original.item.sku || "—"}</div></div> },
     { accessorKey: "movementType", header: "Movement", cell: ({ row }) => <Badge variant="secondary" className="text-[9px]">{MOVEMENT_LABELS[row.original.movementType]}</Badge> },
     { accessorKey: "quantityIn", header: "In", cell: ({ row }) => <span className="numeric-cell block text-right font-medium text-emerald-700 dark:text-emerald-300">{asNumber(row.original.quantityIn) || "—"}</span> },
@@ -317,7 +317,7 @@ export function InventoryWorkspace() {
     { accessorKey: "createdAt", header: "Time", cell: ({ row }) => <span className="whitespace-nowrap text-muted-foreground">{formatDateTime(row.original.createdAt)}</span> },
   ], []);
 
-  const focusActiveRow = React.useCallback(() => {
+  const focusActiveRow = useCallback(() => {
     const pointer = activePointerStore.getPointer();
     const zoneId = `${reportId}.rows`;
     const index = pointer?.zoneId === zoneId ? pointer.index : 0;
@@ -326,12 +326,12 @@ export function InventoryWorkspace() {
     });
   }, [reportId]);
 
-  const closeSelectedItem = React.useCallback(() => {
+  const closeSelectedItem = useCallback(() => {
     setSelectedItem(null);
     focusActiveRow();
   }, [focusActiveRow, setSelectedItem]);
 
-  const openStockItem = React.useCallback((row: StockPosition) => setSelectedItem({
+  const openStockItem = useCallback((row: StockPosition) => setSelectedItem({
     id: row.item.id,
     name: row.item.name,
     sku: row.item.sku,
@@ -342,7 +342,7 @@ export function InventoryWorkspace() {
     minimumStock: asNumber(row.item.minimumStock),
   }), [setSelectedItem]);
 
-  const openCatalogItem = React.useCallback((item: InventoryCatalogItem) => setSelectedItem({
+  const openCatalogItem = useCallback((item: InventoryCatalogItem) => setSelectedItem({
     id: item.id,
     name: item.name,
     sku: item.sku,
@@ -358,7 +358,7 @@ export function InventoryWorkspace() {
     serialTracked: Boolean(item.requiresSerialNumber),
   }), [setSelectedItem]);
 
-  const searchEscapeCommand = React.useMemo(() => ({
+  const searchEscapeCommand = useMemo(() => ({
     id: "inventory.search.close",
     title: "Return to Inventory Report",
     execute: ({ target }: { target?: EventTarget | null }) => {
@@ -366,7 +366,7 @@ export function InventoryWorkspace() {
       focusActiveRow();
     },
   }), [focusActiveRow]);
-  const itemCloseCommand = React.useMemo(() => ({
+  const itemCloseCommand = useMemo(() => ({
     id: "inventory.item.close",
     title: "Close Item View",
     execute: closeSelectedItem,
@@ -374,8 +374,8 @@ export function InventoryWorkspace() {
 
   useCommand(searchEscapeCommand);
   useCommand(itemCloseCommand);
-  useKeybinding(React.useMemo(() => ({ id: "inventory-search-escape", key: "esc", command: searchEscapeCommand.id, when: "inventory.search && input.editable && !dialog.open", priority: 170 }), [searchEscapeCommand.id]));
-  useKeybinding(React.useMemo(() => ({ id: "inventory-item-escape", key: "esc", command: itemCloseCommand.id, when: "inventory.itemDialog && dialog.open", priority: 420 }), [itemCloseCommand.id]));
+  useKeybinding(useMemo(() => ({ id: "inventory-search-escape", key: "esc", command: searchEscapeCommand.id, when: "inventory.search && input.editable && !dialog.open", priority: 170 }), [searchEscapeCommand.id]));
+  useKeybinding(useMemo(() => ({ id: "inventory-item-escape", key: "esc", command: itemCloseCommand.id, when: "inventory.itemDialog && dialog.open", priority: 420 }), [itemCloseCommand.id]));
 
   const refresh = () => {
     void summaryQuery.refetch();
@@ -458,7 +458,7 @@ export function InventoryWorkspace() {
   );
 }
 
-function ViewButton({ active, label, icon: Icon, onClick }: { active: boolean; label: string; icon: React.ComponentType<{ className?: string }>; onClick: () => void }) {
+function ViewButton({ active, label, icon: Icon, onClick }: { active: boolean; label: string; icon: ComponentType<{ className?: string }>; onClick: () => void }) {
   return <Button variant={active ? "secondary" : "ghost"} size="sm" className="h-8 gap-1.5 px-2.5 text-[10px]" onClick={onClick}><Icon className="size-3.5" /><span className="hidden sm:inline">{label}</span></Button>;
 }
 

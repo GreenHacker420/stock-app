@@ -1,5 +1,6 @@
 "use client";
 
+import type { ComponentType } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
@@ -102,6 +103,6 @@ export default function AdministrationPage() {
   );
 }
 
-function ControlLink({ href, icon: Icon, title, description }: { href: string; icon: React.ComponentType<{ className?: string }>; title: string; description: string }) {
+function ControlLink({ href, icon: Icon, title, description }: { href: string; icon: ComponentType<{ className?: string }>; title: string; description: string }) {
   return <Link href={href} className="group flex min-h-[clamp(4rem,8vh,5rem)] items-center gap-3 rounded-xl border bg-muted/20 p-3 transition-colors hover:border-foreground/15 hover:bg-muted/50"><span className="flex size-9 shrink-0 items-center justify-center rounded-lg border bg-card text-muted-foreground group-hover:text-foreground"><Icon className="size-4" /></span><span className="min-w-0"><span className="block text-sm font-semibold">{title}</span><span className="mt-0.5 block text-[10px] leading-4 text-muted-foreground">{description}</span></span></Link>;
 }

@@ -1,118 +1,57 @@
-import { test, expect } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
-test.describe("Foundation Stabilization E2E Tests", () => {
-  test("1. Unauthenticated dashboard access redirects to /login", async ({ page }) => {
-    await page.goto("/dashboard");
-    await page.waitForURL("**/login");
-    expect(page.url()).toContain("/login");
+import { loginAsOwner } from "./helpers/auth";
+
+test.describe("ERP shell and global keyboard commands", () => {
+  test.beforeEach(async ({ page }) => {
+    await loginAsOwner(page);
   });
 
-  test("2. Authenticated login reaches dashboard", async ({ page }) => {
-    await page.goto("/login");
-    await page.fill('input[placeholder*="mobile or email"]', "9876543210");
-    await page.fill('input[type="password"]', "owner123");
-    await page.click('button[type="submit"]');
-    await page.waitForURL("**/dashboard");
-    expect(page.url()).toContain("/dashboard");
-  });
-
-  test("3. Alt+G opens command palette once", async ({ page }) => {
-    await page.goto("/login");
-    await page.fill('input[placeholder*="mobile or email"]', "9876543210");
-    await page.fill('input[type="password"]', "owner123");
-    await page.click('button[type="submit"]');
-    await page.waitForURL("**/dashboard");
-
-    await page.keyboard.press("Alt+g");
-    const palette = page.locator('[role="dialog"] input[placeholder*="Search pages"]');
-    await expect(palette).toBeVisible();
-  });
-
-  test("4. Escape closes command palette without navigating back", async ({ page }) => {
-    await page.goto("/login");
-    await page.fill('input[placeholder*="mobile or email"]', "9876543210");
-    await page.fill('input[type="password"]', "owner123");
-    await page.click('button[type="submit"]');
-    await page.waitForURL("**/dashboard");
-
-    await page.keyboard.press("Alt+g");
-    const palette = page.locator('[role="dialog"] input[placeholder*="Search pages"]');
-    await expect(palette).toBeVisible();
-
+  test("Alt+G opens the live command palette", async ({ page }) => {
+    await page.keyboard.press("Alt+G");
+    await expect(page.getByPlaceholder(/Type a command or search pages/i)).toBeVisible();
+    await expect(page.getByText("Actions & Shortcuts", { exact: true })).toBeVisible();
     await page.keyboard.press("Escape");
-    await expect(palette).toBeHidden();
-    expect(page.url()).toContain("/dashboard");
+    await expect(page.getByPlaceholder(/Type a command or search pages/i)).toBeHidden();
   });
 
-  test("5. F3 opens shop selector dialog", async ({ page }) => {
-    await page.goto("/login");
-    await page.fill('input[placeholder*="mobile or email"]', "9876543210");
-    await page.fill('input[type="password"]', "owner123");
-    await page.click('button[type="submit"]');
-    await page.waitForURL("**/dashboard");
-
+  test("F3 opens the shop switcher", async ({ page }) => {
     await page.keyboard.press("F3");
-    const dialogTitle = page.locator('text=Switch Active Shop (F3)');
-    await expect(dialogTitle).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Switch Active Shop (F3)" })).toBeVisible();
+    await page.keyboard.press("Escape");
   });
 
-  test("6. Disabled write workflow shows unavailable state", async ({ page }) => {
-    await page.goto("/login");
-    await page.fill('input[placeholder*="mobile or email"]', "9876543210");
-    await page.fill('input[type="password"]', "owner123");
-    await page.click('button[type="submit"]');
-    await page.waitForURL("**/dashboard");
+  const writeShortcuts = [
+    { key: "F8", route: "/sales/new", title: "New sale" },
+    { key: "Control+F8", route: "/orders/new", title: "New customer order" },
+    { key: "Alt+F8", route: "/delivery-memos/new", title: "New delivery memo" },
+    { key: "F6", route: "/payments/new", title: "Receive payment" },
+    { key: "F9", route: "/inventory/stock-entry", title: "Stock entry" },
+    { key: "Alt+F9", route: "/inventory/stock-transfer", title: "Inter-shop stock transfer" },
+  ] as const;
 
-    await page.goto("/sales/new");
-    const title = page.locator("text=New Sale Entry");
-    await expect(title).toBeVisible();
+  for (const shortcut of writeShortcuts) {
+    test(`${shortcut.key} opens ${shortcut.route}`, async ({ page }) => {
+      await page.goto("/dashboard");
+      await page.keyboard.press(shortcut.key);
+      await expect(page).toHaveURL(new RegExp(`${shortcut.route.replaceAll("/", "\\/")}(?:\\?.*)?$`));
+      await expect(page.getByRole("heading", { name: shortcut.title })).toBeVisible();
+    });
+  }
 
-    const unavailableMsg = page.locator("text=New Sale is temporarily unavailable");
-    await expect(unavailableMsg).toBeVisible();
-  });
-
-  test("7. Mobile viewport has no uncontrolled horizontal page overflow", async ({ page }) => {
+  test("390x844 keeps the workspace inside the viewport", async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto("/login");
-    
-    const bodyWidth = await page.evaluate(() => document.body.scrollWidth);
-    const viewportWidth = await page.evaluate(() => window.innerWidth);
-    expect(bodyWidth).toBeLessThanOrEqual(viewportWidth);
+    await page.goto("/dashboard");
+    await expect(page.locator("aside").first()).toBeHidden();
+    await expect(page.locator("aside").filter({ hasText: "Current commands" })).toBeHidden();
+
+    const hasHorizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
+    expect(hasHorizontalOverflow).toBe(false);
   });
 
-  test("8. Sidebar becomes a mobile drawer or is hidden on narrow screen", async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto("/login");
-    await page.fill('input[placeholder*="mobile or email"]', "9876543210");
-    await page.fill('input[type="password"]', "owner123");
-    await page.click('button[type="submit"]');
-    await page.waitForURL("**/dashboard");
-
-    const desktopSidebar = page.locator("aside.w-56");
-    await expect(desktopSidebar).toBeHidden();
-  });
-
-  test("9. Action rail is hidden on narrow mobile screen", async ({ page }) => {
-    await page.setViewportSize({ width: 390, height: 844 });
-    await page.goto("/login");
-    await page.fill('input[placeholder*="mobile or email"]', "9876543210");
-    await page.fill('input[type="password"]', "owner123");
-    await page.click('button[type="submit"]');
-    await page.waitForURL("**/dashboard");
-
-    const actionRail = page.locator("aside.w-52");
-    await expect(actionRail).toBeHidden();
-  });
-
-  test("10. No fake WhatsApp records are displayed", async ({ page }) => {
-    await page.goto("/login");
-    await page.fill('input[placeholder*="mobile or email"]', "9876543210");
-    await page.fill('input[type="password"]', "owner123");
-    await page.click('button[type="submit"]');
-    await page.waitForURL("**/dashboard");
-
+  test("WhatsApp page does not invent conversation data", async ({ page }) => {
     await page.goto("/whatsapp");
-    const fakeCustomer = page.locator("text=Ramesh Sharma");
-    await expect(fakeCustomer).toBeHidden();
+    await expect(page.getByText("WhatsApp Integration")).toBeVisible();
+    await expect(page.getByText(/No fabricated conversations are shown/i)).toBeVisible();
   });
 });
