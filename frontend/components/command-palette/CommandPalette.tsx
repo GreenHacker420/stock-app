@@ -1,15 +1,37 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { CommandDialog, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem, CommandSeparator } from "@/components/ui/command";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import {
+  LayoutDashboard,
+  Receipt,
+  Store,
+  CornerDownLeft,
+  ArrowUp,
+  ArrowDown,
+} from "lucide-react";
+
+import { useCommandSurface } from "@/components/keyboard/useCommandSurface";
+import { FLAT_NAVIGATION_ITEMS } from "@/components/shell/navigation";
+import {
+  CommandDialog,
+  CommandInput,
+  CommandList,
+  CommandEmpty,
+  CommandGroup,
+  CommandItem,
+  CommandSeparator,
+} from "@/components/ui/command";
 import { Badge } from "@/components/ui/badge";
+import { commandExecutor } from "@/lib/commands/command-executor";
+import { commandRegistry } from "@/lib/commands/command-registry";
+import type { CommandDefinition } from "@/lib/commands/command-types";
+import { contextKeyService } from "@/lib/context/context-key-service";
+import { activePointerStore } from "@/lib/focus/active-pointer-store";
+import { drilldownStack } from "@/lib/navigation/drilldown-stack";
 import { useAuthStore } from "@/lib/auth/auth-store";
-import { hasPermission, PERMISSIONS } from "@/lib/permissions/permissions";
+import { hasPermission } from "@/lib/permissions/permissions";
 import { useOS, formatShortcutForOS } from "@/lib/keyboard/os";
-import { useShortcut } from "@/components/keyboard/ShortcutProvider";
-import { getActionableFeatures } from "@/lib/features/feature-availability";
-import { LayoutDashboard, Receipt, ShoppingBag, Truck, CreditCard, Warehouse, Users, ReceiptIndianRupee, BarChart3, MessageSquare, Shield, Store } from "lucide-react";
 
 interface CommandPaletteProps {
   open?: boolean;
@@ -19,127 +41,180 @@ interface CommandPaletteProps {
 export function CommandPalette({ open: externalOpen, onOpenChange: externalOnOpenChange }: CommandPaletteProps) {
   const [internalOpen, setInternalOpen] = useState(false);
   const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const { user, shops, activeShopId, setActiveShopId } = useAuthStore();
   const { isMac } = useOS();
-
+  const entries = useCommandSurface("palette");
   const isOpen = externalOpen !== undefined ? externalOpen : internalOpen;
-  const setOpen = (val: boolean) => {
-    if (externalOnOpenChange) externalOnOpenChange(val);
-    setInternalOpen(val);
-  };
 
-  // Register Alt+G command palette shortcut cleanly with shortcut engine
-  useShortcut({
-    id: "command-palette-alt-g",
-    key: "alt+g",
-    scope: "GLOBAL",
-    description: "Open Go To Command Palette",
-    action: () => setOpen(!isOpen),
-  });
+  const setOpen = useCallback((value: boolean) => {
+    externalOnOpenChange?.(value);
+    setInternalOpen(value);
+  }, [externalOnOpenChange]);
 
-  const handleNavigate = (path: string) => {
+  const currentUrl = useMemo(() => {
+    const query = searchParams.toString();
+    return query ? `${pathname}?${query}` : pathname;
+  }, [pathname, searchParams]);
+
+  const navigate = useCallback((href: string) => {
+    if (href === "/gateway") {
+      drilldownStack.clear();
+      activePointerStore.reset();
+      setOpen(false);
+      router.push(href);
+      return;
+    }
+
+    if (href !== currentUrl) {
+      drilldownStack.push({
+        route: pathname,
+        searchParams: searchParams.toString(),
+        activePointer: activePointerStore.getPointer(),
+        selectedIds: [...activePointerStore.getSelectedIds()],
+        scrollOffset: typeof window === "undefined" ? 0 : window.scrollY,
+      });
+    }
     setOpen(false);
-    router.push(path);
+    router.push(href);
+  }, [currentUrl, pathname, router, searchParams, setOpen]);
+
+  const permittedNavigation = useMemo(
+    () => FLAT_NAVIGATION_ITEMS.filter((item) => hasPermission(user, item.permission)),
+    [user],
+  );
+
+  useEffect(() => {
+    const disposers = permittedNavigation.map((item) => {
+      const id = `navigation.${item.href.replace(/^\//, "").replaceAll("/", ".") || "home"}`;
+      const definition: CommandDefinition = {
+        id,
+        title: item.label,
+        category: "Navigation",
+        description: `Open ${item.label}`,
+        execute: () => navigate(item.href),
+      };
+      return commandRegistry.register(definition);
+    });
+    return () => disposers.forEach((dispose) => dispose());
+  }, [navigate, permittedNavigation]);
+
+  const navigationEntries = entries.filter((entry) => entry.category === "Navigation" && entry.id !== "navigation.goTo" && entry.id !== "navigation.unwind");
+  const commandEntries = entries.filter((entry) => entry.category && entry.category !== "Navigation" && entry.id !== "overlay.dismiss");
+  const navMetadata = new Map(
+    permittedNavigation.map((item) => [
+      `navigation.${item.href.replace(/^\//, "").replaceAll("/", ".") || "home"}`,
+      item,
+    ])
+  );
+
+  const execute = (commandId: string) => {
+    setOpen(false);
+    void commandExecutor.execute(commandId, { source: "palette", context: contextKeyService.snapshot() });
   };
 
-  const navItems = [
-    { title: "Dashboard", href: "/dashboard", icon: LayoutDashboard, permission: PERMISSIONS.SHOP_VIEW },
-    { title: "Sales Register", href: "/sales", icon: Receipt, permission: PERMISSIONS.SALE_VIEW_OWN },
-    { title: "Orders", href: "/orders", icon: ShoppingBag, permission: PERMISSIONS.ORDER_VIEW_ASSIGNED },
-    { title: "Delivery Memos", href: "/delivery-memos", icon: Truck, permission: PERMISSIONS.DM_VIEW_OWN },
-    { title: "Payments & Receipts", href: "/payments", icon: CreditCard, permission: PERMISSIONS.PAYMENT_VIEW_OWN },
-    { title: "Inventory & Products", href: "/inventory", icon: Warehouse, permission: PERMISSIONS.ITEM_VIEW },
-    { title: "Customers & Ledgers", href: "/customers", icon: Users, permission: PERMISSIONS.CUSTOMER_VIEW },
-    { title: "Shop Expenses", href: "/expenses", icon: ReceiptIndianRupee, permission: PERMISSIONS.EXPENSE_VIEW },
-    { title: "Reports & Analytics", href: "/reports", icon: BarChart3, permission: PERMISSIONS.DAILY_SUMMARY_VIEW },
-    { title: "WhatsApp Messages", href: "/whatsapp", icon: MessageSquare, permission: PERMISSIONS.NOTIFICATION_VIEW },
-    { title: "Administration", href: "/administration", icon: Shield, permission: PERMISSIONS.SHOP_UPDATE },
-  ];
-
-  const permittedNav = navItems.filter((item) => hasPermission(user, item.permission));
-  const actionableFeatures = getActionableFeatures();
-  const permittedActions = actionableFeatures.filter(
-    (f) => hasPermission(user, f.requiredPermission)
-  );
+  const shortcutHint = isMac ? "⌥G" : "Alt+G";
 
   return (
     <CommandDialog open={isOpen} onOpenChange={setOpen}>
-      <CommandInput placeholder={`Search pages, actions or switch shop... (${formatShortcutForOS("alt+g", isMac)})`} aria-keyshortcuts="Alt+G" />
+      <CommandInput placeholder={`Type a command or search pages... (${shortcutHint})`} aria-keyshortcuts="Alt+G" />
       <CommandList>
-        <CommandEmpty>No results found.</CommandEmpty>
+        <CommandEmpty>No results matching your query.</CommandEmpty>
 
-        {/* Quick Actions — ENABLED and DISABLED shown, UNSUPPORTED hidden */}
-        <CommandGroup heading="Quick Actions">
-          {permittedActions.map((feature) => {
-            const isEnabled = feature.status === "ENABLED";
-            return (
+        {commandEntries.length ? (
+          <CommandGroup heading="Actions & Shortcuts">
+            {commandEntries.map((entry) => (
               <CommandItem
-                key={feature.id}
-                disabled={!isEnabled}
-                onSelect={() => {
-                  if (!isEnabled) return; // DISABLED: must not navigate
-                  setOpen(false);
-                  router.push(feature.route);
-                }}
-                className={isEnabled ? "cursor-pointer" : "cursor-not-allowed opacity-50"}
+                key={entry.id}
+                value={`command ${entry.title}`}
+                onSelect={() => execute(entry.id)}
               >
-                <span className="flex items-center gap-2 flex-1">
-                  <Receipt className="mr-2 h-4 w-4 text-muted-foreground" />
-                  <span>{feature.label}</span>
-                  {!isEnabled && (
-                    <Badge variant="outline" className="text-[9px] ml-auto border-amber-300 text-amber-700 dark:text-amber-400">
-                      Unavailable
-                    </Badge>
-                  )}
-                  {feature.shortcut && isEnabled && (
-                    <kbd className="ml-auto pointer-events-none inline-flex h-4 select-none items-center rounded border bg-muted/60 px-1 font-mono text-[9px] font-extrabold text-muted-foreground">
-                      {formatShortcutForOS(feature.shortcut, isMac)}
-                    </kbd>
-                  )}
-                </span>
+                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                  <Receipt className="size-4 text-muted-foreground shrink-0" />
+                  <span className="truncate">{entry.title}</span>
+                </div>
+                {entry.key ? (
+                  <kbd className="ml-3 inline-flex h-5 shrink-0 items-center rounded-md border border-border/70 bg-muted/70 px-1.5 font-mono text-[10px] font-bold text-muted-foreground shadow-2xs">
+                    {formatShortcutForOS(entry.key, isMac)}
+                  </kbd>
+                ) : null}
               </CommandItem>
-            );
-          })}
-        </CommandGroup>
+            ))}
+          </CommandGroup>
+        ) : null}
 
-        <CommandSeparator />
+        {commandEntries.length && navigationEntries.length ? <CommandSeparator /> : null}
 
-        <CommandGroup heading="Navigation">
-          {permittedNav.map((item) => {
-            const IconComp = item.icon;
-            return (
-              <CommandItem key={item.href} onSelect={() => handleNavigate(item.href)} className="cursor-pointer">
-                <IconComp className="mr-2 h-4 w-4 text-muted-foreground" />
-                <span>{item.title}</span>
-              </CommandItem>
-            );
-          })}
-        </CommandGroup>
+        {navigationEntries.length ? (
+          <CommandGroup heading="Navigation">
+            {navigationEntries.map((entry) => {
+              const metadata = navMetadata.get(entry.id);
+              const Icon = metadata?.icon ?? LayoutDashboard;
+              return (
+                <CommandItem
+                  key={entry.id}
+                  value={`page ${entry.title}`}
+                  onSelect={() => execute(entry.id)}
+                >
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    <Icon className="size-4 text-muted-foreground shrink-0" />
+                    <span className="truncate">{entry.title}</span>
+                  </div>
+                </CommandItem>
+              );
+            })}
+          </CommandGroup>
+        ) : null}
 
-        {user?.role === "OWNER" && shops.length > 1 && (
+        {user?.role === "OWNER" && shops.length > 1 ? (
           <>
             <CommandSeparator />
             <CommandGroup heading="Switch Shop">
               {shops.map((shop) => (
                 <CommandItem
                   key={shop.id}
+                  value={`shop ${shop.name} ${shop.city}`}
                   onSelect={() => {
                     setActiveShopId(shop.id);
                     setOpen(false);
                   }}
-                  className="cursor-pointer"
                 >
-                  <Store className="mr-2 h-4 w-4 text-muted-foreground" />
-                  <span>{shop.name} ({shop.city})</span>
-                  {shop.id === activeShopId && (
-                    <span className="ml-auto text-xs text-emerald-600 font-bold">Active</span>
-                  )}
+                  <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                    <Store className="size-4 text-muted-foreground shrink-0" />
+                    <span className="truncate">
+                      {shop.name} {shop.city ? <span className="text-muted-foreground text-xs">· {shop.city}</span> : null}
+                    </span>
+                  </div>
+                  {shop.id === activeShopId ? (
+                    <Badge variant="secondary" className="ml-auto text-[10px] font-bold text-emerald-600 bg-emerald-50 dark:bg-emerald-950/40 dark:text-emerald-400">
+                      Active
+                    </Badge>
+                  ) : null}
                 </CommandItem>
               ))}
             </CommandGroup>
           </>
-        )}
+        ) : null}
       </CommandList>
+
+      <div className="flex items-center justify-between border-t border-border/50 bg-muted/20 px-4 py-2 text-[11px] text-muted-foreground/80 font-medium">
+        <div className="flex items-center gap-3">
+          <span className="flex items-center gap-1">
+            <kbd className="inline-flex h-4.5 w-4.5 items-center justify-center rounded border bg-background text-[9px] font-semibold"><ArrowUp className="size-2.5" /></kbd>
+            <kbd className="inline-flex h-4.5 w-4.5 items-center justify-center rounded border bg-background text-[9px] font-semibold"><ArrowDown className="size-2.5" /></kbd>
+            <span className="ml-0.5">Navigate</span>
+          </span>
+          <span className="flex items-center gap-1">
+            <kbd className="inline-flex h-4.5 items-center justify-center rounded border bg-background px-1 text-[9px] font-semibold"><CornerDownLeft className="size-2.5" /></kbd>
+            <span className="ml-0.5">Select</span>
+          </span>
+        </div>
+        <div className="flex items-center gap-1">
+          <kbd className="inline-flex h-4.5 items-center justify-center rounded border bg-background px-1 text-[9px] font-semibold">ESC</kbd>
+          <span className="ml-0.5">Close</span>
+        </div>
+      </div>
     </CommandDialog>
   );
 }

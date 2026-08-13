@@ -1,4 +1,4 @@
-import type { TransactionScope, InteractionMode } from "./keyboard-intents";
+import type { InteractionMode } from "./keyboard-intents";
 
 export interface RegisteredField {
   id: string;
@@ -7,38 +7,33 @@ export interface RegisteredField {
   rowIndex?: number;
   colIndex?: number;
   columnId?: string;
+  order?: number;
   disabled?: boolean;
 }
 
 export class FocusRegistry {
   private fields = new Map<string, RegisteredField>();
   private activeFieldId: string | null = null;
-  private activeZoneId: string = "SALE_HEADER";
+  private activeZoneId = "SALE_HEADER";
   private currentMode: InteractionMode = "NAVIGATION";
   private focusHistory: string[] = [];
-  private listeners = new Set<() => void>();
+  private readonly listeners = new Set<() => void>();
 
   register(field: RegisteredField): () => void {
     this.fields.set(field.id, field);
     this.notify();
-    return () => {
-      this.unregister(field.id);
-    };
+    return () => this.unregister(field.id);
   }
 
   unregister(id: string): void {
     this.fields.delete(id);
-    if (this.activeFieldId === id) {
-      this.activeFieldId = null;
-    }
+    if (this.activeFieldId === id) this.activeFieldId = null;
     this.notify();
   }
 
   updateElement(id: string, element: HTMLElement | null): void {
     const existing = this.fields.get(id);
-    if (existing) {
-      existing.element = element;
-    }
+    if (existing) existing.element = element;
   }
 
   getField(id: string): RegisteredField | undefined {
@@ -50,7 +45,13 @@ export class FocusRegistry {
   }
 
   getFieldsInZone(zoneId: string): RegisteredField[] {
-    return this.getAllFields().filter((f) => f.zoneId === zoneId && !f.disabled);
+    return this.getAllFields().filter((field) => field.zoneId === zoneId && !field.disabled);
+  }
+
+  getOrderedFields(): RegisteredField[] {
+    return this.getAllFields()
+      .filter((field) => !field.disabled && field.element && field.order !== undefined)
+      .sort((left, right) => (left.order ?? 0) - (right.order ?? 0));
   }
 
   getActiveFieldId(): string | null {
@@ -66,10 +67,9 @@ export class FocusRegistry {
   }
 
   setMode(mode: InteractionMode): void {
-    if (this.currentMode !== mode) {
-      this.currentMode = mode;
-      this.notify();
-    }
+    if (this.currentMode === mode) return;
+    this.currentMode = mode;
+    this.notify();
   }
 
   setActiveField(id: string | null, zoneId?: string): void {
@@ -82,45 +82,41 @@ export class FocusRegistry {
       const field = this.fields.get(id);
       if (field) {
         this.activeZoneId = zoneId || field.zoneId;
-        // Focus element safely if DOM element present
-        if (field.element && document.activeElement !== field.element) {
-          field.element.focus();
-        }
+        if (field.element && document.activeElement !== field.element) field.element.focus();
       }
       this.notify();
-    } else if (!id) {
+      return;
+    }
+
+    if (!id && this.activeFieldId !== null) {
       this.activeFieldId = null;
       this.notify();
     }
   }
 
   restorePreviousFocus(): boolean {
-    const prevId = this.focusHistory.pop();
-    if (prevId && this.fields.has(prevId)) {
-      this.setActiveField(prevId);
-      return true;
-    }
-    return false;
+    const previousId = this.focusHistory.pop();
+    if (!previousId || !this.fields.has(previousId)) return false;
+    this.setActiveField(previousId);
+    return true;
   }
 
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
-    return () => {
-      this.listeners.delete(listener);
-    };
-  }
-
-  private notify(): void {
-    for (const listener of this.listeners) {
-      listener();
-    }
+    return () => this.listeners.delete(listener);
   }
 
   clear(): void {
     this.fields.clear();
     this.activeFieldId = null;
+    this.activeZoneId = "SALE_HEADER";
+    this.currentMode = "NAVIGATION";
     this.focusHistory = [];
     this.notify();
+  }
+
+  private notify(): void {
+    for (const listener of this.listeners) listener();
   }
 }
 

@@ -1,11 +1,13 @@
 "use client";
 
-import { use, useState } from "react";
+import { use, useCallback, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
 import { AlertCircle, CheckCircle2, MessageSquare, Printer, Receipt, RefreshCw, WalletCards } from "lucide-react";
 
 import { OperationalDataTable } from "@/components/data-grid/OperationalDataTable";
+import { useCommand, useKeybinding } from "@/components/keyboard/KeyboardRuntimeProvider";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,6 +16,8 @@ import { WorkspacePage, WorkspacePageHeader, WorkspacePanel } from "@/components
 import { fetchSaleDetail, sendSaleWhatsAppReceipt } from "@/features/sales/api/sale-detail.query";
 import type { SaleDetailItem, SaleDetailPayment } from "@/features/sales/lib/sale-detail-types";
 import { useAuthStore } from "@/lib/auth/auth-store";
+import { drilldownStack } from "@/lib/navigation/drilldown-stack";
+import { queueNavigationRestoration } from "@/lib/navigation/navigation-restoration";
 import { printInvoiceDocument } from "@/lib/pdf/invoice-print";
 import { queryKeys } from "@/lib/query/query-keys";
 import { formatDate, formatDateTime, formatINR } from "@/lib/utils";
@@ -26,9 +30,35 @@ function paymentRecordBadge(status: SaleDetailPayment["status"]) {
 
 export default function SaleDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const router = useRouter();
   const { token, shops, activeShopId } = useAuthStore();
   const [feedback, setFeedback] = useState<{ type: "success" | "error"; message: string } | null>(null);
   const selectedShop = shops.find((shop) => shop.id === activeShopId) || shops[0];
+
+  const goBack = useCallback(() => {
+    const frame = drilldownStack.pop();
+    if (!frame) {
+      router.push("/sales");
+      return;
+    }
+    queueNavigationRestoration(frame);
+    const suffix = frame.searchParams ? `?${frame.searchParams}` : "";
+    router.push(`${frame.route}${suffix}`);
+  }, [router]);
+
+  const backCommand = useMemo(() => ({
+    id: "sales.detail.back",
+    title: "Back to Sales Register",
+    execute: goBack,
+  }), [goBack]);
+  useCommand(backCommand);
+  useKeybinding(useMemo(() => ({
+    id: "sales-detail-escape",
+    key: "esc",
+    command: backCommand.id,
+    when: "app.view == sales.detail && !dialog.open && !input.editable",
+    priority: 80,
+  }), [backCommand.id]));
 
   const query = useQuery({
     queryKey: queryKeys.sales.detail(id),
@@ -60,68 +90,114 @@ export default function SaleDetailPage({ params }: { params: Promise<{ id: strin
     { accessorKey: "status", header: "Status", cell: ({ row }) => <div className="text-right">{paymentRecordBadge(row.original.status)}</div> },
   ];
 
+  const detailScope = JSON.stringify({
+    "app.module": "sales",
+    "app.view": "sales.detail",
+    "detail.focused": true,
+    "keyboard.scope": "detail",
+  });
+
   if (query.isLoading) {
-    return <WorkspacePage><div className="workspace-panel flex min-h-[54vh] items-center justify-center text-xs text-muted-foreground">Loading sale record…</div></WorkspacePage>;
+    return (
+      <div data-keyboard-scope={detailScope}>
+        <WorkspacePage>
+          <div className="workspace-panel flex min-h-[54vh] items-center justify-center text-xs text-muted-foreground">Loading sale record…</div>
+        </WorkspacePage>
+      </div>
+    );
   }
 
   if (query.isError || !query.data) {
-    return <WorkspacePage><WorkspacePageHeader kicker="Records · Sales" title="Sale detail" description="The sale could not be loaded." backHref="/sales" icon={Receipt} /><div className="workspace-panel flex min-h-[46vh] items-center justify-center p-6 text-center"><div><AlertCircle className="mx-auto mb-3 size-7 text-destructive"/><p className="text-sm font-semibold">Sale unavailable</p><p className="mt-1 text-xs text-muted-foreground">{query.error instanceof Error ? query.error.message : "The backend did not return this sale."}</p><Button variant="outline" size="sm" className="mt-4" onClick={() => void query.refetch()}>Retry</Button></div></div></WorkspacePage>;
+    return (
+      <div data-keyboard-scope={detailScope}>
+        <WorkspacePage>
+          <WorkspacePageHeader kicker="Records · Sales" title="Sale detail" description="The sale could not be loaded." backHref={null} onBack={goBack} icon={Receipt} />
+          <div className="workspace-panel flex min-h-[46vh] items-center justify-center p-6 text-center">
+            <div>
+              <AlertCircle className="mx-auto mb-3 size-7 text-destructive" />
+              <p className="text-sm font-semibold">Sale unavailable</p>
+              <p className="mt-1 text-xs text-muted-foreground">{query.error instanceof Error ? query.error.message : "The backend did not return this sale."}</p>
+              <Button variant="outline" size="sm" className="mt-4" onClick={() => void query.refetch()}>Retry</Button>
+            </div>
+          </div>
+        </WorkspacePage>
+      </div>
+    );
   }
 
   const sale = query.data;
   const gstLabel = !sale.gstRequired ? "Not required" : sale.gstInvoiceStatus.replaceAll("_", " ");
 
   return (
-    <WorkspacePage>
-      <WorkspacePageHeader
-        kicker="Records · Sale"
-        title={sale.saleNumber}
-        description="Server-authoritative sale lines, payment verification and live receivable balance. No tax percentage or line total is recomputed in the browser."
-        backHref="/sales"
-        icon={Receipt}
-        meta={<><Badge variant="secondary" className="text-[9px]">{sale.saleStatus.replaceAll("_", " ")}</Badge><Badge variant="outline" className="text-[9px]">{sale.paymentStatus.replaceAll("_", " ")}</Badge></>}
-        actions={<><Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={() => void query.refetch()}><RefreshCw className="size-3.5"/>Refresh</Button><Button variant="outline" size="sm" className="h-9 gap-1.5" disabled={whatsappMutation.isPending} onClick={() => whatsappMutation.mutate()}><MessageSquare className="size-3.5"/>{whatsappMutation.isPending ? "Sending…" : "WhatsApp"}</Button><Button size="sm" className="h-9 gap-1.5" onClick={() => selectedShop && void printInvoiceDocument(sale, selectedShop)} disabled={!selectedShop}><Printer className="size-3.5"/>Print</Button></>}
-      />
+    <div data-keyboard-scope={detailScope}>
+      <WorkspacePage>
+        <WorkspacePageHeader
+          kicker="Records · Sale"
+          title={sale.saleNumber}
+          description="Server-authoritative sale lines, payment verification and live receivable balance. No tax percentage or line total is recomputed in the browser."
+          backHref={null}
+          onBack={goBack}
+          icon={Receipt}
+          meta={<><Badge variant="secondary" className="text-[9px]">{sale.saleStatus.replaceAll("_", " ")}</Badge><Badge variant="outline" className="text-[9px]">{sale.paymentStatus.replaceAll("_", " ")}</Badge></>}
+          actions={<><Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={() => void query.refetch()}><RefreshCw className="size-3.5" />Refresh</Button><Button variant="outline" size="sm" className="h-9 gap-1.5" disabled={whatsappMutation.isPending} onClick={() => whatsappMutation.mutate()}><MessageSquare className="size-3.5" />{whatsappMutation.isPending ? "Sending…" : "WhatsApp"}</Button><Button size="sm" className="h-9 gap-1.5" onClick={() => selectedShop && void printInvoiceDocument(sale, selectedShop)} disabled={!selectedShop}><Printer className="size-3.5" />Print</Button></>}
+        />
 
-      {feedback ? <Alert variant={feedback.type === "error" ? "destructive" : "default"} className={feedback.type === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-950 dark:bg-emerald-950/30 dark:text-emerald-300" : undefined}>{feedback.type === "success" ? <CheckCircle2 className="size-4"/> : <AlertCircle className="size-4"/>}<AlertDescription className="text-xs">{feedback.message}</AlertDescription></Alert> : null}
+        {feedback ? <Alert variant={feedback.type === "error" ? "destructive" : "default"} className={feedback.type === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-950 dark:bg-emerald-950/30 dark:text-emerald-300" : undefined}>{feedback.type === "success" ? <CheckCircle2 className="size-4" /> : <AlertCircle className="size-4" />}<AlertDescription className="text-xs">{feedback.message}</AlertDescription></Alert> : null}
 
-      <WorkspaceMetricGrid>
-        <WorkspaceMetric label="Total" value={formatINR(sale.totalAmount)} detail={`Subtotal ${formatINR(sale.subtotal)} · Discount ${formatINR(sale.discountAmount)}`} icon={Receipt} />
-        <WorkspaceMetric label="Verified paid" value={formatINR(sale.verifiedPaidAmount)} detail="Only VERIFIED payment records" icon={WalletCards} tone="success" />
-        <WorkspaceMetric label="Recorded, unverified" value={formatINR(sale.recordedPaymentAmount)} detail="RECORDED payment value awaiting verification" icon={WalletCards} tone={Number(sale.recordedPaymentAmount) > 0 ? "warning" : "neutral"} />
-        <WorkspaceMetric label="Balance due" value={formatINR(sale.balanceAmount)} detail="Computed by backend from verified payments" icon={WalletCards} tone={Number(sale.balanceAmount) > 0 ? "danger" : "success"} />
-      </WorkspaceMetricGrid>
+        <WorkspaceMetricGrid>
+          <WorkspaceMetric label="Total" value={formatINR(sale.totalAmount)} detail={`Subtotal ${formatINR(sale.subtotal)} · Discount ${formatINR(sale.discountAmount)}`} icon={Receipt} />
+          <WorkspaceMetric label="Verified paid" value={formatINR(sale.verifiedPaidAmount)} detail="Only VERIFIED payment records" icon={WalletCards} tone="success" />
+          <WorkspaceMetric label="Recorded, unverified" value={formatINR(sale.recordedPaymentAmount)} detail="RECORDED payment value awaiting verification" icon={WalletCards} tone={Number(sale.recordedPaymentAmount) > 0 ? "warning" : "neutral"} />
+          <WorkspaceMetric label="Balance due" value={formatINR(sale.balanceAmount)} detail="Computed by backend from verified payments" icon={WalletCards} tone={Number(sale.balanceAmount) > 0 ? "danger" : "success"} />
+        </WorkspaceMetricGrid>
 
-      <div className="workspace-two-column">
-        <WorkspacePanel title="Customer and document" description="Identity and GST document state stored on the sale.">
-          <div className="divide-y px-[clamp(0.75rem,1vw,1rem)] text-xs">
-            <InfoLine label="Customer" value={sale.customer?.name || "Walk-in Customer"} />
-            <InfoLine label="Phone" value={sale.customer?.phone || "—"} mono />
-            <InfoLine label="Sale date" value={formatDate(sale.saleDate)} />
-            <InfoLine label="GST state" value={gstLabel} />
-            <InfoLine label="GST invoice number" value={sale.gstInvoiceNumber || "—"} mono />
-          </div>
+        <div className="workspace-two-column">
+          <WorkspacePanel title="Customer and document" description="Identity and GST document state stored on the sale.">
+            <div className="divide-y px-[clamp(0.75rem,1vw,1rem)] text-xs">
+              <InfoLine label="Customer" value={sale.customer?.name || "Walk-in Customer"} />
+              <InfoLine label="Phone" value={sale.customer?.phone || "—"} mono />
+              <InfoLine label="Sale date" value={formatDate(sale.saleDate)} />
+              <InfoLine label="GST state" value={gstLabel} />
+              <InfoLine label="GST invoice number" value={sale.gstInvoiceNumber || "—"} mono />
+            </div>
+          </WorkspacePanel>
+
+          <WorkspacePanel title="Operational metadata" description="Who recorded the sale and its persisted status/version.">
+            <div className="divide-y px-[clamp(0.75rem,1vw,1rem)] text-xs">
+              <InfoLine label="Recorded by" value={`${sale.staff?.name || "—"} · ${sale.staff?.role || ""}`} />
+              <InfoLine label="Created" value={formatDateTime(sale.createdAt)} />
+              <InfoLine label="Sale status" value={sale.saleStatus.replaceAll("_", " ")} />
+              <InfoLine label="Receivable origin" value={sale.receivableOrigin?.replaceAll("_", " ") || "Sale"} />
+              <InfoLine label="Version" value={sale.version == null ? "—" : String(sale.version)} mono />
+            </div>
+          </WorkspacePanel>
+        </div>
+
+        <WorkspacePanel title="Sale items" description="Stored quantity, rate, discount and line totals from the backend sale record.">
+          <OperationalDataTable
+            id="sales.detail.items"
+            data={sale.items}
+            columns={itemColumns}
+            getRowId={(item) => item.id}
+            emptyTitle="No sale items"
+            emptyDescription="The sale record contains no line items."
+            renderMobileCard={(item) => <div className="rounded-xl border bg-card p-3"><p className="text-sm font-semibold">{item.item?.name || "Product"}</p><p className="mt-0.5 font-mono text-[10px] text-muted-foreground">{item.item?.sku || "No SKU"}</p><div className="mt-3 grid grid-cols-3 gap-2 border-t pt-2 text-right"><div><p className="workspace-kicker">Qty</p><p className="numeric-cell mt-1 text-xs font-semibold">{Number(item.quantity)}</p></div><div><p className="workspace-kicker">Rate</p><p className="numeric-cell mt-1 text-xs font-semibold">{formatINR(item.rate)}</p></div><div><p className="workspace-kicker">Total</p><p className="numeric-cell mt-1 text-xs font-semibold">{formatINR(item.totalAmount)}</p></div></div></div>}
+          />
         </WorkspacePanel>
 
-        <WorkspacePanel title="Operational metadata" description="Who recorded the sale and its persisted status/version.">
-          <div className="divide-y px-[clamp(0.75rem,1vw,1rem)] text-xs">
-            <InfoLine label="Recorded by" value={`${sale.staff?.name || "—"} · ${sale.staff?.role || ""}`} />
-            <InfoLine label="Created" value={formatDateTime(sale.createdAt)} />
-            <InfoLine label="Sale status" value={sale.saleStatus.replaceAll("_", " ")} />
-            <InfoLine label="Receivable origin" value={sale.receivableOrigin?.replaceAll("_", " ") || "Sale"} />
-            <InfoLine label="Version" value={sale.version == null ? "—" : String(sale.version)} mono />
-          </div>
+        <WorkspacePanel title="Payment records" description="Verification state is preserved per receipt; RECORDED amounts do not reduce the backend verified balance until verified.">
+          <OperationalDataTable
+            id="sales.detail.payments"
+            data={sale.payments}
+            columns={paymentColumns}
+            getRowId={(payment) => payment.id}
+            emptyTitle="No payment records"
+            emptyDescription="This sale currently has no payment records."
+            renderMobileCard={(payment) => <div className="rounded-xl border bg-card p-3"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold">{payment.paymentMode.replaceAll("_", " ")}</p><p className="mt-0.5 text-[10px] text-muted-foreground">{formatDateTime(payment.receivedAt)}</p></div>{paymentRecordBadge(payment.status)}</div><div className="mt-3 border-t pt-2 text-right numeric-cell text-base font-semibold">{formatINR(payment.amount)}</div></div>}
+          />
         </WorkspacePanel>
-      </div>
-
-      <WorkspacePanel title="Sale items" description="Stored quantity, rate, discount and line totals from the backend sale record.">
-        <OperationalDataTable data={sale.items} columns={itemColumns} getRowId={(item) => item.id} emptyTitle="No sale items" emptyDescription="The sale record contains no line items." renderMobileCard={(item) => <div className="rounded-xl border bg-card p-3"><p className="text-sm font-semibold">{item.item?.name || "Product"}</p><p className="mt-0.5 font-mono text-[10px] text-muted-foreground">{item.item?.sku || "No SKU"}</p><div className="mt-3 grid grid-cols-3 gap-2 border-t pt-2 text-right"><div><p className="workspace-kicker">Qty</p><p className="numeric-cell mt-1 text-xs font-semibold">{Number(item.quantity)}</p></div><div><p className="workspace-kicker">Rate</p><p className="numeric-cell mt-1 text-xs font-semibold">{formatINR(item.rate)}</p></div><div><p className="workspace-kicker">Total</p><p className="numeric-cell mt-1 text-xs font-semibold">{formatINR(item.totalAmount)}</p></div></div></div>} />
-      </WorkspacePanel>
-
-      <WorkspacePanel title="Payment records" description="Verification state is preserved per receipt; RECORDED amounts do not reduce the backend verified balance until verified.">
-        <OperationalDataTable data={sale.payments} columns={paymentColumns} getRowId={(payment) => payment.id} emptyTitle="No payment records" emptyDescription="This sale currently has no payment records." renderMobileCard={(payment) => <div className="rounded-xl border bg-card p-3"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold">{payment.paymentMode.replaceAll("_", " ")}</p><p className="mt-0.5 text-[10px] text-muted-foreground">{formatDateTime(payment.receivedAt)}</p></div>{paymentRecordBadge(payment.status)}</div><div className="mt-3 border-t pt-2 text-right numeric-cell text-base font-semibold">{formatINR(payment.amount)}</div></div>} />
-      </WorkspacePanel>
-    </WorkspacePage>
+      </WorkspacePage>
+    </div>
   );
 }
 

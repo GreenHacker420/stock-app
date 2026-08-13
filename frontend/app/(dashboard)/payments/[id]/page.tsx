@@ -1,13 +1,14 @@
 "use client";
 
-import Link from "next/link";
-import { use, useState } from "react";
+import { use, useCallback, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { BadgeCheck, CircleAlert, CreditCard, FileText, RefreshCw, UserRound, WalletCards } from "lucide-react";
 
+import { useCommand, useKeybinding } from "@/components/keyboard/KeyboardRuntimeProvider";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { DecisionDialog } from "@/components/workspace/DecisionDialog";
 import { WorkspaceMetric, WorkspaceMetricGrid } from "@/components/workspace/WorkspaceMetrics";
 import { WorkspacePage, WorkspacePageHeader, WorkspacePanel } from "@/components/workspace/WorkspacePage";
@@ -15,9 +16,11 @@ import { markPaymentMismatch, verifyPaymentDetail } from "@/features/registers/a
 import { fetchPaymentDetail } from "@/features/registers/api/detail.queries";
 import type { PaymentDetail } from "@/features/registers/lib/detail-types";
 import { useAuthStore } from "@/lib/auth/auth-store";
+import { drilldownStack } from "@/lib/navigation/drilldown-stack";
+import { queueNavigationRestoration } from "@/lib/navigation/navigation-restoration";
 import { hasPermission, PERMISSIONS } from "@/lib/permissions/permissions";
 import { queryKeys } from "@/lib/query/query-keys";
-import { cn, formatDateTime, formatINR } from "@/lib/utils";
+import { formatDateTime, formatINR } from "@/lib/utils";
 
 type Decision = "VERIFY" | "MISMATCH" | null;
 
@@ -36,22 +39,28 @@ function linkedDocument(payment: PaymentDetail) {
 
 export default function PaymentDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
   const queryClient = useQueryClient();
   const { token, user } = useAuthStore();
   const [decision, setDecision] = useState<Decision>(null);
   const canVerify = hasPermission(user, PERMISSIONS.PAYMENT_VERIFY);
 
-  const query = useQuery({
-    queryKey: queryKeys.payments.detail(id),
-    queryFn: () => fetchPaymentDetail(token ?? "", id),
-    enabled: Boolean(token && id),
-    staleTime: 20_000,
-  });
+  const goBack = useCallback(() => {
+    const frame = drilldownStack.pop();
+    if (!frame) { router.push("/payments"); return; }
+    queueNavigationRestoration(frame);
+    router.push(`${frame.route}${frame.searchParams ? `?${frame.searchParams}` : ""}`);
+  }, [router]);
 
+  const backCommand = useMemo(() => ({ id: "payments.detail.back", title: "Back to Payment Register", execute: goBack }), [goBack]);
+  useCommand(backCommand);
+  useKeybinding(useMemo(() => ({ id: "payments-detail-escape", key: "esc", command: backCommand.id, when: "app.view == payments.detail && !dialog.open && !input.editable", priority: 80 }), [backCommand.id]));
+
+  const query = useQuery({ queryKey: queryKeys.payments.detail(id), queryFn: () => fetchPaymentDetail(token ?? "", id), enabled: Boolean(token && id), staleTime: 20_000 });
   const mutation = useMutation({
-    mutationFn: async ({ action, note }: { action: Exclude<Decision, null>; note?: string }) => action === "VERIFY"
-      ? verifyPaymentDetail(token ?? "", id, note)
-      : markPaymentMismatch(token ?? "", id, note),
+    mutationFn: async ({ action, note }: { action: Exclude<Decision, null>; note?: string }) => action === "VERIFY" ? verifyPaymentDetail(token ?? "", id, note) : markPaymentMismatch(token ?? "", id, note),
     onSuccess: async () => {
       setDecision(null);
       await Promise.all([
@@ -65,53 +74,35 @@ export default function PaymentDetailPage({ params }: { params: Promise<{ id: st
       ]);
     },
   });
+  const scope = JSON.stringify({ "app.module": "payments", "app.view": "payments.detail", "entity.activeId": id, "detail.focused": true, "mutation.pending": mutation.isPending, "keyboard.scope": "detail" });
 
-  if (query.isLoading) return <WorkspacePage><div className="workspace-panel flex min-h-[54vh] items-center justify-center text-xs text-muted-foreground">Loading payment…</div></WorkspacePage>;
-  if (query.isError || !query.data) return <WorkspacePage><WorkspacePageHeader kicker="Records · Payments" title="Payment detail" description="The payment could not be loaded." backHref="/payments" icon={CreditCard}/><div className="workspace-panel flex min-h-[46vh] items-center justify-center p-6 text-center"><div><p className="text-sm font-semibold">Payment unavailable</p><p className="mt-1 text-xs text-muted-foreground">{query.error instanceof Error ? query.error.message : "The backend did not return this payment."}</p><Button variant="outline" size="sm" className="mt-4" onClick={() => void query.refetch()}>Retry</Button></div></div></WorkspacePage>;
+  if (query.isLoading) return <div data-keyboard-scope={scope}><WorkspacePage><div className="workspace-panel flex min-h-[54vh] items-center justify-center text-xs text-muted-foreground">Loading payment…</div></WorkspacePage></div>;
+  if (query.isError || !query.data) return <div data-keyboard-scope={scope}><WorkspacePage><WorkspacePageHeader kicker="Records · Payments" title="Payment detail" description="The payment could not be loaded." backHref={null} onBack={goBack} icon={CreditCard}/><div className="workspace-panel flex min-h-[46vh] items-center justify-center p-6 text-center"><div><p className="text-sm font-semibold">Payment unavailable</p><p className="mt-1 text-xs text-muted-foreground">{query.error instanceof Error ? query.error.message : "The backend did not return this payment."}</p><Button variant="outline" size="sm" className="mt-4" onClick={() => void query.refetch()}>Retry</Button></div></div></WorkspacePage></div>;
 
   const payment = query.data;
   const link = linkedDocument(payment);
   const canAct = canVerify && payment.status === "RECORDED";
+  const openLinked = () => {
+    if (!link) return;
+    drilldownStack.push({ route: pathname, searchParams: searchParams.toString(), module: "payments", view: "payments.detail", activePointer: null, selectedIds: [], scrollOffset: window.scrollY });
+    router.push(link.href);
+  };
 
   return (
-    <WorkspacePage>
-      <WorkspacePageHeader
-        kicker="Records · Payment"
-        title={formatINR(payment.amount)}
-        description="Receipt detail with the backend verification state and actual linked transaction. Owner verification is available only for RECORDED payments."
-        backHref="/payments"
-        icon={CreditCard}
-        meta={statusBadge(payment.status)}
-        actions={<><Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={() => void query.refetch()}><RefreshCw className="size-3.5" />Refresh</Button>{canAct ? <Button variant="outline" size="sm" className="h-9 gap-1.5 text-amber-700" onClick={() => setDecision("MISMATCH")}><CircleAlert className="size-3.5" />Mark mismatch</Button> : null}{canAct ? <Button size="sm" className="h-9 gap-1.5" onClick={() => setDecision("VERIFY")}><BadgeCheck className="size-3.5" />Verify payment</Button> : null}</>}
-      />
+    <div data-keyboard-scope={scope}>
+      <WorkspacePage>
+        <WorkspacePageHeader kicker="Records · Payment" title={formatINR(payment.amount)} description="Receipt detail with the backend verification state and actual linked transaction. Owner verification is available only for RECORDED payments." backHref={null} onBack={goBack} icon={CreditCard} meta={statusBadge(payment.status)} actions={<><Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={() => void query.refetch()}><RefreshCw className="size-3.5" />Refresh</Button>{canAct ? <Button variant="outline" size="sm" className="h-9 gap-1.5 text-amber-700" disabled={mutation.isPending} onClick={() => setDecision("MISMATCH")}><CircleAlert className="size-3.5" />Mark mismatch</Button> : null}{canAct ? <Button size="sm" className="h-9 gap-1.5" disabled={mutation.isPending} onClick={() => setDecision("VERIFY")}><BadgeCheck className="size-3.5" />Verify payment</Button> : null}</>} />
+        {mutation.isError ? <Alert variant="destructive"><CircleAlert className="size-4" /><AlertDescription className="text-xs">{mutation.error instanceof Error ? mutation.error.message : "Payment update failed."}</AlertDescription></Alert> : null}
+        <WorkspaceMetricGrid><WorkspaceMetric label="Amount" value={formatINR(payment.amount)} detail={payment.paymentMode.replaceAll("_", " ")} icon={WalletCards} /><WorkspaceMetric label="Status" value={payment.status} detail={payment.verifiedAt ? `Reviewed ${formatDateTime(payment.verifiedAt)}` : "Not owner-verified"} icon={BadgeCheck} tone={payment.status === "VERIFIED" ? "success" : payment.status === "RECORDED" ? "warning" : "danger"} /><WorkspaceMetric label="Customer" value={payment.customer?.name || "Unassigned / walk-in"} detail={payment.customer?.phone || "No phone"} icon={UserRound} /><WorkspaceMetric label="Linked document" value={link?.label || "Unlinked"} detail={link?.type || "No sale, delivery memo or order"} icon={FileText} tone={link ? "info" : "warning"} /></WorkspaceMetricGrid>
 
-      {mutation.isError ? <Alert variant="destructive"><CircleAlert className="size-4" /><AlertDescription className="text-xs">{mutation.error instanceof Error ? mutation.error.message : "Payment update failed."}</AlertDescription></Alert> : null}
+        <div className="workspace-two-column">
+          <WorkspacePanel title="Receipt details" description="Fields returned by GET /payments/:id."><div className="divide-y px-[clamp(0.75rem,1vw,1rem)] text-xs"><InfoLine label="Payment mode" value={payment.paymentMode.replaceAll("_", " ")} /><InfoLine label="Received" value={formatDateTime(payment.receivedAt)} /><InfoLine label="Reference" value={payment.referenceNumber || "—"} mono /><InfoLine label="Notes" value={payment.notes || "—"} /><InfoLine label="Payment ID" value={payment.id} mono /></div></WorkspacePanel>
+          <WorkspacePanel title="Linked account" description="The payment service enforces that a payment can target at most one invoice/order document."><div className="divide-y px-[clamp(0.75rem,1vw,1rem)] text-xs"><InfoLine label="Customer" value={payment.customer?.name || "—"} /><InfoLine label="Linked type" value={link?.type || "Unlinked"} /><InfoLine label="Linked number" value={link?.label || "—"} mono={Boolean(link)} /><InfoLine label="Created" value={formatDateTime(payment.createdAt)} /></div>{link ? <div className="border-t p-3"><Button type="button" variant="outline" size="sm" className="h-9 w-full" onClick={openLinked}>Open {link.type.toLowerCase()} · {link.label}</Button></div> : null}</WorkspacePanel>
+        </div>
 
-      <WorkspaceMetricGrid>
-        <WorkspaceMetric label="Amount" value={formatINR(payment.amount)} detail={payment.paymentMode.replaceAll("_", " ")} icon={WalletCards} />
-        <WorkspaceMetric label="Status" value={payment.status} detail={payment.verifiedAt ? `Reviewed ${formatDateTime(payment.verifiedAt)}` : "Not owner-verified"} icon={BadgeCheck} tone={payment.status === "VERIFIED" ? "success" : payment.status === "RECORDED" ? "warning" : "danger"} />
-        <WorkspaceMetric label="Customer" value={payment.customer?.name || "Unassigned / walk-in"} detail={payment.customer?.phone || "No phone"} icon={UserRound} />
-        <WorkspaceMetric label="Linked document" value={link?.label || "Unlinked"} detail={link?.type || "No sale, delivery memo or order"} icon={FileText} tone={link ? "info" : "warning"} />
-      </WorkspaceMetricGrid>
-
-      <div className="workspace-two-column">
-        <WorkspacePanel title="Receipt details" description="Fields returned by GET /payments/:id."><div className="divide-y px-[clamp(0.75rem,1vw,1rem)] text-xs"><InfoLine label="Payment mode" value={payment.paymentMode.replaceAll("_", " ")} /><InfoLine label="Received" value={formatDateTime(payment.receivedAt)} /><InfoLine label="Reference" value={payment.referenceNumber || "—"} mono /><InfoLine label="Notes" value={payment.notes || "—"} /><InfoLine label="Payment ID" value={payment.id} mono /></div></WorkspacePanel>
-        <WorkspacePanel title="Linked account" description="The payment service enforces that a payment can target at most one invoice/order document."><div className="divide-y px-[clamp(0.75rem,1vw,1rem)] text-xs"><InfoLine label="Customer" value={payment.customer?.name || "—"} /><InfoLine label="Linked type" value={link?.type || "Unlinked"} /><InfoLine label="Linked number" value={link?.label || "—"} mono={Boolean(link)} /><InfoLine label="Created" value={formatDateTime(payment.createdAt)} /></div>{link ? <div className="border-t p-3"><Link href={link.href} className={cn(buttonVariants({ variant: "outline", size: "sm" }), "h-9 w-full")}>Open {link.type.toLowerCase()} · {link.label}</Link></div> : null}</WorkspacePanel>
-      </div>
-
-      <DecisionDialog
-        open={Boolean(decision)}
-        onOpenChange={(open) => !open && setDecision(null)}
-        title={decision === "VERIFY" ? "Verify this payment?" : "Mark this payment as mismatch?"}
-        description={decision === "VERIFY" ? "Verification is a real accounting action: the backend posts the customer ledger credit and recomputes the linked sale/DM/order payment state." : "This uses the backend mismatch handler. Include a note so the discrepancy is auditable."}
-        confirmLabel={decision === "VERIFY" ? "Verify payment" : "Mark mismatch"}
-        destructive={decision === "MISMATCH"}
-        requireReason={decision === "MISMATCH"}
-        reasonPlaceholder="Describe the payment mismatch…"
-        pending={mutation.isPending}
-        onConfirm={(note) => { if (decision) mutation.mutate({ action: decision, note: note || undefined }); }}
-      />
-    </WorkspacePage>
+        <DecisionDialog open={Boolean(decision)} onOpenChange={(open) => !open && setDecision(null)} title={decision === "VERIFY" ? "Verify this payment?" : "Mark this payment as mismatch?"} description={decision === "VERIFY" ? "Verification is a real accounting action: the backend posts the customer ledger credit and recomputes the linked sale/DM/order payment state." : "This uses the backend mismatch handler. Include a note so the discrepancy is auditable."} confirmLabel={decision === "VERIFY" ? "Verify payment" : "Mark mismatch"} destructive={decision === "MISMATCH"} requireReason={decision === "MISMATCH"} reasonPlaceholder="Describe the payment mismatch…" pending={mutation.isPending} onConfirm={(note) => { if (decision) mutation.mutate({ action: decision, note: note || undefined }); }} />
+      </WorkspacePage>
+    </div>
   );
 }
 

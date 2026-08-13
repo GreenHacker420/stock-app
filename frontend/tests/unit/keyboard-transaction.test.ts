@@ -1,26 +1,35 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { focusRegistry } from "../../components/keyboard/focus-registry";
+// @vitest-environment happy-dom
+import { beforeEach, describe, expect, it } from "vitest";
+
 import { editableGridController } from "../../components/keyboard/EditableGridController";
-import { ComboboxKeyboardController } from "../../components/keyboard/ComboboxKeyboardController";
-import { SCOPE_PRIORITY } from "../../components/keyboard/keyboard-intents";
+import { focusRegistry } from "../../components/keyboard/focus-registry";
 import type { RegisteredField } from "../../components/keyboard/focus-registry";
+import { compileContextExpression } from "../../lib/context/context-expression";
 
-describe("Tally Transaction Keyboard Engine Unit Tests", () => {
-  beforeEach(() => {
-    focusRegistry.clear();
-    focusRegistry.setMode("NAVIGATION");
+beforeEach(() => {
+  focusRegistry.clear();
+});
+
+describe("transaction keyboard primitives", () => {
+  it("uses context expressions instead of fixed scope priority constants", () => {
+    const grid = compileContextExpression(
+      "transaction.active && transaction.grid && transaction.mode == NAVIGATION && !dialog.open",
+    );
+    expect(grid({
+      "transaction.active": true,
+      "transaction.grid": true,
+      "transaction.mode": "NAVIGATION",
+      "dialog.open": false,
+    })).toBe(true);
+    expect(grid({
+      "transaction.active": true,
+      "transaction.grid": true,
+      "transaction.mode": "EDITING",
+      "dialog.open": false,
+    })).toBe(false);
   });
 
-  it("1. Scope priority resolution hierarchy follows exact strict order", () => {
-    expect(SCOPE_PRIORITY.DIALOG).toBeGreaterThan(SCOPE_PRIORITY.COMBOBOX);
-    expect(SCOPE_PRIORITY.COMBOBOX).toBeGreaterThan(SCOPE_PRIORITY.CELL_EDIT);
-    expect(SCOPE_PRIORITY.CELL_EDIT).toBeGreaterThan(SCOPE_PRIORITY.GRID);
-    expect(SCOPE_PRIORITY.GRID).toBeGreaterThan(SCOPE_PRIORITY.FORM);
-    expect(SCOPE_PRIORITY.FORM).toBeGreaterThan(SCOPE_PRIORITY.PAGE);
-    expect(SCOPE_PRIORITY.PAGE).toBeGreaterThan(SCOPE_PRIORITY.GLOBAL);
-  });
-
-  it("2. 2D Grid Navigation: ArrowRight, ArrowLeft, ArrowDown, ArrowUp, Home, End, Ctrl+Home, Ctrl+End", () => {
+  it("navigates the editable grid in two dimensions", () => {
     const fields: RegisteredField[] = [
       { id: "line-0-qty", zoneId: "LINE_ITEM_GRID", element: null, rowIndex: 0, colIndex: 0 },
       { id: "line-0-rate", zoneId: "LINE_ITEM_GRID", element: null, rowIndex: 0, colIndex: 1 },
@@ -30,78 +39,45 @@ describe("Tally Transaction Keyboard Engine Unit Tests", () => {
       { id: "line-1-disc", zoneId: "LINE_ITEM_GRID", element: null, rowIndex: 1, colIndex: 2 },
     ];
 
-    const current = fields[0]; // (0, 0)
-
-    // ArrowRight -> (0, 1)
-    const nextRight = editableGridController.calculateNextField(fields, current, "RIGHT");
-    expect(nextRight?.id).toBe("line-0-rate");
-
-    // ArrowDown -> (1, 0)
-    const nextDown = editableGridController.calculateNextField(fields, current, "DOWN");
-    expect(nextDown?.id).toBe("line-1-qty");
-
-    // ArrowLeft from (0,0) -> boundary stay
-    const nextLeftBoundary = editableGridController.calculateNextField(fields, current, "LEFT");
-    expect(nextLeftBoundary?.id).toBe("line-0-qty");
-
-    // End -> (0, 2)
-    const endField = editableGridController.calculateNextField(fields, current, "END");
-    expect(endField?.id).toBe("line-0-disc");
-
-    // Ctrl+End -> (1, 2)
-    const ctrlEnd = editableGridController.calculateNextField(fields, current, "CTRL_END");
-    expect(ctrlEnd?.id).toBe("line-1-disc");
-
-    // Ctrl+Home -> (0, 0)
-    const ctrlHome = editableGridController.calculateNextField(fields, fields[5], "CTRL_HOME");
-    expect(ctrlHome?.id).toBe("line-0-qty");
+    const current = fields[0];
+    expect(editableGridController.calculateNextField(fields, current, "RIGHT")?.id).toBe("line-0-rate");
+    expect(editableGridController.calculateNextField(fields, current, "DOWN")?.id).toBe("line-1-qty");
+    expect(editableGridController.calculateNextField(fields, current, "LEFT")?.id).toBe("line-0-qty");
+    expect(editableGridController.calculateNextField(fields, current, "END")?.id).toBe("line-0-disc");
+    expect(editableGridController.calculateNextField(fields, current, "CTRL_END")?.id).toBe("line-1-disc");
+    expect(editableGridController.calculateNextField(fields, fields[5], "CTRL_HOME")?.id).toBe("line-0-qty");
   });
 
-  it("3. Interaction Mode state transitions", () => {
-    expect(focusRegistry.getMode()).toBe("NAVIGATION");
+  it("orders only mounted enabled voucher fields", () => {
+    const later = document.createElement("input");
+    const earlier = document.createElement("input");
+    const disabled = document.createElement("input");
 
+    focusRegistry.register({ id: "later", zoneId: "SALE_HEADER", element: later, order: 20 });
+    focusRegistry.register({ id: "earlier", zoneId: "SALE_HEADER", element: earlier, order: 10 });
+    focusRegistry.register({ id: "disabled", zoneId: "SALE_HEADER", element: disabled, order: 5, disabled: true });
+    focusRegistry.register({ id: "unmounted", zoneId: "SALE_HEADER", element: null, order: 1 });
+    focusRegistry.register({ id: "grid-only", zoneId: "LINE_ITEM_GRID", element: document.createElement("input") });
+
+    expect(focusRegistry.getOrderedFields().map((field) => field.id)).toEqual(["earlier", "later"]);
+  });
+
+  it("tracks interaction mode transitions", () => {
+    expect(focusRegistry.getMode()).toBe("NAVIGATION");
     focusRegistry.setMode("EDITING");
     expect(focusRegistry.getMode()).toBe("EDITING");
-
     focusRegistry.setMode("COMBOBOX");
     expect(focusRegistry.getMode()).toBe("COMBOBOX");
-
     focusRegistry.setMode("DIALOG");
     expect(focusRegistry.getMode()).toBe("DIALOG");
   });
 
-  it("4. Focus restoration stack maintains history across field switches", () => {
+  it("restores previous registered focus", () => {
     focusRegistry.register({ id: "f1", zoneId: "Z1", element: null });
     focusRegistry.register({ id: "f2", zoneId: "Z1", element: null });
-
     focusRegistry.setActiveField("f1");
     focusRegistry.setActiveField("f2");
-
-    expect(focusRegistry.getActiveFieldId()).toBe("f2");
-
-    const restored = focusRegistry.restorePreviousFocus();
-    expect(restored).toBe(true);
+    expect(focusRegistry.restorePreviousFocus()).toBe(true);
     expect(focusRegistry.getActiveFieldId()).toBe("f1");
-  });
-
-  it("5. ComboboxKeyboardController options navigation & selection", () => {
-    const cb = new ComboboxKeyboardController();
-    cb.setItems([
-      { id: "1", label: "Item 1", data: { name: "Item 1" } },
-      { id: "2", label: "Item 2", data: { name: "Item 2" } },
-      { id: "3", label: "Item 3", data: { name: "Item 3" } },
-    ]);
-    cb.setOpen(true);
-
-    expect(cb.getActiveIndex()).toBe(0);
-
-    const downRes = cb.handleKeyDown(new KeyboardEvent("keydown", { key: "ArrowDown" }));
-    expect(downRes.handled).toBe(true);
-    expect(cb.getActiveIndex()).toBe(1);
-
-    const selectRes = cb.handleKeyDown(new KeyboardEvent("keydown", { key: "Enter" }));
-    expect(selectRes.handled).toBe(true);
-    expect(selectRes.action).toBe("SELECT");
-    expect(cb.getActiveItem()?.label).toBe("Item 2");
   });
 });

@@ -1,19 +1,19 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
+
 import { focusRegistry } from "./focus-registry";
 
 interface RovingFocusZoneProps {
   zoneId: string;
   className?: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }
 
 export function RovingFocusZone({ zoneId, className, children }: RovingFocusZoneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    // When container mounts or receives focus, update active zone in registry
     const el = containerRef.current;
     if (!el) return;
 

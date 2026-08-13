@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
@@ -14,7 +14,7 @@ export const HoverEffect = ({
     description: string;
     value: string;
     link: string;
-    icon?: React.ReactNode;
+    icon?: ReactNode;
     badge?: string;
   }[];
   className?: string;

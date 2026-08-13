@@ -1,8 +1,11 @@
 "use client";
 
-import { usePathname } from "next/navigation";
-import { useOS, formatShortcutForOS } from "@/lib/keyboard/os";
-import { useTransactionFocus } from "@/components/keyboard/TransactionFocusContext";
+import { useSyncExternalStore } from "react";
+
+import { getActiveCommandContext, useCommandSurface } from "@/components/keyboard/useCommandSurface";
+import { commandFeedbackStore } from "@/lib/commands/command-feedback";
+import { activePointerStore } from "@/lib/focus/active-pointer-store";
+import { formatShortcutForOS, useOS } from "@/lib/keyboard/os";
 
 interface StatusBarProps {
   scope?: string;
@@ -10,52 +13,39 @@ interface StatusBarProps {
   hasUnsaved?: boolean;
 }
 
-function getRouteContext(pathname: string) {
-  if (pathname.startsWith("/inventory")) return { scope: "Inventory", hint: "↑↓ Rows · Enter Open · Ctrl+F Search · F12 Configure", primary: ["Alt+G Go To", "F2 Period", "F3 Shop"] };
-  if (pathname.startsWith("/sales/new")) return { scope: "Sale Entry", hint: "F4 Customer · Enter Advance · Ctrl+A Save · Esc Cancel", primary: ["Alt+G Go To", "F8 Sale", "Ctrl+A Save"] };
-  if (pathname.startsWith("/sales")) return { scope: "Sales Register", hint: "↑↓ Rows · Enter Open · Ctrl+F Filter · F8 New Sale", primary: ["Alt+G Go To", "F2 Period", "F8 New Sale"] };
-  if (pathname.startsWith("/customers")) return { scope: "Customers", hint: "↑↓ Rows · Enter Open · Ctrl+F Search", primary: ["Alt+G Go To", "F3 Shop", "Enter Open"] };
-  if (pathname.startsWith("/orders")) return { scope: "Orders", hint: "↑↓ Rows · Ctrl+F Filter · F2 Period", primary: ["Alt+G Go To", "F2 Period", "F3 Shop"] };
-  if (pathname.startsWith("/delivery-memos")) return { scope: "Delivery Memos", hint: "↑↓ Rows · Ctrl+F Filter · F2 Period", primary: ["Alt+G Go To", "F2 Period", "F3 Shop"] };
-  if (pathname.startsWith("/payments")) return { scope: "Payments", hint: "↑↓ Rows · Ctrl+F Filter · Mode/Status filters", primary: ["Alt+G Go To", "F2 Period", "F3 Shop"] };
-  if (pathname.startsWith("/expenses")) return { scope: "Expenses", hint: "↑↓ Rows · Ctrl+F Filter · Owner verification", primary: ["Alt+G Go To", "F3 Shop", "Enter Open"] };
-  if (pathname.startsWith("/reports")) return { scope: "Reports", hint: "Enter Drill Down · F2 Period", primary: ["Alt+G Go To", "F2 Period", "Enter Open"] };
-  if (pathname.startsWith("/whatsapp")) return { scope: "WhatsApp", hint: "Connection capability · Templates · Conversation tools", primary: ["Alt+G Go To", "F3 Shop", "Esc Close"] };
-  if (pathname.startsWith("/administration") || pathname.startsWith("/approvals") || pathname.startsWith("/corrections") || pathname.startsWith("/cash-sessions")) return { scope: "Control", hint: "Review operational controls and approvals", primary: ["Alt+G Go To", "F3 Shop", "Esc Close"] };
-  return { scope: "Workspace", hint: "Alt+G Go To · F2 Period · F3 Shop · F8 New Sale", primary: ["Alt+G Go To", "F2 Period", "F8 New Sale"] };
+function humanizeContext(value: unknown): string {
+  if (typeof value !== "string" || !value) return "Workspace";
+  return value
+    .replaceAll(".", " · ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
-export function StatusBar({ scope: externalScope, selectedCount = 0, hasUnsaved = false }: StatusBarProps) {
-  const pathname = usePathname();
+export function StatusBar({ scope: externalScope, selectedCount: externalSelectedCount, hasUnsaved = false }: StatusBarProps) {
+  const entries = useCommandSurface("status");
   const { isMac } = useOS();
-  const { activeFieldId, activeZoneId, mode } = useTransactionFocus();
-  const routeContext = getRouteContext(pathname);
+  const pointerSnapshot = useSyncExternalStore(
+    activePointerStore.subscribe,
+    activePointerStore.getSnapshot,
+    activePointerStore.getServerSnapshot,
+  );
+  const feedback = useSyncExternalStore(
+    commandFeedbackStore.subscribe,
+    commandFeedbackStore.getSnapshot,
+    commandFeedbackStore.getServerSnapshot,
+  );
 
-  let displayScope = externalScope || routeContext.scope;
-  let hintText = routeContext.hint;
-
-  if (mode === "DIALOG") {
-    displayScope = "Dialog";
-    hintText = "Esc Close · Enter Confirm";
-  } else if (mode === "COMBOBOX") {
-    displayScope = "Combobox";
-    hintText = "↑↓ Navigate · Enter Select · Esc Close";
-  } else if (mode === "EDITING") {
-    displayScope = `Editing · ${activeFieldId || "Field"}`;
-    hintText = "Enter Accept · Esc Revert · Tab Next";
-  } else if (activeZoneId === "LINE_ITEM_GRID") {
-    displayScope = `Item Grid · ${activeFieldId || "Items"}`;
-    hintText = "←→ Cells · ↑↓ Rows · Enter Edit · Ctrl+D Remove";
-  } else if (activeZoneId === "PAYMENT_GRID") {
-    displayScope = `Payment Grid · ${activeFieldId || "Payments"}`;
-    hintText = "←→ Cells · ↑↓ Rows · Enter Edit · Ctrl+D Remove";
-  } else if (activeZoneId === "CUSTOMER_SEARCH") {
-    displayScope = "Customer Search";
-    hintText = "Type Name/Phone · ↑↓ Options · Enter Select · Esc Close";
-  } else if (activeZoneId === "PRODUCT_SEARCH") {
-    displayScope = "Product Search";
-    hintText = "Type Name/SKU · ↑↓ Options · Enter Select · Esc Close";
-  }
+  const context = getActiveCommandContext();
+  const displayScope = externalScope || humanizeContext(
+    context["report.id"] || context["app.view"] || context["app.module"] || context["keyboard.scope"],
+  );
+  const selectedCount = externalSelectedCount ?? pointerSnapshot.selectedIds.size;
+  const pointer = pointerSnapshot.pointer;
+  const unsaved = hasUnsaved || context["form.dirty"] === true;
+  const feedbackEntry = feedback.commandId ? entries.find((entry) => entry.id === feedback.commandId) : undefined;
+  const feedbackLabel = feedback.commandId
+    ? `${feedback.key ? `${formatShortcutForOS(feedback.key, isMac)} · ` : ""}${feedbackEntry?.title ?? humanizeContext(feedback.commandId)}`
+    : null;
 
   return (
     <footer
@@ -65,19 +55,24 @@ export function StatusBar({ scope: externalScope, selectedCount = 0, hasUnsaved 
     >
       <div className="flex min-w-0 items-center gap-[clamp(0.45rem,0.7vw,0.8rem)]">
         <span className="flex min-w-0 items-center gap-1.5"><span className="size-1.5 shrink-0 rounded-full bg-indigo-500" /><span className="truncate"><strong className="font-semibold text-foreground">{displayScope}</strong></span></span>
+        {pointer ? <span className="hidden whitespace-nowrap sm:inline">Row {pointer.index + 1}</span> : null}
         {selectedCount > 0 ? <span className="hidden font-semibold text-foreground sm:inline">{selectedCount} selected</span> : null}
-        {hasUnsaved ? <span className="hidden rounded bg-amber-50 px-1.5 font-semibold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 sm:inline">Unsaved</span> : null}
+        {unsaved ? <span className="hidden rounded bg-amber-50 px-1.5 font-semibold text-amber-700 dark:bg-amber-950/40 dark:text-amber-300 sm:inline">Unsaved</span> : null}
+        {context["mutation.pending"] === true ? <span className="hidden font-semibold text-amber-600 sm:inline">Working…</span> : null}
       </div>
 
-      <div className="hidden min-w-0 flex-1 truncate px-[clamp(0.8rem,2vw,2.5rem)] text-center font-mono text-[clamp(0.5rem,0.54vw,0.6rem)] text-foreground/70 lg:block">{hintText}</div>
+      <div className="hidden min-w-0 flex-1 items-center justify-center gap-[clamp(0.6rem,1vw,1.2rem)] overflow-hidden px-3 lg:flex">
+        {feedbackLabel ? (
+          <span className="truncate rounded-md border border-primary/30 bg-primary/10 px-2 py-0.5 font-mono text-[9px] font-semibold text-primary">{feedbackLabel}</span>
+        ) : entries.slice(0, 5).map((entry) => entry.key ? (
+          <span key={entry.id} className="whitespace-nowrap text-foreground/70">
+            <kbd className="rounded border bg-muted/50 px-1 font-mono text-[8px] text-foreground/80">{formatShortcutForOS(entry.key, isMac)}</kbd>{" "}{entry.title}
+          </span>
+        ) : null)}
+      </div>
 
-      <div className="hidden shrink-0 items-center gap-[clamp(0.5rem,0.8vw,0.9rem)] sm:flex">
-        {routeContext.primary.map((entry) => {
-          const firstSpace = entry.indexOf(" ");
-          const key = firstSpace > 0 ? entry.slice(0, firstSpace) : entry;
-          const label = firstSpace > 0 ? entry.slice(firstSpace + 1) : "";
-          return <span key={entry} className="whitespace-nowrap"><kbd className="rounded border bg-muted/50 px-1 font-mono text-[8px] text-foreground/70">{formatShortcutForOS(key.toLowerCase(), isMac)}</kbd>{" "}{label}</span>;
-        })}
+      <div className="hidden shrink-0 whitespace-nowrap text-[9px] text-muted-foreground md:block">
+        {feedbackLabel ? "Command executed" : context["dialog.open"] === true ? "Dialog owns keyboard" : context["input.editable"] === true ? "Typing context" : "Keyboard ready"}
       </div>
     </footer>
   );
