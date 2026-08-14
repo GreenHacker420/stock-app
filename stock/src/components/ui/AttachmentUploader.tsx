@@ -1,7 +1,12 @@
 import { useState } from "react";
 import { View, StyleSheet, TouchableOpacity, Image, Alert } from "react-native";
 import { Text, ActivityIndicator, IconButton } from "react-native-paper";
-import { launchImageLibraryAsync, useMediaLibraryPermissions } from "expo-image-picker";
+import {
+  launchImageLibraryAsync,
+  launchCameraAsync,
+  useMediaLibraryPermissions,
+  useCameraPermissions,
+} from "expo-image-picker";
 import { getDocumentAsync } from "expo-document-picker";
 import { File, UploadType } from "expo-file-system";
 import * as Crypto from "expo-crypto";
@@ -58,6 +63,37 @@ export function AttachmentUploader({
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<string | null>(null);
   const [permissionResponse, requestPermission] = useMediaLibraryPermissions();
+  const [cameraPermission, requestCameraPermission] = useCameraPermissions();
+
+  const handleTakePhoto = async () => {
+    if (attachments.length >= maxFiles) {
+      Alert.alert("Limit Reached", `You can attach up to ${maxFiles} files.`);
+      return;
+    }
+
+    if (!cameraPermission?.granted) {
+      const perm = await requestCameraPermission();
+      if (!perm.granted) {
+        Alert.alert("Permission Required", "Camera permission is required to capture photo.");
+        return;
+      }
+    }
+
+    const result = await launchCameraAsync({
+      quality: 0.8,
+      allowsEditing: false,
+    });
+
+    if (!result.canceled && result.assets && result.assets[0]) {
+      const asset = result.assets[0];
+      await uploadFile({
+        uri: asset.uri,
+        fileName: asset.fileName || `camera_${Date.now()}.jpg`,
+        mimeType: asset.mimeType || "image/jpeg",
+        sizeBytes: asset.fileSize ?? null,
+      });
+    }
+  };
 
   const handlePickImage = async () => {
     if (attachments.length >= maxFiles) {
@@ -214,13 +250,18 @@ export function AttachmentUploader({
         </View>
       ) : attachments.length < maxFiles ? (
         <View style={styles.actions}>
+          <TouchableOpacity style={styles.actionButton} onPress={handleTakePhoto}>
+            <IconButton icon="camera" size={18} iconColor={colors.primary} style={{ margin: 0, marginRight: 2 }} />
+            <Text style={styles.actionText}>Camera</Text>
+          </TouchableOpacity>
+
           <TouchableOpacity style={styles.actionButton} onPress={handlePickImage}>
-            <IconButton icon="camera" size={20} iconColor={colors.primary} />
-            <Text style={styles.actionText}>Photo</Text>
+            <IconButton icon="image-outline" size={18} iconColor={colors.primary} style={{ margin: 0, marginRight: 2 }} />
+            <Text style={styles.actionText}>Gallery</Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.actionButton} onPress={handlePickDocument}>
-            <IconButton icon="file-document" size={20} iconColor={colors.primary} />
+            <IconButton icon="file-document-outline" size={18} iconColor={colors.primary} style={{ margin: 0, marginRight: 2 }} />
             <Text style={styles.actionText}>Document</Text>
           </TouchableOpacity>
         </View>
@@ -264,21 +305,24 @@ const styles = StyleSheet.create({
   },
   actions: {
     flexDirection: "row",
-    gap: spacing.sm,
+    gap: spacing.xs,
   },
   actionButton: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
     borderStyle: "dashed",
     borderRadius: radius.md,
-    paddingRight: spacing.md,
+    paddingVertical: 6,
+    paddingHorizontal: 4,
   },
   actionText: {
-    fontSize: fontSize.xs,
-    fontWeight: "500",
+    fontSize: 11,
+    fontWeight: "600",
     color: colors.textPrimary,
   },
   uploadingContainer: {
