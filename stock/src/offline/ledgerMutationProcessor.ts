@@ -64,13 +64,23 @@ async function uploadAttachmentsIfNeeded(payload: any): Promise<any> {
       checksumSha256: local.checksumSha256,
     });
 
+    const uploadHeaders: Record<string, string> = {
+      "Content-Type": local.mimeType,
+      ...(intent.headers || {}),
+    };
+    if (
+      intent.storageProvider === "ONEDRIVE" ||
+      intent.uploadUrl.includes("sharepoint.com") ||
+      intent.uploadUrl.includes("graph.microsoft.com")
+    ) {
+      uploadHeaders["Content-Range"] = `bytes 0-${sizeBytes - 1}/${sizeBytes}`;
+      uploadHeaders["Content-Length"] = String(sizeBytes);
+    }
+
     const uploadTask = file.createUploadTask(intent.uploadUrl, {
       httpMethod: "PUT",
       uploadType: 0, // BINARY_CONTENT
-      headers: {
-        "Content-Type": local.mimeType,
-        ...(intent.headers || {}),
-      },
+      headers: uploadHeaders,
     } as any);
     await uploadTask.uploadAsync();
     await completeAssetUpload(intent.assetId, { shopId: payload.shopId });

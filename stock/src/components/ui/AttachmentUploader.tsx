@@ -171,14 +171,22 @@ export function AttachmentUploader({
         checksumSha256,
       });
 
-      setUploadProgress("Uploading...");
+      const uploadHeaders: Record<string, string> = {
+        "Content-Type": fileInfo.mimeType,
+        ...(intent.headers || {}),
+      };
+      if (
+        intent.storageProvider === "ONEDRIVE" ||
+        intent.uploadUrl.includes("sharepoint.com") ||
+        intent.uploadUrl.includes("graph.microsoft.com")
+      ) {
+        uploadHeaders["Content-Range"] = `bytes 0-${sizeBytes - 1}/${sizeBytes}`;
+        uploadHeaders["Content-Length"] = String(sizeBytes);
+      }
 
       const uploadTask = localFile.createUploadTask(intent.uploadUrl, {
         httpMethod: "PUT",
-        headers: {
-          "Content-Type": fileInfo.mimeType,
-          ...(intent.headers || {}),
-        },
+        headers: uploadHeaders,
         uploadType: UploadType.BINARY_CONTENT,
         onProgress: ({ bytesSent, totalBytes }) => {
           if (totalBytes > 0) {

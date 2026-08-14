@@ -74,6 +74,11 @@ export async function createUploadSession({ key, mimeType, sizeBytes, domain, pr
 
   if (targetProvider === "ONEDRIVE") {
     const session = await createOneDriveUploadSession({ key, sizeBytes });
+    const headers = {};
+    if (sizeBytes && Number(sizeBytes) > 0) {
+      headers["Content-Range"] = `bytes 0-${Number(sizeBytes) - 1}/${Number(sizeBytes)}`;
+      headers["Content-Length"] = String(sizeBytes);
+    }
     return {
       storageProvider: "ONEDRIVE",
       uploadUrl: session.uploadUrl,
@@ -81,6 +86,7 @@ export async function createUploadSession({ key, mimeType, sizeBytes, domain, pr
       bucket: getOneDriveDriveId() || "onedrive-default",
       method: "PUT",
       expiry: session.expiry,
+      headers,
     };
   }
 

@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { View, StyleSheet, ScrollView, Alert } from "react-native";
+import { View, StyleSheet, ScrollView, Alert, Linking, TouchableOpacity } from "react-native";
 import { useRoute } from "@react-navigation/native";
-import { Text, Menu, Portal, Dialog, TextInput, IconButton } from "react-native-paper";
+import { Text, Menu, Portal, Dialog, TextInput, IconButton, Icon } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
 
 import { useAuthStore } from "../../auth/auth-store";
@@ -34,6 +34,13 @@ import { ManualAdjustmentSheet } from "../../components/domain/ledger/ManualAdju
 import { CustomerLedgerEntry } from "../../api/ledger.api";
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
+
+function formatCustomerDate(d?: string | Date | null) {
+  if (!d) return "—";
+  const date = new Date(d);
+  if (isNaN(date.getTime())) return "—";
+  return date.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
+}
 
 function formatBalanceStatus(outstanding: number, advance: number) {
   if (outstanding > 0) return { label: `${money(outstanding)} Outstanding`, tone: "red" as const };
@@ -85,7 +92,7 @@ export function CustomerDetail() {
       />
 
       <View style={styles.content}>
-        {activeTab === "OVERVIEW" && <OverviewTab customer={customer} />}
+        {activeTab === "OVERVIEW" && <OverviewTab customer={customer} onNavigateTab={setActiveTab} />}
         {activeTab === "LEDGER" && <LedgerTab customer={customer} shopId={activeShopId || ""} />}
         {activeTab === "SALES" && <SalesTab query={salesQuery} />}
         {activeTab === "PAYMENTS" && <PaymentsTab query={paymentsQuery} />}
@@ -98,27 +105,152 @@ export function CustomerDetail() {
   );
 }
 
-function OverviewTab({ customer }: { customer: any }) {
-  const balanceStatus = formatBalanceStatus(Number(customer.outstandingAmount || 0), Number(customer.advanceBalance || 0));
+function OverviewTab({
+  customer,
+  onNavigateTab,
+}: {
+  customer: any;
+  onNavigateTab: (tab: TabType) => void;
+}) {
+  const outstanding = Number(customer.outstandingAmount || 0);
+  const advance = Number(customer.advanceBalance || 0);
+  const balanceStatus = formatBalanceStatus(outstanding, advance);
+
+  const handleCall = () => {
+    if (customer.phone) {
+      Linking.openURL(`tel:${customer.phone}`);
+    } else {
+      Alert.alert("No Phone", "Phone number is not available for this customer.");
+    }
+  };
+
+  const handleWhatsApp = () => {
+    if (customer.phone) {
+      const cleanPhone = customer.phone.replace(/[^0-9]/g, "");
+      const fullPhone = cleanPhone.length === 10 ? `91${cleanPhone}` : cleanPhone;
+      Linking.openURL(`whatsapp://send?phone=${fullPhone}`).catch(() => {
+        Alert.alert("WhatsApp Unavailable", "Could not open WhatsApp.");
+      });
+    } else {
+      Alert.alert("No Phone", "Phone number is not available for this customer.");
+    }
+  };
+
+  const createdFormatted = formatCustomerDate(customer.createdAt || customer.created_at);
 
   return (
     <ScrollView contentContainerStyle={styles.tabContent}>
-      <MetricGrid
-        items={[
-          { label: "Account Balance", value: balanceStatus.label, icon: "cash-multiple", tone: balanceStatus.tone },
-          { label: "Sales", value: money(customer.totalSales), icon: "chart-line", tone: "green" },
-        ]}
-      />
+      {/* Sleek Financial Summary Card */}
+      <View style={styles.financialCard}>
+        <View style={styles.financialHeader}>
+          <View>
+            <Text style={styles.financialLabel}>CURRENT BALANCE</Text>
+            <Text
+              style={[
+                styles.financialMainValue,
+                outstanding > 0 ? styles.debitText : advance > 0 ? styles.creditText : null,
+              ]}
+            >
+              {balanceStatus.label}
+            </Text>
+          </View>
+          <View
+            style={[
+              styles.balancePill,
+              outstanding > 0
+                ? styles.balancePillDebt
+                : advance > 0
+                ? styles.balancePillCredit
+                : styles.balancePillSettled,
+            ]}
+          >
+            <Text
+              style={[
+                styles.balancePillText,
+                outstanding > 0
+                  ? styles.balancePillTextDebt
+                  : advance > 0
+                  ? styles.balancePillTextCredit
+                  : styles.balancePillTextSettled,
+              ]}
+            >
+              {outstanding > 0 ? "DUE" : advance > 0 ? "ADVANCE" : "SETTLED"}
+            </Text>
+          </View>
+        </View>
 
-      <ScreenSection title="Profile Details" card>
-        <InfoRow label="Contact Person" value={customer.contactPerson || "Not provided"} />
-        <InfoRow label="Phone / Mobile" value={customer.phone || "Not provided"} />
-        <InfoRow label="GSTIN" value={customer.gstin || "Not provided"} />
-        <InfoRow label="Address" value={customer.address || "No address"} />
-        <InfoRow label="City" value={customer.city || "No city"} />
-        <InfoRow label="Credit Limit" value={money(customer.creditLimit)} />
-        <InfoRow label="Created On" value={new Date(customer.createdAt).toLocaleDateString()} />
-      </ScreenSection>
+        {/* Mini stats divider row */}
+        <View style={styles.financialMetricsRow}>
+          <View style={styles.financialMetric}>
+            <Text style={styles.metricLabel}>Total Sales</Text>
+            <Text style={styles.metricValue}>{money(customer.totalSales)}</Text>
+          </View>
+          <View style={styles.metricDivider} />
+          <View style={styles.financialMetric}>
+            <Text style={styles.metricLabel}>Credit Limit</Text>
+            <Text style={styles.metricValue}>{money(customer.creditLimit)}</Text>
+          </View>
+          <View style={styles.metricDivider} />
+          <View style={styles.financialMetric}>
+            <Text style={styles.metricLabel}>Customer Type</Text>
+            <Text style={styles.metricValue}>{customer.type || "REGULAR"}</Text>
+          </View>
+        </View>
+
+        {/* Quick Action Buttons */}
+        <View style={styles.quickActionsRow}>
+          <TouchableOpacity style={styles.quickActionBtn} onPress={handleCall}>
+            <IconButton icon="phone-outline" size={18} iconColor={colors.primary} style={styles.zeroMargin} />
+            <Text style={styles.quickActionText}>Call</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.quickActionBtn} onPress={handleWhatsApp}>
+            <IconButton icon="whatsapp" size={18} iconColor="#25D366" style={styles.zeroMargin} />
+            <Text style={styles.quickActionText}>WhatsApp</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.quickActionBtn} onPress={() => onNavigateTab("LEDGER")}>
+            <IconButton icon="book-open-outline" size={18} iconColor={colors.primary} style={styles.zeroMargin} />
+            <Text style={styles.quickActionText}>Ledger</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {/* Profile & Contact Details Card */}
+      <View style={styles.detailsCard}>
+        <View style={styles.cardSectionHeader}>
+          <Icon source="account-details-outline" size={18} color={colors.primary} />
+          <Text style={styles.cardSectionTitle}>Profile & Contact Details</Text>
+        </View>
+
+        <View style={styles.detailRow}>
+          <Text style={styles.detailLabel}>Contact Person</Text>
+          <Text style={styles.detailValue}>{customer.contactPerson || "Not provided"}</Text>
+        </View>
+
+        <View style={styles.detailRow}>
+          <Text style={styles.detailLabel}>Phone / Mobile</Text>
+          <Text style={styles.detailValueBold}>{customer.phone || "Not provided"}</Text>
+        </View>
+
+        <View style={styles.detailRow}>
+          <Text style={styles.detailLabel}>GSTIN</Text>
+          <Text style={styles.detailValueMonospace}>{customer.gstin || "Not provided"}</Text>
+        </View>
+
+        <View style={styles.detailRow}>
+          <Text style={styles.detailLabel}>Address</Text>
+          <Text style={styles.detailValue}>{customer.address || "No address"}</Text>
+        </View>
+
+        <View style={styles.detailRow}>
+          <Text style={styles.detailLabel}>City</Text>
+          <Text style={styles.detailValue}>{customer.city || "No city"}</Text>
+        </View>
+
+        <View style={[styles.detailRow, { borderBottomWidth: 0 }]}>
+          <Text style={styles.detailLabel}>Created On</Text>
+          <Text style={styles.detailValue}>{createdFormatted}</Text>
+        </View>
+      </View>
     </ScrollView>
   );
 }
@@ -660,5 +792,168 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
     fontWeight: "700",
     color: colors.danger,
+  },
+  // Overview Tab Sleek Styles
+  financialCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    ...shadow.sm,
+  },
+  financialHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: spacing.md,
+  },
+  financialLabel: {
+    fontSize: 10,
+    fontWeight: "700",
+    color: colors.textMuted,
+    letterSpacing: 0.8,
+  },
+  financialMainValue: {
+    fontSize: fontSize.xl,
+    fontWeight: "800",
+    color: colors.textPrimary,
+    marginTop: 2,
+  },
+  balancePill: {
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 3,
+    borderRadius: radius.full,
+  },
+  balancePillDebt: {
+    backgroundColor: "#FEE2E2",
+  },
+  balancePillCredit: {
+    backgroundColor: "#DCFCE7",
+  },
+  balancePillSettled: {
+    backgroundColor: colors.surfaceOffset,
+  },
+  balancePillText: {
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  balancePillTextDebt: {
+    color: colors.danger,
+  },
+  balancePillTextCredit: {
+    color: colors.success,
+  },
+  balancePillTextSettled: {
+    color: colors.textSecondary,
+  },
+  financialMetricsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.surfaceOffset,
+    borderRadius: radius.md,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.xs,
+    marginBottom: spacing.sm,
+  },
+  financialMetric: {
+    flex: 1,
+    alignItems: "center",
+  },
+  metricLabel: {
+    fontSize: 10,
+    color: colors.textMuted,
+    marginBottom: 2,
+  },
+  metricValue: {
+    fontSize: fontSize.xs,
+    fontWeight: "700",
+    color: colors.textPrimary,
+  },
+  metricDivider: {
+    width: 1,
+    height: 20,
+    backgroundColor: colors.border,
+  },
+  quickActionsRow: {
+    flexDirection: "row",
+    gap: spacing.xs,
+  },
+  quickActionBtn: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.surfaceOffset,
+    borderRadius: radius.md,
+    paddingVertical: 6,
+    paddingHorizontal: 4,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  quickActionText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: colors.textPrimary,
+  },
+  zeroMargin: {
+    margin: 0,
+    marginRight: -4,
+  },
+  detailsCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+    ...shadow.sm,
+  },
+  cardSectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+    marginBottom: spacing.sm,
+    paddingBottom: spacing.xs,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  cardSectionTitle: {
+    fontSize: fontSize.sm,
+    fontWeight: "700",
+    color: colors.textPrimary,
+  },
+  detailRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  detailLabel: {
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+  },
+  detailValue: {
+    fontSize: fontSize.xs,
+    color: colors.textPrimary,
+    fontWeight: "500",
+    maxWidth: "60%",
+    textAlign: "right",
+  },
+  detailValueBold: {
+    fontSize: fontSize.xs,
+    color: colors.textPrimary,
+    fontWeight: "700",
+    maxWidth: "60%",
+    textAlign: "right",
+  },
+  detailValueMonospace: {
+    fontSize: fontSize.xs,
+    color: colors.textPrimary,
+    fontWeight: "600",
+    fontFamily: "monospace",
+    maxWidth: "60%",
+    textAlign: "right",
   },
 });

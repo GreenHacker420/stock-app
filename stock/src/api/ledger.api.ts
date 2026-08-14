@@ -198,6 +198,7 @@ export async function createUploadIntent(payload: {
   const token = getToken();
   return apiRequest<{
     assetId: string;
+    storageProvider?: "S3" | "ONEDRIVE";
     uploadUrl: string;
     bucket: string;
     key: string;
