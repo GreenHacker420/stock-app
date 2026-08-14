@@ -10,9 +10,12 @@ import {
 } from "../lib/storage-manager.js";
 
 describe("OneDrive & Dual-Storage Architecture", () => {
-  it("defaults WHATSAPP domain to ONEDRIVE", () => {
-    const provider = resolveStorageProvider({ domain: "WHATSAPP" });
-    assert.equal(provider, "ONEDRIVE");
+  it("defaults WHATSAPP and document domains (CUSTOMER_LEDGER, SALE_INVOICE, DAILY_SUMMARY, DISPATCH) to ONEDRIVE", () => {
+    assert.equal(resolveStorageProvider({ domain: "WHATSAPP" }), "ONEDRIVE");
+    assert.equal(resolveStorageProvider({ domain: "CUSTOMER_LEDGER" }), "ONEDRIVE");
+    assert.equal(resolveStorageProvider({ domain: "SALE_INVOICE" }), "ONEDRIVE");
+    assert.equal(resolveStorageProvider({ domain: "DAILY_SUMMARY" }), "ONEDRIVE");
+    assert.equal(resolveStorageProvider({ domain: "DISPATCH" }), "ONEDRIVE");
   });
 
   it("defaults PRODUCT domain to S3 unless explicitly requested", () => {

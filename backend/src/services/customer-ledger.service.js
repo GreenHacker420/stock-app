@@ -683,7 +683,24 @@ export async function getCustomerLedger(user, customerId, filters = {}) {
       metadata: row.metadata,
       effectiveAt: row.effectiveAt,
       createdAt: row.createdAt,
-      attachments: attachmentMap.get(row.id) || [],
+      attachments: (attachmentMap.get(row.id) || []).map((att) => ({
+        id: att.id,
+        ledgerEntryId: att.ledgerEntryId,
+        assetId: att.assetId,
+        purpose: att.purpose,
+        sortOrder: att.sortOrder,
+        asset: att.asset
+          ? {
+              id: att.asset.id,
+              fileName: att.asset.fileName,
+              mimeType: att.asset.mimeType,
+              sizeBytes: att.asset.sizeBytes ? Number(att.asset.sizeBytes) : 0,
+              storageProvider: att.asset.storageProvider || "ONEDRIVE",
+              remoteUrl: att.asset.remoteUrl || "",
+              status: att.asset.status,
+            }
+          : null,
+      })),
     };
   });
 
@@ -826,7 +843,24 @@ export async function getCustomerLedgerStatement(user, customerId, { shopId, fro
       runningBalance: running,
       notes: e.notes,
       effectiveAt: e.effectiveAt,
-      attachments: e.ledgerAttachments,
+      attachments: (e.ledgerAttachments || []).map((att) => ({
+        id: att.id,
+        ledgerEntryId: att.ledgerEntryId,
+        assetId: att.assetId,
+        purpose: att.purpose,
+        sortOrder: att.sortOrder,
+        asset: att.asset
+          ? {
+              id: att.asset.id,
+              fileName: att.asset.fileName,
+              mimeType: att.asset.mimeType,
+              sizeBytes: att.asset.sizeBytes ? Number(att.asset.sizeBytes) : 0,
+              storageProvider: att.asset.storageProvider || "ONEDRIVE",
+              remoteUrl: att.asset.remoteUrl || "",
+              status: att.asset.status,
+            }
+          : null,
+      })),
     };
   });
 

@@ -309,11 +309,11 @@ export async function getAssetDownloadUrl(user, { assetId, shopId }) {
   }
   if (!asset.storageKey) throw new ApiError(400, "Asset has no storage key");
 
-  const { getSignedGetUrl } = await import("./s3.service.js");
-  const downloadUrl = await getSignedGetUrl({
+  const downloadUrl = await getObjectPublicUrl({
     key: asset.storageKey,
-    bucket: asset.storageBucket,
-    expiresInSeconds: 300,
+    provider: asset.storageProvider,
+    externalId: asset.externalId,
+    fallbackUrl: asset.remoteUrl,
   });
   if (!downloadUrl) throw new ApiError(500, "Failed to generate download URL");
 
