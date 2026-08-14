@@ -57,7 +57,7 @@ const entrySchema = z.object({
     entries: z.array(
       z.object({
         itemId: z.string().min(1),
-        quantity: z.coerce.number().refine((n) => n !== 0, "Quantity cannot be zero"),
+        quantity: z.coerce.number().finite().refine((n) => n !== 0, "Quantity cannot be zero"),
       })
     ).min(1),
     notes: z.string().optional(),
@@ -66,12 +66,16 @@ const entrySchema = z.object({
   query: z.object({}).optional(),
 });
 
-router.use(requireAuth);
-
-router.get("/current", requirePermission(PERMISSIONS.STOCK_VIEW), validate(querySchema), stockController.getCurrentStock);
-router.get("/movements", requirePermission(PERMISSIONS.STOCK_VIEW), validate(querySchema), stockController.listMovements);
-router.post("/movements", requirePermission(PERMISSIONS.STOCK_CREATE_MOVEMENT), validate(movementSchema), stockController.createMovement);
-router.post("/entry", requirePermission(PERMISSIONS.STOCK_CREATE_MOVEMENT), validate(entrySchema), stockController.bulkStockEntry);
+const physicalCountSchema = z.object({
+  body: z.object({
+    shopId: z.string().min(1),
+    itemId: z.string().min(1),
+    countedPhysical: z.coerce.number().finite().nonnegative(),
+    reason: z.string().trim().min(1, "Reason is required"),
+  }),
+  params: z.object({}).optional(),
+  query: z.object({}).optional(),
+});
 
 const transferStockSchema = z.object({
   body: z.object({
@@ -85,6 +89,13 @@ const transferStockSchema = z.object({
   query: z.object({}).optional(),
 });
 
+router.use(requireAuth);
+
+router.get("/current", requirePermission(PERMISSIONS.STOCK_VIEW), validate(querySchema), stockController.getCurrentStock);
+router.get("/movements", requirePermission(PERMISSIONS.STOCK_VIEW), validate(querySchema), stockController.listMovements);
+router.post("/movements", requirePermission(PERMISSIONS.STOCK_CREATE_MOVEMENT), validate(movementSchema), stockController.createMovement);
+router.post("/entry", requirePermission(PERMISSIONS.STOCK_CREATE_MOVEMENT), validate(entrySchema), stockController.bulkStockEntry);
+router.post("/physical-count", requirePermission(PERMISSIONS.STOCK_CREATE_MOVEMENT), validate(physicalCountSchema), stockController.physicalStockCount);
 router.post("/transfer", requirePermission(PERMISSIONS.STOCK_CREATE_MOVEMENT), validate(transferStockSchema), stockController.transferStock);
 
 export default router;

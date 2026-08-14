@@ -46,6 +46,7 @@ function DashboardShellContent({ children }: { children: ReactNode }) {
   const paymentFeature = getFeature("PAYMENT_CREATE");
   const stockEntryFeature = getFeature("STOCK_ENTRY");
   const stockTransferFeature = getFeature("STOCK_TRANSFER");
+  const physicalStockFeature = getFeature("PHYSICAL_STOCK");
   const navigationVersion = useSyncExternalStore(drilldownStack.subscribe, drilldownStack.getVersion, drilldownStack.getServerVersion);
   const canUnwind = navigationVersion >= 0 && drilldownStack.size() > 0;
 
@@ -68,10 +69,11 @@ function DashboardShellContent({ children }: { children: ReactNode }) {
       "feature.paymentCreate": isShortcutRegistrable(paymentFeature),
       "feature.stockEntry": isShortcutRegistrable(stockEntryFeature),
       "feature.stockTransfer": isShortcutRegistrable(stockTransferFeature),
+      "feature.physicalStock": isShortcutRegistrable(physicalStockFeature),
       "navigation.canUnwind": canUnwind,
       "navigation.depth": drilldownStack.size(),
     });
-  }, [activeShopId, canUnwind, commandPaletteOpen, dateDialogOpen, deliveryMemoFeature, navigationVersion, orderFeature, paymentFeature, saleFeature, shopDialogOpen, stockEntryFeature, stockTransferFeature, user]);
+  }, [activeShopId, canUnwind, commandPaletteOpen, dateDialogOpen, deliveryMemoFeature, navigationVersion, orderFeature, paymentFeature, physicalStockFeature, saleFeature, shopDialogOpen, stockEntryFeature, stockTransferFeature, user]);
 
   const unwind = useCallback(() => {
     const frame = drilldownStack.pop();
@@ -158,6 +160,14 @@ function DashboardShellContent({ children }: { children: ReactNode }) {
       when: "permission.stockCreateMovement && feature.stockTransfer && !dialog.open",
       execute: () => router.push(stockTransferFeature.route),
     },
+    physicalStock: {
+      id: "inventory.physicalStock.count",
+      title: "Physical Stock Count",
+      category: "Inventory",
+      description: "Count actual on-hand stock and reconcile only the variance.",
+      when: "permission.stockCreateMovement && feature.physicalStock && !dialog.open",
+      execute: () => router.push(physicalStockFeature.route),
+    },
     dismiss: {
       id: "overlay.dismiss",
       title: "Close Overlay",
@@ -169,7 +179,7 @@ function DashboardShellContent({ children }: { children: ReactNode }) {
         else if (shopDialogOpen) setShopDialogOpen(false);
       },
     },
-  }), [commandPaletteOpen, dateDialogOpen, deliveryMemoFeature.route, orderFeature.route, paymentFeature.route, router, saleFeature.route, shopDialogOpen, stockEntryFeature.route, stockTransferFeature.route, unwind]);
+  }), [commandPaletteOpen, dateDialogOpen, deliveryMemoFeature.route, orderFeature.route, paymentFeature.route, physicalStockFeature.route, router, saleFeature.route, shopDialogOpen, stockEntryFeature.route, stockTransferFeature.route, unwind]);
 
   useCommand(commands.goTo);
   useCommand(commands.unwind);
@@ -181,6 +191,7 @@ function DashboardShellContent({ children }: { children: ReactNode }) {
   useCommand(commands.payment);
   useCommand(commands.stockEntry);
   useCommand(commands.stockTransfer);
+  useCommand(commands.physicalStock);
   useCommand(commands.dismiss);
 
   useKeybinding(useMemo(() => ({ id: "app-alt-g", key: "alt+g", command: "navigation.goTo", when: "!dialog.open", priority: 10 }), []));
@@ -193,6 +204,7 @@ function DashboardShellContent({ children }: { children: ReactNode }) {
   useKeybinding(useMemo(() => ({ id: "app-f6", key: paymentFeature.shortcut || "f6", command: "payments.create", when: "!dialog.open", priority: 1 }), [paymentFeature.shortcut]));
   useKeybinding(useMemo(() => ({ id: "app-f9", key: stockEntryFeature.shortcut || "f9", command: "inventory.stockEntry.create", when: "!dialog.open", priority: 1 }), [stockEntryFeature.shortcut]));
   useKeybinding(useMemo(() => ({ id: "app-alt-f9", key: stockTransferFeature.shortcut || "alt+f9", command: "inventory.stockTransfer.create", when: "!dialog.open", priority: 1 }), [stockTransferFeature.shortcut]));
+  useKeybinding(useMemo(() => ({ id: "app-ctrl-f7", key: physicalStockFeature.shortcut || "ctrl+f7", command: "inventory.physicalStock.count", when: "!dialog.open", priority: 1 }), [physicalStockFeature.shortcut]));
   useKeybinding(useMemo(() => ({ id: "overlay-esc", key: "esc", command: "overlay.dismiss", when: SHELL_OVERLAY_WHEN, priority: 100 }), []));
 
   return <div className="flex h-dvh min-h-0 w-screen min-w-0 flex-col overflow-hidden bg-background text-foreground">

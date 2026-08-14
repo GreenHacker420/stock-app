@@ -16,14 +16,16 @@ describe("FEATURE_REGISTRY feature availability", () => {
       "PAYMENT_CREATE",
       "STOCK_ENTRY",
       "STOCK_TRANSFER",
+      "PHYSICAL_STOCK",
     ]);
   });
 
-  test("UNSUPPORTED features do not register shortcuts or appear in quick actions", () => {
+  test("physical stock is actionable and uses the central keyboard registry", () => {
     const feature = getFeature("PHYSICAL_STOCK");
-    expect(feature.status).toBe("UNSUPPORTED");
-    expect(isShortcutRegistrable(feature)).toBe(false);
-    expect(getActionableFeatures().find((item) => item.id === "PHYSICAL_STOCK")).toBeUndefined();
+    expect(feature.status).toBe("ENABLED");
+    expect(feature.shortcut).toBe("ctrl+f7");
+    expect(isShortcutRegistrable(feature)).toBe(true);
+    expect(getActionableFeatures().find((item) => item.id === "PHYSICAL_STOCK")).toBe(feature);
   });
 
   test("enabled write shortcuts are registrable", () => {
@@ -33,8 +35,17 @@ describe("FEATURE_REGISTRY feature availability", () => {
     expect(getFeature("PAYMENT_CREATE").shortcut).toBe("f6");
     expect(getFeature("STOCK_ENTRY").shortcut).toBe("f9");
     expect(getFeature("STOCK_TRANSFER").shortcut).toBe("alt+f9");
+    expect(getFeature("PHYSICAL_STOCK").shortcut).toBe("ctrl+f7");
 
-    for (const id of ["SALE_CREATE", "ORDER_CREATE", "DM_CREATE", "PAYMENT_CREATE", "STOCK_ENTRY", "STOCK_TRANSFER"] as const) {
+    for (const id of [
+      "SALE_CREATE",
+      "ORDER_CREATE",
+      "DM_CREATE",
+      "PAYMENT_CREATE",
+      "STOCK_ENTRY",
+      "STOCK_TRANSFER",
+      "PHYSICAL_STOCK",
+    ] as const) {
       expect(isShortcutRegistrable(getFeature(id))).toBe(true);
     }
   });

@@ -89,6 +89,7 @@ jobs:
             src/tests/delivery-memo-domain.test.js
             src/tests/phase1-security.test.js
             src/tests/phase2-core.test.js
+            src/tests/stock-count.test.js
             src/tests/sale-amendments.test.js
             src/tests/realtime.test.js
             src/tests/frontend-events.test.js
@@ -102,7 +103,7 @@ jobs:
 
           for test_file in "${test_files[@]}"; do
             echo "::group::${test_file}"
-            timeout 120s node --test "${test_file}"
+            timeout 120s node run-tests.js "${test_file}"
             status=$?
             echo "::endgroup::"
             if [ "${status}" -ne 0 ]; then

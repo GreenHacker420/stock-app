@@ -74,11 +74,10 @@ export const FEATURE_REGISTRY: Record<FeatureId, FeatureDefinition> = {
   PHYSICAL_STOCK: {
     id: "PHYSICAL_STOCK",
     label: "Physical Stock",
-    status: "UNSUPPORTED",
+    status: "ENABLED",
     route: "/inventory/physical-stock",
     requiredPermission: PERMISSIONS.STOCK_CREATE_MOVEMENT,
-    shortcut: null,
-    disabledReason: "Physical Stock verification is not implemented. No ETA confirmed.",
+    shortcut: "ctrl+f7",
   },
 };
 
