@@ -330,6 +330,13 @@ function OwnerHome({ navigate }: { navigate: (s: any, params?: any) => void }) {
               width={actionCardWidth}
             />
             <QuickActionCard 
+              title="Customer Ledger" 
+              desc="Statements & dues" 
+              icon="book-account-outline" 
+              onPress={() => navigate("CustomerList")} 
+              width={actionCardWidth}
+            />
+            <QuickActionCard 
               title="Create DM" 
               desc="Issue delivery memo" 
               icon="file-document-outline" 
@@ -421,6 +428,13 @@ function OwnerHome({ navigate }: { navigate: (s: any, params?: any) => void }) {
               desc="Invoices & GST status" 
               icon="receipt" 
               onPress={() => navigate("SalesList")} 
+              width={actionCardWidth}
+            />
+            <QuickActionCard 
+              title="Customer Ledger" 
+              desc="Statements & account balances" 
+              icon="book-account-outline" 
+              onPress={() => navigate("CustomerList")} 
               width={actionCardWidth}
             />
             <QuickActionCard 

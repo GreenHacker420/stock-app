@@ -99,6 +99,11 @@ export function OwnerRecords() {
 
       <ScreenSection title="Banking & Finance">
         <View style={styles.gridContainer}>
+          <Pressable onPress={() => navigate("CustomerList")} style={({ pressed }) => [styles.statCard, pressed && styles.pressed]}>
+            <Icon source="book-account-outline" size={24} color={colors.primary} />
+            <Text style={styles.statLabel}>LEDGER</Text>
+            <Text style={styles.statValue}>Customer Accounts</Text>
+          </Pressable>
           <Pressable onPress={() => navigate("ChequeList")} style={({ pressed }) => [styles.statCard, pressed && styles.pressed]}>
             <Icon source="card-bulleted-outline" size={24} color={colors.textSecondary} />
             <Text style={styles.statLabel}>CHEQUES</Text>
