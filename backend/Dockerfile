@@ -10,7 +10,7 @@ RUN apt-get update -y && apt-get install -y openssl
 COPY package*.json ./
 COPY prisma ./prisma
 RUN --mount=type=cache,target=/root/.npm \
-    npm ci --omit=dev --ignore-scripts
+    npm ci --omit=dev
 
 # ---------- Stage 2: Builder ----------
 FROM node:24-bookworm-slim AS builder
