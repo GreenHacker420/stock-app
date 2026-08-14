@@ -56,8 +56,8 @@ export function Home() {
   const shopsQuery = useShopsQuery();
   const sessionQuery = useCurrentCashSessionQuery();
 
-  const selectedShop = useMemo(() => 
-    shopsQuery.data?.find(s => s.id === activeShopId), 
+  const selectedShop = useMemo(() =>
+    shopsQuery.data?.find(s => s.id === activeShopId),
     [shopsQuery.data, activeShopId]
   );
 
@@ -108,7 +108,7 @@ export function Home() {
                     subtitle={`${shop.city} • Code: ${shop.code}`}
                     icon="storefront-outline"
                     tone="blue"
-	                    onPress={() => switchActiveShop(shop.id)}
+                    onPress={() => switchActiveShop(shop.id)}
                   />
                 ))
               )}
@@ -243,8 +243,8 @@ function OwnerHome({ navigate }: { navigate: (s: any, params?: any) => void }) {
 
   const [activeCategory, setActiveCategory] = useState<'sales' | 'inventory' | 'reports'>('sales');
 
-  const selectedShop = useMemo(() => 
-    shopsQuery.data?.find(s => s.id === activeShopId), 
+  const selectedShop = useMemo(() =>
+    shopsQuery.data?.find(s => s.id === activeShopId),
     [shopsQuery.data, activeShopId]
   );
 
@@ -322,67 +322,60 @@ function OwnerHome({ navigate }: { navigate: (s: any, params?: any) => void }) {
       case 'sales':
         return (
           <View style={styles.gridContainer}>
-            <QuickActionCard 
-              title="New Sale" 
-              desc="Start counter or credit bill" 
-              icon="cart-plus" 
-              onPress={() => navigate("NewSaleType")} 
+            <QuickActionCard
+              title="New Sale"
+              desc="Start counter or credit bill"
+              icon="cart-plus"
+              onPress={() => navigate("NewSaleType")}
               width={actionCardWidth}
             />
-            <QuickActionCard 
-              title="Customer Ledger" 
-              desc="Statements & dues" 
-              icon="book-account-outline" 
-              onPress={() => navigate("CustomerList")} 
+            <QuickActionCard
+              title="Customers"
+              desc="View profiles & dues"
+              icon="account-group-outline"
+              onPress={() => navigate("CustomerList")}
               width={actionCardWidth}
             />
-            <QuickActionCard 
-              title="Create DM" 
-              desc="Issue delivery memo" 
-              icon="file-document-outline" 
-              onPress={() => navigate("DeliveryMemoList")} 
+            <QuickActionCard
+              title="Create DM"
+              desc="Issue delivery memo"
+              icon="file-document-outline"
+              onPress={() => navigate("DeliveryMemoList")}
               width={actionCardWidth}
             />
-            <QuickActionCard 
-              title="Create Order" 
-              desc="Book customer order" 
-              icon="package-variant" 
-              onPress={() => navigate("CreateOrder")} 
+            <QuickActionCard
+              title="Create Order"
+              desc="Book customer order"
+              icon="package-variant"
+              onPress={() => navigate("CreateOrder")}
               width={actionCardWidth}
             />
-            <QuickActionCard 
-              title="Expenses" 
-              desc="Record operational costs" 
-              icon="cash-minus" 
-              onPress={() => navigate("Expenses")} 
+            <QuickActionCard
+              title="Expenses"
+              desc="Record operational costs"
+              icon="cash-minus"
+              onPress={() => navigate("Expenses")}
               width={actionCardWidth}
             />
-            <QuickActionCard 
-              title="Take Payment" 
-              desc="Collect cash/UPI/cheque" 
-              icon="cash-register" 
-              onPress={() => navigate("TakePayment")} 
+            <QuickActionCard
+              title="Take Payment"
+              desc="Collect cash/UPI/cheque"
+              icon="cash-register"
+              onPress={() => navigate("TakePayment")}
               width={actionCardWidth}
             />
-            <QuickActionCard 
-              title="Verify Payments" 
-              desc="Verify collections queue" 
-              icon="check-decagram-outline" 
-              onPress={() => navigate("PaymentVerification")} 
+            <QuickActionCard
+              title="Verify Payments"
+              desc="Verify collections queue"
+              icon="check-decagram-outline"
+              onPress={() => navigate("PaymentVerification")}
               width={actionCardWidth}
             />
-            <QuickActionCard 
-              title="Customers" 
-              desc="View profiles & dues" 
-              icon="account-group-outline" 
-              onPress={() => navigate("CustomerList")} 
-              width={actionCardWidth}
-            />
-            <QuickActionCard 
-              title="Track Cheques" 
-              desc="Monitor received cheques" 
-              icon="book-open-outline" 
-              onPress={() => navigate("ChequeList")} 
+            <QuickActionCard
+              title="Track Cheques"
+              desc="Monitor received cheques"
+              icon="book-open-outline"
+              onPress={() => navigate("ChequeList")}
               width={actionCardWidth}
             />
           </View>
@@ -390,32 +383,32 @@ function OwnerHome({ navigate }: { navigate: (s: any, params?: any) => void }) {
       case 'inventory':
         return (
           <View style={styles.gridContainer}>
-            <QuickActionCard 
-              title="Products Catalog" 
-              desc="Browse item list" 
-              icon="format-list-bulleted" 
-              onPress={() => navigate("ItemList")} 
+            <QuickActionCard
+              title="Products Catalog"
+              desc="Browse item list"
+              icon="format-list-bulleted"
+              onPress={() => navigate("ItemList")}
               width={actionCardWidth}
             />
-            <QuickActionCard 
-              title="Stock Entry" 
-              desc="Add incoming stock" 
-              icon="plus-box-outline" 
-              onPress={() => navigate("StockEntry")} 
+            <QuickActionCard
+              title="Stock Entry"
+              desc="Add incoming stock"
+              icon="plus-box-outline"
+              onPress={() => navigate("StockEntry")}
               width={actionCardWidth}
             />
-            <QuickActionCard 
-              title="Orders to Pack" 
-              desc="Process & pack orders" 
-              icon="package-variant-closed" 
-              onPress={() => navigate("OrdersToPack")} 
+            <QuickActionCard
+              title="Orders to Pack"
+              desc="Process & pack orders"
+              icon="package-variant-closed"
+              onPress={() => navigate("OrdersToPack")}
               width={actionCardWidth}
             />
-            <QuickActionCard 
-              title="Stock History" 
-              desc="Audit stock movements" 
-              icon="history" 
-              onPress={() => navigate("StockMovementHistory")} 
+            <QuickActionCard
+              title="Stock History"
+              desc="Audit stock movements"
+              icon="history"
+              onPress={() => navigate("StockMovementHistory")}
               width={actionCardWidth}
             />
           </View>
@@ -423,39 +416,39 @@ function OwnerHome({ navigate }: { navigate: (s: any, params?: any) => void }) {
       case 'reports':
         return (
           <View style={styles.gridContainer}>
-            <QuickActionCard 
-              title="Sales History" 
-              desc="Invoices & GST status" 
-              icon="receipt" 
-              onPress={() => navigate("SalesList")} 
+            <QuickActionCard
+              title="Sales History"
+              desc="Invoices & GST status"
+              icon="receipt"
+              onPress={() => navigate("SalesList")}
               width={actionCardWidth}
             />
-            <QuickActionCard 
-              title="Customer Ledger" 
-              desc="Statements & account balances" 
-              icon="book-account-outline" 
-              onPress={() => navigate("CustomerList")} 
+            <QuickActionCard
+              title="Customer Ledger"
+              desc="Statements & account balances"
+              icon="book-account-outline"
+              onPress={() => navigate("CustomerList")}
               width={actionCardWidth}
             />
-            <QuickActionCard 
-              title="Daily Summary" 
-              desc="Day sales & collections" 
-              icon="file-chart-outline" 
-              onPress={() => navigate("DailySummaryList")} 
+            <QuickActionCard
+              title="Daily Summary"
+              desc="Day sales & collections"
+              icon="file-chart-outline"
+              onPress={() => navigate("DailySummaryList")}
               width={actionCardWidth}
             />
-            <QuickActionCard 
-              title="Staff Members" 
-              desc="Attendance & activity" 
-              icon="account-tie-outline" 
-              onPress={() => navigate("StaffManagement")} 
+            <QuickActionCard
+              title="Staff Members"
+              desc="Attendance & activity"
+              icon="account-tie-outline"
+              onPress={() => navigate("StaffManagement")}
               width={actionCardWidth}
             />
-            <QuickActionCard 
-              title="Manage Shops" 
-              desc="Switch or add profiles" 
-              icon="storefront-outline" 
-              onPress={() => navigate("Updates")} 
+            <QuickActionCard
+              title="Manage Shops"
+              desc="Switch or add profiles"
+              icon="storefront-outline"
+              onPress={() => navigate("Updates")}
               width={actionCardWidth}
             />
           </View>
@@ -531,7 +524,7 @@ function OwnerHome({ navigate }: { navigate: (s: any, params?: any) => void }) {
       {/* Segmented Category Switcher */}
       <View style={styles.tabContainer}>
         <View style={styles.segmentedControl}>
-          <Pressable 
+          <Pressable
             onPress={() => {
               triggerLightHaptic();
               setActiveCategory('sales');
@@ -541,7 +534,7 @@ function OwnerHome({ navigate }: { navigate: (s: any, params?: any) => void }) {
             <Icon source="basket-outline" size={18} color={activeCategory === 'sales' ? colors.primary : colors.textMuted} />
             <Text style={[styles.segmentButtonText, activeCategory === 'sales' && styles.segmentButtonTextActive]}>Sales</Text>
           </Pressable>
-          <Pressable 
+          <Pressable
             onPress={() => {
               triggerLightHaptic();
               setActiveCategory('inventory');
@@ -551,7 +544,7 @@ function OwnerHome({ navigate }: { navigate: (s: any, params?: any) => void }) {
             <Icon source="warehouse" size={18} color={activeCategory === 'inventory' ? colors.primary : colors.textMuted} />
             <Text style={[styles.segmentButtonText, activeCategory === 'inventory' && styles.segmentButtonTextActive]}>Inventory</Text>
           </Pressable>
-          <Pressable 
+          <Pressable
             onPress={() => {
               triggerLightHaptic();
               setActiveCategory('reports');
@@ -581,11 +574,11 @@ function StaffHome({ navigate, session, sessionLoading }: { navigate: (s: any, p
 
   return (
     <View style={styles.dashboardContainer}>
-      
+
       {/* Session Status Banner */}
       <View style={[
-        styles.staffBanner, 
-        { 
+        styles.staffBanner,
+        {
           backgroundColor: isOpen ? colors.primaryLight : colors.warningLight,
           borderColor: isOpen ? 'rgba(22, 163, 74, 0.3)' : 'rgba(217, 119, 6, 0.3)',
           padding: isSessionCollapsed ? spacing.md : spacing.xl,
@@ -594,19 +587,19 @@ function StaffHome({ navigate, session, sessionLoading }: { navigate: (s: any, p
       ]}>
         <View style={styles.staffBannerHeader}>
           <View style={[
-            styles.staffBannerIconBg, 
+            styles.staffBannerIconBg,
             { backgroundColor: colors.surface }
           ]}>
-            <Icon 
-              source={isOpen ? "check-circle" : "alert-circle"} 
-              size={24} 
-              color={isOpen ? colors.success : colors.warning} 
+            <Icon
+              source={isOpen ? "check-circle" : "alert-circle"}
+              size={24}
+              color={isOpen ? colors.success : colors.warning}
             />
           </View>
           <View style={styles.flex1}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={[
-                styles.staffBannerTitle, 
+                styles.staffBannerTitle,
                 { color: isOpen ? colors.success : colors.warning }
               ]}>
                 {isOpen ? "Cash Session Active" : "Cash Session Closed"}
@@ -617,8 +610,8 @@ function StaffHome({ navigate, session, sessionLoading }: { navigate: (s: any, p
             </View>
             {!isSessionCollapsed && (
               <Text style={[styles.staffBannerDesc, { color: colors.textSecondary }]} numberOfLines={2}>
-                {isOpen 
-                  ? `Counter cash tracking active. Open: ₹${Number(session?.openingCash ?? 0).toLocaleString("en-IN")}` 
+                {isOpen
+                  ? `Counter cash tracking active. Open: ₹${Number(session?.openingCash ?? 0).toLocaleString("en-IN")}`
                   : "You must open a cash session to start registering sales."
                 }
               </Text>
@@ -658,21 +651,21 @@ function StaffHome({ navigate, session, sessionLoading }: { navigate: (s: any, p
       </View>
 
       <View style={styles.staffFooterActions}>
-        <Pressable 
+        <Pressable
           onPress={() => navigate("DailySummary")}
           style={({ pressed }) => [
-            styles.secondaryActionButton, 
+            styles.secondaryActionButton,
             pressed ? styles.pressed : undefined
           ].filter(Boolean) as any}
         >
           <Text style={styles.secondaryActionLabel}>Today's Summary</Text>
         </Pressable>
-        
+
         {isOpen && (
-          <Pressable 
+          <Pressable
             onPress={() => navigate("CloseDay")}
             style={({ pressed }) => [
-              styles.secondaryActionButton, 
+              styles.secondaryActionButton,
               { borderColor: colors.danger },
               pressed ? styles.pressed : undefined
             ].filter(Boolean) as any}
