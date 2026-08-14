@@ -317,6 +317,8 @@ export async function listSales(user, { shopId, customerId, page = 1, limit = 50
       balanceAmount: true,
       paymentStatus: true,
       saleStatus: true,
+      cancelledAt: true,
+      cancelReason: true,
       gstRequired: true,
       gstInvoiceStatus: true,
       gstInvoiceNumber: true,

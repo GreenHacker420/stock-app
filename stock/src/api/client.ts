@@ -105,6 +105,12 @@ export type Customer = {
   createdAt?: string;
 };
 
+export type CustomerOutstanding = {
+  customer: Customer;
+  outstandingAmount: string | number;
+  sales: Sale[];
+};
+
 export type CashSession = {
   id: string;
   shopId: string;
@@ -265,6 +271,8 @@ export type Sale = {
   balanceAmount: string;
   paymentStatus?: string;
   saleStatus?: string;
+  cancelledAt?: string | null;
+  cancelReason?: string | null;
   dueDate?: string | null;
   saleDate?: string;
   createdAt: string;
@@ -1050,7 +1058,7 @@ export async function deleteCustomer(token: string, id: string) {
 }
 
 export async function fetchCustomerOutstanding(token: string, customerId: string) {
-  return apiRequest(`/customers/${customerId}/outstanding`, { token });
+  return apiRequest<CustomerOutstanding>(`/customers/${customerId}/outstanding`, { token });
 }
 
 export async function fetchCustomerSales(token: string, customerId: string) {

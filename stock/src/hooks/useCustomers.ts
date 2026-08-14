@@ -3,7 +3,7 @@ import { useQuery, useMutation, useQueryClient, type QueryClient } from "@tansta
 import { useAuthStore } from "@/auth/auth-store";
 import { useShopStore } from "@/auth/shop-store";
 import { queryKeys } from "@/hooks/query-keys";
-import { fetchCustomers, fetchCustomer, createCustomer, updateCustomer, deleteCustomer, fetchCustomerSales, fetchCustomerPayments, fetchCustomerDMs, fetchCustomerReturns, fetchCustomerTimeline, type Customer } from "@/api/client";
+import { fetchCustomers, fetchCustomer, createCustomer, updateCustomer, deleteCustomer, fetchCustomerOutstanding, fetchCustomerSales, fetchCustomerPayments, fetchCustomerDMs, fetchCustomerReturns, fetchCustomerTimeline, type Customer } from "@/api/client";
 import { newIdempotencyKey } from "@/utils/idempotency";
 import { requireActiveShopId } from "@/hooks/useActiveShop";
 import { useCustomerReadModel, useReadModelRefresh } from "@/local/read-model/read-model-selectors";
@@ -167,6 +167,15 @@ export function useCustomerSalesQuery(id: string) {
     queryKey: ["customer-sales", id],
     queryFn: () => fetchCustomerSales(token ?? "", id),
     enabled: !!token && !!id,
+  });
+}
+
+export function useCustomerOutstandingQuery(id: string, enabled = true) {
+  const token = useAuthStore((state) => state.token);
+  return useQuery({
+    queryKey: ["customer-outstanding", id],
+    queryFn: () => fetchCustomerOutstanding(token ?? "", id),
+    enabled: enabled && !!token && !!id,
   });
 }
 

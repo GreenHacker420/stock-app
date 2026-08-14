@@ -9,6 +9,7 @@ import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
 import {
   useCustomerDetailQuery,
+  useCustomerOutstandingQuery,
   useCustomerSalesQuery,
   useCustomerPaymentsQuery,
   useCustomerDMsQuery,
@@ -70,6 +71,7 @@ export function CustomerDetail() {
   const activeShopId = useShopStore((state) => state.activeShopId);
   const customerQuery = useCustomerDetailQuery(customerId);
   const ledgerSummaryQuery = useCustomerLedgerSummary(customerId, activeShopId || "");
+  const outstandingQuery = useCustomerOutstandingQuery(customerId, activeTab === "OUTSTANDING");
   const salesQuery = useCustomerSalesQuery(customerId);
   const paymentsQuery = useCustomerPaymentsQuery(customerId);
   const dmsQuery = useCustomerDMsQuery(customerId);
@@ -109,7 +111,7 @@ export function CustomerDetail() {
         {activeTab === "LEDGER" && <LedgerTab customer={customer} shopId={activeShopId || ""} ledgerSummary={ledgerSummaryQuery.data} />}
         {activeTab === "SALES" && <SalesTab query={salesQuery} />}
         {activeTab === "PAYMENTS" && <PaymentsTab query={paymentsQuery} />}
-        {activeTab === "OUTSTANDING" && <OutstandingTab customer={customer} ledgerSummary={ledgerSummaryQuery.data} salesQuery={salesQuery} />}
+        {activeTab === "OUTSTANDING" && <OutstandingTab ledgerSummary={ledgerSummaryQuery.data} query={outstandingQuery} />}
         {activeTab === "DMS" && <DMsTab query={dmsQuery} />}
         {activeTab === "RETURNS" && <ReturnsTab query={returnsQuery} />}
         {activeTab === "TIMELINE" && <TimelineTab query={timelineQuery} />}
@@ -612,16 +614,29 @@ function SalesTab({ query }: { query: any }) {
     <FlashList
       data={sales}
       keyExtractor={(item: any) => item.id}
-      renderItem={({ item }: { item: any }) => (
-        <SaleCard
-          saleNumber={item.saleNumber || item.id.slice(-6)}
-          customerName={item.customer?.name}
-          amount={money(item.totalAmount)}
-          paymentStatus={item.paymentStatus}
-          date={new Date(item.createdAt).toLocaleDateString()}
-          onPress={() => navigate("EditSale", { saleId: item.id })}
-        />
-      )}
+      renderItem={({ item }: { item: any }) => {
+        const cancelled = item.saleStatus === "CANCELLED";
+        const status = cancelled
+          ? { label: "CANCELLED", tone: "red" as const }
+          : item.paymentStatus === "PAID"
+            ? { label: "PAID", tone: "green" as const }
+            : ["PARTIAL", "PARTIALLY_PAID"].includes(item.paymentStatus)
+              ? { label: "PARTIALLY PAID", tone: "amber" as const }
+              : { label: item.paymentStatus || item.saleStatus || "PENDING", tone: "red" as const };
+
+        return (
+          <SaleCard
+            saleNumber={item.saleNumber || item.id.slice(-6)}
+            customerName={item.customer?.name}
+            subtitle={cancelled ? (item.cancelReason ? `Cancelled: ${item.cancelReason}` : "Cancelled invoice") : undefined}
+            amount={money(item.totalAmount)}
+            paymentStatus={status.label}
+            statusTone={status.tone}
+            date={new Date(item.saleDate || item.createdAt).toLocaleDateString()}
+            onPress={() => navigate("EditSale", { saleId: item.id })}
+          />
+        );
+      }}
     />
   );
 }
@@ -647,9 +662,13 @@ function PaymentsTab({ query }: { query: any }) {
   );
 }
 
-function OutstandingTab({ customer, ledgerSummary, salesQuery }: { customer: any; ledgerSummary?: CustomerLedgerSummary; salesQuery: any }) {
-  const sales = (salesQuery.data ?? []).filter((s: any) => Number(s.balanceAmount) > 0);
-  const totalUnpaidDue = customer.unpaidSalesDue == null ? null : Number(customer.unpaidSalesDue);
+function OutstandingTab({ ledgerSummary, query }: { ledgerSummary?: CustomerLedgerSummary; query: any }) {
+  if (query.isLoading) return <SkeletonList count={5} />;
+  if (query.isError) return <EmptyState title="Could not load outstanding invoices" />;
+  const sales = query.data?.sales ?? [];
+  const totalUnpaidDue = query.data?.customer?.unpaidSalesDue == null
+    ? null
+    : Number(query.data.customer.unpaidSalesDue);
   const customerDue = Number(ledgerSummary?.outstandingAmount || 0);
   const advance = Number(ledgerSummary?.advanceBalance || 0);
 
@@ -689,7 +708,8 @@ function OutstandingTab({ customer, ledgerSummary, salesQuery }: { customer: any
         </View>
       </View>
 
-      <ScreenSection title="Unpaid Sales Invoices" card>
+      <ScreenSection title="Active Unpaid Sales Invoices" card>
+        <Text style={styles.outstandingNote}>Cancelled invoices appear in Sales and are excluded from outstanding totals.</Text>
         {sales.length === 0 ? (
           <Text style={styles.emptyText}>No pending invoices for this customer.</Text>
         ) : (
@@ -697,7 +717,7 @@ function OutstandingTab({ customer, ledgerSummary, salesQuery }: { customer: any
             <View key={sale.id} style={styles.unpaidRow}>
               <View>
                 <Text style={styles.unpaidNumber}>{sale.saleNumber}</Text>
-                <Text style={styles.unpaidDate}>{new Date(sale.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</Text>
+                <Text style={styles.unpaidDate}>{new Date(sale.saleDate || sale.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</Text>
               </View>
 
               <View style={styles.unpaidAmounts}>
@@ -947,6 +967,11 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
     color: colors.textMuted,
     padding: spacing.md,
+  },
+  outstandingNote: {
+    fontSize: fontSize.xs,
+    color: colors.textMuted,
+    marginBottom: spacing.xs,
   },
   unpaidRow: {
     flexDirection: "row",
