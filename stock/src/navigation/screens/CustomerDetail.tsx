@@ -668,13 +668,33 @@ function TimelineTab({ query }: { query: any }) {
   return (
     <FlashList
       data={events}
-      keyExtractor={(item: any) => item.id}
-      renderItem={({ item }: { item: any }) => (
-        <View style={styles.rowCard}>
-          <Text style={styles.rowDate}>{new Date(item.createdAt).toLocaleString()}</Text>
-          <Text style={styles.rowType}>{item.description || item.action}</Text>
-        </View>
-      )}
+      keyExtractor={(item: any, idx: number) => item.id || String(idx)}
+      renderItem={({ item }: { item: any }) => {
+        const isSale = item.type === "SALE";
+        const isPayment = item.type === "PAYMENT";
+        const isReturn = item.type === "RETURN";
+
+        return (
+          <View style={styles.rowCard}>
+            <View style={styles.rowHeader}>
+              <View style={styles.rowMainInfo}>
+                <Text style={styles.rowDate}>
+                  {new Date(item.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })} • {new Date(item.createdAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                </Text>
+                <Text style={styles.rowType}>{item.event || item.description || "Activity"}</Text>
+              </View>
+              {item.amount != null ? (
+                <Text style={[styles.rowAmount, (isSale || isReturn) ? styles.debitText : isPayment ? styles.creditText : null]}>
+                  {isSale ? `+${money(item.amount)}` : isPayment ? `-${money(item.amount)}` : money(item.amount)}
+                </Text>
+              ) : null}
+            </View>
+            {item.description && item.event !== item.description ? (
+              <Text style={styles.rowNotes}>{item.description}</Text>
+            ) : null}
+          </View>
+        );
+      }}
     />
   );
 }
