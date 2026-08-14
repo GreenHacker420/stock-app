@@ -95,6 +95,16 @@ export const contactsDb = {
       try {
         for (const c of contacts) {
           await statement.execute([c.id, c.name, c.phone, c.email || null, now]);
+          writeFastContact(c.phone, {
+            id: c.id,
+            name: c.name,
+            phone: c.phone,
+            email: c.email || null,
+            tag: "NONE",
+            customerId: null,
+            syncState: "UNSYNCED",
+            updatedAt: now,
+          });
         }
       } finally {
         await statement.finalize();

@@ -447,8 +447,12 @@ export const ChatDetailScreen = () => {
   }, [handleBack]);
 
   useLayoutEffect(() => {
-    const contactName = deviceContactName || conversation?.contactName || formatWhatsAppPhone(recipientPhone);
-    const initials = initialsFor(deviceContactName || conversation?.contactName || recipientPhone);
+    const resolvedDisplayName = deviceContactName
+      || conversation?.contactName
+      || customerRecord?.name
+      || conversation?.customer?.name
+      || formatWhatsAppPhone(recipientPhone);
+    const initials = initialsFor(resolvedDisplayName || recipientPhone);
 
     navigation.setOptions({
       headerShown: true,
@@ -487,7 +491,7 @@ export const ChatDetailScreen = () => {
           </View>
           <View style={{ maxWidth: 190 }}>
             <Text style={{ fontWeight: "700", fontSize: 16, color: "#fff" }} numberOfLines={1}>
-              {contactName}
+              {resolvedDisplayName}
             </Text>
             <Text style={{ fontSize: 11, color: "rgba(255,255,255,0.78)" }} numberOfLines={1}>
               {linkedCustomerId ? "Linked customer" : formatWhatsAppPhone(recipientPhone)}
@@ -509,6 +513,8 @@ export const ChatDetailScreen = () => {
     });
   }, [
     conversation?.contactName,
+    conversation?.customer?.name,
+    customerRecord?.name,
     deviceContactName,
     handleBack,
     linkedCustomerId,
@@ -1941,6 +1947,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 14,
     marginVertical: 3,
+    minWidth: 80,
     maxWidth: "84%",
     boxShadow: "0 1px 2px rgba(15, 23, 42, 0.08)",
   },

@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { FlashList } from "@shopify/flash-list";
 import { BottomTabBarHeightContext } from "@react-navigation/bottom-tabs";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useIsFocused, useNavigation } from "@react-navigation/native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { format, isToday, isYesterday } from "date-fns";
@@ -35,6 +36,7 @@ import {
   getFastChatContactNames,
   loadChatContactNames,
 } from "../services/chat-contact-names";
+import { syncDeviceContactsToLocalDb } from "../services/device-contacts-sync";
 import { useWhatsAppScope } from "../whatsapp-scope";
 import { formatWhatsAppPhone, initials, waColors } from "../whatsapp-ui";
 import {
@@ -117,6 +119,7 @@ function DeliveryIcon({ message }: { message?: WaMessage }) {
 
 export function ChatListScreen() {
   const navigation = useNavigation<any>();
+  const insets = useSafeAreaInsets();
   const tabBarHeight = useContext(BottomTabBarHeightContext) ?? 0;
   const token = useAuthStore((state) => state.token);
   const currentUser = useAuthStore((state) => state.user);
@@ -156,10 +159,21 @@ export function ChatListScreen() {
         });
     }
 
+    // Proactively sync device contacts in background when focused
+    if (isFocused) {
+      void syncDeviceContactsToLocalDb().then((synced) => {
+        if (synced > 0 && active && phones.length > 0) {
+          void loadChatContactNames(phones).then((names) => {
+            if (active) setDeviceContactNames(names);
+          });
+        }
+      });
+    }
+
     return () => {
       active = false;
     };
-  }, [conversationPhonesKey]);
+  }, [conversationPhonesKey, isFocused]);
 
   useEffect(() => {
     if (!isFocused || query.isPending) return;
@@ -399,9 +413,14 @@ export function ChatListScreen() {
     );
   }, [deviceContactNames, openConversation]);
 
+  const bottomClearance = useMemo(() => {
+    const bottomNavHeight = Math.max(tabBarHeight, Math.max(insets.bottom, 16) + 54);
+    return bottomNavHeight + 16;
+  }, [insets.bottom, tabBarHeight]);
+
   const listContentStyle = useMemo(
-    () => ({ paddingBottom: tabBarHeight + 94 }),
-    [tabBarHeight],
+    () => ({ paddingBottom: bottomClearance }),
+    [bottomClearance],
   );
   const handleEndReached = useCallback(() => {
     if (query.hasNextPage && !query.isFetchingNextPage) {
@@ -550,7 +569,7 @@ export function ChatListScreen() {
         icon="message-plus-outline"
         color="#fff"
         accessibilityLabel="Start a new WhatsApp conversation"
-        style={[styles.fab, { bottom: tabBarHeight + 16 }]}
+        style={[styles.fab, { bottom: bottomClearance + 8 }]}
         onPress={() => navigation.navigate("ContactBook", {
           shopId,
           integrationId,

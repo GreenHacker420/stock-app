@@ -6,7 +6,11 @@ import { FlashList } from "@shopify/flash-list";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ActivityIndicator, Button, Dialog, IconButton, Portal, Searchbar, Text, TextInput } from "react-native-paper";
 import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
-import * as Contacts from "expo-contacts";
+import {
+  Contact,
+  ContactField,
+  requestPermissionsAsync,
+} from "expo-contacts";
 import * as DocumentPicker from "expo-document-picker";
 import * as ImagePicker from "expo-image-picker";
 import { useDebounce } from "use-debounce";
@@ -50,6 +54,7 @@ import {
 import { getLocalContactsByIds } from "../services/broadcastContacts";
 import { broadcastDraftDb } from "../services/broadcastDraftDb";
 import { contactsDb, type LocalContact } from "../services/contactsDb";
+import { extractContactEntries } from "../services/device-contacts-sync";
 import { useWhatsAppScope } from "../whatsapp-scope";
 import { formatWhatsAppPhone, initials } from "../whatsapp-ui";
 
@@ -337,34 +342,25 @@ export function BroadcastComposerScreen() {
 
   const importMutation = useMutation({
     mutationFn: async () => {
-      const permission = await Contacts.requestPermissionsAsync();
+      const permission = await requestPermissionsAsync();
       if (permission.status !== "granted") {
         throw new Error("Allow contact access to choose recipients from this phone.");
       }
-      const data = await Contacts.Contact.getAllDetails([
-        Contacts.ContactField.FULL_NAME,
-        Contacts.ContactField.GIVEN_NAME,
-        Contacts.ContactField.FAMILY_NAME,
-        Contacts.ContactField.PHONES,
-        Contacts.ContactField.EMAILS,
+      const data = await Contact.getAllDetails([
+        ContactField.FULL_NAME,
+        ContactField.GIVEN_NAME,
+        ContactField.FAMILY_NAME,
+        ContactField.PHONES,
+        ContactField.EMAILS,
       ] as const);
 
-      const formatted = data.map((contact) => {
-        const phones = contact.phones || [];
-        const mobile = phones.find((entry) => /(mobile|cell|iphone)/i.test(entry.label || ""));
-        const phone = digitsOnly(mobile?.number || phones[0]?.number || "");
-        const name = (
-          contact.fullName
-          || [contact.givenName, contact.familyName].filter(Boolean).join(" ")
-          || phone
-        ).trim();
-        return {
-          id: contact.id,
-          name,
-          phone,
-          email: contact.emails?.[0]?.address || undefined,
-        };
-      }).filter((contact) => contact.id && contact.phone.length >= 10);
+      const formatted: Array<{ id: string; name: string; phone: string; email?: string }> = [];
+      for (const item of data) {
+        const entries = extractContactEntries(item);
+        for (const entry of entries) {
+          formatted.push(entry);
+        }
+      }
 
       await contactsDb.upsertDeviceContacts(formatted);
       return formatted.length;

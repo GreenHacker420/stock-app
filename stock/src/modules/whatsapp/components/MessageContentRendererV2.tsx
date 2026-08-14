@@ -204,17 +204,47 @@ function SystemRenderer({ message }: RendererProps) { return <InfoRow icon="info
 function ReactionRenderer({ message }: RendererProps) { return <InfoRow icon="emoticon-outline" text={message.content?.emoji || "Reaction"} />; }
 function UnsupportedRenderer({ message }: RendererProps) { return <InfoRow icon="message-question-outline" text="New WhatsApp message type" detail={`Type: ${message.content?.type || message.payload?.subtype || "unknown"}`} muted />; }
 
+function formatTemplateName(rawName?: string) {
+  if (!rawName) return "Template message";
+  return rawName
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 function TemplateRenderer({ message }: RendererProps) {
   const preview = message.content?.localPreview;
-  if (!preview?.body) return <InfoRow icon="card-text-outline" text={message.templateName || message.content?.template?.name || "Template message"} detail={message.templateLanguage} />;
+  const templateName = message.templateName || message.content?.template?.name;
+  const formattedTitle = preview?.title || formatTemplateName(templateName);
+  const language = message.templateLanguage || message.content?.template?.language?.code;
+
+  // Extract any template parameter text from components
+  const templateComponents = ((message.content?.template as any)?.components || (message.payload as any)?.outboundCommand?.message?.template?.components || []) as Array<{
+    type?: string;
+    parameters?: Array<{ type?: string; text?: string }>;
+  }>;
+  const bodyParams = templateComponents
+    .filter((c) => c.type?.toLowerCase() === "body")
+    .flatMap((c) => c.parameters || [])
+    .map((p) => p.text)
+    .filter(Boolean) as string[];
+
+  const bodyText = preview?.body || (bodyParams.length > 0 ? bodyParams.join(" · ") : "");
+
   return (
     <View style={styles.templateCard}>
       <View style={styles.templateHeader}>
         <MaterialCommunityIcons name="receipt-text-outline" size={20} color={Colors.primary} />
-        <Text style={styles.templateTitle}>{preview.title || "Template message"}</Text>
+        <Text style={styles.templateTitle} numberOfLines={1}>{formattedTitle}</Text>
+        {!!language && (
+          <View style={styles.templateLangBadge}>
+            <Text style={styles.templateLangText}>{language}</Text>
+          </View>
+        )}
       </View>
-      <Text selectable style={styles.templateBody}>{preview.body}</Text>
-      {preview.documentFilename ? (
+      {Boolean(bodyText) && (
+        <Text selectable style={styles.templateBody}>{bodyText}</Text>
+      )}
+      {preview?.documentFilename ? (
         <Pressable accessibilityRole={message.asset?.url ? "button" : undefined} accessibilityLabel={message.asset?.url ? `Open ${preview.documentFilename}` : undefined} disabled={!message.asset?.url} onPress={() => openUrl(message.asset?.url, "This PDF is not available.")} style={({ pressed }) => [styles.templateDocument, message.asset?.url && styles.templateDocumentOpenable, pressed && message.asset?.url && styles.templateDocumentPressed]}>
           <MaterialCommunityIcons name="file-pdf-box" size={20} color={Colors.danger} />
           <Text numberOfLines={1} style={styles.templateDocumentName}>{preview.documentFilename}</Text>
@@ -276,15 +306,17 @@ const styles = StyleSheet.create({
   imageLoading: { ...StyleSheet.absoluteFill, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(243,244,246,0.7)" },
   video: { width: 250, aspectRatio: 16 / 9, borderRadius: 8, marginBottom: 6, backgroundColor: Colors.surfaceOffset },
   sticker: { width: 150, height: 150 },
-  infoRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 6, paddingHorizontal: 4, maxWidth: "100%" },
+  infoRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 6, paddingHorizontal: 4, minWidth: 160, maxWidth: "100%" },
   infoText: { flex: 1 },
   infoTitle: { fontSize: 14, fontWeight: "600", color: "#1F2937" },
   infoDetail: { fontSize: 12, color: Colors.textSecondary, marginTop: 2 },
   muted: { color: Colors.textSecondary },
   processingRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 8, maxWidth: "100%" },
-  templateCard: { gap: 8, minWidth: 230, maxWidth: 290, paddingVertical: 4 },
-  templateHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
-  templateTitle: { color: "#1F2937", fontSize: 15, fontWeight: "700" },
+  templateCard: { gap: 8, minWidth: 200, maxWidth: 290, paddingVertical: 4 },
+  templateHeader: { flexDirection: "row", alignItems: "center", gap: 6 },
+  templateTitle: { flex: 1, color: "#1F2937", fontSize: 15, fontWeight: "700" },
+  templateLangBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, backgroundColor: Colors.surfaceOffset },
+  templateLangText: { fontSize: 10, fontWeight: "600", color: Colors.textSecondary },
   templateBody: { color: "#374151", fontSize: 14, lineHeight: 20 },
   templateDocument: { flexDirection: "row", alignItems: "center", gap: 8, padding: 8, borderRadius: 8, backgroundColor: Colors.surfaceOffset },
   templateDocumentOpenable: { borderWidth: 1, borderColor: Colors.border },

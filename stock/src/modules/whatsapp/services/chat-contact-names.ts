@@ -1,12 +1,13 @@
 import { sqliteClient } from "../../../database/sqlite-client";
-import { extractPhoneSuffix } from "../../../utils/items/validation";
+import { extractDigits, extractPhoneSuffix } from "../../../utils/items/validation";
 import { contactsDb, type LocalContact } from "./contactsDb";
+import { syncDeviceContactsToLocalDb } from "./device-contacts-sync";
 
 const SQLITE_BIND_CHUNK = 400;
 const memoryNames = new Map<string, string>();
 
 function suffixFor(phone: string) {
-  return extractPhoneSuffix(phone) || phone.replace(/\D/g, "");
+  return extractPhoneSuffix(phone) || extractDigits(phone).slice(-10);
 }
 
 export function getFastChatContactNames(phones: string[]) {
@@ -29,7 +30,7 @@ export async function loadChatContactNames(phones: string[]) {
   const unresolvedSuffixes = [...new Set(
     uniquePhones
       .map(suffixFor)
-      .filter((suffix) => suffix.length === 10 && !names[suffix]),
+      .filter((suffix) => suffix.length >= 10 && !names[suffix]),
   )];
 
   if (unresolvedSuffixes.length === 0) return names;
@@ -51,8 +52,9 @@ export async function loadChatContactNames(phones: string[]) {
       `SELECT *
        FROM local_contacts
        WHERE substr(phone, -10) IN (${placeholders})
+          OR phone IN (${placeholders})
        ORDER BY updatedAt DESC`,
-      chunk,
+      [...chunk, ...chunk],
     ));
 
     for (const contact of rows) {
@@ -64,5 +66,26 @@ export async function loadChatContactNames(phones: string[]) {
     }
   }
 
+  // If there are still unresolved suffixes, attempt a background scan of device contacts if permissions allow
+  const stillUnresolved = unresolvedSuffixes.filter((suffix) => !names[suffix]);
+  if (stillUnresolved.length > 0) {
+    void syncDeviceContactsToLocalDb().then((synced) => {
+      if (synced > 0) {
+        // Re-read fast contacts if new contacts were imported
+        for (const phone of uniquePhones) {
+          const suffix = suffixFor(phone);
+          if (!names[suffix]) {
+            const found = contactsDb.getFastContactByPhone(phone)?.name?.trim();
+            if (found) {
+              names[suffix] = found;
+              memoryNames.set(suffix, found);
+            }
+          }
+        }
+      }
+    });
+  }
+
   return names;
 }
+

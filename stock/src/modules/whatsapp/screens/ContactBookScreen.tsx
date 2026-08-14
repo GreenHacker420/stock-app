@@ -19,7 +19,11 @@ import {
   Checkbox,
   Dialog,
 } from "react-native-paper";
-import * as Contacts from "expo-contacts";
+import {
+  Contact,
+  ContactField,
+  requestPermissionsAsync,
+} from "expo-contacts";
 import { FlashList } from "@shopify/flash-list";
 import Animated, {
   useSharedValue,
@@ -28,6 +32,7 @@ import Animated, {
   interpolateColor,
 } from "react-native-reanimated";
 import { contactsDb, LocalContact } from "../services/contactsDb";
+import { extractContactEntries } from "../services/device-contacts-sync";
 import { useCustomersQuery } from "../../../hooks/useCustomers";
 import { colors as Colors, spacing, radius, fontSize, fontWeight } from "../../../theme";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
@@ -436,43 +441,30 @@ export const ContactBookScreen = () => {
 
   const importMutation = useMutation<number, Error, void>({
     mutationFn: async () => {
-      const { status } = await Contacts.requestPermissionsAsync();
+      const { status } = await requestPermissionsAsync();
       if (status !== "granted") {
         throw new Error("This screen requires access to your device contacts to sync with CRM.");
       }
 
-      const data = await Contacts.Contact.getAllDetails([
-        Contacts.ContactField.FULL_NAME,
-        Contacts.ContactField.GIVEN_NAME,
-        Contacts.ContactField.FAMILY_NAME,
-        Contacts.ContactField.PHONES,
-        Contacts.ContactField.EMAILS,
+      const data = await Contact.getAllDetails([
+        ContactField.FULL_NAME,
+        ContactField.GIVEN_NAME,
+        ContactField.FAMILY_NAME,
+        ContactField.PHONES,
+        ContactField.EMAILS,
       ] as const);
 
       if (!data || data.length === 0) {
         throw new Error("No contact cards were found on this device.");
       }
 
-      const formatted = data
-        .map((c) => {
-          const phone = c.phones?.[0]?.number || "";
-          const cleanPhone = phone.replace(/\D/g, "");
-
-          const firstName = c.givenName || "";
-          const lastName = c.familyName || "";
-          const nameField = c.fullName || "";
-
-          const compoundName = [firstName, lastName].filter(Boolean).join(" ");
-          const resolvedName = (nameField || compoundName || "").trim();
-
-          return {
-            id: c.id || "",
-            name: resolvedName,
-            phone: cleanPhone,
-            email: c.emails?.[0]?.address || undefined,
-          };
-        })
-        .filter((c) => c.phone.length >= 10);
+      const formatted: Array<{ id: string; name: string; phone: string; email?: string }> = [];
+      for (const item of data) {
+        const entries = extractContactEntries(item);
+        for (const entry of entries) {
+          formatted.push(entry);
+        }
+      }
 
       await contactsDb.upsertDeviceContacts(formatted);
       mmkvStorage.setItem("whatsapp_has_imported_device_contacts", "true");
