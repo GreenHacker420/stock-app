@@ -1,4 +1,4 @@
-import * as FileSystem from "expo-file-system/legacy";
+import { File, UploadType } from "expo-file-system";
 import { apiRequest, API_BASE_URL } from "./client";
 import { useAuthStore } from "../auth/auth-store";
 
@@ -194,27 +194,35 @@ export async function directUploadAsset(payload: {
   fileName: string;
   mimeType: string;
   provider?: "S3" | "ONEDRIVE";
+  onProgress?: (progress: { bytesSent: number; totalBytes: number }) => void;
 }) {
   const token = getToken();
   const uploadUrl = `${API_BASE_URL}/assets/direct`;
 
-  const response = await FileSystem.uploadAsync(uploadUrl, payload.fileUri, {
+  const file = new File(payload.fileUri);
+  const uploadTask = file.createUploadTask(uploadUrl, {
     httpMethod: "POST",
-    uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+    uploadType: UploadType.MULTIPART,
     fieldName: "file",
+    mimeType: payload.mimeType,
     headers: token ? { Authorization: `Bearer ${token}` } : {},
     parameters: {
       shopId: payload.shopId,
       domain: payload.domain,
       ...(payload.provider ? { provider: payload.provider } : {}),
     },
+    onProgress: payload.onProgress,
   });
 
-  if (response.status < 200 || response.status >= 300) {
-    let msg = `Upload failed with status ${response.status}`;
+  const response = await uploadTask.uploadAsync();
+
+  if (!response || response.status < 200 || response.status >= 300) {
+    let msg = `Upload failed with status ${response?.status ?? "unknown"}`;
     try {
-      const parsed = JSON.parse(response.body);
-      msg = parsed.error?.message || parsed.message || msg;
+      if (response?.body) {
+        const parsed = JSON.parse(response.body);
+        msg = parsed.error?.message || parsed.message || msg;
+      }
     } catch {}
     throw new Error(msg);
   }

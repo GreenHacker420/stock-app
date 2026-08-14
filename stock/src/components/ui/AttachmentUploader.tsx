@@ -163,6 +163,12 @@ export function AttachmentUploader({
         fileUri: fileInfo.uri,
         fileName: fileInfo.fileName,
         mimeType: fileInfo.mimeType,
+        onProgress: ({ bytesSent, totalBytes }) => {
+          if (totalBytes > 0) {
+            const pct = Math.round((bytesSent / totalBytes) * 100);
+            setUploadProgress(`Uploading ${pct}%...`);
+          }
+        },
       });
 
       const newAttachment: UploadedAttachment = {
