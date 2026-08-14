@@ -204,6 +204,13 @@ function SystemRenderer({ message }: RendererProps) { return <InfoRow icon="info
 function ReactionRenderer({ message }: RendererProps) { return <InfoRow icon="emoticon-outline" text={message.content?.emoji || "Reaction"} />; }
 function UnsupportedRenderer({ message }: RendererProps) { return <InfoRow icon="message-question-outline" text="New WhatsApp message type" detail={`Type: ${message.content?.type || message.payload?.subtype || "unknown"}`} muted />; }
 
+import { useQuery } from "@tanstack/react-query";
+import { useAuthStore } from "../../../auth/auth-store";
+import { useShopStore } from "../../../auth/shop-store";
+import { fetchWaTemplates, type WaTemplate } from "../../../api/whatsapp.api";
+
+import { whatsappDb } from "../services/whatsapp-db";
+
 function formatTemplateName(rawName?: string) {
   if (!rawName) return "Template message";
   return rawName
@@ -211,13 +218,50 @@ function formatTemplateName(rawName?: string) {
     .replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+function useWhatsAppTemplateCatalog(templateName?: string) {
+  const token = useAuthStore((state) => state.token);
+  const shopId = useShopStore((state) => state.activeShopId);
+
+  const query = useQuery({
+    queryKey: ["wa-templates-catalog", shopId],
+    enabled: Boolean(shopId && templateName),
+    queryFn: async () => {
+      const local = await whatsappDb.listLocalTemplates(shopId!);
+
+      if (token) {
+        try {
+          const res = await fetchWaTemplates(token, shopId!, { pageSize: 100 });
+          if (res?.data?.length) {
+            whatsappDb.upsertTemplates(shopId!, res.data).catch(() => {});
+            return res;
+          }
+        } catch (error) {
+          if (local.length > 0) return { data: local, meta: { page: 1, pageSize: 100, total: local.length, pages: 1 } };
+          throw error;
+        }
+      }
+
+      return { data: local, meta: { page: 1, pageSize: 100, total: local.length, pages: 1 } };
+    },
+    staleTime: 1000 * 60 * 15,
+    gcTime: 1000 * 60 * 60,
+  });
+
+  return useMemo(() => {
+    if (!query.data?.data || !templateName) return null;
+    return query.data.data.find(
+      (t) => t.name?.toLowerCase() === templateName.toLowerCase()
+    );
+  }, [query.data, templateName]);
+}
+
 function TemplateRenderer({ message }: RendererProps) {
   const preview = message.content?.localPreview;
   const templateName = message.templateName || message.content?.template?.name;
-  const formattedTitle = preview?.title || formatTemplateName(templateName);
   const language = message.templateLanguage || message.content?.template?.language?.code;
+  const catalogTemplate = useWhatsAppTemplateCatalog(templateName);
 
-  // Extract any template parameter text from components
+  // Extract runtime template parameter tokens from components
   const templateComponents = ((message.content?.template as any)?.components || (message.payload as any)?.outboundCommand?.message?.template?.components || []) as Array<{
     type?: string;
     parameters?: Array<{ type?: string; text?: string }>;
@@ -228,7 +272,49 @@ function TemplateRenderer({ message }: RendererProps) {
     .map((p) => p.text)
     .filter(Boolean) as string[];
 
-  const bodyText = preview?.body || (bodyParams.length > 0 ? bodyParams.join(" · ") : "");
+  const headerParams = templateComponents
+    .filter((c) => c.type?.toLowerCase() === "header")
+    .flatMap((c) => c.parameters || [])
+    .map((p) => p.text)
+    .filter(Boolean) as string[];
+
+  let bodyText = preview?.body || message.content?.text || message.content?.body || "";
+  let headerTitle = preview?.title || "";
+  let footerText = "";
+  let buttons: Array<{ type: string; text?: string; url?: string; phone_number?: string }> = [];
+
+  if (catalogTemplate) {
+    const draftDef = catalogTemplate.draftDefinition;
+    const bodyComp = catalogTemplate.components?.find((c) => c.type?.toUpperCase() === "BODY");
+    const headerComp = catalogTemplate.components?.find((c) => c.type?.toUpperCase() === "HEADER");
+    const footerComp = catalogTemplate.components?.find((c) => c.type?.toUpperCase() === "FOOTER");
+    const buttonsComp = catalogTemplate.components?.find((c) => c.type?.toUpperCase() === "BUTTONS");
+
+    const rawBody = draftDef?.body?.text || bodyComp?.text || "";
+    if (rawBody && !bodyText) {
+      bodyText = rawBody;
+      bodyParams.forEach((param, index) => {
+        bodyText = bodyText.replace(new RegExp(`\\{\\{${index + 1}\\}\\}`, "g"), param);
+      });
+    }
+
+    const rawHeader = draftDef?.header?.text || (headerComp?.format === "TEXT" ? headerComp.text : "") || "";
+    if (rawHeader && !headerTitle) {
+      headerTitle = rawHeader;
+      headerParams.forEach((param, index) => {
+        headerTitle = headerTitle.replace(new RegExp(`\\{\\{${index + 1}\\}\\}`, "g"), param);
+      });
+    }
+
+    footerText = draftDef?.footer?.text || footerComp?.text || "";
+    buttons = (draftDef?.buttons || buttonsComp?.buttons || []) as any;
+  }
+
+  if (!bodyText && bodyParams.length > 0) {
+    bodyText = bodyParams.join(" · ");
+  }
+
+  const formattedTitle = headerTitle || formatTemplateName(templateName);
 
   return (
     <View style={styles.templateCard}>
@@ -243,6 +329,25 @@ function TemplateRenderer({ message }: RendererProps) {
       </View>
       {Boolean(bodyText) && (
         <Text selectable style={styles.templateBody}>{bodyText}</Text>
+      )}
+      {Boolean(footerText) && (
+        <Text style={styles.templateFooter}>{footerText}</Text>
+      )}
+      {buttons.length > 0 && (
+        <View style={styles.templateActions}>
+          {buttons.map((btn, idx) => (
+            <View key={idx} style={styles.templateActionChip}>
+              <MaterialCommunityIcons
+                name={btn.type === "URL" ? "open-in-new" : btn.type === "PHONE_NUMBER" ? "phone-outline" : "reply-outline"}
+                size={14}
+                color={Colors.primary}
+              />
+              <Text numberOfLines={1} style={styles.templateActionText}>
+                {btn.text || btn.type}
+              </Text>
+            </View>
+          ))}
+        </View>
       )}
       {preview?.documentFilename ? (
         <Pressable accessibilityRole={message.asset?.url ? "button" : undefined} accessibilityLabel={message.asset?.url ? `Open ${preview.documentFilename}` : undefined} disabled={!message.asset?.url} onPress={() => openUrl(message.asset?.url, "This PDF is not available.")} style={({ pressed }) => [styles.templateDocument, message.asset?.url && styles.templateDocumentOpenable, pressed && message.asset?.url && styles.templateDocumentPressed]}>
@@ -318,6 +423,10 @@ const styles = StyleSheet.create({
   templateLangBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, backgroundColor: Colors.surfaceOffset },
   templateLangText: { fontSize: 10, fontWeight: "600", color: Colors.textSecondary },
   templateBody: { color: "#374151", fontSize: 14, lineHeight: 20 },
+  templateFooter: { color: Colors.textSecondary, fontSize: 12, lineHeight: 16, marginTop: 2 },
+  templateActions: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 4 },
+  templateActionChip: { flexDirection: "row", alignItems: "center", gap: 4, paddingVertical: 4, paddingHorizontal: 8, borderRadius: 6, backgroundColor: Colors.surfaceOffset, borderWidth: 1, borderColor: Colors.border },
+  templateActionText: { fontSize: 12, fontWeight: "600", color: Colors.primary },
   templateDocument: { flexDirection: "row", alignItems: "center", gap: 8, padding: 8, borderRadius: 8, backgroundColor: Colors.surfaceOffset },
   templateDocumentOpenable: { borderWidth: 1, borderColor: Colors.border },
   templateDocumentPressed: { opacity: 0.72 },

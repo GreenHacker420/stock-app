@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Alert, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Button, IconButton, Switch, Text, TextInput } from "react-native-paper";
 import { useNavigation, useRoute } from "@react-navigation/native";
@@ -16,6 +16,7 @@ import {
 } from "../../../api/whatsapp.api";
 import { useAuthStore } from "../../../auth/auth-store";
 import { useShopStore } from "../../../auth/shop-store";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { AppBottomSheetModal } from "../../../components/overlays/AppBottomSheetModal";
 import { colors, fontSize, fontWeight, radius, shadow, spacing } from "../../../theme";
 import { triggerLightHaptic, triggerSuccessHaptic } from "../../../utils/haptics";
@@ -168,6 +169,7 @@ export function TemplateEditorScreen() {
   const route = useRoute<any>();
   const templateId = route.params?.templateId as string | undefined;
   const token = useAuthStore((state) => state.token) || "";
+  const insets = useSafeAreaInsets();
   const shopId = useShopStore((state) => state.activeShopId)!;
   const queryClient = useQueryClient();
 
@@ -408,7 +410,12 @@ export function TemplateEditorScreen() {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={Platform.OS === "ios" ? 88 : 0}
     >
-      <StudioProgress stage={stage} onChange={setStage} />
+      <StudioProgress
+        stage={stage}
+        insetsTop={insets.top}
+        onBack={() => navigation.goBack()}
+        onChange={setStage}
+      />
 
       <ScrollView
         style={styles.flex}
@@ -450,7 +457,7 @@ export function TemplateEditorScreen() {
         )}
       </ScrollView>
 
-      <View style={styles.footer}>
+      <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, spacing.md) }]}>
         {stageIndex > 0 ? (
           <Pressable
             onPress={() => setStage(STAGES[stageIndex - 1].value)}
@@ -492,14 +499,14 @@ export function TemplateEditorScreen() {
         subtitle="Choose how the approved template starts. Actual media or location is supplied when sending."
         onDismiss={() => setHeaderSheet(false)}
         maxHeight={0.76}
-        scrollable
       >
         <View style={styles.sheetList}>
           {HEADER_OPTIONS.map((option) => {
-            const active = definition.header?.format === option.value;
+            const active = (definition.header?.format || "NONE") === option.value;
             return (
-              <Pressable
+              <TouchableOpacity
                 key={option.value}
+                activeOpacity={0.7}
                 onPress={() => {
                   triggerLightHaptic();
                   setDefinition((current) => ({
@@ -511,7 +518,7 @@ export function TemplateEditorScreen() {
                   }));
                   setHeaderSheet(false);
                 }}
-                style={({ pressed }) => [styles.sheetRow, pressed && styles.pressed]}
+                style={styles.sheetRow}
               >
                 <View style={[styles.sheetIcon, active && styles.sheetIconActive]}>
                   <MaterialCommunityIcons
@@ -525,7 +532,7 @@ export function TemplateEditorScreen() {
                   <Text style={styles.sheetSubtitle}>{option.description}</Text>
                 </View>
                 {active ? <MaterialCommunityIcons name="check" size={21} color={colors.primary} /> : null}
-              </Pressable>
+              </TouchableOpacity>
             );
           })}
         </View>
@@ -537,12 +544,12 @@ export function TemplateEditorScreen() {
         subtitle="Buttons are part of the approved template. Runtime URL values can be supplied when sending."
         onDismiss={() => setButtonSheet(false)}
         maxHeight={0.74}
-        scrollable
       >
         <View style={styles.sheetList}>
           {BUTTON_OPTIONS.map((option) => (
-            <Pressable
+            <TouchableOpacity
               key={option.type}
+              activeOpacity={0.7}
               onPress={() => {
                 setDefinition((current) => ({
                   ...current,
@@ -551,7 +558,7 @@ export function TemplateEditorScreen() {
                 setButtonSheet(false);
                 triggerLightHaptic();
               }}
-              style={({ pressed }) => [styles.sheetRow, pressed && styles.pressed]}
+              style={styles.sheetRow}
             >
               <View style={styles.sheetIcon}>
                 <MaterialCommunityIcons name={option.icon as any} size={21} color={colors.textSecondary} />
@@ -561,7 +568,7 @@ export function TemplateEditorScreen() {
                 <Text style={styles.sheetSubtitle}>{option.description}</Text>
               </View>
               <MaterialCommunityIcons name="plus" size={21} color={colors.primary} />
-            </Pressable>
+            </TouchableOpacity>
           ))}
         </View>
       </AppBottomSheetModal>
@@ -569,35 +576,55 @@ export function TemplateEditorScreen() {
   );
 }
 
-function StudioProgress({ stage, onChange }: { stage: StudioStage; onChange: (stage: StudioStage) => void }) {
+function StudioProgress({
+  stage,
+  insetsTop,
+  onBack,
+  onChange,
+}: {
+  stage: StudioStage;
+  insetsTop: number;
+  onBack: () => void;
+  onChange: (stage: StudioStage) => void;
+}) {
   const currentIndex = STAGES.findIndex((item) => item.value === stage);
   return (
-    <View style={styles.progressWrap}>
-      {STAGES.map((item, index) => {
-        const active = item.value === stage;
-        const completed = index < currentIndex;
-        return (
-          <Pressable
-            key={item.value}
-            onPress={() => onChange(item.value)}
-            style={styles.progressItem}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: active }}
-          >
-            <View style={[styles.progressDot, (active || completed) && styles.progressDotActive]}>
-              <MaterialCommunityIcons
-                name={(completed ? "check" : item.icon) as any}
-                size={15}
-                color={active || completed ? colors.textInverse : colors.textMuted}
-              />
-            </View>
-            <Text style={[styles.progressLabel, active && styles.progressLabelActive]}>{item.label}</Text>
-            {index < STAGES.length - 1 ? (
-              <View style={[styles.progressLine, completed && styles.progressLineActive]} />
-            ) : null}
-          </Pressable>
-        );
-      })}
+    <View style={[styles.progressWrap, { paddingTop: Math.max(insetsTop, spacing.sm), minHeight: 60 + Math.max(insetsTop, spacing.sm) }]}>
+      <IconButton
+        icon="arrow-left"
+        size={22}
+        iconColor={colors.textPrimary}
+        onPress={onBack}
+        style={styles.topBackButton}
+        accessibilityLabel="Go back"
+      />
+      <View style={styles.progressSteps}>
+        {STAGES.map((item, index) => {
+          const active = item.value === stage;
+          const completed = index < currentIndex;
+          return (
+            <Pressable
+              key={item.value}
+              onPress={() => onChange(item.value)}
+              style={styles.progressItem}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: active }}
+            >
+              <View style={[styles.progressDot, (active || completed) && styles.progressDotActive]}>
+                <MaterialCommunityIcons
+                  name={(completed ? "check" : item.icon) as any}
+                  size={14}
+                  color={active || completed ? colors.textInverse : colors.textMuted}
+                />
+              </View>
+              <Text numberOfLines={1} style={[styles.progressLabel, active && styles.progressLabelActive]}>{item.label}</Text>
+              {index < STAGES.length - 1 ? (
+                <View style={[styles.progressLine, completed && styles.progressLineActive]} />
+              ) : null}
+            </Pressable>
+          );
+        })}
+      </View>
     </View>
   );
 }
@@ -1304,19 +1331,29 @@ const styles = StyleSheet.create({
   loadingState: { minHeight: 320, alignItems: "center", justifyContent: "center" },
   muted: { color: colors.textMuted, fontSize: fontSize.sm },
   progressWrap: {
-    minHeight: 68,
-    paddingHorizontal: spacing.lg,
+    paddingHorizontal: spacing.sm,
+    paddingBottom: spacing.sm,
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: colors.surface,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.border,
   },
+  topBackButton: {
+    margin: 0,
+    marginRight: 2,
+  },
+  progressSteps: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingRight: spacing.sm,
+  },
   progressItem: { flex: 1, flexDirection: "row", alignItems: "center", minWidth: 0 },
   progressDot: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: colors.surfaceOffset,

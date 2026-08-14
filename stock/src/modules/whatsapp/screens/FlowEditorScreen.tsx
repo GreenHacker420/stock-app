@@ -5,6 +5,7 @@ import {
   Button,
   Chip,
   Divider,
+  IconButton,
   SegmentedButtons,
   Switch,
   Text,
@@ -27,6 +28,7 @@ import {
 } from "../../../api/whatsapp.api";
 import { useAuthStore } from "../../../auth/auth-store";
 import { useShopStore } from "../../../auth/shop-store";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FormTextField } from "../../../components/forms/FormTextField";
 import { waColors } from "../whatsapp-ui";
 import { KeyboardAwareScreen } from "../../../components/keyboard/KeyboardAwareScreen";
@@ -62,6 +64,7 @@ export function FlowEditorScreen() {
   const flowId = route.params?.flowId as string | undefined;
   const token = useAuthStore((state) => state.token) || "";
   const shopId = useShopStore((state) => state.activeShopId)!;
+  const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -195,10 +198,23 @@ export function FlowEditorScreen() {
   return (
     <KeyboardAwareScreen
       style={styles.screen}
-      contentContainerStyle={styles.content}
+      contentContainerStyle={[styles.content, { paddingTop: Math.max(insets.top, 8) }]}
       keyboardShouldPersistTaps="handled"
       contentInsetAdjustmentBehavior="automatic"
     >
+      <View style={styles.headerBar}>
+        <IconButton
+          icon="arrow-left"
+          size={24}
+          iconColor={waColors.text}
+          onPress={() => navigation.goBack()}
+          style={styles.backButton}
+          accessibilityLabel="Go back"
+        />
+        <Text style={styles.headerBarTitle}>{flowId ? "Flow details" : "New Flow"}</Text>
+        <View style={styles.headerRightPlaceholder} />
+      </View>
+
       {!!flow && (
         <View style={styles.statusBand}>
           <View>
@@ -368,6 +384,10 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: waColors.surfaceMuted },
+  headerBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
+  headerBarTitle: { fontSize: 18, fontWeight: "700", color: waColors.text },
+  backButton: { margin: 0 },
+  headerRightPlaceholder: { width: 48 },
   loader: { flex: 1 },
   content: { padding: 12, gap: 12, paddingBottom: 50 },
   statusBand: { minHeight: 62, flexDirection: "row", alignItems: "center", justifyContent: "space-between", padding: 14, borderRadius: 8, backgroundColor: waColors.greenPale },

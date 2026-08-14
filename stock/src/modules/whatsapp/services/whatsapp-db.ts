@@ -3,6 +3,7 @@ import type {
   WaMessage,
   WaOperationState,
   WaOutboundMessage,
+  WaTemplate,
   WhatsAppCapability,
 } from "../../../api/whatsapp.api";
 import { sqliteClient } from "../../../database/sqlite-client";
@@ -190,6 +191,22 @@ function initializeDatabase() {
       normalized_search TEXT NOT NULL,
       updated_at INTEGER NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS wa_templates (
+      id TEXT PRIMARY KEY NOT NULL,
+      shop_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      language TEXT NOT NULL,
+      category TEXT,
+      status TEXT,
+      components_json TEXT,
+      draft_definition_json TEXT,
+      payload_json TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS wa_templates_shop_name_idx
+      ON wa_templates(shop_id, name);
 
     CREATE INDEX IF NOT EXISTS wa_conversations_scope_updated_idx
       ON wa_conversations(shop_id, integration_id, updated_at DESC, id DESC);
@@ -1049,6 +1066,79 @@ export const whatsappDb = {
         "DELETE FROM wa_media_cache WHERE last_accessed_at < ?",
         [now - Math.max(options.mediaFileRetentionDays, options.thumbnailRetentionDays) * day],
       );
+    });
+  },
+
+  async upsertTemplates(shopId: string, templates: WaTemplate[]) {
+    await initializeDatabase();
+    if (!templates.length) return;
+    await sqliteClient.transaction(async (database) => {
+      for (const template of templates) {
+        await database.run(
+          `INSERT INTO wa_templates (
+            id, shop_id, name, language, category, status, components_json, draft_definition_json, payload_json, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(id) DO UPDATE SET
+            name = excluded.name,
+            language = excluded.language,
+            category = excluded.category,
+            status = excluded.status,
+            components_json = excluded.components_json,
+            draft_definition_json = excluded.draft_definition_json,
+            payload_json = excluded.payload_json,
+            updated_at = excluded.updated_at`,
+          [
+            template.id,
+            shopId,
+            template.name,
+            template.language || "en_US",
+            template.category || "UTILITY",
+            template.status || "APPROVED",
+            template.components ? JSON.stringify(template.components) : null,
+            template.draftDefinition ? JSON.stringify(template.draftDefinition) : null,
+            JSON.stringify(template),
+            Date.now(),
+          ],
+        );
+      }
+    });
+  },
+
+  async getTemplateByName(shopId: string, name: string): Promise<WaTemplate | null> {
+    await initializeDatabase();
+    return sqliteClient.read(async (database) => {
+      const row = await database.first<{ payload_json: string }>(
+        `SELECT payload_json FROM wa_templates
+         WHERE shop_id = ? AND LOWER(name) = LOWER(?)
+         ORDER BY updated_at DESC
+         LIMIT 1`,
+        [shopId, name],
+      );
+      if (!row?.payload_json) return null;
+      try {
+        return JSON.parse(row.payload_json) as WaTemplate;
+      } catch {
+        return null;
+      }
+    });
+  },
+
+  async listLocalTemplates(shopId: string): Promise<WaTemplate[]> {
+    await initializeDatabase();
+    return sqliteClient.read(async (database) => {
+      const rows = await database.all<{ payload_json: string }>(
+        `SELECT payload_json FROM wa_templates
+         WHERE shop_id = ?
+         ORDER BY updated_at DESC`,
+        [shopId],
+      );
+      return rows.map((r) => {
+        try {
+          return JSON.parse(r.payload_json) as WaTemplate;
+        } catch {
+          return null;
+        }
+      }).filter(Boolean) as WaTemplate[];
     });
   },
 };

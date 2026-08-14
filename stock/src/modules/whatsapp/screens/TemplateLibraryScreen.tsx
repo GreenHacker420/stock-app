@@ -18,6 +18,7 @@ import { useAuthStore } from "../../../auth/auth-store";
 import { KeyboardAwareListScrollComponent } from "../../../components/keyboard/KeyboardAwareListScrollComponent";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { ErrorState } from "../../../components/feedback/ErrorState";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, fontSize, fontWeight, spacing } from "../../../theme";
 import { triggerLightHaptic } from "../../../utils/haptics";
 import { waColors, waScreen } from "../whatsapp-ui";
@@ -56,6 +57,7 @@ export function TemplateLibraryScreen() {
   const tabBarHeight = useContext(BottomTabBarHeightContext) ?? 0;
   const token = useAuthStore((state) => state.token) || "";
   const user = useAuthStore((state) => state.user);
+  const insets = useSafeAreaInsets();
   const { shopId } = useWhatsAppScope();
   const queryClient = useQueryClient();
   const [status, setStatus] = useState<(typeof STATUS_TABS)[number]>("ALL");
@@ -138,7 +140,26 @@ export function TemplateLibraryScreen() {
 
   return (
     <View style={waScreen}>
-      <View style={styles.topArea}>
+      <View style={[styles.topArea, { paddingTop: Math.max(insets.top, spacing.sm) }]}>
+        <View style={styles.headerBar}>
+          <IconButton
+            icon="arrow-left"
+            size={24}
+            iconColor={colors.textPrimary}
+            onPress={() => navigation.goBack()}
+            style={styles.backButton}
+            accessibilityLabel="Go back"
+          />
+          <Text style={styles.headerBarTitle}>Templates</Text>
+          <IconButton
+            icon="sync"
+            size={22}
+            iconColor={colors.primary}
+            loading={syncMutation.isPending}
+            accessibilityLabel="Sync templates"
+            onPress={() => syncMutation.mutate()}
+          />
+        </View>
         <Text style={styles.eyebrow}>MESSAGE TEMPLATES</Text>
         <Text style={styles.title}>Reusable structure. Live values at send time.</Text>
         <Text style={styles.copy}>
@@ -261,7 +282,10 @@ export function TemplateLibraryScreen() {
 }
 
 const styles = StyleSheet.create({
-  topArea: { paddingHorizontal: spacing.lg, paddingTop: spacing.lg, backgroundColor: colors.surface, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  topArea: { paddingHorizontal: spacing.lg, paddingBottom: spacing.sm, backgroundColor: colors.surface, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: colors.border },
+  headerBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: spacing.xs, marginHorizontal: -spacing.sm },
+  headerBarTitle: { fontSize: fontSize.lg, fontWeight: fontWeight.black, color: colors.textPrimary },
+  backButton: { margin: 0 },
   eyebrow: { color: colors.primary, fontSize: 10, fontWeight: fontWeight.black, letterSpacing: 1.1 },
   title: { marginTop: 5, color: colors.textPrimary, fontSize: fontSize.xl, lineHeight: 27, fontWeight: fontWeight.black },
   copy: { marginTop: 5, color: colors.textSecondary, fontSize: fontSize.xs, lineHeight: 18 },

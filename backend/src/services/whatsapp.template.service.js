@@ -639,12 +639,29 @@ class WhatsAppTemplateService {
       });
     }
 
+    const bodyDefinition = definition.body?.text || componentByType(template, "BODY")?.text || "";
+    let compiledBodyText = bodyDefinition;
+    if (compiledBodyText) {
+      const bodyEntries = grouped.get(JSON.stringify({ component: "BODY", buttonIndex: null, cardIndex: null })) || [];
+      for (const entry of bodyEntries) {
+        compiledBodyText = compiledBodyText.replace(new RegExp(`\\{\\{${entry.position}\\}\\}`, "g"), entry.value);
+      }
+    }
+    if (!compiledBodyText && template.name === "hello_world") {
+      compiledBodyText = "Welcome and congratulations on your new WhatsApp Business account! We look forward to helping you build a great customer experience.";
+    }
+
     return {
       kind: "template",
       template: {
         name: template.name,
         language: { code: template.language },
         ...(components.length ? { components } : {}),
+      },
+      localPreview: {
+        title: template.name.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()),
+        body: compiledBodyText || undefined,
+        documentFilename: input.header?.documentFilename || undefined,
       },
     };
   }

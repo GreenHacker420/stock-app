@@ -15,6 +15,7 @@ import {
 } from "../../../api/whatsapp.api";
 import { useAuthStore } from "../../../auth/auth-store";
 import { useShopStore } from "../../../auth/shop-store";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { EmptyState } from "../../../components/ui/EmptyState";
 import { waColors } from "../whatsapp-ui";
 
@@ -31,6 +32,7 @@ export function FlowLibraryScreen() {
   const token = useAuthStore((state) => state.token) || "";
   const user = useAuthStore((state) => state.user);
   const shopId = useShopStore((state) => state.activeShopId);
+  const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
   const [status, setStatus] = useState<(typeof STATUS_TABS)[number]>("ALL");
   const [search, setSearch] = useState("");
@@ -84,7 +86,26 @@ export function FlowLibraryScreen() {
   };
 
   return (
-    <View style={styles.screen}>
+    <View style={[styles.screen, { paddingTop: Math.max(insets.top, 8) }]}>
+      <View style={styles.headerBar}>
+        <IconButton
+          icon="arrow-left"
+          size={24}
+          iconColor={waColors.text}
+          onPress={() => navigation.goBack()}
+          style={styles.backButton}
+          accessibilityLabel="Go back"
+        />
+        <Text style={styles.headerBarTitle}>WhatsApp Flows</Text>
+        <IconButton
+          icon="sync"
+          size={22}
+          iconColor={waColors.green}
+          loading={syncMutation.isPending}
+          accessibilityLabel="Sync Flows"
+          onPress={() => syncMutation.mutate()}
+        />
+      </View>
       <Searchbar
         value={search}
         onChangeText={setSearch}
@@ -183,7 +204,10 @@ function statusStyle(status: WaFlowStatus) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: waColors.surface },
-  search: { height: 44, margin: 10, borderRadius: 22, backgroundColor: waColors.surfaceMuted },
+  headerBar: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 4 },
+  headerBarTitle: { fontSize: 18, fontWeight: "700", color: waColors.text },
+  backButton: { margin: 0 },
+  search: { height: 44, marginHorizontal: 10, marginBottom: 10, marginTop: 4, borderRadius: 22, backgroundColor: waColors.surfaceMuted },
   searchInput: { minHeight: 44, fontSize: 15 },
   tabs: { height: 40, flexDirection: "row", gap: 6, paddingHorizontal: 10 },
   tab: { height: 32, justifyContent: "center", paddingHorizontal: 12, borderRadius: 16, borderWidth: 1, borderColor: waColors.border },
