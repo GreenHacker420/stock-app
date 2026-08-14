@@ -10,7 +10,7 @@ import {
 import { getDocumentAsync } from "expo-document-picker";
 import { File, UploadType } from "expo-file-system";
 import * as Crypto from "expo-crypto";
-import { createUploadIntent, completeAssetUpload } from "../../api/ledger.api";
+import { directUploadAsset, createUploadIntent, completeAssetUpload } from "../../api/ledger.api";
 import { colors, spacing, radius, fontSize } from "../../theme";
 
 export interface UploadedAttachment {
@@ -155,68 +155,28 @@ export function AttachmentUploader({
   }) => {
     try {
       setUploading(true);
-      setUploadProgress("Preparing...");
+      setUploadProgress("Uploading...");
 
-      const { sizeBytes, checksumSha256, localFile } = await resolveFileMetadata(
-        fileInfo.uri,
-        fileInfo.sizeBytes,
-      );
-
-      const intent = await createUploadIntent({
+      const uploaded = await directUploadAsset({
         shopId,
         domain,
+        fileUri: fileInfo.uri,
         fileName: fileInfo.fileName,
         mimeType: fileInfo.mimeType,
-        sizeBytes,
-        checksumSha256,
       });
-
-      const uploadHeaders: Record<string, string> = {
-        "Content-Type": fileInfo.mimeType,
-        ...(intent.headers || {}),
-      };
-      if (
-        intent.storageProvider === "ONEDRIVE" ||
-        intent.uploadUrl.includes("sharepoint.com") ||
-        intent.uploadUrl.includes("graph.microsoft.com")
-      ) {
-        uploadHeaders["Content-Range"] = `bytes 0-${sizeBytes - 1}/${sizeBytes}`;
-        uploadHeaders["Content-Length"] = String(sizeBytes);
-      }
-
-      const uploadTask = localFile.createUploadTask(intent.uploadUrl, {
-        httpMethod: "PUT",
-        headers: uploadHeaders,
-        uploadType: UploadType.BINARY_CONTENT,
-        onProgress: ({ bytesSent, totalBytes }) => {
-          if (totalBytes > 0) {
-            const pct = Math.round((bytesSent / totalBytes) * 100);
-            setUploadProgress(`Uploading ${pct}%...`);
-          }
-        },
-      });
-
-      const uploadResult = await uploadTask.uploadAsync();
-
-      if (!uploadResult || uploadResult.status < 200 || uploadResult.status >= 300) {
-        throw new Error(`Upload failed with status ${uploadResult?.status ?? "unknown"}`);
-      }
-
-      setUploadProgress("Completing...");
-      await completeAssetUpload(intent.assetId, { shopId });
 
       const newAttachment: UploadedAttachment = {
-        assetId: intent.assetId,
-        fileName: fileInfo.fileName,
-        mimeType: fileInfo.mimeType,
-        sizeBytes,
-        uri: fileInfo.uri,
-        checksumSha256,
+        assetId: uploaded.assetId,
+        fileName: uploaded.fileName || fileInfo.fileName,
+        mimeType: uploaded.mimeType || fileInfo.mimeType,
+        sizeBytes: uploaded.sizeBytes || fileInfo.sizeBytes || 0,
+        uri: uploaded.url || fileInfo.uri,
+        checksumSha256: uploaded.checksumSha256,
       };
 
       onAttachmentsChange([...attachments, newAttachment]);
     } catch (err: any) {
-      Alert.alert("Upload Failed", err?.message || "Could not upload attachment");
+      Alert.alert("Upload Failed", err?.response?.data?.message || err?.message || "Could not upload attachment");
     } finally {
       setUploading(false);
       setUploadProgress(null);

@@ -186,6 +186,45 @@ export async function reverseLedgerEntry(
   });
 }
 
+export async function directUploadAsset(payload: {
+  shopId: string;
+  domain: string;
+  fileUri: string;
+  fileName: string;
+  mimeType: string;
+  provider?: "S3" | "ONEDRIVE";
+}) {
+  const token = getToken();
+  const formData = new FormData();
+  formData.append("shopId", payload.shopId);
+  formData.append("domain", payload.domain);
+  if (payload.provider) {
+    formData.append("provider", payload.provider);
+  }
+  formData.append("file", {
+    uri: payload.fileUri,
+    name: payload.fileName,
+    type: payload.mimeType,
+  } as any);
+
+  return apiRequest<{
+    assetId: string;
+    storageProvider: "S3" | "ONEDRIVE";
+    bucket?: string;
+    key?: string;
+    url: string;
+    fileName: string;
+    mimeType: string;
+    sizeBytes: number;
+    checksumSha256: string;
+    status: string;
+  }>("/assets/direct", {
+    method: "POST",
+    token,
+    body: formData,
+  });
+}
+
 export async function createUploadIntent(payload: {
   shopId: string;
   domain: string;

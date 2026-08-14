@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
+import multer from "multer";
 import { requireAuth } from "../middleware/auth.middleware.js";
 import { validate } from "../middleware/validate.js";
 import {
@@ -7,10 +8,16 @@ import {
   completeUploadIntent,
   getAssetDownloadUrl,
   requestAssetDeletion,
+  uploadDirectAsset,
 } from "../services/upload.service.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 
 const router = Router();
+
+const directUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 15 * 1024 * 1024 }, // 15MB max
+});
 
 router.use(requireAuth);
 
@@ -50,6 +57,27 @@ const deleteRequestSchema = z.object({
     reason: z.string().max(500).optional(),
   }),
 });
+
+router.post(
+  "/direct",
+  directUpload.single("file"),
+  asyncHandler(async (req, res) => {
+    const shopId = req.body.shopId || req.query.shopId;
+    const domain = req.body.domain || req.query.domain || "OTHER";
+    const provider = req.body.provider || req.query.provider;
+    if (!shopId) {
+      return res.status(400).json({ success: false, message: "shopId is required" });
+    }
+    const result = await uploadDirectAsset({
+      user: req.user,
+      shopId,
+      domain,
+      file: req.file,
+      provider,
+    });
+    res.json({ success: true, data: result });
+  })
+);
 
 router.post(
   "/upload-intents",

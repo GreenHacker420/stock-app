@@ -550,15 +550,46 @@ function PaymentsTab({ query }: { query: any }) {
 
 function OutstandingTab({ customer, salesQuery }: { customer: any; salesQuery: any }) {
   const sales = (salesQuery.data ?? []).filter((s: any) => Number(s.balanceAmount) > 0);
+  const totalUnpaidDue = sales.reduce((sum: number, s: any) => sum + Number(s.balanceAmount || 0), 0);
+  const customerDue = Number(customer.outstandingAmount || 0);
+  const effectiveOutstanding = Math.max(customerDue, totalUnpaidDue);
+  const advance = Number(customer.advanceBalance || 0);
 
   return (
     <ScrollView contentContainerStyle={styles.tabContent}>
-      <MetricGrid
-        items={[
-          { label: "Net Outstanding", value: money(customer.outstandingAmount), icon: "alert-circle-outline", tone: "red" },
-          { label: "Advance Credit", value: money(customer.advanceBalance), icon: "cash-check", tone: "green" },
-        ]}
-      />
+      {/* Sleek Outstanding Header Card */}
+      <View style={styles.financialCard}>
+        <View style={styles.financialHeader}>
+          <View>
+            <Text style={styles.financialLabel}>UNPAID INVOICES DUE</Text>
+            <Text style={[styles.financialMainValue, styles.debitText]}>
+              {money(totalUnpaidDue > 0 ? totalUnpaidDue : effectiveOutstanding)}
+            </Text>
+          </View>
+          <View style={[styles.balancePill, (totalUnpaidDue > 0 || effectiveOutstanding > 0) ? styles.balancePillDebt : styles.balancePillSettled]}>
+            <Text style={[styles.balancePillText, (totalUnpaidDue > 0 || effectiveOutstanding > 0) ? styles.balancePillTextDebt : styles.balancePillTextSettled]}>
+              {(totalUnpaidDue > 0 || effectiveOutstanding > 0) ? `${sales.length} UNPAID` : "ALL PAID"}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.financialMetricsRow}>
+          <View style={styles.financialMetric}>
+            <Text style={styles.metricLabel}>Total Invoices Due</Text>
+            <Text style={styles.metricValue}>{money(totalUnpaidDue)}</Text>
+          </View>
+          <View style={styles.metricDivider} />
+          <View style={styles.financialMetric}>
+            <Text style={styles.metricLabel}>Ledger Balance</Text>
+            <Text style={styles.metricValue}>{money(customerDue)}</Text>
+          </View>
+          <View style={styles.metricDivider} />
+          <View style={styles.financialMetric}>
+            <Text style={styles.metricLabel}>Advance Credit</Text>
+            <Text style={styles.metricValue}>{money(advance)}</Text>
+          </View>
+        </View>
+      </View>
 
       <ScreenSection title="Unpaid Sales Invoices" card>
         {sales.length === 0 ? (
@@ -568,7 +599,7 @@ function OutstandingTab({ customer, salesQuery }: { customer: any; salesQuery: a
             <View key={sale.id} style={styles.unpaidRow}>
               <View>
                 <Text style={styles.unpaidNumber}>{sale.saleNumber}</Text>
-                <Text style={styles.unpaidDate}>{new Date(sale.createdAt).toLocaleDateString()}</Text>
+                <Text style={styles.unpaidDate}>{new Date(sale.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}</Text>
               </View>
 
               <View style={styles.unpaidAmounts}>

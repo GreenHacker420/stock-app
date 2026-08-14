@@ -59,6 +59,80 @@ export function buildProductImageKey({ shopId, categoryPath, itemPath, file }) {
   ].join("/");
 }
 
+export async function uploadDirectAsset({ user, shopId, domain = "OTHER", file, provider }) {
+  await assertShopAccess(user, shopId);
+  if (!file) throw new ApiError(400, "File is required");
+
+  const allowedMimes = DOMAIN_MIME_ALLOWLISTS[domain] || DOMAIN_MIME_ALLOWLISTS.OTHER;
+  if (!allowedMimes.has(file.mimetype)) {
+    throw new ApiError(400, `MIME type "${file.mimetype}" is not allowed for domain "${domain}". Allowed: ${[...allowedMimes].join(", ")}`);
+  }
+
+  const baseName = safeFileName(file.originalname, "file");
+  const storageKey = `shops/${shopId}/${domain.toLowerCase()}/${crypto.randomUUID()}-${baseName}`;
+  const checksumSha256 = crypto.createHash("sha256").update(file.buffer).digest("hex");
+
+  const asset = await prisma.asset.create({
+    data: {
+      shopId,
+      createdById: user.id,
+      domain,
+      kind: file.mimetype.startsWith("image/") ? "IMAGE" : "DOC",
+      source: "INTERNAL",
+      status: "UPLOADING",
+      mimeType: file.mimetype,
+      fileName: file.originalname,
+      sizeBytes: BigInt(file.size),
+      checksumSha256,
+    },
+  });
+
+  try {
+    const stored = await uploadBuffer({
+      body: file.buffer,
+      key: storageKey,
+      mimeType: file.mimetype,
+      domain,
+      provider,
+    });
+
+    const updated = await prisma.asset.update({
+      where: { id: asset.id },
+      data: {
+        status: "READY",
+        storageProvider: stored.storageProvider,
+        storageBucket: stored.storageBucket,
+        storageKey: stored.storageKey,
+        externalId: stored.externalId,
+        remoteUrl: stored.url,
+        readyAt: new Date(),
+      },
+    });
+
+    return {
+      assetId: updated.id,
+      storageProvider: updated.storageProvider,
+      bucket: updated.storageBucket,
+      key: updated.storageKey,
+      url: updated.remoteUrl,
+      fileName: updated.fileName,
+      mimeType: updated.mimeType,
+      sizeBytes: Number(updated.sizeBytes),
+      checksumSha256,
+      status: updated.status,
+    };
+  } catch (error) {
+    await prisma.asset.update({
+      where: { id: asset.id },
+      data: {
+        status: "FAILED",
+        errorMessage: error?.message || "Direct upload failed",
+      },
+    }).catch(() => {});
+    throw error;
+  }
+}
+
 export async function uploadProductImageAsset({
   shopId,
   createdById,
