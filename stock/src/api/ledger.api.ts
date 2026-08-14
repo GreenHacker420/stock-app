@@ -1,4 +1,5 @@
-import { apiRequest } from "./client";
+import * as FileSystem from "expo-file-system/legacy";
+import { apiRequest, API_BASE_URL } from "./client";
 import { useAuthStore } from "../auth/auth-store";
 
 export interface CustomerLedgerEntry {
@@ -195,19 +196,31 @@ export async function directUploadAsset(payload: {
   provider?: "S3" | "ONEDRIVE";
 }) {
   const token = getToken();
-  const formData = new FormData();
-  formData.append("shopId", payload.shopId);
-  formData.append("domain", payload.domain);
-  if (payload.provider) {
-    formData.append("provider", payload.provider);
-  }
-  formData.append("file", {
-    uri: payload.fileUri,
-    name: payload.fileName,
-    type: payload.mimeType,
-  } as any);
+  const uploadUrl = `${API_BASE_URL}/assets/direct`;
 
-  return apiRequest<{
+  const response = await FileSystem.uploadAsync(uploadUrl, payload.fileUri, {
+    httpMethod: "POST",
+    uploadType: FileSystem.FileSystemUploadType.MULTIPART,
+    fieldName: "file",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    parameters: {
+      shopId: payload.shopId,
+      domain: payload.domain,
+      ...(payload.provider ? { provider: payload.provider } : {}),
+    },
+  });
+
+  if (response.status < 200 || response.status >= 300) {
+    let msg = `Upload failed with status ${response.status}`;
+    try {
+      const parsed = JSON.parse(response.body);
+      msg = parsed.error?.message || parsed.message || msg;
+    } catch {}
+    throw new Error(msg);
+  }
+
+  const parsed = JSON.parse(response.body);
+  return (parsed.data || parsed) as {
     assetId: string;
     storageProvider: "S3" | "ONEDRIVE";
     bucket?: string;
@@ -218,11 +231,7 @@ export async function directUploadAsset(payload: {
     sizeBytes: number;
     checksumSha256: string;
     status: string;
-  }>("/assets/direct", {
-    method: "POST",
-    token,
-    body: formData,
-  });
+  };
 }
 
 export async function createUploadIntent(payload: {
