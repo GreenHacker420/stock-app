@@ -38,21 +38,62 @@ export async function listCustomerReturns(user, id) {
 
 export async function getCustomerTimeline(user, id) {
   const customer = await getCustomer(user, id);
-  
+
   const [sales, payments, dms, returns, audits] = await Promise.all([
-    prisma.sale.findMany({ where: { customerId: id }, take: 20, orderBy: [{ saleDate: "desc" }, { createdAt: "desc" }] }),
-    prisma.payment.findMany({ where: { customerId: id }, take: 20, orderBy: { createdAt: "desc" } }),
-    prisma.deliveryMemo.findMany({ where: { customerId: id }, take: 20, orderBy: { createdAt: "desc" } }),
-    prisma.inventoryReturn.findMany({ where: { customerId: id }, take: 20, orderBy: { createdAt: "desc" } }),
+    prisma.sale.findMany({ where: { customerId: id, saleStatus: { not: "CANCELLED" } }, take: 30, orderBy: [{ saleDate: "desc" }, { createdAt: "desc" }] }),
+    prisma.payment.findMany({ where: { customerId: id, status: { not: "CANCELLED" } }, take: 30, orderBy: { createdAt: "desc" } }),
+    prisma.deliveryMemo.findMany({ where: { customerId: id, status: { not: "CANCELLED" } }, take: 30, orderBy: { createdAt: "desc" } }),
+    prisma.inventoryReturn.findMany({ where: { customerId: id, status: { not: "CANCELLED" } }, take: 30, orderBy: { createdAt: "desc" } }),
     prisma.auditLog.findMany({ where: { entityType: EntityType.CUSTOMER, entityId: id }, take: 20, orderBy: { createdAt: "desc" } }),
   ]);
 
   const timeline = [
-    ...sales.map(s => ({ id: s.id, type: "SALE", createdAt: s.saleDate, event: `Sale #${s.saleNumber}`, description: `Status: ${s.saleStatus}`, amount: s.totalAmount, status: s.saleStatus })),
-    ...payments.map(p => ({ id: p.id, type: "PAYMENT", createdAt: p.receivedAt ?? p.createdAt, event: `${p.paymentMode} Payment`, description: `Status: ${p.status}`, amount: p.amount, status: p.status })),
-    ...dms.map(d => ({ id: d.id, type: "DM", createdAt: d.createdAt, event: `Delivery Memo #${d.dmNumber}`, description: `Status: ${d.status}`, amount: d.estimatedAmount, status: d.status })),
-    ...returns.map(r => ({ id: r.id, type: "RETURN", createdAt: r.createdAt, event: `Return #${r.returnNumber}`, description: `Status: ${r.status}`, amount: r.netAmount, status: r.status })),
-    ...audits.map(a => ({ id: a.id, type: "AUDIT", createdAt: a.createdAt, event: a.action, description: a.reason ?? "", amount: null })),
+    ...sales.map((s) => ({
+      id: s.id,
+      type: "SALE",
+      createdAt: s.saleDate || s.createdAt,
+      event: `Sale #${s.saleNumber}`,
+      description: `Total: ₹${Number(s.totalAmount).toLocaleString("en-IN")}${Number(s.balanceAmount) > 0 ? ` • Due: ₹${Number(s.balanceAmount).toLocaleString("en-IN")}` : " • Fully Paid"}`,
+      amount: Number(s.totalAmount),
+      balanceAmount: Number(s.balanceAmount || 0),
+      status: s.paymentStatus || s.saleStatus,
+    })),
+    ...payments.map((p) => ({
+      id: p.id,
+      type: "PAYMENT",
+      createdAt: p.receivedAt ?? p.createdAt,
+      event: `${p.paymentMode || "Cash"} Payment`,
+      description: `Receipt: #${p.receiptNumber || p.id.slice(-6)} • Status: ${p.status}`,
+      amount: Number(p.amount),
+      status: p.status,
+    })),
+    ...dms.map((d) => ({
+      id: d.id,
+      type: "DM",
+      createdAt: d.createdAt,
+      event: `Delivery Memo #${d.dmNumber || d.id.slice(-6)}`,
+      description: `Est. Amount: ₹${Number(d.estimatedAmount || 0).toLocaleString("en-IN")}`,
+      amount: Number(d.estimatedAmount || 0),
+      status: d.status,
+    })),
+    ...returns.map((r) => ({
+      id: r.id,
+      type: "RETURN",
+      createdAt: r.createdAt,
+      event: `Return #${r.returnNumber || r.id.slice(-6)}`,
+      description: `Net Refund: ₹${Number(r.netAmount || 0).toLocaleString("en-IN")}`,
+      amount: Number(r.netAmount || 0),
+      status: r.status,
+    })),
+    ...audits.map((a) => ({
+      id: a.id,
+      type: "AUDIT",
+      createdAt: a.createdAt,
+      event: a.action,
+      description: a.reason || "Profile updated",
+      amount: null,
+      status: "INFO",
+    })),
   ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
   return timeline;
@@ -132,7 +173,52 @@ export async function getCustomer(user, id) {
   const customer = await prisma.customer.findUnique({ where: { id } });
   if (!customer) throw new ApiError(404, "Customer not found");
   await assertShopAccess(user, customer.shopId);
-  return customer;
+
+  const [salesAgg, unpaidAgg, latestLedgerEntry] = await Promise.all([
+    prisma.sale.aggregate({
+      where: { customerId: id, saleStatus: { not: "CANCELLED" } },
+      _sum: { totalAmount: true, paidAmount: true, balanceAmount: true },
+      _count: { id: true },
+    }),
+    prisma.sale.aggregate({
+      where: { customerId: id, paymentStatus: { in: ["UNPAID", "PARTIALLY_PAID"] }, saleStatus: { not: "CANCELLED" } },
+      _sum: { balanceAmount: true },
+    }),
+    prisma.customerLedgerEntry.findFirst({
+      where: { customerId: id },
+      orderBy: [{ effectiveAt: "desc" }, { id: "desc" }],
+    }),
+  ]);
+
+  const totalSales = Number(salesAgg._sum.totalAmount || 0);
+  const unpaidSalesDue = Number(unpaidAgg._sum.balanceAmount || 0);
+
+  let liveOutstanding = Number(customer.outstandingAmount || 0);
+  let liveAdvance = Number(customer.advanceBalance || 0);
+
+  if (latestLedgerEntry) {
+    const running = Number(latestLedgerEntry.runningBalance || 0);
+    if (running > 0) {
+      liveOutstanding = running;
+      liveAdvance = 0;
+    } else if (running < 0) {
+      liveOutstanding = 0;
+      liveAdvance = Math.abs(running);
+    } else {
+      liveOutstanding = 0;
+      liveAdvance = 0;
+    }
+  } else if (unpaidSalesDue > 0 && liveOutstanding === 0) {
+    liveOutstanding = unpaidSalesDue;
+  }
+
+  return {
+    ...customer,
+    totalSales,
+    unpaidSalesDue,
+    outstandingAmount: liveOutstanding,
+    advanceBalance: liveAdvance,
+  };
 }
 
 /**
