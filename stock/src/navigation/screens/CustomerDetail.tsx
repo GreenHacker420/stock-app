@@ -291,7 +291,7 @@ function LedgerTab({ customer, shopId, ledgerSummary }: { customer: any; shopId:
   const entries: CustomerLedgerEntry[] = pages.flatMap((p) => p.entries);
   const hasOpeningBalance = entries.some((e) => e.sourceType === "OPENING_BALANCE");
 
-  const balanceStatus = ledgerBalanceStatus(ledgerSummary);
+  const balanceStatus = ledgerBalanceStatus(pages[0]?.summary || ledgerSummary);
 
   const handleReverseClick = (entry: CustomerLedgerEntry) => {
     setSelectedEntry(entry);

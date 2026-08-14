@@ -11,6 +11,7 @@ export type DomainEvent = {
     | "deliveryMemo"
     | "order"
     | "customer"
+    | "customerLedgerEntry"
     | "cashSession"
     | "approval"
     | "dashboard"
@@ -193,6 +194,14 @@ export function invalidateForDomainEvent(queryClient: QueryClient, event: Domain
     invalidate(["customers", shopId]);
     invalidate(["current-cash-session", shopId]);
     invalidate(["cash-sessions", shopId]);
+  }
+
+  if (event.entity === "customerLedgerEntry" || event.entity === "customer") {
+    queryClient.invalidateQueries({ queryKey: ["customer-ledger"] });
+    queryClient.invalidateQueries({ queryKey: ["customer-ledger-summary"] });
+    queryClient.invalidateQueries({ queryKey: ["customer-outstanding"] });
+    invalidate(["customers", shopId]);
+    if (event.entity === "customer") invalidate(["customer", event.entityId]);
   }
 
   if (event.entity === "stock" || event.entity === "item") {

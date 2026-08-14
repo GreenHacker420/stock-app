@@ -51,12 +51,13 @@ import { useShopStore } from "../../auth/shop-store";
 import { useAuthStore } from "../../auth/auth-store";
 import { mmkvStorage } from "../../auth/mmkv-storage";
 import type { StorageObject } from "../../api/client";
+import { getAssetDownloadUrl } from "../../api/ledger.api";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 type SortKey = "date_desc" | "date_asc" | "size_desc" | "size_asc" | "name_asc";
 type FileTypeFilter = "ALL" | "IMAGE" | "DOC" | "VIDEO" | "AUDIO";
-type AssetUsageStatus = "PRODUCT" | "WHATSAPP" | "UNUSED";
+type AssetUsageStatus = "PRODUCT" | "WHATSAPP" | "LEDGER" | "UNUSED";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -67,6 +68,7 @@ const CARD_GAP = spacing.sm;
 function getUsageStatus(a: StorageObject): AssetUsageStatus {
   if (a.productName) return "PRODUCT";
   if (a.waMessagesCount > 0) return "WHATSAPP";
+  if ((a.ledgerAttachmentsCount || 0) > 0) return "LEDGER";
   return "UNUSED";
 }
 
@@ -1085,7 +1087,7 @@ export function StorageManagement() {
 
   const handleShare = useCallback(
     async (file: StorageObject) => {
-      if (!file.url || sharingId !== null) return;
+      if (!activeShopId || sharingId !== null) return;
       setSharingId(file.id);
       try {
         const canShare = await Sharing.isAvailableAsync();
@@ -1100,9 +1102,10 @@ export function StorageManagement() {
         const cacheDir = new Directory(Paths.cache, "asset-share");
         cacheDir.create({ idempotent: true, intermediates: true });
         const localFile = new File(cacheDir, `${file.id}.${ext}`);
+        const { downloadUrl } = await getAssetDownloadUrl(file.id, { shopId: activeShopId });
         const shareFile = localFile.exists
           ? localFile
-          : await File.downloadFileAsync(file.url, localFile, {
+          : await File.downloadFileAsync(downloadUrl, localFile, {
               idempotent: true,
             });
         await Sharing.shareAsync(shareFile.uri, {
@@ -1117,13 +1120,17 @@ export function StorageManagement() {
         setSharingId(null);
       }
     },
-    [sharingId]
+    [activeShopId, sharingId]
   );
 
   const handleDelete = useCallback(
     (file: StorageObject) => {
       if (deletingId !== null) return;
       const status = getUsageStatus(file);
+      if (status === "LEDGER") {
+        Alert.alert("Protected file", "Financial ledger evidence cannot be deleted.");
+        return;
+      }
       const note =
         status === "PRODUCT"
           ? `\n\nNote: This file is currently linked to product "${file.productName}". Deleting it will un-link the image.`
@@ -1214,13 +1221,13 @@ export function StorageManagement() {
               void handleShare(item);
             },
           },
-          {
+          ...(getUsageStatus(item) === "LEDGER" ? [] : [{
             text: "Delete",
-            style: "destructive",
+            style: "destructive" as const,
             onPress: () => {
               handleDelete(item);
             },
-          },
+          }]),
           {
             text: "Select Multiple",
             onPress: () => {
@@ -1258,9 +1265,6 @@ export function StorageManagement() {
     setSelectedIds(new Set());
   }, []);
 
-  // ── Android Back Handler ──────────────────────────────────────────────────
-  // Clear selection if active; otherwise propagate back event to the navigator.
-  // Open sheets are managed natively via Modal's onRequestClose configuration.
   useEffect(() => {
     const sub = BackHandler.addEventListener("hardwareBackPress", () => {
       if (!isSelecting) return false;
@@ -1286,15 +1290,16 @@ export function StorageManagement() {
       cacheDir.create({ idempotent: true, intermediates: true });
 
       for (const file of files) {
-        if (!file.url) continue;
+        if (!activeShopId) continue;
         const ext =
           file.fileName.split(".").pop()?.replace(/[^a-z0-9]/gi, "") ||
           file.mimeType.split("/")[1]?.replace(/[^a-z0-9]/gi, "") ||
           "bin";
         const localFile = new File(cacheDir, `${file.id}.${ext}`);
+        const { downloadUrl } = await getAssetDownloadUrl(file.id, { shopId: activeShopId });
         const shareFile = localFile.exists
           ? localFile
-          : await File.downloadFileAsync(file.url, localFile, {
+          : await File.downloadFileAsync(downloadUrl, localFile, {
               idempotent: true,
             });
 
@@ -1311,10 +1316,10 @@ export function StorageManagement() {
       setSharingId(null);
       setSelectedIds(new Set());
     }
-  }, [filtered, selectedIds]);
+  }, [activeShopId, filtered, selectedIds]);
 
   const handleBulkDelete = useCallback(() => {
-    const deletable = filtered.filter((f) => selectedIds.has(f.id));
+    const deletable = filtered.filter((f) => selectedIds.has(f.id) && getUsageStatus(f) !== "LEDGER");
     if (deletable.length === 0) return;
 
     const linkedCount = deletable.filter((f) => getUsageStatus(f) !== "UNUSED").length;
@@ -1423,7 +1428,7 @@ export function StorageManagement() {
       const isSharing = sharingId === item.id;
       const isDeleting = deletingId === item.id;
       const isSelected = selectedIds.has(item.id);
-      const canDelete = isOwner;
+      const canDelete = isOwner && status !== "LEDGER";
 
       if (viewMode === "list") {
         return (
@@ -1507,7 +1512,7 @@ export function StorageManagement() {
                 ) : (
                   <View style={styles.listActionBtn}>
                     <Icon
-                      source={status === "PRODUCT" ? "link-variant" : "message-text-outline"}
+                      source={status === "PRODUCT" ? "link-variant" : status === "LEDGER" ? "book-lock-outline" : "message-text-outline"}
                       size={15}
                       color={colors.textMuted}
                     />
@@ -1562,6 +1567,12 @@ export function StorageManagement() {
                 <Text style={styles.unusedBadgeText}>
                   {item.waMessagesCount}x
                 </Text>
+              </View>
+            )}
+            {status === "LEDGER" && (
+              <View style={[styles.unusedBadge, { backgroundColor: colors.primary }]}>
+                <Icon source="book-lock-outline" size={10} color="#fff" />
+                <Text style={styles.unusedBadgeText}>Ledger</Text>
               </View>
             )}
 
@@ -1670,6 +1681,8 @@ export function StorageManagement() {
                     source={
                       status === "PRODUCT"
                         ? "link-variant"
+                        : status === "LEDGER"
+                        ? "book-lock-outline"
                         : "message-outline"
                     }
                     size={13}
@@ -1951,19 +1964,23 @@ function InfoSheet({
   onClose: (action?: "share" | "delete" | "edit" | "assign") => void;
 }) {
   const status = getUsageStatus(file);
-  const canDelete = isOwner;
+  const canDelete = isOwner && status !== "LEDGER";
 
   const statusLabel =
     status === "PRODUCT"
       ? "Linked to product"
       : status === "WHATSAPP"
       ? `Used in messaging (${file.waMessagesCount})`
+      : status === "LEDGER"
+      ? `Financial ledger evidence (${file.ledgerAttachmentsCount || 0})`
       : "Not linked";
 
   const statusColor =
     status === "PRODUCT"
       ? colors.success
       : status === "WHATSAPP"
+      ? colors.primary
+      : status === "LEDGER"
       ? colors.primary
       : colors.warning;
 
@@ -2080,7 +2097,7 @@ function InfoSheet({
             </Pressable>
           )}
 
-          {isOwner && !file.itemId && (
+          {isOwner && status === "UNUSED" && (
             <Pressable
               style={({ pressed }) => [
                 styles.infoActionBtn,

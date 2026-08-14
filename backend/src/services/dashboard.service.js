@@ -3,6 +3,7 @@ import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 import { deleteS3Object } from "../lib/s3-storage.js";
 import { deleteOneDriveObject } from "../lib/onedrive-storage.js";
+import { getObjectPublicUrl } from "../lib/storage-manager.js";
 
 function dayRange(date = new Date()) {
   const start = new Date(date);
@@ -404,6 +405,7 @@ export async function listStorageObjects(user, { shopId, filter, cursor, limit, 
   // Unused/Orphaned filter
   if (filter === "ORPHANED" || filter === "UNUSED") {
     assetWhere.waMessages = { none: {} };
+    assetWhere.ledgerAttachments = { none: {} };
     assetWhere.storageKey = { notIn: Array.from(referencedKeys) };
   }
 
@@ -422,7 +424,7 @@ export async function listStorageObjects(user, { shopId, filter, cursor, limit, 
     where: assetWhere,
     include: {
       _count: {
-        select: { waMessages: true },
+        select: { waMessages: true, ledgerAttachments: true },
       },
     },
     orderBy,
@@ -434,8 +436,16 @@ export async function listStorageObjects(user, { shopId, filter, cursor, limit, 
   const batch = hasMore ? rawAssets.slice(0, targetLimit) : rawAssets;
   const nextCursor = batch.length > 0 ? batch[batch.length - 1].id : null;
 
-  const assets = batch.map((a) => {
+  const assets = await Promise.all(batch.map(async (a) => {
     const meta = a.storageKey ? itemReferenceMap.get(a.storageKey) : null;
+    const url = a.storageKey
+      ? await getObjectPublicUrl({
+          key: a.storageKey,
+          provider: a.storageProvider,
+          externalId: a.externalId,
+          fallbackUrl: a.remoteUrl,
+        }).catch(() => "")
+      : "";
     return {
       id: a.id,
       fileName: a.fileName || (a.storageKey ? a.storageKey.split("/").pop() : "Unnamed File"),
@@ -443,12 +453,12 @@ export async function listStorageObjects(user, { shopId, filter, cursor, limit, 
       sizeBytes: a.sizeBytes ? Number(a.sizeBytes) : 0,
       mimeType: a.mimeType || "application/octet-stream",
       createdAt: a.createdAt,
-      url: a.remoteUrl
-        || (a.storageKey && a.storageBucket ? `https://${a.storageBucket}.s3.amazonaws.com/${a.storageKey}` : ""),
+      url,
       storageProvider: a.storageProvider || "S3",
       width: a.width ?? null,
       height: a.height ?? null,
       waMessagesCount: a._count.waMessages,
+      ledgerAttachmentsCount: a._count.ledgerAttachments,
       itemId: meta?.itemId || null,
       productName: meta?.productName || null,
       categoryId: meta?.categoryId || null,
@@ -459,11 +469,12 @@ export async function listStorageObjects(user, { shopId, filter, cursor, limit, 
       minPrice: meta?.minPrice || null,
       mrp: meta?.mrp || null,
     };
-  });
+  }));
 
   // Calculate filtered stats/counts for correct tab headings
   const countWhere = { ...assetWhere };
   delete countWhere.waMessages;
+  delete countWhere.ledgerAttachments;
   if (countWhere.storageKey && countWhere.storageKey.notIn) {
     delete countWhere.storageKey;
   }
@@ -472,6 +483,7 @@ export async function listStorageObjects(user, { shopId, filter, cursor, limit, 
   const orphanCountWhere = {
     ...countWhere,
     waMessages: { none: {} },
+    ledgerAttachments: { none: {} },
     storageKey: { notIn: Array.from(referencedKeys) },
   };
   const totalOrphanedCount = await prisma.asset.count({ where: orphanCountWhere });
@@ -504,6 +516,7 @@ export async function listStorageObjects(user, { shopId, filter, cursor, limit, 
 export async function deleteStorageObject(user, id) {
   const asset = await prisma.asset.findUnique({
     where: { id },
+    include: { _count: { select: { ledgerAttachments: true } } },
   });
   if (!asset) {
     throw new ApiError(404, "Asset not found");
@@ -512,6 +525,9 @@ export async function deleteStorageObject(user, id) {
   await assertShopAccess(user, asset.shopId);
   if (user.role !== "OWNER") {
     throw new ApiError(403, "Access restricted to owners");
+  }
+  if (asset._count.ledgerAttachments > 0) {
+    throw new ApiError(409, "This file is financial ledger evidence and cannot be deleted");
   }
 
   // Delete from storage provider (OneDrive or S3)
@@ -544,7 +560,7 @@ export async function bulkDeleteOrphanedAssets(user, { shopId }) {
     },
     include: {
       _count: {
-        select: { waMessages: true },
+        select: { waMessages: true, ledgerAttachments: true },
       },
     },
   });
@@ -571,7 +587,9 @@ export async function bulkDeleteOrphanedAssets(user, { shopId }) {
 
   const orphans = assets.filter((a) => {
     if (!a.storageKey) return false;
-    return !referencedKeys.has(a.storageKey) && a._count.waMessages === 0;
+    return !referencedKeys.has(a.storageKey)
+      && a._count.waMessages === 0
+      && a._count.ledgerAttachments === 0;
   });
 
   let deletedCount = 0;

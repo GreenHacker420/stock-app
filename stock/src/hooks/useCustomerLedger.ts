@@ -1,4 +1,4 @@
-import { useInfiniteQuery, useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import {
   getCustomerLedger,
   getCustomerLedgerSummary,
@@ -8,6 +8,19 @@ import {
   reverseLedgerEntry,
   LedgerQueryParams,
 } from "../api/ledger.api";
+import { invalidateAssetCache } from "./useAssetCache";
+
+async function refreshCustomerLedger(queryClient: QueryClient, customerId: string, shopId: string) {
+  invalidateAssetCache(shopId);
+  await Promise.all([
+    queryClient.refetchQueries({ queryKey: ["customer-ledger", customerId] }),
+    queryClient.refetchQueries({ queryKey: ["customer-ledger-summary", customerId] }),
+    queryClient.invalidateQueries({ queryKey: ["customer", customerId] }),
+    queryClient.invalidateQueries({ queryKey: ["customer-outstanding", customerId] }),
+    queryClient.invalidateQueries({ queryKey: ["customers"] }),
+    queryClient.invalidateQueries({ queryKey: ["storage-objects"] }),
+  ]);
+}
 
 export function useCustomerLedger(customerId: string, params: Omit<LedgerQueryParams, "cursor">) {
   return useInfiniteQuery({
@@ -51,12 +64,7 @@ export function useOpeningBalance(customerId: string) {
       clientMutationId?: string;
       attachmentAssetIds?: { assetId: string; purpose?: string; sortOrder?: number }[];
     }) => postOpeningBalance(customerId, payload),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["customer-ledger", customerId] });
-      queryClient.invalidateQueries({ queryKey: ["customer-ledger-summary", customerId] });
-      queryClient.invalidateQueries({ queryKey: ["customer", customerId] });
-      queryClient.invalidateQueries({ queryKey: ["customers"] });
-    },
+    onSuccess: (_, payload) => refreshCustomerLedger(queryClient, customerId, payload.shopId),
   });
 }
 
@@ -72,11 +80,7 @@ export function useLedgerAdjustment(customerId: string) {
       clientMutationId?: string;
       attachmentAssetIds?: { assetId: string; purpose?: string; sortOrder?: number }[];
     }) => postLedgerAdjustment(customerId, payload),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["customer-ledger", customerId] });
-      queryClient.invalidateQueries({ queryKey: ["customer-ledger-summary", customerId] });
-      queryClient.invalidateQueries({ queryKey: ["customer", customerId] });
-    },
+    onSuccess: (_, payload) => refreshCustomerLedger(queryClient, customerId, payload.shopId),
   });
 }
 
@@ -85,10 +89,6 @@ export function useReverseLedgerEntry(customerId: string) {
   return useMutation({
     mutationFn: ({ entryId, payload }: { entryId: string; payload: { shopId: string; reversalReason: string } }) =>
       reverseLedgerEntry(customerId, entryId, payload),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["customer-ledger", customerId] });
-      queryClient.invalidateQueries({ queryKey: ["customer-ledger-summary", customerId] });
-      queryClient.invalidateQueries({ queryKey: ["customer", customerId] });
-    },
+    onSuccess: (_, variables) => refreshCustomerLedger(queryClient, customerId, variables.payload.shopId),
   });
 }

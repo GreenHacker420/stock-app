@@ -114,11 +114,15 @@ export async function downloadObjectBuffer({ key, provider, externalId }) {
 }
 
 export async function getObjectPublicUrl({ key, provider, externalId, fallbackUrl }) {
-  if (fallbackUrl) return fallbackUrl;
   if (provider === "ONEDRIVE") {
-    return getOneDriveSharingUrl(key, externalId);
+    try {
+      return await getOneDriveSharingUrl(key, externalId);
+    } catch (error) {
+      if (fallbackUrl) return fallbackUrl;
+      throw error;
+    }
   }
-  return getPublicS3ObjectUrl(key);
+  return fallbackUrl || getPublicS3ObjectUrl(key);
 }
 
 export async function deleteObject({ key, provider, externalId }) {

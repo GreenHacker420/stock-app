@@ -53,14 +53,16 @@ describe("OneDrive & Dual-Storage Architecture", () => {
   });
 
   it("resolves public and shareable URLs for OneDrive assets", async () => {
+    const fallbackUrl = "https://onedrive.live.com/view?item=stale";
     const url = await getObjectPublicUrl({
       key: "shops/shop-1/assets/test.png",
       provider: "ONEDRIVE",
       externalId: "item-123",
-      fallbackUrl: "https://onedrive.live.com/view?item=123",
+      fallbackUrl,
     });
 
     assert.ok(url.includes("onedrive.live.com"));
+    assert.notEqual(url, fallbackUrl);
   });
 
   it("retrieves aggregated storage statistics for S3 and OneDrive", async () => {

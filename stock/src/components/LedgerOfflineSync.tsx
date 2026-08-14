@@ -3,6 +3,7 @@ import NetInfo from "@react-native-community/netinfo";
 import { useShopStore } from "../auth/shop-store";
 import { processLedgerMutationQueue } from "../offline/ledgerMutationProcessor";
 import { queryClient } from "../query/queryClient";
+import { invalidateAssetCache } from "../hooks/useAssetCache";
 
 
 export function LedgerOfflineSync() {
@@ -15,9 +16,13 @@ export function LedgerOfflineSync() {
       try {
         const result = await processLedgerMutationQueue(shopId);
         if (result.confirmed > 0) {
+          invalidateAssetCache(shopId);
           queryClient.invalidateQueries({ queryKey: ["customer-ledger"] });
           queryClient.invalidateQueries({ queryKey: ["customer-ledger-summary"] });
+          queryClient.invalidateQueries({ queryKey: ["customer"] });
+          queryClient.invalidateQueries({ queryKey: ["customer-outstanding"] });
           queryClient.invalidateQueries({ queryKey: ["customers"] });
+          queryClient.invalidateQueries({ queryKey: ["storage-objects"] });
         }
       } catch (err) {
         console.warn("[LedgerOfflineSync] queue processing failed", err);

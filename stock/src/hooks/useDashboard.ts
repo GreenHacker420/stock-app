@@ -165,6 +165,7 @@ export function useStorageObjectsInfiniteQuery(params?: {
     initialData: initialData as any,
     enabled: !!token && !!activeShopId,
     staleTime: isDefaultQuery ? 5 * 60 * 1000 : 0,
+    refetchOnMount: "always",
   });
 }
 

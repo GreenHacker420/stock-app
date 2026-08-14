@@ -1706,6 +1706,7 @@ export type StorageObject = {
   width?: number | null;
   height?: number | null;
   waMessagesCount: number;
+  ledgerAttachmentsCount?: number;
   // Linked product metadata
   itemId?: string | null;
   productName?: string | null;

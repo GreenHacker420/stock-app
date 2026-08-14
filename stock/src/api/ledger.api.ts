@@ -115,6 +115,12 @@ export async function getCustomerLedger(customerId: string, params: LedgerQueryP
   const token = getToken();
   const query = buildQueryString(params);
   return apiRequest<{
+    customer: {
+      id: string;
+      outstandingAmount: number;
+      advanceBalance: number;
+    };
+    summary: CustomerLedgerSummary;
     entries: CustomerLedgerEntry[];
     nextCursor: string | null;
     hasMore: boolean;
