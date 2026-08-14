@@ -22,8 +22,16 @@ export function resolveStorageProvider({ domain, requestedProvider }) {
     return requestedProvider;
   }
 
-  // Business Rule: WhatsApp domain defaults to OneDrive
-  if (domain === "WHATSAPP") {
+  // Business Rule: WhatsApp and generated bills/documents (SALE_INVOICE, DAILY_SUMMARY, CUSTOMER_LEDGER, DISPATCH) default to OneDrive
+  const oneDriveDomains = new Set([
+    "WHATSAPP",
+    "SALE_INVOICE",
+    "DAILY_SUMMARY",
+    "CUSTOMER_LEDGER",
+    "DISPATCH",
+  ]);
+
+  if (domain && oneDriveDomains.has(domain)) {
     if (isOneDriveConfigured() || process.env.NODE_ENV === "test" || process.env.MOCK_ONEDRIVE === "true") {
       return "ONEDRIVE";
     }

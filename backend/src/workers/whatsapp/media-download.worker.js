@@ -3,7 +3,7 @@ import Redis from "ioredis";
 import axios from "axios";
 import prisma from "../../lib/db.js";
 import { getWaCredentials } from "../../lib/wa-cache.js";
-import { uploadToS3 } from "../../lib/wa-media.js";
+import { uploadBuffer } from "../../lib/storage-manager.js";
 import { publishWhatsAppEvent } from "../../utils/realtime.js";
 import crypto from "crypto";
 import { serializeMessageWithAsset } from "../../services/whatsapp.media.service.js";
@@ -46,19 +46,26 @@ export function startMediaDownloadWorker() {
       const mediaBuffer = Buffer.from(downloadResponse.data);
       const checksumSha256 = crypto.createHash("sha256").update(mediaBuffer).digest("hex");
 
-      // 3. Upload to S3 (S3 is the only supported media storage backend)
-      const s3Key = `shops/${shopId}/media/${mediaId}`;
-      console.log(`[Media Download Worker] Uploading to S3 under key: ${s3Key}`);
-      const uploadResult = await uploadToS3(mediaBuffer, s3Key, mimeType);
+      // 3. Upload to storage provider (defaults to OneDrive for WhatsApp)
+      const storageKey = `shops/${shopId}/media/${mediaId}`;
+      console.log(`[Media Download Worker] Uploading media under key: ${storageKey}`);
+      const uploadResult = await uploadBuffer({
+        body: mediaBuffer,
+        key: storageKey,
+        mimeType,
+        domain: "WHATSAPP",
+      });
 
       // 4. Complete the shared asset and load its message projection.
       await prisma.asset.update({
         where: { id: assetId },
         data: {
           status: "READY",
-          storageProvider: "S3",
-          storageKey: uploadResult.key,
-          storageBucket: uploadResult.bucket,
+          storageProvider: uploadResult.storageProvider,
+          storageKey: uploadResult.storageKey,
+          storageBucket: uploadResult.storageBucket,
+          externalId: uploadResult.externalId,
+          remoteUrl: uploadResult.url,
           sizeBytes: BigInt(mediaBuffer.length),
           checksumSha256,
           readyAt: new Date(),

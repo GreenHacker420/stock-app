@@ -3,7 +3,12 @@ import { existsSync } from "node:fs";
 import puppeteer from "puppeteer-core";
 import qrcode from "qrcode-generator";
 import {
-  uploadBufferToS3,
+  uploadBuffer,
+  downloadObjectBuffer,
+  getObjectPublicUrl,
+  deleteObject,
+} from "../lib/storage-manager.js";
+import {
   getPublicS3ObjectUrl,
   getS3BucketName,
   downloadS3ObjectBuffer,
@@ -586,16 +591,23 @@ async function getOrCreateSaleInvoicePdf({ sale, shop }) {
   const existing = await prisma.asset.findFirst({
     where: {
       shopId: shop.id,
-      storageProvider: "S3",
-      storageBucket: getS3BucketName(),
       storageKey: s3Key,
+      deletedAt: null,
     },
   });
-  if (existing?.status === "READY" && !existing.deletedAt) {
+  if (existing?.status === "READY") {
+    const publicUrl = await getObjectPublicUrl({
+      key: existing.storageKey,
+      provider: existing.storageProvider,
+      externalId: existing.externalId,
+      fallbackUrl: existing.remoteUrl,
+    });
     return {
       assetId: existing.id,
       s3Key,
-      publicUrl: existing.remoteUrl || getPublicS3ObjectUrl(s3Key),
+      storageKey: s3Key,
+      storageProvider: existing.storageProvider,
+      publicUrl,
       fileName: existing.fileName || fileName,
       pdfBuffer: null,
       externalId: existing.externalId,
@@ -605,15 +617,12 @@ async function getOrCreateSaleInvoicePdf({ sale, shop }) {
   }
 
   const pdfBuffer = await renderInvoicePdfFromHtml(html);
-  await uploadBufferToS3({
+  const stored = await uploadBuffer({
     body: Buffer.from(pdfBuffer),
     key: s3Key,
     mimeType: "application/pdf",
-    cacheControl: "private, max-age=300",
+    domain: "SALE_INVOICE",
   });
-
-  const publicUrl = getPublicS3ObjectUrl(s3Key);
-  const bucketName = getS3BucketName();
 
   // 3. Record in Asset table (WHATSAPP_OUTBOUND DOCUMENT)
   let asset;
@@ -622,10 +631,11 @@ async function getOrCreateSaleInvoicePdf({ sale, shop }) {
       kind: "DOCUMENT",
       source: "WHATSAPP_OUTBOUND",
       status: "READY",
-      storageProvider: "S3",
-      storageBucket: bucketName,
-      storageKey: s3Key,
-      remoteUrl: publicUrl,
+      storageProvider: stored.storageProvider,
+      storageBucket: stored.storageBucket,
+      storageKey: stored.storageKey,
+      remoteUrl: stored.url,
+      externalId: stored.externalId,
       mimeType: "application/pdf",
       fileName,
       sizeBytes: BigInt(pdfBuffer.byteLength ?? pdfBuffer.length),
@@ -638,7 +648,6 @@ async function getOrCreateSaleInvoicePdf({ sale, shop }) {
         renderer: "chromium",
       },
       externalProvider: null,
-      externalId: null,
       errorMessage: null,
       readyAt: new Date(),
       deletedAt: null,
@@ -656,7 +665,11 @@ async function getOrCreateSaleInvoicePdf({ sale, shop }) {
       });
   } catch (error) {
     try {
-      await deleteS3Object(s3Key);
+      await deleteObject({
+        key: s3Key,
+        provider: stored.storageProvider,
+        externalId: stored.externalId,
+      });
     } catch (cleanupError) {
       console.error("[PDF] Orphaned upload cleanup failed:", cleanupError?.message || cleanupError);
     }
@@ -666,7 +679,9 @@ async function getOrCreateSaleInvoicePdf({ sale, shop }) {
   return {
     assetId: asset.id,
     s3Key,
-    publicUrl,
+    storageKey: s3Key,
+    storageProvider: stored.storageProvider,
+    publicUrl: stored.url,
     fileName,
     pdfBuffer: Buffer.from(pdfBuffer),
     externalId: asset.externalId,
@@ -690,18 +705,26 @@ export async function generateAndUploadSaleInvoicePdf({ sale, shop }) {
 
 export async function getInvoicePdfBuffer(invoiceAsset) {
   if (invoiceAsset.pdfBuffer) return invoiceAsset.pdfBuffer;
-  return downloadS3ObjectBuffer(invoiceAsset.s3Key);
+  return downloadObjectBuffer({
+    key: invoiceAsset.storageKey || invoiceAsset.s3Key,
+    provider: invoiceAsset.storageProvider,
+    externalId: invoiceAsset.externalId,
+  });
 }
 
 /**
- * Deletes the S3 object and soft-deletes the Asset record.
+ * Deletes the storage object (OneDrive or S3) and soft-deletes the Asset record.
  */
 export async function deleteInvoiceAsset(assetId) {
   const asset = await prisma.asset.findUnique({ where: { id: assetId } });
   if (!asset) return;
 
   if (asset.storageKey) {
-    await deleteS3Object(asset.storageKey);
+    await deleteObject({
+      key: asset.storageKey,
+      provider: asset.storageProvider,
+      externalId: asset.externalId,
+    });
   }
 
   // Soft delete in DB

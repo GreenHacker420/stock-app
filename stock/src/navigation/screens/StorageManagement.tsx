@@ -71,10 +71,12 @@ function getUsageStatus(a: StorageObject): AssetUsageStatus {
 }
 
 function formatBytes(bytes: number): string {
-  if (!bytes) return "0 B";
+  if (!bytes || bytes <= 0) return "0 B";
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes < 1024 * 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  return `${(bytes / (1024 * 1024 * 1024 * 1024)).toFixed(1)} TB`;
 }
 
 function formatDate(iso: string): string {
@@ -363,6 +365,14 @@ type HeaderProps = {
   unusedBytes: number;
   activeTab: "ALL" | "UNUSED";
   onTabChange: (t: "ALL" | "UNUSED") => void;
+  filterProvider: "ALL" | "S3" | "ONEDRIVE";
+  onProviderChange: (p: "ALL" | "S3" | "ONEDRIVE") => void;
+  s3Count: number;
+  s3Bytes: number;
+  oneDriveCount: number;
+  oneDriveBytes: number;
+  oneDriveQuotaRemaining?: number;
+  oneDriveQuotaTotal?: number;
   searchQuery: string;
   onSearchChange: (s: string) => void;
   filterCategory: string;
@@ -390,6 +400,14 @@ function StorageManagementHeader({
   unusedBytes,
   activeTab,
   onTabChange,
+  filterProvider,
+  onProviderChange,
+  s3Count,
+  s3Bytes,
+  oneDriveCount,
+  oneDriveBytes,
+  oneDriveQuotaRemaining,
+  oneDriveQuotaTotal,
   searchQuery,
   onSearchChange,
   filterCategory,
@@ -412,6 +430,93 @@ function StorageManagementHeader({
 }: HeaderProps) {
   return (
     <View style={styles.headerRoot}>
+      {/* Cloud Provider Compact Pill Selector */}
+      <View style={styles.providerPillRow}>
+        <Pressable
+          style={({ pressed }) => [
+            styles.providerPill,
+            filterProvider === "ALL" && styles.providerPillActiveAll,
+            pressed && { opacity: 0.85 },
+          ]}
+          onPress={() => {
+            triggerLightHaptic();
+            onProviderChange("ALL");
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="All cloud providers"
+        >
+          <Icon
+            source="cloud-outline"
+            size={16}
+            color={filterProvider === "ALL" ? "#ffffff" : colors.textSecondary}
+          />
+          <Text
+            style={[
+              styles.providerPillText,
+              filterProvider === "ALL" && styles.providerPillTextActive,
+            ]}
+          >
+            All {s3Count + oneDriveCount}
+          </Text>
+        </Pressable>
+
+        <Pressable
+          style={({ pressed }) => [
+            styles.providerPill,
+            filterProvider === "S3" && styles.providerPillActiveS3,
+            pressed && { opacity: 0.85 },
+          ]}
+          onPress={() => {
+            triggerLightHaptic();
+            onProviderChange(filterProvider === "S3" ? "ALL" : "S3");
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="Filter by AWS S3"
+        >
+          <Icon
+            source="aws"
+            size={16}
+            color={filterProvider === "S3" ? "#ffffff" : "#FF9900"}
+          />
+          <Text
+            style={[
+              styles.providerPillText,
+              filterProvider === "S3" && styles.providerPillTextActive,
+            ]}
+          >
+            AWS S3 {s3Count}
+          </Text>
+        </Pressable>
+
+        <Pressable
+          style={({ pressed }) => [
+            styles.providerPill,
+            filterProvider === "ONEDRIVE" && styles.providerPillActiveOneDrive,
+            pressed && { opacity: 0.85 },
+          ]}
+          onPress={() => {
+            triggerLightHaptic();
+            onProviderChange(filterProvider === "ONEDRIVE" ? "ALL" : "ONEDRIVE");
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="Filter by Microsoft OneDrive"
+        >
+          <Icon
+            source="microsoft-onedrive"
+            size={16}
+            color={filterProvider === "ONEDRIVE" ? "#ffffff" : "#0078D4"}
+          />
+          <Text
+            style={[
+              styles.providerPillText,
+              filterProvider === "ONEDRIVE" && styles.providerPillTextActive,
+            ]}
+          >
+            OneDrive {oneDriveCount}
+          </Text>
+        </Pressable>
+      </View>
+
       {/* Search */}
       <View style={styles.searchRow}>
         <Searchbar
@@ -883,8 +988,81 @@ export function StorageManagement() {
     return { unusedCount: 0, unusedBytes: 0, hasStats: false };
   }, [data]);
 
+  const [filterProvider, setFilterProvider] = useState<"ALL" | "S3" | "ONEDRIVE">("ALL");
+
+  const storageStatsQuery = useStorageStatsQuery();
+
+  const providerStats = useMemo(() => {
+    let s3Total = 0;
+    let s3Bytes = 0;
+    let s3Unused = 0;
+    let s3UnusedBytes = 0;
+
+    let odTotal = 0;
+    let odBytes = 0;
+    let odUnused = 0;
+    let odUnusedBytes = 0;
+
+    for (const a of allAssets) {
+      const isUnused = getUsageStatus(a) === "UNUSED";
+      if (a.storageProvider === "ONEDRIVE") {
+        odTotal++;
+        odBytes += a.sizeBytes || 0;
+        if (isUnused) {
+          odUnused++;
+          odUnusedBytes += a.sizeBytes || 0;
+        }
+      } else {
+        s3Total++;
+        s3Bytes += a.sizeBytes || 0;
+        if (isUnused) {
+          s3Unused++;
+          s3UnusedBytes += a.sizeBytes || 0;
+        }
+      }
+    }
+
+    const currentTotal =
+      filterProvider === "S3"
+        ? s3Total
+        : filterProvider === "ONEDRIVE"
+        ? odTotal
+        : s3Total + odTotal;
+
+    const currentUnused =
+      filterProvider === "S3"
+        ? s3Unused
+        : filterProvider === "ONEDRIVE"
+        ? odUnused
+        : s3Unused + odUnused;
+
+    const currentUnusedBytes =
+      filterProvider === "S3"
+        ? s3UnusedBytes
+        : filterProvider === "ONEDRIVE"
+        ? odUnusedBytes
+        : s3UnusedBytes + odUnusedBytes;
+
+    return {
+      s3Count: s3Total,
+      s3Bytes,
+      s3Unused,
+      s3UnusedBytes,
+      oneDriveCount: odTotal,
+      oneDriveBytes: odBytes,
+      oneDriveUnused: odUnused,
+      oneDriveUnusedBytes: odUnusedBytes,
+      currentTotal,
+      currentUnused,
+      currentUnusedBytes,
+    };
+  }, [allAssets, filterProvider]);
+
   // ── Filter + Sort pipeline ────────────────────────────────────────────────
-  const filtered = allAssets;
+  const filtered = useMemo(() => {
+    if (filterProvider === "ALL") return allAssets;
+    return allAssets.filter((a) => (a.storageProvider || "S3") === filterProvider);
+  }, [allAssets, filterProvider]);
 
   const totalSize = useMemo(
     () => filtered.reduce((s, a) => s + a.sizeBytes, 0),
@@ -897,9 +1075,10 @@ export function StorageManagement() {
         filterCategory !== "ALL",
         filterBrand !== "ALL",
         filterType !== "ALL",
+        filterProvider !== "ALL",
         sortBy !== "date_desc",
       ].filter(Boolean).length,
-    [filterCategory, filterBrand, filterType, sortBy]
+    [filterCategory, filterBrand, filterType, filterProvider, sortBy]
   );
 
   // ── Handlers ──────────────────────────────────────────────────────────────
@@ -1280,7 +1459,9 @@ export function StorageManagement() {
                 {item.productName || item.fileName}
               </Text>
               <Text style={styles.listRowMeta} numberOfLines={1}>
-                {item.categoryName ? `${item.categoryName} • ` : ""}{formatBytes(item.sizeBytes)} • {formatDate(item.createdAt).split(",")[0]}
+                {item.storageProvider === "ONEDRIVE" ? "OneDrive • " : "S3 • "}
+                {item.categoryName ? `${item.categoryName} • ` : ""}
+                {formatBytes(item.sizeBytes)} • {formatDate(item.createdAt).split(",")[0]}
               </Text>
             </View>
 
@@ -1416,6 +1597,26 @@ export function StorageManagement() {
             <Text style={styles.cardName} numberOfLines={2}>
               {item.productName || item.fileName}
             </Text>
+            <View
+              style={[
+                styles.providerTag,
+                { backgroundColor: item.storageProvider === "ONEDRIVE" ? "#EBF3FC" : "#FFF4E5" },
+              ]}
+            >
+              <Icon
+                source={item.storageProvider === "ONEDRIVE" ? "microsoft-onedrive" : "aws"}
+                size={10}
+                color={item.storageProvider === "ONEDRIVE" ? "#0078D4" : "#FF9900"}
+              />
+              <Text
+                style={[
+                  styles.providerTagText,
+                  { color: item.storageProvider === "ONEDRIVE" ? "#0078D4" : "#E68A00" },
+                ]}
+              >
+                {item.storageProvider === "ONEDRIVE" ? "OneDrive" : "S3"}
+              </Text>
+            </View>
             {item.categoryName && (
               <Text style={styles.cardMeta} numberOfLines={1}>
                 {item.categoryName}
@@ -1501,11 +1702,19 @@ export function StorageManagement() {
   const listHeader = useMemo(
     () => (
       <StorageManagementHeader
-        allCount={data?.pages[0]?.totalAllCount ?? 0}
-        unusedCount={assetStats.unusedCount}
-        unusedBytes={assetStats.unusedBytes}
+        allCount={providerStats.currentTotal}
+        unusedCount={providerStats.currentUnused}
+        unusedBytes={providerStats.currentUnusedBytes}
         activeTab={activeTab}
         onTabChange={setActiveTab}
+        filterProvider={filterProvider}
+        onProviderChange={setFilterProvider}
+        s3Count={providerStats.s3Count}
+        s3Bytes={providerStats.s3Bytes}
+        oneDriveCount={providerStats.oneDriveCount}
+        oneDriveBytes={providerStats.oneDriveBytes}
+        oneDriveQuotaRemaining={storageStatsQuery.data?.providers?.onedrive?.quota?.remainingBytes}
+        oneDriveQuotaTotal={storageStatsQuery.data?.providers?.onedrive?.quota?.totalBytes}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         filterCategory={filterCategory}
@@ -1523,19 +1732,21 @@ export function StorageManagement() {
           setFilterCategory("ALL");
           setFilterBrand("ALL");
           setFilterType("ALL");
+          setFilterProvider("ALL");
           setSortBy("date_desc");
         }}
         onCleanUp={handleBulkCleanup}
         isCleaningUp={bulkDeleteMutation.isPending}
-        isOwner={isOwner && assetStats.hasStats}
+        isOwner={isOwner && (activeTab === "ALL" ? providerStats.currentTotal > 0 : providerStats.currentUnused > 0)}
         viewMode={viewMode}
         onToggleViewMode={toggleViewMode}
       />
     ),
     [
-      allAssets.length,
-      assetStats,
+      providerStats,
       activeTab,
+      filterProvider,
+      storageStatsQuery.data,
       searchQuery,
       filterCategory,
       filterBrand,
@@ -2855,5 +3066,59 @@ const styles = StyleSheet.create({
     fontSize: fontSize.xs,
     color: colors.textSecondary,
     marginTop: 2,
+  },
+  providerPillRow: {
+    flexDirection: "row",
+    gap: spacing.xs,
+    alignItems: "center",
+    marginBottom: spacing.xs,
+  },
+  providerPill: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    height: 38,
+    borderRadius: radius.full,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: spacing.sm,
+    ...shadow.sm,
+  },
+  providerPillActiveAll: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  providerPillActiveS3: {
+    backgroundColor: "#FF9900",
+    borderColor: "#FF9900",
+  },
+  providerPillActiveOneDrive: {
+    backgroundColor: "#0078D4",
+    borderColor: "#0078D4",
+  },
+  providerPillText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  providerPillTextActive: {
+    color: "#ffffff",
+  },
+  providerTag: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radius.sm,
+    alignSelf: "flex-start",
+    marginTop: 4,
+  },
+  providerTagText: {
+    fontSize: 10,
+    fontWeight: fontWeight.bold,
   },
 });
