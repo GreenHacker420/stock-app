@@ -2,6 +2,7 @@ import prisma from "../lib/db.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 import { deleteS3Object } from "../lib/s3-storage.js";
+import { deleteOneDriveObject } from "../lib/onedrive-storage.js";
 
 function dayRange(date = new Date()) {
   const start = new Date(date);
@@ -442,9 +443,9 @@ export async function listStorageObjects(user, { shopId, filter, cursor, limit, 
       sizeBytes: a.sizeBytes ? Number(a.sizeBytes) : 0,
       mimeType: a.mimeType || "application/octet-stream",
       createdAt: a.createdAt,
-      url: a.storageKey && a.storageBucket
-        ? `https://${a.storageBucket}.s3.amazonaws.com/${a.storageKey}`
-        : (a.remoteUrl || ""),
+      url: a.remoteUrl
+        || (a.storageKey && a.storageBucket ? `https://${a.storageBucket}.s3.amazonaws.com/${a.storageKey}` : ""),
+      storageProvider: a.storageProvider || "S3",
       width: a.width ?? null,
       height: a.height ?? null,
       waMessagesCount: a._count.waMessages,
@@ -513,9 +514,13 @@ export async function deleteStorageObject(user, id) {
     throw new ApiError(403, "Access restricted to owners");
   }
 
-  // Delete from S3
+  // Delete from storage provider (OneDrive or S3)
   if (asset.storageKey) {
-    await deleteS3Object(asset.storageKey);
+    if (asset.storageProvider === "ONEDRIVE") {
+      await deleteOneDriveObject(asset.storageKey, asset.externalId);
+    } else {
+      await deleteS3Object(asset.storageKey);
+    }
   }
 
   // Delete from Database
@@ -575,7 +580,11 @@ export async function bulkDeleteOrphanedAssets(user, { shopId }) {
   for (const asset of orphans) {
     try {
       if (asset.storageKey) {
-        await deleteS3Object(asset.storageKey);
+        if (asset.storageProvider === "ONEDRIVE") {
+          await deleteOneDriveObject(asset.storageKey, asset.externalId);
+        } else {
+          await deleteS3Object(asset.storageKey);
+        }
       }
       await prisma.asset.delete({
         where: { id: asset.id },

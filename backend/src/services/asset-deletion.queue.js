@@ -2,6 +2,7 @@ import { Queue, Worker } from "bullmq";
 import Redis from "ioredis";
 import prisma from "../lib/db.js";
 import { deleteS3Object } from "./s3.service.js";
+import { deleteOneDriveObject } from "../lib/onedrive-storage.js";
 
 const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
 const GRACE_PERIOD_MS = Number(process.env.ASSET_DELETE_GRACE_MS || 60_000);
@@ -73,12 +74,16 @@ async function processOutboxRow(outboxId) {
   });
 
   if (asset.storageKey) {
-    const deleted = await deleteS3Object({
-      key: asset.storageKey,
-      bucket: asset.storageBucket || outbox.storageBucket,
-    });
-    if (!deleted.success) {
-      throw new Error(deleted.error || "S3 delete failed");
+    if (asset.storageProvider === "ONEDRIVE") {
+      await deleteOneDriveObject(asset.storageKey, asset.externalId);
+    } else {
+      const deleted = await deleteS3Object({
+        key: asset.storageKey,
+        bucket: asset.storageBucket || outbox.storageBucket,
+      });
+      if (!deleted.success) {
+        throw new Error(deleted.error || "S3 delete failed");
+      }
     }
   }
 

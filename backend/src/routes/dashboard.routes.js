@@ -79,6 +79,7 @@ router.get("/owner", requireOwner, validate(querySchema), dashboardController.ow
 router.get("/owner/analytics", requireOwner, validate(analyticsQuerySchema), dashboardController.ownerAnalytics);
 router.get("/staff/today", requirePermission(PERMISSIONS.SALE_VIEW_OWN), validate(staffQuerySchema), dashboardController.staffTodaySummary);
 router.get("/storage/objects", requireOwner, validate(storageQuerySchema), dashboardController.listStorageObjects);
+router.get("/storage/stats", requireOwner, dashboardController.getStorageStats);
 router.delete("/storage/objects/:id", requireOwner, validate(deleteStorageSchema), dashboardController.deleteStorageObject);
 router.post("/storage/objects/bulk-delete-orphans", requireOwner, validate(bulkDeleteOrphansSchema), dashboardController.bulkDeleteOrphans);
 

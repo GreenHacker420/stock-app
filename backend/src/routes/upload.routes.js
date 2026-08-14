@@ -24,6 +24,7 @@ const intentSchema = z.object({
     shopId: z.string().min(1),
     domain: z.enum(ASSET_DOMAINS),
     kind: z.enum(["IMAGE", "DOC", "VIDEO", "AUDIO"]).optional(),
+    provider: z.enum(["S3", "ONEDRIVE"]).optional(),
     fileName: z.string().min(1),
     mimeType: z.string().min(1),
     sizeBytes: z.number().int().positive(),

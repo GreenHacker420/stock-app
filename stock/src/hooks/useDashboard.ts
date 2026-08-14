@@ -8,6 +8,7 @@ import {
   type OwnerDashboardData,
   fetchStaffTodaySummary,
   fetchStorageObjects,
+  fetchStorageStats,
   deleteStorageObject,
   bulkDeleteOrphans,
 } from "../api/client";
@@ -212,6 +213,16 @@ export function useDeleteStorageObjectMutation() {
   });
 }
 
+export function useStorageStatsQuery() {
+  const token = useAuthStore((state) => state.token);
+  return useQuery({
+    queryKey: ["storage-stats"],
+    queryFn: () => fetchStorageStats(token ?? ""),
+    enabled: !!token,
+    staleTime: 60 * 1000,
+  });
+}
+
 export function useBulkDeleteOrphansMutation() {
   const token = useAuthStore((state) => state.token);
   const activeShopId = useShopStore((state) => state.activeShopId);
@@ -222,6 +233,7 @@ export function useBulkDeleteOrphansMutation() {
       if (activeShopId) invalidateAssetCache(activeShopId);
       queryClient.invalidateQueries({ queryKey: ["storage-objects"] });
       queryClient.invalidateQueries({ queryKey: ["owner-dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["storage-stats"] });
       queryClient.invalidateQueries({ queryKey: ["shopStorageStats"] });
     },
   });

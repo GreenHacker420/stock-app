@@ -2,6 +2,8 @@ import crypto from "crypto";
 import { z } from "zod";
 import prisma from "../lib/db.js";
 import { uploadBufferToS3, deleteS3Object as deleteS3ObjectFromLib } from "../lib/s3-storage.js";
+import { uploadBuffer, createUploadSession, getObjectPublicUrl, deleteObject } from "../lib/storage-manager.js";
+import { getOneDriveSharingUrl, deleteOneDriveObject } from "../lib/onedrive-storage.js";
 import { createPresignedPutUrl, verifyS3Object, getBucketName, deleteS3Object } from "./s3.service.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
@@ -63,6 +65,7 @@ export async function uploadProductImageAsset({
   categoryPath,
   itemPath,
   file,
+  provider,
 }) {
   assertProductImageFile(file);
 
@@ -90,28 +93,32 @@ export async function uploadProductImageAsset({
   });
 
   try {
-    const stored = await uploadBufferToS3({
+    const stored = await uploadBuffer({
       body: file.buffer,
       key: storageKey,
       mimeType: file.mimetype,
-      cacheControl: "public, max-age=31536000, immutable",
+      domain: "PRODUCT",
+      provider,
     });
 
     await prisma.asset.update({
       where: { id: asset.id },
       data: {
         status: "READY",
-        storageProvider: "S3",
-        storageBucket: stored.bucket,
-        storageKey: stored.key,
+        storageProvider: stored.storageProvider,
+        storageBucket: stored.storageBucket,
+        storageKey: stored.storageKey,
+        externalId: stored.externalId,
+        remoteUrl: stored.url,
         readyAt: new Date(),
       },
     });
 
     return {
       assetId: asset.id,
-      bucket: stored.bucket,
-      key: stored.key,
+      storageProvider: stored.storageProvider,
+      bucket: stored.storageBucket,
+      key: stored.storageKey,
       url: stored.url,
       mimeType: file.mimetype,
       sizeBytes: file.size,
@@ -129,7 +136,16 @@ export async function uploadProductImageAsset({
   }
 }
 
-export async function createPresignedUploadIntent(user, { shopId, domain = "OTHER", kind = "IMAGE", fileName, mimeType, sizeBytes, checksumSha256 }) {
+export async function createPresignedUploadIntent(user, {
+  shopId,
+  domain = "OTHER",
+  kind = "IMAGE",
+  fileName,
+  mimeType,
+  sizeBytes,
+  checksumSha256,
+  provider,
+}) {
   await assertShopAccess(user, shopId);
 
   if (!fileName) throw new ApiError(400, "fileName is required");
@@ -150,6 +166,18 @@ export async function createPresignedUploadIntent(user, { shopId, domain = "OTHE
     throw new ApiError(400, `MIME type "${mimeType}" is not allowed for domain "${domain}". Allowed: ${[...allowedMimes].join(", ")}`);
   }
 
+  const baseName = safeFileName(fileName, "file");
+  const storageKey = `shops/${shopId}/${domain.toLowerCase()}/${crypto.randomUUID()}-${baseName}`;
+
+  const session = await createUploadSession({
+    key: storageKey,
+    mimeType,
+    sizeBytes: Number(sizeBytes),
+    domain,
+    provider,
+    expiresInSeconds: 600,
+  });
+
   const asset = await prisma.asset.create({
     data: {
       shopId,
@@ -158,6 +186,9 @@ export async function createPresignedUploadIntent(user, { shopId, domain = "OTHE
       kind,
       source: "INTERNAL",
       status: "UPLOADING",
+      storageProvider: session.storageProvider,
+      storageBucket: session.bucket,
+      storageKey: session.key,
       mimeType,
       fileName,
       sizeBytes: BigInt(sizeBytes),
@@ -165,36 +196,15 @@ export async function createPresignedUploadIntent(user, { shopId, domain = "OTHE
     },
   });
 
-  const baseName = safeFileName(fileName, "file");
-  const storageKey = `shops/${shopId}/${domain.toLowerCase()}/${asset.id}/${baseName}`;
-  const bucketName = getBucketName();
-
-  const presigned = await createPresignedPutUrl({
-    key: storageKey,
-    mimeType,
-    expiresInSeconds: 600,
-    bucket: bucketName,
-    checksumSha256: checksumSha256.toLowerCase(),
-    contentLength: Number(sizeBytes),
-  });
-
-  await prisma.asset.update({
-    where: { id: asset.id },
-    data: {
-      storageProvider: "S3",
-      storageBucket: presigned.bucket,
-      storageKey: presigned.key,
-    },
-  });
-
   return {
     assetId: asset.id,
-    uploadUrl: presigned.uploadUrl,
-    bucket: presigned.bucket,
-    key: presigned.key,
+    storageProvider: session.storageProvider,
+    uploadUrl: session.uploadUrl,
+    bucket: session.bucket,
+    key: session.key,
     expiresInSeconds: 600,
-    headers: presigned.headers || {},
-    isMock: presigned.isMock || false,
+    headers: session.headers || {},
+    isMock: session.isMock || false,
   };
 }
 
@@ -206,6 +216,20 @@ export async function completeUploadIntent(user, { assetId, shopId }) {
   if (asset.status === "READY") return { success: true, asset };
   if (asset.status !== "UPLOADING") {
     throw new ApiError(400, `Asset is not in UPLOADING status (status: ${asset.status})`);
+  }
+
+  if (asset.storageProvider === "ONEDRIVE") {
+    const publicUrl = await getOneDriveSharingUrl(asset.storageKey, asset.externalId);
+    const updated = await prisma.asset.update({
+      where: { id: assetId },
+      data: {
+        status: "READY",
+        remoteUrl: publicUrl,
+        readyAt: new Date(),
+        errorMessage: null,
+      },
+    });
+    return { success: true, asset: updated };
   }
 
   let verification;

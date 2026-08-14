@@ -1686,6 +1686,7 @@ export type StorageObject = {
   id: string;
   fileName: string;
   storageKey: string;
+  storageProvider?: "S3" | "ONEDRIVE";
   sizeBytes: number;
   mimeType: string;
   createdAt: string;
@@ -1720,6 +1721,26 @@ export type StorageObjectsResponse = {
   totalOrphanedBytes?: number;
 };
 
+export type StorageStatsResponse = {
+  providers: {
+    s3: { configured: boolean; bucket?: string };
+    onedrive: {
+      configured: boolean;
+      driveId?: string;
+      quota?: {
+        totalBytes: number;
+        usedBytes: number;
+        remainingBytes: number;
+        state: string;
+      } | null;
+    };
+  };
+  defaults: {
+    whatsapp: "ONEDRIVE";
+    general: "S3" | "ONEDRIVE";
+  };
+};
+
 export async function fetchStorageObjects(
   token: string,
   shopId: string,
@@ -1744,6 +1765,10 @@ export async function fetchStorageObjects(
   if (params?.type) query += `&type=${encodeURIComponent(params.type)}`;
   if (params?.sortBy) query += `&sortBy=${encodeURIComponent(params.sortBy)}`;
   return apiRequest<StorageObjectsResponse>(`/dashboard/storage/objects?${query}`, { token });
+}
+
+export async function fetchStorageStats(token: string) {
+  return apiRequest<StorageStatsResponse>("/dashboard/storage/stats", { token });
 }
 
 export async function deleteStorageObject(token: string, id: string) {

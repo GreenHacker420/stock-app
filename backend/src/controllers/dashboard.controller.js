@@ -1,5 +1,6 @@
 import { asyncHandler } from "../utils/asyncHandler.js";
 import * as dashboardService from "../services/dashboard.service.js";
+import { getStorageStats as getProviderStorageStats } from "../lib/storage-manager.js";
 
 export const ownerDashboard = asyncHandler(async (req, res) => {
   const dashboard = await dashboardService.getOwnerDashboard(req.user, req.validated.query);
@@ -24,6 +25,11 @@ export const deleteStorageObject = asyncHandler(async (req, res) => {
 export const bulkDeleteOrphans = asyncHandler(async (req, res) => {
   const result = await dashboardService.bulkDeleteOrphanedAssets(req.user, req.body);
   res.json({ success: true, ...result });
+});
+
+export const getStorageStats = asyncHandler(async (req, res) => {
+  const stats = await getProviderStorageStats();
+  res.json({ success: true, data: stats });
 });
 
 export const ownerAnalytics = asyncHandler(async (req, res) => {

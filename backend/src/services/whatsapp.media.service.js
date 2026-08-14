@@ -2,7 +2,7 @@ import axios from "axios";
 import crypto from "crypto";
 import prisma from "../lib/db.js";
 import { getWaCredentials } from "../lib/wa-cache.js";
-import { getSignedMediaUrl, uploadToS3 } from "../lib/wa-media.js";
+import { uploadBuffer, getObjectPublicUrl } from "../lib/storage-manager.js";
 import { resolveEffectiveWhatsAppChannelForShop } from "./whatsapp.channel-resolution.js";
 import { validateWhatsAppMedia } from "./whatsapp.media-policy.js";
 
@@ -37,7 +37,12 @@ export async function getPublicAsset(asset) {
 
   let url = asset.remoteUrl || null;
   if (asset.storageKey && asset.status === "READY") {
-    url = await getSignedMediaUrl(asset.storageKey);
+    url = await getObjectPublicUrl({
+      key: asset.storageKey,
+      provider: asset.storageProvider,
+      externalId: asset.externalId,
+      fallbackUrl: asset.remoteUrl,
+    });
   }
 
   return {
@@ -150,13 +155,20 @@ export async function uploadWhatsAppMedia({ shopId, createdById, kind, file, met
   });
 
   try {
-    const stored = await uploadToS3(file.buffer, storageKey, file.mimetype);
+    const stored = await uploadBuffer({
+      body: file.buffer,
+      key: storageKey,
+      mimeType: file.mimetype,
+      domain: "WHATSAPP",
+    });
     await prisma.asset.update({
       where: { id: asset.id },
       data: {
-        storageProvider: "S3",
-        storageKey: stored.key,
-        storageBucket: stored.bucket,
+        storageProvider: stored.storageProvider,
+        storageKey: stored.storageKey,
+        storageBucket: stored.storageBucket,
+        externalId: stored.externalId,
+        remoteUrl: stored.url,
       },
     });
 
@@ -234,13 +246,20 @@ export async function uploadWhatsAppTemplateExample({ shopId, createdById, kind,
   });
 
   try {
-    const stored = await uploadToS3(file.buffer, storageKey, file.mimetype);
+    const stored = await uploadBuffer({
+      body: file.buffer,
+      key: storageKey,
+      mimeType: file.mimetype,
+      domain: "WHATSAPP",
+    });
     await prisma.asset.update({
       where: { id: asset.id },
       data: {
-        storageProvider: "S3",
-        storageKey: stored.key,
-        storageBucket: stored.bucket,
+        storageProvider: stored.storageProvider,
+        storageKey: stored.storageKey,
+        storageBucket: stored.storageBucket,
+        externalId: stored.externalId,
+        remoteUrl: stored.url,
       },
     });
     const session = await axios.post(

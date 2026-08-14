@@ -41,6 +41,7 @@ import { CachedThumbnail } from "../../components/ui/CachedThumbnail";
 import { SkeletonCard, SkeletonList } from "../../components/ui/SkeletonCard";
 import {
   useStorageObjectsInfiniteQuery,
+  useStorageStatsQuery,
   useDeleteStorageObjectMutation,
   useBulkDeleteOrphansMutation,
 } from "../../hooks/useDashboard";
@@ -1800,6 +1801,11 @@ function InfoSheet({
           label="Status"
           value={statusLabel}
           valueColor={statusColor}
+        />
+        <InfoRow
+          label="Storage Provider"
+          value={file.storageProvider === "ONEDRIVE" ? "Microsoft OneDrive" : "AWS S3"}
+          valueColor={file.storageProvider === "ONEDRIVE" ? "#0078D4" : "#FF9900"}
         />
 
         {/* Prices */}

@@ -1999,6 +1999,7 @@ enum AssetSource {
 
 enum AssetStorageProvider {
   S3
+  ONEDRIVE
 }
 
 model Asset {
