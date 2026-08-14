@@ -174,7 +174,7 @@ export async function getCustomer(user, id) {
   if (!customer) throw new ApiError(404, "Customer not found");
   await assertShopAccess(user, customer.shopId);
 
-  const [salesAgg, unpaidAgg, latestLedgerEntry] = await Promise.all([
+  const [salesAgg, unpaidAgg, ledgerTotals] = await Promise.all([
     prisma.sale.aggregate({
       where: { customerId: id, saleStatus: { not: "CANCELLED" } },
       _sum: { totalAmount: true, paidAmount: true, balanceAmount: true },
@@ -184,40 +184,27 @@ export async function getCustomer(user, id) {
       where: { customerId: id, paymentStatus: { in: ["UNPAID", "PARTIALLY_PAID"] }, saleStatus: { not: "CANCELLED" } },
       _sum: { balanceAmount: true },
     }),
-    prisma.customerLedgerEntry.findFirst({
-      where: { customerId: id },
-      orderBy: [{ effectiveAt: "desc" }, { id: "desc" }],
+    prisma.customerLedgerEntry.groupBy({
+      by: ["direction"],
+      where: { customerId: id, shopId: customer.shopId },
+      _sum: { amount: true },
     }),
   ]);
 
   const totalSales = Number(salesAgg._sum.totalAmount || 0);
   const unpaidSalesDue = Number(unpaidAgg._sum.balanceAmount || 0);
 
-  let liveOutstanding = Number(customer.outstandingAmount || 0);
-  let liveAdvance = Number(customer.advanceBalance || 0);
-
-  if (latestLedgerEntry) {
-    const running = Number(latestLedgerEntry.runningBalance || 0);
-    if (running > 0) {
-      liveOutstanding = running;
-      liveAdvance = 0;
-    } else if (running < 0) {
-      liveOutstanding = 0;
-      liveAdvance = Math.abs(running);
-    } else {
-      liveOutstanding = 0;
-      liveAdvance = 0;
-    }
-  } else if (unpaidSalesDue > 0 && liveOutstanding === 0) {
-    liveOutstanding = unpaidSalesDue;
-  }
+  const ledgerBalance = ledgerTotals.reduce(
+    (balance, row) => balance + (row.direction === "DEBIT" ? 1 : -1) * Number(row._sum.amount || 0),
+    0,
+  );
 
   return {
     ...customer,
     totalSales,
     unpaidSalesDue,
-    outstandingAmount: liveOutstanding,
-    advanceBalance: liveAdvance,
+    outstandingAmount: Math.max(ledgerBalance, 0),
+    advanceBalance: Math.max(-ledgerBalance, 0),
   };
 }
 

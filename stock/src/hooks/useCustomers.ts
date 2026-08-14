@@ -88,6 +88,7 @@ export function useCustomerDetailQuery(id: string) {
     },
     enabled: !!token && !!id,
     staleTime: 5 * 60 * 1000, // 5 mins
+    refetchOnMount: "always",
     initialData: () => {
       if (!id) return undefined;
       // 1. Try MMKV storage for 0ms instant load

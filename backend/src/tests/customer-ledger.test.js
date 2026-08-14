@@ -8,6 +8,7 @@ import {
   getCustomerLedger,
   allocateLedgerCredit,
 } from "../services/customer-ledger.service.js";
+import { getCustomer } from "../services/customer.service.js";
 
 describe("Customer Ledger Service Tests", () => {
   let testShop;
@@ -204,7 +205,10 @@ describe("Customer Ledger Service Tests", () => {
     );
 
     assert.ok(ledger.entries.length >= 4);
-    assert.equal(ledger.customer.outstandingAmount, 6000);
+    assert.equal(ledger.customer.outstandingAmount, 8000);
     assert.equal(ledger.customer.advanceBalance, 0);
+
+    const customer = await getCustomer({ id: testUser.id, role: "OWNER" }, testCustomer.id);
+    assert.equal(customer.outstandingAmount, 8000);
   });
 });

@@ -94,12 +94,15 @@ export type Customer = {
   gstin?: string | null;
   contactPerson?: string | null;
   creditLimit?: string | null;
-  outstandingAmount?: string;
-  advanceBalance?: string;
+  outstandingAmount?: string | number;
+  advanceBalance?: string | number;
   ledgerVersion?: number;
   notes?: string | null;
   status?: "ACTIVE" | "INACTIVE";
   type?: "REGULAR" | "BUSINESS" | "WALK_IN";
+  totalSales?: number;
+  unpaidSalesDue?: number;
+  createdAt?: string;
 };
 
 export type CashSession = {

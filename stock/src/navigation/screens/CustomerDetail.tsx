@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { View, StyleSheet, ScrollView, Alert, Linking, TouchableOpacity } from "react-native";
 import { useRoute } from "@react-navigation/native";
-import { Text, Menu, Portal, Dialog, TextInput, IconButton, Icon } from "react-native-paper";
+import { Text, Menu, Portal, Dialog, Modal, TextInput, IconButton, Icon, ActivityIndicator } from "react-native-paper";
 import { FlashList } from "@shopify/flash-list";
+import { Image } from "expo-image";
 
 import { useAuthStore } from "../../auth/auth-store";
 import { useShopStore } from "../../auth/shop-store";
@@ -14,7 +15,7 @@ import {
   useCustomerReturnsQuery,
   useCustomerTimelineQuery,
 } from "../../hooks/useCustomers";
-import { useCustomerLedger, useReverseLedgerEntry } from "../../hooks/useCustomerLedger";
+import { useCustomerLedger, useCustomerLedgerSummary, useReverseLedgerEntry } from "../../hooks/useCustomerLedger";
 import { ScreenScaffold } from "../../components/layout/ScreenScaffold";
 import { ScreenSection } from "../../components/layout/ScreenSection";
 import { Button } from "../../components/ui/Button";
@@ -31,7 +32,12 @@ import { SkeletonList } from "../../components/ui/SkeletonCard";
 import { navigate } from "../navigation-ref";
 import { OpeningBalanceSheet } from "../../components/domain/ledger/OpeningBalanceSheet";
 import { ManualAdjustmentSheet } from "../../components/domain/ledger/ManualAdjustmentSheet";
-import { CustomerLedgerEntry } from "../../api/ledger.api";
+import {
+  CustomerLedgerAttachment,
+  CustomerLedgerEntry,
+  CustomerLedgerSummary,
+  getAssetDownloadUrl,
+} from "../../api/ledger.api";
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 
@@ -48,6 +54,12 @@ function formatBalanceStatus(outstanding: number, advance: number) {
   return { label: "₹0 Settled", tone: "amber" as const };
 }
 
+function ledgerBalanceStatus(summary?: CustomerLedgerSummary) {
+  return summary
+    ? formatBalanceStatus(Number(summary.outstandingAmount), Number(summary.advanceBalance))
+    : { label: "Balance unavailable", tone: "amber" as const };
+}
+
 type TabType = "OVERVIEW" | "LEDGER" | "SALES" | "PAYMENTS" | "OUTSTANDING" | "DMS" | "RETURNS" | "TIMELINE";
 
 export function CustomerDetail() {
@@ -57,6 +69,7 @@ export function CustomerDetail() {
 
   const activeShopId = useShopStore((state) => state.activeShopId);
   const customerQuery = useCustomerDetailQuery(customerId);
+  const ledgerSummaryQuery = useCustomerLedgerSummary(customerId, activeShopId || "");
   const salesQuery = useCustomerSalesQuery(customerId);
   const paymentsQuery = useCustomerPaymentsQuery(customerId);
   const dmsQuery = useCustomerDMsQuery(customerId);
@@ -92,11 +105,11 @@ export function CustomerDetail() {
       />
 
       <View style={styles.content}>
-        {activeTab === "OVERVIEW" && <OverviewTab customer={customer} onNavigateTab={setActiveTab} />}
-        {activeTab === "LEDGER" && <LedgerTab customer={customer} shopId={activeShopId || ""} />}
+        {activeTab === "OVERVIEW" && <OverviewTab customer={customer} ledgerSummary={ledgerSummaryQuery.data} onNavigateTab={setActiveTab} />}
+        {activeTab === "LEDGER" && <LedgerTab customer={customer} shopId={activeShopId || ""} ledgerSummary={ledgerSummaryQuery.data} />}
         {activeTab === "SALES" && <SalesTab query={salesQuery} />}
         {activeTab === "PAYMENTS" && <PaymentsTab query={paymentsQuery} />}
-        {activeTab === "OUTSTANDING" && <OutstandingTab customer={customer} salesQuery={salesQuery} />}
+        {activeTab === "OUTSTANDING" && <OutstandingTab customer={customer} ledgerSummary={ledgerSummaryQuery.data} salesQuery={salesQuery} />}
         {activeTab === "DMS" && <DMsTab query={dmsQuery} />}
         {activeTab === "RETURNS" && <ReturnsTab query={returnsQuery} />}
         {activeTab === "TIMELINE" && <TimelineTab query={timelineQuery} />}
@@ -107,14 +120,16 @@ export function CustomerDetail() {
 
 function OverviewTab({
   customer,
+  ledgerSummary,
   onNavigateTab,
 }: {
   customer: any;
+  ledgerSummary?: CustomerLedgerSummary;
   onNavigateTab: (tab: TabType) => void;
 }) {
-  const outstanding = Number(customer.outstandingAmount || 0);
-  const advance = Number(customer.advanceBalance || 0);
-  const balanceStatus = formatBalanceStatus(outstanding, advance);
+  const outstanding = Number(ledgerSummary?.outstandingAmount || 0);
+  const advance = Number(ledgerSummary?.advanceBalance || 0);
+  const balanceStatus = ledgerBalanceStatus(ledgerSummary);
 
   const handleCall = () => {
     if (customer.phone) {
@@ -174,7 +189,7 @@ function OverviewTab({
                   : styles.balancePillTextSettled,
               ]}
             >
-              {outstanding > 0 ? "DUE" : advance > 0 ? "ADVANCE" : "SETTLED"}
+              {!ledgerSummary ? "UNAVAILABLE" : outstanding > 0 ? "DUE" : advance > 0 ? "ADVANCE" : "SETTLED"}
             </Text>
           </View>
         </View>
@@ -255,7 +270,7 @@ function OverviewTab({
   );
 }
 
-function LedgerTab({ customer, shopId }: { customer: any; shopId: string }) {
+function LedgerTab({ customer, shopId, ledgerSummary }: { customer: any; shopId: string; ledgerSummary?: CustomerLedgerSummary }) {
   const user = useAuthStore((state) => state.user);
   const isOwner = user?.role === "OWNER";
   const isWalkIn = customer.type === "WALK_IN";
@@ -265,6 +280,7 @@ function LedgerTab({ customer, shopId }: { customer: any; shopId: string }) {
   const [selectedEntry, setSelectedEntry] = useState<CustomerLedgerEntry | null>(null);
   const [reversalReason, setReversalReason] = useState("");
   const [reversalDialogVisible, setReversalDialogVisible] = useState(false);
+  const [viewedAttachments, setViewedAttachments] = useState<CustomerLedgerAttachment[]>([]);
 
   const ledgerQuery = useCustomerLedger(customer.id, { shopId, limit: 30 });
   const reverseMutation = useReverseLedgerEntry(customer.id);
@@ -273,7 +289,7 @@ function LedgerTab({ customer, shopId }: { customer: any; shopId: string }) {
   const entries: CustomerLedgerEntry[] = pages.flatMap((p) => p.entries);
   const hasOpeningBalance = entries.some((e) => e.sourceType === "OPENING_BALANCE");
 
-  const balanceStatus = formatBalanceStatus(Number(customer.outstandingAmount || 0), Number(customer.advanceBalance || 0));
+  const balanceStatus = ledgerBalanceStatus(ledgerSummary);
 
   const handleReverseClick = (entry: CustomerLedgerEntry) => {
     setSelectedEntry(entry);
@@ -348,7 +364,12 @@ function LedgerTab({ customer, shopId }: { customer: any; shopId: string }) {
           refreshing={ledgerQuery.isRefetching}
           onRefresh={() => ledgerQuery.refetch()}
           renderItem={({ item }) => (
-            <LedgerRow item={item} isOwner={isOwner} onReverse={() => handleReverseClick(item)} />
+            <LedgerRow
+              item={item}
+              isOwner={isOwner}
+              onReverse={() => handleReverseClick(item)}
+              onViewAttachments={() => setViewedAttachments(item.attachments || [])}
+            />
           )}
         />
       )}
@@ -396,6 +417,12 @@ function LedgerTab({ customer, shopId }: { customer: any; shopId: string }) {
           </Dialog.Actions>
         </Dialog>
       </Portal>
+
+      <LedgerAttachmentViewer
+        attachments={viewedAttachments}
+        shopId={shopId}
+        onDismiss={() => setViewedAttachments([])}
+      />
     </View>
   );
 }
@@ -408,10 +435,12 @@ function LedgerRow({
   item,
   isOwner,
   onReverse,
+  onViewAttachments,
 }: {
   item: CustomerLedgerEntry;
   isOwner: boolean;
   onReverse: () => void;
+  onViewAttachments: () => void;
 }) {
   const [menuVisible, setMenuVisible] = useState(false);
   const isDebit = item.direction === "DEBIT";
@@ -462,10 +491,80 @@ function LedgerRow({
             : `${money(item.runningBalance)} Outstanding`}
         </Text>
         {item.attachments && item.attachments.length > 0 && (
-          <Text style={styles.attachmentBadge}>{item.attachments.length} file(s)</Text>
+          <TouchableOpacity accessibilityRole="button" onPress={onViewAttachments}>
+            <Text style={styles.attachmentBadge}>{item.attachments.length} file(s) · View</Text>
+          </TouchableOpacity>
         )}
       </View>
     </View>
+  );
+}
+
+function LedgerAttachmentViewer({
+  attachments,
+  shopId,
+  onDismiss,
+}: {
+  attachments: CustomerLedgerAttachment[];
+  shopId: string;
+  onDismiss: () => void;
+}) {
+  const [index, setIndex] = useState(0);
+  const [url, setUrl] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const attachment = attachments[index];
+
+  useEffect(() => {
+    if (!attachment) {
+      setIndex(0);
+      setUrl(null);
+      return;
+    }
+    let active = true;
+    setLoading(true);
+    setUrl(null);
+    getAssetDownloadUrl(attachment.assetId, { shopId })
+      .then((result) => {
+        if (active) setUrl(result.downloadUrl);
+      })
+      .catch((error) => {
+        if (active) Alert.alert("Attachment unavailable", error?.message || "Could not load this attachment");
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [attachment, shopId]);
+
+  const isImage = attachment?.asset?.mimeType?.startsWith("image/") !== false;
+
+  return (
+    <Portal>
+      <Modal visible={attachments.length > 0} onDismiss={onDismiss} contentContainerStyle={styles.attachmentModal}>
+        <View style={styles.attachmentHeader}>
+          <Text style={styles.attachmentTitle}>{attachment?.asset?.fileName || "Ledger attachment"}</Text>
+          <IconButton icon="close" onPress={onDismiss} />
+        </View>
+
+        {loading ? (
+          <ActivityIndicator style={styles.attachmentLoader} />
+        ) : url && isImage ? (
+          <Image source={{ uri: url }} style={styles.attachmentImage} contentFit="contain" />
+        ) : url ? (
+          <Button label="Open document" onPress={() => Linking.openURL(url)} />
+        ) : null}
+
+        {attachments.length > 1 ? (
+          <View style={styles.attachmentNavigation}>
+            <Button label="Previous" variant="secondary" disabled={index === 0} onPress={() => setIndex((value) => value - 1)} />
+            <Text>{index + 1} / {attachments.length}</Text>
+            <Button label="Next" variant="secondary" disabled={index === attachments.length - 1} onPress={() => setIndex((value) => value + 1)} />
+          </View>
+        ) : null}
+      </Modal>
+    </Portal>
   );
 }
 
@@ -548,12 +647,11 @@ function PaymentsTab({ query }: { query: any }) {
   );
 }
 
-function OutstandingTab({ customer, salesQuery }: { customer: any; salesQuery: any }) {
+function OutstandingTab({ customer, ledgerSummary, salesQuery }: { customer: any; ledgerSummary?: CustomerLedgerSummary; salesQuery: any }) {
   const sales = (salesQuery.data ?? []).filter((s: any) => Number(s.balanceAmount) > 0);
-  const totalUnpaidDue = sales.reduce((sum: number, s: any) => sum + Number(s.balanceAmount || 0), 0);
-  const customerDue = Number(customer.outstandingAmount || 0);
-  const effectiveOutstanding = Math.max(customerDue, totalUnpaidDue);
-  const advance = Number(customer.advanceBalance || 0);
+  const totalUnpaidDue = customer.unpaidSalesDue == null ? null : Number(customer.unpaidSalesDue);
+  const customerDue = Number(ledgerSummary?.outstandingAmount || 0);
+  const advance = Number(ledgerSummary?.advanceBalance || 0);
 
   return (
     <ScrollView contentContainerStyle={styles.tabContent}>
@@ -561,14 +659,14 @@ function OutstandingTab({ customer, salesQuery }: { customer: any; salesQuery: a
       <View style={styles.financialCard}>
         <View style={styles.financialHeader}>
           <View>
-            <Text style={styles.financialLabel}>UNPAID INVOICES DUE</Text>
+            <Text style={styles.financialLabel}>CURRENT OUTSTANDING</Text>
             <Text style={[styles.financialMainValue, styles.debitText]}>
-              {money(totalUnpaidDue > 0 ? totalUnpaidDue : effectiveOutstanding)}
+              {ledgerSummary ? money(customerDue) : "—"}
             </Text>
           </View>
-          <View style={[styles.balancePill, (totalUnpaidDue > 0 || effectiveOutstanding > 0) ? styles.balancePillDebt : styles.balancePillSettled]}>
-            <Text style={[styles.balancePillText, (totalUnpaidDue > 0 || effectiveOutstanding > 0) ? styles.balancePillTextDebt : styles.balancePillTextSettled]}>
-              {(totalUnpaidDue > 0 || effectiveOutstanding > 0) ? `${sales.length} UNPAID` : "ALL PAID"}
+          <View style={[styles.balancePill, customerDue > 0 ? styles.balancePillDebt : styles.balancePillSettled]}>
+            <Text style={[styles.balancePillText, customerDue > 0 ? styles.balancePillTextDebt : styles.balancePillTextSettled]}>
+              {!ledgerSummary ? "UNAVAILABLE" : customerDue > 0 ? (sales.length > 0 ? `${sales.length} UNPAID` : "LEDGER DUE") : "ALL PAID"}
             </Text>
           </View>
         </View>
@@ -576,17 +674,17 @@ function OutstandingTab({ customer, salesQuery }: { customer: any; salesQuery: a
         <View style={styles.financialMetricsRow}>
           <View style={styles.financialMetric}>
             <Text style={styles.metricLabel}>Total Invoices Due</Text>
-            <Text style={styles.metricValue}>{money(totalUnpaidDue)}</Text>
+            <Text style={styles.metricValue}>{totalUnpaidDue == null ? "—" : money(totalUnpaidDue)}</Text>
           </View>
           <View style={styles.metricDivider} />
           <View style={styles.financialMetric}>
             <Text style={styles.metricLabel}>Ledger Balance</Text>
-            <Text style={styles.metricValue}>{money(customerDue)}</Text>
+            <Text style={styles.metricValue}>{ledgerSummary ? money(customerDue) : "—"}</Text>
           </View>
           <View style={styles.metricDivider} />
           <View style={styles.financialMetric}>
             <Text style={styles.metricLabel}>Advance Credit</Text>
-            <Text style={styles.metricValue}>{money(advance)}</Text>
+            <Text style={styles.metricValue}>{ledgerSummary ? money(advance) : "—"}</Text>
           </View>
         </View>
       </View>
@@ -802,6 +900,40 @@ const styles = StyleSheet.create({
   attachmentBadge: {
     fontSize: fontSize.xs,
     color: colors.primary,
+    fontWeight: "600",
+  },
+  attachmentModal: {
+    backgroundColor: colors.surface,
+    margin: spacing.md,
+    padding: spacing.md,
+    borderRadius: radius.lg,
+  },
+  attachmentHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  attachmentTitle: {
+    flex: 1,
+    fontSize: fontSize.sm,
+    fontWeight: "700",
+    color: colors.textPrimary,
+  },
+  attachmentLoader: {
+    height: 420,
+    justifyContent: "center",
+  },
+  attachmentImage: {
+    width: "100%",
+    height: 420,
+    backgroundColor: colors.surfaceOffset,
+    borderRadius: radius.md,
+  },
+  attachmentNavigation: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: spacing.sm,
   },
   dialogText: {
     fontSize: fontSize.sm,

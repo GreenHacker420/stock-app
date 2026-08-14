@@ -40,8 +40,10 @@ export interface CustomerLedgerAttachment {
     fileName?: string;
     mimeType?: string;
     sizeBytes?: number;
-    url?: string;
-  };
+    storageProvider?: "S3" | "ONEDRIVE";
+    remoteUrl?: string;
+    status?: string;
+  } | null;
 }
 
 export interface CustomerLedgerSummary {
