@@ -10,7 +10,7 @@ import {
   parseOnboardingState,
 } from "./whatsapp.onboarding-state.js";
 
-const GRAPH_VERSION = "v25.0";
+const GRAPH_VERSION = "v26.0";
 const GRAPH_URL = `https://graph.facebook.com/${GRAPH_VERSION}`;
 const SESSION_TTL_MS = 30 * 60 * 1000;
 const COMPLETED_STATUSES = new Set(["CONNECTED", "CANCELLED", "EXPIRED"]);
@@ -230,9 +230,7 @@ class WhatsAppOnboardingService {
   };
   const showError=(error)=>{completionStarted=false;statusNode.textContent=error.message;button.disabled=false;};
   window.addEventListener('message',(event)=>{
-    let eventHost='';
-    try{eventHost=new URL(event.origin).hostname;}catch{return;}
-    if(eventHost!=='facebook.com'&&!eventHost.endsWith('.facebook.com'))return;
+    if(event.origin!=="https://www.facebook.com")return;
     try{
       const data=typeof event.data==='string'?JSON.parse(event.data):event.data;
       if(data?.type==='WA_EMBEDDED_SIGNUP'){
@@ -248,7 +246,7 @@ class WhatsAppOnboardingService {
   };
   button.addEventListener('click',()=>{
     button.disabled=true;
-    const extras={setup:{},sessionInfoVersion:'3'};
+    const extras={version:'v4',sessionInfoVersion:'3'};
     if(CONFIG.coexistence)extras.featureType='whatsapp_business_app_onboarding';
     FB.login(async(response)=>{
       if(response.authResponse?.code){exchangeCode=response.authResponse.code;finishWhenReady();return;}

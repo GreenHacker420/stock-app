@@ -196,6 +196,19 @@ class WhatsAppController {
         return res.status(200).send(challenge);
       }
 
+      const onboardingSession = await prisma.waOnboardingSession.findFirst({
+        where: {
+          verifyToken: token,
+          expiresAt: { gt: new Date() },
+          status: { in: ["ASSETS_DISCOVERED", "APP_SUBSCRIBED", "NUMBER_REGISTERED"] },
+        },
+        select: { id: true },
+      });
+
+      if (onboardingSession) {
+        return res.status(200).send(challenge);
+      }
+
       console.warn(`[WhatsApp Controller] Webhook verification failed for token: ${token}`);
       res.status(403).send("Forbidden");
     } catch (error) {

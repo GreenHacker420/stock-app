@@ -1,882 +1,680 @@
-import { useEffect, useState } from "react";
-import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Alert, TouchableOpacity, DeviceEventEmitter } from "react-native";
-import { Button, Text, Divider, Card, HelperText, SegmentedButtons } from "react-native-paper";
-import { maybeCompleteAuthSession, openAuthSessionAsync } from "expo-web-browser";
-import * as Clipboard from "expo-clipboard";
-import { useShopStore } from "../../../auth/shop-store";
-import { WaOnboardingSession, whatsappSetupApi } from "../../../api/whatsapp-setup.api";
-import { Screen } from "../../../components/Screen";
-import { LoadingState } from "../../../components/feedback/LoadingState";
-import { FormTextField } from "../../../components/forms/FormTextField";
-import { colors as Colors } from "../../../theme";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Alert, DeviceEventEmitter, Pressable, RefreshControl, StyleSheet, View } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
+import { setStringAsync } from "expo-clipboard";
+import { maybeCompleteAuthSession, openAuthSessionAsync } from "expo-web-browser";
 import { useNavigation } from "@react-navigation/native";
-import { waColors } from "../whatsapp-ui";
+import { ActivityIndicator, Button, Text } from "react-native-paper";
+
 import { sendTestPushNotification } from "../../../api/client";
+import {
+  type WaOnboardingSession,
+  type WhatsAppIntegrationHealth,
+  type WhatsAppSetupInfo,
+  whatsappSetupApi,
+} from "../../../api/whatsapp-setup.api";
 import { useAuthStore } from "../../../auth/auth-store";
+import { useShopStore } from "../../../auth/shop-store";
+import { Screen } from "../../../components/Screen";
+import { FormTextField } from "../../../components/forms/FormTextField";
 import { KeyboardAwareScreen } from "../../../components/keyboard/KeyboardAwareScreen";
+import { colors, fontSize, fontWeight, radius, spacing } from "../../../theme";
+import {
+  triggerErrorHaptic,
+  triggerLightHaptic,
+  triggerSelectionHaptic,
+  triggerSuccessHaptic,
+} from "../../../utils/haptics";
+import { waColors } from "../whatsapp-ui";
 
 maybeCompleteAuthSession();
 
+type OnboardingMode = "CLOUD_API" | "COEXISTENCE";
+type BusyAction = "connect" | "retry" | "disconnect" | "manual" | "keys" | "notification" | null;
+type ManualCredentials = {
+  verifyToken: string;
+  accessToken: string;
+  appSecret: string;
+  businessAccountId: string;
+  phoneNumberId: string;
+  phoneNumber: string;
+  businessName: string;
+};
+
+const EMPTY_MANUAL: ManualCredentials = {
+  verifyToken: "",
+  accessToken: "",
+  appSecret: "",
+  businessAccountId: "",
+  phoneNumberId: "",
+  phoneNumber: "",
+  businessName: "",
+};
+
+const TERMINAL_STATUSES = new Set([
+  "CONNECTED",
+  "FAILED",
+  "ACTION_REQUIRED",
+  "CANCELLED",
+  "EXPIRED",
+]);
+
+const STATUS_LABELS: Record<string, string> = {
+  CREATED: "Waiting for Meta",
+  AUTHORIZED: "Meta authorized",
+  ASSETS_DISCOVERED: "Business selected",
+  APP_SUBSCRIBED: "Webhook connected",
+  NUMBER_REGISTERED: "Phone registered",
+  CONNECTED: "Connected",
+  ACTION_REQUIRED: "Action required",
+  FAILED: "Connection failed",
+  CANCELLED: "Setup cancelled",
+  EXPIRED: "Session expired",
+};
+
+function cleanStatus(value?: string | null) {
+  if (!value) return "Not available";
+  const label = value.replace(/_/g, " ").toLowerCase();
+  return label.charAt(0).toUpperCase() + label.slice(1);
+}
+
+function formatDate(value?: string | null) {
+  if (!value) return "Not received yet";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "Not available" : date.toLocaleString();
+}
+
+function SectionCard({ children, tone = "default" }: { children: ReactNode; tone?: "default" | "warning" | "error" }) {
+  return <View style={[styles.card, tone === "warning" && styles.warningCard, tone === "error" && styles.errorCard]}>{children}</View>;
+}
+
+function DetailRow({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <View style={styles.detailRow}>
+      <Text style={styles.detailLabel}>{label}</Text>
+      <Text selectable numberOfLines={3} style={[styles.detailValue, color ? { color } : null]}>{value}</Text>
+    </View>
+  );
+}
+
+function ModeOption({
+  selected,
+  icon,
+  title,
+  description,
+  onPress,
+}: {
+  selected: boolean;
+  icon: string;
+  title: string;
+  description: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      accessibilityRole="radio"
+      accessibilityState={{ selected }}
+      onPress={onPress}
+      style={({ pressed }) => [styles.modeOption, selected && styles.modeOptionSelected, pressed && styles.pressed]}
+    >
+      <View style={[styles.modeIcon, selected && styles.modeIconSelected]}>
+        <MaterialCommunityIcons name={icon as never} size={22} color={selected ? waColors.greenDark : colors.textSecondary} />
+      </View>
+      <View style={styles.modeCopy}>
+        <Text style={styles.modeTitle}>{title}</Text>
+        <Text style={styles.modeDescription}>{description}</Text>
+      </View>
+      <MaterialCommunityIcons name={selected ? "radiobox-marked" : "radiobox-blank"} size={22} color={selected ? waColors.green : colors.textMuted} />
+    </Pressable>
+  );
+}
+
+function ProgressRow({ complete, active, title, description }: { complete: boolean; active: boolean; title: string; description: string }) {
+  return (
+    <View style={styles.progressRow}>
+      <View style={[styles.progressIcon, complete && styles.progressIconDone, active && styles.progressIconActive]}>
+        <MaterialCommunityIcons
+          name={complete ? "check" : active ? "dots-horizontal" : "circle-small"}
+          size={complete ? 15 : 18}
+          color={complete ? "#fff" : active ? waColors.greenDark : colors.textMuted}
+        />
+      </View>
+      <View style={styles.progressCopy}>
+        <Text style={styles.progressTitle}>{title}</Text>
+        <Text style={styles.progressDescription}>{description}</Text>
+      </View>
+    </View>
+  );
+}
+
+function SessionProgress({ session }: { session: WaOnboardingSession }) {
+  const completed = new Set(session.completedSteps || []);
+  const hasError = ["FAILED", "ACTION_REQUIRED", "CANCELLED", "EXPIRED"].includes(session.status);
+  const metaDone = completed.has("AUTHORIZED") || completed.has("ASSETS_DISCOVERED");
+  const webhookDone = completed.has("APP_SUBSCRIBED");
+  const phoneDone = completed.has("NUMBER_REGISTERED") || session.status === "CONNECTED";
+  return (
+    <SectionCard tone={hasError ? "error" : "default"}>
+      <View style={styles.headingRow}>
+        <View style={styles.headingCopy}>
+          <Text style={styles.eyebrow}>CONNECTION PROGRESS</Text>
+          <Text style={styles.cardTitle}>{STATUS_LABELS[session.status] || cleanStatus(session.status)}</Text>
+        </View>
+        {!TERMINAL_STATUSES.has(session.status) && <ActivityIndicator size="small" color={waColors.green} />}
+      </View>
+      <View style={styles.progressList}>
+        <ProgressRow complete={metaDone} active={!metaDone && !hasError} title="Authorize with Meta" description="Select your business and allow WhatsApp access." />
+        <ProgressRow complete={webhookDone} active={metaDone && !webhookDone && !hasError} title="Connect account" description="Subscribe ShopControl to account events." />
+        <ProgressRow
+          complete={phoneDone}
+          active={webhookDone && !phoneDone && !hasError}
+          title="Activate phone"
+          description={session.mode === "COEXISTENCE" ? "Link the existing WhatsApp Business app number." : "Verify and register the Cloud API number."}
+        />
+      </View>
+      {!!session.lastErrorMessage && <InlineError message={session.lastErrorMessage} />}
+    </SectionCard>
+  );
+}
+
+function InlineError({ message }: { message: string }) {
+  return (
+    <View style={styles.inlineError}>
+      <MaterialCommunityIcons name="alert-circle-outline" size={20} color={colors.danger} />
+      <Text selectable style={styles.inlineErrorText}>{message}</Text>
+    </View>
+  );
+}
+
 export const WhatsAppSetupScreen = () => {
-  const navigation = useNavigation();
+  const navigation = useNavigation<any>();
   const activeShopId = useShopStore((state) => state.activeShopId);
   const authToken = useAuthStore((state) => state.token);
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [activeTab, setActiveTab] = useState<"easy" | "developer">("easy");
-
-  // Manual Form State
-  const [verifyToken, setVerifyToken] = useState("");
-  const [accessToken, setAccessToken] = useState("");
-  const [appSecret, setAppSecret] = useState("");
-  const [businessAccountId, setBusinessAccountId] = useState("");
-  const [phoneNumberId, setPhoneNumberId] = useState("");
-  const [phoneNumber, setPhoneNumber] = useState("");
-  const [businessName, setBusinessName] = useState("");
-  const [status, setStatus] = useState("DISCONNECTED");
-  const [rotatingKeys, setRotatingKeys] = useState(false);
-  const [testingNotification, setTestingNotification] = useState(false);
-  const [rsaPublicKey, setRsaPublicKey] = useState("");
-  const [qualityRating, setQualityRating] = useState("UNKNOWN");
-  const [messagingLimitTier, setMessagingLimitTier] = useState("");
-  const [accountStatus, setAccountStatus] = useState("");
-  const [accountReviewStatus, setAccountReviewStatus] = useState("");
-  const [displayNameStatus, setDisplayNameStatus] = useState("");
-  const [lastWebhookAt, setLastWebhookAt] = useState("");
-  const [lastManagementEventField, setLastManagementEventField] = useState("");
-
-  const [onboardingMode, setOnboardingMode] = useState<"CLOUD_API" | "COEXISTENCE">("CLOUD_API");
+  const [setup, setSetup] = useState<WhatsAppSetupInfo | null>(null);
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [flowError, setFlowError] = useState<string | null>(null);
+  const [busyAction, setBusyAction] = useState<BusyAction>(null);
+  const [onboardingMode, setOnboardingMode] = useState<OnboardingMode>("CLOUD_API");
   const [onboardingSession, setOnboardingSession] = useState<WaOnboardingSession | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [showManual, setShowManual] = useState(false);
+  const [manual, setManual] = useState<ManualCredentials>(EMPTY_MANUAL);
+
+  const integration = setup?.integration ?? null;
+  const isConnected = integration?.status === "CONNECTED";
+  const onboardingAvailable = setup?.onboarding.available ?? true;
 
   useEffect(() => {
     navigation.setOptions({
       headerShown: true,
-      headerTitle: "WhatsApp settings",
-      headerStyle: { backgroundColor: waColors.greenDark },
-      headerTintColor: "#fff",
+      headerTitle: "WhatsApp",
+      headerStyle: { backgroundColor: colors.surface },
+      headerTintColor: colors.textPrimary,
       headerShadowVisible: false,
-      headerTitleStyle: { fontWeight: "700" },
+      headerTitleStyle: { fontWeight: fontWeight.semibold },
     });
   }, [navigation]);
 
-  const fetchSetup = async () => {
+  const fetchSetup = useCallback(async (showRefresh = false) => {
     if (!activeShopId) return;
-    setLoading(true);
+    if (showRefresh) setRefreshing(true);
+    setLoadError(null);
     try {
-      const res = await whatsappSetupApi.getSetupInfo(activeShopId);
-      if (res.data.success && res.data.data) {
-        const { data } = res.data;
-        setBusinessAccountId(data.businessAccountId || "");
-        setPhoneNumberId(data.phoneNumberId || "");
-        setPhoneNumber(data.phoneNumber || "");
-        setBusinessName(data.businessName || "");
-        setStatus(data.status || "DISCONNECTED");
-        setRsaPublicKey(data.rsaPublicKey || "");
-        setQualityRating(data.qualityRating || "UNKNOWN");
-        setMessagingLimitTier(data.messagingLimitTier || "");
-        setAccountStatus(data.accountStatus || "");
-        setAccountReviewStatus(data.accountReviewStatus || "");
-        setDisplayNameStatus(data.displayNameStatus || "");
-        setLastWebhookAt(data.lastWebhookAt || "");
-        setLastManagementEventField(data.lastManagementEventField || "");
-      } else {
-        resetFormState();
-      }
-    } catch (error) {
-      console.log("Setup fetch failed, might be new", error);
-      resetFormState();
+      setSetup(await whatsappSetupApi.getSetupInfo(activeShopId));
+    } catch (error: any) {
+      setLoadError(error.message || "Could not load WhatsApp settings.");
     } finally {
-      setLoading(false);
+      setInitialLoading(false);
+      setRefreshing(false);
     }
-  };
-
-  const resetFormState = () => {
-    setVerifyToken("");
-    setAccessToken("");
-    setAppSecret("");
-    setBusinessAccountId("");
-    setPhoneNumberId("");
-    setPhoneNumber("");
-    setBusinessName("");
-    setStatus("DISCONNECTED");
-    setRsaPublicKey("");
-    setQualityRating("UNKNOWN");
-    setMessagingLimitTier("");
-    setAccountStatus("");
-    setAccountReviewStatus("");
-    setDisplayNameStatus("");
-    setLastWebhookAt("");
-    setLastManagementEventField("");
-  };
-
-
-  useEffect(() => {
-    fetchSetup();
   }, [activeShopId]);
 
+  useEffect(() => { void fetchSetup(); }, [fetchSetup]);
   useEffect(() => {
-    const subscription = DeviceEventEmitter.addListener("wa:integration_health_updated", fetchSetup);
+    const subscription = DeviceEventEmitter.addListener("wa:integration_health_updated", () => { void fetchSetup(); });
     return () => subscription.remove();
+  }, [fetchSetup]);
+
+  const refreshSession = useCallback(async (sessionId: string, poll: boolean) => {
+    if (!activeShopId) return null;
+    const attempts = poll ? 22 : 1;
+    let latest: WaOnboardingSession | null = null;
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      latest = await whatsappSetupApi.getOnboardingSession(activeShopId, sessionId);
+      setOnboardingSession(latest);
+      if (TERMINAL_STATUSES.has(latest.status)) return latest;
+      if (attempt < attempts - 1) await new Promise((resolve) => setTimeout(resolve, 1500));
+    }
+    return latest;
   }, [activeShopId]);
 
-  const handleManualSave = async () => {
-    if (!activeShopId) return;
-    setSaving(true);
-    try {
-      const payload = {
-        shopId: activeShopId,
-        verifyToken,
-        accessToken,
-        appSecret,
-        businessAccountId,
-        phoneNumberId,
-        phoneNumber,
-        businessName,
-      };
-      await whatsappSetupApi.saveSetupInfo(payload);
-      Alert.alert("Success", "WhatsApp integration settings saved successfully.");
-      await fetchSetup(); 
-    } catch (error: any) {
-      Alert.alert("Error", error.message || "Failed to save settings");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleDisconnect = async () => {
-    if (!activeShopId) return;
-    Alert.alert(
-      "Disconnect Integration",
-      "Are you sure you want to disconnect your WhatsApp Business Account? This will remove credentials and cease incoming webhooks.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Disconnect",
-          style: "destructive",
-          onPress: async () => {
-            setSaving(true);
-            try {
-              await whatsappSetupApi.deleteSetupInfo(activeShopId);
-              Alert.alert("Disconnected", "WhatsApp integration has been disconnected.");
-              await fetchSetup();
-            } catch (err: any) {
-              Alert.alert("Error", err.message || "Failed to disconnect integration");
-            } finally {
-              setSaving(false);
-            }
-          }
-        }
-      ]
-    );
-  };
-
-  const handleRotateKeys = async () => {
-    if (!activeShopId) return;
-    Alert.alert(
-      "Rotate E2EE Keys",
-      "Are you sure you want to rotate your WhatsApp Flows RSA encryption keys? Already published flows will need to be re-saved/updated with the new public key on Meta Business Manager.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Rotate Keys",
-          style: "destructive",
-          onPress: async () => {
-            setRotatingKeys(true);
-            try {
-              const res = await whatsappSetupApi.rotateKeys(activeShopId);
-              if (res.data.success) {
-                Alert.alert("Success", "E2EE RSA Key pair rotated successfully. Please update your Flow configuration on Meta with the new public key.");
-                await fetchSetup();
-              } else {
-                Alert.alert("Error", res.data.message || "Failed to rotate keys");
-              }
-            } catch (err: any) {
-              Alert.alert("Error", err.message || "Failed to rotate keys");
-            } finally {
-              setRotatingKeys(false);
-            }
-          }
-        }
-      ]
-    );
-  };
-
-  const handleTestNotification = async () => {
-    if (!activeShopId || !authToken) return;
-    setTestingNotification(true);
-    try {
-      await sendTestPushNotification(authToken, activeShopId);
-      Alert.alert("Notification queued", "Check this device and the in-app notification center.");
-    } catch (error: any) {
-      Alert.alert("Notification test failed", error.message || "Could not queue the notification");
-    } finally {
-      setTestingNotification(false);
-    }
-  };
-
-  const handleEmbeddedSignup = async () => {
-    if (!activeShopId) return;
-    setSaving(true);
+  const connect = useCallback(async () => {
+    if (!activeShopId || busyAction) return;
+    setBusyAction("connect");
+    setFlowError(null);
+    triggerLightHaptic();
     try {
       const created = await whatsappSetupApi.createOnboardingSession(activeShopId, onboardingMode);
       setOnboardingSession(created.session);
       const result = await openAuthSessionAsync(created.launchUrl, created.redirectUri);
-      if (result.type === "cancel" || result.type === "dismiss") {
-        Alert.alert("Signup paused", "You can start a new session when you are ready.");
-        return;
-      }
-      await refreshOnboardingSession(created.session.id, true);
-    } catch (error: any) {
-      Alert.alert("Embedded Signup Error", error.message || "Failed to launch Facebook login");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const refreshOnboardingSession = async (sessionId: string, poll = false) => {
-    if (!activeShopId) return;
-    const attempts = poll ? 15 : 1;
-    for (let attempt = 0; attempt < attempts; attempt += 1) {
-      const session = await whatsappSetupApi.getOnboardingSession(activeShopId, sessionId);
-      setOnboardingSession(session);
-      if (session.status === "CONNECTED") {
+      const latest = await refreshSession(created.session.id, result.type === "success");
+      if (latest?.status === "CONNECTED") {
+        triggerSuccessHaptic();
         await fetchSetup();
-        Alert.alert("WhatsApp connected", "The number is registered and subscribed to ShopControl webhooks.");
-        return;
+      } else if (latest?.lastErrorMessage) {
+        triggerErrorHaptic();
+        setFlowError(latest.lastErrorMessage);
+      } else if (result.type === "cancel" || result.type === "dismiss") {
+        setFlowError("Setup was paused before Meta returned to ShopControl. You can continue when ready.");
+      } else {
+        setFlowError("Meta finished, but the connection is still processing. Pull down to refresh.");
       }
-      if (["FAILED", "ACTION_REQUIRED", "CANCELLED", "EXPIRED"].includes(session.status)) return;
-      if (attempt < attempts - 1) await new Promise((resolve) => setTimeout(resolve, 1500));
+    } catch (error: any) {
+      triggerErrorHaptic();
+      setFlowError(error.message || "Could not start Meta Embedded Signup.");
+    } finally {
+      setBusyAction(null);
     }
-  };
+  }, [activeShopId, busyAction, fetchSetup, onboardingMode, refreshSession]);
 
-  const retryOnboarding = async () => {
-    if (!activeShopId || !onboardingSession) return;
-    setSaving(true);
+  const retry = useCallback(async () => {
+    if (!activeShopId || !onboardingSession || busyAction) return;
+    const canContinue = onboardingSession.completedSteps?.includes("ASSETS_DISCOVERED")
+      && onboardingSession.lastErrorCode !== "PHONE_NUMBER_REQUIRED";
+    if (!canContinue) return connect();
+    setBusyAction("retry");
+    setFlowError(null);
     try {
       const session = await whatsappSetupApi.continueOnboardingSession(activeShopId, onboardingSession.id);
       setOnboardingSession(session);
-      if (session.status === "CONNECTED") await fetchSetup();
+      if (session.status === "CONNECTED") {
+        triggerSuccessHaptic();
+        await fetchSetup();
+      } else if (session.lastErrorMessage) {
+        triggerErrorHaptic();
+        setFlowError(session.lastErrorMessage);
+      }
     } catch (error: any) {
-      Alert.alert("Retry failed", error.message || "Could not continue onboarding");
+      triggerErrorHaptic();
+      setFlowError(error.message || "Could not continue setup.");
     } finally {
-      setSaving(false);
+      setBusyAction(null);
     }
-  };
+  }, [activeShopId, busyAction, connect, fetchSetup, onboardingSession]);
 
-  if (loading) {
-    return (
-      <Screen>
-        <LoadingState label="Fetching Integration Status..." />
-      </Screen>
-    );
-  }
+  const disconnect = useCallback(() => {
+    if (!activeShopId || busyAction) return;
+    Alert.alert("Disconnect WhatsApp?", "ShopControl will stop sending and receiving messages for this shop.", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Disconnect",
+        style: "destructive",
+        onPress: async () => {
+          setBusyAction("disconnect");
+          try {
+            await whatsappSetupApi.deleteSetupInfo(activeShopId);
+            setOnboardingSession(null);
+            await fetchSetup();
+            triggerSuccessHaptic();
+          } catch (error: any) {
+            triggerErrorHaptic();
+            setFlowError(error.message || "Could not disconnect WhatsApp.");
+          } finally {
+            setBusyAction(null);
+          }
+        },
+      },
+    ]);
+  }, [activeShopId, busyAction, fetchSetup]);
 
-  const isConnected = status === "CONNECTED";
+  const saveManual = useCallback(async () => {
+    if (!activeShopId || busyAction) return;
+    setBusyAction("manual");
+    setFlowError(null);
+    try {
+      await whatsappSetupApi.saveSetupInfo({ shopId: activeShopId, ...manual });
+      setShowManual(false);
+      await fetchSetup();
+      triggerSuccessHaptic();
+    } catch (error: any) {
+      triggerErrorHaptic();
+      setFlowError(error.message || "Could not save the recovery credentials.");
+    } finally {
+      setBusyAction(null);
+    }
+  }, [activeShopId, busyAction, fetchSetup, manual]);
+
+  const rotateKeys = useCallback(async () => {
+    if (!activeShopId || busyAction) return;
+    setBusyAction("keys");
+    try {
+      await whatsappSetupApi.rotateKeys(activeShopId);
+      await fetchSetup();
+      triggerSuccessHaptic();
+    } catch (error: any) {
+      triggerErrorHaptic();
+      setFlowError(error.message || "Could not rotate the Flow encryption key.");
+    } finally {
+      setBusyAction(null);
+    }
+  }, [activeShopId, busyAction, fetchSetup]);
+
+  const testNotification = useCallback(async () => {
+    if (!activeShopId || !authToken || busyAction) return;
+    setBusyAction("notification");
+    try {
+      await sendTestPushNotification(authToken, activeShopId);
+      triggerSuccessHaptic();
+    } catch (error: any) {
+      triggerErrorHaptic();
+      setFlowError(error.message || "Could not send a test notification.");
+    } finally {
+      setBusyAction(null);
+    }
+  }, [activeShopId, authToken, busyAction]);
+
+  const qualityColor = useMemo(() => {
+    if (integration?.qualityRating === "GREEN") return colors.success;
+    if (integration?.qualityRating === "YELLOW") return colors.warning;
+    if (integration?.qualityRating === "RED") return colors.danger;
+    return colors.textSecondary;
+  }, [integration?.qualityRating]);
+
+  if (initialLoading) return <CenteredState loading message="Checking WhatsApp connection…" />;
+  if (!setup && loadError) return <CenteredState error message={loadError} onRetry={() => void fetchSetup()} />;
 
   return (
-    <Screen>
-      <KeyboardAwareScreen style={styles.flex1} contentContainerStyle={styles.scrollContent}>
-        {/* Connection Banner */}
-        <Card style={[styles.statusCard, isConnected ? styles.cardConnected : styles.cardDisconnected]}>
-          <Card.Content style={styles.statusCardContent}>
-            <View style={styles.statusHeaderRow}>
-              <MaterialCommunityIcons
-                name={isConnected ? "check-circle" : "alert-circle"}
-                size={36}
-                color={isConnected ? Colors.success : "#EF4444"}
-              />
-              <View style={styles.statusHeaderText}>
-                <Text style={styles.statusTitle}>
-                  {isConnected ? "WhatsApp Connected" : "WhatsApp Disconnected"}
-                </Text>
-                <Text style={styles.statusSubtitle}>
-                  {isConnected ? `Connected to: ${businessName || "WABA"}` : "Setup your channel integration"}
-                </Text>
+    <Screen bg="#F5F7F6" edges={["bottom", "left", "right"]}>
+      <KeyboardAwareScreen
+        contentInsetAdjustmentBehavior="automatic"
+        style={styles.screen}
+        contentContainerStyle={styles.content}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void fetchSetup(true)} tintColor={waColors.green} />}
+      >
+        {isConnected && integration ? (
+          <ConnectedView
+            integration={integration}
+            navigation={navigation}
+            qualityColor={qualityColor}
+            busyAction={busyAction}
+            expanded={showAdvanced}
+            onToggle={() => { triggerSelectionHaptic(); setShowAdvanced((value) => !value); }}
+            onCopyKey={() => integration.rsaPublicKey && void setStringAsync(integration.rsaPublicKey)}
+            onRotateKeys={() => void rotateKeys()}
+            onTestNotification={() => void testNotification()}
+            onDisconnect={disconnect}
+          />
+        ) : (
+          <>
+            <View style={styles.hero}>
+              <View style={styles.heroIcon}><MaterialCommunityIcons name="whatsapp" size={34} color="#fff" /></View>
+              <Text style={styles.heroTitle}>Connect your business WhatsApp</Text>
+              <Text style={styles.heroDescription}>Bring conversations, templates and order updates into ShopControl while your business keeps ownership of its WhatsApp account.</Text>
+              <View style={styles.trustRow}>
+                <View style={styles.trustPill}><MaterialCommunityIcons name="shield-check-outline" size={17} color={waColors.greenDark} /><Text style={styles.trustText}>Secure Meta sign-in</Text></View>
+                <View style={styles.trustPill}><MaterialCommunityIcons name="clock-fast" size={17} color={waColors.greenDark} /><Text style={styles.trustText}>About 2 minutes</Text></View>
               </View>
             </View>
 
-            {isConnected && (
-              <View style={styles.metaDetailsBox}>
-                <Divider style={styles.metaDivider} />
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Phone Number:</Text>
-                  <Text style={styles.detailValue}>{phoneNumber || "Not Set"}</Text>
+            {!onboardingAvailable && (
+              <SectionCard tone="warning">
+                <View style={styles.noticeRow}>
+                  <View style={styles.noticeIcon}><MaterialCommunityIcons name="tools" size={22} color={colors.warning} /></View>
+                  <View style={styles.noticeCopy}><Text style={styles.noticeTitle}>Embedded Signup is not ready</Text><Text style={styles.noticeText}>ShopControl’s Meta configuration must be completed before businesses can connect.</Text></View>
                 </View>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>WABA ID:</Text>
-                  <Text style={styles.detailValue} numberOfLines={1}>{businessAccountId}</Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Phone ID:</Text>
-                  <Text style={styles.detailValue} numberOfLines={1}>{phoneNumberId}</Text>
-                </View>
-                <View style={styles.detailRow}>
-                  <Text style={styles.detailLabel}>Quality:</Text>
-                  <Text style={[
-                    styles.detailValue,
-                    qualityRating === "GREEN" && { color: Colors.success },
-                    qualityRating === "YELLOW" && { color: "#B7791F" },
-                    qualityRating === "RED" && { color: "#DC2626" },
-                  ]}>
-                    {qualityRating}
-                  </Text>
-                </View>
-                {!!messagingLimitTier && (
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Messaging Limit:</Text>
-                    <Text style={styles.detailValue}>{messagingLimitTier.replace(/_/g, " ")}</Text>
-                  </View>
-                )}
-                {!!displayNameStatus && (
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Display Name:</Text>
-                    <Text style={styles.detailValue}>{displayNameStatus.replace(/_/g, " ")}</Text>
-                  </View>
-                )}
-                {!!accountReviewStatus && (
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Account Review:</Text>
-                    <Text style={styles.detailValue}>{accountReviewStatus.replace(/_/g, " ")}</Text>
-                  </View>
-                )}
-                {!!accountStatus && (
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Account Event:</Text>
-                    <Text style={styles.detailValue}>{accountStatus.replace(/_/g, " ")}</Text>
-                  </View>
-                )}
-                {!!lastWebhookAt && (
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Last Webhook:</Text>
-                    <Text style={styles.detailValue}>{new Date(lastWebhookAt).toLocaleString()}</Text>
-                  </View>
-                )}
-                {!!lastManagementEventField && (
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Last Health Event:</Text>
-                    <Text style={styles.detailValue}>{lastManagementEventField.replace(/_/g, " ")}</Text>
-                  </View>
-                )}
-                
-                <Divider style={styles.metaDivider} />
-                <View style={styles.webhookUrlBox}>
-                  <Text style={styles.webhookText}>Unified Webhook Endpoint (for Meta):</Text>
-                  <Text selectable style={styles.webhookValue}>
-                    https://your-api-url.com/whatsapp/webhook
-                  </Text>
-                </View>
-                
-                <Divider style={styles.metaDivider} />
-                {rsaPublicKey ? (
-                  <View style={styles.rsaKeyBox}>
-                    <Text style={styles.webhookText}>Flows E2EE Public Key (PEM):</Text>
-                    <Text selectable numberOfLines={3} style={styles.rsaKeyValue}>
-                      {rsaPublicKey}
-                    </Text>
-                    <Button
-                      mode="outlined"
-                      compact
-                      style={styles.copyKeyBtn}
-                      onPress={async () => {
-                        await Clipboard.setStringAsync(rsaPublicKey);
-                        Alert.alert("Copied", "Public key copied to clipboard.");
-                      }}
-                      icon="content-copy"
-                    >
-                      Copy Public Key
-                    </Button>
-                  </View>
-                ) : (
-                  <Text style={[styles.webhookText, { color: "#EF4444", marginVertical: 10 }]}>E2EE Key pair not generated</Text>
-                )}
-
-                <Button
-                  mode="outlined"
-                  onPress={handleRotateKeys}
-                  loading={rotatingKeys}
-                  style={styles.rotateKeyBtn}
-                  textColor={Colors.primary}
-                  icon="key"
-                >
-                  Rotate E2EE Keys
-                </Button>
-
-                <Button
-                  mode="outlined"
-                  icon="bell-ring-outline"
-                  loading={testingNotification}
-                  disabled={testingNotification}
-                  onPress={handleTestNotification}
-                  style={styles.rotateKeyBtn}
-                >
-                  Test notification
-                </Button>
-
-                <Button
-                  mode="outlined"
-                  onPress={handleDisconnect}
-                  loading={saving}
-                  style={styles.disconnectBtn}
-                  textColor="#DC2626"
-                >
-                  Disconnect Integration
-                </Button>
-              </View>
-
+              </SectionCard>
             )}
-          </Card.Content>
-        </Card>
 
-        {/* Tab Controls (Only show if not connected, or let them view manual configs even if connected) */}
-        <View style={styles.tabBar}>
-          <TouchableOpacity
-            style={[styles.tab, activeTab === "easy" && styles.activeTab]}
-            onPress={() => setActiveTab("easy")}
-          >
-            <MaterialCommunityIcons
-              name="flash"
-              size={18}
-              color={activeTab === "easy" ? Colors.primary : Colors.textSecondary}
+            <SectionCard>
+              <Text style={styles.eyebrow}>CHOOSE HOW TO CONNECT</Text>
+              <Text style={styles.cardTitle}>Which number are you using?</Text>
+              <View accessibilityRole="radiogroup" style={styles.modeList}>
+                <ModeOption selected={onboardingMode === "CLOUD_API"} icon="cloud-outline" title="New or API-only number" description="Set up a number directly on WhatsApp Cloud API." onPress={() => { triggerSelectionHaptic(); setOnboardingMode("CLOUD_API"); }} />
+                <ModeOption selected={onboardingMode === "COEXISTENCE"} icon="cellphone-message" title="Existing WhatsApp Business app" description="Keep using the supported Business app while connecting ShopControl." onPress={() => { triggerSelectionHaptic(); setOnboardingMode("COEXISTENCE"); }} />
+              </View>
+            </SectionCard>
+
+            {!!onboardingSession && <SessionProgress session={onboardingSession} />}
+            {!!flowError && <InlineError message={flowError} />}
+
+            {["FAILED", "ACTION_REQUIRED", "CANCELLED", "EXPIRED"].includes(onboardingSession?.status || "") ? (
+              <Button mode="contained" icon="refresh" onPress={() => void retry()} loading={busyAction === "retry" || busyAction === "connect"} disabled={!!busyAction || !onboardingAvailable} buttonColor={waColors.greenDark} contentStyle={styles.primaryButtonContent} style={styles.primaryButton}>
+                {onboardingSession?.lastErrorCode === "PHONE_NUMBER_REQUIRED" ? "Choose a phone number" : "Try connection again"}
+              </Button>
+            ) : (
+              <Button mode="contained" icon="facebook" onPress={() => void connect()} loading={busyAction === "connect"} disabled={!!busyAction || !onboardingAvailable} buttonColor="#1877F2" contentStyle={styles.primaryButtonContent} style={styles.primaryButton}>Continue with Meta</Button>
+            )}
+            <Text style={styles.consentText}>Meta will ask you to select a Business Portfolio, WhatsApp Business Account and phone number. ShopControl never receives your Facebook password.</Text>
+
+            <AdvancedRecovery
+              open={showAdvanced}
+              showManual={showManual}
+              setup={setup}
+              manual={manual}
+              busyAction={busyAction}
+              onToggle={() => { triggerSelectionHaptic(); setShowAdvanced((value) => !value); }}
+              onToggleManual={() => setShowManual((value) => !value)}
+              onChange={(key, value) => setManual((current) => ({ ...current, [key]: value }))}
+              onSave={() => void saveManual()}
             />
-            <Text style={[styles.tabText, activeTab === "easy" && styles.activeTabText]}>
-              1-Click Setup
-            </Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity
-            style={[styles.tab, activeTab === "developer" && styles.activeTab]}
-            onPress={() => setActiveTab("developer")}
-          >
-            <MaterialCommunityIcons
-              name="cog"
-              size={18}
-              color={activeTab === "developer" ? Colors.primary : Colors.textSecondary}
-            />
-            <Text style={[styles.tabText, activeTab === "developer" && styles.activeTabText]}>
-              Developer Mode
-            </Text>
-          </TouchableOpacity>
-        </View>
-
-        <>
-          {activeTab === "easy" ? (
-            <View style={styles.tabContent}>
-              <Card style={styles.formCard}>
-                <Card.Content>
-                  <Text style={styles.sectionHeader}>Facebook Embedded Signup</Text>
-                  <Text style={styles.sectionSub}>
-                    Securely connect your Meta Business Portfolio and launch your WhatsApp Business API.
-                  </Text>
-
-                  {/* Step Timeline Indicator */}
-                  <View style={styles.timeline}>
-                    <View style={styles.timelineItem}>
-                      <View style={styles.timelineStep}><Text style={styles.stepNum}>1</Text></View>
-                      <Text style={styles.stepText}>Select your business and WhatsApp assets</Text>
-                    </View>
-                    <View style={styles.timelineLine} />
-                    <View style={styles.timelineItem}>
-                      <View style={styles.timelineStep}><Text style={styles.stepNum}>2</Text></View>
-                      <Text style={styles.stepText}>Exchange and validate the business token</Text>
-                    </View>
-                    <View style={styles.timelineLine} />
-                    <View style={styles.timelineItem}>
-                      <View style={styles.timelineStep}><Text style={styles.stepNum}>3</Text></View>
-                      <Text style={styles.stepText}>Subscribe webhooks and register the number</Text>
-                    </View>
-                  </View>
-
-                  <Text style={styles.modeLabel}>Number type</Text>
-                  <SegmentedButtons
-                    value={onboardingMode}
-                    onValueChange={(value) => setOnboardingMode(value as "CLOUD_API" | "COEXISTENCE")}
-                    buttons={[
-                      { value: "CLOUD_API", label: "Cloud API", icon: "cloud-outline" },
-                      { value: "COEXISTENCE", label: "Business app", icon: "cellphone-message" },
-                    ]}
-                  />
-                  <HelperText type="info" visible>
-                    Business app mode keeps supported WhatsApp Business app messaging and history synchronization.
-                  </HelperText>
-
-                  <Button
-                    mode="contained"
-                    onPress={handleEmbeddedSignup}
-                    loading={saving}
-                    disabled={saving}
-                    icon="facebook"
-                    style={styles.fbButton}
-                    textColor="#fff"
-                  >
-                    Continue with Meta
-                  </Button>
-
-                  {!!onboardingSession && (
-                    <View style={styles.onboardingStatus}>
-                      <View style={styles.onboardingStatusHeader}>
-                        <Text style={styles.onboardingStatusTitle}>{onboardingSession.status.replace(/_/g, " ")}</Text>
-                        <Text style={styles.onboardingStatusMeta}>Attempt {onboardingSession.retryCount}</Text>
-                      </View>
-                      {!!onboardingSession.completedSteps?.length && (
-                        <Text style={styles.onboardingStatusText}>
-                          {onboardingSession.completedSteps.join(" · ").replace(/_/g, " ")}
-                        </Text>
-                      )}
-                      {!!onboardingSession.lastErrorMessage && (
-                        <Text selectable style={styles.onboardingError}>{onboardingSession.lastErrorMessage}</Text>
-                      )}
-                      {["FAILED", "ACTION_REQUIRED"].includes(onboardingSession.status) && (
-                        <Button
-                          mode="outlined"
-                          icon="refresh"
-                          loading={saving}
-                          onPress={retryOnboarding}
-                        >
-                          Retry setup
-                        </Button>
-                      )}
-                    </View>
-                  )}
-                </Card.Content>
-              </Card>
-            </View>
-          ) : (
-            <View style={styles.tabContent}>
-              <Card style={styles.formCard}>
-                <Card.Content>
-                  <Text style={styles.sectionHeader}>Manual Meta Credentials</Text>
-                  <Text style={styles.sectionSub}>
-                    Advanced: Manually override integration credentials and IDs.
-                  </Text>
-
-                  <FormTextField
-                    label="Webhook Verify Token"
-                    value={verifyToken}
-                    onChangeText={setVerifyToken}
-                    style={styles.input}
-                  />
-                  <FormTextField
-                    label="App Secret"
-                    value={appSecret}
-                    onChangeText={setAppSecret}
-                    secureTextEntry
-                    style={styles.input}
-                  />
-                  <FormTextField
-                    label="Permanent Access Token"
-                    value={accessToken}
-                    onChangeText={setAccessToken}
-                    secureTextEntry
-                    style={styles.input}
-                    multiline
-                    numberOfLines={3}
-                  />
-                  <FormTextField
-                    label="WhatsApp Business Account ID"
-                    value={businessAccountId}
-                    onChangeText={setBusinessAccountId}
-                    style={styles.input}
-                  />
-                  <FormTextField
-                    label="Phone Number ID"
-                    value={phoneNumberId}
-                    onChangeText={setPhoneNumberId}
-                    style={styles.input}
-                  />
-                  <FormTextField
-                    label="Phone Number (E.164)"
-                    value={phoneNumber}
-                    onChangeText={setPhoneNumber}
-                    style={styles.input}
-                    placeholder="919876543210"
-                  />
-                  <FormTextField
-                    label="Business Verified Name"
-                    value={businessName}
-                    onChangeText={setBusinessName}
-                    style={styles.input}
-                  />
-
-                  <Button
-                    mode="contained"
-                    onPress={handleManualSave}
-                    loading={saving}
-                    style={[styles.fbButton, { backgroundColor: Colors.primary }]}
-                  >
-                    Save Credentials Override
-                  </Button>
-                </Card.Content>
-              </Card>
-            </View>
-          )}
-        </>
+          </>
+        )}
+        {!!loadError && setup && <Text selectable style={styles.staleWarning}>Could not refresh: {loadError}</Text>}
       </KeyboardAwareScreen>
     </Screen>
   );
 };
 
+function CenteredState({ loading, error, message, onRetry }: { loading?: boolean; error?: boolean; message: string; onRetry?: () => void }) {
+  return (
+    <Screen bg="#F5F7F6" edges={["bottom", "left", "right"]}>
+      <View style={styles.centerState}>
+        {loading ? <ActivityIndicator size="large" color={waColors.green} /> : <View style={styles.errorStateIcon}><MaterialCommunityIcons name="cloud-alert-outline" size={30} color={colors.danger} /></View>}
+        {error && <Text style={styles.centerStateTitle}>Couldn’t load WhatsApp</Text>}
+        <Text selectable style={styles.centerStateText}>{message}</Text>
+        {!!onRetry && <Button mode="contained" onPress={onRetry} buttonColor={waColors.greenDark}>Try again</Button>}
+      </View>
+    </Screen>
+  );
+}
+
+function ConnectedView({ integration, navigation, qualityColor, busyAction, expanded, onToggle, onCopyKey, onRotateKeys, onTestNotification, onDisconnect }: {
+  integration: WhatsAppIntegrationHealth;
+  navigation: any;
+  qualityColor: string;
+  busyAction: BusyAction;
+  expanded: boolean;
+  onToggle: () => void;
+  onCopyKey: () => void;
+  onRotateKeys: () => void;
+  onTestNotification: () => void;
+  onDisconnect: () => void;
+}) {
+  const phone = integration.phoneNumber ? `+${integration.phoneNumber.replace(/^\+/, "")}` : "Phone connected";
+  return (
+    <>
+      <View style={styles.connectedHero}>
+        <View style={styles.connectedIcon}><MaterialCommunityIcons name="check" size={25} color="#fff" /></View>
+        <View style={styles.connectedCopy}><Text style={styles.connectedEyebrow}>CONNECTED</Text><Text style={styles.connectedTitle}>{integration.businessName || "WhatsApp Business"}</Text><Text selectable style={styles.connectedPhone}>{phone}</Text></View>
+        <View style={styles.liveBadge}><View style={styles.liveDot} /><Text style={styles.liveText}>Live</Text></View>
+      </View>
+
+      <SectionCard>
+        <View style={styles.headingRow}>
+          <View style={styles.headingCopy}><Text style={styles.eyebrow}>CHANNEL HEALTH</Text><Text style={styles.cardTitle}>Ready for conversations</Text></View>
+          <View style={[styles.qualityBadge, { backgroundColor: `${qualityColor}18` }]}><View style={[styles.qualityDot, { backgroundColor: qualityColor }]} /><Text style={[styles.qualityText, { color: qualityColor }]}>{cleanStatus(integration.qualityRating)}</Text></View>
+        </View>
+        <View style={styles.detailList}>
+          <DetailRow label="Display name" value={cleanStatus(integration.displayNameStatus)} />
+          <DetailRow label="Messaging limit" value={cleanStatus(integration.messagingLimitTier)} />
+          <DetailRow label="Last message event" value={formatDate(integration.lastWebhookAt)} />
+        </View>
+      </SectionCard>
+
+      <View style={styles.quickActions}>
+        <QuickAction icon="message-text-outline" label="Inbox" onPress={() => navigation.navigate("WhatsAppChats")} />
+        <QuickAction icon="text-box-outline" label="Templates" onPress={() => navigation.navigate("TemplateLibrary")} />
+        <QuickAction icon="call-split" label="Flows" onPress={() => navigation.navigate("FlowLibrary")} />
+      </View>
+
+      <Disclosure icon="tune-variant" title="Connection details & tools" subtitle="IDs, encryption keys and diagnostics" open={expanded} onPress={onToggle} />
+      {expanded && (
+        <SectionCard>
+          <View style={styles.detailList}>
+            <DetailRow label="WABA ID" value={integration.businessAccountId} />
+            <DetailRow label="Phone ID" value={integration.phoneNumberId} />
+            <DetailRow label="Account review" value={cleanStatus(integration.accountReviewStatus)} />
+            <DetailRow label="Last health event" value={cleanStatus(integration.lastManagementEventField)} />
+          </View>
+          {!!integration.rsaPublicKey && (
+            <View style={styles.keyBox}><View style={styles.keyCopy}><Text style={styles.keyTitle}>Flow encryption key</Text><Text selectable numberOfLines={2} style={styles.keyValue}>{integration.rsaPublicKey}</Text></View><Pressable accessibilityRole="button" accessibilityLabel="Copy Flow encryption key" onPress={onCopyKey} style={styles.copyButton}><MaterialCommunityIcons name="content-copy" size={20} color={waColors.greenDark} /></Pressable></View>
+          )}
+          <View style={styles.toolList}>
+            <Button mode="outlined" icon="key-change" onPress={onRotateKeys} loading={busyAction === "keys"} disabled={!!busyAction}>Rotate Flow key</Button>
+            <Button mode="outlined" icon="bell-check-outline" onPress={onTestNotification} loading={busyAction === "notification"} disabled={!!busyAction}>Test notification</Button>
+            <Button mode="text" icon="link-off" textColor={colors.danger} onPress={onDisconnect} loading={busyAction === "disconnect"} disabled={!!busyAction}>Disconnect WhatsApp</Button>
+          </View>
+        </SectionCard>
+      )}
+    </>
+  );
+}
+
+function QuickAction({ icon, label, onPress }: { icon: string; label: string; onPress: () => void }) {
+  return <Pressable onPress={onPress} style={({ pressed }) => [styles.quickAction, pressed && styles.pressed]}><View style={styles.quickActionIcon}><MaterialCommunityIcons name={icon as never} size={22} color={waColors.greenDark} /></View><Text style={styles.quickActionText}>{label}</Text></Pressable>;
+}
+
+function Disclosure({ icon, title, subtitle, open, onPress }: { icon: string; title: string; subtitle: string; open: boolean; onPress: () => void }) {
+  return <Pressable onPress={onPress} style={({ pressed }) => [styles.disclosure, pressed && styles.pressed]}><View style={styles.disclosureIcon}><MaterialCommunityIcons name={icon as never} size={21} color={colors.textSecondary} /></View><View style={styles.disclosureCopy}><Text style={styles.disclosureTitle}>{title}</Text><Text style={styles.disclosureDescription}>{subtitle}</Text></View><MaterialCommunityIcons name={open ? "chevron-up" : "chevron-down"} size={23} color={colors.textMuted} /></Pressable>;
+}
+
+function AdvancedRecovery({ open, showManual, setup, manual, busyAction, onToggle, onToggleManual, onChange, onSave }: {
+  open: boolean;
+  showManual: boolean;
+  setup: WhatsAppSetupInfo | null;
+  manual: ManualCredentials;
+  busyAction: BusyAction;
+  onToggle: () => void;
+  onToggleManual: () => void;
+  onChange: (key: keyof ManualCredentials, value: string) => void;
+  onSave: () => void;
+}) {
+  return (
+    <>
+      <Disclosure icon="lifebuoy" title="Advanced recovery" subtitle="For administrators and Meta support" open={open} onPress={onToggle} />
+      {open && (
+        <SectionCard>
+          <Text style={styles.eyebrow}>SYSTEM READINESS</Text>
+          <View style={styles.detailList}>
+            <DetailRow label="Embedded Signup" value={setup?.onboarding.available ? "Ready" : "Configuration required"} color={setup?.onboarding.available ? colors.success : colors.warning} />
+            <DetailRow label="Return URL" value={setup?.onboarding.redirectUri || "shopcontrol://whatsapp-onboarding"} />
+            {!!setup?.onboarding.missing.length && <DetailRow label="Missing server settings" value={setup.onboarding.missing.join(", ")} />}
+          </View>
+          <Pressable onPress={onToggleManual} style={({ pressed }) => [styles.manualDisclosure, pressed && styles.pressed]}><Text style={styles.manualDisclosureText}>{showManual ? "Hide manual credentials" : "Use manual credentials"}</Text><MaterialCommunityIcons name={showManual ? "chevron-up" : "chevron-right"} size={20} color={waColors.greenDark} /></Pressable>
+          {showManual && (
+            <View style={styles.manualForm}>
+              <View style={styles.manualWarning}><MaterialCommunityIcons name="shield-alert-outline" size={21} color={colors.warning} /><Text style={styles.manualWarningText}>Recovery only. Embedded Signup is safer and should be used for customer onboarding.</Text></View>
+              <FormTextField label="Webhook verify token" value={manual.verifyToken} onChangeText={(value) => onChange("verifyToken", value)} />
+              <FormTextField label="App secret" value={manual.appSecret} onChangeText={(value) => onChange("appSecret", value)} secureTextEntry />
+              <FormTextField label="Permanent access token" value={manual.accessToken} onChangeText={(value) => onChange("accessToken", value)} secureTextEntry multiline numberOfLines={3} />
+              <FormTextField label="WhatsApp Business Account ID" value={manual.businessAccountId} onChangeText={(value) => onChange("businessAccountId", value)} />
+              <FormTextField label="Phone number ID" value={manual.phoneNumberId} onChangeText={(value) => onChange("phoneNumberId", value)} />
+              <FormTextField label="Phone number" placeholder="919876543210" value={manual.phoneNumber} onChangeText={(value) => onChange("phoneNumber", value)} />
+              <FormTextField label="Business verified name" value={manual.businessName} onChangeText={(value) => onChange("businessName", value)} />
+              <Button mode="contained" buttonColor={waColors.greenDark} onPress={onSave} loading={busyAction === "manual"} disabled={!!busyAction}>Save recovery connection</Button>
+            </View>
+          )}
+        </SectionCard>
+      )}
+    </>
+  );
+}
+
 const styles = StyleSheet.create({
-  flex1: { flex: 1, backgroundColor: waColors.surface },
-  scrollContent: { paddingBottom: 40 },
-  
-  // Status Banner
-  statusCard: {
-    margin: 0,
-    borderRadius: 0,
-    borderWidth: 0,
-    elevation: 0,
-  },
-  cardConnected: {
-    backgroundColor: waColors.greenPale,
-    borderColor: waColors.greenPale,
-  },
-  cardDisconnected: {
-    backgroundColor: "#FEF2F2",
-    borderColor: "#FEE2E2",
-  },
-  statusCardContent: {
-    padding: 18,
-  },
-  statusHeaderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  statusHeaderText: {
-    marginLeft: 15,
-    flex: 1,
-  },
-  statusTitle: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: waColors.text,
-  },
-  statusSubtitle: {
-    fontSize: 14,
-    color: waColors.textSecondary,
-    marginTop: 2,
-  },
-  
-  // Meta details list
-  metaDetailsBox: {
-    marginTop: 10,
-  },
-  metaDivider: {
-    marginVertical: 10,
-  },
-  detailRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginVertical: 4,
-  },
-  detailLabel: {
-    fontWeight: "600",
-    color: Colors.textSecondary,
-    fontSize: 14,
-  },
-  detailValue: {
-    color: Colors.textPrimary,
-    fontSize: 14,
-    fontWeight: "500",
-    flex: 1,
-    textAlign: "right",
-    paddingLeft: 20,
-  },
-  webhookUrlBox: {
-    padding: 10,
-    backgroundColor: waColors.surface,
-    borderWidth: 1,
-    borderColor: waColors.border,
-    borderRadius: 8,
-    marginBottom: 10,
-  },
-  webhookText: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-    marginBottom: 4,
-  },
-  webhookValue: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: waColors.greenDark,
-  },
-  disconnectBtn: {
-    marginTop: 10,
-    borderColor: "#DC2626",
-  },
-
-  // Tabs
-  tabBar: {
-    flexDirection: "row",
-    backgroundColor: waColors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: waColors.border,
-  },
-  tab: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 12,
-    borderBottomWidth: 2,
-    borderBottomColor: "transparent",
-  },
-  activeTab: {
-    borderBottomColor: waColors.green,
-  },
-  tabText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: Colors.textSecondary,
-    marginLeft: 8,
-  },
-  activeTabText: {
-    color: waColors.green,
-  },
-
-  // Form layouts
-  tabContent: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-  formCard: {
-    borderRadius: 8,
-    backgroundColor: waColors.surface,
-    elevation: 0,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: waColors.border,
-  },
-  sectionHeader: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: waColors.text,
-    marginBottom: 4,
-  },
-  sectionSub: {
-    fontSize: 14,
-    color: waColors.textSecondary,
-    marginBottom: 20,
-  },
-  
-  // Timeline steps
-  timeline: {
-    marginBottom: 20,
-    paddingLeft: 10,
-  },
-  timelineItem: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  timelineStep: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: waColors.green,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  stepNum: {
-    color: "#fff",
-    fontSize: 12,
-    fontWeight: "bold",
-  },
-  stepText: {
-    marginLeft: 15,
-    fontSize: 14,
-    color: waColors.text,
-    flex: 1,
-  },
-  timelineLine: {
-    width: 2,
-    height: 15,
-    backgroundColor: waColors.border,
-    marginLeft: 11,
-    marginVertical: 4,
-  },
-
-  input: {
-    marginBottom: 4,
-    backgroundColor: waColors.surface,
-  },
-  modeLabel: {
-    color: waColors.textSecondary,
-    fontSize: 12,
-    fontWeight: "600",
-    marginBottom: 8,
-  },
-  onboardingStatus: {
-    gap: 8,
-    padding: 12,
-    marginTop: 14,
-    borderRadius: 8,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: waColors.border,
-    backgroundColor: waColors.surfaceMuted,
-  },
-  onboardingStatusHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: 8,
-  },
-  onboardingStatusTitle: {
-    color: waColors.text,
-    fontSize: 13,
-    fontWeight: "800",
-  },
-  onboardingStatusMeta: {
-    color: waColors.textSecondary,
-    fontSize: 11,
-    fontVariant: ["tabular-nums"],
-  },
-  onboardingStatusText: {
-    color: waColors.textSecondary,
-    fontSize: 11,
-    lineHeight: 16,
-  },
-  onboardingError: {
-    color: "#B42318",
-    fontSize: 12,
-    lineHeight: 17,
-  },
-  fbButton: {
-    backgroundColor: waColors.green,
-    marginTop: 15,
-    paddingVertical: 4,
-  },
-  divider: {
-    marginVertical: 20,
-  },
-  helperPasteTitle: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: Colors.textSecondary,
-    marginBottom: 10,
-  },
-  saveManualBtn: {
-    marginTop: 10,
-  },
-  rsaKeyBox: {
-    padding: 10,
-    backgroundColor: waColors.surface,
-    borderWidth: 1,
-    borderColor: waColors.border,
-    borderRadius: 8,
-    marginBottom: 10,
-  },
-  rsaKeyValue: {
-    fontSize: 11,
-    fontFamily: Platform.OS === "ios" ? "CourierNewPSMT" : "monospace",
-    color: waColors.text,
-    marginBottom: 6,
-  },
-  copyKeyBtn: {
-    alignSelf: "flex-start",
-    marginTop: 4,
-  },
-  rotateKeyBtn: {
-    marginTop: 5,
-    marginBottom: 15,
-    borderColor: waColors.green,
-  },
+  screen: { flex: 1, backgroundColor: "#F5F7F6" },
+  content: { padding: spacing.lg, paddingBottom: spacing.huge, gap: spacing.md },
+  centerState: { flex: 1, alignItems: "center", justifyContent: "center", padding: spacing.xxl, gap: spacing.md },
+  centerStateTitle: { fontSize: fontSize.xl, fontWeight: fontWeight.bold, color: colors.textPrimary, textAlign: "center" },
+  centerStateText: { fontSize: fontSize.md, color: colors.textSecondary, textAlign: "center", lineHeight: 22 },
+  errorStateIcon: { width: 58, height: 58, borderRadius: 29, backgroundColor: colors.dangerLight, alignItems: "center", justifyContent: "center" },
+  card: { backgroundColor: colors.surface, borderRadius: radius.xl, borderCurve: "continuous", padding: spacing.lg, borderWidth: StyleSheet.hairlineWidth, borderColor: "#E2E7E4", gap: spacing.md, boxShadow: "0 2px 12px rgba(17, 24, 39, 0.05)" },
+  warningCard: { backgroundColor: "#FFF9ED", borderColor: "#F3D7A0" },
+  errorCard: { borderColor: "#F1B8B8" },
+  hero: { alignItems: "center", paddingHorizontal: spacing.md, paddingVertical: spacing.xl, gap: spacing.md },
+  heroIcon: { width: 66, height: 66, borderRadius: 21, borderCurve: "continuous", backgroundColor: waColors.green, alignItems: "center", justifyContent: "center", boxShadow: "0 8px 20px rgba(18, 140, 126, 0.22)" },
+  heroTitle: { fontSize: fontSize.xxl, lineHeight: 30, fontWeight: fontWeight.bold, color: colors.textPrimary, textAlign: "center" },
+  heroDescription: { fontSize: fontSize.md, lineHeight: 22, color: colors.textSecondary, textAlign: "center" },
+  trustRow: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: spacing.sm },
+  trustPill: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#E8F5F0", paddingHorizontal: spacing.md, paddingVertical: spacing.sm, borderRadius: radius.full },
+  trustText: { fontSize: fontSize.sm, fontWeight: fontWeight.medium, color: waColors.greenDark },
+  eyebrow: { fontSize: fontSize.xs, letterSpacing: 1.1, fontWeight: fontWeight.bold, color: waColors.greenDark },
+  cardTitle: { fontSize: fontSize.lg, fontWeight: fontWeight.bold, color: colors.textPrimary },
+  headingRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: spacing.md },
+  headingCopy: { flex: 1, gap: spacing.xs },
+  noticeRow: { flexDirection: "row", alignItems: "flex-start", gap: spacing.md },
+  noticeIcon: { width: 42, height: 42, borderRadius: radius.md, backgroundColor: colors.warningLight, alignItems: "center", justifyContent: "center" },
+  noticeCopy: { flex: 1, gap: spacing.xs },
+  noticeTitle: { fontSize: fontSize.md, fontWeight: fontWeight.bold, color: colors.textPrimary },
+  noticeText: { fontSize: fontSize.sm, lineHeight: 19, color: colors.textSecondary },
+  modeList: { gap: spacing.sm },
+  modeOption: { flexDirection: "row", alignItems: "center", gap: spacing.md, padding: spacing.md, borderRadius: radius.lg, borderCurve: "continuous", borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
+  modeOptionSelected: { borderColor: waColors.green, backgroundColor: "#F0FAF6" },
+  modeIcon: { width: 42, height: 42, borderRadius: radius.md, borderCurve: "continuous", backgroundColor: colors.surfaceOffset, alignItems: "center", justifyContent: "center" },
+  modeIconSelected: { backgroundColor: "#DDF3EA" },
+  modeCopy: { flex: 1, gap: 2 },
+  modeTitle: { fontSize: fontSize.md, fontWeight: fontWeight.semibold, color: colors.textPrimary },
+  modeDescription: { fontSize: fontSize.sm, lineHeight: 18, color: colors.textSecondary },
+  pressed: { opacity: 0.68 },
+  progressList: { gap: spacing.md },
+  progressRow: { flexDirection: "row", alignItems: "center", gap: spacing.md },
+  progressIcon: { width: 28, height: 28, borderRadius: 14, backgroundColor: colors.surfaceOffset, alignItems: "center", justifyContent: "center" },
+  progressIconDone: { backgroundColor: waColors.green },
+  progressIconActive: { backgroundColor: "#DDF3EA" },
+  progressCopy: { flex: 1, gap: 1 },
+  progressTitle: { fontSize: fontSize.md, fontWeight: fontWeight.semibold, color: colors.textPrimary },
+  progressDescription: { fontSize: fontSize.sm, color: colors.textSecondary, lineHeight: 18 },
+  inlineError: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.dangerLight },
+  inlineErrorText: { flex: 1, fontSize: fontSize.sm, lineHeight: 19, color: "#991B1B" },
+  primaryButton: { borderRadius: radius.lg, borderCurve: "continuous" },
+  primaryButtonContent: { minHeight: 52 },
+  consentText: { paddingHorizontal: spacing.md, fontSize: fontSize.xs, lineHeight: 17, textAlign: "center", color: colors.textMuted },
+  disclosure: { flexDirection: "row", alignItems: "center", gap: spacing.md, padding: spacing.md, borderRadius: radius.lg, borderCurve: "continuous", backgroundColor: colors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
+  disclosureIcon: { width: 40, height: 40, borderRadius: radius.md, backgroundColor: colors.surfaceOffset, alignItems: "center", justifyContent: "center" },
+  disclosureCopy: { flex: 1, gap: 2 },
+  disclosureTitle: { fontSize: fontSize.md, fontWeight: fontWeight.semibold, color: colors.textPrimary },
+  disclosureDescription: { fontSize: fontSize.sm, color: colors.textSecondary },
+  detailList: { gap: spacing.sm },
+  detailRow: { flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between", gap: spacing.lg, paddingVertical: spacing.xs },
+  detailLabel: { flex: 1, fontSize: fontSize.sm, color: colors.textSecondary },
+  detailValue: { flex: 1.45, fontSize: fontSize.sm, fontWeight: fontWeight.semibold, color: colors.textPrimary, textAlign: "right", fontVariant: ["tabular-nums"] },
+  connectedHero: { flexDirection: "row", alignItems: "center", gap: spacing.md, padding: spacing.lg, borderRadius: radius.xl, borderCurve: "continuous", backgroundColor: waColors.greenDark, boxShadow: "0 8px 24px rgba(7, 94, 84, 0.22)" },
+  connectedIcon: { width: 50, height: 50, borderRadius: 17, borderCurve: "continuous", backgroundColor: "rgba(255,255,255,0.16)", alignItems: "center", justifyContent: "center" },
+  connectedCopy: { flex: 1, gap: 2 },
+  connectedEyebrow: { fontSize: fontSize.xs, letterSpacing: 1.1, fontWeight: fontWeight.bold, color: "#A7F3D0" },
+  connectedTitle: { fontSize: fontSize.xl, fontWeight: fontWeight.bold, color: "#fff" },
+  connectedPhone: { fontSize: fontSize.sm, color: "#D1FAE5", fontVariant: ["tabular-nums"] },
+  liveBadge: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "rgba(255,255,255,0.14)", paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.full },
+  liveDot: { width: 7, height: 7, borderRadius: 4, backgroundColor: "#86EFAC" },
+  liveText: { fontSize: fontSize.xs, fontWeight: fontWeight.bold, color: "#fff" },
+  qualityBadge: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: spacing.sm, paddingVertical: 6, borderRadius: radius.full },
+  qualityDot: { width: 7, height: 7, borderRadius: 4 },
+  qualityText: { fontSize: fontSize.xs, fontWeight: fontWeight.bold },
+  quickActions: { flexDirection: "row", gap: spacing.sm },
+  quickAction: { flex: 1, alignItems: "center", gap: spacing.sm, paddingVertical: spacing.md, borderRadius: radius.lg, borderCurve: "continuous", backgroundColor: colors.surface, borderWidth: StyleSheet.hairlineWidth, borderColor: colors.border },
+  quickActionIcon: { width: 42, height: 42, borderRadius: 14, backgroundColor: "#E8F5F0", alignItems: "center", justifyContent: "center" },
+  quickActionText: { fontSize: fontSize.sm, fontWeight: fontWeight.semibold, color: colors.textPrimary },
+  keyBox: { flexDirection: "row", alignItems: "center", gap: spacing.md, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.surfaceOffset },
+  keyCopy: { flex: 1, gap: spacing.xs },
+  keyTitle: { fontSize: fontSize.sm, fontWeight: fontWeight.semibold, color: colors.textPrimary },
+  keyValue: { fontSize: fontSize.xs, color: colors.textSecondary, fontFamily: "monospace" },
+  copyButton: { width: 42, height: 42, borderRadius: 21, backgroundColor: "#DDF3EA", alignItems: "center", justifyContent: "center" },
+  toolList: { gap: spacing.sm },
+  manualDisclosure: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: spacing.sm },
+  manualDisclosureText: { fontSize: fontSize.sm, fontWeight: fontWeight.semibold, color: waColors.greenDark },
+  manualForm: { gap: spacing.md },
+  manualWarning: { flexDirection: "row", alignItems: "flex-start", gap: spacing.sm, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.warningLight },
+  manualWarningText: { flex: 1, fontSize: fontSize.sm, lineHeight: 19, color: "#854D0E" },
+  staleWarning: { fontSize: fontSize.xs, color: colors.warning, textAlign: "center" },
 });

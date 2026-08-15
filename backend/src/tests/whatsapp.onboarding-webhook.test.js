@@ -28,3 +28,28 @@ test("Embedded Signup isolates webhook routing at the phone-number level", async
   assert.match(phoneOverride, /override_callback_uri: `\$\{publicApiBase\(\)\}\/whatsapp\/webhook`/);
   assert.match(phoneOverride, /verify_token: session\.verifyToken/);
 });
+
+test("Embedded Signup uses the installed app redirect and Meta v4 contract", async () => {
+  const source = await readFile(
+    new URL("../services/whatsapp.onboarding.service.js", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /const GRAPH_VERSION = "v26\.0"/);
+  assert.match(source, /"shopcontrol:\/\/whatsapp-onboarding"/);
+  assert.match(source, /const extras=\{version:'v4',sessionInfoVersion:'3'\}/);
+  assert.match(source, /WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID/);
+  assert.match(source, /async markPublicSessionFailed/);
+});
+
+test("webhook verification accepts an active onboarding token before integration creation", async () => {
+  const source = await readFile(
+    new URL("../controllers/whatsapp.controller.js", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /prisma\.waOnboardingSession\.findFirst/);
+  assert.match(source, /verifyToken: token/);
+  assert.match(source, /expiresAt: \{ gt: new Date\(\) \}/);
+  assert.match(source, /"ASSETS_DISCOVERED", "APP_SUBSCRIBED", "NUMBER_REGISTERED"/);
+});

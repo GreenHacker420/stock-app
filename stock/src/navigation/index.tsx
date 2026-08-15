@@ -390,6 +390,7 @@ const sharedStackScreens = {
   WhatsAppSetup: {
     screen: WhatsAppSetup,
     options: { title: "WhatsApp settings" },
+    linking: { path: "whatsapp-onboarding" },
   },
   EditSale: {
     screen: EditSale,
