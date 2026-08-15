@@ -113,6 +113,7 @@ export function useStorageObjectsInfiniteQuery(params?: {
   search?: string;
   categoryId?: string;
   brandId?: string;
+  provider?: "ALL" | "S3" | "ONEDRIVE";
   type?: string;
   sortBy?: string;
 }) {
@@ -125,6 +126,7 @@ export function useStorageObjectsInfiniteQuery(params?: {
     !params?.search &&
     (!params?.categoryId || params?.categoryId === "ALL") &&
     (!params?.brandId || params?.brandId === "ALL") &&
+    (!params?.provider || params?.provider === "ALL") &&
     (!params?.type || params?.type === "ALL") &&
     (!params?.sortBy || params?.sortBy === "date_desc");
 
@@ -149,6 +151,7 @@ export function useStorageObjectsInfiniteQuery(params?: {
           search: params?.search,
           categoryId: params?.categoryId,
           brandId: params?.brandId,
+          provider: params?.provider,
           type: params?.type,
           sortBy: params?.sortBy,
           cursor: pageParam as string | undefined,

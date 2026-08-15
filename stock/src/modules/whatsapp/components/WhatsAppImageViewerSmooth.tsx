@@ -10,7 +10,7 @@ import {
 import { Image } from "expo-image";
 import { Directory, File, Paths } from "expo-file-system";
 import { Asset, requestPermissionsAsync } from "expo-media-library";
-import * as Sharing from "expo-sharing";
+import { isAvailableAsync, shareAsync } from "expo-sharing";
 import { StatusBar } from "expo-status-bar";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { ActivityIndicator, Text } from "react-native-paper";
@@ -765,11 +765,11 @@ function MountedWhatsAppImageViewer({ image, token, onClose }: MountedProps) {
     if (action) return;
     setAction("share");
     try {
-      if (!(await Sharing.isAvailableAsync())) {
+      if (!(await isAvailableAsync())) {
         throw new Error("Sharing is unavailable on this device");
       }
       const file = await downloadImage();
-      await Sharing.shareAsync(file.uri, {
+      await shareAsync(file.uri, {
         mimeType: current.mimeType || "image/jpeg",
         dialogTitle: current.fileName || "WhatsApp image",
       });

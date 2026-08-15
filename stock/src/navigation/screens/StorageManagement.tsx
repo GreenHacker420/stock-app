@@ -31,7 +31,7 @@ import {
   Searchbar,
   IconButton,
 } from "react-native-paper";
-import * as Sharing from "expo-sharing";
+import { isAvailableAsync, shareAsync } from "expo-sharing";
 import { File, Directory, Paths } from "expo-file-system";
 import { triggerLightHaptic, triggerMediumHaptic, triggerSuccessHaptic, triggerWarningHaptic, triggerErrorHaptic } from "../../utils/haptics";
 
@@ -41,7 +41,6 @@ import { CachedThumbnail } from "../../components/ui/CachedThumbnail";
 import { SkeletonCard, SkeletonList } from "../../components/ui/SkeletonCard";
 import {
   useStorageObjectsInfiniteQuery,
-  useStorageStatsQuery,
   useDeleteStorageObjectMutation,
   useBulkDeleteOrphansMutation,
 } from "../../hooks/useDashboard";
@@ -52,6 +51,7 @@ import { useAuthStore } from "../../auth/auth-store";
 import { mmkvStorage } from "../../auth/mmkv-storage";
 import type { StorageObject } from "../../api/client";
 import { getAssetDownloadUrl } from "../../api/ledger.api";
+import { navigate } from "../navigation-ref";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -365,16 +365,11 @@ type HeaderProps = {
   allCount: number;
   unusedCount: number;
   unusedBytes: number;
+  totalBytes: number;
   activeTab: "ALL" | "UNUSED";
   onTabChange: (t: "ALL" | "UNUSED") => void;
   filterProvider: "ALL" | "S3" | "ONEDRIVE";
   onProviderChange: (p: "ALL" | "S3" | "ONEDRIVE") => void;
-  s3Count: number;
-  s3Bytes: number;
-  oneDriveCount: number;
-  oneDriveBytes: number;
-  oneDriveQuotaRemaining?: number;
-  oneDriveQuotaTotal?: number;
   searchQuery: string;
   onSearchChange: (s: string) => void;
   filterCategory: string;
@@ -400,16 +395,11 @@ function StorageManagementHeader({
   allCount,
   unusedCount,
   unusedBytes,
+  totalBytes,
   activeTab,
   onTabChange,
   filterProvider,
   onProviderChange,
-  s3Count,
-  s3Bytes,
-  oneDriveCount,
-  oneDriveBytes,
-  oneDriveQuotaRemaining,
-  oneDriveQuotaTotal,
   searchQuery,
   onSearchChange,
   filterCategory,
@@ -432,8 +422,19 @@ function StorageManagementHeader({
 }: HeaderProps) {
   return (
     <View style={styles.headerRoot}>
-      {/* Cloud Provider Compact Pill Selector */}
-      <View style={styles.providerPillRow}>
+      <View style={styles.storageSummary}>
+        <View style={styles.storageSummaryTop}>
+          <View>
+            <Text style={styles.storageEyebrow}>{activeTab === "UNUSED" ? "UNUSED ASSETS" : "ASSET LIBRARY"}</Text>
+            <Text style={styles.storageCount}>{activeTab === "UNUSED" ? unusedCount : allCount} files</Text>
+          </View>
+          <View style={styles.storageSizePill}>
+            <Icon source="database-outline" size={14} color={colors.primary} />
+            <Text style={styles.storageSizeText}>{formatBytes(totalBytes)}</Text>
+          </View>
+        </View>
+
+        <View style={styles.providerPillRow}>
         <Pressable
           style={({ pressed }) => [
             styles.providerPill,
@@ -458,7 +459,7 @@ function StorageManagementHeader({
               filterProvider === "ALL" && styles.providerPillTextActive,
             ]}
           >
-            All {s3Count + oneDriveCount}
+            All
           </Text>
         </Pressable>
 
@@ -486,7 +487,7 @@ function StorageManagementHeader({
               filterProvider === "S3" && styles.providerPillTextActive,
             ]}
           >
-            AWS S3 {s3Count}
+            AWS S3
           </Text>
         </Pressable>
 
@@ -514,15 +515,16 @@ function StorageManagementHeader({
               filterProvider === "ONEDRIVE" && styles.providerPillTextActive,
             ]}
           >
-            OneDrive {oneDriveCount}
+            OneDrive
           </Text>
         </Pressable>
+        </View>
       </View>
 
       {/* Search */}
       <View style={styles.searchRow}>
         <Searchbar
-          placeholder="Search products, files, categories…"
+          placeholder="Search files or products"
           value={searchQuery}
           onChangeText={onSearchChange}
           style={[styles.searchBar, { flex: 1 }]}
@@ -535,7 +537,7 @@ function StorageManagementHeader({
           size={24}
           onPress={onToggleViewMode}
           accessibilityLabel={viewMode === "grid" ? "Switch to list view" : "Switch to grid view"}
-          style={{ margin: 0 }}
+          style={styles.viewToggle}
         />
       </View>
 
@@ -655,26 +657,16 @@ function StorageManagementHeader({
       </ScrollView>
 
       {/* Unused files banner — owner only */}
-      {isOwner && unusedCount > 0 && (
+      {isOwner && activeTab === "UNUSED" && unusedCount > 0 && (
         <Pressable
           style={({ pressed }) => [
             styles.cleanupBanner,
             pressed && { opacity: 0.85 },
           ]}
-          onPress={() => {
-            if (activeTab === "ALL") {
-              onTabChange("UNUSED");
-            } else {
-              onCleanUp();
-            }
-          }}
+          onPress={onCleanUp}
           disabled={isCleaningUp}
           accessibilityRole="button"
-          accessibilityLabel={
-            activeTab === "ALL"
-              ? `Review ${unusedCount} unused files`
-              : `Clean up ${unusedCount} unused files, ${formatBytes(unusedBytes)}`
-          }
+          accessibilityLabel={`Clean up ${unusedCount} unused files, ${formatBytes(unusedBytes)}`}
         >
           <View style={styles.cleanupLeft}>
             <Icon source="delete-sweep-outline" size={20} color={colors.danger} />
@@ -684,9 +676,7 @@ function StorageManagementHeader({
                 {unusedCount === 1 ? "file" : "files"} · {formatBytes(unusedBytes)}
               </Text>
               <Text style={styles.cleanupSub}>
-                {activeTab === "ALL"
-                  ? "Tap to review unused files"
-                  : "Tap to delete all unused files"}
+                Tap to delete all unused files
               </Text>
             </View>
           </View>
@@ -694,7 +684,7 @@ function StorageManagementHeader({
             <ActivityIndicator size="small" color={colors.danger} />
           ) : (
             <Icon
-              source={activeTab === "ALL" ? "chevron-right" : "delete-forever-outline"}
+              source="delete-forever-outline"
               size={20}
               color={colors.danger}
             />
@@ -882,6 +872,7 @@ export function StorageManagement() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState<string>("ALL");
   const [filterBrand, setFilterBrand] = useState<string>("ALL");
+  const [filterProvider, setFilterProvider] = useState<"ALL" | "S3" | "ONEDRIVE">("ALL");
   const [filterType, setFilterType] = useState<FileTypeFilter>("ALL");
   const [sortBy, setSortBy] = useState<SortKey>("date_desc");
 
@@ -896,7 +887,7 @@ export function StorageManagement() {
   // Clear active selection on shop or filter context changes to prevent leaky states (P1-B)
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [activeShopId, activeTab, filterCategory, filterBrand, filterType, sortBy, debouncedSearch]);
+  }, [activeShopId, activeTab, filterCategory, filterBrand, filterProvider, filterType, sortBy, debouncedSearch]);
 
   // ── Picker sheet state ────────────────────────────────────────────────────
   const [showCatSheet, setShowCatSheet] = useState(false);
@@ -945,9 +936,10 @@ export function StorageManagement() {
     search: debouncedSearch,
     categoryId: filterCategory,
     brandId: filterBrand,
+    provider: filterProvider,
     type: filterType,
     sortBy,
-  }), [activeTab, debouncedSearch, filterCategory, filterBrand, filterType, sortBy]);
+  }), [activeTab, debouncedSearch, filterCategory, filterBrand, filterProvider, filterType, sortBy]);
 
   const {
     data,
@@ -990,86 +982,15 @@ export function StorageManagement() {
     return { unusedCount: 0, unusedBytes: 0, hasStats: false };
   }, [data]);
 
-  const [filterProvider, setFilterProvider] = useState<"ALL" | "S3" | "ONEDRIVE">("ALL");
-
-  const storageStatsQuery = useStorageStatsQuery();
-
-  const providerStats = useMemo(() => {
-    let s3Total = 0;
-    let s3Bytes = 0;
-    let s3Unused = 0;
-    let s3UnusedBytes = 0;
-
-    let odTotal = 0;
-    let odBytes = 0;
-    let odUnused = 0;
-    let odUnusedBytes = 0;
-
-    for (const a of allAssets) {
-      const isUnused = getUsageStatus(a) === "UNUSED";
-      if (a.storageProvider === "ONEDRIVE") {
-        odTotal++;
-        odBytes += a.sizeBytes || 0;
-        if (isUnused) {
-          odUnused++;
-          odUnusedBytes += a.sizeBytes || 0;
-        }
-      } else {
-        s3Total++;
-        s3Bytes += a.sizeBytes || 0;
-        if (isUnused) {
-          s3Unused++;
-          s3UnusedBytes += a.sizeBytes || 0;
-        }
-      }
-    }
-
-    const currentTotal =
-      filterProvider === "S3"
-        ? s3Total
-        : filterProvider === "ONEDRIVE"
-        ? odTotal
-        : s3Total + odTotal;
-
-    const currentUnused =
-      filterProvider === "S3"
-        ? s3Unused
-        : filterProvider === "ONEDRIVE"
-        ? odUnused
-        : s3Unused + odUnused;
-
-    const currentUnusedBytes =
-      filterProvider === "S3"
-        ? s3UnusedBytes
-        : filterProvider === "ONEDRIVE"
-        ? odUnusedBytes
-        : s3UnusedBytes + odUnusedBytes;
-
-    return {
-      s3Count: s3Total,
-      s3Bytes,
-      s3Unused,
-      s3UnusedBytes,
-      oneDriveCount: odTotal,
-      oneDriveBytes: odBytes,
-      oneDriveUnused: odUnused,
-      oneDriveUnusedBytes: odUnusedBytes,
-      currentTotal,
-      currentUnused,
-      currentUnusedBytes,
-    };
-  }, [allAssets, filterProvider]);
-
   // ── Filter + Sort pipeline ────────────────────────────────────────────────
+  // Keep provider switching correct while mobile and backend releases overlap.
+  // The API remains responsible for the complete, paginated result set.
   const filtered = useMemo(() => {
     if (filterProvider === "ALL") return allAssets;
-    return allAssets.filter((a) => (a.storageProvider || "S3") === filterProvider);
+    return allAssets.filter(
+      (asset) => (asset.storageProvider ?? "S3") === filterProvider
+    );
   }, [allAssets, filterProvider]);
-
-  const totalSize = useMemo(
-    () => filtered.reduce((s, a) => s + a.sizeBytes, 0),
-    [filtered]
-  );
 
   const activeFilterCount = useMemo(
     () =>
@@ -1090,7 +1011,7 @@ export function StorageManagement() {
       if (!activeShopId || sharingId !== null) return;
       setSharingId(file.id);
       try {
-        const canShare = await Sharing.isAvailableAsync();
+        const canShare = await isAvailableAsync();
         if (!canShare) {
           Alert.alert("Sharing unavailable", "Sharing is not available on this device.");
           return;
@@ -1108,7 +1029,7 @@ export function StorageManagement() {
           : await File.downloadFileAsync(downloadUrl, localFile, {
               idempotent: true,
             });
-        await Sharing.shareAsync(shareFile.uri, {
+        await shareAsync(shareFile.uri, {
           mimeType: file.mimeType,
           dialogTitle: file.productName || file.fileName,
         });
@@ -1122,6 +1043,15 @@ export function StorageManagement() {
     },
     [activeShopId, sharingId]
   );
+
+  const handleView = useCallback((file: StorageObject) => {
+    if (!activeShopId) return;
+    navigate("AssetViewer", {
+      assetId: file.id,
+      shopId: activeShopId,
+      fileName: file.fileName,
+    });
+  }, [activeShopId]);
 
   const handleDelete = useCallback(
     (file: StorageObject) => {
@@ -1278,7 +1208,7 @@ export function StorageManagement() {
     const files = filtered.filter((f) => selectedIds.has(f.id));
     if (files.length === 0) return;
 
-    const canShare = await Sharing.isAvailableAsync();
+    const canShare = await isAvailableAsync();
     if (!canShare) {
       Alert.alert("Sharing unavailable", "Sharing is not available on this device.");
       return;
@@ -1303,7 +1233,7 @@ export function StorageManagement() {
               idempotent: true,
             });
 
-        await Sharing.shareAsync(shareFile.uri, {
+        await shareAsync(shareFile.uri, {
           mimeType: file.mimeType,
           dialogTitle: file.productName || file.fileName,
         });
@@ -1428,7 +1358,6 @@ export function StorageManagement() {
       const isSharing = sharingId === item.id;
       const isDeleting = deletingId === item.id;
       const isSelected = selectedIds.has(item.id);
-      const canDelete = isOwner && status !== "LEDGER";
 
       if (viewMode === "list") {
         return (
@@ -1480,45 +1409,7 @@ export function StorageManagement() {
                 />
               </View>
             ) : (
-              <View style={styles.listActions}>
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.listActionBtn,
-                    pressed && styles.listActionBtnPressed,
-                  ]}
-                  onPress={() => handleShare(item)}
-                  disabled={isBusy}
-                  hitSlop={8}
-                  accessibilityRole="button"
-                  accessibilityLabel="Share file"
-                >
-                  <Icon source="share-variant-outline" size={18} color={colors.primary} />
-                </Pressable>
-
-                {canDelete ? (
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.listActionBtn,
-                      pressed && styles.listActionBtnPressed,
-                    ]}
-                    onPress={() => handleDelete(item)}
-                    disabled={isBusy}
-                    hitSlop={8}
-                    accessibilityRole="button"
-                    accessibilityLabel="Delete file"
-                  >
-                    <Icon source="delete-outline" size={18} color={colors.danger} />
-                  </Pressable>
-                ) : (
-                  <View style={styles.listActionBtn}>
-                    <Icon
-                      source={status === "PRODUCT" ? "link-variant" : status === "LEDGER" ? "book-lock-outline" : "message-text-outline"}
-                      size={15}
-                      color={colors.textMuted}
-                    />
-                  </View>
-                )}
-              </View>
+              <Icon source="chevron-right" size={22} color={colors.textMuted} />
             )}
           </Pressable>
         );
@@ -1608,90 +1499,18 @@ export function StorageManagement() {
             <Text style={styles.cardName} numberOfLines={2}>
               {item.productName || item.fileName}
             </Text>
-            <View
-              style={[
-                styles.providerTag,
-                { backgroundColor: item.storageProvider === "ONEDRIVE" ? "#EBF3FC" : "#FFF4E5" },
-              ]}
-            >
+            <View style={styles.cardMetaRow}>
               <Icon
                 source={item.storageProvider === "ONEDRIVE" ? "microsoft-onedrive" : "aws"}
-                size={10}
+                size={12}
                 color={item.storageProvider === "ONEDRIVE" ? "#0078D4" : "#FF9900"}
               />
-              <Text
-                style={[
-                  styles.providerTagText,
-                  { color: item.storageProvider === "ONEDRIVE" ? "#0078D4" : "#E68A00" },
-                ]}
-              >
-                {item.storageProvider === "ONEDRIVE" ? "OneDrive" : "S3"}
+              <Text style={styles.cardMeta} numberOfLines={1}>
+                {item.storageProvider === "ONEDRIVE" ? "OneDrive" : "S3"} · {formatBytes(item.sizeBytes)}
               </Text>
             </View>
-            {item.categoryName && (
-              <Text style={styles.cardMeta} numberOfLines={1}>
-                {item.categoryName}
-              </Text>
-            )}
-            <Text style={styles.cardSize}>{formatBytes(item.sizeBytes)}</Text>
           </View>
 
-          {/* Card actions — hidden during selection mode */}
-          {!isSelecting && (
-            <View style={styles.cardActions}>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.actionBtn,
-                  pressed && styles.actionBtnPressed,
-                ]}
-                onPress={() => handleShare(item)}
-                disabled={isBusy}
-                hitSlop={4}
-                accessibilityRole="button"
-                accessibilityLabel={`Share ${item.productName || item.fileName}`}
-                accessibilityHint="Downloads and opens the system share sheet"
-                accessibilityState={{ disabled: isBusy }}
-              >
-                <Icon
-                  source="share-variant-outline"
-                  size={15}
-                  color={colors.primary}
-                />
-              </Pressable>
-
-              {canDelete ? (
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.actionBtn,
-                    styles.actionBtnRight,
-                    pressed && styles.actionBtnPressed,
-                  ]}
-                  onPress={() => handleDelete(item)}
-                  disabled={isBusy}
-                  hitSlop={4}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Delete ${item.productName || item.fileName}`}
-                  accessibilityState={{ disabled: isBusy }}
-                >
-                  <Icon source="delete-outline" size={15} color={colors.danger} />
-                </Pressable>
-              ) : (
-                <View style={[styles.actionBtn, styles.actionBtnRight]}>
-                  <Icon
-                    source={
-                      status === "PRODUCT"
-                        ? "link-variant"
-                        : status === "LEDGER"
-                        ? "book-lock-outline"
-                        : "message-outline"
-                    }
-                    size={13}
-                    color={colors.textMuted}
-                  />
-                </View>
-              )}
-            </View>
-          )}
         </Pressable>
       );
     },
@@ -1700,10 +1519,6 @@ export function StorageManagement() {
       deletingId,
       selectedIds,
       isSelecting,
-      isOwner,
-      isBusy,
-      handleShare,
-      handleDelete,
       handleLongPress,
       handleToggleSelect,
       viewMode,
@@ -1715,19 +1530,14 @@ export function StorageManagement() {
   const listHeader = useMemo(
     () => (
       <StorageManagementHeader
-        allCount={providerStats.currentTotal}
-        unusedCount={providerStats.currentUnused}
-        unusedBytes={providerStats.currentUnusedBytes}
+        allCount={data?.pages[0]?.totalAllCount ?? 0}
+        unusedCount={data?.pages[0]?.totalOrphanedCount ?? 0}
+        unusedBytes={data?.pages[0]?.totalOrphanedBytes ?? 0}
+        totalBytes={data?.pages[0]?.totalBytes ?? 0}
         activeTab={activeTab}
         onTabChange={setActiveTab}
         filterProvider={filterProvider}
         onProviderChange={setFilterProvider}
-        s3Count={providerStats.s3Count}
-        s3Bytes={providerStats.s3Bytes}
-        oneDriveCount={providerStats.oneDriveCount}
-        oneDriveBytes={providerStats.oneDriveBytes}
-        oneDriveQuotaRemaining={storageStatsQuery.data?.providers?.onedrive?.quota?.remainingBytes}
-        oneDriveQuotaTotal={storageStatsQuery.data?.providers?.onedrive?.quota?.totalBytes}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         filterCategory={filterCategory}
@@ -1750,16 +1560,15 @@ export function StorageManagement() {
         }}
         onCleanUp={handleBulkCleanup}
         isCleaningUp={bulkDeleteMutation.isPending}
-        isOwner={isOwner && (activeTab === "ALL" ? providerStats.currentTotal > 0 : providerStats.currentUnused > 0)}
+        isOwner={isOwner && (data?.pages[0]?.totalCount ?? 0) > 0}
         viewMode={viewMode}
         onToggleViewMode={toggleViewMode}
       />
     ),
     [
-      providerStats,
+      data,
       activeTab,
       filterProvider,
-      storageStatsQuery.data,
       searchQuery,
       filterCategory,
       filterBrand,
@@ -1806,7 +1615,7 @@ export function StorageManagement() {
   return (
     <>
       <ListScreen
-        title="Cloud Assets"
+        title="Storage"
         subtitle={`${data?.pages[0]?.totalCount ?? 0} files · ${formatBytes(data?.pages[0]?.totalBytes ?? 0)}`}
         showBack
         data={filtered}
@@ -1892,7 +1701,9 @@ export function StorageManagement() {
           isBusy={isBusy}
           onClose={(action) => {
             setInfoFile(null);
-            if (action === "share") {
+            if (action === "open") {
+              void handleView(infoFile);
+            } else if (action === "share") {
               void handleShare(infoFile);
             } else if (action === "delete") {
               handleDelete(infoFile);
@@ -1961,7 +1772,7 @@ function InfoSheet({
   file: StorageObject;
   isOwner: boolean;
   isBusy: boolean;
-  onClose: (action?: "share" | "delete" | "edit" | "assign") => void;
+  onClose: (action?: "open" | "share" | "delete" | "edit" | "assign") => void;
 }) {
   const status = getUsageStatus(file);
   const canDelete = isOwner && status !== "LEDGER";
@@ -1985,7 +1796,7 @@ function InfoSheet({
       : colors.warning;
 
   const sheetRef = useRef<BottomSheetRef>(null);
-  const pendingAction = useRef<"share" | "delete" | "edit" | "assign" | undefined>(undefined);
+  const pendingAction = useRef<"open" | "share" | "delete" | "edit" | "assign" | undefined>(undefined);
 
   return (
     <BottomSheet ref={sheetRef} visible onClose={() => onClose(pendingAction.current)}>
@@ -2004,6 +1815,27 @@ function InfoSheet({
               style={styles.infoPreview}
             />
           </View>
+        )}
+        {file.mimeType === "application/pdf" && (
+          <Pressable
+            style={({ pressed }) => [styles.documentPreview, pressed && styles.cardPressed]}
+            onPress={() => {
+              pendingAction.current = "open";
+              sheetRef.current?.dismiss();
+            }}
+            accessibilityRole="button"
+            accessibilityLabel={`View PDF ${file.fileName}`}
+          >
+            <View style={styles.documentIcon}>
+              <Icon source="file-pdf-box" size={52} color={colors.danger} />
+            </View>
+            <View style={styles.documentCopy}>
+              <Text style={styles.documentTitle} numberOfLines={2}>{file.fileName}</Text>
+              <Text style={styles.documentMeta}>PDF · {formatBytes(file.sizeBytes)}</Text>
+              <Text style={styles.documentAction}>View PDF</Text>
+            </View>
+            <Icon source="chevron-right" size={22} color={colors.textMuted} />
+          </Pressable>
         )}
 
         <InfoRow label="Product" value={file.productName || "Not linked"} />
@@ -2486,8 +2318,47 @@ const styles = StyleSheet.create({
   },
   // Header
   headerRoot: {
-    gap: spacing.sm,
+    gap: spacing.md,
     paddingBottom: spacing.sm,
+  },
+  storageSummary: {
+    backgroundColor: colors.surfaceOffset,
+    borderRadius: radius.xl,
+    padding: spacing.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  storageSummaryTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: spacing.md,
+  },
+  storageEyebrow: {
+    fontSize: 10,
+    letterSpacing: 0.8,
+    color: colors.textMuted,
+    fontWeight: fontWeight.bold,
+  },
+  storageCount: {
+    fontSize: fontSize.xl,
+    color: colors.textPrimary,
+    fontWeight: fontWeight.extrabold,
+    marginTop: 2,
+  },
+  storageSizePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+    borderRadius: radius.full,
+    backgroundColor: colors.primaryLight,
+  },
+  storageSizeText: {
+    fontSize: fontSize.xs,
+    color: colors.primaryDark,
+    fontWeight: fontWeight.bold,
   },
   searchRow: {
     flexDirection: "row",
@@ -2496,9 +2367,17 @@ const styles = StyleSheet.create({
   },
   searchBar: {
     backgroundColor: colors.surface,
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
+    height: 48,
+  },
+  viewToggle: {
+    width: 44,
+    height: 44,
+    margin: 0,
+    borderRadius: radius.full,
+    backgroundColor: colors.surfaceOffset,
   },
   tabRow: {
     flexDirection: "row",
@@ -2588,12 +2467,11 @@ const styles = StyleSheet.create({
   card: {
     flex: 1,
     backgroundColor: colors.surface,
-    borderRadius: radius.lg,
+    borderRadius: radius.xl,
     borderWidth: 1,
     borderColor: colors.border,
     overflow: "hidden",
     margin: CARD_GAP / 2,
-    ...shadow.sm,
   },
   cardSelected: {
     borderColor: colors.primary,
@@ -2606,7 +2484,7 @@ const styles = StyleSheet.create({
   },
   thumbnailContainer: {
     width: "100%",
-    aspectRatio: 1,
+    aspectRatio: 1.12,
     backgroundColor: colors.surfaceOffset,
     position: "relative",
   },
@@ -2654,40 +2532,25 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
   },
   cardBody: {
-    padding: spacing.sm,
+    padding: spacing.md,
+    gap: 5,
   },
   cardName: {
     fontSize: fontSize.xs,
     fontWeight: fontWeight.bold,
     color: colors.textPrimary,
-    marginBottom: 2,
-    lineHeight: 16,
+    lineHeight: 17,
+  },
+  cardMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
   },
   cardMeta: {
     fontSize: 10,
     color: colors.textMuted,
     marginBottom: 1,
   },
-  cardSize: {
-    fontSize: 10,
-    color: colors.textMuted,
-  },
-  cardActions: {
-    flexDirection: "row",
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-  },
-  actionBtn: {
-    flex: 1,
-    minHeight: 44,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  actionBtnRight: {
-    borderLeftWidth: StyleSheet.hairlineWidth,
-    borderLeftColor: colors.border,
-  },
-  actionBtnPressed: { backgroundColor: colors.surfaceOffset },
   // Empty state
   emptyState: {
     alignItems: "center",
@@ -2819,6 +2682,45 @@ const styles = StyleSheet.create({
   },
   infoPreview: {
     ...StyleSheet.absoluteFill,
+  },
+  documentPreview: {
+    minHeight: 124,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+    padding: spacing.md,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surfaceOffset,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginBottom: spacing.md,
+  },
+  documentIcon: {
+    width: 72,
+    height: 84,
+    borderRadius: radius.md,
+    backgroundColor: colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  documentCopy: {
+    flex: 1,
+    gap: 3,
+  },
+  documentTitle: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  documentMeta: {
+    fontSize: fontSize.xs,
+    color: colors.textMuted,
+  },
+  documentAction: {
+    fontSize: fontSize.xs,
+    color: colors.primary,
+    fontWeight: fontWeight.bold,
+    marginTop: 3,
   },
   infoRow: {
     flexDirection: "row",
@@ -2983,14 +2885,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: colors.surface,
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     borderWidth: 1,
     borderColor: colors.border,
     padding: spacing.sm,
     marginHorizontal: CARD_GAP / 2,
     marginVertical: CARD_GAP / 2,
     gap: spacing.sm,
-    ...shadow.sm,
   },
   listRowSelected: {
     borderColor: colors.primary,
@@ -3024,22 +2925,6 @@ const styles = StyleSheet.create({
     height: 44,
     alignItems: "center",
     justifyContent: "center",
-  },
-  listActions: {
-    flexDirection: "row",
-    gap: 4,
-    alignItems: "center",
-  },
-  listActionBtn: {
-    width: 44,
-    height: 44,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  listActionBtnPressed: {
-    opacity: 0.7,
-    backgroundColor: colors.surfaceOffset,
-    borderRadius: radius.full,
   },
   // Skeleton Grid styles
   skeletonGridContainer: {
@@ -3088,7 +2973,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: spacing.xs,
     alignItems: "center",
-    marginBottom: spacing.xs,
   },
   providerPill: {
     flex: 1,
@@ -3096,13 +2980,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
-    height: 38,
+    height: 40,
     borderRadius: radius.full,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
     paddingHorizontal: spacing.sm,
-    ...shadow.sm,
   },
   providerPillActiveAll: {
     backgroundColor: colors.primary,
@@ -3123,19 +3006,5 @@ const styles = StyleSheet.create({
   },
   providerPillTextActive: {
     color: "#ffffff",
-  },
-  providerTag: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 3,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: radius.sm,
-    alignSelf: "flex-start",
-    marginTop: 4,
-  },
-  providerTagText: {
-    fontSize: 10,
-    fontWeight: fontWeight.bold,
   },
 });

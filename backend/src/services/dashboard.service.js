@@ -247,7 +247,7 @@ export async function getStaffTodaySummary(user, { shopId, date, staffId, dateFr
   };
 }
 
-export async function listStorageObjects(user, { shopId, filter, cursor, limit, search, categoryId, brandId, type, sortBy }) {
+export async function listStorageObjects(user, { shopId, filter, cursor, limit, search, categoryId, brandId, provider, type, sortBy }) {
   await assertShopAccess(user, shopId);
   if (user.role !== "OWNER") {
     throw new ApiError(403, "Access restricted to owners");
@@ -358,6 +358,10 @@ export async function listStorageObjects(user, { shopId, filter, cursor, limit, 
     shopId,
     deletedAt: null,
   };
+
+  if (provider && provider !== "ALL") {
+    assetWhere.storageProvider = provider;
+  }
 
   // Type filter
   if (type && type !== "ALL") {

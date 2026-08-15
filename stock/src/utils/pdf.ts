@@ -1,5 +1,5 @@
 import * as Print from "expo-print";
-import * as Sharing from "expo-sharing";
+import { isAvailableAsync, shareAsync } from "expo-sharing";
 import { Alert, Platform } from "react-native";
 import qrcode from "qrcode-generator";
 import { type DailySummary, type Sale, type Shop } from "../api/client";
@@ -792,9 +792,9 @@ export async function shareSaleInvoicePdf(options: ShareInvoiceOptions): Promise
     const result = await Print.printToFileAsync({ html });
     const uri = result.uri;
 
-    const isSharingAvailable = await Sharing.isAvailableAsync();
+    const isSharingAvailable = await isAvailableAsync();
     if (isSharingAvailable) {
-      await Sharing.shareAsync(uri, {
+      await shareAsync(uri, {
         mimeType: "application/pdf",
         dialogTitle: `Invoice - ${sale.saleNumber}`,
         UTI: "com.adobe.pdf",
@@ -1029,12 +1029,12 @@ export async function shareDailySummaryPdf(options: ShareDailySummaryOptions): P
     throw new Error("PDF generation did not return a file URI.");
   }
 
-  const isSharingAvailable = await Sharing.isAvailableAsync();
+  const isSharingAvailable = await isAvailableAsync();
   if (!isSharingAvailable) {
     throw new Error("Native sharing is not available on this device.");
   }
 
-  await Sharing.shareAsync(uri, {
+  await shareAsync(uri, {
     mimeType: "application/pdf",
     dialogTitle: `Daily Summary - ${options.reportDate}`,
     UTI: "com.adobe.pdf",
@@ -1098,8 +1098,8 @@ export async function shareDeliveryMemoPdf(dm: any): Promise<void> {
   const html = generateDeliveryMemoHtml(dm);
   if (Platform.OS === "web") return printHtmlOnWeb(html);
   const result = await Print.printToFileAsync({ html });
-  if (!(await Sharing.isAvailableAsync())) throw new Error("Native sharing is unavailable on this device.");
-  await Sharing.shareAsync(result.uri, { mimeType: "application/pdf", dialogTitle: `Delivery Memo ${dm.dmNumber}`, UTI: "com.adobe.pdf" });
+  if (!(await isAvailableAsync())) throw new Error("Native sharing is unavailable on this device.");
+  await shareAsync(result.uri, { mimeType: "application/pdf", dialogTitle: `Delivery Memo ${dm.dmNumber}`, UTI: "com.adobe.pdf" });
 }
 
 export async function printDeliveryMemo(dm: any): Promise<void> {

@@ -20,14 +20,12 @@ import { useCustomerLedger, useCustomerLedgerSummary, useReverseLedgerEntry } fr
 import { ScreenScaffold } from "../../components/layout/ScreenScaffold";
 import { ScreenSection } from "../../components/layout/ScreenSection";
 import { Button } from "../../components/ui/Button";
-import { InfoRow } from "../../components/ui/InfoRow";
-import { MetricGrid } from "../../components/ui/MetricGrid";
 import { PaymentCard } from "../../components/domain/payments/PaymentCard";
 import { SaleCard } from "../../components/domain/sales/SaleCard";
 import { DeliveryMemoCard } from "../../components/domain/delivery/DeliveryMemoCard";
 import { AppSegmentedControl } from "../../components/ui/AppSegmentedControl";
 import { StatusPill } from "../../components/ui/StatusPill";
-import { colors, spacing, radius, fontSize, shadow } from "../../theme";
+import { colors, spacing, radius, fontSize } from "../../theme";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { SkeletonList } from "../../components/ui/SkeletonCard";
 import { navigate } from "../navigation-ref";
@@ -39,6 +37,7 @@ import {
   CustomerLedgerSummary,
   getAssetDownloadUrl,
 } from "../../api/ledger.api";
+import { triggerLightHaptic } from "../../utils/haptics";
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 
@@ -99,9 +98,13 @@ export function CustomerDetail() {
       {/* Tab Bar */}
       <AppSegmentedControl
         scrollable
-        minOptionWidth={104}
+        minOptionWidth={82}
+        appearance="tabs"
         value={activeTab}
-        onChange={setActiveTab}
+        onChange={(tab) => {
+          triggerLightHaptic();
+          setActiveTab(tab);
+        }}
         options={tabs.map((tab) => ({ value: tab.key, label: tab.label, icon: tab.icon }))}
         style={styles.tabs}
       />
@@ -156,7 +159,7 @@ function OverviewTab({
   const createdFormatted = formatCustomerDate(customer.createdAt || customer.created_at);
 
   return (
-    <ScrollView contentContainerStyle={styles.tabContent}>
+    <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.tabContent}>
       {/* Sleek Financial Summary Card */}
       <View style={styles.financialCard}>
         <View style={styles.financialHeader}>
@@ -216,15 +219,15 @@ function OverviewTab({
 
         {/* Quick Action Buttons */}
         <View style={styles.quickActionsRow}>
-          <TouchableOpacity style={styles.quickActionBtn} onPress={handleCall}>
+          <TouchableOpacity accessibilityRole="button" style={styles.quickActionBtn} onPress={handleCall}>
             <IconButton icon="phone-outline" size={18} iconColor={colors.primary} style={styles.zeroMargin} />
             <Text style={styles.quickActionText}>Call</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.quickActionBtn} onPress={handleWhatsApp}>
+          <TouchableOpacity accessibilityRole="button" style={styles.quickActionBtn} onPress={handleWhatsApp}>
             <IconButton icon="whatsapp" size={18} iconColor="#25D366" style={styles.zeroMargin} />
             <Text style={styles.quickActionText}>WhatsApp</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.quickActionBtn} onPress={() => onNavigateTab("LEDGER")}>
+          <TouchableOpacity accessibilityRole="button" style={styles.quickActionBtn} onPress={() => onNavigateTab("LEDGER")}>
             <IconButton icon="book-open-outline" size={18} iconColor={colors.primary} style={styles.zeroMargin} />
             <Text style={styles.quickActionText}>Ledger</Text>
           </TouchableOpacity>
@@ -332,19 +335,22 @@ function LedgerTab({ customer, shopId, ledgerSummary }: { customer: any; shopId:
     <View style={styles.ledgerContainer}>
       {/* Header Balance Banner */}
       <View style={styles.balanceBanner}>
-        <View>
-          <Text style={styles.balanceLabel}>Current Financial Position</Text>
-          <Text style={styles.balanceValue}>{balanceStatus.label}</Text>
-        </View>
-
-        {isOwner && (
-          <View style={styles.headerActions}>
-            {!hasOpeningBalance && (
-              <Button label="+ Opening" variant="secondary" size="sm" onPress={() => setOpeningSheetVisible(true)} />
-            )}
-            <Button label="+ Adjust" variant="primary" size="sm" onPress={() => setAdjustmentSheetVisible(true)} />
+        <View style={styles.balanceBannerTop}>
+          <View style={styles.balanceBannerCopy}>
+            <Text style={styles.balanceLabel}>Current Financial Position</Text>
+            <Text style={styles.balanceValue}>{balanceStatus.label}</Text>
           </View>
-        )}
+
+          {isOwner && (
+            <View style={styles.headerActions}>
+              {!hasOpeningBalance && (
+                <Button label="Opening" variant="secondary" size="sm" onPress={() => setOpeningSheetVisible(true)} />
+              )}
+              <Button label="Adjust" variant="primary" size="sm" onPress={() => setAdjustmentSheetVisible(true)} />
+            </View>
+          )}
+        </View>
+        <Text style={styles.balanceSource}>Live account balance from the customer ledger</Text>
       </View>
 
       {/* Ledger FlashList */}
@@ -370,7 +376,10 @@ function LedgerTab({ customer, shopId, ledgerSummary }: { customer: any; shopId:
               item={item}
               isOwner={isOwner}
               onReverse={() => handleReverseClick(item)}
-              onViewAttachments={() => setViewedAttachments(item.attachments || [])}
+              onViewAttachments={() => {
+                triggerLightHaptic();
+                setViewedAttachments(item.attachments || []);
+              }}
             />
           )}
         />
@@ -446,13 +455,14 @@ function LedgerRow({
 }) {
   const [menuVisible, setMenuVisible] = useState(false);
   const isDebit = item.direction === "DEBIT";
+  const runningBalance = Number(item.runningBalance);
 
   return (
-    <View style={[styles.rowCard, item.isReversed && styles.reversedCard]}>
+    <View style={[styles.rowCard, isDebit ? styles.debitRowCard : styles.creditRowCard, item.isReversed && styles.reversedCard]}>
       <View style={styles.rowHeader}>
         <View style={styles.rowMainInfo}>
           <Text style={styles.rowDate}>
-            {new Date(item.effectiveAt).toLocaleDateString()} {new Date(item.effectiveAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+            {new Date(item.effectiveAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })} · {new Date(item.effectiveAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
           </Text>
           <Text style={styles.rowType}>{formatEntryType(item.entryType)}</Text>
         </View>
@@ -488,13 +498,19 @@ function LedgerRow({
 
       <View style={styles.rowFooter}>
         <Text style={styles.rowRunning}>
-          {Number(item.runningBalance) < 0
-            ? `${money(Math.abs(Number(item.runningBalance)))} Advance`
-            : `${money(item.runningBalance)} Outstanding`}
+          Balance after entry · {" "}
+          {runningBalance < 0
+            ? `${money(Math.abs(runningBalance))} Advance`
+            : runningBalance > 0
+              ? `${money(runningBalance)} Outstanding`
+              : "₹0 Settled"}
         </Text>
         {item.attachments && item.attachments.length > 0 && (
           <TouchableOpacity accessibilityRole="button" onPress={onViewAttachments}>
-            <Text style={styles.attachmentBadge}>{item.attachments.length} file(s) · View</Text>
+            <View style={styles.attachmentChip}>
+              <Icon source="paperclip" size={14} color={colors.primary} />
+              <Text style={styles.attachmentBadge}>{item.attachments.length} {item.attachments.length === 1 ? "attachment" : "attachments"}</Text>
+            </View>
           </TouchableOpacity>
         )}
       </View>
@@ -515,10 +531,16 @@ function LedgerAttachmentViewer({
   const [url, setUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const attachment = attachments[index];
+  const isImage = attachment?.asset?.mimeType?.startsWith("image/") !== false;
 
   useEffect(() => {
     if (!attachment) {
       setIndex(0);
+      setUrl(null);
+      return;
+    }
+    if (!isImage) {
+      setLoading(false);
       setUrl(null);
       return;
     }
@@ -538,9 +560,7 @@ function LedgerAttachmentViewer({
     return () => {
       active = false;
     };
-  }, [attachment, shopId]);
-
-  const isImage = attachment?.asset?.mimeType?.startsWith("image/") !== false;
+  }, [attachment, isImage, shopId]);
 
   return (
     <Portal>
@@ -554,8 +574,24 @@ function LedgerAttachmentViewer({
           <ActivityIndicator style={styles.attachmentLoader} />
         ) : url && isImage ? (
           <Image source={{ uri: url }} style={styles.attachmentImage} contentFit="contain" />
-        ) : url ? (
-          <Button label="Open document" onPress={() => Linking.openURL(url)} />
+        ) : !isImage && attachment ? (
+          <View style={styles.documentPreview}>
+            <Icon source="file-pdf-box" size={56} color={colors.danger} />
+            <Text style={styles.documentPreviewTitle}>PDF attachment</Text>
+            <Text style={styles.documentPreviewHint}>Open the secured ledger PDF without leaving the app.</Text>
+            <Button
+              label="View PDF"
+              icon="file-eye-outline"
+              onPress={() => {
+                onDismiss();
+                navigate("AssetViewer", {
+                  assetId: attachment.assetId,
+                  shopId,
+                  fileName: attachment.asset?.fileName || "Ledger attachment.pdf",
+                });
+              }}
+            />
+          </View>
         ) : null}
 
         {attachments.length > 1 ? (
@@ -673,7 +709,7 @@ function OutstandingTab({ ledgerSummary, query }: { ledgerSummary?: CustomerLedg
   const advance = Number(ledgerSummary?.advanceBalance || 0);
 
   return (
-    <ScrollView contentContainerStyle={styles.tabContent}>
+    <ScrollView contentInsetAdjustmentBehavior="automatic" contentContainerStyle={styles.tabContent}>
       {/* Sleek Outstanding Header Card */}
       <View style={styles.financialCard}>
         <View style={styles.financialHeader}>
@@ -697,7 +733,7 @@ function OutstandingTab({ ledgerSummary, query }: { ledgerSummary?: CustomerLedg
           </View>
           <View style={styles.metricDivider} />
           <View style={styles.financialMetric}>
-            <Text style={styles.metricLabel}>Ledger Balance</Text>
+            <Text style={styles.metricLabel}>Account Ledger</Text>
             <Text style={styles.metricValue}>{ledgerSummary ? money(customerDue) : "—"}</Text>
           </View>
           <View style={styles.metricDivider} />
@@ -819,8 +855,8 @@ function TimelineTab({ query }: { query: any }) {
 
 const styles = StyleSheet.create({
   tabs: {
-    marginHorizontal: spacing.md,
-    marginBottom: spacing.xs,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
   },
   content: {
     flex: 1,
@@ -834,22 +870,37 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.md,
   },
   balanceBanner: {
+    backgroundColor: colors.surface,
+    padding: spacing.lg,
+    borderRadius: radius.xl,
+    marginVertical: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  balanceBannerTop: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    backgroundColor: colors.surfaceOffset,
-    padding: spacing.md,
-    borderRadius: radius.lg,
-    marginVertical: spacing.sm,
+    gap: spacing.sm,
+  },
+  balanceBannerCopy: {
+    flex: 1,
+    minWidth: 0,
   },
   balanceLabel: {
     fontSize: fontSize.xs,
     color: colors.textSecondary,
   },
   balanceValue: {
-    fontSize: fontSize.md,
-    fontWeight: "700",
+    fontSize: fontSize.xl,
+    fontWeight: "800",
     color: colors.textPrimary,
+    marginTop: 2,
+  },
+  balanceSource: {
+    fontSize: 10,
+    color: colors.textMuted,
+    marginTop: spacing.sm,
   },
   headerActions: {
     flexDirection: "row",
@@ -857,10 +908,18 @@ const styles = StyleSheet.create({
   },
   rowCard: {
     backgroundColor: colors.surface,
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
     padding: spacing.md,
     marginBottom: spacing.sm,
-    ...shadow.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderLeftWidth: 3,
+  },
+  debitRowCard: {
+    borderLeftColor: colors.danger,
+  },
+  creditRowCard: {
+    borderLeftColor: colors.success,
   },
   reversedCard: {
     opacity: 0.6,
@@ -900,8 +959,7 @@ const styles = StyleSheet.create({
   rowNotes: {
     fontSize: fontSize.xs,
     color: colors.textSecondary,
-    marginTop: spacing.xs,
-    fontStyle: "italic",
+    marginTop: spacing.sm,
   },
   rowFooter: {
     flexDirection: "row",
@@ -913,9 +971,19 @@ const styles = StyleSheet.create({
     borderTopColor: colors.border,
   },
   rowRunning: {
-    fontSize: fontSize.xs,
+    flexShrink: 1,
+    fontSize: 10,
     fontWeight: "500",
     color: colors.textSecondary,
+  },
+  attachmentChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 5,
+    borderRadius: radius.full,
+    backgroundColor: colors.primaryLight,
   },
   attachmentBadge: {
     fontSize: fontSize.xs,
@@ -926,7 +994,8 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     margin: spacing.md,
     padding: spacing.md,
-    borderRadius: radius.lg,
+    borderRadius: radius.xl,
+    minHeight: 520,
   },
   attachmentHeader: {
     flexDirection: "row",
@@ -947,7 +1016,27 @@ const styles = StyleSheet.create({
     width: "100%",
     height: 420,
     backgroundColor: colors.surfaceOffset,
-    borderRadius: radius.md,
+    borderRadius: radius.lg,
+  },
+  documentPreview: {
+    minHeight: 380,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.sm,
+    borderRadius: radius.lg,
+    backgroundColor: colors.surfaceOffset,
+    padding: spacing.xl,
+  },
+  documentPreviewTitle: {
+    fontSize: fontSize.lg,
+    fontWeight: "700",
+    color: colors.textPrimary,
+  },
+  documentPreviewHint: {
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+    textAlign: "center",
+    marginBottom: spacing.sm,
   },
   attachmentNavigation: {
     flexDirection: "row",
@@ -1004,11 +1093,10 @@ const styles = StyleSheet.create({
   // Overview Tab Sleek Styles
   financialCard: {
     backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    padding: spacing.md,
+    borderRadius: radius.xl,
+    padding: spacing.lg,
     borderWidth: 1,
     borderColor: colors.border,
-    ...shadow.sm,
   },
   financialHeader: {
     flexDirection: "row",
@@ -1093,8 +1181,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: colors.surfaceOffset,
-    borderRadius: radius.md,
-    paddingVertical: 6,
+    borderRadius: radius.lg,
+    minHeight: 48,
+    paddingVertical: spacing.sm,
     paddingHorizontal: 4,
     borderWidth: 1,
     borderColor: colors.border,
@@ -1110,11 +1199,10 @@ const styles = StyleSheet.create({
   },
   detailsCard: {
     backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    padding: spacing.md,
+    borderRadius: radius.xl,
+    padding: spacing.lg,
     borderWidth: 1,
     borderColor: colors.border,
-    ...shadow.sm,
   },
   cardSectionHeader: {
     flexDirection: "row",

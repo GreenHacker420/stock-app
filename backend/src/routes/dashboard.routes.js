@@ -50,6 +50,7 @@ const storageQuerySchema = z.object({
     search: z.string().optional(),
     categoryId: z.string().optional(),
     brandId: z.string().optional(),
+    provider: z.enum(["ALL", "S3", "ONEDRIVE"]).optional(),
     type: z.enum(["ALL", "IMAGE", "DOC", "VIDEO", "AUDIO"]).optional(),
     sortBy: z.enum(["date_desc", "date_asc", "size_desc", "size_asc", "name_asc"]).optional(),
   }),

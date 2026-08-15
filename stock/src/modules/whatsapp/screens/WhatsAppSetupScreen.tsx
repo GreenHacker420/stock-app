@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { View, StyleSheet, ScrollView, KeyboardAvoidingView, Platform, Alert, TouchableOpacity, DeviceEventEmitter } from "react-native";
 import { Button, Text, Divider, Card, HelperText, SegmentedButtons } from "react-native-paper";
-import * as WebBrowser from "expo-web-browser";
+import { maybeCompleteAuthSession, openAuthSessionAsync } from "expo-web-browser";
 import * as Clipboard from "expo-clipboard";
 import { useShopStore } from "../../../auth/shop-store";
 import { WaOnboardingSession, whatsappSetupApi } from "../../../api/whatsapp-setup.api";
@@ -16,7 +16,7 @@ import { sendTestPushNotification } from "../../../api/client";
 import { useAuthStore } from "../../../auth/auth-store";
 import { KeyboardAwareScreen } from "../../../components/keyboard/KeyboardAwareScreen";
 
-WebBrowser.maybeCompleteAuthSession();
+maybeCompleteAuthSession();
 
 export const WhatsAppSetupScreen = () => {
   const navigation = useNavigation();
@@ -221,7 +221,7 @@ export const WhatsAppSetupScreen = () => {
     try {
       const created = await whatsappSetupApi.createOnboardingSession(activeShopId, onboardingMode);
       setOnboardingSession(created.session);
-      const result = await WebBrowser.openAuthSessionAsync(created.launchUrl, created.redirectUri);
+      const result = await openAuthSessionAsync(created.launchUrl, created.redirectUri);
       if (result.type === "cancel" || result.type === "dismiss") {
         Alert.alert("Signup paused", "You can start a new session when you are ready.");
         return;

@@ -17,6 +17,7 @@ type AppSegmentedControlProps<T extends string> = {
   style?: StyleProp<ViewStyle>;
   scrollable?: boolean;
   minOptionWidth?: number;
+  appearance?: "segmented" | "tabs";
 };
 
 export function AppSegmentedControl<T extends string>({
@@ -26,6 +27,7 @@ export function AppSegmentedControl<T extends string>({
   style,
   scrollable = false,
   minOptionWidth,
+  appearance = "segmented",
 }: AppSegmentedControlProps<T>) {
   const content = (
     <View style={[styles.row, scrollable && styles.scrollRow, !scrollable && style]}>
@@ -37,9 +39,11 @@ export function AppSegmentedControl<T extends string>({
             onPress={() => onChange(option.value)}
             style={({ pressed }) => [
               styles.option,
+              appearance === "tabs" && styles.tabOption,
               scrollable && styles.scrollOption,
               minOptionWidth ? { minWidth: minOptionWidth } : undefined,
               active && styles.optionActive,
+              active && appearance === "tabs" && styles.tabOptionActive,
               pressed && styles.pressed,
             ]}
             accessibilityRole="tab"
@@ -114,6 +118,20 @@ const styles = StyleSheet.create({
   optionActive: {
     borderColor: colors.primary,
     backgroundColor: colors.primaryLight,
+  },
+  tabOption: {
+    height: 44,
+    borderWidth: 0,
+    borderBottomWidth: 2,
+    borderBottomColor: "transparent",
+    borderRadius: 0,
+    backgroundColor: "transparent",
+    paddingHorizontal: spacing.sm,
+  },
+  tabOptionActive: {
+    borderColor: "transparent",
+    borderBottomColor: colors.primary,
+    backgroundColor: "transparent",
   },
   label: {
     fontSize: fontSize.xs,

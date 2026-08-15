@@ -1,6 +1,6 @@
 import { createMMKV } from "react-native-mmkv";
 import { Platform } from "react-native";
-import * as Sharing from "expo-sharing";
+import { shareAsync } from "expo-sharing";
 import { File, Directory, Paths } from "expo-file-system";
 
 const logStorage = Platform.OS === "web" ? null : createMMKV({ id: "shop-control-logs" });
@@ -75,7 +75,7 @@ export async function shareLogs() {
   const localFile = new File(cacheDir, `diagnostics_log_${Date.now()}.txt`);
   localFile.write(logText);
 
-  await Sharing.shareAsync(localFile.uri, {
+  await shareAsync(localFile.uri, {
     mimeType: "text/plain",
     dialogTitle: "ShopControl Diagnostics Log",
   });

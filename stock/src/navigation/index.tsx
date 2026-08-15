@@ -49,6 +49,7 @@ import { Updates } from "./screens/Updates";
 import { UpiConfig } from "./screens/UpiConfig";
 import { WalkInSaleScreen as WalkInSale } from "../features/sales/create/walk-in/WalkInSaleScreen";
 import { InvoiceViewer } from "./screens/InvoiceViewer";
+import { AssetViewer } from "./screens/AssetViewer";
 import { CreateOrder } from "./screens/CreateOrder";
 import { OrderList } from "./screens/OrderList";
 import { OrderDetail } from "./screens/OrderDetail";
@@ -419,6 +420,10 @@ const sharedStackScreens = {
     screen: InvoiceViewer,
     options: { title: "Invoice Preview" },
   },
+  AssetViewer: {
+    screen: AssetViewer,
+    options: { title: "PDF Preview" },
+  },
   SplitPayment: {
     screen: GenericPlannedScreen,
     options: { title: "Split payment" },
@@ -737,6 +742,7 @@ export type RootStackParamList = {
   SaleDetail: { id: string };
   EditSale: { saleId: string };
   InvoiceViewer: { sale: any; shop?: any };
+  AssetViewer: { assetId: string; shopId: string; fileName: string };
   ChequeList: undefined;
   ChequeDetail: { chequeId: string };
   CustomerList: undefined;

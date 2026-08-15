@@ -1763,6 +1763,7 @@ export async function fetchStorageObjects(
     search?: string;
     categoryId?: string;
     brandId?: string;
+    provider?: "ALL" | "S3" | "ONEDRIVE";
     type?: string;
     sortBy?: string;
   }
@@ -1774,6 +1775,7 @@ export async function fetchStorageObjects(
   if (params?.search) query += `&search=${encodeURIComponent(params.search)}`;
   if (params?.categoryId) query += `&categoryId=${encodeURIComponent(params.categoryId)}`;
   if (params?.brandId) query += `&brandId=${encodeURIComponent(params.brandId)}`;
+  if (params?.provider) query += `&provider=${encodeURIComponent(params.provider)}`;
   if (params?.type) query += `&type=${encodeURIComponent(params.type)}`;
   if (params?.sortBy) query += `&sortBy=${encodeURIComponent(params.sortBy)}`;
   return apiRequest<StorageObjectsResponse>(`/dashboard/storage/objects?${query}`, { token });

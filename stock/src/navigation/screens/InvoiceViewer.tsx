@@ -2,8 +2,8 @@ import React, { useState, useEffect } from "react";
 import { View, StyleSheet, ActivityIndicator, Alert } from "react-native";
 import { WebView } from "react-native-webview";
 import { useRoute } from "@react-navigation/native";
-import * as Print from "expo-print";
-import * as Sharing from "expo-sharing";
+import { printAsync, printToFileAsync } from "expo-print";
+import { shareAsync } from "expo-sharing";
 
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
@@ -31,7 +31,7 @@ export function InvoiceViewer() {
   const handlePrint = async () => {
     if (!htmlContent) return;
     try {
-      await Print.printAsync({ html: htmlContent });
+      await printAsync({ html: htmlContent });
     } catch (err: any) {
       Alert.alert("Print Error", err?.message || "Failed to print invoice.");
     }
@@ -40,8 +40,8 @@ export function InvoiceViewer() {
   const handleShare = async () => {
     if (!htmlContent) return;
     try {
-      const result = await Print.printToFileAsync({ html: htmlContent });
-      await Sharing.shareAsync(result.uri, {
+      const result = await printToFileAsync({ html: htmlContent });
+      await shareAsync(result.uri, {
         mimeType: "application/pdf",
         dialogTitle: `Invoice - ${sale.saleNumber}`,
         UTI: "com.adobe.pdf",
