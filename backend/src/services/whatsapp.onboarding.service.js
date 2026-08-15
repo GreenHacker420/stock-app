@@ -248,7 +248,7 @@ class WhatsAppOnboardingService {
     button.disabled=true;
     const extras={version:'v4',sessionInfoVersion:'3'};
     if(CONFIG.coexistence)extras.featureType='whatsapp_business_app_onboarding';
-    FB.login(async(response)=>{
+    FB.login((response)=>{
       if(response.authResponse?.code){exchangeCode=response.authResponse.code;finishWhenReady();return;}
       if(sessionInfo?.event==='CANCEL'){complete(null,sessionInfo).catch(showError);return;}
       showError(new Error('Meta authorization was cancelled'));

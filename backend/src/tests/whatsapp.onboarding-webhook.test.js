@@ -38,6 +38,8 @@ test("Embedded Signup uses the installed app redirect and Meta v4 contract", asy
   assert.match(source, /const GRAPH_VERSION = "v26\.0"/);
   assert.match(source, /"shopcontrol:\/\/whatsapp-onboarding"/);
   assert.match(source, /const extras=\{version:'v4',sessionInfoVersion:'3'\}/);
+  assert.match(source, /FB\.login\(\(response\)=>/);
+  assert.doesNotMatch(source, /FB\.login\(async/);
   assert.match(source, /WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID/);
   assert.match(source, /async markPublicSessionFailed/);
 });
