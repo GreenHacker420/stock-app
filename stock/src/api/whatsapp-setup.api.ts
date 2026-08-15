@@ -25,10 +25,15 @@ export interface WhatsAppIntegrationHealth {
   hasAccessToken: boolean;
 }
 
-interface WhatsAppSetupResponse {
-  success: boolean;
-  data: WhatsAppIntegrationHealth | null;
-  message?: string;
+export interface WhatsAppOnboardingReadiness {
+  available: boolean;
+  missing: string[];
+  redirectUri: string;
+}
+
+export interface WhatsAppSetupInfo {
+  integration: WhatsAppIntegrationHealth | null;
+  onboarding: WhatsAppOnboardingReadiness;
 }
 
 export type WaOnboardingStatus =
@@ -66,17 +71,27 @@ export interface WaOnboardingSession {
 export const whatsappSetupApi = {
   getSetupInfo: async (shopId: string) => {
     const token = useAuthStore.getState().token || "";
-    const res = await apiRequest<WhatsAppSetupResponse>(`/whatsapp/setup?shopId=${encodeURIComponent(shopId)}`, { token });
-    return { data: res };
+    const result = await apiRequest<WhatsAppSetupInfo | WhatsAppIntegrationHealth | null>(
+      `/whatsapp/setup?shopId=${encodeURIComponent(shopId)}`,
+      { token },
+    );
+    if (result && "integration" in result) return result;
+    return {
+      integration: result,
+      onboarding: {
+        available: true,
+        missing: [],
+        redirectUri: "shopcontrol://whatsapp-onboarding",
+      },
+    };
   },
   saveSetupInfo: async (payload: any) => {
     const token = useAuthStore.getState().token || "";
-    const res = await apiRequest<any>(`/whatsapp/setup`, {
+    return apiRequest<WhatsAppIntegrationHealth>(`/whatsapp/setup`, {
       method: "POST",
       token,
       body: JSON.stringify(payload),
     });
-    return { data: res };
   },
   createOnboardingSession: async (shopId: string, mode: "CLOUD_API" | "COEXISTENCE") => {
     const token = useAuthStore.getState().token || "";
@@ -109,19 +124,17 @@ export const whatsappSetupApi = {
   },
   deleteSetupInfo: async (shopId: string) => {
     const token = useAuthStore.getState().token || "";
-    const res = await apiRequest<any>(`/whatsapp/setup?shopId=${encodeURIComponent(shopId)}`, {
+    return apiRequest<{ message?: string }>(`/whatsapp/setup?shopId=${encodeURIComponent(shopId)}`, {
       method: "DELETE",
       token,
     });
-    return { data: res };
   },
   rotateKeys: async (shopId: string) => {
     const token = useAuthStore.getState().token || "";
-    const res = await apiRequest<any>(`/whatsapp/rotate-keys`, {
+    return apiRequest<{ rsaPublicKey: string }>(`/whatsapp/rotate-keys`, {
       method: "POST",
       token,
       body: JSON.stringify({ shopId }),
     });
-    return { data: res };
   },
 };

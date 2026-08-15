@@ -25,6 +25,7 @@ import { ApiError } from "../utils/ApiError.js";
 import { enqueueWhatsAppDomainEvent } from "../services/whatsapp.domain-events.js";
 import { getWhatsAppMediaPolicy } from "../services/whatsapp.media-policy.js";
 import { resolveEffectiveWhatsAppChannel } from "../services/whatsapp.channel-resolution.js";
+import { whatsappOnboardingService } from "../services/whatsapp.onboarding.service.js";
 
 function boundedLimit(value, fallback = 50, maximum = 100) {
   const parsed = Number(value);
@@ -910,7 +911,13 @@ class WhatsAppController {
 
       const setup = await getPublicIntegration(shopId);
 
-      res.json({ success: true, data: setup });
+      res.json({
+        success: true,
+        data: {
+          integration: setup,
+          onboarding: whatsappOnboardingService.getReadiness(),
+        },
+      });
     } catch (error) {
       res.status(500).json({ success: false, message: error.message });
     }

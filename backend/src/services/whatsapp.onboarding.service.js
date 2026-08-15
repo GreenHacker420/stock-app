@@ -26,7 +26,7 @@ function publicApiBase() {
 }
 
 function appRedirectUri() {
-  return process.env.WHATSAPP_ONBOARDING_APP_REDIRECT || "stock://whatsapp-onboarding";
+  return process.env.WHATSAPP_ONBOARDING_APP_REDIRECT || "shopcontrol://whatsapp-onboarding";
 }
 
 function graphError(error) {
@@ -101,7 +101,28 @@ function statusForPhone(phone) {
 }
 
 class WhatsAppOnboardingService {
+  getReadiness() {
+    const required = [
+      "PUBLIC_API_URL",
+      "WHATSAPP_APP_ID",
+      "WHATSAPP_APP_SECRET",
+      "WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID",
+    ];
+    const missing = required.filter((name) => !process.env[name]?.trim());
+    return {
+      available: missing.length === 0,
+      missing,
+      redirectUri: appRedirectUri(),
+    };
+  }
+
   async createSession({ shopId, initiatedById, mode = "CLOUD_API" }) {
+    const readiness = this.getReadiness();
+    if (!readiness.available) {
+      const error = new Error(`Embedded Signup is not configured. Missing: ${readiness.missing.join(", ")}`);
+      error.code = "EMBEDDED_SIGNUP_NOT_CONFIGURED";
+      throw error;
+    }
     requiredEnv("WHATSAPP_APP_ID");
     requiredEnv("WHATSAPP_APP_SECRET");
     const configId = requiredEnv("WHATSAPP_EMBEDDED_SIGNUP_CONFIG_ID");
@@ -198,7 +219,7 @@ class WhatsAppOnboardingService {
     statusNode.textContent='Finishing setup...';
     const response=await fetch(CONFIG.completeUrl,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({state:CONFIG.state,code,eventPayload})});
     const payload=await response.json().catch(()=>({}));
-    if(!response.ok) throw new Error(payload.message||'Setup failed');
+    if(!response.ok){statusNode.textContent=payload.message||'Setup failed';redirect('FAILED');return;}
     redirect(payload.data?.status||'AUTHORIZED');
   };
   const finishWhenReady=()=>{
@@ -209,7 +230,9 @@ class WhatsAppOnboardingService {
   };
   const showError=(error)=>{completionStarted=false;statusNode.textContent=error.message;button.disabled=false;};
   window.addEventListener('message',(event)=>{
-    if(!event.origin.endsWith('facebook.com'))return;
+    let eventHost='';
+    try{eventHost=new URL(event.origin).hostname;}catch{return;}
+    if(eventHost!=='facebook.com'&&!eventHost.endsWith('.facebook.com'))return;
     try{
       const data=typeof event.data==='string'?JSON.parse(event.data):event.data;
       if(data?.type==='WA_EMBEDDED_SIGNUP'){
@@ -498,6 +521,23 @@ class WhatsAppOnboardingService {
           lastErrorMessage: error.message,
         },
       });
+    }
+  }
+
+  async markPublicSessionFailed(sessionId, state, error) {
+    try {
+      const session = await this.getPublicSession(sessionId, state);
+      if (COMPLETED_STATUSES.has(session.status)) return session;
+      return prisma.waOnboardingSession.update({
+        where: { id: session.id },
+        data: {
+          status: "FAILED",
+          lastErrorCode: error.code || "ONBOARDING_FAILED",
+          lastErrorMessage: error.message || "Meta onboarding failed",
+        },
+      });
+    } catch {
+      return null;
     }
   }
 

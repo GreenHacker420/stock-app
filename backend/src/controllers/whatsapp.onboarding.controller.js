@@ -54,6 +54,11 @@ export const completeSession = asyncHandler(async (req, res) => {
     );
     res.json({ success: true, data: session });
   } catch (error) {
+    await whatsappOnboardingService.markPublicSessionFailed(
+      req.params.sessionId,
+      req.body?.state,
+      error,
+    );
     res.status(400).json({ success: false, message: error.message, details: null });
   }
 });
