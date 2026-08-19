@@ -253,42 +253,71 @@ export async function listStorageObjects(user, { shopId, filter, cursor, limit, 
     throw new ApiError(403, "Access restricted to owners");
   }
 
-  // We query all active items in the shop to compute referenced keys and metadata
-  const activeItems = await prisma.item.findMany({
-    where: { shopId, status: "ACTIVE", imageUrl: { not: null } },
-    select: {
-      id: true,
-      name: true,
-      imageUrl: true,
-      defaultSellingPrice: true,
-      minimumAllowedPrice: true,
-      mrp: true,
-      categoryId: true,
-      brandId: true,
-      category: { select: { id: true, name: true } },
-      brand: { select: { id: true, name: true } },
-    },
-  });
+  // We query all active items and ItemAsset entries in the shop to compute referenced keys and metadata
+  const [activeItems, itemAssetsList, shopCategories] = await Promise.all([
+    prisma.item.findMany({
+      where: { shopId, status: "ACTIVE" },
+      select: {
+        id: true,
+        name: true,
+        imageUrl: true,
+        defaultSellingPrice: true,
+        minimumAllowedPrice: true,
+        mrp: true,
+        categoryId: true,
+        brandId: true,
+        category: { select: { id: true, name: true } },
+        brand: { select: { id: true, name: true } },
+      },
+    }),
+    prisma.itemAsset.findMany({
+      where: { shopId },
+      include: {
+        item: {
+          select: {
+            id: true,
+            name: true,
+            defaultSellingPrice: true,
+            minimumAllowedPrice: true,
+            mrp: true,
+            categoryId: true,
+            brandId: true,
+            category: { select: { id: true, name: true } },
+            brand: { select: { id: true, name: true } },
+          },
+        },
+      },
+    }),
+    prisma.itemCategory.findMany({
+      where: { shopId },
+      select: { id: true, name: true },
+    }),
+  ]);
 
   // Build referenced keys set and itemReferenceMap
   const referencedKeys = new Set();
   const itemReferenceMap = new Map();
+  const itemAssetMap = new Map();
+  const itemMap = new Map();
+  const categoryMap = new Map(shopCategories.map((c) => [c.id, c.name]));
 
   activeItems.forEach((it) => {
+    const meta = {
+      itemId: it.id,
+      productName: it.name,
+      categoryId: it.categoryId || null,
+      categoryName: it.category?.name || null,
+      brandId: it.brandId || null,
+      brandName: it.brand?.name || null,
+      sellingPrice: it.defaultSellingPrice != null ? String(it.defaultSellingPrice) : null,
+      minPrice: it.minimumAllowedPrice != null ? String(it.minimumAllowedPrice) : null,
+      mrp: it.mrp != null ? String(it.mrp) : null,
+    };
+    itemMap.set(it.id, meta);
+
     if (it.imageUrl) {
       it.imageUrl.split(",").forEach((url) => {
         const trimmed = url.trim();
-        const meta = {
-          itemId: it.id,
-          productName: it.name,
-          categoryId: it.categoryId || null,
-          categoryName: it.category?.name || null,
-          brandId: it.brandId || null,
-          brandName: it.brand?.name || null,
-          sellingPrice: it.defaultSellingPrice != null ? String(it.defaultSellingPrice) : null,
-          minPrice: it.minimumAllowedPrice != null ? String(it.minimumAllowedPrice) : null,
-          mrp: it.mrp != null ? String(it.mrp) : null,
-        };
         itemReferenceMap.set(trimmed, meta);
         if (trimmed.includes(".amazonaws.com/")) {
           const key = trimmed.split(".amazonaws.com/")[1];
@@ -300,6 +329,25 @@ export async function listStorageObjects(user, { shopId, filter, cursor, limit, 
           referencedKeys.add(trimmed);
         }
       });
+    }
+  });
+
+  itemAssetsList.forEach((ia) => {
+    if (ia.item) {
+      const it = ia.item;
+      const meta = {
+        itemId: it.id,
+        productName: it.name,
+        categoryId: it.categoryId || null,
+        categoryName: it.category?.name || null,
+        brandId: it.brandId || null,
+        brandName: it.brand?.name || null,
+        sellingPrice: it.defaultSellingPrice != null ? String(it.defaultSellingPrice) : null,
+        minPrice: it.minimumAllowedPrice != null ? String(it.minimumAllowedPrice) : null,
+        mrp: it.mrp != null ? String(it.mrp) : null,
+      };
+      itemAssetMap.set(ia.assetId, meta);
+      referencedKeys.add(ia.assetId);
     }
   });
 
@@ -441,15 +489,28 @@ export async function listStorageObjects(user, { shopId, filter, cursor, limit, 
   const nextCursor = batch.length > 0 ? batch[batch.length - 1].id : null;
 
   const assets = await Promise.all(batch.map(async (a) => {
-    const meta = a.storageKey ? itemReferenceMap.get(a.storageKey) : null;
-    const url = a.storageKey
-      ? await getObjectPublicUrl({
-          key: a.storageKey,
-          provider: a.storageProvider,
-          externalId: a.externalId,
-          fallbackUrl: a.remoteUrl,
-        }).catch(() => "")
-      : "";
+    let meta = itemAssetMap.get(a.id) || (a.storageKey ? itemReferenceMap.get(a.storageKey) : null);
+    if (!meta && a.remoteUrl) meta = itemReferenceMap.get(a.remoteUrl);
+    if (!meta) meta = itemReferenceMap.get(a.id);
+
+    if (!meta && a.metadata && typeof a.metadata === "object") {
+      const metaObj = a.metadata;
+      if (metaObj.itemId && itemMap.has(metaObj.itemId)) {
+        meta = itemMap.get(metaObj.itemId);
+      } else if (metaObj.categoryPath) {
+        const catIdMatch = String(metaObj.categoryPath).match(/-(cm[a-z0-9]+)$/);
+        if (catIdMatch && categoryMap.has(catIdMatch[1])) {
+          const catName = categoryMap.get(catIdMatch[1]);
+          meta = {
+            categoryId: catIdMatch[1],
+            categoryName: catName,
+            productName: `Product Asset (${catName})`,
+          };
+        }
+      }
+    }
+
+    const url = `/api/uploads/media/${a.id}`;
     return {
       id: a.id,
       fileName: a.fileName || (a.storageKey ? a.storageKey.split("/").pop() : "Unnamed File"),

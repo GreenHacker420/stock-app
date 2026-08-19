@@ -9,6 +9,7 @@ import {
   getAssetDownloadUrl,
   requestAssetDeletion,
   uploadDirectAsset,
+  streamAssetFile,
 } from "../services/upload.service.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 
@@ -18,6 +19,15 @@ const directUpload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 15 * 1024 * 1024 }, // 15MB max
 });
+
+// Public asset stream routes for rendering images in web & mobile apps
+router.get("/media/:id", asyncHandler(async (req, res) => {
+  await streamAssetFile(req.params.id, res);
+}));
+
+router.get("/file/:id", asyncHandler(async (req, res) => {
+  await streamAssetFile(req.params.id, res);
+}));
 
 router.use(requireAuth);
 

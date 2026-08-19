@@ -1,10 +1,9 @@
 import crypto from "crypto";
 import { z } from "zod";
 import prisma from "../lib/db.js";
-import { uploadBufferToS3, deleteS3Object as deleteS3ObjectFromLib } from "../lib/s3-storage.js";
 import { uploadBuffer, createUploadSession, getObjectPublicUrl, deleteObject } from "../lib/storage-manager.js";
-import { getOneDriveSharingUrl, deleteOneDriveObject } from "../lib/onedrive-storage.js";
-import { createPresignedPutUrl, verifyS3Object, getBucketName, deleteS3Object } from "./s3.service.js";
+import { getOneDriveSharingUrl, deleteOneDriveObject, downloadOneDriveObjectBuffer } from "../lib/onedrive-storage.js";
+import { createPresignedPutUrl, verifyS3Object, getBucketName, deleteS3Object, getPublicS3ObjectUrl } from "./s3.service.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 
@@ -459,4 +458,34 @@ export async function requestAssetDeletion(user, { assetId, shopId, reason }) {
   }
 
   return { success: true, asset: updated };
+}
+
+export async function streamAssetFile(assetId, res) {
+  const asset = await prisma.asset.findUnique({ where: { id: assetId } });
+  if (!asset || asset.deletedAt || asset.status !== "READY") {
+    return res.status(404).json({ success: false, message: "Asset not found" });
+  }
+
+  res.setHeader("Content-Type", asset.mimeType || "image/jpeg");
+  res.setHeader("Cache-Control", "public, max-age=86400, immutable");
+
+  if (asset.storageProvider === "ONEDRIVE") {
+    try {
+      const buffer = await downloadOneDriveObjectBuffer(asset.storageKey, asset.externalId);
+      return res.send(buffer);
+    } catch (err) {
+      console.error(`[Asset Proxy] Error fetching OneDrive asset ${assetId}:`, err.message);
+      try {
+        const freshUrl = await getOneDriveSharingUrl(asset.storageKey, asset.externalId);
+        if (freshUrl) return res.redirect(302, freshUrl);
+      } catch (_) {}
+      return res.status(502).json({ success: false, message: "Failed to stream asset from OneDrive" });
+    }
+  }
+
+  if (asset.remoteUrl && !asset.remoteUrl.includes("tempauth=")) {
+    return res.redirect(302, asset.remoteUrl);
+  }
+  const publicUrl = getPublicS3ObjectUrl(asset.storageKey);
+  return res.redirect(302, publicUrl);
 }
