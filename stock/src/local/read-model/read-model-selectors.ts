@@ -73,7 +73,7 @@ export function useCategoryReadModel(options: { shopId?: string | null } = {}) {
   return {
     ...bootstrapQuery,
     data,
-    hasReadModel: Array.isArray(bootstrapQuery.data?.categories),
+    hasReadModel: Array.isArray(bootstrapQuery.data?.categories) && bootstrapQuery.data.categories.length > 0,
   };
 }
 

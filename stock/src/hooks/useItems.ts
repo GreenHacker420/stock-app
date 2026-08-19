@@ -457,19 +457,25 @@ export function useCategoriesQuery() {
   const activeShopId = useShopStore((state) => state.activeShopId);
   const localCategories = useCategoryReadModel();
   const refreshReadModel = useReadModelRefresh(activeShopId);
+  const hasLocalData = localCategories.hasReadModel && (localCategories.data?.length ?? 0) > 0;
+
   const serverQuery = useQuery({
     queryKey: queryKeys.categories(activeShopId ?? ""),
     queryFn: () => fetchCategories(token ?? "", activeShopId ?? ""),
-    enabled: !!token && !!activeShopId && !localCategories.hasReadModel,
+    enabled: !!token && !!activeShopId && !hasLocalData,
     staleTime: 5 * 60 * 1000,
   });
 
+  const categories = hasLocalData
+    ? (localCategories.data ?? [])
+    : (serverQuery.data ?? localCategories.data ?? []);
+
   return {
     ...serverQuery,
-    data: localCategories.hasReadModel ? (localCategories.data ?? []) : serverQuery.data,
-    isLoading: localCategories.hasReadModel ? false : serverQuery.isLoading,
+    data: categories,
+    isLoading: hasLocalData ? false : serverQuery.isLoading,
     isFetching: serverQuery.isFetching || localCategories.isFetching,
-    refetch: localCategories.hasReadModel ? refreshReadModel : serverQuery.refetch,
+    refetch: hasLocalData ? refreshReadModel : serverQuery.refetch,
   };
 }
 
