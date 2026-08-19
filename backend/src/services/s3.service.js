@@ -11,7 +11,7 @@ export function getBucketName() {
 export async function createPresignedPutUrl({ key, mimeType, expiresInSeconds = 600, bucket, checksumSha256, contentLength }) {
   const bucketName = bucket || getS3BucketName();
 
-  const isMockEnv = process.env.NODE_ENV === "test" || process.env.MOCK_S3 === "true";
+  const isMockEnv = process.env.NODE_ENV === "test" || process.env.MOCK_S3 === "true" || Boolean(process.env.NODE_TEST_CONTEXT);
 
   const input = {
     Bucket: bucketName,
@@ -56,7 +56,7 @@ export async function createPresignedPutUrl({ key, mimeType, expiresInSeconds = 
 
 export async function verifyS3Object({ key, bucket }) {
   const bucketName = bucket || getS3BucketName();
-  const isMockEnv = process.env.NODE_ENV === "test" || process.env.MOCK_S3 === "true";
+  const isMockEnv = process.env.NODE_ENV === "test" || process.env.MOCK_S3 === "true" || Boolean(process.env.NODE_TEST_CONTEXT);
 
   try {
     const command = new HeadObjectCommand({ Bucket: bucketName, Key: key });

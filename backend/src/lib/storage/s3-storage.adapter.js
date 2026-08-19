@@ -6,7 +6,7 @@ import {
   deleteS3Object,
   getS3BucketName,
 } from "../s3-storage.js";
-import { createPresignedPutUrl } from "../../services/s3.service.js";
+import { createPresignedPutUrl, verifyS3Object } from "../../services/s3.service.js";
 
 
 export class S3StorageAdapter extends BaseStorageAdapter {
@@ -59,6 +59,10 @@ export class S3StorageAdapter extends BaseStorageAdapter {
 
   async deleteObject({ key }) {
     return deleteS3Object(key);
+  }
+
+  async verifyObject({ key, bucket }) {
+    return verifyS3Object({ key, bucket });
   }
 
   async getQuota() {

@@ -27,6 +27,9 @@ export class BaseStorageAdapter {
     throw new Error(`deleteObject() method not implemented on ${this.name}`);
   }
 
+  async verifyObject({ key, externalId, bucket }) {
+    return { exists: true, isMock: true };
+  }
 
   async getQuota() {
     return { configured: true };
