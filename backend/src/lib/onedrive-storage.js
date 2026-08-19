@@ -10,8 +10,16 @@ const rootFolder = (process.env.AZURE_ONEDRIVE_ROOT_FOLDER || "ShopControl").rep
 let cachedAccessToken = null;
 let tokenExpiresAt = 0;
 
+function isMockStorageEnvironment() {
+  return (
+    process.env.NODE_ENV === "test" ||
+    process.env.MOCK_ONEDRIVE === "true" ||
+    Boolean(process.env.NODE_TEST_CONTEXT)
+  );
+}
+
 export function isOneDriveConfigured() {
-  if (process.env.NODE_ENV === "test" || process.env.MOCK_ONEDRIVE === "true") {
+  if (isMockStorageEnvironment()) {
     return true;
   }
   return Boolean(tenantId && clientId && clientSecret);
@@ -22,7 +30,7 @@ export function getOneDriveDriveId() {
 }
 
 export async function getOneDriveAccessToken() {
-  if (process.env.MOCK_ONEDRIVE === "true") {
+  if (isMockStorageEnvironment()) {
     return "mock-onedrive-access-token";
   }
 
@@ -80,7 +88,7 @@ function buildItemIdUrl(itemId) {
 }
 
 export async function uploadBufferToOneDrive({ body, key, mimeType }) {
-  if (process.env.NODE_ENV === "test" || process.env.MOCK_ONEDRIVE === "true") {
+  if (isMockStorageEnvironment()) {
     return {
       provider: "ONEDRIVE",
       bucket: driveId || "onedrive-default",
@@ -177,7 +185,7 @@ export async function uploadBufferToOneDrive({ body, key, mimeType }) {
 }
 
 export async function createOneDriveUploadSession({ key, sizeBytes }) {
-  if (process.env.NODE_ENV === "test" || process.env.MOCK_ONEDRIVE === "true") {
+  if (isMockStorageEnvironment()) {
     return {
       provider: "ONEDRIVE",
       uploadUrl: `https://graph.microsoft.com/v1.0/mock-upload-session/${encodeURIComponent(key)}`,
@@ -214,7 +222,7 @@ export async function createOneDriveUploadSession({ key, sizeBytes }) {
 }
 
 export async function downloadOneDriveObjectBuffer(key, externalId) {
-  if (process.env.NODE_ENV === "test" || process.env.MOCK_ONEDRIVE === "true") {
+  if (isMockStorageEnvironment()) {
     return Buffer.from("mock-onedrive-file-buffer");
   }
 
@@ -233,7 +241,7 @@ export async function downloadOneDriveObjectBuffer(key, externalId) {
 }
 
 export async function getOneDriveSharingUrl(key, externalId) {
-  if (process.env.NODE_ENV === "test" || process.env.MOCK_ONEDRIVE === "true") {
+  if (isMockStorageEnvironment()) {
     return `https://onedrive.live.com/view?mock=${encodeURIComponent(key || externalId)}`;
   }
 
@@ -272,7 +280,7 @@ export async function getOneDriveSharingUrl(key, externalId) {
 }
 
 export async function deleteOneDriveObject(key, externalId) {
-  if (process.env.NODE_ENV === "test" || process.env.MOCK_ONEDRIVE === "true") {
+  if (isMockStorageEnvironment()) {
     return { success: true };
   }
 
@@ -294,7 +302,7 @@ export async function deleteOneDriveObject(key, externalId) {
 }
 
 export async function getOneDriveQuota() {
-  if (process.env.NODE_ENV === "test" || process.env.MOCK_ONEDRIVE === "true") {
+  if (isMockStorageEnvironment()) {
     return {
       provider: "ONEDRIVE",
       totalBytes: 1073741824000, // 1TB

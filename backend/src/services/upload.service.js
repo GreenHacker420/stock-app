@@ -1,9 +1,9 @@
 import crypto from "crypto";
-import { z } from "zod";
 import prisma from "../lib/db.js";
+import { uploadBufferToS3, deleteS3Object as deleteS3ObjectFromLib, getPublicS3ObjectUrl } from "../lib/s3-storage.js";
 import { uploadBuffer, createUploadSession, getObjectPublicUrl, deleteObject } from "../lib/storage-manager.js";
 import { getOneDriveSharingUrl, deleteOneDriveObject, downloadOneDriveObjectBuffer } from "../lib/onedrive-storage.js";
-import { createPresignedPutUrl, verifyS3Object, getBucketName, deleteS3Object, getPublicS3ObjectUrl } from "./s3.service.js";
+import { createPresignedPutUrl, verifyS3Object, getBucketName, deleteS3Object } from "./s3.service.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 
