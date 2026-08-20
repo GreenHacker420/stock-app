@@ -106,6 +106,7 @@ jobs:
             '
 
             echo "🚀 Updating services..."
+            docker rm -f shop-backend || true
             docker compose up -d --remove-orphans
 
             echo "⏳ Waiting for container to be healthy..."
