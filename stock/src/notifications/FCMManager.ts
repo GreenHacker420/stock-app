@@ -1,8 +1,29 @@
 import { useEffect, useRef } from "react";
 import { AppState, Platform } from "react-native";
 import NetInfo from "@react-native-community/netinfo";
-import * as Notifications from "expo-notifications";
-import * as Device from "expo-device";
+import {
+  setNotificationHandler,
+  getPermissionsAsync,
+  requestPermissionsAsync,
+  getExpoPushTokenAsync,
+  getDevicePushTokenAsync,
+  setNotificationChannelAsync,
+  AndroidImportance,
+  addNotificationReceivedListener,
+  addNotificationResponseReceivedListener,
+  addPushTokenListener,
+  addNotificationsDroppedListener,
+  type EventSubscription,
+} from "expo-notifications";
+import {
+  isDevice,
+  deviceName as expoDeviceName,
+  modelName,
+  osVersion as expoOsVersion,
+  brand as expoBrand,
+  manufacturer as expoManufacturer,
+  deviceYearClass as expoDeviceYearClass,
+} from "expo-device";
 import Constants from "expo-constants";
 import { useAuthStore } from "../auth/auth-store";
 import { useShopStore } from "../auth/shop-store";
@@ -16,38 +37,55 @@ import { reconcileDomainEventsForShop } from "../realtime/domainEventReconciliat
 const DEVICE_REGISTRATION_SIGNATURE_KEY = "shopcontrol_device_registration_signature";
 let registrationInFlight: Promise<string | null> | null = null;
 
-Notifications.setNotificationHandler({
+setNotificationHandler({
   handleNotification: async () => ({
     shouldShowAlert: true,
     shouldShowBanner: true,
-    shouldShowList: true,
+    shouldShowBadge: true,
     shouldPlaySound: true,
-    shouldSetBadge: true,
+    shouldSetBadge: false,
+    shouldShowList: true,
   }),
 });
 
 function platformName(): UserDevicePlatform {
-  if (Platform.OS === "ios") return "IOS";
   if (Platform.OS === "android") return "ANDROID";
+  if (Platform.OS === "ios") return "IOS";
   return "WEB";
 }
 
-function stringifyNativeToken(value: unknown) {
-  if (typeof value === "string") return value;
-  return value == null ? null : JSON.stringify(value);
+function stringifyNativeToken(token: unknown): string | null {
+  if (typeof token === "string") return token;
+  if (!token) return null;
+  try {
+    return JSON.stringify(token);
+  } catch {
+    return String(token);
+  }
 }
 
 export const FCMManager = {
   async registerForPushNotificationsAsync(token: string): Promise<string | null> {
     if (registrationInFlight) return registrationInFlight;
-    registrationInFlight = this.performRegistration(token).finally(() => {
-      registrationInFlight = null;
-    });
+
+    registrationInFlight = (async () => {
+      try {
+        return await this._doRegister(token);
+      } finally {
+        registrationInFlight = null;
+      }
+    })();
+
     return registrationInFlight;
   },
 
-  async performRegistration(token: string): Promise<string | null> {
+  setupBackgroundNotificationHandlers() {
+    // Registered once when FCMManager initializes
+  },
+
+  async _doRegister(token: string): Promise<string | null> {
     const installationId = await getDeviceInstallationId();
+
     if (Platform.OS === "web") {
       const payload = {
         installationId,
@@ -65,31 +103,31 @@ export const FCMManager = {
     let notificationsEnabled = false;
 
     try {
-      const permissions = await Notifications.getPermissionsAsync();
+      const permissions = await getPermissionsAsync();
       let status = permissions.status;
       if (status !== "granted") {
-        status = (await Notifications.requestPermissionsAsync()).status;
+        status = (await requestPermissionsAsync()).status;
       }
       notificationsEnabled = status === "granted";
 
-      if (notificationsEnabled && Device.isDevice) {
+      if (notificationsEnabled && isDevice) {
         const projectId = Constants.expoConfig?.extra?.eas?.projectId ?? Constants.easConfig?.projectId;
         if (projectId) {
-          expoPushToken = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+          expoPushToken = (await getExpoPushTokenAsync({ projectId })).data;
         }
         try {
-          nativePushToken = stringifyNativeToken((await Notifications.getDevicePushTokenAsync()).data);
+          nativePushToken = stringifyNativeToken((await getDevicePushTokenAsync()).data);
         } catch (error) {
           console.warn("Native push token is unavailable:", error);
         }
-      } else if (__DEV__ && !Device.isDevice) {
+      } else if (__DEV__ && !isDevice) {
         expoPushToken = `ExponentPushToken[simulated-${installationId.slice(-16)}]`;
       }
 
       if (Platform.OS === "android") {
-        await Notifications.setNotificationChannelAsync("default", {
+        await setNotificationChannelAsync("default", {
           name: "default",
-          importance: Notifications.AndroidImportance.MAX,
+          importance: AndroidImportance.MAX,
           vibrationPattern: [0, 250, 250, 250],
           lightColor: "#25D366",
         });
@@ -104,15 +142,15 @@ export const FCMManager = {
         buildVersion: Platform.OS === "ios"
           ? Constants.expoConfig?.ios?.buildNumber
           : String(Constants.expoConfig?.android?.versionCode || ""),
-        deviceName: Device.deviceName || Device.modelName,
-        osVersion: Device.osVersion,
+        deviceName: expoDeviceName || modelName,
+        osVersion: expoOsVersion,
         notificationsEnabled,
         voipEnabled: false,
         metadata: {
-          brand: Device.brand,
-          manufacturer: Device.manufacturer,
-          deviceYearClass: Device.deviceYearClass,
-          isPhysicalDevice: Device.isDevice,
+          brand: expoBrand,
+          manufacturer: expoManufacturer,
+          deviceYearClass: expoDeviceYearClass,
+          isPhysicalDevice: isDevice,
         },
       });
       return expoPushToken;
@@ -120,10 +158,6 @@ export const FCMManager = {
       console.error("Failed to register device:", error);
       return null;
     }
-  },
-
-  setupBackgroundNotificationHandlers() {
-    if (Platform.OS === "web") return;
   },
 };
 
@@ -141,8 +175,8 @@ export function useNotificationSetup() {
   const userId = useAuthStore((state) => state.user?.id);
   const activeShopId = useShopStore((state) => state.activeShopId);
   const queryClient = useQueryClient();
-  const notificationListener = useRef<Notifications.EventSubscription | undefined>(undefined);
-  const responseListener = useRef<Notifications.EventSubscription | undefined>(undefined);
+  const notificationListener = useRef<EventSubscription | undefined>(undefined);
+  const responseListener = useRef<EventSubscription | undefined>(undefined);
 
   useEffect(() => {
     if (!token) return;
@@ -184,8 +218,6 @@ export function useNotificationSetup() {
 
       const pushShopId = typeof data.shopId === "string" ? data.shopId : activeShopId;
       if (pushShopId) {
-        // Push is a wake/invalidation signal. Durable state is replayed from the
-        // Postgres domain-event outbox instead of trusting unordered push data.
         await reconcileShop(pushShopId);
       } else {
         queryClient.invalidateQueries({ queryKey: ["notifications"] });
@@ -193,22 +225,18 @@ export function useNotificationSetup() {
       }
     };
 
-    notificationListener.current = Notifications.addNotificationReceivedListener((notification) => {
+    notificationListener.current = addNotificationReceivedListener((notification) => {
       handleNotificationData(notification.request.content.data as Record<string, unknown>).catch(() => {});
     });
-    responseListener.current = Notifications.addNotificationResponseReceivedListener((response) => {
+    responseListener.current = addNotificationResponseReceivedListener((response) => {
       handleNotificationData(response.notification.request.content.data as Record<string, unknown>).catch(() => {});
     });
 
-    const pushTokenSubscription = Notifications.addPushTokenListener(() => {
-      // Native push tokens can rotate while the app is running. Re-read both the
-      // native and Expo token and persist the new device registration.
+    const pushTokenSubscription = addPushTokenListener(() => {
       register();
     });
 
-    const droppedSubscription = Notifications.addNotificationsDroppedListener(() => {
-      // Android maps this to FCM onDeletedMessages(). We cannot infer which
-      // individual pushes were lost, so reconcile the active durable stream.
+    const droppedSubscription = addNotificationsDroppedListener(() => {
       void reconcileShop(activeShopId);
     });
 

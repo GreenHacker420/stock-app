@@ -1,8 +1,8 @@
-import * as SQLite from "expo-sqlite";
+import { openDatabaseAsync, type SQLiteDatabase, type SQLiteBindParams } from "expo-sqlite";
 
 const DATABASE_NAME = "whatsapp_platform.db";
 
-export type SqliteParams = SQLite.SQLiteBindParams;
+export type SqliteParams = SQLiteBindParams;
 
 export interface SqliteStatement {
   execute(params?: SqliteParams): Promise<void>;
@@ -18,7 +18,7 @@ export interface SqliteExecutor {
 }
 
 class ExpoSqliteExecutor implements SqliteExecutor {
-  constructor(private readonly database: SQLite.SQLiteDatabase) {}
+  constructor(private readonly database: SQLiteDatabase) {}
 
   exec(sql: string) {
     return this.database.execAsync(sql);
@@ -62,13 +62,13 @@ class ExpoSqliteExecutor implements SqliteExecutor {
 }
 
 class SqliteClient {
-  private databasePromise: Promise<SQLite.SQLiteDatabase> | null = null;
+  private databasePromise: Promise<SQLiteDatabase> | null = null;
   private operationQueue: Promise<void> = Promise.resolve();
 
   private getDatabase() {
     if (!this.databasePromise) {
       this.databasePromise = (async () => {
-        const database = await SQLite.openDatabaseAsync(DATABASE_NAME);
+        const database = await openDatabaseAsync(DATABASE_NAME);
         await database.execAsync(`
           PRAGMA journal_mode = WAL;
           PRAGMA foreign_keys = ON;

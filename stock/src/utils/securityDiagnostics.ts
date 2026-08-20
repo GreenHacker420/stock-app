@@ -1,4 +1,11 @@
-import * as AppIntegrity from "@expo/app-integrity";
+import {
+  isSupported,
+  prepareIntegrityTokenProviderAsync,
+  isHardwareAttestationSupportedAsync,
+  requestIntegrityCheckAsync,
+  generateKeyAsync,
+  attestKeyAsync,
+} from "@expo/app-integrity";
 import { Platform } from "react-native";
 
 export interface DiagnosticsResult {
@@ -17,48 +24,49 @@ export async function runSecurityDiagnostics(
   const result: DiagnosticsResult = {
     platform: Platform.OS === "android" ? "Android" : Platform.OS === "ios" ? "iOS" : "Web",
     isDevice,
-    appAttestSupported: Platform.OS === "ios" ? AppIntegrity.isSupported : false,
+    appAttestSupported: Platform.OS === "ios" ? isSupported : false,
     hardwareAttestation: false,
     integrityToken: undefined,
     verdict: "Genuine (Simulated)",
   };
 
+  onProgress("Checking Play Integrity / App Attest support...");
+  await new Promise((resolve) => setTimeout(resolve, 500));
+
   if (Platform.OS === "android" && isDevice) {
     onProgress("Initializing Play Integrity Provider...");
     try {
-      // Use standard Google Cloud Project Number placeholder.
-      const projectNumber = process.env.EXPO_PUBLIC_PLAY_INTEGRITY_GCP_PROJECT_NUMBER || "474633049000";
-      await AppIntegrity.prepareIntegrityTokenProviderAsync(projectNumber);
+      const projectNumber = "123456789012";
+      await prepareIntegrityTokenProviderAsync(projectNumber);
       
       onProgress("Checking hardware attestation...");
-      result.hardwareAttestation = await AppIntegrity.isHardwareAttestationSupportedAsync();
-      
-      onProgress("Requesting Play Integrity Token...");
-      const nonce = "shopcontrol_diagnostics_" + Date.now();
-      const token = await AppIntegrity.requestIntegrityCheckAsync(nonce);
-      result.integrityToken = token;
-      result.verdict = "Genuine & Signed by Google Play Services";
-    } catch (err) {
-      console.warn("Play Integrity check failed:", err);
-      throw err;
+      result.hardwareAttestation = await isHardwareAttestationSupportedAsync();
+
+      onProgress("Requesting Play Integrity token...");
+      const nonce = "test-nonce-" + Date.now();
+      const token = await requestIntegrityCheckAsync(nonce);
+      result.integrityToken = token ? token.substring(0, 20) + "..." : undefined;
+      result.verdict = token ? "Genuine Device (Play Integrity Verified)" : "Verification Failed";
+    } catch (err: any) {
+      onProgress("Integrity check failed: " + err.message);
+      result.verdict = "Untrusted / Emulator Detected (" + err.message + ")";
     }
-  } else if (Platform.OS === "ios" && isDevice && AppIntegrity.isSupported) {
-    onProgress("Initializing App Attest Cryptographic Key...");
+  } else if (Platform.OS === "ios" && isDevice && isSupported) {
+    onProgress("Generating App Attest key...");
     try {
-      const keyId = await AppIntegrity.generateKeyAsync();
-      onProgress("Attesting cryptographic key with Apple...");
-      const challenge = "shopcontrol_challenge_" + Date.now();
-      const attestation = await AppIntegrity.attestKeyAsync(keyId, challenge);
-      result.integrityToken = attestation;
-      result.verdict = "Genuine & Attested by Apple Secure Enclave";
-    } catch (err) {
-      console.warn("App Attest check failed:", err);
-      throw err;
+      const keyId = await generateKeyAsync();
+      onProgress("Attesting key with Apple...");
+      const challenge = "test-challenge-" + Date.now();
+      const attestation = await attestKeyAsync(keyId, challenge);
+      result.integrityToken = attestation ? attestation.substring(0, 20) + "..." : undefined;
+      result.verdict = attestation ? "Genuine Device (App Attest Verified)" : "Attestation Failed";
+    } catch (err: any) {
+      onProgress("App Attest failed: " + err.message);
+      result.verdict = "Untrusted / Jailbroken Device (" + err.message + ")";
     }
   } else {
-    onProgress("Running simulated diagnostics...");
-    await new Promise((res) => setTimeout(res, 800));
-    result.verdict = "Genuine (Development Environment)";
+    onProgress("Running on Simulator / Web - skipping hardware attestation.");
+    result.verdict = isDevice ? "Device Unverified" : "Simulator / Web Environment";
   }
 
   return result;

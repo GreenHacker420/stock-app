@@ -1,4 +1,4 @@
-import * as Print from "expo-print";
+import { printToFileAsync, printAsync } from "expo-print";
 import { isAvailableAsync, shareAsync } from "expo-sharing";
 import { Alert, Platform } from "react-native";
 import qrcode from "qrcode-generator";
@@ -789,7 +789,7 @@ export async function shareSaleInvoicePdf(options: ShareInvoiceOptions): Promise
     }
 
     const html = await generateSaleInvoiceHtml(options);
-    const result = await Print.printToFileAsync({ html });
+    const result = await printToFileAsync({ html });
     const uri = result.uri;
 
     const isSharingAvailable = await isAvailableAsync();
@@ -1023,7 +1023,7 @@ export async function shareDailySummaryPdf(options: ShareDailySummaryOptions): P
     return "web-print";
   }
 
-  const result = await Print.printToFileAsync({ html });
+  const result = await printToFileAsync({ html });
   const uri = result.uri;
   if (!uri) {
     throw new Error("PDF generation did not return a file URI.");
@@ -1052,7 +1052,7 @@ export async function printSaleInvoiceDirect(options: ShareInvoiceOptions): Prom
       return;
     }
 
-    await Print.printAsync({ html });
+    await printAsync({ html });
   } catch (error: any) {
     console.error("Failed to print invoice:", error);
     Alert.alert("Print Failed", error?.message || "An error occurred while printing the receipt.");
@@ -1097,7 +1097,7 @@ export function generateDeliveryMemoHtml(dm: any): string {
 export async function shareDeliveryMemoPdf(dm: any): Promise<void> {
   const html = generateDeliveryMemoHtml(dm);
   if (Platform.OS === "web") return printHtmlOnWeb(html);
-  const result = await Print.printToFileAsync({ html });
+  const result = await printToFileAsync({ html });
   if (!(await isAvailableAsync())) throw new Error("Native sharing is unavailable on this device.");
   await shareAsync(result.uri, { mimeType: "application/pdf", dialogTitle: `Delivery Memo ${dm.dmNumber}`, UTI: "com.adobe.pdf" });
 }
@@ -1105,5 +1105,5 @@ export async function shareDeliveryMemoPdf(dm: any): Promise<void> {
 export async function printDeliveryMemo(dm: any): Promise<void> {
   const html = generateDeliveryMemoHtml(dm);
   if (Platform.OS === "web") return printHtmlOnWeb(html);
-  await Print.printAsync({ html });
+  await printAsync({ html });
 }

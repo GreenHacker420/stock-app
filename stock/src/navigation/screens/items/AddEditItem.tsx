@@ -13,7 +13,7 @@ import { Text, Icon, TextInput } from "react-native-paper";
 import { Image } from "expo-image";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { CameraView, useCameraPermissions } from "expo-camera";
-import * as ImagePicker from "expo-image-picker";
+import { requestCameraPermissionsAsync, launchCameraAsync, requestMediaLibraryPermissionsAsync, launchImageLibraryAsync } from "expo-image-picker";
 
 import { Item, ItemCategory, ItemBrand, CreateItemPayload, UpdateItemPayload, LocalItemImage, uploadItemImage } from "../../../api/client";
 import { useAuthStore } from "../../../auth/auth-store";
@@ -447,12 +447,12 @@ export function AddEditItem() {
 
   const pickImage = async (source: "camera" | "library") => {
     if (source === "camera") {
-      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      const permission = await requestCameraPermissionsAsync();
       if (!permission.granted) {
         Alert.alert("Camera access required", "Allow camera access to capture product photos.");
         return;
       }
-      const result = await ImagePicker.launchCameraAsync({
+      const result = await launchCameraAsync({
         mediaTypes: ["images"],
         quality: 0.5,
         allowsEditing: true,
@@ -468,12 +468,12 @@ export function AddEditItem() {
       return;
     }
 
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    const permission = await requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
       Alert.alert("Photo access required", "Allow photo access to choose product photos.");
       return;
     }
-    const result = await ImagePicker.launchImageLibraryAsync({
+    const result = await launchImageLibraryAsync({
       mediaTypes: ["images"],
       quality: 0.5,
       allowsEditing: true,

@@ -1,47 +1,53 @@
 import { Platform } from "react-native";
-import * as Haptics from "expo-haptics";
+import {
+  impactAsync,
+  selectionAsync,
+  notificationAsync,
+  ImpactFeedbackStyle,
+  NotificationFeedbackType,
+} from "expo-haptics";
 
 export function triggerLightHaptic() {
   if (Platform.OS === "web") return;
-  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+  void impactAsync(ImpactFeedbackStyle.Light).catch(() => {});
 }
 
 export function triggerSelectionHaptic() {
   if (Platform.OS === "web") return;
-  void Haptics.selectionAsync().catch(() => {});
+  void selectionAsync().catch(() => {});
 }
 
 export function triggerMediumHaptic() {
   if (Platform.OS === "web") return;
-  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+  void impactAsync(ImpactFeedbackStyle.Medium).catch(() => {});
 }
 
 export function triggerHeavyHaptic() {
   if (Platform.OS === "web") return;
-  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
+  void impactAsync(ImpactFeedbackStyle.Heavy).catch(() => {});
 }
 
 export function triggerRigidHaptic() {
   if (Platform.OS === "web") return;
-  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Rigid).catch(() => {});
+  void impactAsync(ImpactFeedbackStyle.Rigid).catch(() => {});
 }
 
 export function triggerSoftHaptic() {
   if (Platform.OS === "web") return;
-  void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Soft).catch(() => {});
+  void impactAsync(ImpactFeedbackStyle.Soft).catch(() => {});
 }
 
 export function triggerSuccessHaptic() {
   if (Platform.OS === "web") return;
-  void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+  void notificationAsync(NotificationFeedbackType.Success).catch(() => {});
 }
 
 export function triggerWarningHaptic() {
   if (Platform.OS === "web") return;
-  void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+  void notificationAsync(NotificationFeedbackType.Warning).catch(() => {});
 }
 
 export function triggerErrorHaptic() {
   if (Platform.OS === "web") return;
-  void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+  void notificationAsync(NotificationFeedbackType.Error).catch(() => {});
 }

@@ -3,9 +3,9 @@ import { Alert, Pressable, StyleSheet, View } from "react-native";
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { ActivityIndicator, Button, Searchbar, Text, TextInput } from "react-native-paper";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import * as DocumentPicker from "expo-document-picker";
-import * as ImagePicker from "expo-image-picker";
-import * as Location from "expo-location";
+import { getDocumentAsync } from "expo-document-picker";
+import { requestMediaLibraryPermissionsAsync, launchImageLibraryAsync } from "expo-image-picker";
+import { requestForegroundPermissionsAsync, getCurrentPositionAsync, Accuracy } from "expo-location";
 
 import {
   fetchWaTemplates,
@@ -187,7 +187,7 @@ export function TemplateSendSheet({
     try {
       let media;
       if (format === "DOCUMENT") {
-        const result = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true, multiple: false });
+        const result = await getDocumentAsync({ copyToCacheDirectory: true, multiple: false });
         if (result.canceled) return;
         const asset = result.assets[0];
         media = {
@@ -198,13 +198,13 @@ export function TemplateSendSheet({
           size: asset.size,
         };
       } else {
-        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        const permission = await requestMediaLibraryPermissionsAsync();
         if (!permission.granted) {
           Alert.alert("Photo access required", "Allow photo library access to select template media.");
           return;
         }
         const kind: "image" | "video" = format === "VIDEO" ? "video" : "image";
-        const result = await ImagePicker.launchImageLibraryAsync({
+        const result = await launchImageLibraryAsync({
           mediaTypes: [kind === "image" ? "images" : "videos"],
           allowsMultipleSelection: false,
           quality: 1,
@@ -237,12 +237,12 @@ export function TemplateSendSheet({
   const useCurrentLocation = async () => {
     try {
       setLocating(true);
-      const permission = await Location.requestForegroundPermissionsAsync();
+      const permission = await requestForegroundPermissionsAsync();
       if (!permission.granted) {
         Alert.alert("Location required", "Allow location access to use your current position.");
         return;
       }
-      const result = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const result = await getCurrentPositionAsync({ accuracy: Accuracy.Balanced });
       setHeaderLocation((current) => ({
         ...current,
         latitude: String(result.coords.latitude),
@@ -257,13 +257,13 @@ export function TemplateSendSheet({
 
   const pickCarouselMedia = async (cardIndex: number, format: "IMAGE" | "VIDEO") => {
     try {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      const permission = await requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
         Alert.alert("Photo access required", "Allow photo library access to select carousel media.");
         return;
       }
       const kind = format === "VIDEO" ? "video" : "image";
-      const result = await ImagePicker.launchImageLibraryAsync({
+      const result = await launchImageLibraryAsync({
         mediaTypes: [kind === "image" ? "images" : "videos"],
         allowsMultipleSelection: false,
         quality: 1,

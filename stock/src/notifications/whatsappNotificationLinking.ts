@@ -1,5 +1,5 @@
-import * as Linking from "expo-linking";
-import * as Notifications from "expo-notifications";
+import { createURL, getInitialURL, addEventListener } from "expo-linking";
+import { getLastNotificationResponse, addNotificationResponseReceivedListener } from "expo-notifications";
 
 type WhatsAppPushData = {
   type?: unknown;
@@ -22,7 +22,7 @@ export function whatsappNotificationUrl(data: WhatsAppPushData) {
   const conversationId = identifier(data.conversationId);
   if (!shopId || !integrationId || !conversationId) return null;
 
-  return Linking.createURL(
+  return createURL(
     `shops/${encodeURIComponent(shopId)}/whatsapp/${encodeURIComponent(integrationId)}/conversations/${encodeURIComponent(conversationId)}`,
     {
       queryParams: {
@@ -36,14 +36,14 @@ export function whatsappNotificationUrl(data: WhatsAppPushData) {
 
 export const notificationLinking = {
   async getInitialURL() {
-    const response = Notifications.getLastNotificationResponse();
+    const response = getLastNotificationResponse();
     const notificationUrl = whatsappNotificationUrl(response?.notification.request.content.data || {});
-    return notificationUrl || Linking.getInitialURL();
+    return notificationUrl || getInitialURL();
   },
 
   subscribe(listener: (url: string) => void) {
-    const linkSubscription = Linking.addEventListener("url", ({ url }) => listener(url));
-    const notificationSubscription = Notifications.addNotificationResponseReceivedListener((response) => {
+    const linkSubscription = addEventListener("url", ({ url }) => listener(url));
+    const notificationSubscription = addNotificationResponseReceivedListener((response) => {
       const url = whatsappNotificationUrl(response.notification.request.content.data || {});
       if (url) listener(url);
     });

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import { 
   KeyboardAvoidingView, 
   Platform, 
@@ -10,7 +10,7 @@ import {
   Modal,
   ActivityIndicator
 } from "react-native";
-import * as LocalAuthentication from "expo-local-authentication";
+import { authenticateAsync, hasHardwareAsync, isEnrolledAsync } from "expo-local-authentication";
 import { Divider, Icon, Text, TextInput as PaperInput } from "react-native-paper";
 import { z } from "zod";
 import { isValidPhoneNumber } from "libphonenumber-js";
@@ -262,7 +262,7 @@ export function Login() {
     const hasSaved = await getToken(LAST_IDENTIFIER_KEY);
     if (!hasSaved) return;
 
-    const result = await LocalAuthentication.authenticateAsync({
+    const result = await authenticateAsync({
       promptMessage: "Unlock ShopControl",
       fallbackLabel: "Use PIN",
       biometricsSecurityLevel: "strong",
@@ -295,8 +295,8 @@ export function Login() {
       const savedName = await getToken("shopcontrol_last_user_name");
       const savedPhone = await getToken("shopcontrol_last_user_phone");
       
-      const hasHardware = await LocalAuthentication.hasHardwareAsync().catch(() => false);
-      const isEnrolled = await LocalAuthentication.isEnrolledAsync().catch(() => false);
+      const hasHardware = await hasHardwareAsync().catch(() => false);
+      const isEnrolled = await isEnrolledAsync().catch(() => false);
       const isBioAvailable = hasHardware && isEnrolled;
       
       setBiometricAvailable(isBioAvailable);

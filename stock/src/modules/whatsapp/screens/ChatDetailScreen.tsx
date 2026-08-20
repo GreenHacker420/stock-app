@@ -30,11 +30,11 @@ import Animated, {
 } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 import { KeyboardController } from "react-native-keyboard-controller";
-import * as Crypto from "expo-crypto";
-import * as Clipboard from "expo-clipboard";
-import * as DocumentPicker from "expo-document-picker";
-import * as ImagePicker from "expo-image-picker";
-import * as Location from "expo-location";
+import { randomUUID } from "expo-crypto";
+import { setStringAsync } from "expo-clipboard";
+import { getDocumentAsync } from "expo-document-picker";
+import { requestMediaLibraryPermissionsAsync, launchImageLibraryAsync, requestCameraPermissionsAsync, launchCameraAsync, MediaTypeOptions } from "expo-image-picker";
+import { requestForegroundPermissionsAsync, getCurrentPositionAsync, Accuracy, PermissionStatus } from "expo-location";
 import NetInfo from "@react-native-community/netinfo";
 import { useRoute, useNavigation, useIsFocused, type RouteProp } from "@react-navigation/native";
 import { useHeaderHeight } from "@react-navigation/elements";
@@ -938,7 +938,7 @@ export const ChatDetailScreen = () => {
     const replyToMessageId = replyingTo?.id;
     setReplyingTo(null);
     sendMutation.mutate({
-      clientMessageId: Crypto.randomUUID(),
+      clientMessageId: randomUUID(),
       message: {
         kind: "text",
         text,
@@ -956,7 +956,7 @@ export const ChatDetailScreen = () => {
 
   const sendStructuredMessage = useCallback((
     message: WaOutboundMessage,
-    clientMessageId = Crypto.randomUUID(),
+    clientMessageId = randomUUID(),
   ) => {
     if (!activeShopId) return;
     const replyToMessageId = replyingTo?.id;
@@ -994,8 +994,8 @@ export const ChatDetailScreen = () => {
 
     setLocating(true);
     try {
-      const permission = await Location.requestForegroundPermissionsAsync();
-      if (permission.status !== Location.PermissionStatus.GRANTED) {
+      const permission = await requestForegroundPermissionsAsync();
+      if (permission.status !== PermissionStatus.GRANTED) {
         Alert.alert(
           "Location permission required",
           "Allow location access to share your current position in this conversation.",
@@ -1003,8 +1003,8 @@ export const ChatDetailScreen = () => {
         return false;
       }
 
-      const position = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
+      const position = await getCurrentPositionAsync({
+        accuracy: Accuracy.Balanced,
       });
 
       sendStructuredMessage({
@@ -1030,7 +1030,7 @@ export const ChatDetailScreen = () => {
   ) => {
     try {
       if (kind === "document") {
-        const result = await DocumentPicker.getDocumentAsync({
+        const result = await getDocumentAsync({
           type: [
             "application/pdf",
             "application/msword",
@@ -1065,7 +1065,7 @@ export const ChatDetailScreen = () => {
       }
 
       if (source === "camera") {
-        const permission = await ImagePicker.requestCameraPermissionsAsync();
+        const permission = await requestCameraPermissionsAsync();
         if (!permission.granted) {
           Alert.alert(
             "Camera access required",
@@ -1074,7 +1074,7 @@ export const ChatDetailScreen = () => {
           return;
         }
       } else {
-        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        const permission = await requestMediaLibraryPermissionsAsync();
         if (!permission.granted) {
           Alert.alert(
             "Photo access required",
@@ -1084,15 +1084,15 @@ export const ChatDetailScreen = () => {
         }
       }
 
-      const pickerOptions: ImagePicker.ImagePickerOptions = {
-        mediaTypes: [kind === "image" ? "images" : "videos"],
+      const pickerOptions = {
+        mediaTypes: [kind === "image" ? "images" : "videos"] as any,
         allowsMultipleSelection: false,
-        quality: 1,
+        quality: 1 as const,
         ...(kind === "video" ? { videoMaxDuration: 5 * 60 } : {}),
       };
       const result = source === "camera"
-        ? await ImagePicker.launchCameraAsync(pickerOptions)
-        : await ImagePicker.launchImageLibraryAsync(pickerOptions);
+        ? await launchCameraAsync(pickerOptions)
+        : await launchImageLibraryAsync(pickerOptions);
       if (result.canceled) return;
 
       const asset = result.assets[0];
@@ -1137,7 +1137,7 @@ export const ChatDetailScreen = () => {
     const media = selectedMedia;
     const replyToMessageId = replyingTo?.id;
     const caption = mediaCaption.trim() || undefined;
-    const clientMessageId = Crypto.randomUUID();
+    const clientMessageId = randomUUID();
     const operationId = `upload:${clientMessageId}`;
     const now = Date.now();
     const mediaMessage = {
@@ -1236,7 +1236,7 @@ export const ChatDetailScreen = () => {
     if (!integrationId || !token || uploadingMedia) return;
 
     const replyToMessageId = replyingTo?.id;
-    const clientMessageId = Crypto.randomUUID();
+    const clientMessageId = randomUUID();
     const operationId = `upload:${clientMessageId}`;
     const now = Date.now();
     setReplyingTo(null);
@@ -1339,7 +1339,7 @@ export const ChatDetailScreen = () => {
 
   const handleCopyText = async () => {
     if (selectedMessage?.content?.text) {
-      await Clipboard.setStringAsync(selectedMessage.content.text);
+      await setStringAsync(selectedMessage.content.text);
     }
     setReactionMenuVisible(false);
     setSelectedMessage(null);

@@ -11,8 +11,8 @@ import {
   ContactField,
   requestPermissionsAsync,
 } from "expo-contacts";
-import * as DocumentPicker from "expo-document-picker";
-import * as ImagePicker from "expo-image-picker";
+import { getDocumentAsync } from "expo-document-picker";
+import { requestMediaLibraryPermissionsAsync, launchImageLibraryAsync } from "expo-image-picker";
 import { useDebounce } from "use-debounce";
 
 import { ApiError } from "../../../api/client";
@@ -432,7 +432,7 @@ export function BroadcastComposerScreen() {
     try {
       let media: WaLocalMedia;
       if (format === "DOCUMENT") {
-        const result = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true, multiple: false });
+        const result = await getDocumentAsync({ copyToCacheDirectory: true, multiple: false });
         if (result.canceled) return;
         const asset = result.assets[0];
         media = {
@@ -443,10 +443,10 @@ export function BroadcastComposerScreen() {
           size: asset.size,
         };
       } else {
-        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        const permission = await requestMediaLibraryPermissionsAsync();
         if (!permission.granted) throw new Error("Allow photo library access to choose broadcast media.");
         const kind = format === "VIDEO" ? "video" : "image";
-        const result = await ImagePicker.launchImageLibraryAsync({
+        const result = await launchImageLibraryAsync({
           mediaTypes: [kind === "video" ? "videos" : "images"],
           allowsMultipleSelection: false,
           quality: 1,

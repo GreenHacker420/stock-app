@@ -4,8 +4,8 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Button, IconButton, Switch, Text, TextInput } from "react-native-paper";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import * as DocumentPicker from "expo-document-picker";
-import * as ImagePicker from "expo-image-picker";
+import { getDocumentAsync } from "expo-document-picker";
+import { requestMediaLibraryPermissionsAsync, launchImageLibraryAsync } from "expo-image-picker";
 
 import {
   createWaTemplate,
@@ -323,7 +323,7 @@ export function TemplateEditorScreen() {
     try {
       let media;
       if (format === "DOCUMENT") {
-        const result = await DocumentPicker.getDocumentAsync({ copyToCacheDirectory: true, multiple: false });
+        const result = await getDocumentAsync({ copyToCacheDirectory: true, multiple: false });
         if (result.canceled) return;
         const asset = result.assets[0];
         media = {
@@ -334,13 +334,13 @@ export function TemplateEditorScreen() {
           size: asset.size,
         };
       } else {
-        const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        const permission = await requestMediaLibraryPermissionsAsync();
         if (!permission.granted) {
           Alert.alert("Photo access required", "Allow photo library access to upload a Meta review example.");
           return;
         }
         const kind: "image" | "video" = format === "VIDEO" ? "video" : "image";
-        const result = await ImagePicker.launchImageLibraryAsync({
+        const result = await launchImageLibraryAsync({
           mediaTypes: [kind === "image" ? "images" : "videos"],
           allowsMultipleSelection: false,
           quality: 1,

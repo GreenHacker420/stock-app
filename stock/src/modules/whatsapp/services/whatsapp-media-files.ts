@@ -1,5 +1,5 @@
 import { Directory, File, Paths } from "expo-file-system";
-import * as Crypto from "expo-crypto";
+import { randomUUID } from "expo-crypto";
 import type { WaLocalMedia } from "../../../api/whatsapp.api";
 
 function safeFileName(name: string) {
@@ -22,7 +22,7 @@ export async function persistWhatsAppMedia(
 
   const destination = new File(
     integrationDirectory,
-    `${Crypto.randomUUID()}-${safeFileName(media.name)}`,
+    `${randomUUID()}-${safeFileName(media.name)}`,
   );
   await new File(media.uri).copy(destination);
   return { ...media, uri: destination.uri };

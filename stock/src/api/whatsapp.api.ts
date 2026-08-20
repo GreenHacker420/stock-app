@@ -1,6 +1,6 @@
 import { API_BASE_URL, apiRequest } from "./client";
 import { useAuthStore } from "../auth/auth-store";
-import * as Crypto from "expo-crypto";
+import { randomUUID } from "expo-crypto";
 import { getDeviceInstallationId } from "../notifications/device-identity";
 import {
   parseWaConversationPage,
@@ -465,9 +465,9 @@ export async function sendScopedWaMessage(
     replyToMessageId?: string;
   },
 ) {
-  const clientMessageId = input.clientMessageId || Crypto.randomUUID();
+  const clientMessageId = input.clientMessageId || randomUUID();
   const sourceDeviceId = await getDeviceInstallationId();
-  const requestId = Crypto.randomUUID();
+  const requestId = randomUUID();
   const idempotencyKey = `wa-send:${scope.shopId}:${scope.integrationId}:${clientMessageId}`;
   return apiRequest<{ message: WaMessage }>(
     `/whatsapp/integrations/${encodeURIComponent(scope.integrationId)}/conversations/${encodeURIComponent(scope.conversationId)}/messages`,

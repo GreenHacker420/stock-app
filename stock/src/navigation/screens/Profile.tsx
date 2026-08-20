@@ -11,8 +11,14 @@ import {
 } from "react-native";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { Button, Divider, Icon, Switch, Text, TextInput } from "react-native-paper";
-import * as Crypto from "expo-crypto";
-import * as LocalAuthentication from "expo-local-authentication";
+import { digestStringAsync, CryptoDigestAlgorithm } from "expo-crypto";
+import {
+  hasHardwareAsync,
+  isEnrolledAsync,
+  supportedAuthenticationTypesAsync,
+  authenticateAsync,
+  AuthenticationType,
+} from "expo-local-authentication";
 import Constants from "expo-constants";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -35,8 +41,8 @@ import {
 import { navigate } from "../navigation-ref";
 
 async function hashQuickPin(mobile: string, pin: string) {
-  return Crypto.digestStringAsync(
-    Crypto.CryptoDigestAlgorithm.SHA256,
+  return digestStringAsync(
+    CryptoDigestAlgorithm.SHA256,
     `${mobile.trim()}:${pin}`,
   );
 }
@@ -148,10 +154,10 @@ export function Profile() {
     const loadSecurityState = async () => {
       try {
         const [hasHardware, isEnrolled, types, savedValue] = await Promise.all([
-          LocalAuthentication.hasHardwareAsync().catch(() => false),
-          LocalAuthentication.isEnrolledAsync().catch(() => false),
-          LocalAuthentication.supportedAuthenticationTypesAsync().catch(
-            () => [] as LocalAuthentication.AuthenticationType[],
+          hasHardwareAsync().catch(() => false),
+          isEnrolledAsync().catch(() => false),
+          supportedAuthenticationTypesAsync().catch(
+            () => [] as AuthenticationType[],
           ),
           getToken("shopcontrol_biometric_enabled").catch(() => null),
         ]);
@@ -161,9 +167,9 @@ export function Profile() {
         const available = hasHardware && isEnrolled;
         setBiometricAvailable(available);
 
-        if (types.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION)) {
+        if (types.includes(AuthenticationType.FACIAL_RECOGNITION)) {
           setBiometricTypeLabel("Face Unlock");
-        } else if (types.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)) {
+        } else if (types.includes(AuthenticationType.FINGERPRINT)) {
           setBiometricTypeLabel("Fingerprint");
         }
 
@@ -258,7 +264,7 @@ export function Profile() {
         throw new Error("Biometric authentication is not enrolled on this device.");
       }
 
-      const result = await LocalAuthentication.authenticateAsync({
+      const result = await authenticateAsync({
         promptMessage: `Confirm identity to enable ${biometricTypeLabel}`,
         cancelLabel: "Cancel",
       });

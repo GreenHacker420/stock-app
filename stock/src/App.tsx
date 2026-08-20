@@ -4,7 +4,7 @@ import { ThemeProvider as RneThemeProvider, createTheme } from '@rneui/themed';
 import { focusManager, onlineManager, QueryClientProvider } from '@tanstack/react-query';
 import { Asset } from 'expo-asset';
 import { createURL } from 'expo-linking';
-import * as SplashScreen from 'expo-splash-screen';
+import { preventAutoHideAsync, hideAsync } from 'expo-splash-screen';
 import { useEffect } from 'react';
 import { AppState, Platform, Image, StatusBar, StyleSheet, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -38,7 +38,7 @@ Asset.loadAsync([
   require('../assets/splash-icon.png'),
 ]);
 
-SplashScreen.preventAutoHideAsync();
+preventAutoHideAsync();
 
 const prefix = createURL('/');
 const paperSettings = {
@@ -152,7 +152,7 @@ function AppContent({
   }
 
   if (!user) {
-    SplashScreen.hideAsync();
+    hideAsync();
     return <Login />;
   }
 
@@ -170,7 +170,7 @@ function AuthenticatedApp({ theme, prefix }: { theme: typeof navigationThemes.Li
 
   useEffect(() => {
     if (!activeShopId) {
-      SplashScreen.hideAsync();
+      hideAsync();
     }
   }, [activeShopId]);
 
@@ -191,7 +191,7 @@ function AuthenticatedApp({ theme, prefix }: { theme: typeof navigationThemes.Li
         subscribe: notificationLinking.subscribe,
       }}
       onReady={() => {
-        SplashScreen.hideAsync();
+        hideAsync();
       }}
     />
   );
