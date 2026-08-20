@@ -489,9 +489,12 @@ export async function streamAssetFile(assetId, res) {
     }
   }
 
-  if (asset.remoteUrl && !asset.remoteUrl.includes("tempauth=")) {
-    return res.redirect(302, asset.remoteUrl);
+  try {
+    const buffer = await downloadS3ObjectBuffer(asset.storageKey);
+    return res.send(buffer);
+  } catch (err) {
+    console.warn(`[Asset Proxy] Warning: S3 buffer download failed for asset ${assetId}, falling back to public S3 URL:`, err.message);
+    const publicUrl = getPublicS3ObjectUrl(asset.storageKey);
+    return res.redirect(302, publicUrl);
   }
-  const publicUrl = getPublicS3ObjectUrl(asset.storageKey);
-  return res.redirect(302, publicUrl);
 }
