@@ -1,7 +1,7 @@
 import { UnrecoverableError, Worker } from "bullmq";
 import Redis from "ioredis";
 import prisma from "../lib/db.js";
-import { EXPO_PUSH_TOKEN_REGEX } from "../lib/validate.js";
+import { expoPushTokenSchema } from "../lib/validate.js";
 import { enqueueNotificationPush } from "../services/notification.push.queue.js";
 
 const REDIS_URL = process.env.REDIS_URL || "redis://localhost:6379";
@@ -12,7 +12,7 @@ const RECEIPT_RETENTION_MS = 24 * 60 * 60 * 1000;
 const PUSH_RECOVERY_INTERVAL_MS = 30 * 1000;
 
 function isExpoPushToken(token) {
-  return EXPO_PUSH_TOKEN_REGEX.test(token || "");
+  return expoPushTokenSchema.safeParse(token || "").success;
 }
 
 async function sendExpo(messages) {

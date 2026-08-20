@@ -30,8 +30,12 @@ type UpiConfigRouteParams = {
   };
 };
 
+import { z } from "zod";
+
+export const upiVpaSchema = z.string().trim().regex(/^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z][a-zA-Z0-9.\-_]{2,64}$/);
+
 const isValidUpiId = (value: string) => {
-  return /^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z][a-zA-Z0-9.\-_]{2,64}$/.test(value.trim());
+  return upiVpaSchema.safeParse(value.trim()).success;
 };
 
 const extractUpiFromUrl = (url: string): { upiId: string; upiName: string } | null => {

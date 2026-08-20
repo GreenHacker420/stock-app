@@ -1,4 +1,5 @@
 import { useMemo, useState, useEffect, useCallback } from "react";
+import { isValidPhoneNumber } from "libphonenumber-js";
 import { 
   ScrollView, 
   View, 
@@ -147,8 +148,7 @@ export function TakePayment() {
   const handleOpenQuickCreate = () => {
     haptic();
     const query = searchQuery.trim();
-    // Match phone numbers strictly or with common delimiters but normalize when saving
-    const isPhoneNumber = /^\+?[\d\s-]{5,15}$/.test(query);
+    const isPhoneNumber = isValidPhoneNumber(query.startsWith("+") ? query : `+91${query}`, "IN");
     if (isPhoneNumber) {
       setNewCustPhone(query);
       setNewCustName("");

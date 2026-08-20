@@ -1,5 +1,10 @@
-import { VALIDATION_PATTERNS, CLEANING_PATTERNS } from "../regex";
+import { isValidPhoneNumber } from "libphonenumber-js";
 import { z } from "zod";
+import { CLEANING_PATTERNS } from "../regex";
+
+export const integerQuantitySchema = z.coerce.number().int().nonnegative();
+export const gstinSchema = z.string().trim().toUpperCase().length(15).regex(/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/);
+export const emailSchema = z.string().trim().email();
 
 export function parseAmount(value: string, fallback: number | null = null): number | null {
   if (!value.trim()) return fallback;
@@ -10,8 +15,8 @@ export function parseAmount(value: string, fallback: number | null = null): numb
 
 export function parseQty(value: string, fallback = 0): number | null {
   if (!value.trim()) return fallback;
-  if (!VALIDATION_PATTERNS.INTEGER_ONLY.test(value.trim())) return null;
-  return Number(value);
+  const result = integerQuantitySchema.safeParse(value.trim());
+  return result.success ? result.data : null;
 }
 
 export function extractDigits(value: string): string {
@@ -35,13 +40,14 @@ export function cleanPhoneNumber(phone: string): string {
 }
 
 export function isValidMobile(phone: string): boolean {
-  return VALIDATION_PATTERNS.INDIAN_MOBILE.test(phone);
+  if (!phone) return false;
+  return isValidPhoneNumber(phone.trim().startsWith("+") ? phone.trim() : `+91${phone.trim()}`, "IN");
 }
 
 export function isValidGstin(gstin: string): boolean {
-  return VALIDATION_PATTERNS.GSTIN.test(gstin.trim());
+  return gstinSchema.safeParse(gstin.trim()).success;
 }
 
 export function isValidEmail(email: string): boolean {
-  return z.email().safeParse(email.trim()).success;
+  return emailSchema.safeParse(email.trim()).success;
 }

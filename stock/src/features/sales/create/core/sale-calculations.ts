@@ -1,4 +1,7 @@
+import { z } from "zod";
 import type { ItemSnapshot, SaleDraft, SaleLine, SettlementDraft, SettlementResult } from "./sale.types";
+
+export const decimalAmountSchema = z.string().trim().regex(/^\d+(?:\.\d{0,2})?$/);
 
 // ── Strict money parsing ──────────────────────────────────────────────────────
 
@@ -10,8 +13,7 @@ export function parseMoneyToMinor(
       ? String(input)
       : (input?.trim() ?? "");
 
-  // Allow "0", "100", "99.99", "0.5" — reject blank, "1e3", "1.234", "-1"
-  if (!/^\d+(?:\.\d{0,2})?$/.test(text)) return null;
+  if (!decimalAmountSchema.safeParse(text).success) return null;
 
   const [wholePart, decimalPart = ""] = text.split(".");
   const whole = Number(wholePart);

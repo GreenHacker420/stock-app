@@ -1,3 +1,9 @@
+import { z } from "zod";
+
+export const eventCursorSchema = z.string().regex(/^\d+$/);
+export const templateNameSchema = z.string().regex(/^[a-z0-9_]+$/);
+export const expoPushTokenSchema = z.string().refine((token) => token.startsWith("ExponentPushToken[") || token.startsWith("ExpoPushToken["));
+
 export const EVENT_SEQUENCE_CURSOR_REGEX = /^\d+$/;
 export const TEMPLATE_NAME_REGEX = /^[a-z0-9_]+$/;
 export const TEMPLATE_KEY_REGEX = /^[a-zA-Z0-9_.]+$/;
@@ -14,7 +20,7 @@ export const SVG_NUMERIC_MATCH_REGEX = /[-+]?[0-9]*\.?[0-9]+/g;
 const MAX_BIGINT_64 = 9223372036854775807n;
 
 export function parseEventSequenceCursor(value) {
-  if (typeof value !== "string" || !EVENT_SEQUENCE_CURSOR_REGEX.test(value)) {
+  if (typeof value !== "string" || !eventCursorSchema.safeParse(value).success) {
     throw new Error("Cursor must be a decimal sequence");
   }
   const cursor = BigInt(value);
