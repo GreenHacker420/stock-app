@@ -13,6 +13,8 @@ import {
 import * as LocalAuthentication from "expo-local-authentication";
 import { Divider, Icon, Text, TextInput as PaperInput } from "react-native-paper";
 import { z } from "zod";
+import { isValidPhoneNumber } from "libphonenumber-js";
+import { cleanPhoneNumber, isValidMobile } from "../../utils/items/validation";
 import { initializeAsync, verifyUserAsync, TruecallerErrorCodes } from "expo-truecaller";
 import TruecallerFullstack from "../../../modules/truecaller-fullstack";
 
@@ -87,8 +89,8 @@ export function Login() {
           setInfo("Truecaller login was cancelled.");
         } else {
           console.warn("Truecaller 1-tap failed, falling back to drop-call verification:", err);
-          const cleanPhone = identifier.replace(/\D/g, "");
-          if (cleanPhone.length === 10) {
+          const cleanPhone = cleanPhoneNumber(identifier);
+          if (isValidMobile(cleanPhone)) {
             setVerificationStatus("INITIATING");
             setShowOtpModal(true);
             setOtpTtl(60);
@@ -110,8 +112,8 @@ export function Login() {
         setIsTruecallerLoading(false);
       }
     } else {
-      const cleanPhone = identifier.replace(/\D/g, "");
-      if (cleanPhone.length !== 10) {
+      const cleanPhone = cleanPhoneNumber(identifier);
+      if (!isValidMobile(cleanPhone)) {
         setError("Please enter your 10-digit mobile number in the input field above to verify.");
         return;
       }
