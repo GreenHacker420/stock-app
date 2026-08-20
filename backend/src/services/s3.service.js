@@ -53,6 +53,25 @@ export async function createPresignedPutUrl({ key, mimeType, expiresInSeconds = 
   }
 }
 
+export async function createPresignedGetUrl({ key, bucket, expiresInSeconds = 3600 }) {
+  const bucketName = bucket || getS3BucketName();
+  const isMockEnv = process.env.NODE_ENV === "test" || process.env.MOCK_S3 === "true" || Boolean(process.env.NODE_TEST_CONTEXT);
+
+  const command = new GetObjectCommand({
+    Bucket: bucketName,
+    Key: key,
+  });
+
+  try {
+    return await getSignedUrl(s3Client, command, { expiresIn: expiresInSeconds });
+  } catch (err) {
+    if (isMockEnv) {
+      return getPublicS3ObjectUrl(key);
+    }
+    return getPublicS3ObjectUrl(key);
+  }
+}
+
 
 export async function verifyS3Object({ key, bucket }) {
   const bucketName = bucket || getS3BucketName();

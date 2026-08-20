@@ -3,7 +3,7 @@ import prisma from "../lib/db.js";
 import { uploadBufferToS3, deleteS3Object as deleteS3ObjectFromLib, getPublicS3ObjectUrl } from "../lib/s3-storage.js";
 import { uploadBuffer, createUploadSession, getObjectPublicUrl, deleteObject } from "../lib/storage-manager.js";
 import { getOneDriveSharingUrl, getOneDriveThumbnailUrl, deleteOneDriveObject, downloadOneDriveObjectBuffer } from "../lib/onedrive-storage.js";
-import { createPresignedPutUrl, verifyS3Object, getBucketName, deleteS3Object } from "./s3.service.js";
+import { createPresignedPutUrl, createPresignedGetUrl, verifyS3Object, getBucketName, deleteS3Object } from "./s3.service.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 
@@ -490,10 +490,12 @@ export async function streamAssetFile(assetId, res) {
   }
 
   try {
-    const buffer = await downloadS3ObjectBuffer(asset.storageKey);
-    return res.send(buffer);
+    const presignedUrl = await createPresignedGetUrl({
+      key: asset.storageKey,
+      bucket: asset.storageBucket,
+    });
+    return res.redirect(302, presignedUrl);
   } catch (err) {
-    console.warn(`[Asset Proxy] Warning: S3 buffer download failed for asset ${assetId}, falling back to public S3 URL:`, err.message);
     const publicUrl = getPublicS3ObjectUrl(asset.storageKey);
     return res.redirect(302, publicUrl);
   }

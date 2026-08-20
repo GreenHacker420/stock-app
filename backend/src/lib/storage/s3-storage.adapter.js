@@ -6,7 +6,7 @@ import {
   deleteS3Object,
   getS3BucketName,
 } from "../s3-storage.js";
-import { createPresignedPutUrl, verifyS3Object } from "../../services/s3.service.js";
+import { createPresignedPutUrl, createPresignedGetUrl, verifyS3Object } from "../../services/s3.service.js";
 
 
 export class S3StorageAdapter extends BaseStorageAdapter {
@@ -53,8 +53,8 @@ export class S3StorageAdapter extends BaseStorageAdapter {
     return downloadS3ObjectBuffer(key);
   }
 
-  async getPublicUrl({ key, fallbackUrl }) {
-    return fallbackUrl || getPublicS3ObjectUrl(key);
+  async getPublicUrl({ key, bucket, expiresInSeconds = 3600 }) {
+    return createPresignedGetUrl({ key, bucket, expiresInSeconds });
   }
 
   async deleteObject({ key }) {

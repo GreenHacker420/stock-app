@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
-import { Alert, Platform, StyleSheet, View } from "react-native";
+import { Alert, StyleSheet, View } from "react-native";
 import { useRoute } from "@react-navigation/native";
 import { ActivityIndicator, Text } from "react-native-paper";
 import { WebView } from "react-native-webview";
 
 import { getAssetDownloadUrl } from "../../api/ledger.api";
-import { API_BASE_URL } from "../../api/client";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { Button } from "../../components/ui/Button";
@@ -43,25 +42,13 @@ export function AssetViewer() {
     void load();
   }, [load]);
 
-  const resolvedUrl = url
-    ? url.startsWith("http://") || url.startsWith("https://")
-      ? url
-      : `${API_BASE_URL.replace(/\/+$/, "")}${url.startsWith("/") ? "" : "/"}${url}`
-    : null;
-
-  const pdfViewerUri = resolvedUrl
-    ? Platform.OS === "android"
-      ? `https://docs.google.com/gview?embedded=true&url=${encodeURIComponent(resolvedUrl)}`
-      : resolvedUrl
-    : null;
-
   return (
     <Screen edges={["top", "bottom", "left", "right"]}>
       <AppHeader title={fileName} showBack hideAvatar />
       <View style={styles.container}>
-        {pdfViewerUri && !error ? (
+        {url && !error ? (
           <WebView
-            source={{ uri: pdfViewerUri }}
+            source={{ uri: url }}
             originWhitelist={["https://*", "http://*"]}
             setSupportMultipleWindows={false}
             onLoadStart={() => setLoading(true)}
