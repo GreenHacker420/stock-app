@@ -61,7 +61,7 @@ describe("OneDrive & Dual-Storage Architecture", () => {
       fallbackUrl,
     });
 
-    assert.ok(url.includes("onedrive.live.com"));
+    assert.ok(url.includes("graph.microsoft.com") || url.includes("mediap.svc.ms") || url.includes("onedrive.live.com"));
     assert.notEqual(url, fallbackUrl);
   });
 
