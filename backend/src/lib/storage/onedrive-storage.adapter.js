@@ -3,6 +3,7 @@ import {
   uploadBufferToOneDrive,
   downloadOneDriveObjectBuffer,
   getOneDriveSharingUrl,
+  getOneDriveThumbnailUrl,
   deleteOneDriveObject,
   createOneDriveUploadSession,
   getOneDriveQuota,
@@ -52,6 +53,11 @@ export class OneDriveStorageAdapter extends BaseStorageAdapter {
   }
 
   async getPublicUrl({ key, externalId, fallbackUrl }) {
+    try {
+      const cdnUrl = await getOneDriveThumbnailUrl(key, externalId);
+      if (cdnUrl) return cdnUrl;
+    } catch (_) {}
+
     try {
       return await getOneDriveSharingUrl(key, externalId);
     } catch (error) {

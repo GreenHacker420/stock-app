@@ -240,6 +240,34 @@ export async function downloadOneDriveObjectBuffer(key, externalId) {
   return Buffer.from(response.data);
 }
 
+export async function getOneDriveThumbnailUrl(key, externalId, size = "large") {
+  if (isMockStorageEnvironment()) {
+    return `https://southeastasia1-mediap.svc.ms/transform/thumbnail?mock=${encodeURIComponent(key || externalId)}`;
+  }
+
+  try {
+    const token = await getOneDriveAccessToken();
+    const driveId = getOneDriveDriveId();
+    const itemUrl = externalId
+      ? `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${externalId}/thumbnails`
+      : `https://graph.microsoft.com/v1.0/drives/${driveId}/root:/${encodeURIComponent(normalizeKey(key))}:/thumbnails`;
+
+    const res = await axios.get(itemUrl, {
+      headers: { Authorization: `Bearer ${token}` },
+      timeout: 10000,
+    });
+
+    if (res.data.value && res.data.value[0]) {
+      const thumb = res.data.value[0];
+      const url = thumb[size]?.url || thumb.large?.url || thumb.medium?.url || thumb.small?.url || "";
+      if (url) return url;
+    }
+  } catch (err) {
+    console.warn(`[OneDrive Storage] Warning: Could not fetch Graph thumbnail for ${key || externalId}:`, err.message);
+  }
+  return "";
+}
+
 export async function getOneDriveSharingUrl(key, externalId) {
   if (isMockStorageEnvironment()) {
     return `https://onedrive.live.com/view?mock=${encodeURIComponent(key || externalId)}`;

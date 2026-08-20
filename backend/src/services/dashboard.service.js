@@ -511,15 +511,16 @@ export async function listStorageObjects(user, { shopId, filter, cursor, limit, 
     }
 
     let url = a.remoteUrl;
-    if (!url && a.storageKey) {
+    if (a.storageProvider === "ONEDRIVE" || !url) {
       try {
         url = await getObjectPublicUrl({
           key: a.storageKey,
           provider: a.storageProvider,
           externalId: a.externalId,
+          fallbackUrl: `/assets/media/${a.id}`,
         });
       } catch (_) {
-        url = "";
+        url = `/assets/media/${a.id}`;
       }
     }
     return {

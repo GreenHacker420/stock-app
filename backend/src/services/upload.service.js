@@ -2,7 +2,7 @@ import crypto from "crypto";
 import prisma from "../lib/db.js";
 import { uploadBufferToS3, deleteS3Object as deleteS3ObjectFromLib, getPublicS3ObjectUrl } from "../lib/s3-storage.js";
 import { uploadBuffer, createUploadSession, getObjectPublicUrl, deleteObject } from "../lib/storage-manager.js";
-import { getOneDriveSharingUrl, deleteOneDriveObject, downloadOneDriveObjectBuffer } from "../lib/onedrive-storage.js";
+import { getOneDriveSharingUrl, getOneDriveThumbnailUrl, deleteOneDriveObject, downloadOneDriveObjectBuffer } from "../lib/onedrive-storage.js";
 import { createPresignedPutUrl, verifyS3Object, getBucketName, deleteS3Object } from "./s3.service.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
@@ -471,14 +471,20 @@ export async function streamAssetFile(assetId, res) {
 
   if (asset.storageProvider === "ONEDRIVE") {
     try {
+      const cdnUrl = await getOneDriveThumbnailUrl(asset.storageKey, asset.externalId);
+      if (cdnUrl) return res.redirect(302, cdnUrl);
+    } catch (_) {}
+    try {
+      const freshUrl = await getOneDriveSharingUrl(asset.storageKey, asset.externalId);
+      if (freshUrl) return res.redirect(302, freshUrl);
+    } catch (err) {
+      console.warn(`[Asset Proxy] Warning: Could not generate sharing URL for OneDrive asset ${assetId}, falling back to buffer stream:`, err.message);
+    }
+    try {
       const buffer = await downloadOneDriveObjectBuffer(asset.storageKey, asset.externalId);
       return res.send(buffer);
     } catch (err) {
       console.error(`[Asset Proxy] Error fetching OneDrive asset ${assetId}:`, err.message);
-      try {
-        const freshUrl = await getOneDriveSharingUrl(asset.storageKey, asset.externalId);
-        if (freshUrl) return res.redirect(302, freshUrl);
-      } catch (_) {}
       return res.status(502).json({ success: false, message: "Failed to stream asset from OneDrive" });
     }
   }
