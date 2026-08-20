@@ -1,5 +1,5 @@
 import { create, type StoreApi, type UseBoundStore } from "zustand";
-import * as Crypto from "expo-crypto";
+import { digestStringAsync, CryptoDigestAlgorithm } from "expo-crypto";
 import { ApiUser, fetchMe, login, truecallerLogin, truecallerOtpLogin } from "../api/client";
 import { useShopStore } from "./shop-store";
 import { deleteToken, getToken, setToken } from "./token-storage";
@@ -208,7 +208,7 @@ function createAuthStore() {
 }
 
 async function hashQuickPin(identifier: string, pin: string) {
-  return Crypto.digestStringAsync(Crypto.CryptoDigestAlgorithm.SHA256, `${identifier.trim()}:${pin}`);
+  return digestStringAsync(CryptoDigestAlgorithm.SHA256, `${identifier.trim()}:${pin}`);
 }
 
 export const userCacheStorage = createMMKV({ id: "shopcontrol_user_cache" });

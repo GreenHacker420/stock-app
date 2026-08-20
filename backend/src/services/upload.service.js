@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import mime from "mime-types";
 import prisma from "../lib/db.js";
 import {
   uploadBuffer,
@@ -49,8 +50,8 @@ function safeFileName(value, fallback = "upload") {
 }
 
 function extensionForMimeType(mimeType) {
-  if (mimeType === "image/png") return "png";
-  if (mimeType === "image/webp") return "webp";
+  const ext = mime.extension(mimeType);
+  if (ext) return ext === "jpeg" ? "jpg" : ext;
   return "jpg";
 }
 

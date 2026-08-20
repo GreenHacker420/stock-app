@@ -1,5 +1,5 @@
 import { Platform } from "react-native";
-import * as SecureStore from "expo-secure-store";
+import { isAvailableAsync, getItemAsync, setItemAsync, deleteItemAsync } from "expo-secure-store";
 
 const canUseLocalStorage = Platform.OS === "web" && typeof window !== "undefined";
 
@@ -8,10 +8,10 @@ export async function getToken(key: string) {
     return window.localStorage.getItem(key);
   }
 
-  const isAvailable = await SecureStore.isAvailableAsync();
+  const isAvailable = await isAvailableAsync();
   if (!isAvailable) return null;
 
-  return SecureStore.getItemAsync(key);
+  return getItemAsync(key);
 }
 
 export async function setToken(key: string, value: string) {
@@ -20,10 +20,10 @@ export async function setToken(key: string, value: string) {
     return;
   }
 
-  const isAvailable = await SecureStore.isAvailableAsync();
+  const isAvailable = await isAvailableAsync();
   if (!isAvailable) return;
 
-  await SecureStore.setItemAsync(key, value);
+  await setItemAsync(key, value);
 }
 
 export async function deleteToken(key: string) {
@@ -32,8 +32,8 @@ export async function deleteToken(key: string) {
     return;
   }
 
-  const isAvailable = await SecureStore.isAvailableAsync();
+  const isAvailable = await isAvailableAsync();
   if (!isAvailable) return;
 
-  await SecureStore.deleteItemAsync(key);
+  await deleteItemAsync(key);
 }

@@ -1,5 +1,5 @@
-import * as Crypto from "expo-crypto";
-import * as SecureStore from "expo-secure-store";
+import { getRandomBytesAsync } from "expo-crypto";
+import { getItemAsync, setItemAsync, deleteItemAsync } from "expo-secure-store";
 import { createMMKV } from "react-native-mmkv";
 import {
   createDomainCacheController,
@@ -11,11 +11,11 @@ import {
 } from "./domain-cache-core";
 
 const controller = createDomainCacheController({
-  getSecret: (key) => SecureStore.getItemAsync(key),
-  setSecret: (key, value) => SecureStore.setItemAsync(key, value),
-  deleteSecret: (key) => SecureStore.deleteItemAsync(key),
+  getSecret: (key) => getItemAsync(key),
+  setSecret: (key, value) => setItemAsync(key, value),
+  deleteSecret: (key) => deleteItemAsync(key),
   createKey: async () => {
-    const bytes = await Crypto.getRandomBytesAsync(32);
+    const bytes = await getRandomBytesAsync(32);
     return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
   },
   createStorage: ({ id, encryptionKey }) => createMMKV({ id, encryptionKey }),

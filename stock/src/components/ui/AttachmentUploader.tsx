@@ -9,7 +9,7 @@ import {
 } from "expo-image-picker";
 import { getDocumentAsync } from "expo-document-picker";
 import { File, UploadType } from "expo-file-system";
-import * as Crypto from "expo-crypto";
+import { digest, CryptoDigestAlgorithm } from "expo-crypto";
 import mime from "mime-types";
 import { createUploadIntent, completeAssetUpload } from "../../api/ledger.api";
 import { colors, spacing, radius, fontSize } from "../../theme";
@@ -45,8 +45,8 @@ async function resolveFileMetadata(uri: string, fallbackSize?: number | null) {
   }
 
   const bytes = await localFile.bytes();
-  const digest = await Crypto.digest(Crypto.CryptoDigestAlgorithm.SHA256, bytes);
-  const checksumSha256 = Array.from(new Uint8Array(digest))
+  const hashDigest = await digest(CryptoDigestAlgorithm.SHA256, bytes);
+  const checksumSha256 = Array.from(new Uint8Array(hashDigest))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 

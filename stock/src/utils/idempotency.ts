@@ -1,5 +1,5 @@
-import * as Crypto from "expo-crypto";
+import { randomUUID } from "expo-crypto";
 
 export function newIdempotencyKey(scope: string) {
-  return `${scope.toLowerCase()}_${Crypto.randomUUID()}`;
+  return `${scope.toLowerCase()}_${randomUUID()}`;
 }
