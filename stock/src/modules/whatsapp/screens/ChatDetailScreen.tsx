@@ -33,7 +33,7 @@ import { KeyboardController } from "react-native-keyboard-controller";
 import { randomUUID } from "expo-crypto";
 import { setStringAsync } from "expo-clipboard";
 import { getDocumentAsync } from "expo-document-picker";
-import { requestMediaLibraryPermissionsAsync, launchImageLibraryAsync, requestCameraPermissionsAsync, launchCameraAsync, MediaTypeOptions } from "expo-image-picker";
+import { requestMediaLibraryPermissionsAsync, launchImageLibraryAsync, requestCameraPermissionsAsync, launchCameraAsync, type ImagePickerOptions } from "expo-image-picker";
 import { requestForegroundPermissionsAsync, getCurrentPositionAsync, Accuracy, PermissionStatus } from "expo-location";
 import NetInfo from "@react-native-community/netinfo";
 import { useRoute, useNavigation, useIsFocused, type RouteProp } from "@react-navigation/native";
@@ -1084,10 +1084,10 @@ export const ChatDetailScreen = () => {
         }
       }
 
-      const pickerOptions = {
-        mediaTypes: [kind === "image" ? "images" : "videos"] as any,
+      const pickerOptions: ImagePickerOptions = {
+        mediaTypes: [kind === "image" ? "images" : "videos"],
         allowsMultipleSelection: false,
-        quality: 1 as const,
+        quality: 1,
         ...(kind === "video" ? { videoMaxDuration: 5 * 60 } : {}),
       };
       const result = source === "camera"
