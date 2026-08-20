@@ -5,7 +5,6 @@ import prisma from "./src/lib/db.js";
 
 let hasFailures = false;
 
-// We support passing a specific test file as an argument
 const testFileArg = process.argv[2];
 const files = testFileArg
   ? [path.resolve(testFileArg)]
@@ -19,7 +18,8 @@ const files = testFileArg
       path.resolve("src/tests/realtime.test.js"),
       path.resolve("src/tests/frontend-events.test.js"),
       path.resolve("src/tests/harden-mobile.test.js"),
-      path.resolve("src/tests/harden-server-cache.test.js")
+      path.resolve("src/tests/harden-server-cache.test.js"),
+      path.resolve("src/tests/storage-delivery.test.js"),
     ];
 
 console.log(`Running tests: ${files.map(f => path.basename(f)).join(", ")}...`);
@@ -44,8 +44,7 @@ stream.on("end", async () => {
   } catch (err) {
     console.error("Error disconnecting Prisma:", err.message);
   }
-  
-  // Force exit to prevent hanging due to active Redis/BullMQ connection pools
+
   setTimeout(() => {
     process.exit(hasFailures ? 1 : 0);
   }, 500);

@@ -17,10 +17,9 @@ const router = Router();
 
 const directUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 15 * 1024 * 1024 }, // 15MB max
+  limits: { fileSize: 15 * 1024 * 1024 },
 });
 
-// Public asset stream routes for rendering images in web & mobile apps
 router.get("/media/:id", asyncHandler(async (req, res) => {
   await streamAssetFile(req.params.id, res);
 }));
@@ -45,7 +44,7 @@ const intentSchema = z.object({
   body: z.object({
     shopId: z.string().min(1),
     domain: z.enum(ASSET_DOMAINS),
-    kind: z.enum(["IMAGE", "DOC", "VIDEO", "AUDIO"]).optional(),
+    kind: z.enum(["IMAGE", "DOCUMENT", "DOC", "VIDEO", "AUDIO"]).optional(),
     provider: z.enum(["S3", "ONEDRIVE"]).optional(),
     fileName: z.string().min(1),
     mimeType: z.string().min(1),

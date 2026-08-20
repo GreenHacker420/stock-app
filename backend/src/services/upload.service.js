@@ -1,15 +1,18 @@
 import crypto from "crypto";
 import prisma from "../lib/db.js";
-import { uploadBufferToS3, deleteS3Object as deleteS3ObjectFromLib, getPublicS3ObjectUrl } from "../lib/s3-storage.js";
-import { uploadBuffer, createUploadSession, getObjectPublicUrl, deleteObject } from "../lib/storage-manager.js";
-import { getOneDriveSharingUrl, getOneDriveThumbnailUrl, deleteOneDriveObject, downloadOneDriveObjectBuffer } from "../lib/onedrive-storage.js";
-import { createPresignedPutUrl, createPresignedGetUrl, verifyS3Object, getBucketName, deleteS3Object } from "./s3.service.js";
+import {
+  uploadBuffer,
+  createUploadSession,
+  getObjectDownloadUrl,
+  getObjectThumbnailUrl,
+  verifyObject,
+  deleteObject,
+} from "../lib/storage-manager.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 
 export const PRODUCT_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
-// Domain-based MIME allowlists
 const DOMAIN_MIME_ALLOWLISTS = {
   PRODUCT: new Set(["image/jpeg", "image/png", "image/webp"]),
   CUSTOMER_LEDGER: new Set(["image/jpeg", "image/png", "image/webp", "application/pdf"]),
@@ -17,10 +20,25 @@ const DOMAIN_MIME_ALLOWLISTS = {
   EXPENSE: new Set(["image/jpeg", "image/png", "image/webp", "application/pdf"]),
   DISPATCH: new Set(["image/jpeg", "image/png", "application/pdf"]),
   SALE_INVOICE: new Set(["application/pdf", "image/jpeg", "image/png"]),
+  DAILY_SUMMARY: new Set(["application/pdf", "text/plain"]),
+  WHATSAPP: new Set([
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "application/pdf",
+    "video/mp4",
+    "video/3gpp",
+    "audio/aac",
+    "audio/amr",
+    "audio/mpeg",
+    "audio/mp4",
+    "audio/ogg",
+  ]),
   OTHER: new Set(["image/jpeg", "image/png", "image/webp", "application/pdf", "text/plain"]),
 };
 
-const MAX_SIZE_BYTES = 15 * 1024 * 1024; // 15 MB
+const MAX_SIZE_BYTES = 15 * 1024 * 1024;
+const DOWNLOAD_URL_TTL_SECONDS = 300;
 
 function safeFileName(value, fallback = "upload") {
   return String(value || fallback)
@@ -34,6 +52,37 @@ function extensionForMimeType(mimeType) {
   if (mimeType === "image/png") return "png";
   if (mimeType === "image/webp") return "webp";
   return "jpg";
+}
+
+function normalizeAssetKind(kind, mimeType) {
+  if (kind === "DOC") return "DOCUMENT";
+  if (kind) return kind;
+  if (mimeType?.startsWith("image/")) return "IMAGE";
+  if (mimeType?.startsWith("video/")) return "VIDEO";
+  if (mimeType?.startsWith("audio/")) return "AUDIO";
+  return "DOCUMENT";
+}
+
+function validateChecksumSha256(checksumSha256) {
+  const normalized = String(checksumSha256 || "").toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(normalized)) {
+    throw new ApiError(400, "checksumSha256 is required and must be a 64-character hex SHA-256 digest");
+  }
+  return normalized;
+}
+
+function isPersistableRemoteUrl(domain, stored) {
+  return domain === "PRODUCT" && stored.storageProvider === "S3";
+}
+
+export function isPublicAsset(asset) {
+  return Boolean(
+    asset &&
+    asset.domain === "PRODUCT" &&
+    asset.kind === "IMAGE" &&
+    asset.status === "READY" &&
+    !asset.deletedAt
+  );
 }
 
 export function assertProductImageFile(file) {
@@ -58,6 +107,22 @@ export function buildProductImageKey({ shopId, categoryPath, itemPath, file }) {
   ].join("/");
 }
 
+async function markAssetFailed(assetId, message) {
+  await prisma.asset.update({
+    where: { id: assetId },
+    data: { status: "FAILED", errorMessage: message },
+  }).catch(() => {});
+}
+
+async function deleteRejectedUpload(asset) {
+  if (!asset.storageKey || !asset.storageProvider) return;
+  await deleteObject({
+    key: asset.storageKey,
+    provider: asset.storageProvider,
+    externalId: asset.externalId,
+  }).catch(() => {});
+}
+
 export async function uploadDirectAsset({ user, shopId, domain = "OTHER", file, provider }) {
   await assertShopAccess(user, shopId);
   if (!file) throw new ApiError(400, "File is required");
@@ -76,7 +141,7 @@ export async function uploadDirectAsset({ user, shopId, domain = "OTHER", file, 
       shopId,
       createdById: user.id,
       domain,
-      kind: file.mimetype.startsWith("image/") ? "IMAGE" : "DOC",
+      kind: normalizeAssetKind(null, file.mimetype),
       source: "INTERNAL",
       status: "UPLOADING",
       mimeType: file.mimetype,
@@ -94,6 +159,7 @@ export async function uploadDirectAsset({ user, shopId, domain = "OTHER", file, 
       domain,
       provider,
     });
+    const remoteUrl = isPersistableRemoteUrl(domain, stored) ? stored.url : null;
 
     const updated = await prisma.asset.update({
       where: { id: asset.id },
@@ -103,7 +169,7 @@ export async function uploadDirectAsset({ user, shopId, domain = "OTHER", file, 
         storageBucket: stored.storageBucket,
         storageKey: stored.storageKey,
         externalId: stored.externalId,
-        remoteUrl: stored.url,
+        remoteUrl,
         readyAt: new Date(),
       },
     });
@@ -113,7 +179,7 @@ export async function uploadDirectAsset({ user, shopId, domain = "OTHER", file, 
       storageProvider: updated.storageProvider,
       bucket: updated.storageBucket,
       key: updated.storageKey,
-      url: updated.remoteUrl,
+      url: remoteUrl,
       fileName: updated.fileName,
       mimeType: updated.mimeType,
       sizeBytes: Number(updated.sizeBytes),
@@ -121,13 +187,7 @@ export async function uploadDirectAsset({ user, shopId, domain = "OTHER", file, 
       status: updated.status,
     };
   } catch (error) {
-    await prisma.asset.update({
-      where: { id: asset.id },
-      data: {
-        status: "FAILED",
-        errorMessage: error?.message || "Direct upload failed",
-      },
-    }).catch(() => {});
+    await markAssetFailed(asset.id, error?.message || "Direct upload failed");
     throw error;
   }
 }
@@ -173,8 +233,9 @@ export async function uploadProductImageAsset({
       domain: "PRODUCT",
       provider,
     });
+    const remoteUrl = isPersistableRemoteUrl("PRODUCT", stored) ? stored.url : null;
 
-    await prisma.asset.update({
+    const updated = await prisma.asset.update({
       where: { id: asset.id },
       data: {
         status: "READY",
@@ -182,29 +243,30 @@ export async function uploadProductImageAsset({
         storageBucket: stored.storageBucket,
         storageKey: stored.storageKey,
         externalId: stored.externalId,
-        remoteUrl: stored.url,
+        remoteUrl,
         readyAt: new Date(),
       },
     });
 
+    const url = remoteUrl || await getObjectThumbnailUrl({
+      key: updated.storageKey,
+      provider: updated.storageProvider,
+      externalId: updated.externalId,
+      size: "large",
+    });
+
     return {
-      assetId: asset.id,
-      storageProvider: stored.storageProvider,
-      bucket: stored.storageBucket,
-      key: stored.storageKey,
-      url: stored.url,
+      assetId: updated.id,
+      storageProvider: updated.storageProvider,
+      bucket: updated.storageBucket,
+      key: updated.storageKey,
+      url,
       mimeType: file.mimetype,
       sizeBytes: file.size,
       checksumSha256,
     };
   } catch (error) {
-    await prisma.asset.update({
-      where: { id: asset.id },
-      data: {
-        status: "FAILED",
-        errorMessage: error?.message || "Product photo upload failed",
-      },
-    }).catch(() => {});
+    await markAssetFailed(asset.id, error?.message || "Product photo upload failed");
     throw error;
   }
 }
@@ -212,7 +274,7 @@ export async function uploadProductImageAsset({
 export async function createPresignedUploadIntent(user, {
   shopId,
   domain = "OTHER",
-  kind = "IMAGE",
+  kind,
   fileName,
   mimeType,
   sizeBytes,
@@ -229,11 +291,8 @@ export async function createPresignedUploadIntent(user, {
   if (Number(sizeBytes) > MAX_SIZE_BYTES) {
     throw new ApiError(400, "File size exceeds maximum allowed limit (15MB)");
   }
-  if (!z.hash("sha256").safeParse(checksumSha256).success) {
-    throw new ApiError(400, "checksumSha256 is required and must be a 64-character hex SHA-256 digest");
-  }
 
-  // Validate MIME against domain allowlist
+  const normalizedChecksum = validateChecksumSha256(checksumSha256);
   const allowedMimes = DOMAIN_MIME_ALLOWLISTS[domain] || DOMAIN_MIME_ALLOWLISTS.OTHER;
   if (!allowedMimes.has(mimeType)) {
     throw new ApiError(400, `MIME type "${mimeType}" is not allowed for domain "${domain}". Allowed: ${[...allowedMimes].join(", ")}`);
@@ -246,6 +305,7 @@ export async function createPresignedUploadIntent(user, {
     key: storageKey,
     mimeType,
     sizeBytes: Number(sizeBytes),
+    checksumSha256: normalizedChecksum,
     domain,
     provider,
     expiresInSeconds: 600,
@@ -256,7 +316,7 @@ export async function createPresignedUploadIntent(user, {
       shopId,
       createdById: user.id,
       domain,
-      kind,
+      kind: normalizeAssetKind(kind, mimeType),
       source: "INTERNAL",
       status: "UPLOADING",
       storageProvider: session.storageProvider,
@@ -265,7 +325,7 @@ export async function createPresignedUploadIntent(user, {
       mimeType,
       fileName,
       sizeBytes: BigInt(sizeBytes),
-      checksumSha256: checksumSha256.toLowerCase(),
+      checksumSha256: normalizedChecksum,
     },
   });
 
@@ -275,7 +335,8 @@ export async function createPresignedUploadIntent(user, {
     uploadUrl: session.uploadUrl,
     bucket: session.bucket,
     key: session.key,
-    expiresInSeconds: 600,
+    expiresInSeconds: session.expiresInSeconds ?? 600,
+    expiry: session.expiry || null,
     headers: session.headers || {},
     isMock: session.isMock || false,
   };
@@ -290,71 +351,49 @@ export async function completeUploadIntent(user, { assetId, shopId }) {
   if (asset.status !== "UPLOADING") {
     throw new ApiError(400, `Asset is not in UPLOADING status (status: ${asset.status})`);
   }
-
-  if (asset.storageProvider === "ONEDRIVE") {
-    const publicUrl = await getOneDriveSharingUrl(asset.storageKey, asset.externalId);
-    const updated = await prisma.asset.update({
-      where: { id: assetId },
-      data: {
-        status: "READY",
-        remoteUrl: publicUrl,
-        readyAt: new Date(),
-        errorMessage: null,
-      },
-    });
-    return { success: true, asset: updated };
+  if (!asset.storageProvider || !asset.storageKey) {
+    throw new ApiError(400, "Asset upload session is missing storage metadata");
   }
 
   let verification;
   try {
-    verification = await verifyS3Object({ key: asset.storageKey, bucket: asset.storageBucket });
+    verification = await verifyObject({
+      key: asset.storageKey,
+      bucket: asset.storageBucket,
+      provider: asset.storageProvider,
+      externalId: asset.externalId,
+    });
   } catch (err) {
-    // Mark the asset FAILED and rethrow
-    await prisma.asset.update({
-      where: { id: assetId },
-      data: { status: "FAILED", errorMessage: `S3 verification failed: ${err.message}` },
-    }).catch(() => {});
+    await markAssetFailed(assetId, `Storage verification failed: ${err.message}`);
     throw err;
   }
 
-  // Exact size match — no tolerance
   if (!verification.isMock && asset.sizeBytes != null && verification.contentLength != null) {
     const declaredSize = Number(asset.sizeBytes);
     const actualSize = Number(verification.contentLength);
     if (actualSize !== declaredSize) {
-      await deleteS3Object({ key: asset.storageKey, bucket: asset.storageBucket }).catch(() => {});
-      await prisma.asset.update({
-        where: { id: assetId },
-        data: { status: "FAILED", errorMessage: `File size mismatch: declared ${declaredSize}B, uploaded ${actualSize}B` },
-      }).catch(() => {});
+      await deleteRejectedUpload(asset);
+      await markAssetFailed(assetId, `File size mismatch: declared ${declaredSize}B, uploaded ${actualSize}B`);
       throw new ApiError(400, `File size mismatch: declared ${declaredSize} bytes, uploaded ${actualSize} bytes. Upload rejected.`);
     }
   }
 
-  // MIME mismatch check
   if (!verification.isMock && asset.mimeType && verification.contentType) {
     const declaredMime = asset.mimeType.split(";")[0].trim();
     const actualMime = verification.contentType.split(";")[0].trim();
     if (declaredMime !== actualMime) {
-      await deleteS3Object({ key: asset.storageKey, bucket: asset.storageBucket }).catch(() => {});
-      await prisma.asset.update({
-        where: { id: assetId },
-        data: { status: "FAILED", errorMessage: `MIME type mismatch: declared ${declaredMime}, uploaded ${actualMime}` },
-      }).catch(() => {});
+      await deleteRejectedUpload(asset);
+      await markAssetFailed(assetId, `MIME type mismatch: declared ${declaredMime}, uploaded ${actualMime}`);
       throw new ApiError(400, `MIME type mismatch: declared "${declaredMime}", actual "${actualMime}". Upload rejected.`);
     }
   }
 
-  // Checksum verification when S3 returns checksum metadata
   if (!verification.isMock && asset.checksumSha256 && verification.checksumSha256) {
     const expected = String(asset.checksumSha256).toLowerCase();
     const actual = String(verification.checksumSha256).toLowerCase().replace(/[^a-f0-9]/g, "");
     if (actual && actual !== expected) {
-      await deleteS3Object({ key: asset.storageKey, bucket: asset.storageBucket }).catch(() => {});
-      await prisma.asset.update({
-        where: { id: assetId },
-        data: { status: "FAILED", errorMessage: `Checksum mismatch: declared ${expected}, uploaded ${actual}` },
-      }).catch(() => {});
+      await deleteRejectedUpload(asset);
+      await markAssetFailed(assetId, `Checksum mismatch: declared ${expected}, uploaded ${actual}`);
       throw new ApiError(400, "Checksum mismatch. Upload rejected.");
     }
   }
@@ -363,9 +402,16 @@ export async function completeUploadIntent(user, { assetId, shopId }) {
     where: { id: assetId },
     data: {
       status: "READY",
-      sizeBytes: verification.contentLength ? BigInt(verification.contentLength) : asset.sizeBytes,
+      externalId: verification.externalId || asset.externalId,
+      remoteUrl: asset.domain === "PRODUCT" && asset.storageProvider === "S3"
+        ? asset.remoteUrl
+        : null,
+      sizeBytes: verification.contentLength != null
+        ? BigInt(verification.contentLength)
+        : asset.sizeBytes,
       mimeType: verification.contentType || asset.mimeType,
       readyAt: new Date(),
+      errorMessage: null,
     },
   });
 
@@ -380,17 +426,24 @@ export async function getAssetDownloadUrl(user, { assetId, shopId }) {
   if (asset.storageDeletedAt || asset.deletionStatus === "COMPLETED") {
     throw new ApiError(410, "Asset storage has been deleted");
   }
-  if (!asset.storageKey) throw new ApiError(400, "Asset has no storage key");
+  if (!asset.storageKey || !asset.storageProvider) {
+    throw new ApiError(400, "Asset has no storage object");
+  }
 
-  const downloadUrl = await getObjectPublicUrl({
+  const delivery = await getObjectDownloadUrl({
     key: asset.storageKey,
+    bucket: asset.storageBucket,
     provider: asset.storageProvider,
     externalId: asset.externalId,
     fallbackUrl: asset.remoteUrl,
+    expiresInSeconds: DOWNLOAD_URL_TTL_SECONDS,
   });
-  if (!downloadUrl) throw new ApiError(500, "Failed to generate download URL");
+  if (!delivery?.url) throw new ApiError(500, "Failed to generate download URL");
 
-  return { downloadUrl, expiresInSeconds: 300 };
+  return {
+    downloadUrl: delivery.url,
+    expiresInSeconds: delivery.expiresInSeconds ?? null,
+  };
 }
 
 export async function requestAssetDeletion(user, { assetId, shopId, reason }) {
@@ -401,7 +454,6 @@ export async function requestAssetDeletion(user, { assetId, shopId, reason }) {
     return { success: true, asset, alreadyRequested: true };
   }
 
-  // Financial evidence protection
   const ledgerRefs = await prisma.customerLedgerAttachment.count({ where: { assetId } });
   if (ledgerRefs > 0) {
     throw new ApiError(409, "This file is linked to a financial ledger entry and cannot be deleted.", {
@@ -445,7 +497,6 @@ export async function requestAssetDeletion(user, { assetId, shopId, reason }) {
     return next;
   });
 
-  // Enqueue async deletion (non-blocking; failures are retried by worker)
   try {
     const { enqueueAssetDeletion } = await import("./asset-deletion.queue.js");
     const outbox = await prisma.assetDeletionOutbox.findFirst({
@@ -462,41 +513,32 @@ export async function requestAssetDeletion(user, { assetId, shopId, reason }) {
 
 export async function streamAssetFile(assetId, res) {
   const asset = await prisma.asset.findUnique({ where: { id: assetId } });
-  if (!asset || asset.deletedAt || asset.status !== "READY") {
+  if (!isPublicAsset(asset) || !asset.storageKey || !asset.storageProvider) {
     return res.status(404).json({ success: false, message: "Asset not found" });
   }
 
-  res.setHeader("Content-Type", asset.mimeType || "image/jpeg");
-  res.setHeader("Cache-Control", "public, max-age=86400, immutable");
+  res.setHeader("Cache-Control", "no-store");
 
   if (asset.storageProvider === "ONEDRIVE") {
-    try {
-      const cdnUrl = await getOneDriveThumbnailUrl(asset.storageKey, asset.externalId);
-      if (cdnUrl) return res.redirect(302, cdnUrl);
-    } catch (_) {}
-    try {
-      const freshUrl = await getOneDriveSharingUrl(asset.storageKey, asset.externalId);
-      if (freshUrl) return res.redirect(302, freshUrl);
-    } catch (err) {
-      console.warn(`[Asset Proxy] Warning: Could not generate sharing URL for OneDrive asset ${assetId}, falling back to buffer stream:`, err.message);
-    }
-    try {
-      const buffer = await downloadOneDriveObjectBuffer(asset.storageKey, asset.externalId);
-      return res.send(buffer);
-    } catch (err) {
-      console.error(`[Asset Proxy] Error fetching OneDrive asset ${assetId}:`, err.message);
-      return res.status(502).json({ success: false, message: "Failed to stream asset from OneDrive" });
-    }
+    const thumbnailUrl = await getObjectThumbnailUrl({
+      key: asset.storageKey,
+      provider: asset.storageProvider,
+      externalId: asset.externalId,
+      size: "large",
+    });
+    if (thumbnailUrl) return res.redirect(302, thumbnailUrl);
   }
 
-  try {
-    const presignedUrl = await createPresignedGetUrl({
-      key: asset.storageKey,
-      bucket: asset.storageBucket,
-    });
-    return res.redirect(302, presignedUrl);
-  } catch (err) {
-    const publicUrl = getPublicS3ObjectUrl(asset.storageKey);
-    return res.redirect(302, publicUrl);
+  const delivery = await getObjectDownloadUrl({
+    key: asset.storageKey,
+    bucket: asset.storageBucket,
+    provider: asset.storageProvider,
+    externalId: asset.externalId,
+    expiresInSeconds: DOWNLOAD_URL_TTL_SECONDS,
+  });
+  if (!delivery?.url) {
+    throw new ApiError(500, "Failed to generate asset URL");
   }
+
+  return res.redirect(302, delivery.url);
 }
