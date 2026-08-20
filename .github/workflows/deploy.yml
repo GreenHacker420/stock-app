@@ -105,6 +105,11 @@ jobs:
               process.exit(0);
             '
 
+            if docker ps -a --format '{{.Names}}' | grep -qx 'shop-backend'; then
+              echo "🧹 Removing existing shop-backend container to avoid name conflicts..."
+              docker rm -f shop-backend
+            fi
+
             echo "🚀 Updating services..."
             docker compose up -d --remove-orphans
 
