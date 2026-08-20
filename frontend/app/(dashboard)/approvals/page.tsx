@@ -1,6 +1,6 @@
 "use client";
 
-import * as React from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
 import { CheckCircle2, Clock3, RefreshCw, ShieldCheck, XCircle } from "lucide-react";
@@ -16,6 +16,7 @@ import type { ApprovalRequestRow, ApprovalStatus } from "@/features/control/lib/
 import { useAuthStore } from "@/lib/auth/auth-store";
 import { formatDate } from "@/lib/utils";
 
+const REPORT_ID = "control.approvals";
 const FILTERS: Array<"ALL" | ApprovalStatus> = ["ALL", "PENDING", "APPROVED", "REJECTED", "CANCELLED"];
 
 type Decision = { request: ApprovalRequestRow; status: "APPROVED" | "REJECTED" } | null;
@@ -31,8 +32,8 @@ export default function ApprovalsPage() {
   const queryClient = useQueryClient();
   const { token, shops, activeShopId } = useAuthStore();
   const shopId = activeShopId || shops[0]?.id || "";
-  const [filter, setFilter] = React.useState<"ALL" | ApprovalStatus>("PENDING");
-  const [decision, setDecision] = React.useState<Decision>(null);
+  const [filter, setFilter] = useState<"ALL" | ApprovalStatus>("PENDING");
+  const [decision, setDecision] = useState<Decision>(null);
 
   const queryKey = ["approvals", "queue", shopId] as const;
   const query = useQuery({
@@ -58,7 +59,7 @@ export default function ApprovalsPage() {
   const pendingStock = pending.filter((request) => request.type === "STOCK_ENTRY").length;
   const specialized = pending.length - pendingStock;
 
-  const columns = React.useMemo<ColumnDef<ApprovalRequestRow>[]>(() => [
+  const columns = useMemo<ColumnDef<ApprovalRequestRow>[]>(() => [
     { accessorKey: "createdAt", header: "Requested", cell: ({ row }) => <span className="whitespace-nowrap text-muted-foreground">{formatDate(row.original.createdAt)}</span> },
     { accessorKey: "type", header: "Type", cell: ({ row }) => <Badge variant="secondary" className="text-[9px]">{row.original.type.replaceAll("_", " ")}</Badge> },
     { id: "entity", header: "Target", cell: ({ row }) => <div><div className="text-[10px] font-semibold">{row.original.entityType.replaceAll("_", " ")}</div><div className="max-w-[18vw] truncate font-mono text-[9px] text-muted-foreground" title={row.original.entityId}>{row.original.entityId}</div></div> },
@@ -72,49 +73,61 @@ export default function ApprovalsPage() {
     } },
   ], []);
 
+  const workspaceScope = JSON.stringify({
+    "app.module": "control",
+    "app.view": REPORT_ID,
+    "control.approvals": true,
+    "mutation.pending": respondMutation.isPending,
+    "keyboard.scope": "workspace",
+  });
+
   return (
-    <WorkspacePage>
-      <WorkspacePageHeader
-        kicker="Control · Owner"
-        title="Approval queue"
-        description="Generic approval handling is intentionally limited to STOCK_ENTRY because the backend routes transaction corrections through specialized handlers."
-        icon={ShieldCheck}
-        actions={<Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={() => void query.refetch()}><RefreshCw className="size-3.5" />Refresh</Button>}
-      />
-
-      <WorkspaceMetricGrid>
-        <WorkspaceMetric label="Pending" value={pending.length} detail="All pending approval types" icon={Clock3} tone={pending.length ? "warning" : "neutral"} loading={query.isLoading} />
-        <WorkspaceMetric label="Stock entry" value={pendingStock} detail="Can be processed here" icon={CheckCircle2} tone={pendingStock ? "info" : "neutral"} loading={query.isLoading} />
-        <WorkspaceMetric label="Specialized" value={specialized} detail="Must use its domain-specific review workflow" icon={ShieldCheck} tone={specialized ? "warning" : "neutral"} loading={query.isLoading} />
-        <WorkspaceMetric label="Rejected" value={data.filter((item) => item.status === "REJECTED").length} detail="Rejected requests in loaded queue" icon={XCircle} loading={query.isLoading} />
-      </WorkspaceMetricGrid>
-
-      <WorkspacePanel title="Approval requests" description="The entire owner/shop queue is fetched so the status tabs remain consistent without synthesizing totals.">
-        <WorkspaceToolbar>{FILTERS.map((status) => <Button key={status} variant={filter === status ? "secondary" : "ghost"} size="sm" className="h-8 text-[10px]" onClick={() => setFilter(status)}>{status.replaceAll("_", " ")}</Button>)}</WorkspaceToolbar>
-        <OperationalDataTable
-          data={rows}
-          columns={columns}
-          getRowId={(request) => request.id}
-          isLoading={query.isLoading}
-          isError={query.isError}
-          onRetry={() => void query.refetch()}
-          emptyTitle="No approval requests"
-          emptyDescription="Nothing matches the selected approval status."
-          renderMobileCard={(request) => <div className="rounded-xl border bg-card p-3"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold">{request.type.replaceAll("_", " ")}</p><p className="mt-0.5 text-[10px] text-muted-foreground">{request.requestedBy?.name || "Unknown"} · {formatDate(request.createdAt)}</p></div>{statusBadge(request.status)}</div><p className="mt-2 line-clamp-2 text-[10px] text-muted-foreground">{request.reason || "No reason supplied"}</p></div>}
+    <div data-keyboard-scope={workspaceScope}>
+      <WorkspacePage>
+        <WorkspacePageHeader
+          kicker="Control · Owner"
+          title="Approval queue"
+          description="Generic approval handling is intentionally limited to STOCK_ENTRY because the backend routes transaction corrections through specialized handlers."
+          icon={ShieldCheck}
+          actions={<Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={() => void query.refetch()}><RefreshCw className="size-3.5" />Refresh</Button>}
         />
-      </WorkspacePanel>
 
-      <DecisionDialog
-        open={Boolean(decision)}
-        onOpenChange={(open) => !open && setDecision(null)}
-        title={decision?.status === "APPROVED" ? "Approve stock entry?" : "Reject stock entry?"}
-        description={decision?.status === "APPROVED" ? "Approval will create the stock-ledger movements defined in this request. This is a real backend write." : "The request will be rejected and no stock movement will be created."}
-        confirmLabel={decision?.status === "APPROVED" ? "Approve request" : "Reject request"}
-        destructive={decision?.status === "REJECTED"}
-        requireReason={decision?.status === "REJECTED"}
-        pending={respondMutation.isPending}
-        onConfirm={(reason) => { if (decision) respondMutation.mutate({ request: decision.request, status: decision.status, reason: reason || undefined }); }}
-      />
-    </WorkspacePage>
+        <WorkspaceMetricGrid>
+          <WorkspaceMetric label="Pending" value={pending.length} detail="All pending approval types" icon={Clock3} tone={pending.length ? "warning" : "neutral"} loading={query.isLoading} />
+          <WorkspaceMetric label="Stock entry" value={pendingStock} detail="Can be processed here" icon={CheckCircle2} tone={pendingStock ? "info" : "neutral"} loading={query.isLoading} />
+          <WorkspaceMetric label="Specialized" value={specialized} detail="Must use its domain-specific review workflow" icon={ShieldCheck} tone={specialized ? "warning" : "neutral"} loading={query.isLoading} />
+          <WorkspaceMetric label="Rejected" value={data.filter((item) => item.status === "REJECTED").length} detail="Rejected requests in loaded queue" icon={XCircle} loading={query.isLoading} />
+        </WorkspaceMetricGrid>
+
+        <WorkspacePanel title="Approval requests" description="The entire owner/shop queue is fetched so the status tabs remain consistent without synthesizing totals.">
+          <WorkspaceToolbar>{FILTERS.map((status) => <Button key={status} variant={filter === status ? "secondary" : "ghost"} size="sm" className="h-8 text-[10px]" onClick={() => setFilter(status)}>{status.replaceAll("_", " ")}</Button>)}</WorkspaceToolbar>
+          <OperationalDataTable
+            id={REPORT_ID}
+            data={rows}
+            columns={columns}
+            getRowId={(request) => request.id}
+            isLoading={query.isLoading}
+            isError={query.isError}
+            onRetry={() => void query.refetch()}
+            autoFocus
+            emptyTitle="No approval requests"
+            emptyDescription="Nothing matches the selected approval status."
+            renderMobileCard={(request) => <div className="rounded-xl border bg-card p-3"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold">{request.type.replaceAll("_", " ")}</p><p className="mt-0.5 text-[10px] text-muted-foreground">{request.requestedBy?.name || "Unknown"} · {formatDate(request.createdAt)}</p></div>{statusBadge(request.status)}</div><p className="mt-2 line-clamp-2 text-[10px] text-muted-foreground">{request.reason || "No reason supplied"}</p></div>}
+          />
+        </WorkspacePanel>
+
+        <DecisionDialog
+          open={Boolean(decision)}
+          onOpenChange={(open) => !open && setDecision(null)}
+          title={decision?.status === "APPROVED" ? "Approve stock entry?" : "Reject stock entry?"}
+          description={decision?.status === "APPROVED" ? "Approval will create the stock-ledger movements defined in this request. This is a real backend write." : "The request will be rejected and no stock movement will be created."}
+          confirmLabel={decision?.status === "APPROVED" ? "Approve request" : "Reject request"}
+          destructive={decision?.status === "REJECTED"}
+          requireReason={decision?.status === "REJECTED"}
+          pending={respondMutation.isPending}
+          onConfirm={(reason) => { if (decision) respondMutation.mutate({ request: decision.request, status: decision.status, reason: reason || undefined }); }}
+        />
+      </WorkspacePage>
+    </div>
   );
 }

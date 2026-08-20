@@ -1,6 +1,6 @@
 "use client";
 
-import * as React from "react";
+import { useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
 import { CheckCircle2, Clock3, FilePenLine, RefreshCw, ShieldAlert, XCircle } from "lucide-react";
@@ -16,6 +16,7 @@ import type { ApprovalStatus, CorrectionRequestRow } from "@/features/control/li
 import { useAuthStore } from "@/lib/auth/auth-store";
 import { formatDate } from "@/lib/utils";
 
+const REPORT_ID = "control.corrections";
 const FILTERS: Array<"ALL" | ApprovalStatus> = ["ALL", "PENDING", "APPROVED", "REJECTED", "CANCELLED"];
 type Decision = { request: CorrectionRequestRow; status: "APPROVED" | "REJECTED" } | null;
 
@@ -36,8 +37,8 @@ export default function CorrectionsPage() {
   const queryClient = useQueryClient();
   const { token, shops, activeShopId, user } = useAuthStore();
   const shopId = activeShopId || shops[0]?.id || "";
-  const [filter, setFilter] = React.useState<"ALL" | ApprovalStatus>("PENDING");
-  const [decision, setDecision] = React.useState<Decision>(null);
+  const [filter, setFilter] = useState<"ALL" | ApprovalStatus>("PENDING");
+  const [decision, setDecision] = useState<Decision>(null);
   const canReview = user?.role === "OWNER";
 
   const queryKey = ["corrections", "queue", shopId] as const;
@@ -71,7 +72,7 @@ export default function CorrectionsPage() {
   const rows = filter === "ALL" ? data : data.filter((request) => request.status === filter);
   const pending = data.filter((request) => request.status === "PENDING");
 
-  const columns = React.useMemo<ColumnDef<CorrectionRequestRow>[]>(() => [
+  const columns = useMemo<ColumnDef<CorrectionRequestRow>[]>(() => [
     { accessorKey: "createdAt", header: "Requested", cell: ({ row }) => <span className="whitespace-nowrap text-muted-foreground">{formatDate(row.original.createdAt)}</span> },
     { accessorKey: "entityType", header: "Entity", cell: ({ row }) => <Badge variant="secondary" className="text-[9px]">{row.original.entityType.replaceAll("_", " ")}</Badge> },
     { accessorKey: "entityId", header: "Target ID", cell: ({ row }) => <span className="block w-[clamp(8rem,13vw,14rem)] truncate font-mono text-[9px] text-muted-foreground" title={row.original.entityId}>{row.original.entityId}</span> },
@@ -85,50 +86,33 @@ export default function CorrectionsPage() {
     } },
   ], [canReview]);
 
+  const workspaceScope = JSON.stringify({
+    "app.module": "control",
+    "app.view": REPORT_ID,
+    "control.corrections": true,
+    "mutation.pending": reviewMutation.isPending,
+    "keyboard.scope": "workspace",
+  });
+
   return (
-    <WorkspacePage>
-      <WorkspacePageHeader
-        kicker="Control · Corrections"
-        title="Correction requests"
-        description="Specialized transaction corrections and cancellations. Approval can reverse ledger entries, restore stock, or mutate transaction state, so every decision uses the dedicated backend handler."
-        icon={FilePenLine}
-        actions={<Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={() => void query.refetch()}><RefreshCw className="size-3.5" />Refresh</Button>}
-      />
+    <div data-keyboard-scope={workspaceScope}>
+      <WorkspacePage>
+        <WorkspacePageHeader kicker="Control · Corrections" title="Correction requests" description="Specialized transaction corrections and cancellations. Approval can reverse ledger entries, restore stock, or mutate transaction state, so every decision uses the dedicated backend handler." icon={FilePenLine} actions={<Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={() => void query.refetch()}><RefreshCw className="size-3.5" />Refresh</Button>} />
 
-      <WorkspaceMetricGrid>
-        <WorkspaceMetric label="Pending" value={pending.length} detail="Awaiting owner decision" icon={Clock3} tone={pending.length ? "warning" : "neutral"} loading={query.isLoading} />
-        <WorkspaceMetric label="Approved" value={data.filter((item) => item.status === "APPROVED").length} detail="Processed through specialized backend handlers" icon={CheckCircle2} tone="success" loading={query.isLoading} />
-        <WorkspaceMetric label="Rejected" value={data.filter((item) => item.status === "REJECTED").length} detail="Rejected correction requests" icon={XCircle} loading={query.isLoading} />
-        <WorkspaceMetric label="Review authority" value={canReview ? "Owner" : "Read only"} detail="Backend remains final authorization layer" icon={ShieldAlert} tone="info" />
-      </WorkspaceMetricGrid>
+        <WorkspaceMetricGrid>
+          <WorkspaceMetric label="Pending" value={pending.length} detail="Awaiting owner decision" icon={Clock3} tone={pending.length ? "warning" : "neutral"} loading={query.isLoading} />
+          <WorkspaceMetric label="Approved" value={data.filter((item) => item.status === "APPROVED").length} detail="Processed through specialized backend handlers" icon={CheckCircle2} tone="success" loading={query.isLoading} />
+          <WorkspaceMetric label="Rejected" value={data.filter((item) => item.status === "REJECTED").length} detail="Rejected correction requests" icon={XCircle} loading={query.isLoading} />
+          <WorkspaceMetric label="Review authority" value={canReview ? "Owner" : "Read only"} detail="Backend remains final authorization layer" icon={ShieldAlert} tone="info" />
+        </WorkspaceMetricGrid>
 
-      <WorkspacePanel title="Correction queue" description="This queue is shop-scoped. Approve and reject actions call /correction-requests/:id/approve and /reject directly.">
-        <WorkspaceToolbar>{FILTERS.map((status) => <Button key={status} variant={filter === status ? "secondary" : "ghost"} size="sm" className="h-8 text-[10px]" onClick={() => setFilter(status)}>{status.replaceAll("_", " ")}</Button>)}</WorkspaceToolbar>
-        <OperationalDataTable
-          data={rows}
-          columns={columns}
-          getRowId={(request) => request.id}
-          isLoading={query.isLoading}
-          isError={query.isError}
-          onRetry={() => void query.refetch()}
-          emptyTitle="No correction requests"
-          emptyDescription="Nothing matches the selected correction status."
-          renderMobileCard={(request) => <div className="rounded-xl border bg-card p-3"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold">{request.entityType.replaceAll("_", " ")}</p><p className="mt-0.5 font-mono text-[9px] text-muted-foreground">{request.entityId}</p><p className="mt-1 text-[10px] text-muted-foreground">{formatDate(request.createdAt)}</p></div>{statusBadge(request.status)}</div><p className="mt-2 line-clamp-2 text-[10px] text-muted-foreground">{request.reason || "No reason supplied"}</p></div>}
-        />
-      </WorkspacePanel>
+        <WorkspacePanel title="Correction queue" description="This queue is shop-scoped. Approve and reject actions call /correction-requests/:id/approve and /reject directly.">
+          <WorkspaceToolbar>{FILTERS.map((status) => <Button key={status} variant={filter === status ? "secondary" : "ghost"} size="sm" className="h-8 text-[10px]" onClick={() => setFilter(status)}>{status.replaceAll("_", " ")}</Button>)}</WorkspaceToolbar>
+          <OperationalDataTable id={REPORT_ID} data={rows} columns={columns} getRowId={(request) => request.id} isLoading={query.isLoading} isError={query.isError} onRetry={() => void query.refetch()} autoFocus emptyTitle="No correction requests" emptyDescription="Nothing matches the selected correction status." renderMobileCard={(request) => <div className="rounded-xl border bg-card p-3"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold">{request.entityType.replaceAll("_", " ")}</p><p className="mt-0.5 font-mono text-[9px] text-muted-foreground">{request.entityId}</p><p className="mt-1 text-[10px] text-muted-foreground">{formatDate(request.createdAt)}</p></div>{statusBadge(request.status)}</div><p className="mt-2 line-clamp-2 text-[10px] text-muted-foreground">{request.reason || "No reason supplied"}</p></div>} />
+        </WorkspacePanel>
 
-      <DecisionDialog
-        open={Boolean(decision)}
-        onOpenChange={(open) => !open && setDecision(null)}
-        title={decision?.status === "APPROVED" ? "Approve correction?" : "Reject correction?"}
-        description={decision?.status === "APPROVED" ? "This is a real accounting/stock write. The backend may reverse ledger entries, restore stock, or change transaction state according to the correction type." : "The correction request will be rejected without applying its requested transaction change."}
-        confirmLabel={decision?.status === "APPROVED" ? "Approve correction" : "Reject correction"}
-        destructive={decision?.status === "REJECTED"}
-        requireReason={decision?.status === "REJECTED"}
-        reasonPlaceholder="Why is this correction being rejected?"
-        pending={reviewMutation.isPending}
-        onConfirm={(reason) => { if (decision) reviewMutation.mutate({ request: decision.request, status: decision.status, reason: reason || undefined }); }}
-      />
-    </WorkspacePage>
+        <DecisionDialog open={Boolean(decision)} onOpenChange={(open) => !open && setDecision(null)} title={decision?.status === "APPROVED" ? "Approve correction?" : "Reject correction?"} description={decision?.status === "APPROVED" ? "This is a real accounting/stock write. The backend may reverse ledger entries, restore stock, or change transaction state according to the correction type." : "The correction request will be rejected without applying its requested transaction change."} confirmLabel={decision?.status === "APPROVED" ? "Approve correction" : "Reject correction"} destructive={decision?.status === "REJECTED"} requireReason={decision?.status === "REJECTED"} reasonPlaceholder="Why is this correction being rejected?" pending={reviewMutation.isPending} onConfirm={(reason) => { if (decision) reviewMutation.mutate({ request: decision.request, status: decision.status, reason: reason || undefined }); }} />
+      </WorkspacePage>
+    </div>
   );
 }

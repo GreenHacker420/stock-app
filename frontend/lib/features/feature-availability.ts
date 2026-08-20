@@ -22,7 +22,6 @@ export interface FeatureDefinition {
   nextSprint?: string;
 }
 
-
 export const FEATURE_REGISTRY: Record<FeatureId, FeatureDefinition> = {
   SALE_CREATE: {
     id: "SALE_CREATE",
@@ -32,92 +31,67 @@ export const FEATURE_REGISTRY: Record<FeatureId, FeatureDefinition> = {
     requiredPermission: PERMISSIONS.SALE_CREATE,
     shortcut: "f8",
   },
-
   ORDER_CREATE: {
     id: "ORDER_CREATE",
     label: "New Order",
-    status: "DISABLED",
+    status: "ENABLED",
     route: "/orders/new",
     requiredPermission: PERMISSIONS.ORDER_CREATE,
     shortcut: "ctrl+f8",
-    disabledReason: "Order creation is not available in this sprint. Coming in Write Recovery Sprint 2.",
-    nextSprint: "Write Recovery Sprint 2",
   },
-
   DM_CREATE: {
     id: "DM_CREATE",
     label: "Delivery Memo",
-    status: "DISABLED",
+    status: "ENABLED",
     route: "/delivery-memos/new",
     requiredPermission: PERMISSIONS.DM_CREATE,
     shortcut: "alt+f8",
-    disabledReason: "Delivery Memo creation is not available in this sprint. Coming in Write Recovery Sprint 2.",
-    nextSprint: "Write Recovery Sprint 2",
   },
-
   PAYMENT_CREATE: {
     id: "PAYMENT_CREATE",
     label: "Receive Payment",
-    status: "DISABLED",
+    status: "ENABLED",
     route: "/payments/new",
     requiredPermission: PERMISSIONS.PAYMENT_CREATE,
     shortcut: "f6",
-    disabledReason: "Standalone payment entry is not available in this sprint. Payments can be added within New Sale. Coming in Write Recovery Sprint 2.",
-    nextSprint: "Write Recovery Sprint 2",
   },
-
   STOCK_ENTRY: {
     id: "STOCK_ENTRY",
     label: "Stock Entry",
-    status: "DISABLED",
+    status: "ENABLED",
     route: "/inventory/stock-entry",
     requiredPermission: PERMISSIONS.STOCK_CREATE_MOVEMENT,
     shortcut: "f9",
-    disabledReason: "Stock Entry is not available in this sprint. Coming in Write Recovery Sprint 2.",
-    nextSprint: "Write Recovery Sprint 2",
   },
-
   STOCK_TRANSFER: {
     id: "STOCK_TRANSFER",
     label: "Stock Transfer",
-    status: "DISABLED",
+    status: "ENABLED",
     route: "/inventory/stock-transfer",
     requiredPermission: PERMISSIONS.STOCK_CREATE_MOVEMENT,
     shortcut: "alt+f9",
-    disabledReason: "Stock Transfer is not available in this sprint. Coming in Write Recovery Sprint 2.",
-    nextSprint: "Write Recovery Sprint 2",
   },
-
   PHYSICAL_STOCK: {
     id: "PHYSICAL_STOCK",
     label: "Physical Stock",
-    status: "UNSUPPORTED",
+    status: "ENABLED",
     route: "/inventory/physical-stock",
     requiredPermission: PERMISSIONS.STOCK_CREATE_MOVEMENT,
-    shortcut: null,
-    disabledReason: "Physical Stock verification is not implemented. No ETA confirmed.",
+    shortcut: "ctrl+f7",
   },
 };
 
-
 export function getActionableFeatures(): FeatureDefinition[] {
-  return Object.values(FEATURE_REGISTRY).filter(
-    (f) => f.status !== "UNSUPPORTED"
-  );
+  return Object.values(FEATURE_REGISTRY).filter((feature) => feature.status !== "UNSUPPORTED");
 }
-
 
 export function getEnabledFeatures(): FeatureDefinition[] {
-  return Object.values(FEATURE_REGISTRY).filter(
-    (f) => f.status === "ENABLED"
-  );
+  return Object.values(FEATURE_REGISTRY).filter((feature) => feature.status === "ENABLED");
 }
-
 
 export function getFeature(id: FeatureId): FeatureDefinition {
   return FEATURE_REGISTRY[id];
 }
-
 
 export function isShortcutRegistrable(feature: FeatureDefinition): boolean {
   return feature.status === "ENABLED" && feature.shortcut !== null;

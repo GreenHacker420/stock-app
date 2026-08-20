@@ -38,6 +38,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Keyboard architecture regression check
+        run: npm run check:architecture
+
       - name: Typecheck
         run: npm run typecheck
 
