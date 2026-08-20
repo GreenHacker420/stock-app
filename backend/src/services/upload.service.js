@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import path from "path";
 import mime from "mime-types";
+import { z } from "zod";
 import prisma from "../lib/db.js";
 import {
   uploadBuffer,
@@ -42,9 +43,30 @@ const DOMAIN_MIME_ALLOWLISTS = {
 const MAX_SIZE_BYTES = 15 * 1024 * 1024;
 const DOWNLOAD_URL_TTL_SECONDS = 300;
 
+export const checksumSha256Schema = z
+  .string({ required_error: "checksumSha256 is required and must be a 64-character hex SHA-256 digest" })
+  .trim()
+  .toLowerCase()
+  .regex(/^[a-f0-9]{64}$/, "checksumSha256 is required and must be a 64-character hex SHA-256 digest");
+
+export const safeFileNameSchema = z
+  .string()
+  .transform((val) => path.basename(String(val || "upload")).trim().replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 96) || "upload");
+
+export const uploadIntentSchema = z.object({
+  shopId: z.string().min(1, "shopId is required"),
+  domain: z.string().default("OTHER"),
+  kind: z.string().optional(),
+  fileName: z.string().min(1, "fileName is required"),
+  mimeType: z.string().min(1, "mimeType is required"),
+  sizeBytes: z.coerce.number().positive("sizeBytes is required and must be positive").max(MAX_SIZE_BYTES, "File size exceeds maximum allowed limit (15MB)"),
+  checksumSha256: checksumSha256Schema,
+  provider: z.enum(["S3", "ONEDRIVE"]).optional(),
+});
+
 function safeFileName(value, fallback = "upload") {
-  const name = path.basename(String(value || fallback)).trim();
-  return name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 96) || fallback;
+  const result = safeFileNameSchema.safeParse(value);
+  return result.success && result.data ? result.data : fallback;
 }
 
 function extensionForMimeType(mimeType) {
@@ -59,11 +81,11 @@ function normalizeAssetKind(kind, mimeType) {
 }
 
 function validateChecksumSha256(checksumSha256) {
-  const normalized = String(checksumSha256 || "").toLowerCase();
-  if (!/^[a-f0-9]{64}$/.test(normalized)) {
+  const result = checksumSha256Schema.safeParse(checksumSha256);
+  if (!result.success) {
     throw new ApiError(400, "checksumSha256 is required and must be a 64-character hex SHA-256 digest");
   }
-  return normalized;
+  return result.data;
 }
 
 function isPersistableRemoteUrl(domain, stored) {
