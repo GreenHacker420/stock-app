@@ -19,9 +19,7 @@ function isMockStorageEnvironment() {
 }
 
 export function isOneDriveConfigured() {
-  if (isMockStorageEnvironment()) {
-    return true;
-  }
+  if (isMockStorageEnvironment()) return true;
   return Boolean(tenantId && clientId && clientSecret);
 }
 
@@ -30,9 +28,7 @@ export function getOneDriveDriveId() {
 }
 
 export async function getOneDriveAccessToken() {
-  if (isMockStorageEnvironment()) {
-    return "mock-onedrive-access-token";
-  }
+  if (isMockStorageEnvironment()) return "mock-onedrive-access-token";
 
   if (!isOneDriveConfigured()) {
     throw new Error("Microsoft OneDrive is not configured. Missing AZURE_TENANT_ID, AZURE_CLIENT_ID, or AZURE_CLIENT_SECRET.");
@@ -62,19 +58,26 @@ export async function getOneDriveAccessToken() {
   return cachedAccessToken;
 }
 
+function canonicalKey(key) {
+  const cleanKey = String(key || "").replace(/^\/+/, "");
+  if (rootFolder && cleanKey.startsWith(`${rootFolder}/`)) {
+    return cleanKey.slice(rootFolder.length + 1);
+  }
+  return cleanKey;
+}
+
 function normalizeKey(key) {
   const cleanKey = String(key || "").replace(/^\/+/, "");
-  return rootFolder ? `${rootFolder}/${cleanKey}` : cleanKey;
+  if (!rootFolder || cleanKey === rootFolder || cleanKey.startsWith(`${rootFolder}/`)) {
+    return cleanKey;
+  }
+  return `${rootFolder}/${cleanKey}`;
 }
 
 function getDriveBaseUrl() {
-  if (driveId) {
-    return `https://graph.microsoft.com/v1.0/drives/${driveId}`;
-  }
-  if (userEmail) {
-    return `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(userEmail)}/drive`;
-  }
-  return `https://graph.microsoft.com/v1.0/drive`;
+  if (driveId) return `https://graph.microsoft.com/v1.0/drives/${driveId}`;
+  if (userEmail) return `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(userEmail)}/drive`;
+  return "https://graph.microsoft.com/v1.0/drive";
 }
 
 function buildItemPathUrl(key) {
@@ -87,12 +90,16 @@ function buildItemIdUrl(itemId) {
   return `${getDriveBaseUrl()}/items/${itemId}`;
 }
 
+function buildItemUrl(key, externalId) {
+  return externalId ? buildItemIdUrl(externalId) : buildItemPathUrl(key);
+}
+
 export async function uploadBufferToOneDrive({ body, key, mimeType }) {
   if (isMockStorageEnvironment()) {
     return {
       provider: "ONEDRIVE",
       bucket: driveId || "onedrive-default",
-      key: normalizeKey(key),
+      key: canonicalKey(key),
       externalId: `mock-od-${Date.now()}`,
       url: `https://graph.microsoft.com/v1.0/mock-download/${encodeURIComponent(key)}`,
       webUrl: `https://onedrive.live.com/view?mock=${encodeURIComponent(key)}`,
@@ -101,9 +108,8 @@ export async function uploadBufferToOneDrive({ body, key, mimeType }) {
 
   const token = await getOneDriveAccessToken();
   const buffer = Buffer.isBuffer(body) ? body : Buffer.from(body);
-  const smallFileSizeThreshold = 4 * 1024 * 1024; // 4MB
+  const smallFileSizeThreshold = 4 * 1024 * 1024;
 
-  // Small file: Simple direct PUT
   if (buffer.length <= smallFileSizeThreshold) {
     const uploadUrl = `${buildItemPathUrl(key)}:/content`;
     const response = await axios.put(uploadUrl, buffer, {
@@ -117,20 +123,19 @@ export async function uploadBufferToOneDrive({ body, key, mimeType }) {
     });
 
     const item = response.data;
-    const downloadUrl = item["@microsoft.graph.downloadUrl"] || item.webUrl || "";
+    const downloadUrl = item["@microsoft.graph.downloadUrl"] || "";
 
     return {
       provider: "ONEDRIVE",
       bucket: driveId || item.parentReference?.driveId || "onedrive-default",
-      key: normalizeKey(key),
+      key: canonicalKey(key),
       externalId: item.id,
       url: downloadUrl,
-      webUrl: item.webUrl || downloadUrl,
+      webUrl: item.webUrl || "",
       sizeBytes: item.size || buffer.length,
     };
   }
 
-  // Large file: Create upload session & chunked PUT
   const sessionUrl = `${buildItemPathUrl(key)}:/createUploadSession`;
   const sessionRes = await axios.post(
     sessionUrl,
@@ -150,7 +155,7 @@ export async function uploadBufferToOneDrive({ body, key, mimeType }) {
   );
 
   const { uploadUrl } = sessionRes.data;
-  const chunkSize = 320 * 1024 * 10; // 3.2MB chunks (must be multiple of 320 KiB)
+  const chunkSize = 320 * 1024 * 10;
   let offset = 0;
   let finalItem = null;
 
@@ -172,24 +177,24 @@ export async function uploadBufferToOneDrive({ body, key, mimeType }) {
     offset = end;
   }
 
-  const downloadUrl = finalItem?.["@microsoft.graph.downloadUrl"] || finalItem?.webUrl || "";
+  const downloadUrl = finalItem?.["@microsoft.graph.downloadUrl"] || "";
   return {
     provider: "ONEDRIVE",
     bucket: driveId || finalItem?.parentReference?.driveId || "onedrive-default",
-    key: normalizeKey(key),
+    key: canonicalKey(key),
     externalId: finalItem?.id,
     url: downloadUrl,
-    webUrl: finalItem?.webUrl || downloadUrl,
+    webUrl: finalItem?.webUrl || "",
     sizeBytes: finalItem?.size || buffer.length,
   };
 }
 
-export async function createOneDriveUploadSession({ key, sizeBytes }) {
+export async function createOneDriveUploadSession({ key }) {
   if (isMockStorageEnvironment()) {
     return {
       provider: "ONEDRIVE",
       uploadUrl: `https://graph.microsoft.com/v1.0/mock-upload-session/${encodeURIComponent(key)}`,
-      key: normalizeKey(key),
+      key: canonicalKey(key),
       expiry: new Date(Date.now() + 3600000).toISOString(),
     };
   }
@@ -216,7 +221,7 @@ export async function createOneDriveUploadSession({ key, sizeBytes }) {
   return {
     provider: "ONEDRIVE",
     uploadUrl: response.data.uploadUrl,
-    key: normalizeKey(key),
+    key: canonicalKey(key),
     expiry: response.data.expirationDateTime,
   };
 }
@@ -247,64 +252,67 @@ export async function getOneDriveThumbnailUrl(key, externalId, size = "large") {
 
   try {
     const token = await getOneDriveAccessToken();
-    const driveId = getOneDriveDriveId();
-    const itemUrl = externalId
-      ? `https://graph.microsoft.com/v1.0/drives/${driveId}/items/${externalId}/thumbnails`
-      : `https://graph.microsoft.com/v1.0/drives/${driveId}/root:/${encodeURIComponent(normalizeKey(key))}:/thumbnails`;
-
-    const res = await axios.get(itemUrl, {
+    const thumbnailUrl = externalId
+      ? `${buildItemIdUrl(externalId)}/thumbnails`
+      : `${buildItemPathUrl(key)}:/thumbnails`;
+    const res = await axios.get(thumbnailUrl, {
       headers: { Authorization: `Bearer ${token}` },
       timeout: 10000,
     });
 
-    if (res.data.value && res.data.value[0]) {
-      const thumb = res.data.value[0];
-      const url = thumb[size]?.url || thumb.large?.url || thumb.medium?.url || thumb.small?.url || "";
-      if (url) return url;
-    }
+    const thumb = res.data.value?.[0];
+    return thumb?.[size]?.url || thumb?.large?.url || thumb?.medium?.url || thumb?.small?.url || "";
   } catch (err) {
-    console.warn(`[OneDrive Storage] Warning: Could not fetch Graph thumbnail for ${key || externalId}:`, err.message);
+    console.warn(`[OneDrive Storage] Could not fetch thumbnail for ${key || externalId}:`, err.message);
+    return "";
   }
-  return "";
 }
 
-export async function getOneDriveSharingUrl(key, externalId) {
+export async function getOneDriveObjectMetadata(key, externalId) {
   if (isMockStorageEnvironment()) {
-    return `https://onedrive.live.com/view?mock=${encodeURIComponent(key || externalId)}`;
+    return {
+      id: externalId || `mock-od-${Date.now()}`,
+      size: 1024,
+      mimeType: "image/jpeg",
+      eTag: '"mock-etag"',
+    };
   }
 
   const token = await getOneDriveAccessToken();
-  const itemUrl = externalId ? buildItemIdUrl(externalId) : buildItemPathUrl(key);
+  const itemUrl = buildItemUrl(key, externalId);
+  const response = await axios.get(itemUrl, {
+    headers: { Authorization: `Bearer ${token}` },
+    timeout: 10000,
+  });
 
-  try {
-    const metaRes = await axios.get(itemUrl, {
-      headers: { Authorization: `Bearer ${token}` },
-      timeout: 10000,
-    });
-    if (metaRes.data["@microsoft.graph.downloadUrl"]) {
-      return metaRes.data["@microsoft.graph.downloadUrl"];
-    }
-    if (metaRes.data.webUrl) {
-      return metaRes.data.webUrl;
-    }
-  } catch (err) {
-    // Continue to createLink
+  return {
+    id: response.data.id || externalId || null,
+    size: response.data.size == null ? null : Number(response.data.size),
+    mimeType: response.data.file?.mimeType || null,
+    eTag: response.data.eTag || null,
+  };
+}
+
+export async function getOneDriveDownloadUrl(key, externalId) {
+  if (isMockStorageEnvironment()) {
+    return `https://graph.microsoft.com/v1.0/mock-download/${encodeURIComponent(key || externalId)}`;
   }
 
-  const linkUrl = `${itemUrl}/createLink`;
-  const linkRes = await axios.post(
-    linkUrl,
-    { type: "view", scope: "anonymous" },
-    {
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      timeout: 10000,
-    }
-  );
+  const token = await getOneDriveAccessToken();
+  const itemUrl = buildItemUrl(key, externalId);
+  const metaRes = await axios.get(itemUrl, {
+    headers: { Authorization: `Bearer ${token}` },
+    timeout: 10000,
+  });
+  const downloadUrl = metaRes.data["@microsoft.graph.downloadUrl"];
+  if (!downloadUrl) {
+    throw new Error(`OneDrive did not return a download URL for ${key || externalId}`);
+  }
+  return downloadUrl;
+}
 
-  return linkRes.data?.link?.webUrl || "";
+export async function getOneDriveSharingUrl(key, externalId) {
+  return getOneDriveDownloadUrl(key, externalId);
 }
 
 export async function deleteOneDriveObject(key, externalId) {
@@ -313,7 +321,7 @@ export async function deleteOneDriveObject(key, externalId) {
   }
 
   const token = await getOneDriveAccessToken();
-  const deleteUrl = externalId ? buildItemIdUrl(externalId) : buildItemPathUrl(key);
+  const deleteUrl = buildItemUrl(key, externalId);
 
   try {
     await axios.delete(deleteUrl, {
@@ -333,23 +341,17 @@ export async function getOneDriveQuota() {
   if (isMockStorageEnvironment()) {
     return {
       provider: "ONEDRIVE",
-      totalBytes: 1073741824000, // 1TB
-      usedBytes: 524288000, // 500MB
+      totalBytes: 1073741824000,
+      usedBytes: 524288000,
       remainingBytes: 1073217536000,
       state: "normal",
     };
   }
 
-  if (!isOneDriveConfigured()) {
-    return null;
-  }
+  if (!isOneDriveConfigured()) return null;
 
   const token = await getOneDriveAccessToken();
-  const driveUrl = driveId
-    ? `https://graph.microsoft.com/v1.0/drives/${driveId}`
-    : "https://graph.microsoft.com/v1.0/drive";
-
-  const response = await axios.get(driveUrl, {
+  const response = await axios.get(getDriveBaseUrl(), {
     headers: { Authorization: `Bearer ${token}` },
     timeout: 10000,
   });

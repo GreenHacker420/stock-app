@@ -2,8 +2,9 @@ import { BaseStorageAdapter } from "./base-storage.adapter.js";
 import {
   uploadBufferToOneDrive,
   downloadOneDriveObjectBuffer,
-  getOneDriveSharingUrl,
+  getOneDriveDownloadUrl,
   getOneDriveThumbnailUrl,
+  getOneDriveObjectMetadata,
   deleteOneDriveObject,
   createOneDriveUploadSession,
   getOneDriveQuota,
@@ -31,7 +32,7 @@ export class OneDriveStorageAdapter extends BaseStorageAdapter {
   }
 
   async createUploadSession({ key, sizeBytes }) {
-    const session = await createOneDriveUploadSession({ key, sizeBytes });
+    const session = await createOneDriveUploadSession({ key });
     const headers = {};
     if (sizeBytes && Number(sizeBytes) > 0) {
       headers["Content-Range"] = `bytes 0-${Number(sizeBytes) - 1}/${Number(sizeBytes)}`;
@@ -52,18 +53,28 @@ export class OneDriveStorageAdapter extends BaseStorageAdapter {
     return downloadOneDriveObjectBuffer(key, externalId);
   }
 
-  async getPublicUrl({ key, externalId, fallbackUrl }) {
-    try {
-      const cdnUrl = await getOneDriveThumbnailUrl(key, externalId);
-      if (cdnUrl) return cdnUrl;
-    } catch (_) {}
+  async getDownloadUrl({ key, externalId }) {
+    const url = await getOneDriveDownloadUrl(key, externalId);
+    return {
+      url,
+      expiresInSeconds: null,
+    };
+  }
 
-    try {
-      return await getOneDriveSharingUrl(key, externalId);
-    } catch (error) {
-      if (fallbackUrl) return fallbackUrl;
-      throw error;
-    }
+  async getThumbnailUrl({ key, externalId, size }) {
+    return getOneDriveThumbnailUrl(key, externalId, size);
+  }
+
+  async verifyObject({ key, externalId }) {
+    const metadata = await getOneDriveObjectMetadata(key, externalId);
+    return {
+      exists: true,
+      externalId: metadata.id,
+      contentLength: metadata.size,
+      contentType: metadata.mimeType,
+      eTag: metadata.eTag,
+      checksumSha256: null,
+    };
   }
 
   async deleteObject({ key, externalId }) {

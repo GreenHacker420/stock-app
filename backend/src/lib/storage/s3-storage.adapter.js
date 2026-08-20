@@ -1,13 +1,11 @@
 import { BaseStorageAdapter } from "./base-storage.adapter.js";
 import {
   uploadBufferToS3,
-  getPublicS3ObjectUrl,
   downloadS3ObjectBuffer,
   deleteS3Object,
   getS3BucketName,
 } from "../s3-storage.js";
 import { createPresignedPutUrl, createPresignedGetUrl, verifyS3Object } from "../../services/s3.service.js";
-
 
 export class S3StorageAdapter extends BaseStorageAdapter {
   constructor() {
@@ -32,10 +30,11 @@ export class S3StorageAdapter extends BaseStorageAdapter {
     };
   }
 
-  async createUploadSession({ key, mimeType, expiresInSeconds = 600 }) {
+  async createUploadSession({ key, mimeType, checksumSha256, expiresInSeconds = 600 }) {
     const s3Presigned = await createPresignedPutUrl({
       key,
       mimeType,
+      checksumSha256,
       expiresInSeconds,
     });
 
@@ -45,7 +44,9 @@ export class S3StorageAdapter extends BaseStorageAdapter {
       key: s3Presigned.key,
       bucket: s3Presigned.bucket,
       method: "PUT",
-      publicUrl: s3Presigned.publicUrl,
+      headers: s3Presigned.headers || {},
+      expiresInSeconds: s3Presigned.expiresInSeconds,
+      isMock: s3Presigned.isMock || false,
     };
   }
 
@@ -53,8 +54,9 @@ export class S3StorageAdapter extends BaseStorageAdapter {
     return downloadS3ObjectBuffer(key);
   }
 
-  async getPublicUrl({ key, bucket, expiresInSeconds = 3600 }) {
-    return createPresignedGetUrl({ key, bucket, expiresInSeconds });
+  async getDownloadUrl({ key, bucket, expiresInSeconds = 300 }) {
+    const url = await createPresignedGetUrl({ key, bucket, expiresInSeconds });
+    return { url, expiresInSeconds };
   }
 
   async deleteObject({ key }) {
