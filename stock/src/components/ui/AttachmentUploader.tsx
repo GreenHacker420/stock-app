@@ -10,6 +10,7 @@ import {
 import { getDocumentAsync } from "expo-document-picker";
 import { File, UploadType } from "expo-file-system";
 import * as Crypto from "expo-crypto";
+import mime from "mime-types";
 import { createUploadIntent, completeAssetUpload } from "../../api/ledger.api";
 import { colors, spacing, radius, fontSize } from "../../theme";
 
@@ -52,7 +53,17 @@ async function resolveFileMetadata(uri: string, fallbackSize?: number | null) {
   return { sizeBytes, checksumSha256, localFile };
 }
 
-function assetKindForMime(mimeType: string) {
+function resolveMimeType(fileName: string, providedMime?: string) {
+  const lookedUp = mime.lookup(fileName);
+  if (lookedUp) return lookedUp;
+  if (providedMime && providedMime !== "application/octet-stream" && providedMime !== "*/*") {
+    return providedMime;
+  }
+  return "application/octet-stream";
+}
+
+function assetKindForFile(fileName: string, providedMime?: string) {
+  const mimeType = resolveMimeType(fileName, providedMime);
   if (mimeType.startsWith("image/")) return "IMAGE";
   if (mimeType.startsWith("video/")) return "VIDEO";
   if (mimeType.startsWith("audio/")) return "AUDIO";
@@ -167,12 +178,13 @@ export function AttachmentUploader({
         fileInfo.uri,
         fileInfo.sizeBytes,
       );
+      const effectiveMime = resolveMimeType(fileInfo.fileName, fileInfo.mimeType);
       const intent = await createUploadIntent({
         shopId,
         domain,
-        kind: assetKindForMime(fileInfo.mimeType),
+        kind: assetKindForFile(fileInfo.fileName, fileInfo.mimeType),
         fileName: fileInfo.fileName,
-        mimeType: fileInfo.mimeType,
+        mimeType: effectiveMime,
         sizeBytes,
         checksumSha256,
       });
@@ -181,7 +193,7 @@ export function AttachmentUploader({
         httpMethod: "PUT",
         uploadType: UploadType.BINARY_CONTENT,
         headers: {
-          "Content-Type": fileInfo.mimeType,
+          "Content-Type": effectiveMime,
           ...(intent.headers || {}),
         },
         onProgress: ({ bytesSent, totalBytes }: any) => {
@@ -202,7 +214,7 @@ export function AttachmentUploader({
       const newAttachment: UploadedAttachment = {
         assetId: intent.assetId,
         fileName: fileInfo.fileName,
-        mimeType: fileInfo.mimeType,
+        mimeType: effectiveMime,
         sizeBytes,
         uri: fileInfo.uri,
         checksumSha256,

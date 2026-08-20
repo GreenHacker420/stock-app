@@ -70,6 +70,7 @@
     "expo-video": "~56.1.4",
     "expo-web-browser": "^56.0.5",
     "jsbarcode": "^3.12.3",
+    "mime-types": "^3.0.2",
     "qrcode-generator": "^2.0.4",
     "react": "19.2.3",
     "react-dom": "19.2.3",
@@ -98,8 +99,9 @@
   },
   "devDependencies": {
     "@babel/core": "^7.20.0",
-    "@types/react": "~19.2.10",
+    "@types/mime-types": "^3.0.1",
     "@types/node": "^24.10.1",
+    "@types/react": "~19.2.10",
     "babel-preset-expo": "^56.0.13",
     "expo-doctor": "^1.20.0",
     "patch-package": "^8.0.1",
