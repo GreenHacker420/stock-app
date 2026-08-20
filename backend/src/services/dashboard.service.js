@@ -510,17 +510,7 @@ export async function listStorageObjects(user, { shopId, filter, cursor, limit, 
       }
     }
 
-    let url = a.remoteUrl;
-    try {
-      url = await getObjectPublicUrl({
-        key: a.storageKey,
-        provider: a.storageProvider,
-        externalId: a.externalId,
-        fallbackUrl: a.remoteUrl,
-      });
-    } catch (_) {
-      url = `/assets/media/${a.id}`;
-    }
+    const url = a.remoteUrl || (a.storageKey ? getPublicS3ObjectUrl(a.storageKey) : "");
     return {
       id: a.id,
       fileName: a.fileName || (a.storageKey ? a.storageKey.split("/").pop() : "Unnamed File"),
