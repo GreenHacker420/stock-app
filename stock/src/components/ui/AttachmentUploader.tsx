@@ -10,7 +10,7 @@ import {
 import { getDocumentAsync } from "expo-document-picker";
 import { File, UploadType } from "expo-file-system";
 import * as Crypto from "expo-crypto";
-import { directUploadAsset, createUploadIntent, completeAssetUpload } from "../../api/ledger.api";
+import { createUploadIntent, completeAssetUpload } from "../../api/ledger.api";
 import { colors, spacing, radius, fontSize } from "../../theme";
 
 export interface UploadedAttachment {
@@ -37,9 +37,8 @@ async function resolveFileMetadata(uri: string, fallbackSize?: number | null) {
   try {
     const info = typeof (localFile as any).info === "function" ? await (localFile as any).info() : null;
     if (info?.size && Number(info.size) > 0) sizeBytes = Number(info.size);
-  } catch {
-    // fall through
-  }
+  } catch {}
+
   if (!Number.isFinite(sizeBytes) || sizeBytes <= 0) {
     throw new Error("Could not determine file size. Please reselect the file.");
   }
@@ -51,6 +50,13 @@ async function resolveFileMetadata(uri: string, fallbackSize?: number | null) {
     .join("");
 
   return { sizeBytes, checksumSha256, localFile };
+}
+
+function assetKindForMime(mimeType: string) {
+  if (mimeType.startsWith("image/")) return "IMAGE";
+  if (mimeType.startsWith("video/")) return "VIDEO";
+  if (mimeType.startsWith("audio/")) return "AUDIO";
+  return "DOCUMENT";
 }
 
 export function AttachmentUploader({
@@ -155,29 +161,51 @@ export function AttachmentUploader({
   }) => {
     try {
       setUploading(true);
-      setUploadProgress("Uploading...");
+      setUploadProgress("Preparing upload...");
 
-      const uploaded = await directUploadAsset({
+      const { sizeBytes, checksumSha256, localFile } = await resolveFileMetadata(
+        fileInfo.uri,
+        fileInfo.sizeBytes,
+      );
+      const intent = await createUploadIntent({
         shopId,
         domain,
-        fileUri: fileInfo.uri,
+        kind: assetKindForMime(fileInfo.mimeType),
         fileName: fileInfo.fileName,
         mimeType: fileInfo.mimeType,
-        onProgress: ({ bytesSent, totalBytes }) => {
+        sizeBytes,
+        checksumSha256,
+      });
+
+      const uploadTask = localFile.createUploadTask(intent.uploadUrl, {
+        httpMethod: "PUT",
+        uploadType: UploadType.BINARY_CONTENT,
+        headers: {
+          "Content-Type": fileInfo.mimeType,
+          ...(intent.headers || {}),
+        },
+        onProgress: ({ bytesSent, totalBytes }: any) => {
           if (totalBytes > 0) {
             const pct = Math.round((bytesSent / totalBytes) * 100);
             setUploadProgress(`Uploading ${pct}%...`);
           }
         },
-      });
+      } as any);
+
+      const uploadResult = await uploadTask.uploadAsync();
+      if (!uploadResult || uploadResult.status < 200 || uploadResult.status >= 300) {
+        throw new Error(`Upload failed with status ${uploadResult?.status ?? "unknown"}`);
+      }
+
+      await completeAssetUpload(intent.assetId, { shopId });
 
       const newAttachment: UploadedAttachment = {
-        assetId: uploaded.assetId,
-        fileName: uploaded.fileName || fileInfo.fileName,
-        mimeType: uploaded.mimeType || fileInfo.mimeType,
-        sizeBytes: uploaded.sizeBytes || fileInfo.sizeBytes || 0,
-        uri: uploaded.url || fileInfo.uri,
-        checksumSha256: uploaded.checksumSha256,
+        assetId: intent.assetId,
+        fileName: fileInfo.fileName,
+        mimeType: fileInfo.mimeType,
+        sizeBytes,
+        uri: fileInfo.uri,
+        checksumSha256,
       };
 
       onAttachmentsChange([...attachments, newAttachment]);
