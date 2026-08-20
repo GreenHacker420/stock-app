@@ -1,4 +1,5 @@
 import crypto from "crypto";
+import path from "path";
 import mime from "mime-types";
 import prisma from "../lib/db.js";
 import {
@@ -42,26 +43,19 @@ const MAX_SIZE_BYTES = 15 * 1024 * 1024;
 const DOWNLOAD_URL_TTL_SECONDS = 300;
 
 function safeFileName(value, fallback = "upload") {
-  return String(value || fallback)
-    .trim()
-    .replace(/[^a-zA-Z0-9._-]/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .slice(0, 96) || fallback;
+  const name = path.basename(String(value || fallback)).trim();
+  return name.replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 96) || fallback;
 }
 
 function extensionForMimeType(mimeType) {
-  const ext = mime.extension(mimeType);
-  if (ext) return ext === "jpeg" ? "jpg" : ext;
-  return "jpg";
+  return mime.extension(mimeType) || "bin";
 }
 
 function normalizeAssetKind(kind, mimeType) {
   if (kind === "DOC") return "DOCUMENT";
   if (kind) return kind;
-  if (mimeType?.startsWith("image/")) return "IMAGE";
-  if (mimeType?.startsWith("video/")) return "VIDEO";
-  if (mimeType?.startsWith("audio/")) return "AUDIO";
-  return "DOCUMENT";
+  const category = (mimeType || "").split("/")[0].toUpperCase();
+  return ["IMAGE", "VIDEO", "AUDIO"].includes(category) ? category : "DOCUMENT";
 }
 
 function validateChecksumSha256(checksumSha256) {
