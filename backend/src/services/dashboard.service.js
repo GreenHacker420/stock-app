@@ -510,7 +510,7 @@ export async function listStorageObjects(user, { shopId, filter, cursor, limit, 
       }
     }
 
-    const url = `/api/uploads/media/${a.id}`;
+    const url = `/assets/media/${a.id}`;
     return {
       id: a.id,
       fileName: a.fileName || (a.storageKey ? a.storageKey.split("/").pop() : "Unnamed File"),

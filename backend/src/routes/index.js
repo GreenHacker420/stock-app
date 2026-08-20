@@ -49,6 +49,8 @@ export const appRoutes = [
   ["/sync", syncRoutes],
   ["/attendance", attendanceRoutes],
   ["/assets", uploadRoutes],
+  ["/uploads", uploadRoutes],
+  ["/api/uploads", uploadRoutes],
 ];
 
 export function mountAppRoutes(app) {

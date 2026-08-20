@@ -29,6 +29,11 @@ router.get("/file/:id", asyncHandler(async (req, res) => {
   await streamAssetFile(req.params.id, res);
 }));
 
+router.get("/:id", asyncHandler(async (req, res, next) => {
+  if (req.params.id === "intents" || req.params.id === "direct") return next();
+  await streamAssetFile(req.params.id, res);
+}));
+
 router.use(requireAuth);
 
 const ASSET_DOMAINS = [
