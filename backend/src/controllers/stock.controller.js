@@ -1,5 +1,6 @@
 import { asyncHandler } from "../utils/asyncHandler.js";
 import * as stockService from "../services/stock.service.js";
+import * as stockCountService from "../services/stock-count.service.js";
 import { runIdempotentCreate } from "../services/idempotency.service.js";
 
 export const getCurrentStock = asyncHandler(async (req, res) => {
@@ -34,6 +35,19 @@ export const bulkStockEntry = asyncHandler(async (req, res) => {
        shopId: req.validated.body.shopId,
      },
      () => stockService.bulkStockEntry(req.user, req.validated.body),
+  );
+  res.status(result.statusCode).json({ success: true, data: result.data });
+});
+
+export const physicalStockCount = asyncHandler(async (req, res) => {
+  const result = await runIdempotentCreate(
+    req,
+    {
+      endpoint: "POST /stock/physical-count",
+      resourceType: "PHYSICAL_STOCK_COUNT",
+      shopId: req.validated.body.shopId,
+    },
+    () => stockCountService.reconcilePhysicalStock(req.user, req.validated.body),
   );
   res.status(result.statusCode).json({ success: true, data: result.data });
 });

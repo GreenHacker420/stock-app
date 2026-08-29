@@ -4,6 +4,7 @@ import {
   CreditCard,
   LayoutDashboard,
   MessageSquare,
+  PanelsTopLeft,
   Receipt,
   ReceiptIndianRupee,
   Shield,
@@ -30,6 +31,7 @@ export const NAVIGATION_GROUPS: NavigationGroup[] = [
   {
     label: "Workspace",
     items: [
+      { label: "Gateway", href: "/gateway", icon: PanelsTopLeft, permission: PERMISSIONS.SHOP_VIEW },
       { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, permission: PERMISSIONS.SHOP_VIEW },
       { label: "Sales", href: "/sales", icon: Receipt, permission: PERMISSIONS.SALE_VIEW_OWN },
       { label: "Orders", href: "/orders", icon: ShoppingBag, permission: PERMISSIONS.ORDER_VIEW_ASSIGNED },

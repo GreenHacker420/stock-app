@@ -1,11 +1,13 @@
 "use client";
 
-import { use } from "react";
+import { use, useCallback, useMemo, type ComponentType } from "react";
+import { useRouter } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Building2, CreditCard, FileText, MapPin, Phone, RefreshCw, TrendingUp, UserRound, WalletCards } from "lucide-react";
 
 import { OperationalDataTable } from "@/components/data-grid/OperationalDataTable";
+import { useCommand, useKeybinding } from "@/components/keyboard/KeyboardRuntimeProvider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { WorkspaceMetric, WorkspaceMetricGrid } from "@/components/workspace/WorkspaceMetrics";
@@ -13,6 +15,8 @@ import { WorkspacePage, WorkspacePageHeader, WorkspacePanel } from "@/components
 import { fetchCustomerLedger, fetchCustomerLedgerSummary, fetchCustomerSummary } from "@/features/customers/api/customer-detail.queries";
 import type { CustomerLedgerEntry } from "@/features/customers/lib/customer-detail-types";
 import { useAuthStore } from "@/lib/auth/auth-store";
+import { drilldownStack } from "@/lib/navigation/drilldown-stack";
+import { queueNavigationRestoration } from "@/lib/navigation/navigation-restoration";
 import { queryKeys } from "@/lib/query/query-keys";
 import { formatDate, formatDateTime, formatINR } from "@/lib/utils";
 
@@ -24,8 +28,24 @@ function directionBadge(direction: "DEBIT" | "CREDIT") {
 
 export default function CustomerDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const router = useRouter();
   const { token, shops, activeShopId, startDate, endDate } = useAuthStore();
   const shopId = activeShopId || shops[0]?.id || "";
+
+  const goBack = useCallback(() => {
+    const frame = drilldownStack.pop();
+    if (!frame) {
+      router.push("/customers");
+      return;
+    }
+    queueNavigationRestoration(frame);
+    const suffix = frame.searchParams ? `?${frame.searchParams}` : "";
+    router.push(`${frame.route}${suffix}`);
+  }, [router]);
+
+  const backCommand = useMemo(() => ({ id: "customers.detail.back", title: "Back to Customer Register", execute: goBack }), [goBack]);
+  useCommand(backCommand);
+  useKeybinding(useMemo(() => ({ id: "customers-detail-escape", key: "esc", command: backCommand.id, when: "app.view == customers.detail && !dialog.open && !input.editable", priority: 80 }), [backCommand.id]));
 
   const customerQuery = useQuery({
     queryKey: queryKeys.customers.detail(id),
@@ -61,75 +81,67 @@ export default function CustomerDetailPage({ params }: { params: Promise<{ id: s
     { id: "state", header: "State", cell: ({ row }) => <div className="text-right">{row.original.isReversal ? <Badge variant="secondary" className="text-[9px]">Reversal</Badge> : row.original.isReversed ? <Badge variant="outline" className="text-[9px]">Reversed</Badge> : <span className="text-[10px] text-muted-foreground">Posted</span>}</div> },
   ];
 
+  const scope = JSON.stringify({ "app.module": "customers", "app.view": "customers.detail", "entity.activeId": id, "detail.focused": true, "keyboard.scope": "detail" });
+
   if (customerQuery.isLoading) {
-    return <WorkspacePage><div className="workspace-panel flex min-h-[54vh] items-center justify-center text-xs text-muted-foreground">Loading customer account…</div></WorkspacePage>;
+    return <div data-keyboard-scope={scope}><WorkspacePage><div className="workspace-panel flex min-h-[54vh] items-center justify-center text-xs text-muted-foreground">Loading customer account…</div></WorkspacePage></div>;
   }
 
   if (customerQuery.isError || !customer) {
-    return <WorkspacePage><WorkspacePageHeader kicker="Accounts · Customer" title="Customer account" description="The customer profile could not be loaded." backHref="/customers" icon={UserRound} /><div className="workspace-panel flex min-h-[46vh] items-center justify-center p-6 text-center"><div><p className="text-sm font-semibold">Customer unavailable</p><p className="mt-1 text-xs text-muted-foreground">{customerQuery.error instanceof Error ? customerQuery.error.message : "The backend did not return this customer."}</p><Button variant="outline" size="sm" className="mt-4" onClick={() => void customerQuery.refetch()}>Retry</Button></div></div></WorkspacePage>;
+    return <div data-keyboard-scope={scope}><WorkspacePage><WorkspacePageHeader kicker="Accounts · Customer" title="Customer account" description="The customer profile could not be loaded." backHref={null} onBack={goBack} icon={UserRound} /><div className="workspace-panel flex min-h-[46vh] items-center justify-center p-6 text-center"><div><p className="text-sm font-semibold">Customer unavailable</p><p className="mt-1 text-xs text-muted-foreground">{customerQuery.error instanceof Error ? customerQuery.error.message : "The backend did not return this customer."}</p><Button variant="outline" size="sm" className="mt-4" onClick={() => void customerQuery.refetch()}>Retry</Button></div></div></WorkspacePage></div>;
   }
 
   return (
-    <WorkspacePage>
-      <WorkspacePageHeader
-        kicker="Accounts · Customer"
-        title={customer.name}
-        description="Canonical customer account with lifetime activity metrics and the immutable ledger for the selected business period."
-        backHref="/customers"
-        icon={UserRound}
-        meta={<Badge variant={customer.type === "BUSINESS" ? "default" : "secondary"} className="text-[9px]">{customer.type.replaceAll("_", " ")}</Badge>}
-        actions={<Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={() => { void customerQuery.refetch(); void ledgerSummaryQuery.refetch(); void ledgerQuery.refetch(); }}><RefreshCw className="size-3.5" />Refresh</Button>}
-      />
-
-      <WorkspaceMetricGrid>
-        <WorkspaceMetric label="Outstanding" value={formatINR(customer.outstandingAmount)} detail="Canonical receivable balance" icon={WalletCards} tone={Number(customer.outstandingAmount) > 0 ? "danger" : "neutral"} />
-        <WorkspaceMetric label="Advance" value={formatINR(customer.advanceBalance)} detail="Canonical customer advance" icon={CreditCard} tone={Number(customer.advanceBalance) > 0 ? "success" : "neutral"} />
-        <WorkspaceMetric label="Lifetime sales" value={formatINR(customer.activitySummary.totalSales)} detail={`${customer.activitySummary.totalOrders} non-cancelled sales`} icon={TrendingUp} tone="info" />
-        <WorkspaceMetric label="Average sale" value={formatINR(customer.activitySummary.averageOrderValue)} detail={customer.activitySummary.lastPurchaseDate ? `Last purchase ${formatDate(customer.activitySummary.lastPurchaseDate)}` : "No completed purchase"} icon={FileText} />
-      </WorkspaceMetricGrid>
-
-      <div className="workspace-two-column">
-        <WorkspacePanel title="Contact and billing" description="Customer master fields returned by the backend.">
-          <div className="grid gap-[clamp(0.65rem,1vw,1rem)] p-[clamp(0.75rem,1vw,1rem)] sm:grid-cols-2">
-            <InfoTile icon={Phone} label="Phone" value={customer.phone || "—"} />
-            <InfoTile icon={UserRound} label="Contact person" value={customer.contactPerson || "—"} />
-            <InfoTile icon={Building2} label="GSTIN" value={customer.gstin || "Non-GST customer"} mono />
-            <InfoTile icon={MapPin} label="Address" value={[customer.address, customer.city].filter(Boolean).join(", ") || "No address on file"} />
-          </div>
-        </WorkspacePanel>
-
-        <WorkspacePanel title="Ledger period summary" description={`${startDate} → ${endDate}. Positive closing balance is receivable; negative closing balance represents customer advance.`}>
-          <div className="grid gap-2 p-[clamp(0.75rem,1vw,1rem)] sm:grid-cols-2">
-            <LedgerMetric label="Opening balance" value={ledgerSummary?.openingBalance} loading={ledgerSummaryQuery.isLoading} />
-            <LedgerMetric label="Period debits" value={ledgerSummary?.periodDebits} loading={ledgerSummaryQuery.isLoading} />
-            <LedgerMetric label="Period credits" value={ledgerSummary?.periodCredits} loading={ledgerSummaryQuery.isLoading} />
-            <LedgerMetric label="Closing balance" value={ledgerSummary?.closingBalance} loading={ledgerSummaryQuery.isLoading} strong />
-          </div>
-        </WorkspacePanel>
-      </div>
-
-      <WorkspacePanel
-        title="Customer ledger"
-        description="Immutable debit/credit entries are the accounting source of truth. The first 50 entries in the selected business period are shown."
-        actions={ledgerQuery.data?.hasMore ? <Badge variant="outline" className="text-[9px]">More entries available</Badge> : undefined}
-      >
-        <OperationalDataTable
-          data={ledgerQuery.data?.entries ?? []}
-          columns={ledgerColumns}
-          getRowId={(entry) => entry.id}
-          isLoading={ledgerQuery.isLoading}
-          isError={ledgerQuery.isError}
-          onRetry={() => void ledgerQuery.refetch()}
-          emptyTitle="No ledger entries"
-          emptyDescription="No ledger entries were posted in the selected business period."
-          renderMobileCard={(entry) => <div className="rounded-xl border bg-card p-3"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold">{entry.entryType.replaceAll("_", " ")}</p><p className="mt-0.5 text-[10px] text-muted-foreground">{formatDateTime(entry.effectiveAt)} · {entry.sourceType.replaceAll("_", " ")}</p></div>{directionBadge(entry.direction)}</div><div className="mt-3 flex items-end justify-between gap-3 border-t pt-2"><span className="text-[10px] text-muted-foreground">Balance {formatINR(Math.abs(entry.runningBalance))}{entry.runningBalance < 0 ? " Cr" : entry.runningBalance > 0 ? " Dr" : ""}</span><span className="numeric-cell text-sm font-semibold">{formatINR(entry.amount)}</span></div></div>}
+    <div data-keyboard-scope={scope}>
+      <WorkspacePage>
+        <WorkspacePageHeader
+          kicker="Accounts · Customer"
+          title={customer.name}
+          description="Canonical customer account with lifetime activity metrics and the immutable ledger for the selected business period."
+          backHref={null}
+          onBack={goBack}
+          icon={UserRound}
+          meta={<Badge variant={customer.type === "BUSINESS" ? "default" : "secondary"} className="text-[9px]">{customer.type.replaceAll("_", " ")}</Badge>}
+          actions={<Button variant="outline" size="sm" className="h-9 gap-1.5" onClick={() => { void customerQuery.refetch(); void ledgerSummaryQuery.refetch(); void ledgerQuery.refetch(); }}><RefreshCw className="size-3.5" />Refresh</Button>}
         />
-      </WorkspacePanel>
-    </WorkspacePage>
+
+        <WorkspaceMetricGrid>
+          <WorkspaceMetric label="Outstanding" value={formatINR(customer.outstandingAmount)} detail="Canonical receivable balance" icon={WalletCards} tone={Number(customer.outstandingAmount) > 0 ? "danger" : "neutral"} />
+          <WorkspaceMetric label="Advance" value={formatINR(customer.advanceBalance)} detail="Canonical customer advance" icon={CreditCard} tone={Number(customer.advanceBalance) > 0 ? "success" : "neutral"} />
+          <WorkspaceMetric label="Lifetime sales" value={formatINR(customer.activitySummary.totalSales)} detail={`${customer.activitySummary.totalOrders} non-cancelled sales`} icon={TrendingUp} tone="info" />
+          <WorkspaceMetric label="Average sale" value={formatINR(customer.activitySummary.averageOrderValue)} detail={customer.activitySummary.lastPurchaseDate ? `Last purchase ${formatDate(customer.activitySummary.lastPurchaseDate)}` : "No completed purchase"} icon={FileText} />
+        </WorkspaceMetricGrid>
+
+        <div className="workspace-two-column">
+          <WorkspacePanel title="Contact and billing" description="Customer master fields returned by the backend.">
+            <div className="grid gap-[clamp(0.65rem,1vw,1rem)] p-[clamp(0.75rem,1vw,1rem)] sm:grid-cols-2"><InfoTile icon={Phone} label="Phone" value={customer.phone || "—"} /><InfoTile icon={UserRound} label="Contact person" value={customer.contactPerson || "—"} /><InfoTile icon={Building2} label="GSTIN" value={customer.gstin || "Non-GST customer"} mono /><InfoTile icon={MapPin} label="Address" value={[customer.address, customer.city].filter(Boolean).join(", ") || "No address on file"} /></div>
+          </WorkspacePanel>
+
+          <WorkspacePanel title="Ledger period summary" description={`${startDate} → ${endDate}. Positive closing balance is receivable; negative closing balance represents customer advance.`}>
+            <div className="grid gap-2 p-[clamp(0.75rem,1vw,1rem)] sm:grid-cols-2"><LedgerMetric label="Opening balance" value={ledgerSummary?.openingBalance} loading={ledgerSummaryQuery.isLoading} /><LedgerMetric label="Period debits" value={ledgerSummary?.periodDebits} loading={ledgerSummaryQuery.isLoading} /><LedgerMetric label="Period credits" value={ledgerSummary?.periodCredits} loading={ledgerSummaryQuery.isLoading} /><LedgerMetric label="Closing balance" value={ledgerSummary?.closingBalance} loading={ledgerSummaryQuery.isLoading} strong /></div>
+          </WorkspacePanel>
+        </div>
+
+        <WorkspacePanel title="Customer ledger" description="Immutable debit/credit entries are the accounting source of truth. The first 50 entries in the selected business period are shown." actions={ledgerQuery.data?.hasMore ? <Badge variant="outline" className="text-[9px]">More entries available</Badge> : undefined}>
+          <OperationalDataTable
+            id="customers.detail.ledger"
+            data={ledgerQuery.data?.entries ?? []}
+            columns={ledgerColumns}
+            getRowId={(entry) => entry.id}
+            isLoading={ledgerQuery.isLoading}
+            isError={ledgerQuery.isError}
+            onRetry={() => void ledgerQuery.refetch()}
+            emptyTitle="No ledger entries"
+            emptyDescription="No ledger entries were posted in the selected business period."
+            renderMobileCard={(entry) => <div className="rounded-xl border bg-card p-3"><div className="flex items-start justify-between gap-3"><div><p className="text-xs font-semibold">{entry.entryType.replaceAll("_", " ")}</p><p className="mt-0.5 text-[10px] text-muted-foreground">{formatDateTime(entry.effectiveAt)} · {entry.sourceType.replaceAll("_", " ")}</p></div>{directionBadge(entry.direction)}</div><div className="mt-3 flex items-end justify-between gap-3 border-t pt-2"><span className="text-[10px] text-muted-foreground">Balance {formatINR(Math.abs(entry.runningBalance))}{entry.runningBalance < 0 ? " Cr" : entry.runningBalance > 0 ? " Dr" : ""}</span><span className="numeric-cell text-sm font-semibold">{formatINR(entry.amount)}</span></div></div>}
+          />
+        </WorkspacePanel>
+      </WorkspacePage>
+    </div>
   );
 }
 
-function InfoTile({ icon: Icon, label, value, mono = false }: { icon: React.ComponentType<{ className?: string }>; label: string; value: string; mono?: boolean }) {
+function InfoTile({ icon: Icon, label, value, mono = false }: { icon: ComponentType<{ className?: string }>; label: string; value: string; mono?: boolean }) {
   return <div className="rounded-xl border bg-muted/20 p-3"><div className="flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground"><Icon className="size-3.5" />{label}</div><p className={`mt-2 text-xs font-semibold leading-5 ${mono ? "font-mono" : ""}`}>{value}</p></div>;
 }
 

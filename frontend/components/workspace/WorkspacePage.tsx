@@ -17,6 +17,7 @@ export function WorkspacePageHeader({
   description,
   icon: Icon,
   backHref = "/dashboard",
+  onBack,
   actions,
   meta,
 }: {
@@ -25,18 +26,24 @@ export function WorkspacePageHeader({
   description?: string;
   icon?: ComponentType<{ className?: string }>;
   backHref?: string | null;
+  onBack?: () => void;
   actions?: ReactNode;
   meta?: ReactNode;
 }) {
+  const backClassName = cn(
+    buttonVariants({ variant: "ghost", size: "icon" }),
+    "mt-0.5 size-9 shrink-0 rounded-lg",
+  );
+
   return (
     <header className="workspace-page-header">
       <div className="flex min-w-0 items-start gap-[clamp(0.5rem,0.8vw,0.875rem)]">
-        {backHref ? (
-          <Link
-            href={backHref}
-            aria-label="Back"
-            className={cn(buttonVariants({ variant: "ghost", size: "icon" }), "mt-0.5 size-9 shrink-0 rounded-lg")}
-          >
+        {onBack ? (
+          <button type="button" aria-label="Back" className={backClassName} onClick={onBack}>
+            <ArrowLeft className="size-4" />
+          </button>
+        ) : backHref ? (
+          <Link href={backHref} aria-label="Back" className={backClassName}>
             <ArrowLeft className="size-4" />
           </Link>
         ) : null}

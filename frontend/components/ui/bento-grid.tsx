@@ -1,5 +1,7 @@
 "use client";
 
+import type { ReactNode } from "react";
+
 import { cn } from "@/lib/utils";
 
 export const BentoGrid = ({
@@ -7,7 +9,7 @@ export const BentoGrid = ({
   children,
 }: {
   className?: string;
-  children?: React.ReactNode;
+  children?: ReactNode;
 }) => {
   return (
     <div
@@ -30,10 +32,10 @@ export const BentoGridItem = ({
   icon,
 }: {
   className?: string;
-  title?: string | React.ReactNode;
-  description?: string | React.ReactNode;
-  header?: React.ReactNode;
-  icon?: React.ReactNode;
+  title?: string | ReactNode;
+  description?: string | ReactNode;
+  header?: ReactNode;
+  icon?: ReactNode;
 }) => {
   return (
     <div

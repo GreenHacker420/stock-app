@@ -1,12 +1,13 @@
 "use client";
 
-import * as React from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import type { ColumnDef } from "@tanstack/react-table";
 import { FileText, Plus, Receipt, RefreshCw, Search, WalletCards } from "lucide-react";
 
 import { OperationalDataTable } from "@/components/data-grid/OperationalDataTable";
+import { useCommand, useKeybinding } from "@/components/keyboard/KeyboardRuntimeProvider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,15 +17,35 @@ import { WorkspacePage, WorkspacePageHeader, WorkspacePanel, WorkspaceToolbar } 
 import { fetchSalesRegister } from "@/features/registers/api/register.queries";
 import type { SaleRegisterRow } from "@/features/registers/lib/register-types";
 import { useAuthStore } from "@/lib/auth/auth-store";
+import { activePointerStore } from "@/lib/focus/active-pointer-store";
+import { drilldownStack } from "@/lib/navigation/drilldown-stack";
+import {
+  consumeNavigationRestoration,
+  peekNavigationRestoration,
+  restoreNavigationFrame,
+} from "@/lib/navigation/navigation-restoration";
 import { queryKeys } from "@/lib/query/query-keys";
 import { formatDate, formatINR } from "@/lib/utils";
 
 const PAGE_SIZE = 50;
+const REPORT_ID = "sales.register";
 
 function paymentBadge(status: SaleRegisterRow["paymentStatus"]) {
-  if (status === "PAID") return <Badge className="bg-emerald-600 text-[9px] text-white">Paid</Badge>;
-  if (status === "PARTIALLY_PAID") return <Badge variant="outline" className="border-amber-300 bg-amber-50 text-[9px] text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">Part paid</Badge>;
-  return <Badge variant="outline" className="border-rose-200 bg-rose-50 text-[9px] text-rose-700 dark:bg-rose-950/30 dark:text-rose-300">Unpaid</Badge>;
+  if (status === "PAID") {
+    return <Badge className="bg-emerald-600 text-[9px] text-white">Paid</Badge>;
+  }
+  if (status === "PARTIALLY_PAID") {
+    return (
+      <Badge variant="outline" className="border-amber-300 bg-amber-50 text-[9px] text-amber-700 dark:bg-amber-950/30 dark:text-amber-300">
+        Part paid
+      </Badge>
+    );
+  }
+  return (
+    <Badge variant="outline" className="border-rose-200 bg-rose-50 text-[9px] text-rose-700 dark:bg-rose-950/30 dark:text-rose-300">
+      Unpaid
+    </Badge>
+  );
 }
 
 export default function SalesRegisterPage() {
@@ -34,17 +55,32 @@ export default function SalesRegisterPage() {
   const { token, shops, activeShopId, startDate, endDate } = useAuthStore();
   const shopId = activeShopId || shops[0]?.id || "";
   const page = Math.max(1, Number(searchParams.get("page") || "1") || 1);
-  const [pageFilter, setPageFilter] = React.useState("");
+  const restoration = peekNavigationRestoration(pathname);
+  const restoredFilter = restoration?.filters?.pageFilter;
+  const [pageFilter, setPageFilter] = useState(() => typeof restoredFilter === "string" ? restoredFilter : "");
+  const filterInputRef = useRef<HTMLInputElement>(null);
 
   const query = useQuery({
-    queryKey: queryKeys.sales.register({ shopId, page, limit: PAGE_SIZE, dateFrom: startDate, dateTo: endDate }),
-    queryFn: () => fetchSalesRegister(token ?? "", { shopId, page, limit: PAGE_SIZE, dateFrom: startDate, dateTo: endDate }),
+    queryKey: queryKeys.sales.register({
+      shopId,
+      page,
+      limit: PAGE_SIZE,
+      dateFrom: startDate,
+      dateTo: endDate,
+    }),
+    queryFn: () => fetchSalesRegister(token ?? "", {
+      shopId,
+      page,
+      limit: PAGE_SIZE,
+      dateFrom: startDate,
+      dateTo: endDate,
+    }),
     enabled: Boolean(token && shopId),
     placeholderData: (previous) => previous,
     staleTime: 30_000,
   });
 
-  const rows = React.useMemo(() => {
+  const rows = useMemo(() => {
     const value = pageFilter.trim().toLowerCase();
     if (!value) return query.data ?? [];
     return (query.data ?? []).filter((sale) =>
@@ -54,7 +90,13 @@ export default function SalesRegisterPage() {
     );
   }, [pageFilter, query.data]);
 
-  const pageTotals = React.useMemo(() => (query.data ?? []).reduce(
+  useEffect(() => {
+    if (!restoration || query.isLoading || !query.data) return;
+    restoreNavigationFrame(restoration);
+    consumeNavigationRestoration(pathname);
+  }, [pathname, query.data, query.isLoading, restoration]);
+
+  const pageTotals = useMemo(() => (query.data ?? []).reduce(
     (total, sale) => ({
       amount: total.amount + Number(sale.totalAmount),
       paid: total.paid + Number(sale.paidAmount),
@@ -68,10 +110,54 @@ export default function SalesRegisterPage() {
     const next = new URLSearchParams(searchParams.toString());
     if (nextPage <= 1) next.delete("page");
     else next.set("page", String(nextPage));
-    router.replace(`${pathname}?${next.toString()}`, { scroll: false });
+    const queryString = next.toString();
+    router.replace(queryString ? `${pathname}?${queryString}` : pathname, { scroll: false });
   };
 
-  const columns = React.useMemo<ColumnDef<SaleRegisterRow>[]>(() => [
+  const openSale = useCallback((sale: SaleRegisterRow) => {
+    drilldownStack.push({
+      route: pathname,
+      searchParams: searchParams.toString(),
+      module: "sales",
+      view: REPORT_ID,
+      activePointer: activePointerStore.getPointer(),
+      selectedIds: [...activePointerStore.getSelectedIds()],
+      filters: { pageFilter },
+      page,
+      scrollOffset: window.scrollY,
+    });
+    router.push(`/sales/${sale.id}`);
+  }, [page, pageFilter, pathname, router, searchParams]);
+
+  const focusFilter = useCallback(() => {
+    filterInputRef.current?.focus();
+    filterInputRef.current?.select();
+  }, []);
+
+  const searchEscapeCommand = useMemo(() => ({
+    id: "sales.register.search.close",
+    title: "Return to Sales Register",
+    execute: ({ target }: { target?: EventTarget | null }) => {
+      if (target instanceof HTMLElement) target.blur();
+      const pointer = activePointerStore.getPointer();
+      const index = pointer?.zoneId === `${REPORT_ID}.rows` ? pointer.index : 0;
+      requestAnimationFrame(() => {
+        document
+          .querySelector<HTMLElement>(`[data-operational-report="${REPORT_ID}"] [data-operational-row="${index}"]`)
+          ?.focus();
+      });
+    },
+  }), []);
+  useCommand(searchEscapeCommand);
+  useKeybinding(useMemo(() => ({
+    id: "sales-register-search-escape",
+    key: "esc",
+    command: searchEscapeCommand.id,
+    when: "report.search && report.id == sales.register && input.editable && !dialog.open",
+    priority: 160,
+  }), [searchEscapeCommand.id]));
+
+  const columns = useMemo<ColumnDef<SaleRegisterRow>[]>(() => [
     {
       accessorKey: "saleNumber",
       header: "Sale #",
@@ -117,11 +203,20 @@ export default function SalesRegisterPage() {
       header: "Invoice",
       cell: ({ row }) => (
         <div className="text-right">
-          <Badge variant="secondary" className="text-[9px]">{row.original.gstRequired ? row.original.gstInvoiceStatus.replaceAll("_", " ") : "Non-GST"}</Badge>
+          <Badge variant="secondary" className="text-[9px]">
+            {row.original.gstRequired ? row.original.gstInvoiceStatus.replaceAll("_", " ") : "Non-GST"}
+          </Badge>
         </div>
       ),
     },
   ], []);
+
+  const searchScope = JSON.stringify({
+    "report.focused": true,
+    "report.id": REPORT_ID,
+    "report.search": true,
+    "keyboard.scope": "report.search",
+  });
 
   return (
     <WorkspacePage>
@@ -150,30 +245,39 @@ export default function SalesRegisterPage() {
 
       <WorkspacePanel title="Invoices and transactions" description="The backend does not expose register-wide text search yet, so this text filter applies only to the current server page.">
         <WorkspaceToolbar>
-          <div className="relative w-[clamp(13rem,28vw,32rem)] max-w-full flex-1 sm:flex-none">
+          <div
+            className="relative w-[clamp(13rem,28vw,32rem)] max-w-full flex-1 sm:flex-none"
+            data-keyboard-scope={searchScope}
+          >
             <Search className="absolute left-3 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
+              ref={filterInputRef}
               value={pageFilter}
               onChange={(event) => setPageFilter(event.target.value)}
               placeholder="Filter this page by sale #, customer or phone…"
               className="h-9 bg-background pl-9 text-xs"
+              aria-label="Filter Sales Register"
+              aria-keyshortcuts="Control+F"
             />
           </div>
           <Badge variant="outline" className="h-8 text-[10px]">Business period: {startDate} → {endDate}</Badge>
         </WorkspaceToolbar>
 
         <OperationalDataTable
+          id={REPORT_ID}
           data={rows}
           columns={columns}
           getRowId={(sale) => sale.id}
           isLoading={query.isLoading}
           isError={query.isError}
           onRetry={() => void query.refetch()}
-          onRowOpen={(sale) => router.push(`/sales/${sale.id}`)}
+          onRowOpen={openSale}
+          onFilterRequest={focusFilter}
+          autoFocus
           emptyTitle="No sales found"
           emptyDescription={pageFilter ? "No records on this page match the filter." : "No sales were returned for the selected business period."}
           renderMobileCard={(sale) => (
-            <div className="rounded-xl border bg-card p-3 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+            <div className="rounded-xl bg-card p-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="font-mono text-[10px] font-semibold text-muted-foreground">{sale.saleNumber}</p>

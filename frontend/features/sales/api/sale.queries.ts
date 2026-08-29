@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useInfiniteQuery } from "@tanstack/react-query";
 import { searchCustomersApi, searchItemsApi, getItemStockApi, getRateSuggestionApi } from "@/lib/api/client";
 import { queryKeys } from "@/lib/query/query-keys";
 
@@ -19,10 +19,33 @@ export function useCustomerSearchQuery({ token, shopId, search, enabled = true }
         shopId: shopId!,
         search: search.trim() || undefined,
         includeWalkin: false,
-        limit: 20,
+        limit: 50,
       }),
     enabled: enabled && !!token && !!shopId,
     staleTime: 30_000,     // customer list — 30s
+    gcTime: 120_000,
+    retry: 1,
+  });
+}
+
+export function useInfiniteCustomerSearchQuery({ token, shopId, search, enabled = true }: UseCustomerSearchOptions) {
+  return useInfiniteQuery({
+    queryKey: queryKeys.customers.list(shopId ?? "", `${search}:infinite`),
+    queryFn: ({ pageParam = 1 }) =>
+      searchCustomersApi(token!, {
+        shopId: shopId!,
+        search: search.trim() || undefined,
+        includeWalkin: false,
+        page: pageParam as number,
+        limit: 50,
+      }),
+    getNextPageParam: (lastPage, allPages) => {
+      if (lastPage.length < 50) return undefined;
+      return allPages.length + 1;
+    },
+    initialPageParam: 1,
+    enabled: enabled && !!token && !!shopId,
+    staleTime: 30_000,
     gcTime: 120_000,
     retry: 1,
   });
@@ -44,10 +67,32 @@ export function useItemSearchQuery({ token, shopId, search, enabled = true }: Us
       searchItemsApi(token!, {
         shopId: shopId!,
         search: search.trim() || undefined,
-        limit: 25,
+        limit: 50,
       }),
     enabled: enabled && !!token && !!shopId,
     staleTime: 60_000,     // item list — 1min
+    gcTime: 300_000,
+    retry: 1,
+  });
+}
+
+export function useInfiniteItemSearchQuery({ token, shopId, search, enabled = true }: UseItemSearchOptions) {
+  return useInfiniteQuery({
+    queryKey: queryKeys.items.list(shopId ?? "", { search, mode: "infinite" }),
+    queryFn: ({ pageParam = 1 }) =>
+      searchItemsApi(token!, {
+        shopId: shopId!,
+        search: search.trim() || undefined,
+        page: pageParam as number,
+        limit: 50,
+      }),
+    getNextPageParam: (lastPage, allPages) => {
+      if (lastPage.length < 50) return undefined;
+      return allPages.length + 1;
+    },
+    initialPageParam: 1,
+    enabled: enabled && !!token && !!shopId,
+    staleTime: 60_000,
     gcTime: 300_000,
     retry: 1,
   });

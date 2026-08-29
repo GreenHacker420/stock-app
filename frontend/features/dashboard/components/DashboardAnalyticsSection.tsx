@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useState, type ComponentType } from "react";
 import { AlertCircle, Banknote, ReceiptIndianRupee, TrendingDown, TrendingUp } from "lucide-react";
 
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -115,7 +115,7 @@ function AnalyticsMetric({
   label: string;
   value: string;
   detail: string;
-  icon: React.ComponentType<{ className?: string }>;
+  icon: ComponentType<{ className?: string }>;
   tone: "neutral" | "success" | "danger" | "info";
 }) {
   const toneClass = tone === "success" ? "text-emerald-600 dark:text-emerald-300" : tone === "danger" ? "text-rose-600 dark:text-rose-300" : tone === "info" ? "text-indigo-600 dark:text-indigo-300" : "text-muted-foreground";

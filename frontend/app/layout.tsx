@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { Inter, Geist_Mono } from "next/font/google";
+import type { ReactNode } from "react";
 import "./globals.css";
 
 const inter = Inter({
@@ -28,7 +29,7 @@ export const viewport: Viewport = {
   viewportFit: "cover",
 };
 
-export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
+export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
     <html lang="en" className={`${inter.variable} ${geistMono.variable} h-full font-sans antialiased`}>
       <body className="min-h-dvh w-full bg-background font-sans text-foreground">{children}</body>

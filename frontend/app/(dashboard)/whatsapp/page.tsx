@@ -4,7 +4,6 @@ import { useQuery } from "@tanstack/react-query";
 import { AlertCircle, MessageSquare, Radio, RefreshCw, ShieldCheck, TimerReset } from "lucide-react";
 
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { WorkspaceMetric, WorkspaceMetricGrid } from "@/components/workspace/WorkspaceMetrics";

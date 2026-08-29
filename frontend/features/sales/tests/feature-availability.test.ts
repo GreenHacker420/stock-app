@@ -1,4 +1,4 @@
-import { describe, test, expect } from "vitest";
+import { describe, expect, test } from "vitest";
 import {
   getActionableFeatures,
   getEnabledFeatures,
@@ -7,38 +7,46 @@ import {
 } from "../../../lib/features/feature-availability";
 
 describe("FEATURE_REGISTRY feature availability", () => {
-  test("SALE_CREATE is the ONLY enabled write feature in Sprint 1", () => {
+  test("recovered write workflows are enabled", () => {
     const enabled = getEnabledFeatures();
-    expect(enabled.map((f) => f.id)).toEqual(["SALE_CREATE"]);
-  });
-
-  test("disabled features are properly configured", () => {
-    const disabledIds: Array<"ORDER_CREATE" | "DM_CREATE" | "PAYMENT_CREATE" | "STOCK_ENTRY" | "STOCK_TRANSFER"> = [
+    expect(enabled.map((feature) => feature.id)).toEqual([
+      "SALE_CREATE",
       "ORDER_CREATE",
       "DM_CREATE",
       "PAYMENT_CREATE",
       "STOCK_ENTRY",
       "STOCK_TRANSFER",
-    ];
-    for (const id of disabledIds) {
-      const feat = getFeature(id);
-      expect(feat.status).toBe("DISABLED");
-      expect(feat.disabledReason).toBeDefined();
-      expect(isShortcutRegistrable(feat)).toBe(false);
+      "PHYSICAL_STOCK",
+    ]);
+  });
+
+  test("physical stock is actionable and uses the central keyboard registry", () => {
+    const feature = getFeature("PHYSICAL_STOCK");
+    expect(feature.status).toBe("ENABLED");
+    expect(feature.shortcut).toBe("ctrl+f7");
+    expect(isShortcutRegistrable(feature)).toBe(true);
+    expect(getActionableFeatures().find((item) => item.id === "PHYSICAL_STOCK")).toBe(feature);
+  });
+
+  test("enabled write shortcuts are registrable", () => {
+    expect(getFeature("SALE_CREATE").shortcut).toBe("f8");
+    expect(getFeature("ORDER_CREATE").shortcut).toBe("ctrl+f8");
+    expect(getFeature("DM_CREATE").shortcut).toBe("alt+f8");
+    expect(getFeature("PAYMENT_CREATE").shortcut).toBe("f6");
+    expect(getFeature("STOCK_ENTRY").shortcut).toBe("f9");
+    expect(getFeature("STOCK_TRANSFER").shortcut).toBe("alt+f9");
+    expect(getFeature("PHYSICAL_STOCK").shortcut).toBe("ctrl+f7");
+
+    for (const id of [
+      "SALE_CREATE",
+      "ORDER_CREATE",
+      "DM_CREATE",
+      "PAYMENT_CREATE",
+      "STOCK_ENTRY",
+      "STOCK_TRANSFER",
+      "PHYSICAL_STOCK",
+    ] as const) {
+      expect(isShortcutRegistrable(getFeature(id))).toBe(true);
     }
-  });
-
-  test("UNSUPPORTED features do not register shortcuts or appear in quick actions", () => {
-    const feat = getFeature("PHYSICAL_STOCK");
-    expect(feat.status).toBe("UNSUPPORTED");
-    expect(isShortcutRegistrable(feat)).toBe(false);
-    expect(getActionableFeatures().find((f) => f.id === "PHYSICAL_STOCK")).toBeUndefined();
-  });
-
-  test("SALE_CREATE shortcut is registrable", () => {
-    const sale = getFeature("SALE_CREATE");
-    expect(sale.status).toBe("ENABLED");
-    expect(sale.shortcut).toBe("f8");
-    expect(isShortcutRegistrable(sale)).toBe(true);
   });
 });
