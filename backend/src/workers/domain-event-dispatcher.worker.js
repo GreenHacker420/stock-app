@@ -56,11 +56,53 @@ export function setDomainEventRedisForTests(client) {
   redisPub = client;
 }
 
-async function getNotificationTargetUserIds(event) {
+export async function getNotificationTargetUserIds(event) {
   const ids = new Set();
 
-
-  if (event.visibility?.targetUserIds && event.visibility.targetUserIds.length > 0) {
+  // Explicit approval flow routing:
+  if (event.entity === "approval") {
+    if (event.action === "created") {
+      if (event.targetAdminId) {
+        ids.add(event.targetAdminId);
+      } else {
+        const shop = await prisma.shop.findUnique({
+          where: { id: event.shopId },
+          select: { ownerId: true },
+        });
+        if (shop?.ownerId) {
+          ids.add(shop.ownerId);
+        }
+        const otherOwners = await prisma.staffShopAccess.findMany({
+          where: {
+            shopId: event.shopId,
+            staff: { role: "OWNER" },
+          },
+          select: { staffId: true },
+        });
+        for (const row of otherOwners) {
+          ids.add(row.staffId);
+        }
+      }
+    } else if (event.action === "approved" || event.action === "rejected") {
+      let requesterId = event.requestedById;
+      if (!requesterId && event.visibility?.targetUserIds?.length > 0) {
+        requesterId = event.visibility.targetUserIds[0];
+      }
+      if (!requesterId && event.entityId) {
+        const approvalReq = await prisma.approvalRequest.findUnique({
+          where: { id: event.entityId },
+          select: { requestedById: true },
+        });
+        requesterId = approvalReq?.requestedById;
+      }
+      if (requesterId) {
+        ids.add(requesterId);
+      }
+    } else {
+      // Unknown or non-resolving approval flow action: no broadcast
+      return [];
+    }
+  } else if (event.visibility?.targetUserIds && event.visibility.targetUserIds.length > 0) {
     for (const userId of event.visibility.targetUserIds) {
       ids.add(userId);
     }
@@ -85,7 +127,7 @@ async function getNotificationTargetUserIds(event) {
         ids.add(row.staffId);
       }
     } else {
-      // For other entities (e.g. approvals, orders, attendance), use standard visibility rules:
+      // For other entities, use standard visibility rules:
       if (event.visibility?.owners) {
         const shop = await prisma.shop.findUnique({
           where: { id: event.shopId },

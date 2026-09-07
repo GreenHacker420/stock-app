@@ -206,6 +206,7 @@ test("notification routes contract", () => {
 test("approval routes contract", () => {
   const src = readRoute("approval.routes.js");
   assertRoute(src, "GET",  '"/"', "GET /approvals");
+  assertRoute(src, "POST", '"/bulk-respond"', "POST /approvals/bulk-respond");
   assertRoute(src, "POST", '"/:id/respond"', "POST /approvals/:id/respond");
 });
 

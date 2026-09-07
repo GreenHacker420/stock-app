@@ -346,6 +346,47 @@ export class ApiError extends Error {
   }
 }
 
+type TokenRefreshedCallback = (newToken: string, user: ApiUser) => void | Promise<void>;
+let tokenRefreshedCallback: TokenRefreshedCallback | null = null;
+let refreshInFlight: Promise<string | null> | null = null;
+
+export function registerTokenRefreshedHandler(cb: TokenRefreshedCallback) {
+  tokenRefreshedCallback = cb;
+}
+
+async function requestTokenRefresh(expiredToken: string): Promise<string | null> {
+  if (refreshInFlight) return refreshInFlight;
+
+  refreshInFlight = (async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${expiredToken}`,
+        },
+      });
+
+      if (!response.ok) return null;
+      const data = await response.json();
+      const payload = data?.data;
+      if (payload?.token) {
+        if (tokenRefreshedCallback) {
+          await Promise.resolve(tokenRefreshedCallback(payload.token, payload.user));
+        }
+        return payload.token as string;
+      }
+      return null;
+    } catch {
+      return null;
+    } finally {
+      refreshInFlight = null;
+    }
+  })();
+
+  return refreshInFlight;
+}
+
 export async function apiRequest<T>(
   path: string,
   options: RequestInit & { token?: string | null } = {},
@@ -381,9 +422,14 @@ export async function apiRequest<T>(
     ? JSON.parse(responseText) as ApiResponse<T> & { error?: { message?: string; requestId?: string } }
     : { success: response.ok, data: undefined as T };
 
-
   if (!response.ok) {
-    if (response.status === 401 && options.token) {
+    if (response.status === 401 && options.token && path !== "/auth/refresh" && !path.startsWith("/auth/login") && !(options as any)._isRetry) {
+      const freshToken = await requestTokenRefresh(options.token);
+      if (freshToken) {
+        return apiRequest<T>(path, { ...options, token: freshToken, _isRetry: true } as any);
+      }
+      reportUnauthorized(options.token);
+    } else if (response.status === 401 && options.token) {
       reportUnauthorized(options.token);
     }
     throw new ApiError(payload.error?.message || payload.message || "Request failed", response.status, (payload as any).field ?? null);
@@ -416,8 +462,12 @@ export async function truecallerOtpLogin(accessToken: string) {
   });
 }
 
-export async function logout(token: string) {
-  return apiRequest("/auth/logout", { method: "POST", token });
+export async function logout(token: string, payload?: { installationId?: string }) {
+  return apiRequest("/auth/logout", {
+    method: "POST",
+    token,
+    body: payload ? JSON.stringify(payload) : undefined,
+  });
 }
 
 export async function refreshToken(token: string) {

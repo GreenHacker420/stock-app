@@ -1,6 +1,6 @@
 import type { Customer, ItemCategory } from "../../api/client";
 import type { CategoryReadModel, CustomerReadModel, ItemCatalogReadModel } from "./read-model-types";
-import { filterAndRankCustomers, filterAndRankItems } from "../../utils/search";
+import { filterAndRankCustomers, filterAndRankItems } from "../../utils/search.ts";
 
 export function toCustomer(readModel: CustomerReadModel): Customer {
   return {

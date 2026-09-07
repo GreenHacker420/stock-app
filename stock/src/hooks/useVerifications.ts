@@ -13,6 +13,10 @@ export const GENERIC_APPROVAL_SUPPORTED_TYPES = new Set([
   "PRICE_APPROVAL",
   "CANCEL_SALE",
   "CANCEL_DM",
+  "SALE_CORRECTION",
+  "SALE_CANCELLATION",
+  "DM_CANCELLATION",
+  "PAYMENT_CORRECTION",
 ]);
 
 import { mmkvStorage } from "../auth/mmkv-storage";
@@ -65,17 +69,34 @@ export function useProcessVerificationMutation() {
   const activeShopId = useShopStore((state) => state.activeShopId);
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, status, notes, type }: { id: string; status: "APPROVED" | "REJECTED"; notes?: string; type?: string }) => {
-      if (type && !GENERIC_APPROVAL_SUPPORTED_TYPES.has(type)) {
-        throw new Error("Open the specific verification screen for this approval type.");
-      }
+    mutationFn: ({ id, status, notes }: { id: string; status: "APPROVED" | "REJECTED"; notes?: string; type?: string }) => {
       return apiRequest(`/approvals/${id}/respond`, {
         method: "POST",
         token,
         body: JSON.stringify({ status, rejectedReason: notes }),
       });
     },
-    onSuccess: () => {
+    onMutate: async ({ id }) => {
+      // Optimistic cache update: cancel outgoing queries and remove item immediately for snappy UX
+      await queryClient.cancelQueries({ queryKey: ["verifications", activeShopId] });
+      const previousVerifications = queryClient.getQueryData<any[]>(["verifications", activeShopId]);
+
+      if (previousVerifications && activeShopId) {
+        const updated = previousVerifications.filter((item) => item.id !== id);
+        queryClient.setQueryData(["verifications", activeShopId], updated);
+        writeVerificationsSnapshot(activeShopId, "OWNER", updated);
+      }
+
+      return { previousVerifications };
+    },
+    onError: (_err, _variables, context) => {
+      // Rollback cache on error
+      if (context?.previousVerifications && activeShopId) {
+        queryClient.setQueryData(["verifications", activeShopId], context.previousVerifications);
+        writeVerificationsSnapshot(activeShopId, "OWNER", context.previousVerifications);
+      }
+    },
+    onSettled: () => {
       const userId = useAuthStore.getState().user?.id;
       if (userId && activeShopId && token) {
         void refreshReadModelDomains(
@@ -91,12 +112,74 @@ export function useProcessVerificationMutation() {
       }
       queryClient.invalidateQueries({ queryKey: ["verifications", activeShopId] });
       queryClient.invalidateQueries({ queryKey: ["staff-verifications", activeShopId] });
-      queryClient.invalidateQueries({ queryKey: ["expenses", activeShopId] });
-      queryClient.invalidateQueries({ queryKey: ["current-stock", activeShopId] });
-      queryClient.invalidateQueries({ queryKey: ["item-stock"] });
-      queryClient.invalidateQueries({ queryKey: ["items"] });
       queryClient.invalidateQueries({ queryKey: ["owner-dashboard"] });
-      queryClient.invalidateQueries({ queryKey: ["read-models"] });
+    },
+  });
+}
+
+export function useBulkProcessVerificationsMutation() {
+  const token = useAuthStore((state) => state.token);
+  const activeShopId = useShopStore((state) => state.activeShopId);
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({
+      ids,
+      status,
+      notes,
+    }: {
+      ids: string[];
+      status: "APPROVED" | "REJECTED";
+      notes?: string;
+    }) => {
+      return apiRequest<{
+        total: number;
+        successCount: number;
+        failureCount: number;
+        results: Array<{ id: string; success: boolean; error?: string }>;
+      }>(`/approvals/bulk-respond`, {
+        method: "POST",
+        token,
+        body: JSON.stringify({ ids, status, rejectedReason: notes }),
+      });
+    },
+    onMutate: async ({ ids }) => {
+      // Optimistic cache update for batch approvals
+      await queryClient.cancelQueries({ queryKey: ["verifications", activeShopId] });
+      const previousVerifications = queryClient.getQueryData<any[]>(["verifications", activeShopId]);
+
+      if (previousVerifications && activeShopId) {
+        const idSet = new Set(ids);
+        const updated = previousVerifications.filter((item) => !idSet.has(item.id));
+        queryClient.setQueryData(["verifications", activeShopId], updated);
+        writeVerificationsSnapshot(activeShopId, "OWNER", updated);
+      }
+
+      return { previousVerifications };
+    },
+    onError: (_err, _variables, context) => {
+      if (context?.previousVerifications && activeShopId) {
+        queryClient.setQueryData(["verifications", activeShopId], context.previousVerifications);
+        writeVerificationsSnapshot(activeShopId, "OWNER", context.previousVerifications);
+      }
+    },
+    onSettled: () => {
+      const userId = useAuthStore.getState().user?.id;
+      if (userId && activeShopId && token) {
+        void refreshReadModelDomains(
+          {
+            userId,
+            shopId: activeShopId,
+            token,
+            queryClient,
+            reason: "realtime",
+          },
+          ["items"]
+        );
+      }
+      queryClient.invalidateQueries({ queryKey: ["verifications", activeShopId] });
+      queryClient.invalidateQueries({ queryKey: ["staff-verifications", activeShopId] });
+      queryClient.invalidateQueries({ queryKey: ["owner-dashboard"] });
     },
   });
 }

@@ -64,6 +64,83 @@ export function refreshToken(user) {
   };
 }
 
+export async function logoutUser(userId, installationId) {
+  const where = { userId };
+  if (installationId) {
+    where.installationId = installationId;
+  }
+  await prisma.userDevice.updateMany({
+    where,
+    data: {
+      revokedAt: new Date(),
+      pushToken: null,
+      nativePushToken: null,
+      voipToken: null,
+      notificationsEnabled: false,
+      voipEnabled: false,
+    },
+  });
+
+  const activeDevices = await prisma.userDevice.findMany({
+    where: { userId, revokedAt: null, pushToken: { not: null } },
+    select: { pushToken: true },
+  });
+  if (activeDevices.length === 0) {
+    await prisma.user.update({
+      where: { id: userId },
+      data: { pushToken: null },
+    });
+  }
+}
+
+export async function refreshTokenWithGrace(token, graceSeconds = 7 * 24 * 3600) {
+  if (!token) {
+    throw new ApiError(401, "Authentication token required");
+  }
+
+  let payload;
+  try {
+    payload = jwt.verify(token, getJwtSecret());
+  } catch (err) {
+    if (err instanceof jwt.TokenExpiredError) {
+      payload = jwt.decode(token);
+      if (!payload || !payload.exp || !payload.sub) {
+        throw new ApiError(401, "Invalid token");
+      }
+      const expiredAgoSeconds = Math.floor(Date.now() / 1000) - payload.exp;
+      if (expiredAgoSeconds > graceSeconds) {
+        throw new ApiError(401, "Session expired, please log in again");
+      }
+    } else {
+      throw new ApiError(401, "Invalid token");
+    }
+  }
+
+  const user = await prisma.user.findUnique({
+    where: { id: payload.sub },
+  });
+
+  if (!user || user.status !== "ACTIVE") {
+    throw new ApiError(401, "User is inactive or not found");
+  }
+
+  const permissions = user.role === "OWNER" ? OWNER_PERMISSIONS : STAFF_PERMISSIONS;
+  const userSummary = {
+    id: user.id,
+    name: user.name,
+    mobile: user.mobile,
+    email: user.email,
+    role: user.role,
+    permissions,
+  };
+
+  const newToken = signToken(user);
+  return {
+    token: newToken,
+    user: userSummary,
+  };
+}
+
 export async function login({ identifier, password }) {
   // Normalize mobile: strip spaces, and strip leading +91 prefix if present
   const normalizedIdentifier = identifier.trim().replace(/\s+/g, "").replace(/^\+91/, "");

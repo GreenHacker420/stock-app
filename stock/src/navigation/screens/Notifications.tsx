@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { View, StyleSheet, Pressable, ScrollView, ActivityIndicator } from "react-native";
+import { View, StyleSheet, Pressable, ScrollView, ActivityIndicator, Modal, TextInput } from "react-native";
 import { Text, Icon } from "react-native-paper";
 import { useRoute, useNavigation } from "@react-navigation/native";
 import { useAuthStore } from "../../auth/auth-store";
@@ -7,10 +7,12 @@ import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { EmptyState } from "../../components/ui/EmptyState";
 import { AppSegmentedControl } from "../../components/ui/AppSegmentedControl";
+import { AppChipGroup } from "../../components/ui/AppChipGroup";
 import { ActivityRow } from "../../components/ui/ActivityRow";
 import { VerificationCard } from "../../components/domain/verification/VerificationCard";
 import { Button } from "../../components/ui/Button";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
+import { triggerLightHaptic, triggerSuccessHaptic } from "../../utils/haptics";
 import { Item } from "../../api/client";
 import { useItemsQuery, useCurrentStockQuery } from "../../hooks/useItems";
 import { useOwnerDashboardQuery } from "../../hooks/useDashboard";
@@ -23,7 +25,8 @@ import {
   GENERIC_APPROVAL_SUPPORTED_TYPES, 
   usePendingVerificationsQuery, 
   useStaffApprovalsQuery,
-  useProcessVerificationMutation 
+  useProcessVerificationMutation,
+  useBulkProcessVerificationsMutation
 } from "../../hooks/useVerifications";
 
 function WorkQueueCard({ title, desc, count, icon, color, bgColor, borderColor, onPress }: {
@@ -184,6 +187,7 @@ export function Notifications() {
   // Pending Verifications query (for Owner)
   const pendingVerificationsQuery = usePendingVerificationsQuery();
   const processMutation = useProcessVerificationMutation();
+  const bulkProcessMutation = useBulkProcessVerificationsMutation();
 
   // Staff Requests query (for Staff)
   const staffApprovalsQuery = useStaffApprovalsQuery();
@@ -193,6 +197,133 @@ export function Notifications() {
     : (staffApprovalsQuery.data ?? []);
 
   const verificationsCount = verificationsList.length;
+
+  // Category Filter State
+  type ApprovalCategory = "ALL" | "STOCK" | "RATES" | "CORRECTIONS";
+  const [approvalCategory, setApprovalCategory] = useState<ApprovalCategory>("ALL");
+
+  const getApprovalCategory = (type: string): "STOCK" | "RATES" | "CORRECTIONS" => {
+    const t = (type || "").toUpperCase();
+    if (t.includes("RATE") || t.includes("PRICE")) return "RATES";
+    if (t.includes("CANCEL") || t.includes("CORRECTION") || t.includes("PAYMENT")) return "CORRECTIONS";
+    return "STOCK";
+  };
+
+  const categoryCounts = useMemo(() => {
+    let stock = 0;
+    let rates = 0;
+    let corrections = 0;
+    for (const item of verificationsList) {
+      const cat = getApprovalCategory(item.type || item.action || item.entityType || "");
+      if (cat === "STOCK") stock++;
+      else if (cat === "RATES") rates++;
+      else if (cat === "CORRECTIONS") corrections++;
+    }
+    return { all: verificationsList.length, stock, rates, corrections };
+  }, [verificationsList]);
+
+  const filteredVerifications = useMemo(() => {
+    if (approvalCategory === "ALL") return verificationsList;
+    return verificationsList.filter((item: any) => {
+      const cat = getApprovalCategory(item.type || item.action || item.entityType || "");
+      return cat === approvalCategory;
+    });
+  }, [verificationsList, approvalCategory]);
+
+  // Selection Mode State (for bulk actions)
+  const [isSelectMode, setIsSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  const toggleSelect = (id: string) => {
+    triggerLightHaptic();
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleSelectAll = () => {
+    triggerLightHaptic();
+    if (selectedIds.size === filteredVerifications.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(filteredVerifications.map((it: any) => it.id)));
+    }
+  };
+
+  // Reject Modal State
+  const [rejectModalVisible, setRejectModalVisible] = useState(false);
+  const [rejectTargetIds, setRejectTargetIds] = useState<string[]>([]);
+  const [rejectReasonText, setRejectReasonText] = useState("");
+  const [rejectPresetReason, setRejectPresetReason] = useState("");
+
+  const handleProcessVerification = (item: any, status: "APPROVED" | "REJECTED") => {
+    if (status === "REJECTED") {
+      setRejectTargetIds([item.id]);
+      setRejectReasonText("");
+      setRejectPresetReason("");
+      setRejectModalVisible(true);
+      return;
+    }
+    triggerSuccessHaptic();
+    processMutation.mutate({ id: item.id, status, type: item.type || item.action });
+  };
+
+  const handleBulkApprove = () => {
+    if (selectedIds.size === 0) return;
+    triggerSuccessHaptic();
+    bulkProcessMutation.mutate({
+      ids: Array.from(selectedIds),
+      status: "APPROVED",
+    });
+    setSelectedIds(new Set());
+    setIsSelectMode(false);
+  };
+
+  const handleApproveAll = () => {
+    const pendingIds = filteredVerifications
+      .filter((it: any) => (it.status || "PENDING") === "PENDING")
+      .map((it: any) => it.id);
+    if (pendingIds.length === 0) return;
+    triggerSuccessHaptic();
+    bulkProcessMutation.mutate({
+      ids: pendingIds,
+      status: "APPROVED",
+    });
+    setSelectedIds(new Set());
+    setIsSelectMode(false);
+  };
+
+  const handleOpenBulkReject = () => {
+    if (selectedIds.size === 0) return;
+    setRejectTargetIds(Array.from(selectedIds));
+    setRejectReasonText("");
+    setRejectPresetReason("");
+    setRejectModalVisible(true);
+  };
+
+  const handleConfirmReject = () => {
+    const finalReason = rejectReasonText.trim() || rejectPresetReason || "Rejected by owner";
+    if (rejectTargetIds.length === 1) {
+      processMutation.mutate({
+        id: rejectTargetIds[0],
+        status: "REJECTED",
+        notes: finalReason,
+      });
+    } else if (rejectTargetIds.length > 1) {
+      bulkProcessMutation.mutate({
+        ids: rejectTargetIds,
+        status: "REJECTED",
+        notes: finalReason,
+      });
+      setSelectedIds(new Set());
+      setIsSelectMode(false);
+    }
+    setRejectModalVisible(false);
+    setRejectTargetIds([]);
+  };
 
   // Primary tab: APPROVALS (for Owner: "Pending Approvals", for Staff: "My Requests") vs ACTIVITY
   const [mainTab, setMainTab] = useState<"REQUESTS" | "ACTIVITY">("REQUESTS");
@@ -208,10 +339,6 @@ export function Notifications() {
 
   const handleMarkAllRead = () => {
     markAllReadMutation.mutate();
-  };
-
-  const handleProcessVerification = (item: any, status: "APPROVED" | "REJECTED") => {
-    processMutation.mutate({ id: item.id, status, type: item.type || item.action });
   };
 
   const filteredNotifications = useMemo(() => {
@@ -343,6 +470,72 @@ export function Notifications() {
     );
   };
 
+  const renderApprovalContent = (item: any) => {
+    const approvalType = (item.type || item.action || item.entityType || "APPROVAL").toUpperCase();
+    const payload = item.payloadJson || item.requestedChangeJson || item.details || {};
+
+    if (approvalType.includes("STOCK") || approvalType.includes("DAMAGE")) {
+      return renderStockDetails(item);
+    }
+
+    if (approvalType.includes("RATE") || approvalType.includes("PRICE")) {
+      const targetId = item.itemId || payload.itemId;
+      const itemObj = targetId ? itemsMap.get(targetId) : null;
+      const itemName = payload.itemName || payload.name || itemObj?.name || item.itemName || "Item";
+      const oldRate = payload.oldRate ?? payload.currentPrice ?? payload.previousRate;
+      const newRate = payload.newRate ?? payload.proposedPrice ?? payload.rate;
+      return (
+        <View style={styles.rateChangeBody}>
+          <View style={styles.rateRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.rateItemName} numberOfLines={1}>{itemName}</Text>
+              {itemObj?.sku ? <Text style={styles.itemSkuText}>SKU: {itemObj.sku}</Text> : null}
+            </View>
+            <View style={styles.rateDiffPills}>
+              {oldRate !== undefined ? (
+                <View style={styles.oldRatePill}>
+                  <Text style={styles.oldRateText}>₹{oldRate}</Text>
+                </View>
+              ) : null}
+              <Icon source="arrow-right" size={14} color={colors.textMuted} />
+              {newRate !== undefined ? (
+                <View style={styles.newRatePill}>
+                  <Text style={styles.newRateText}>₹{newRate}</Text>
+                </View>
+              ) : null}
+            </View>
+          </View>
+        </View>
+      );
+    }
+
+    if (approvalType.includes("CANCEL") || approvalType.includes("CORRECTION") || approvalType.includes("PAYMENT")) {
+      const invoiceNo = payload.invoiceNo || payload.saleId || item.invoiceNo;
+      const amount = payload.amount || payload.totalAmount || item.amount;
+      return (
+        <View style={styles.correctionBody}>
+          <View style={styles.correctionRow}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.correctionTitle}>{approvalType.replace(/_/g, " ")}</Text>
+              {invoiceNo ? <Text style={styles.correctionInvoice}>Ref #{String(invoiceNo).slice(-8)}</Text> : null}
+            </View>
+            {amount !== undefined ? (
+              <View style={styles.correctionAmountBadge}>
+                <Text style={styles.correctionAmountText}>₹{amount}</Text>
+              </View>
+            ) : null}
+          </View>
+        </View>
+      );
+    }
+
+    return (
+      <View style={styles.genericBody}>
+        <Text style={styles.actionText}>{approvalType.replace(/_/g, " ")}</Text>
+      </View>
+    );
+  };
+
   const getStatusTone = (statusStr: string): "amber" | "green" | "red" | "neutral" => {
     const s = String(statusStr).toUpperCase();
     if (s.includes("APPROVED")) return "green";
@@ -418,7 +611,10 @@ export function Notifications() {
 
       <ScrollView 
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          isSelectMode && selectedIds.size > 0 && { paddingBottom: 110 }
+        ]}
       >
         {/* REQUESTS TAB CONTENT */}
         {mainTab === "REQUESTS" ? (
@@ -444,8 +640,76 @@ export function Notifications() {
               </View>
             )}
 
-            {isOwner && activeWorkQueue.length > 0 && (
-              <Text style={styles.sectionHeaderTitle}>Pending Staff Approvals</Text>
+            {/* Filter Pills for Approval Categories */}
+            {isOwner && verificationsList.length > 0 && (
+              <View style={styles.filterChipRow}>
+                <AppChipGroup
+                  scrollable
+                  value={approvalCategory}
+                  onChange={(val) => {
+                    setApprovalCategory(val as any);
+                    setSelectedIds(new Set());
+                  }}
+                  options={[
+                    { value: "ALL", label: "All", badge: categoryCounts.all || undefined },
+                    { value: "STOCK", label: "Stock In", badge: categoryCounts.stock || undefined },
+                    { value: "RATES", label: "Rates", badge: categoryCounts.rates || undefined },
+                    { value: "CORRECTIONS", label: "Cancels & Edits", badge: categoryCounts.corrections || undefined },
+                  ]}
+                />
+              </View>
+            )}
+
+            {/* Batch Header Bar */}
+            {isOwner && verificationsList.length > 0 && (
+              <View style={styles.batchHeaderRow}>
+                <Text style={styles.sectionHeaderTitle}>
+                  {isSelectMode ? `Selected (${selectedIds.size})` : "Pending Staff Approvals"}
+                </Text>
+                <View style={styles.batchActionsRight}>
+                  {isSelectMode ? (
+                    <>
+                      <Pressable onPress={handleSelectAll} style={styles.textBtn}>
+                        <Text style={styles.textBtnLabel}>
+                          {selectedIds.size === filteredVerifications.length ? "Deselect All" : "Select All"}
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => {
+                          setIsSelectMode(false);
+                          setSelectedIds(new Set());
+                        }}
+                        style={styles.textBtn}
+                      >
+                        <Text style={[styles.textBtnLabel, { color: colors.danger }]}>Done</Text>
+                      </Pressable>
+                    </>
+                  ) : (
+                    <>
+                      {filteredVerifications.length > 1 && (
+                        <Pressable
+                          onPress={handleApproveAll}
+                          disabled={bulkProcessMutation.isPending}
+                          style={({ pressed }) => [styles.quickApproveAllBtn, pressed && styles.pressed]}
+                        >
+                          <Icon source="check-all" size={14} color="#ffffff" />
+                          <Text style={styles.quickApproveAllText}>Approve All ({filteredVerifications.length})</Text>
+                        </Pressable>
+                      )}
+                      <Pressable
+                        onPress={() => {
+                          setIsSelectMode(true);
+                          setSelectedIds(new Set());
+                        }}
+                        style={({ pressed }) => [styles.selectModeBtn, pressed && styles.pressed]}
+                      >
+                        <Icon source="checkbox-multiple-marked-outline" size={14} color={colors.primary} />
+                        <Text style={styles.selectModeBtnText}>Select</Text>
+                      </Pressable>
+                    </>
+                  )}
+                </View>
+              </View>
             )}
 
             {(isOwner ? pendingVerificationsQuery.isLoading : staffApprovalsQuery.isLoading) ? (
@@ -455,8 +719,8 @@ export function Notifications() {
                   {isOwner ? "Fetching pending approvals..." : "Fetching your requests..."}
                 </Text>
               </View>
-            ) : verificationsList.length === 0 ? (
-              activeWorkQueue.length === 0 ? (
+            ) : filteredVerifications.length === 0 ? (
+              verificationsList.length === 0 && activeWorkQueue.length === 0 ? (
                 <EmptyState 
                   icon="check-circle-outline" 
                   title={isOwner ? "No pending approvals!" : "No requests created yet"} 
@@ -468,69 +732,94 @@ export function Notifications() {
                     />
                   }
                 />
-              ) : null
+              ) : (
+                <EmptyState 
+                  icon="filter-outline" 
+                  title="No items in this category" 
+                  subtitle="Switch category filters above to view other pending requests." 
+                />
+              )
             ) : (
               <View style={styles.listContainer}>
-                {verificationsList.map((item: any) => {
+                {filteredVerifications.map((item: any) => {
                   const approvalType = item.type || item.action || item.entityType || "APPROVAL";
                   const statusStr = item.status || "PENDING";
-                  const canApprove = isOwner && GENERIC_APPROVAL_SUPPORTED_TYPES.has(approvalType) && statusStr === "PENDING";
-                  const isStockType = approvalType.includes("STOCK") || approvalType.includes("DAMAGE");
+                  const canApprove = isOwner && statusStr === "PENDING";
                   const tone = getStatusTone(statusStr);
                   const statusLabel = getStatusLabel(statusStr);
+                  const isSelected = selectedIds.has(item.id);
 
                   return (
-                    <VerificationCard
+                    <Pressable
                       key={item.id}
-                      title={approvalType.replace(/_/g, " ")}
-                      subtitle={isOwner ? `Requested by: ${item.requestedBy?.name || "Staff"}` : `Created by you`}
-                      status={statusLabel}
-                      statusTone={tone}
-                      createdAt={item.createdAt ? formatTimeAgo(item.createdAt) : undefined}
-                      actions={canApprove ? (
-                        <>
-                          <Button
-                            variant="danger"
-                            icon="close-circle-outline"
-                            label="Reject"
-                            onPress={() => handleProcessVerification(item, 'REJECTED')}
-                            loading={processMutation.isPending && processMutation.variables?.status === 'REJECTED' && processMutation.variables?.id === item.id}
-                            style={{ flex: 1 }}
-                          />
-                          <Button
-                            variant="success"
-                            icon="check-decagram"
-                            label="Approve"
-                            onPress={() => handleProcessVerification(item, 'APPROVED')}
-                            loading={processMutation.isPending && processMutation.variables?.status === 'APPROVED' && processMutation.variables?.id === item.id}
-                            style={{ flex: 1 }}
-                          />
-                        </>
-                      ) : undefined}
+                      onPress={() => {
+                        if (isSelectMode) toggleSelect(item.id);
+                      }}
+                      style={({ pressed }) => [
+                        styles.cardPressable,
+                        isSelectMode && styles.selectableCardWrapper,
+                        isSelectMode && isSelected && styles.selectedCardWrapper,
+                        pressed && isSelectMode && styles.pressed,
+                      ]}
                     >
-                      {isStockType ? renderStockDetails(item) : (
-                        <View style={styles.genericBody}>
-                          <Text style={styles.actionText}>{approvalType.replace(/_/g, " ")}</Text>
+                      {isSelectMode && (
+                        <View style={styles.selectionCheckboxContainer}>
+                          <Icon
+                            source={isSelected ? "checkbox-marked-circle" : "checkbox-blank-circle-outline"}
+                            size={22}
+                            color={isSelected ? colors.primary : colors.textMuted}
+                          />
                         </View>
                       )}
+                      <View style={{ flex: 1 }}>
+                        <VerificationCard
+                          title={approvalType.replace(/_/g, " ")}
+                          subtitle={isOwner ? `Requested by: ${item.requestedBy?.name || "Staff"}` : `Created by you`}
+                          status={statusLabel}
+                          statusTone={tone}
+                          createdAt={item.createdAt ? formatTimeAgo(item.createdAt) : undefined}
+                          actions={canApprove && !isSelectMode ? (
+                            <>
+                              <Button
+                                variant="danger"
+                                icon="close-circle-outline"
+                                label="Reject"
+                                onPress={() => handleProcessVerification(item, 'REJECTED')}
+                                loading={processMutation.isPending && processMutation.variables?.status === 'REJECTED' && processMutation.variables?.id === item.id}
+                                style={{ flex: 1 }}
+                              />
+                              <Button
+                                variant="success"
+                                icon="check-decagram"
+                                label="Approve"
+                                onPress={() => handleProcessVerification(item, 'APPROVED')}
+                                loading={processMutation.isPending && processMutation.variables?.status === 'APPROVED' && processMutation.variables?.id === item.id}
+                                style={{ flex: 1 }}
+                              />
+                            </>
+                          ) : undefined}
+                        >
+                          {renderApprovalContent(item)}
 
-                      {item.reason ? (
-                        <View style={styles.reasonBox}>
-                          <Icon source="text-box-outline" size={13} color={colors.textMuted} />
-                          <Text style={styles.notes}>"{item.reason}"</Text>
-                        </View>
-                      ) : null}
+                          {item.reason ? (
+                            <View style={styles.reasonBox}>
+                              <Icon source="text-box-outline" size={13} color={colors.textMuted} />
+                              <Text style={styles.notes}>"{item.reason}"</Text>
+                            </View>
+                          ) : null}
 
-                      {/* Show Rejection Reason if available */}
-                      {statusStr === "REJECTED" && item.rejectedReason ? (
-                        <View style={styles.rejectedReasonBox}>
-                          <Icon source="alert-circle-outline" size={13} color={colors.danger} />
-                          <Text style={styles.rejectedReasonText}>
-                            Owner Note: "{item.rejectedReason}"
-                          </Text>
-                        </View>
-                      ) : null}
-                    </VerificationCard>
+                          {/* Show Rejection Reason if available */}
+                          {statusStr === "REJECTED" && item.rejectedReason ? (
+                            <View style={styles.rejectedReasonBox}>
+                              <Icon source="alert-circle-outline" size={13} color={colors.danger} />
+                              <Text style={styles.rejectedReasonText}>
+                                Owner Note: "{item.rejectedReason}"
+                              </Text>
+                            </View>
+                          ) : null}
+                        </VerificationCard>
+                      </View>
+                    </Pressable>
                   );
                 })}
               </View>
@@ -580,6 +869,123 @@ export function Notifications() {
           )
         )}
       </ScrollView>
+
+      {/* Floating Bottom Action Bar for Bulk Selection */}
+      {isOwner && isSelectMode && selectedIds.size > 0 && (
+        <View style={styles.bottomBatchBar}>
+          <View style={styles.bottomBatchInfo}>
+            <Text style={styles.bottomBatchCount}>{selectedIds.size} selected</Text>
+            <Pressable onPress={() => setSelectedIds(new Set())}>
+              <Text style={styles.bottomBatchClear}>Clear</Text>
+            </Pressable>
+          </View>
+          <View style={styles.bottomBatchButtons}>
+            <Button
+              variant="danger"
+              icon="close-circle-outline"
+              label={`Reject (${selectedIds.size})`}
+              onPress={handleOpenBulkReject}
+              loading={bulkProcessMutation.isPending && bulkProcessMutation.variables?.status === 'REJECTED'}
+              style={{ flex: 1 }}
+            />
+            <Button
+              variant="success"
+              icon="check-decagram"
+              label={`Approve (${selectedIds.size})`}
+              onPress={handleBulkApprove}
+              loading={bulkProcessMutation.isPending && bulkProcessMutation.variables?.status === 'APPROVED'}
+              style={{ flex: 1 }}
+            />
+          </View>
+        </View>
+      )}
+
+      {/* Reject Reason Modal */}
+      <Modal
+        visible={rejectModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setRejectModalVisible(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View style={styles.modalCard}>
+            <View style={styles.modalHeader}>
+              <View style={styles.modalHeaderIconBg}>
+                <Icon source="alert-circle-outline" size={24} color={colors.danger} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modalTitle}>
+                  {rejectTargetIds.length > 1
+                    ? `Reject ${rejectTargetIds.length} Requests`
+                    : "Reject Request"}
+                </Text>
+                <Text style={styles.modalSubtitle}>Provide a reason for staff</Text>
+              </View>
+            </View>
+
+            {/* Presets */}
+            <View style={styles.presetChipsRow}>
+              {[
+                "Incorrect quantity",
+                "Price mismatch",
+                "Duplicate request",
+                "Not authorized",
+              ].map((preset) => {
+                const isSelected = rejectPresetReason === preset;
+                return (
+                  <Pressable
+                    key={preset}
+                    onPress={() => {
+                      setRejectPresetReason(isSelected ? "" : preset);
+                      if (!isSelected) setRejectReasonText(preset);
+                    }}
+                    style={[
+                      styles.presetChip,
+                      isSelected && styles.presetChipActive,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.presetChipText,
+                        isSelected && styles.presetChipTextActive,
+                      ]}
+                    >
+                      {preset}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            <TextInput
+              style={styles.modalInput}
+              placeholder="Reason or explanation for staff..."
+              placeholderTextColor={colors.textMuted}
+              value={rejectReasonText}
+              onChangeText={setRejectReasonText}
+              multiline
+              numberOfLines={3}
+            />
+
+            <View style={styles.modalActions}>
+              <Button
+                variant="secondary"
+                label="Cancel"
+                onPress={() => setRejectModalVisible(false)}
+                style={{ flex: 1 }}
+              />
+              <Button
+                variant="danger"
+                icon="close-circle"
+                label="Confirm Reject"
+                onPress={handleConfirmReject}
+                loading={processMutation.isPending || bulkProcessMutation.isPending}
+                style={{ flex: 1 }}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
     </Screen>
   );
 }
@@ -854,5 +1260,273 @@ const styles = StyleSheet.create({
   queueBadgeText: {
     fontSize: fontSize.xs,
     fontWeight: fontWeight.extrabold,
+  },
+  rateChangeBody: {
+    backgroundColor: colors.surfaceOffset,
+    borderRadius: radius.md,
+    padding: spacing.sm,
+    marginVertical: spacing.xs,
+  },
+  rateRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+  },
+  rateItemName: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  rateDiffPills: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  oldRatePill: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderWidth: 1,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radius.full,
+  },
+  oldRateText: {
+    fontSize: fontSize.xs,
+    color: colors.textMuted,
+    textDecorationLine: "line-through",
+  },
+  newRatePill: {
+    backgroundColor: "rgba(22, 163, 74, 0.1)",
+    borderColor: colors.success,
+    borderWidth: 1,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    borderRadius: radius.full,
+  },
+  newRateText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
+    color: colors.success,
+  },
+  correctionBody: {
+    backgroundColor: colors.surfaceOffset,
+    borderRadius: radius.md,
+    padding: spacing.sm,
+    marginVertical: spacing.xs,
+  },
+  correctionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: spacing.sm,
+  },
+  correctionTitle: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  correctionInvoice: {
+    fontSize: fontSize.xs,
+    color: colors.textMuted,
+    marginTop: 2,
+  },
+  correctionAmountBadge: {
+    backgroundColor: colors.surface,
+    borderColor: colors.border,
+    borderWidth: 1,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 4,
+    borderRadius: radius.sm,
+  },
+  correctionAmountText: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  filterChipRow: {
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.xs,
+  },
+  batchHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.lg,
+    marginTop: spacing.xs,
+    marginBottom: spacing.xs,
+  },
+  batchActionsRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.xs,
+  },
+  textBtn: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  textBtnLabel: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
+    color: colors.primary,
+  },
+  quickApproveAllBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: colors.success,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 5,
+    borderRadius: radius.full,
+  },
+  quickApproveAllText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
+    color: "#ffffff",
+  },
+  selectModeBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: colors.surfaceOffset,
+    borderColor: colors.border,
+    borderWidth: 1,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 5,
+    borderRadius: radius.full,
+  },
+  selectModeBtnText: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
+    color: colors.primary,
+  },
+  cardPressable: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  selectableCardWrapper: {
+    borderRadius: radius.lg,
+    padding: 2,
+  },
+  selectedCardWrapper: {
+    backgroundColor: "rgba(34, 197, 94, 0.08)",
+  },
+  selectionCheckboxContainer: {
+    paddingRight: spacing.sm,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  bottomBatchBar: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    ...shadow.lg,
+    gap: spacing.sm,
+  },
+  bottomBatchInfo: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  bottomBatchCount: {
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  bottomBatchClear: {
+    fontSize: fontSize.xs,
+    fontWeight: fontWeight.bold,
+    color: colors.textMuted,
+  },
+  bottomBatchButtons: {
+    flexDirection: "row",
+    gap: spacing.sm,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: spacing.lg,
+  },
+  modalCard: {
+    width: "100%",
+    maxWidth: 420,
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
+    padding: spacing.lg,
+    ...shadow.lg,
+    gap: spacing.md,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: spacing.md,
+  },
+  modalHeaderIconBg: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: "rgba(220, 38, 38, 0.1)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalTitle: {
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.bold,
+    color: colors.textPrimary,
+  },
+  modalSubtitle: {
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+    marginTop: 2,
+  },
+  presetChipsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: spacing.xs,
+  },
+  presetChip: {
+    backgroundColor: colors.surfaceOffset,
+    borderColor: colors.border,
+    borderWidth: 1,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 6,
+    borderRadius: radius.full,
+  },
+  presetChipActive: {
+    backgroundColor: "rgba(220, 38, 38, 0.1)",
+    borderColor: colors.danger,
+  },
+  presetChipText: {
+    fontSize: fontSize.xs,
+    color: colors.textSecondary,
+    fontWeight: fontWeight.medium,
+  },
+  presetChipTextActive: {
+    color: colors.danger,
+    fontWeight: fontWeight.bold,
+  },
+  modalInput: {
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    padding: spacing.sm,
+    fontSize: fontSize.sm,
+    color: colors.textPrimary,
+    minHeight: 70,
+    textAlignVertical: "top",
+    backgroundColor: colors.surfaceOffset,
+  },
+  modalActions: {
+    flexDirection: "row",
+    gap: spacing.sm,
+    marginTop: spacing.xs,
   },
 });

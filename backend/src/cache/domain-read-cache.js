@@ -16,6 +16,7 @@ const EVENT_DOMAIN_MAP = {
   category: ["categories", "items"],
   brand: ["brands", "items"],
   stock: ["items"],
+  approval: ["approvals"],
 };
 
 function record(metric) {

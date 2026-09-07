@@ -313,8 +313,15 @@ export async function approveCorrectionRequest(user, id) {
         action: "approved",
         entityId: approval.id,
         actorUserId: user.id,
-        actorRole: user.role,
-        visibility: { owners: true, staff: true, targetUserIds: [approval.requestedById] },
+        visibility: { owners: false, staff: false, targetUserIds: [approval.requestedById] },
+        requestedById: approval.requestedById,
+        notification: {
+          sendPush: true,
+          title: "Correction request approved",
+          body: `Your correction request has been approved.`,
+          severity: "success",
+          deepLink: `stock://approvals/${approval.id}`,
+        },
       }),
       createDomainEvent({
         shopId: approval.shopId,
@@ -433,7 +440,15 @@ export async function rejectCorrectionRequest(user, id, reason) {
     entityId: approval.id,
     actorUserId: user.id,
     actorRole: user.role,
-    visibility: { owners: true, staff: true, targetUserIds: [approval.requestedById] },
+    visibility: { owners: false, staff: false, targetUserIds: [approval.requestedById] },
+    requestedById: approval.requestedById,
+    notification: {
+      sendPush: true,
+      title: "Correction request rejected",
+      body: `Your correction request was rejected${reason ? `: ${reason}` : ""}.`,
+      severity: "warning",
+      deepLink: `stock://approvals/${approval.id}`,
+    },
   }));
 
   return {

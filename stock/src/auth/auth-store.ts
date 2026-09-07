@@ -1,14 +1,15 @@
 import { create, type StoreApi, type UseBoundStore } from "zustand";
 import { digestStringAsync, CryptoDigestAlgorithm } from "expo-crypto";
-import { ApiUser, fetchMe, login, truecallerLogin, truecallerOtpLogin } from "../api/client";
+import { ApiUser, fetchMe, login, logout, refreshToken, registerTokenRefreshedHandler, truecallerLogin, truecallerOtpLogin } from "../api/client";
 import { useShopStore } from "./shop-store";
 import { deleteToken, getToken, setToken } from "./token-storage";
 import { createMMKV } from "react-native-mmkv";
 import { clearDomainEventCursors } from "../realtime/domainEventCursor";
 import { clearDomainReadCacheForUser, destroyDomainReadCache } from "./domain-cache";
 import { clearRuntimeQueryState } from "../query/queryClient";
-import { isJwtExpired } from "./jwt-expiry";
+import { isJwtExpired, shouldRefreshJwt } from "./jwt-expiry";
 import { registerUnauthorizedHandler } from "./unauthorized-handler";
+import { getDeviceInstallationId } from "../notifications/device-identity";
 
 const TOKEN_KEY = "shopcontrol_token";
 const QUICK_TOKEN_KEY = "shopcontrol_quick_token";
@@ -141,9 +142,27 @@ function createAuthStore() {
         set({ token: null, user: null, isBootstrapping: false });
         return;
       }
+
+      let activeToken = token;
       if (isJwtExpired(token)) {
-        await get().signOut();
-        return;
+        // Attempt recovery using grace refresh
+        try {
+          const refreshed = await refreshToken(token);
+          activeToken = refreshed.token;
+          await setToken(TOKEN_KEY, refreshed.token);
+          await setToken(QUICK_TOKEN_KEY, refreshed.token);
+          set({ token: refreshed.token, user: refreshed.user });
+        } catch {
+          await get().signOut();
+          return;
+        }
+      } else if (shouldRefreshJwt(token)) {
+        // Proactive silent refresh in background
+        refreshToken(token).then(async (refreshed) => {
+          await setToken(TOKEN_KEY, refreshed.token);
+          await setToken(QUICK_TOKEN_KEY, refreshed.token);
+          set({ token: refreshed.token, user: refreshed.user });
+        }).catch(() => {});
       }
 
       const pinSet = await getToken("shopcontrol_pin_set");
@@ -163,18 +182,18 @@ function createAuthStore() {
 
       if (cachedUser) {
         restoreUserShopSelection(cachedUser.id);
-        set({ token, user: cachedUser, isBootstrapping: false });
+        set({ token: activeToken, user: cachedUser, isBootstrapping: false });
         
         // Refresh profile in background
-        fetchMe(token).then((freshUser) => {
+        fetchMe(activeToken).then((freshUser) => {
           set({ user: freshUser });
         }).catch((e) => {
           console.warn("Background restore refresh failed", e);
         });
       } else {
-        const user = await fetchMe(token);
+        const user = await fetchMe(activeToken);
         restoreUserShopSelection(user.id);
-        set({ token, user, isBootstrapping: false });
+        set({ token: activeToken, user, isBootstrapping: false });
       }
     } catch {
       await get().signOut();
@@ -182,7 +201,17 @@ function createAuthStore() {
     }
   },
   async signOut() {
+    const currentToken = get().token;
     const currentUserId = get().user?.id;
+    try {
+      if (currentToken) {
+        const installationId = await getDeviceInstallationId();
+        await logout(currentToken, { installationId });
+      }
+    } catch (e) {
+      console.warn("Backend logout notification failed:", e);
+    }
+    await deleteToken("shopcontrol_device_registration_signature");
     await deleteToken(TOKEN_KEY);
     await deleteToken(QUICK_TOKEN_KEY);
     await deleteToken(QUICK_PIN_HASH_KEY);
@@ -220,6 +249,12 @@ globalAuthStore.__shopControlAuthStore = useAuthStore;
 registerUnauthorizedHandler(async (rejectedToken) => {
   if (useAuthStore.getState().token !== rejectedToken) return;
   await useAuthStore.getState().signOut();
+});
+
+registerTokenRefreshedHandler(async (newToken, newUser) => {
+  await setToken(TOKEN_KEY, newToken);
+  await setToken(QUICK_TOKEN_KEY, newToken);
+  useAuthStore.setState({ token: newToken, user: newUser });
 });
 
 // Sync store updates with user cache automatically

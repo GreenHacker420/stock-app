@@ -15,3 +15,8 @@ export const respond = asyncHandler(async (req, res) => {
   const request = await approvalService.respondToRequest(req.user, req.params.id, req.body);
   res.json({ success: true, data: request });
 });
+
+export const bulkRespond = asyncHandler(async (req, res) => {
+  const result = await approvalService.bulkRespondToRequests(req.user, req.validated.body);
+  res.json({ success: true, data: result });
+});

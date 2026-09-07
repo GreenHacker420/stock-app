@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 
 const PREFIX = "srv-cache:v1";
-const ALLOWED_DOMAINS = new Set(["customers", "items", "categories", "brands"]);
+const ALLOWED_DOMAINS = new Set(["customers", "items", "categories", "brands", "approvals"]);
 
 function assertDomain(domain) {
   if (!ALLOWED_DOMAINS.has(domain)) {
@@ -10,12 +10,15 @@ function assertDomain(domain) {
 }
 
 function stableStringify(value) {
+  if (value === undefined) return "null";
   if (Array.isArray(value)) {
     return `[${value.map(stableStringify).join(",")}]`;
   }
   if (value && typeof value === "object") {
-    return `{${Object.keys(value)
-      .sort()
+    const keys = Object.keys(value)
+      .filter((key) => value[key] !== undefined)
+      .sort();
+    return `{${keys
       .map((key) => `${JSON.stringify(key)}:${stableStringify(value[key])}`)
       .join(",")}}`;
   }

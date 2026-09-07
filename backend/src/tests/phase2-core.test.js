@@ -1131,7 +1131,7 @@ test.describe("Phase 2 core business correctness", () => {
     await prisma.customer.delete({ where: { id: cust.id } });
   });
 
-  test("generic approval refuses unsupported approval types without marking approved", async () => {
+  test("unified approval responds to correction approval types properly", async () => {
     const cust = await prisma.customer.create({
       data: { shopId: shop.id, name: "P2 Approval Customer", type: "REGULAR", createdById: owner.id },
     });
@@ -1154,9 +1154,10 @@ test.describe("Phase 2 core business correctness", () => {
       reason: "Wrong sale",
     });
 
-    await assertRejectsApi(() => approvalService.respondToRequest(owner, request.id, { status: "APPROVED" }), 400);
-    const unchanged = await prisma.approvalRequest.findUnique({ where: { id: request.id } });
-    assert.strictEqual(unchanged.status, "PENDING");
+    const response = await approvalService.respondToRequest(owner, request.id, { status: "APPROVED" });
+    assert.strictEqual(response.status, "APPROVED");
+    const updated = await prisma.approvalRequest.findUnique({ where: { id: request.id } });
+    assert.strictEqual(updated.status, "APPROVED");
 
     await prisma.approvalRequest.delete({ where: { id: request.id } });
     await prisma.saleItem.deleteMany({ where: { saleId: sale.id } });

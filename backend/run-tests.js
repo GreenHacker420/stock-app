@@ -20,6 +20,7 @@ const files = testFileArg
       path.resolve("src/tests/harden-mobile.test.js"),
       path.resolve("src/tests/harden-server-cache.test.js"),
       path.resolve("src/tests/storage-delivery.test.js"),
+      path.resolve("src/tests/approvals-and-auth.test.js"),
     ];
 
 console.log(`Running tests: ${files.map(f => path.basename(f)).join(", ")}...`);

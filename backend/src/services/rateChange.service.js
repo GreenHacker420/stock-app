@@ -151,8 +151,15 @@ export async function approveRateChangeRequest(user, id) {
         action: "approved",
         entityId: approval.id,
         actorUserId: user.id,
-        actorRole: user.role,
-        visibility: { owners: true, staff: true, targetUserIds: [approval.requestedById] },
+        visibility: { owners: false, staff: false, targetUserIds: [approval.requestedById] },
+        requestedById: approval.requestedById,
+        notification: {
+          sendPush: true,
+          title: "Rate change approved",
+          body: `Your rate change request has been approved.`,
+          severity: "success",
+          deepLink: `stock://approvals/${approval.id}`,
+        },
       }),
       createDomainEvent({
         shopId: approval.shopId,
@@ -202,7 +209,15 @@ export async function rejectRateChangeRequest(user, id, reason) {
     entityId: approval.id,
     actorUserId: user.id,
     actorRole: user.role,
-    visibility: { owners: true, staff: true, targetUserIds: [approval.requestedById] },
+    visibility: { owners: false, staff: false, targetUserIds: [approval.requestedById] },
+    requestedById: approval.requestedById,
+    notification: {
+      sendPush: true,
+      title: "Rate change rejected",
+      body: `Your rate change request was rejected${reason ? `: ${reason}` : ""}.`,
+      severity: "warning",
+      deepLink: `stock://approvals/${approval.id}`,
+    },
   }));
 
   return {

@@ -126,10 +126,20 @@ export const FCMManager = {
 
       if (Platform.OS === "android") {
         await setNotificationChannelAsync("default", {
-          name: "default",
-          importance: AndroidImportance.MAX,
+          name: "Default",
+          importance: AndroidImportance.DEFAULT,
           vibrationPattern: [0, 250, 250, 250],
           lightColor: "#25D366",
+        });
+        await setNotificationChannelAsync("approvals", {
+          name: "Approvals & Requests",
+          importance: AndroidImportance.MAX,
+          vibrationPattern: [0, 500, 200, 500],
+          lightColor: "#F59E0B",
+          sound: "default",
+          enableLights: true,
+          enableVibrate: true,
+          showBadge: true,
         });
       }
 

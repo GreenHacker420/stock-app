@@ -73,7 +73,7 @@ router.post("/login", validate(loginSchema), authController.login);
 router.post("/truecaller", validate(truecallerSchema), authController.truecallerLogin);
 router.post("/truecaller-otp", validate(truecallerOtpSchema), authController.truecallerOtpLogin);
 router.post("/logout", requireAuth, authController.logout);
-router.post("/refresh", requireAuth, authController.refresh);
+router.post("/refresh", authController.refresh);
 router.get("/me", requireAuth, authController.me);
 router.patch("/me", requireAuth, validate(updateMeSchema), authController.updateMe);
 router.get("/staff", requireAuth, requireOwner, authController.listStaff);

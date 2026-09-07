@@ -25,7 +25,16 @@ const respondSchema = z.object({
   }),
 });
 
+const bulkRespondSchema = z.object({
+  body: z.object({
+    ids: z.array(z.string().min(1)).min(1),
+    status: z.enum(["APPROVED", "REJECTED"]),
+    rejectedReason: z.string().optional(),
+  }),
+});
+
 router.get("/", validate(querySchema), approvalController.listRequests);
+router.post("/bulk-respond", validate(bulkRespondSchema), approvalController.bulkRespond);
 router.get("/:id", approvalController.getRequest);
 router.post("/:id/respond", validate(respondSchema), approvalController.respond);
 

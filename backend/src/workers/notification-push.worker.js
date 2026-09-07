@@ -241,12 +241,14 @@ export async function deliverNotification(notificationId) {
     .filter(({ delivery }) => delivery.status === "PENDING");
   if (!pending.length) return { skipped: "NO_PENDING_DELIVERIES" };
 
+  const isApproval = notification.triggerEvent === "APPROVAL_REQUESTED" || notification.triggerEvent === "APPROVAL_RESOLVED";
   const tickets = await sendExpo(pending.map(({ device }) => ({
     to: device.pushToken,
     sound: "default",
     title: whatsappNotification?.title || notification.shop?.name || "ShopControl",
     body: whatsappNotification?.body || notification.message,
-    channelId: "default",
+    channelId: isApproval ? "approvals" : "default",
+    priority: isApproval ? "high" : "default",
     data: whatsappData || {
       notificationId: notification.id,
       shopId: notification.shopId,

@@ -26,6 +26,24 @@ export async function respondApproval(token: string, id: string, status: "APPROV
   });
 }
 
+export async function bulkRespondApprovals(
+  token: string,
+  ids: string[],
+  status: "APPROVED" | "REJECTED",
+  rejectedReason?: string
+) {
+  return apiRequest<{
+    total: number;
+    successCount: number;
+    failureCount: number;
+    results: Array<{ id: string; success: boolean; error?: string }>;
+  }>(`/approvals/bulk-respond`, {
+    method: "POST",
+    token,
+    body: { ids, status, rejectedReason },
+  });
+}
+
 export async function fetchCorrectionRequests(token: string, params: { shopId: string; status?: ApprovalStatus; entityType?: "SALE" | "DM" | "ORDER" | "STOCK" | "PAYMENT" }) {
   const query = new URLSearchParams({ shopId: params.shopId });
   addOptional(query, "status", params.status);

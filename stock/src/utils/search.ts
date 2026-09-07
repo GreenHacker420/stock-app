@@ -1,4 +1,4 @@
-import { SEARCH_PATTERNS } from "./regex";
+import { SEARCH_PATTERNS } from "./regex.ts";
 
 export type SearchScore = {
   matched: boolean;

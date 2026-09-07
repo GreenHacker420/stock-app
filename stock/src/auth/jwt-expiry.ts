@@ -21,3 +21,11 @@ export function isJwtExpired(token: string, nowMs = Date.now(), clockAllowanceSe
 
   return nowMs >= (payload.exp - clockAllowanceSeconds) * 1000;
 }
+
+export function shouldRefreshJwt(token: string, thresholdSeconds = 48 * 3600, nowMs = Date.now()): boolean {
+  const payload = decodeJwtPayload(token);
+  if (!payload || typeof payload.exp !== "number") return false;
+
+  const secondsUntilExpiry = payload.exp - Math.floor(nowMs / 1000);
+  return secondsUntilExpiry <= thresholdSeconds;
+}
