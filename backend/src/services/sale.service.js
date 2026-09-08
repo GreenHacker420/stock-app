@@ -1100,8 +1100,19 @@ export async function sendSaleWhatsAppReceipt(user, id, { recipientPhone } = {})
       shop: sale.shop,
     });
 
-    mediaId = invoiceAsset.externalId;
-    if (!mediaId) {
+    const candidateMediaId = invoiceAsset.metadata?.whatsappMediaId
+      || (invoiceAsset.externalProvider === "META_WHATSAPP" && /^\d+$/.test(String(invoiceAsset.externalId || ""))
+        ? String(invoiceAsset.externalId)
+        : null);
+
+    const uploadedAt = invoiceAsset.metadata?.whatsappMediaUploadedAt
+      ? new Date(invoiceAsset.metadata.whatsappMediaUploadedAt).getTime()
+      : null;
+    const isMediaFresh = !uploadedAt || (Date.now() - uploadedAt < 25 * 24 * 60 * 60 * 1000);
+
+    if (candidateMediaId && isMediaFresh) {
+      mediaId = candidateMediaId;
+    } else {
       const pdfBuffer = await getInvoicePdfBuffer(invoiceAsset);
       const mediaForm = new FormData();
       mediaForm.append("messaging_product", "whatsapp");
@@ -1119,15 +1130,33 @@ export async function sendSaleWhatsAppReceipt(user, id, { recipientPhone } = {})
         },
         maxBodyLength: Infinity,
       });
-      mediaId = mediaResponse.data?.id;
-      if (!mediaId) {
-        throw new Error("WhatsApp media upload did not return a media ID");
+      const returnedId = mediaResponse.data?.id != null ? String(mediaResponse.data.id) : null;
+      if (!returnedId || !/^\d+$/.test(returnedId)) {
+        throw new Error(`WhatsApp media upload did not return a valid numeric media ID: ${returnedId}`);
       }
+      mediaId = returnedId;
+
+      const isOneDrive = invoiceAsset.storageProvider === "ONEDRIVE";
+      const assetRecord = await prisma.asset.findUnique({
+        where: { id: invoiceAsset.assetId },
+        select: { metadata: true },
+      });
+      const currentMetadata = (assetRecord?.metadata && typeof assetRecord.metadata === "object")
+        ? assetRecord.metadata
+        : {};
+
       await prisma.asset.update({
         where: { id: invoiceAsset.assetId },
         data: {
-          externalProvider: "META_WHATSAPP",
-          externalId: mediaId,
+          metadata: {
+            ...currentMetadata,
+            whatsappMediaId: mediaId,
+            whatsappMediaUploadedAt: new Date().toISOString(),
+          },
+          ...(!isOneDrive ? {
+            externalProvider: "META_WHATSAPP",
+            externalId: mediaId,
+          } : {}),
         },
       });
     }

@@ -611,6 +611,8 @@ async function getOrCreateSaleInvoicePdf({ sale, shop }) {
       fileName: existing.fileName || fileName,
       pdfBuffer: null,
       externalId: existing.externalId,
+      externalProvider: existing.externalProvider,
+      metadata: existing.metadata,
       cached: true,
       fingerprint,
     };
@@ -685,6 +687,8 @@ async function getOrCreateSaleInvoicePdf({ sale, shop }) {
     fileName,
     pdfBuffer: Buffer.from(pdfBuffer),
     externalId: asset.externalId,
+    externalProvider: asset.externalProvider,
+    metadata: asset.metadata,
     cached: false,
     fingerprint,
   };
