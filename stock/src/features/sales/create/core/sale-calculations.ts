@@ -129,51 +129,79 @@ export type SnapshotItemInput = {
   unit: string;
   availableStock?: number | string | null;
   defaultSellingPrice?: number | string | null;
+  defaultRateMinor?: number | null;
   minimumAllowedPrice?: number | string | null;
+  minimumRateMinor?: number | null;
   mrp?: number | string | null;
+  mrpMinor?: number | null;
   requiresSerialNumber?: boolean | null;
   hasSerials?: boolean | null;
   isSerialized?: boolean | null;
   requiresSerial?: boolean | null;
   brand?: { name?: string | null } | null;
+  brandName?: string | null;
 };
 
+function isItemSnapshot(item: SnapshotItemInput | ItemSnapshot): item is ItemSnapshot {
+  return "defaultRateMinor" in item && typeof item.defaultRateMinor === "number";
+}
 
-export function adaptItemToSnapshot(item: SnapshotItemInput): ItemSnapshot {
+export function adaptItemToSnapshot(item: SnapshotItemInput | ItemSnapshot): ItemSnapshot {
   if (!item.id || !item.name) {
     throw new Error("Cannot create sale item snapshot: id and name are required.");
   }
 
-  const defaultRateMinor = parseMoneyToMinor(item.defaultSellingPrice);
-  const minimumRateMinor =
-    item.minimumAllowedPrice == null
-      ? defaultRateMinor
-      : parseMoneyToMinor(item.minimumAllowedPrice);
-
-  if (defaultRateMinor === null || minimumRateMinor === null) {
-    throw new Error(`Invalid selling price for item "${item.id}" (${item.name}).`);
+  if (isItemSnapshot(item)) {
+    return {
+      id: item.id,
+      name: item.name,
+      sku: item.sku,
+      unit: item.unit,
+      availableStock: Math.max(0, Math.floor(Number(item.availableStock ?? 0))),
+      defaultRateMinor: item.defaultRateMinor,
+      minimumRateMinor: item.minimumRateMinor,
+      mrpMinor: item.mrpMinor,
+      requiresSerialNumber: Boolean(item.requiresSerialNumber),
+      brandName: item.brandName ?? null,
+    };
   }
+
+  const defaultRateMinor =
+    typeof item.defaultRateMinor === "number" && Number.isSafeInteger(item.defaultRateMinor)
+      ? item.defaultRateMinor
+      : parseMoneyToMinor(item.defaultSellingPrice);
+
+  const minimumRateMinor =
+    typeof item.minimumRateMinor === "number" && Number.isSafeInteger(item.minimumRateMinor)
+      ? item.minimumRateMinor
+      : item.minimumAllowedPrice == null
+        ? defaultRateMinor
+        : parseMoneyToMinor(item.minimumAllowedPrice);
+
+  const fallbackDefaultRateMinor = defaultRateMinor ?? 0;
+  const fallbackMinimumRateMinor = minimumRateMinor ?? fallbackDefaultRateMinor;
 
   const rawStock = Number(item.availableStock ?? 0);
-  if (!Number.isFinite(rawStock)) {
-    throw new Error(`Invalid stock quantity for item "${item.id}" (${item.name}).`);
-  }
+  const safeStock = Number.isFinite(rawStock) ? Math.max(0, Math.floor(rawStock)) : 0;
 
   return {
     id: item.id,
     name: item.name,
     sku: item.sku ?? undefined,
-    unit: item.unit,
-    availableStock: Math.max(0, Math.floor(rawStock)),
-    defaultRateMinor,
-    minimumRateMinor,
-    mrpMinor: parseMoneyToMinor(item.mrp) ?? undefined,
+    unit: item.unit || "pcs",
+    availableStock: safeStock,
+    defaultRateMinor: fallbackDefaultRateMinor,
+    minimumRateMinor: fallbackMinimumRateMinor,
+    mrpMinor:
+      typeof item.mrpMinor === "number"
+        ? item.mrpMinor
+        : parseMoneyToMinor(item.mrp) ?? undefined,
     requiresSerialNumber: Boolean(
       item.requiresSerialNumber ??
       item.hasSerials ??
       item.isSerialized ??
       item.requiresSerial
     ),
-    brandName: item.brand?.name ?? null,
+    brandName: item.brandName ?? item.brand?.name ?? null,
   };
 }

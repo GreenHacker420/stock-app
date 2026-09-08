@@ -573,10 +573,10 @@ export function WalkInSaleScreen() {
                   });
                 }}
                 onAdjustQuantity={(delta) => {
-                  dispatch({ type: "ADD_QUANTITY", item: adaptItemToSnapshot(item), delta });
+                  dispatch({ type: "ADD_QUANTITY", item, delta });
                 }}
                 onSetQuantity={(quantity) => {
-                  dispatch({ type: "SET_QUANTITY", item: adaptItemToSnapshot(item), quantity });
+                  dispatch({ type: "SET_QUANTITY", item, quantity });
                 }}
                 userRole={user?.role}
               />
@@ -633,23 +633,26 @@ export function WalkInSaleScreen() {
       <View style={styles.mainContainer}>
         <SaleProductPicker
           data={displayItems}
-          renderItem={({ item }: { item: Item }) => (
-            <SaleProductRow
-              item={adaptItemToSnapshot(item)}
-              quantity={draft.lines[item.id]?.quantity ?? 0}
-              serialNumbers={draft.lines[item.id]?.serialNumbers}
-              onScanPress={() => setActiveSerialScanItemId(item.id)}
-              onAdd={() => {
-                dispatch({ type: "ADD_QUANTITY", item: adaptItemToSnapshot(item), delta: 1 });
-              }}
-              onRemove={() => {
-                dispatch({ type: "ADD_QUANTITY", item: adaptItemToSnapshot(item), delta: -1 });
-              }}
-              onSetQuantity={(quantity) => {
-                dispatch({ type: "SET_QUANTITY", item: adaptItemToSnapshot(item), quantity });
-              }}
-            />
-          )}
+          renderItem={({ item }: { item: Item }) => {
+            const itemSnapshot = adaptItemToSnapshot(item);
+            return (
+              <SaleProductRow
+                item={itemSnapshot}
+                quantity={draft.lines[item.id]?.quantity ?? 0}
+                serialNumbers={draft.lines[item.id]?.serialNumbers}
+                onScanPress={() => setActiveSerialScanItemId(item.id)}
+                onAdd={() => {
+                  dispatch({ type: "ADD_QUANTITY", item: itemSnapshot, delta: 1 });
+                }}
+                onRemove={() => {
+                  dispatch({ type: "ADD_QUANTITY", item: itemSnapshot, delta: -1 });
+                }}
+                onSetQuantity={(quantity) => {
+                  dispatch({ type: "SET_QUANTITY", item: itemSnapshot, quantity });
+                }}
+              />
+            );
+          }}
           search={search}
           setSearch={setSearch}
           onScanPress={() => {

@@ -1,7 +1,7 @@
 /// <reference types="node" />
 import assert from "node:assert/strict";
 import test from "node:test";
-import { createRegularSettlement } from "./sale-calculations";
+import { createRegularSettlement, adaptItemToSnapshot } from "./sale-calculations";
 import { createInitialSaleDraft, saleDraftReducer } from "./sale-draft.reducer";
 import { createSaleFingerprint } from "./sale-fingerprint";
 import { buildSalePayload } from "./sale-payload";
@@ -314,3 +314,51 @@ test("createRegularSettlement validates correctly", () => {
     }
   }
 });
+
+test("adaptItemToSnapshot is idempotent and safely accepts ItemSnapshot without throwing", () => {
+  const existingSnapshot: ItemSnapshot = {
+    id: "item-100",
+    name: "Ballpoint Pen",
+    sku: "PEN-01",
+    unit: "pcs",
+    availableStock: 5,
+    defaultRateMinor: 1500,
+    minimumRateMinor: 1200,
+    mrpMinor: 2000,
+    requiresSerialNumber: false,
+    brandName: "Cello",
+  };
+
+  // Calling adaptItemToSnapshot on an ItemSnapshot should NOT throw for missing defaultSellingPrice
+  const adapted = adaptItemToSnapshot(existingSnapshot);
+  assert.equal(adapted.id, "item-100");
+  assert.equal(adapted.name, "Ballpoint Pen");
+  assert.equal(adapted.defaultRateMinor, 1500);
+  assert.equal(adapted.minimumRateMinor, 1200);
+  assert.equal(adapted.availableStock, 5);
+});
+
+test("adaptItemToSnapshot safely adapts catalog items and handles missing price gracefully", () => {
+  const catalogItem = {
+    id: "item-200",
+    name: "Paper Ream",
+    unit: "pkt",
+    defaultSellingPrice: "350.50",
+    minimumAllowedPrice: "320.00",
+    availableStock: 10,
+  };
+  const adapted = adaptItemToSnapshot(catalogItem);
+  assert.equal(adapted.defaultRateMinor, 35050);
+  assert.equal(adapted.minimumRateMinor, 32000);
+
+  // Missing price defaults to 0 instead of throwing and crashing the app
+  const noPriceItem = {
+    id: "item-300",
+    name: "Free Sample",
+    unit: "pcs",
+  };
+  const adaptedFree = adaptItemToSnapshot(noPriceItem);
+  assert.equal(adaptedFree.defaultRateMinor, 0);
+  assert.equal(adaptedFree.minimumRateMinor, 0);
+});
+
