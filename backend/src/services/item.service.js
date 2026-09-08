@@ -11,6 +11,7 @@ import {
   bestEffortInvalidateForDomainEvent,
   readThroughDomainCache,
 } from "../cache/domain-read-cache.js";
+import { DIMENSION_PATTERNS, SEARCH_PATTERNS } from "../utils/regex.ts";
 
 // ---------------------------------------------------------------------------
 // Permission helpers
@@ -283,13 +284,13 @@ async function listItemsFromDb({ shopId, search, categoryId, brandId, page = 1, 
 
   if (normalizedSearch && normalizedSearch.length >= 2) {
     const likePattern = `%${normalizedSearch}%`;
-    const dimMatch = normalizedSearch.match(/(\d+)\s*[*xX×]\s*(\d+)/);
+    const dimMatch = normalizedSearch.match(DIMENSION_PATTERNS.PAIR);
     const starPattern = dimMatch ? `%${dimMatch[1]}*${dimMatch[2]}%` : likePattern;
     const xPattern = dimMatch ? `%${dimMatch[1]}x${dimMatch[2]}%` : likePattern;
 
     // Normalize dimension compound tokens ("70x100" -> "70 100") so dimensions match across separators
-    const dimNormalized = normalizedSearch.replace(/(?<=\d)\s*[*xX×]\s*(?=\d)/g, " ");
-    const searchTokens = dimNormalized.toLowerCase().match(/[a-z0-9]+/g)?.slice(0, 8)
+    const dimNormalized = normalizedSearch.replace(DIMENSION_PATTERNS.SEPARATOR, " ");
+    const searchTokens = dimNormalized.toLowerCase().match(SEARCH_PATTERNS.ALPHANUMERIC_TOKENS)?.slice(0, 8)
       ?? [normalizedSearch.toLowerCase()];
     const lexicalMatch = Prisma.join(
       searchTokens.map((token) => Prisma.sql`

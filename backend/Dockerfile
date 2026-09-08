@@ -76,4 +76,4 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD node -e "require('http').get('http://localhost:6600/health', r => process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))"
 
 # Use exec form for proper signal handling
-CMD ["node", "src/index.js"]
+CMD ["node", "--import", "tsx", "src/index.js"]

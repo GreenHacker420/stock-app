@@ -1,0 +1,14 @@
+{
+  "execMap": {
+    "js": "node --import tsx",
+    "ts": "node --import tsx"
+  },
+  "exec": "node --import tsx",
+  "ext": "js,mjs,cjs,ts,json",
+  "watch": [
+    "src"
+  ],
+  "ignore": [
+    "src/tests/**"
+  ]
+}
