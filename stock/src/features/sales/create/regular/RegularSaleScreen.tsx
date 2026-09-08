@@ -625,21 +625,24 @@ export function RegularSaleScreen() {
         {currentStep === 1 && (
           <SaleProductPicker
             data={displayItems}
-            renderItem={({ item }: { item: Item }) => (
-              <SaleProductRow
-                item={adaptItemToSnapshot(item)}
-                quantity={draft.lines[item.id]?.quantity ?? 0}
-                onAdd={() => {
-                  dispatch({ type: "ADD_QUANTITY", item: adaptItemToSnapshot(item), delta: 1 });
-                }}
-                onRemove={() => {
-                  dispatch({ type: "ADD_QUANTITY", item: adaptItemToSnapshot(item), delta: -1 });
-                }}
-                onSetQuantity={(quantity) => {
-                  dispatch({ type: "SET_QUANTITY", item: adaptItemToSnapshot(item), quantity });
-                }}
-              />
-            )}
+            renderItem={({ item }: { item: Item }) => {
+              const itemSnapshot = adaptItemToSnapshot(item);
+              return (
+                <SaleProductRow
+                  item={itemSnapshot}
+                  quantity={draft.lines[item.id]?.quantity ?? 0}
+                  onAdd={() => {
+                    dispatch({ type: "ADD_QUANTITY", item: itemSnapshot, delta: 1 });
+                  }}
+                  onRemove={() => {
+                    dispatch({ type: "ADD_QUANTITY", item: itemSnapshot, delta: -1 });
+                  }}
+                  onSetQuantity={(quantity) => {
+                    dispatch({ type: "SET_QUANTITY", item: itemSnapshot, quantity });
+                  }}
+                />
+              );
+            }}
             search={itemSearch}
             setSearch={setItemSearch}
             onScanPress={() => {

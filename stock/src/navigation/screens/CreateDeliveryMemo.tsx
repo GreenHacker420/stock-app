@@ -13,6 +13,7 @@ import { SearchablePicker } from "../../components/forms/SearchablePicker";
 import { SerialNumberScannerModal } from "../../components/items/SerialNumberScannerModal";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { goBack, navigate } from "../navigation-ref";
+import { filterAndRankCustomers, filterAndRankItems } from "../../utils/search";
 import { z } from "zod";
 
 const money = (value?: string | number | null) => "₹" + Number(value ?? 0).toLocaleString("en-IN");
@@ -59,20 +60,14 @@ export function CreateDeliveryMemo() {
   // Filtered lists
   const filteredCustomers = useMemo(() => {
     const list = customersQuery.data ?? [];
-    if (!customerSearch) return list;
-    return list.filter((c: any) =>
-      c.name?.toLowerCase().includes(customerSearch.toLowerCase()) ||
-      c.phone?.includes(customerSearch)
-    );
+    if (!customerSearch.trim()) return list;
+    return filterAndRankCustomers(list, customerSearch);
   }, [customersQuery.data, customerSearch]);
 
   const filteredProducts = useMemo(() => {
     const list = itemsQuery.data?.items ?? [];
-    if (!productSearch) return list;
-    return list.filter((p: any) =>
-      p.name?.toLowerCase().includes(productSearch.toLowerCase()) ||
-      p.sku?.toLowerCase().includes(productSearch.toLowerCase())
-    );
+    if (!productSearch.trim()) return list;
+    return filterAndRankItems(list, productSearch);
   }, [itemsQuery.data, productSearch]);
 
   // Calculations

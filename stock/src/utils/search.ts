@@ -1,4 +1,4 @@
-import { SEARCH_PATTERNS } from "./regex.ts";
+import { SEARCH_PATTERNS, DIMENSION_PATTERNS } from "./regex.ts";
 
 export type SearchScore = {
   matched: boolean;
@@ -10,6 +10,7 @@ function normalizeSearchText(value: string | null | undefined) {
     .normalize("NFKD")
     .replace(/[\u0300-\u036f]/g, "")
     .toLowerCase()
+    .replace(DIMENSION_PATTERNS.SEPARATOR, "x")
     .replace(/[^\p{L}\p{N}]+/gu, " ")
     .trim()
     .replace(/\s+/g, " ");
@@ -57,6 +58,21 @@ export function calculateMatchScore(
     if (compactText.includes(compactQuery)) {
       return { matched: true, score: 0.78 };
     }
+
+    // Dimension-delimiter invariant match (e.g. "70 100" <-> "70x100" / "70*100")
+    const dimLessText = compactText.replace(/(?<=\d)x(?=\d)/g, "");
+    const dimLessQuery = compactQuery.replace(/(?<=\d)x(?=\d)/g, "");
+    if (dimLessQuery.length > 0) {
+      if (dimLessText === dimLessQuery) {
+        return { matched: true, score: 0.86 };
+      }
+      if (dimLessText.startsWith(dimLessQuery)) {
+        return { matched: true, score: 0.80 };
+      }
+      if (dimLessText.includes(dimLessQuery)) {
+        return { matched: true, score: 0.76 };
+      }
+    }
   }
 
   // 5. Multi-token match. All meaningful words must be present; accepting half
@@ -65,8 +81,16 @@ export function calculateMatchScore(
   if (queryTokens.length > 1) {
     const allTokensMatch = queryTokens.every((token) => {
       const cleanToken = token.replace(SEARCH_PATTERNS.SPACE_AND_SYMBOLS, "");
-      return rawText.includes(token)
-        || (cleanToken.length > 0 && compactText.includes(cleanToken));
+      // Direct token or compact token match
+      if (rawText.includes(token) || (cleanToken.length > 0 && compactText.includes(cleanToken))) {
+        return true;
+      }
+      // If token is a dimension like "70x100", check if decomposed parts "70" and "100" are present
+      const dimParts = token.match(/^(\d+)x(\d+)$/);
+      if (dimParts) {
+        return rawText.includes(dimParts[1]) && rawText.includes(dimParts[2]);
+      }
+      return false;
     });
     if (allTokensMatch) {
       return { matched: true, score: 0.75 };

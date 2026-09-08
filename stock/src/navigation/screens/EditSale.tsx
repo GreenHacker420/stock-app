@@ -22,6 +22,7 @@ import {
   updateEditableSaleItemQuantity,
   updateEditableSaleItemSerials,
 } from "../../features/sales/create/core/edit-sale-items";
+import { filterAndRankItems } from "../../utils/search";
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 
@@ -60,11 +61,8 @@ export function EditSale() {
 
   const allProducts = itemsQuery.data?.items ?? [];
   const filteredProducts = useMemo(() => {
-    if (!productSearch) return [];
-    return allProducts.filter((p: any) =>
-      p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
-      (p.sku && p.sku.toLowerCase().includes(productSearch.toLowerCase()))
-    ).slice(0, 5);
+    if (!productSearch.trim()) return [];
+    return filterAndRankItems(allProducts, productSearch).slice(0, 5);
   }, [productSearch, allProducts]);
 
   const handleAddProduct = (prod: any) => {

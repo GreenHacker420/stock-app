@@ -272,14 +272,23 @@ export const ItemCard = memo(({
       <View style={styles.itemInfo}>
         <HighlightedText style={styles.itemName} text={item.name} query={searchQuery} />
         <View style={styles.itemMeta}>
+          {item.brand?.name || (item as any).brandName ? (
+            <View style={[styles.categoryBadge, styles.brandBadge]}>
+              <Icon source="tag-outline" size={10} color={colors.info} />
+              <HighlightedText
+                style={styles.brandText}
+                text={item.brand?.name || (item as any).brandName}
+                query={searchQuery}
+              />
+            </View>
+          ) : (
+            <View style={[styles.categoryBadge, styles.unbrandedBadge]}>
+              <Text style={styles.unbrandedText}>No Brand</Text>
+            </View>
+          )}
           {item.category && (
             <View style={styles.categoryBadge}>
               <HighlightedText style={styles.categoryText} text={item.category.name} query={searchQuery} />
-            </View>
-          )}
-          {item.brand && (
-            <View style={[styles.categoryBadge, styles.brandBadge]}>
-              <HighlightedText style={styles.brandText} text={item.brand.name} query={searchQuery} />
             </View>
           )}
           {item.sku && (
@@ -411,12 +420,26 @@ const styles = StyleSheet.create({
   },
   brandBadge: {
     backgroundColor: colors.infoLight,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
   },
   brandText: {
     fontSize: 10,
     color: colors.info,
-    fontWeight: fontWeight.semibold,
+    fontWeight: fontWeight.bold,
     lineHeight: 12,
+  },
+  unbrandedBadge: {
+    backgroundColor: colors.surfaceOffset,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  unbrandedText: {
+    fontSize: 9,
+    color: colors.textMuted,
+    fontWeight: fontWeight.medium,
+    lineHeight: 11,
   },
   itemSku: {
     fontSize: 10,

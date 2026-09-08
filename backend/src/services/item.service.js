@@ -283,7 +283,13 @@ async function listItemsFromDb({ shopId, search, categoryId, brandId, page = 1, 
 
   if (normalizedSearch && normalizedSearch.length >= 2) {
     const likePattern = `%${normalizedSearch}%`;
-    const searchTokens = normalizedSearch.toLowerCase().match(/[a-z0-9]+/g)?.slice(0, 8)
+    const dimMatch = normalizedSearch.match(/(\d+)\s*[*xX×]\s*(\d+)/);
+    const starPattern = dimMatch ? `%${dimMatch[1]}*${dimMatch[2]}%` : likePattern;
+    const xPattern = dimMatch ? `%${dimMatch[1]}x${dimMatch[2]}%` : likePattern;
+
+    // Normalize dimension compound tokens ("70x100" -> "70 100") so dimensions match across separators
+    const dimNormalized = normalizedSearch.replace(/(?<=\d)\s*[*xX×]\s*(?=\d)/g, " ");
+    const searchTokens = dimNormalized.toLowerCase().match(/[a-z0-9]+/g)?.slice(0, 8)
       ?? [normalizedSearch.toLowerCase()];
     const lexicalMatch = Prisma.join(
       searchTokens.map((token) => Prisma.sql`
@@ -317,7 +323,7 @@ async function listItemsFromDb({ shopId, search, categoryId, brandId, page = 1, 
           b.id as "brand_id", b.name as "brand_name", b.status as "brand_status",
           b."createdAt" as "brand_createdAt", b."updatedAt" as "brand_updatedAt",
           (CASE WHEN i.sku ILIKE ${likePattern} THEN 0.0 ELSE 1.0 END) * 0.1 +
-          (CASE WHEN i.name ILIKE ${likePattern} THEN 0.0 ELSE 1.0 END) * 0.2 +
+          (CASE WHEN i.name ILIKE ${likePattern} OR i.name ILIKE ${starPattern} OR i.name ILIKE ${xPattern} THEN 0.0 ELSE 1.0 END) * 0.2 +
           COALESCE(i.embedding <=> ${vectorString}::vector, 1.0) as score
         FROM "Item" i
         LEFT JOIN "ItemCategory" c ON i."categoryId" = c.id

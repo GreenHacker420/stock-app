@@ -420,6 +420,8 @@ function StorageManagementHeader({
   viewMode,
   onToggleViewMode,
 }: HeaderProps) {
+  const [isSummaryCollapsed, setIsSummaryCollapsed] = useState(false);
+
   return (
     <View style={styles.headerRoot}>
       <View style={styles.storageSummary}>
@@ -428,13 +430,28 @@ function StorageManagementHeader({
             <Text style={styles.storageEyebrow}>{activeTab === "UNUSED" ? "UNUSED ASSETS" : "ASSET LIBRARY"}</Text>
             <Text style={styles.storageCount}>{activeTab === "UNUSED" ? unusedCount : allCount} files</Text>
           </View>
-          <View style={styles.storageSizePill}>
-            <Icon source="database-outline" size={14} color={colors.primary} />
-            <Text style={styles.storageSizeText}>{formatBytes(totalBytes)}</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: spacing.xs }}>
+            <View style={styles.storageSizePill}>
+              <Icon source="database-outline" size={14} color={colors.primary} />
+              <Text style={styles.storageSizeText}>{formatBytes(totalBytes)}</Text>
+            </View>
+            <Pressable
+              onPress={() => {
+                triggerLightHaptic();
+                setIsSummaryCollapsed((prev) => !prev);
+              }}
+              hitSlop={8}
+              accessibilityRole="button"
+              accessibilityLabel={isSummaryCollapsed ? "Expand storage summary" : "Collapse storage summary"}
+              style={({ pressed }) => [styles.collapseToggle, pressed && { opacity: 0.7 }]}
+            >
+              <Icon source={isSummaryCollapsed ? "chevron-down" : "chevron-up"} size={18} color={colors.textSecondary} />
+            </Pressable>
           </View>
         </View>
 
-        <View style={styles.providerPillRow}>
+        {!isSummaryCollapsed && (
+          <View style={styles.providerPillRow}>
         <Pressable
           style={({ pressed }) => [
             styles.providerPill,
@@ -519,6 +536,7 @@ function StorageManagementHeader({
           </Text>
         </Pressable>
         </View>
+        )}
       </View>
 
       {/* Search */}
@@ -1622,7 +1640,7 @@ export function StorageManagement() {
         keyExtractor={keyExtractor}
         renderItem={renderItem}
         numColumns={numColumns}
-        header={listHeader}
+        ListHeaderComponent={listHeader}
         isLoading={isLoading}
         isRefreshing={isRefetching}
         onRefresh={refetch}
@@ -2354,6 +2372,16 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: radius.full,
     backgroundColor: colors.primaryLight,
+  },
+  collapseToggle: {
+    width: 30,
+    height: 30,
+    borderRadius: radius.full,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: "center",
+    justifyContent: "center",
   },
   storageSizeText: {
     fontSize: fontSize.xs,

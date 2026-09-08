@@ -92,9 +92,14 @@ const ItemRow = memo(
         <View style={styles.rowInfo}>
           <HighlightedText style={styles.rowName} text={item.name} query={searchQuery} numberOfLines={2} />
           <View style={styles.rowMeta}>
-            {item.brand?.name && (
+            {item.brand?.name ? (
               <View style={styles.brandTag}>
+                <Icon source="tag-outline" size={10} color="#1d4ed8" />
                 <HighlightedText style={styles.brandTagText} text={item.brand.name} query={searchQuery} />
+              </View>
+            ) : (
+              <View style={styles.unbrandedTag}>
+                <Text style={styles.unbrandedTagText}>No Brand</Text>
               </View>
             )}
             {item.category?.name && (
@@ -646,6 +651,9 @@ const styles = StyleSheet.create({
   },
   brandTag: {
     backgroundColor: '#eff6ff',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
     borderRadius: radius.sm,
     paddingHorizontal: 5,
     paddingVertical: 1,
@@ -654,6 +662,19 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: fontWeight.bold,
     color: '#1d4ed8',
+  },
+  unbrandedTag: {
+    backgroundColor: colors.surfaceOffset,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+  },
+  unbrandedTagText: {
+    fontSize: 9,
+    fontWeight: fontWeight.medium,
+    color: colors.textMuted,
   },
   stockTag: {
     flexDirection: "row",

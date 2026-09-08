@@ -12,6 +12,7 @@ import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../the
 import { useShopsQuery, useCopyCatalogMutation } from "../../hooks/useShops";
 import { goBack } from "../navigation-ref";
 import { Shop, fetchCategories, fetchItems, Item } from "../../api/client";
+import { filterAndRankItems } from "../../utils/search";
 import { useAuthStore } from "../../auth/auth-store";
 
 export function CopyCatalog() {
@@ -72,10 +73,7 @@ export function CopyCatalog() {
 
   const filteredSourceItems = useMemo(() => {
     if (!itemSearch.trim()) return sourceItems;
-    return sourceItems.filter(item => 
-      item.name.toLowerCase().includes(itemSearch.toLowerCase()) ||
-      (item.sku && item.sku.toLowerCase().includes(itemSearch.toLowerCase()))
-    );
+    return filterAndRankItems(sourceItems, itemSearch);
   }, [sourceItems, itemSearch]);
 
   const handleCopy = () => {

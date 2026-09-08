@@ -38,6 +38,7 @@ import { colors as Colors, spacing, radius, fontSize, fontWeight } from "../../.
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Screen } from "../../../components/Screen";
 import { mmkvStorage } from "../../../auth/mmkv-storage";
+import { filterAndRankCustomers } from "../../../utils/search";
 import { useQueryClient, useMutation } from "@tanstack/react-query";
 import { useSelectionStore } from "../store/contactSelection.store";
 import {
@@ -549,14 +550,8 @@ export const ContactBookScreen = () => {
   };
 
   const filteredCustomersForLink = useMemo(() => {
-    const cleanSearch = customerSearch.trim().toLowerCase();
-    const list = customers.filter(
-      (cust) =>
-        cust.name.toLowerCase().includes(cleanSearch) ||
-        (cust.gstin && cust.gstin.toLowerCase().includes(cleanSearch)) ||
-        (cust.phone && cust.phone.includes(cleanSearch))
-    );
-    return [...list].sort((a, b) => (!a.phone ? 1 : 0) - (!b.phone ? 1 : 0));
+    if (!customerSearch.trim()) return customers;
+    return filterAndRankCustomers(customers, customerSearch);
   }, [customers, customerSearch]);
 
   const visibleCustomers = useMemo(() => {
