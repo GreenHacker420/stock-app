@@ -11,7 +11,7 @@ import {
   bestEffortInvalidateForDomainEvent,
   readThroughDomainCache,
 } from "../cache/domain-read-cache.js";
-import { DIMENSION_PATTERNS, SEARCH_PATTERNS } from "../utils/regex.ts";
+import { DIMENSION_PATTERNS, SEARCH_PATTERNS } from "../utils/regex";
 
 // ---------------------------------------------------------------------------
 // Permission helpers
@@ -134,11 +134,11 @@ function formatBundleComponents(components = []) {
     quantity: Number(component.quantity),
     componentItem: component.componentItem
       ? {
-          id: component.componentItem.id,
-          name: component.componentItem.name,
-          sku: component.componentItem.sku,
-          unit: component.componentItem.unit,
-        }
+        id: component.componentItem.id,
+        name: component.componentItem.name,
+        sku: component.componentItem.sku,
+        unit: component.componentItem.unit,
+      }
       : undefined,
   }));
 }
@@ -388,21 +388,21 @@ async function listItemsFromDb({ shopId, search, categoryId, brandId, page = 1, 
         minimumStock: Number(item.minimumStock),
         category: category_id
           ? {
-              id: category_id,
-              name: category_name,
-              status: category_status,
-              createdAt: category_createdAt,
-              updatedAt: category_updatedAt,
-            }
+            id: category_id,
+            name: category_name,
+            status: category_status,
+            createdAt: category_createdAt,
+            updatedAt: category_updatedAt,
+          }
           : null,
         brand: brand_id
           ? {
-              id: brand_id,
-              name: brand_name,
-              status: brand_status,
-              createdAt: brand_createdAt,
-              updatedAt: brand_updatedAt,
-            }
+            id: brand_id,
+            name: brand_name,
+            status: brand_status,
+            createdAt: brand_createdAt,
+            updatedAt: brand_updatedAt,
+          }
           : null,
       };
     });
