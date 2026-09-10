@@ -10,9 +10,20 @@ import {
 import { getDocumentAsync } from "expo-document-picker";
 import { File, UploadType } from "expo-file-system";
 import { digest, CryptoDigestAlgorithm } from "expo-crypto";
-import mime from "mime-types";
 import { createUploadIntent, completeAssetUpload } from "../../api/ledger.api";
 import { colors, spacing, radius, fontSize } from "../../theme";
+
+const MIME_BY_EXTENSION: Record<string, string> = {
+  jpg: "image/jpeg",
+  jpeg: "image/jpeg",
+  png: "image/png",
+  gif: "image/gif",
+  webp: "image/webp",
+  heic: "image/heic",
+  heif: "image/heif",
+  bmp: "image/bmp",
+  pdf: "application/pdf",
+};
 
 export interface UploadedAttachment {
   assetId: string;
@@ -54,12 +65,14 @@ async function resolveFileMetadata(uri: string, fallbackSize?: number | null) {
 }
 
 function resolveMimeType(fileName: string, providedMime?: string) {
-  const lookedUp = mime.lookup(fileName);
-  if (lookedUp) return lookedUp;
-  if (providedMime && providedMime !== "application/octet-stream" && providedMime !== "*/*") {
-    return providedMime;
+  const normalizedProvided = providedMime?.split(";", 1)[0]?.trim().toLowerCase();
+  if (normalizedProvided && normalizedProvided !== "application/octet-stream" && normalizedProvided !== "*/*") {
+    return normalizedProvided;
   }
-  return "application/octet-stream";
+
+  const cleanName = fileName.split(/[?#]/, 1)[0];
+  const extension = cleanName.includes(".") ? cleanName.split(".").pop()?.toLowerCase() : undefined;
+  return (extension && MIME_BY_EXTENSION[extension]) || "application/octet-stream";
 }
 
 function assetKindForFile(fileName: string, providedMime?: string) {

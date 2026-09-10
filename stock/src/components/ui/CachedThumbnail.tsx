@@ -1,9 +1,11 @@
+import { useEffect, useState } from "react";
 import { StyleSheet, View, StyleProp, ViewStyle } from "react-native";
 import { Image } from "expo-image";
 import { Icon, Text } from "react-native-paper";
 
 import { fontSize, fontWeight } from "../../theme";
 import { API_BASE_URL } from "../../api/client";
+import { useAuthStore } from "../../auth/auth-store";
 
 type CachedThumbnailProps = {
   uri?: string | null;
@@ -14,22 +16,32 @@ type CachedThumbnailProps = {
 };
 
 export function CachedThumbnail({ uri, fallbackText, fallbackIcon, color, style }: CachedThumbnailProps) {
+  const token = useAuthStore((state) => state.token);
+  const [failed, setFailed] = useState(false);
   const resolvedUri = uri
     ? uri.startsWith("http://") || uri.startsWith("https://") || uri.startsWith("file://") || uri.startsWith("data:")
       ? uri
       : `${API_BASE_URL.replace(/\/+$/, "")}${uri.startsWith("/") ? "" : "/"}${uri}`
     : null;
 
+  useEffect(() => setFailed(false), [resolvedUri]);
+
   return (
     <View style={[styles.container, { backgroundColor: color + "22" }, style]}>
-      {resolvedUri ? (
+      {resolvedUri && !failed ? (
         <Image
-          source={{ uri: resolvedUri }}
+          source={{
+            uri: resolvedUri,
+            headers: token && resolvedUri.startsWith(API_BASE_URL) && resolvedUri.includes("/thumbnail?")
+              ? { Authorization: `Bearer ${token}` }
+              : undefined,
+          }}
           style={StyleSheet.absoluteFill}
           contentFit="cover"
           cachePolicy="memory-disk"
           transition={120}
           recyclingKey={resolvedUri}
+          onError={() => setFailed(true)}
         />
       ) : fallbackIcon ? (
         <Icon source={fallbackIcon} size={28} color={color} />

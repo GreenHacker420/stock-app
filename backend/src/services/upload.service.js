@@ -13,6 +13,7 @@ import {
 } from "../lib/storage-manager.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
+import { buildAssetMediaPath } from "../lib/asset-url.js";
 
 export const PRODUCT_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 
@@ -95,7 +96,7 @@ function isPersistableRemoteUrl(domain, stored) {
 export function isPublicAsset(asset) {
   return Boolean(
     asset &&
-    asset.domain === "PRODUCT" &&
+    (asset.domain === "PRODUCT" || asset.itemAssets?.length > 0) &&
     asset.kind === "IMAGE" &&
     asset.status === "READY" &&
     !asset.deletedAt
@@ -265,12 +266,7 @@ export async function uploadProductImageAsset({
       },
     });
 
-    const url = remoteUrl || await getObjectThumbnailUrl({
-      key: updated.storageKey,
-      provider: updated.storageProvider,
-      externalId: updated.externalId,
-      size: "large",
-    });
+    const url = remoteUrl || buildAssetMediaPath(updated.id);
 
     return {
       assetId: updated.id,
@@ -529,7 +525,10 @@ export async function requestAssetDeletion(user, { assetId, shopId, reason }) {
 }
 
 export async function streamAssetFile(assetId, res) {
-  const asset = await prisma.asset.findUnique({ where: { id: assetId } });
+  const asset = await prisma.asset.findUnique({
+    where: { id: assetId },
+    include: { itemAssets: { select: { id: true }, take: 1 } },
+  });
   if (!isPublicAsset(asset) || !asset.storageKey || !asset.storageProvider) {
     return res.status(404).json({ success: false, message: "Asset not found" });
   }
@@ -557,5 +556,46 @@ export async function streamAssetFile(assetId, res) {
     throw new ApiError(500, "Failed to generate asset URL");
   }
 
+  return res.redirect(302, delivery.url);
+}
+
+export async function streamAssetThumbnail(user, { assetId, shopId }, res) {
+  await assertShopAccess(user, shopId);
+  const asset = await prisma.asset.findFirst({
+    where: {
+      id: assetId,
+      shopId,
+      status: "READY",
+      deletedAt: null,
+      storageDeletedAt: null,
+    },
+  });
+  if (!asset) throw new ApiError(404, "Asset not found");
+  if (asset.kind !== "IMAGE" && !asset.mimeType?.startsWith("image/")) {
+    throw new ApiError(400, "Asset does not have an image thumbnail");
+  }
+  if (!asset.storageKey || !asset.storageProvider) {
+    throw new ApiError(400, "Asset has no storage object");
+  }
+
+  res.setHeader("Cache-Control", "private, max-age=300");
+  if (asset.storageProvider === "ONEDRIVE") {
+    const thumbnailUrl = await getObjectThumbnailUrl({
+      key: asset.storageKey,
+      provider: asset.storageProvider,
+      externalId: asset.externalId,
+      size: "large",
+    });
+    if (thumbnailUrl) return res.redirect(302, thumbnailUrl);
+  }
+
+  const delivery = await getObjectDownloadUrl({
+    key: asset.storageKey,
+    bucket: asset.storageBucket,
+    provider: asset.storageProvider,
+    externalId: asset.externalId,
+    expiresInSeconds: DOWNLOAD_URL_TTL_SECONDS,
+  });
+  if (!delivery?.url) throw new ApiError(500, "Failed to generate thumbnail URL");
   return res.redirect(302, delivery.url);
 }

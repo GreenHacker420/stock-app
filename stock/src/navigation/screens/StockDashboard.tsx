@@ -265,16 +265,14 @@ export function StockDashboard() {
           )}
         </View>
 
-        {/* Owner-only: Add Product */}
-        {isOwner && (
-          <Pressable
-            onPress={() => navigate("AddEditItem")}
-            style={styles.addProductBtn}
-            accessibilityLabel="Add new product"
-          >
-            <Icon source="cube-outline" size={20} color={colors.primary} />
-          </Pressable>
-        )}
+        <Pressable
+          onPress={() => navigate("AddEditItem")}
+          style={styles.addProductBtn}
+          accessibilityRole="button"
+          accessibilityLabel={isOwner ? "Add new product" : "Request new product"}
+        >
+          <Icon source="cube-outline" size={20} color={colors.primary} />
+        </Pressable>
       </View>
 
       {/* ── List ────────────────────────────────────────────────────────── */}
@@ -295,6 +293,13 @@ export function StockDashboard() {
                 icon={activeTab === "out" ? "close-circle-outline" : activeTab === "low" ? "alert-outline" : "warehouse"}
                 title={q ? "No matching items" : activeTab === "out" ? "No out-of-stock items" : activeTab === "low" ? "No low-stock items" : "No stock records"}
                 subtitle={q ? `No results for "${search}"` : "Stock records appear once products are created."}
+                action={!q && activeTab === "all" ? (
+                  <Button
+                    label={isOwner ? "Add Product" : "Request Product"}
+                    icon="package-variant-plus"
+                    onPress={() => navigate("AddEditItem")}
+                  />
+                ) : undefined}
               />
             }
           />

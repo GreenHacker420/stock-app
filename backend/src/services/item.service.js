@@ -14,6 +14,7 @@ import {
   readThroughDomainCache,
 } from "../cache/domain-read-cache.js";
 import { DIMENSION_PATTERNS, SEARCH_PATTERNS } from "../utils/regex.ts";
+import { extractAssetIdsFromImageUrl } from "../lib/asset-url.js";
 
 // ---------------------------------------------------------------------------
 // Permission helpers
@@ -719,8 +720,47 @@ async function prepareItemCreation(data, db = prisma) {
   return { itemData, openingStock, bundleComponents };
 }
 
+async function syncItemImageAssets(tx, item) {
+  const assetIds = extractAssetIdsFromImageUrl(item.imageUrl);
+  await tx.itemAsset.deleteMany({
+    where: {
+      itemId: item.id,
+      purpose: { in: ["PRIMARY_IMAGE", "GALLERY_IMAGE"] },
+    },
+  });
+  if (assetIds.length === 0) return;
+
+  const assets = await tx.asset.findMany({
+    where: {
+      id: { in: assetIds },
+      shopId: item.shopId,
+      kind: "IMAGE",
+      status: "READY",
+      deletedAt: null,
+    },
+    select: { id: true },
+  });
+  if (assets.length !== assetIds.length) {
+    throw new ApiError(400, "One or more product image assets are invalid or belong to another shop");
+  }
+
+  await tx.itemAsset.createMany({
+    data: assetIds.map((assetId, index) => ({
+      shopId: item.shopId,
+      itemId: item.id,
+      assetId,
+      purpose: index === 0 ? "PRIMARY_IMAGE" : "GALLERY_IMAGE",
+      sortOrder: index,
+    })),
+    skipDuplicates: true,
+  });
+}
+
 async function createItemRecord(tx, { itemData, openingStock, bundleComponents, embedding, requestedBy, approvedById }) {
   const item = await tx.item.create({ data: itemData });
+  if (extractAssetIdsFromImageUrl(item.imageUrl).length > 0) {
+    await syncItemImageAssets(tx, item);
+  }
   await replaceBundleComponents(tx, item.id, bundleComponents);
 
   if (embedding) {
@@ -1043,6 +1083,7 @@ export async function updateItem(user, id, data) {
   const result = await prisma.$transaction(async (tx) => {
     const bundleComponents = await normalizeBundleComponents(tx, existing.shopId, requestedBundleComponents, id);
     const item = await tx.item.update({ where: { id }, data: itemData });
+    if (itemData.imageUrl !== undefined) await syncItemImageAssets(tx, item);
     await replaceBundleComponents(tx, id, bundleComponents);
 
     if (embedding) {

@@ -3,7 +3,7 @@ import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { ApiError } from "../utils/ApiError.js";
 import { deleteS3Object } from "../lib/s3-storage.js";
 import { deleteOneDriveObject } from "../lib/onedrive-storage.js";
-import { getObjectPublicUrl } from "../lib/storage-manager.js";
+import { buildAssetMediaPath, buildAssetThumbnailPath, extractAssetIdFromUrl } from "../lib/asset-url.js";
 
 function dayRange(date = new Date()) {
   const start = new Date(date);
@@ -296,6 +296,7 @@ export async function listStorageObjects(user, { shopId, filter, cursor, limit, 
 
   // Build referenced keys set and itemReferenceMap
   const referencedKeys = new Set();
+  const referencedAssetIds = new Set();
   const itemReferenceMap = new Map();
   const itemAssetMap = new Map();
   const itemMap = new Map();
@@ -318,6 +319,8 @@ export async function listStorageObjects(user, { shopId, filter, cursor, limit, 
     if (it.imageUrl) {
       it.imageUrl.split(",").forEach((url) => {
         const trimmed = url.trim();
+        const referencedAssetId = extractAssetIdFromUrl(trimmed);
+        if (referencedAssetId) referencedAssetIds.add(referencedAssetId);
         itemReferenceMap.set(trimmed, meta);
         if (trimmed.includes(".amazonaws.com/")) {
           const key = trimmed.split(".amazonaws.com/")[1];
@@ -347,7 +350,7 @@ export async function listStorageObjects(user, { shopId, filter, cursor, limit, 
         mrp: it.mrp != null ? String(it.mrp) : null,
       };
       itemAssetMap.set(ia.assetId, meta);
-      referencedKeys.add(ia.assetId);
+      referencedAssetIds.add(ia.assetId);
     }
   });
 
@@ -454,11 +457,25 @@ export async function listStorageObjects(user, { shopId, filter, cursor, limit, 
     }
   }
 
-  // Unused/Orphaned filter
+  // Keep a usage-free copy for the All/Unused counters.
+  const countWhere = {
+    ...assetWhere,
+    ...(assetWhere.AND ? { AND: [...assetWhere.AND] } : {}),
+    ...(assetWhere.OR ? { OR: [...assetWhere.OR] } : {}),
+    ...(assetWhere.storageKey ? { storageKey: { ...assetWhere.storageKey } } : {}),
+  };
+
+  // Unused means no live reference in any supported product, WhatsApp, or
+  // financial-ledger relationship. Legacy product URLs are also respected.
   if (filter === "ORPHANED" || filter === "UNUSED") {
     assetWhere.waMessages = { none: {} };
     assetWhere.ledgerAttachments = { none: {} };
-    assetWhere.storageKey = { notIn: Array.from(referencedKeys) };
+    assetWhere.itemAssets = { none: {} };
+    assetWhere.id = { notIn: Array.from(referencedAssetIds) };
+    assetWhere.storageKey = {
+      ...(assetWhere.storageKey || {}),
+      notIn: Array.from(referencedKeys),
+    };
   }
 
   // Sort order mapping
@@ -476,7 +493,7 @@ export async function listStorageObjects(user, { shopId, filter, cursor, limit, 
     where: assetWhere,
     include: {
       _count: {
-        select: { waMessages: true, ledgerAttachments: true },
+        select: { waMessages: true, ledgerAttachments: true, itemAssets: true },
       },
     },
     orderBy,
@@ -488,7 +505,7 @@ export async function listStorageObjects(user, { shopId, filter, cursor, limit, 
   const batch = hasMore ? rawAssets.slice(0, targetLimit) : rawAssets;
   const nextCursor = batch.length > 0 ? batch[batch.length - 1].id : null;
 
-  const assets = await Promise.all(batch.map(async (a) => {
+  const assets = batch.map((a) => {
     let meta = itemAssetMap.get(a.id) || (a.storageKey ? itemReferenceMap.get(a.storageKey) : null);
     if (!meta && a.remoteUrl) meta = itemReferenceMap.get(a.remoteUrl);
     if (!meta) meta = itemReferenceMap.get(a.id);
@@ -510,19 +527,12 @@ export async function listStorageObjects(user, { shopId, filter, cursor, limit, 
       }
     }
 
-    let url = a.remoteUrl;
-    if (a.storageProvider === "ONEDRIVE" || !url) {
-      try {
-        url = await getObjectPublicUrl({
-          key: a.storageKey,
-          provider: a.storageProvider,
-          externalId: a.externalId,
-          fallbackUrl: `/assets/media/${a.id}`,
-        });
-      } catch (_) {
-        url = `/assets/media/${a.id}`;
-      }
-    }
+    const isImage = a.kind === "IMAGE" || a.mimeType?.startsWith("image/");
+    const url = isImage
+      ? (a.domain === "PRODUCT" || a._count.itemAssets > 0
+        ? buildAssetMediaPath(a.id)
+        : buildAssetThumbnailPath(a.id, shopId))
+      : null;
     return {
       id: a.id,
       fileName: a.fileName || (a.storageKey ? a.storageKey.split("/").pop() : "Unnamed File"),
@@ -546,34 +556,34 @@ export async function listStorageObjects(user, { shopId, filter, cursor, limit, 
       minPrice: meta?.minPrice || null,
       mrp: meta?.mrp || null,
     };
-  }));
+  });
 
   // Calculate filtered stats/counts for correct tab headings
-  const countWhere = { ...assetWhere };
-  delete countWhere.waMessages;
-  delete countWhere.ledgerAttachments;
-  if (countWhere.storageKey && countWhere.storageKey.notIn) {
-    delete countWhere.storageKey;
-  }
-  const totalAllCount = await prisma.asset.count({ where: countWhere });
-
   const orphanCountWhere = {
     ...countWhere,
     waMessages: { none: {} },
     ledgerAttachments: { none: {} },
-    storageKey: { notIn: Array.from(referencedKeys) },
+    itemAssets: { none: {} },
+    id: { notIn: Array.from(referencedAssetIds) },
+    storageKey: {
+      ...(countWhere.storageKey || {}),
+      notIn: Array.from(referencedKeys),
+    },
   };
-  const totalOrphanedCount = await prisma.asset.count({ where: orphanCountWhere });
-  const totalOrphanedBytesAggregate = await prisma.asset.aggregate({
-    where: orphanCountWhere,
-    _sum: { sizeBytes: true }
-  });
+  const [
+    totalAllCount,
+    totalOrphanedCount,
+    totalOrphanedBytesAggregate,
+    totalCount,
+    totalBytesAggregate,
+  ] = await Promise.all([
+    prisma.asset.count({ where: countWhere }),
+    prisma.asset.count({ where: orphanCountWhere }),
+    prisma.asset.aggregate({ where: orphanCountWhere, _sum: { sizeBytes: true } }),
+    prisma.asset.count({ where: assetWhere }),
+    prisma.asset.aggregate({ where: assetWhere, _sum: { sizeBytes: true } }),
+  ]);
   const totalOrphanedBytes = Number(totalOrphanedBytesAggregate._sum.sizeBytes || 0);
-  const totalCount = await prisma.asset.count({ where: assetWhere });
-  const totalBytesAggregate = await prisma.asset.aggregate({
-    where: assetWhere,
-    _sum: { sizeBytes: true }
-  });
   const totalBytes = Number(totalBytesAggregate._sum.sizeBytes || 0);
 
   return {
@@ -593,7 +603,11 @@ export async function listStorageObjects(user, { shopId, filter, cursor, limit, 
 export async function deleteStorageObject(user, id) {
   const asset = await prisma.asset.findUnique({
     where: { id },
-    include: { _count: { select: { ledgerAttachments: true } } },
+    include: {
+      _count: {
+        select: { ledgerAttachments: true, waMessages: true, itemAssets: true },
+      },
+    },
   });
   if (!asset) {
     throw new ApiError(404, "Asset not found");
@@ -605,6 +619,9 @@ export async function deleteStorageObject(user, id) {
   }
   if (asset._count.ledgerAttachments > 0) {
     throw new ApiError(409, "This file is financial ledger evidence and cannot be deleted");
+  }
+  if (asset._count.itemAssets > 0 || asset._count.waMessages > 0) {
+    throw new ApiError(409, "This file is still in use and cannot be deleted");
   }
 
   // Delete from storage provider (OneDrive or S3)
@@ -637,7 +654,7 @@ export async function bulkDeleteOrphanedAssets(user, { shopId }) {
     },
     include: {
       _count: {
-        select: { waMessages: true, ledgerAttachments: true },
+        select: { waMessages: true, ledgerAttachments: true, itemAssets: true },
       },
     },
   });
@@ -648,10 +665,13 @@ export async function bulkDeleteOrphanedAssets(user, { shopId }) {
   });
 
   const referencedKeys = new Set();
+  const referencedAssetIds = new Set();
   activeItems.forEach((it) => {
     if (it.imageUrl) {
       it.imageUrl.split(",").forEach((url) => {
         const trimmed = url.trim();
+        const referencedAssetId = extractAssetIdFromUrl(trimmed);
+        if (referencedAssetId) referencedAssetIds.add(referencedAssetId);
         if (trimmed.includes(".amazonaws.com/")) {
           const key = trimmed.split(".amazonaws.com/")[1];
           if (key) referencedKeys.add(key);
@@ -664,9 +684,11 @@ export async function bulkDeleteOrphanedAssets(user, { shopId }) {
 
   const orphans = assets.filter((a) => {
     if (!a.storageKey) return false;
-    return !referencedKeys.has(a.storageKey)
+    return !referencedAssetIds.has(a.id)
+      && !referencedKeys.has(a.storageKey)
       && a._count.waMessages === 0
-      && a._count.ledgerAttachments === 0;
+      && a._count.ledgerAttachments === 0
+      && a._count.itemAssets === 0;
   });
 
   let deletedCount = 0;

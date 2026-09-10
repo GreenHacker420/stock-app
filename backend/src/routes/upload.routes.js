@@ -10,6 +10,7 @@ import {
   requestAssetDeletion,
   uploadDirectAsset,
   streamAssetFile,
+  streamAssetThumbnail,
 } from "../services/upload.service.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 
@@ -64,6 +65,17 @@ const downloadSchema = z.object({
     shopId: z.string().min(1),
   }),
 });
+
+router.get(
+  "/:id/thumbnail",
+  validate(downloadSchema),
+  asyncHandler(async (req, res) => {
+    await streamAssetThumbnail(req.user, {
+      assetId: req.params.id,
+      shopId: req.validated.query.shopId,
+    }, res);
+  }),
+);
 
 const deleteRequestSchema = z.object({
   body: z.object({

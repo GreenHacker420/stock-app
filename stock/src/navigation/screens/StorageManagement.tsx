@@ -49,7 +49,7 @@ import { invalidateAssetCache } from "../../hooks/useAssetCache";
 import { useShopStore } from "../../auth/shop-store";
 import { useAuthStore } from "../../auth/auth-store";
 import { mmkvStorage } from "../../auth/mmkv-storage";
-import type { StorageObject } from "../../api/client";
+import { API_BASE_URL, type StorageObject } from "../../api/client";
 import { getAssetDownloadUrl } from "../../api/ledger.api";
 import { navigate } from "../navigation-ref";
 
@@ -1267,17 +1267,12 @@ export function StorageManagement() {
   }, [activeShopId, filtered, selectedIds]);
 
   const handleBulkDelete = useCallback(() => {
-    const deletable = filtered.filter((f) => selectedIds.has(f.id) && getUsageStatus(f) !== "LEDGER");
+    const deletable = filtered.filter((f) => selectedIds.has(f.id) && getUsageStatus(f) === "UNUSED");
     if (deletable.length === 0) return;
-
-    const linkedCount = deletable.filter((f) => getUsageStatus(f) !== "UNUSED").length;
-    const warningMsg = linkedCount > 0
-      ? ` (Includes ${linkedCount} file${linkedCount !== 1 ? "s" : ""} linked to products/messages)`
-      : "";
 
     Alert.alert(
       "Delete selected",
-      `Permanently delete ${deletable.length} selected file${deletable.length !== 1 ? "s" : ""}?${warningMsg} This cannot be undone.`,
+      `Permanently delete ${deletable.length} unused file${deletable.length !== 1 ? "s" : ""}? This cannot be undone.`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -1615,7 +1610,9 @@ export function StorageManagement() {
         onShare={handleBulkShare}
         onDelete={handleBulkDelete}
         onCancel={handleCancelSelection}
-        canDelete={isOwner && selectedIds.size > 0}
+        canDelete={isOwner && selectedIds.size > 0 && filtered
+          .filter((file) => selectedIds.has(file.id))
+          .every((file) => getUsageStatus(file) === "UNUSED")}
         isBusy={isBusy}
       />
     </Animated.View>
@@ -1793,7 +1790,7 @@ function InfoSheet({
   onClose: (action?: "open" | "share" | "delete" | "edit" | "assign") => void;
 }) {
   const status = getUsageStatus(file);
-  const canDelete = isOwner && status !== "LEDGER";
+  const canDelete = isOwner && status === "UNUSED";
 
   const statusLabel =
     status === "PRODUCT"
@@ -2025,12 +2022,13 @@ function ProductAssignModal({
   const products = data?.items || [];
   const updateItemMutation = useUpdateItemMutation();
   const sheetRef = useRef<BottomSheetRef>(null);
+  const productAssetUrl = `${API_BASE_URL.replace(/\/+$/, "")}/assets/media/${encodeURIComponent(file.id)}`;
 
   const handleAssign = (item: any) => {
     triggerMediumHaptic();
 
     const existingUrls = item.imageUrl ? item.imageUrl.split(",").filter(Boolean) : [];
-    const isAlreadyAssigned = existingUrls.includes(file.url);
+    const isAlreadyAssigned = existingUrls.includes(productAssetUrl);
 
     if (isAlreadyAssigned) {
       Alert.alert("Already assigned", `This image is already linked to ${item.name}.`);
@@ -2043,7 +2041,7 @@ function ProductAssignModal({
       text: existingUrls.length > 0 ? "Add as Additional" : "Assign Image",
       onPress: async () => {
         try {
-          const nextUrls = [...existingUrls, file.url];
+          const nextUrls = [...existingUrls, productAssetUrl];
           await updateItemMutation.mutateAsync({
             id: item.id,
             data: {
@@ -2070,7 +2068,7 @@ function ProductAssignModal({
             await updateItemMutation.mutateAsync({
               id: item.id,
               data: {
-                imageUrl: file.url,
+                imageUrl: productAssetUrl,
               },
             });
             triggerSuccessHaptic();

@@ -67,6 +67,14 @@ export function StaffWork() {
             />
 
             <ActionTile
+              title="Request product"
+              subtitle="Submit a new catalogue item for owner approval."
+              icon="package-variant-plus"
+              tone="green"
+              onPress={() => navigate("AddEditItem")}
+            />
+
+            <ActionTile
               title="Log expense"
               subtitle="Log daily outgoings (tea, freight, porter, misc)."
               icon="cash-minus"

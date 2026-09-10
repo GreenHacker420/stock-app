@@ -31,15 +31,18 @@ import { Button } from "../../components/ui/Button";
 import { navigate, goBack } from "../navigation-ref";
 import { useNetworkStatus } from "../../hooks/useNetworkStatus";
 import { requireActiveShopId } from "../../hooks/useActiveShop";
-import { useCustomersQuery, useCreateCustomerMutation, useUpdateCustomerMutation } from "../../hooks/useCustomers";
+import { useCustomersQuery, useCreateCustomerMutation, useDeleteCustomerMutation, useUpdateCustomerMutation } from "../../hooks/useCustomers";
 import { AppKeyboardAvoidingView } from "../../components/ui/AppKeyboardAvoidingView";
 import { KeyboardAwareScreen } from "../../components/keyboard/KeyboardAwareScreen";
+import { triggerSuccessHaptic } from "../../utils/haptics";
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 const internetRequiredMessage = "Internet connection required. Please connect to the internet to complete this action.";
 
 export function CustomerList() {
   const network = useNetworkStatus();
+  const user = useAuthStore((state) => state.user);
+  const deleteCustomerMutation = useDeleteCustomerMutation();
   
   const [search, setSearch] = useState("");
   const [debouncedSearch] = useDebounce(search, 300);
@@ -54,6 +57,33 @@ export function CustomerList() {
   const filteredData = useMemo(() => {
     return customersQuery.data ?? [];
   }, [customersQuery.data]);
+
+  const confirmDeleteCustomer = (customer: Customer) => {
+    if (network.isOffline) {
+      Alert.alert("Internet required", internetRequiredMessage);
+      return;
+    }
+
+    Alert.alert(
+      "Remove customer?",
+      `${customer.name} will be removed from the active customer list. Existing sales, payments, and ledger history will be preserved.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: () => {
+            deleteCustomerMutation.mutate(customer.id, {
+              onSuccess: () => triggerSuccessHaptic(),
+              onError: (error: Error) => {
+                Alert.alert("Could not remove customer", error.message || "Please try again.");
+              },
+            });
+          },
+        },
+      ],
+    );
+  };
 
   return (
     <Screen edges={['top', 'left', 'right']}>
@@ -70,14 +100,12 @@ export function CustomerList() {
         </View>
 
         <View style={styles.listWrapper}>
-          {(() => {
-            const List = FlashList as any;
-            return (
-              <List
+              <FlashList
                 data={filteredData}
-                keyExtractor={(item: any) => item.id}
-                renderItem={({ item }: any) => {
+                keyExtractor={(item: Customer) => item.id}
+                renderItem={({ item }: { item: Customer }) => {
                   const isPending = Math.abs(Number(item.outstandingAmount ?? 0)) > 0;
+                  const canDelete = user?.role === "OWNER" && item.type !== "WALK_IN";
                   return (
                     <CustomerCard
                       name={item.name}
@@ -87,6 +115,8 @@ export function CustomerList() {
                       outstandingLabel={`Outstanding: ${money(Math.abs(Number(item.outstandingAmount)))}`}
                       limitLabel={`Limit: ${money(item.creditLimit)}`}
                       onPress={() => navigate("CustomerDetail", { customerId: item.id })}
+                      onDelete={canDelete ? () => confirmDeleteCustomer(item) : undefined}
+                      deleting={deleteCustomerMutation.isPending && deleteCustomerMutation.variables === item.id}
                     />
                   );
                 }}
@@ -103,8 +133,6 @@ export function CustomerList() {
                 }
                 contentContainerStyle={styles.listContent}
               />
-            );
-          })()}
         </View>
 
         <Pressable 

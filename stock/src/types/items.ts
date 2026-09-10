@@ -1,4 +1,4 @@
-import type { Item } from "../api/client";
+import type { Item, StockMovement } from "../api/client";
 
 export type AddEditItemRouteParams = {
   itemId?: string;
@@ -18,18 +18,7 @@ export type ItemStockResponse = {
   availableStock: number;
 };
 
-export type StockMovementEntry = {
-  id: string;
-  quantityIn: string | number;
-  quantityOut: string | number;
-  movementType: string;
-  createdAt: string;
-  referenceType?: string | null;
-  referenceId?: string | null;
-  reason?: string | null;
-  createdBy?: { id: string; name: string; role: string } | null;
-  approvedBy?: { id: string; name: string } | null;
-};
+export type StockMovementEntry = StockMovement;
 
 export type PriceChangeHistoryEntry = {
   id: string;

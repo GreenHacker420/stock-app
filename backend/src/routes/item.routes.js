@@ -72,6 +72,11 @@ const updateBrandSchema = z.object({
   query: z.object({}).optional(),
 });
 
+const imageUrlSchema = z.string().refine((value) => value.split(",").every((part) => {
+  const candidate = part.trim();
+  return z.url().safeParse(candidate).success || /^\/(?:api\/)?assets\/media\/[^/?#]+$/.test(candidate);
+}), "Each product image must be a URL or an internal asset URL");
+
 const createItemSchema = z.object({
   body: z.object({
     shopId: z.string().min(1),
@@ -85,7 +90,7 @@ const createItemSchema = z.object({
     purchasePrice: z.coerce.number().nonnegative().nullable().optional(),
     mrp: z.coerce.number().nonnegative().nullable().optional(),
     minimumStock: z.coerce.number().nonnegative().optional(),
-    imageUrl: z.url().nullable().optional(),
+    imageUrl: imageUrlSchema.nullable().optional(),
     initialStock: z.coerce.number().optional(),
     requiresSerialNumber: z.boolean().optional(),
     bundleComponents: z.array(z.object({

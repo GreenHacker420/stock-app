@@ -52,6 +52,14 @@ test("public asset route is restricted to ready product images", () => {
   assert.ok(!src.includes("getPublicS3ObjectUrl"));
 });
 
+test("storage cleanup treats product links as live references", () => {
+  const dashboard = read("services/dashboard.service.js");
+  assert.ok(dashboard.includes("itemAssets: { none: {} }"));
+  assert.ok(dashboard.includes("a._count.itemAssets === 0"));
+  assert.ok(dashboard.includes("buildAssetThumbnailPath(a.id, shopId)"));
+  assert.ok(!dashboard.includes("await Promise.all(batch.map(async (a)"));
+});
+
 test("upload intents propagate the checksum to the storage provider", () => {
   const service = read("services/upload.service.js");
   const manager = read("lib/storage-manager.js");

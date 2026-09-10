@@ -855,7 +855,13 @@ export function uploadItemImage(
       try {
         const payload = JSON.parse(request.responseText);
         if (request.status >= 200 && request.status < 300 && payload.success) {
-          resolve(payload.data);
+          const upload = payload.data;
+          resolve({
+            ...upload,
+            url: upload.url?.startsWith("/")
+              ? `${API_BASE_URL.replace(/\/+$/, "")}${upload.url}`
+              : upload.url,
+          });
         } else {
           reject(new Error(payload.message || "Product photo upload failed"));
         }
@@ -952,7 +958,7 @@ export async function fetchStockMovements(token: string, shopId: string, itemId?
   let url = `/stock/movements?shopId=${encodeURIComponent(shopId)}`;
   if (itemId) url += `&itemId=${encodeURIComponent(itemId)}`;
   if (movementType) url += `&movementType=${encodeURIComponent(movementType)}`;
-  return apiRequest<any[]>(url, { token });
+  return apiRequest<StockMovement[]>(url, { token });
 }
 
 // SALES
@@ -1474,12 +1480,15 @@ export async function addStock(token: string, data: StockEntryPayload, opts: { i
 export type StockMovement = {
   id: string;
   itemId: string;
-  quantityIn: string;
-  quantityOut: string;
+  quantityIn: string | number;
+  quantityOut: string | number;
   movementType: string;
+  referenceType?: string | null;
+  referenceId?: string | null;
   reason?: string | null;
   createdAt: string;
-  createdBy?: { id: string; name: string } | null;
+  createdBy?: { id: string; name: string; role?: string } | null;
+  approvedBy?: { id: string; name: string } | null;
   item?: Item | null;
   sale?: { id: string; saleNumber: string } | null;
   deliveryMemo?: { id: string; dmNumber: string } | null;
@@ -1758,7 +1767,7 @@ export type StorageObject = {
   sizeBytes: number;
   mimeType: string;
   createdAt: string;
-  url: string;
+  url: string | null;
   // Image dimensions (stored in Asset DB at upload time)
   width?: number | null;
   height?: number | null;

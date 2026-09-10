@@ -1,5 +1,5 @@
-import { Pressable, StyleSheet, View } from "react-native";
-import { Text } from "react-native-paper";
+import { ActivityIndicator, GestureResponderEvent, Pressable, StyleSheet, View } from "react-native";
+import { Icon, Text } from "react-native-paper";
 
 import { StatusPill } from "../../ui/StatusPill";
 import { colors, fontSize, fontWeight, radius, shadow, spacing } from "../../../theme";
@@ -12,9 +12,26 @@ type CustomerCardProps = {
   outstandingLabel?: string;
   limitLabel?: string;
   onPress?: () => void;
+  onDelete?: () => void;
+  deleting?: boolean;
 };
 
-export function CustomerCard({ name, subtitle, statusLabel, statusTone, outstandingLabel, limitLabel, onPress }: CustomerCardProps) {
+export function CustomerCard({
+  name,
+  subtitle,
+  statusLabel,
+  statusTone,
+  outstandingLabel,
+  limitLabel,
+  onPress,
+  onDelete,
+  deleting = false,
+}: CustomerCardProps) {
+  const handleDelete = (event: GestureResponderEvent) => {
+    event.stopPropagation();
+    onDelete?.();
+  };
+
   return (
     <Pressable
       onPress={onPress}
@@ -28,7 +45,25 @@ export function CustomerCard({ name, subtitle, statusLabel, statusTone, outstand
           <Text style={styles.name} numberOfLines={1}>{name}</Text>
           {subtitle ? <Text style={styles.subtitle} numberOfLines={2}>{subtitle}</Text> : null}
         </View>
-        {statusLabel ? <StatusPill label={statusLabel} tone={statusTone} /> : null}
+        <View style={styles.headerActions}>
+          {statusLabel ? <StatusPill label={statusLabel} tone={statusTone} /> : null}
+          {onDelete ? (
+            <Pressable
+              onPress={handleDelete}
+              disabled={deleting}
+              hitSlop={8}
+              style={({ pressed }) => [styles.deleteButton, pressed && styles.deletePressed]}
+              accessibilityRole="button"
+              accessibilityLabel={`Remove ${name}`}
+            >
+              {deleting ? (
+                <ActivityIndicator size={18} color={colors.danger} />
+              ) : (
+                <Icon source="trash-can-outline" size={19} color={colors.danger} />
+              )}
+            </Pressable>
+          ) : null}
+        </View>
       </View>
       {(outstandingLabel || limitLabel) ? (
         <View style={styles.footer}>
@@ -53,6 +88,16 @@ const styles = StyleSheet.create({
   },
   pressed: { opacity: 0.72, transform: [{ scale: 0.98 }] },
   header: { flexDirection: "row", alignItems: "flex-start", gap: spacing.md },
+  headerActions: { alignItems: "flex-end", gap: spacing.sm },
+  deleteButton: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.md,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: colors.dangerLight,
+  },
+  deletePressed: { opacity: 0.65 },
   main: { flex: 1, minWidth: 0 },
   name: { color: colors.textPrimary, fontSize: fontSize.md, fontWeight: fontWeight.black },
   subtitle: { color: colors.textSecondary, fontSize: fontSize.xs, marginTop: 3 },
