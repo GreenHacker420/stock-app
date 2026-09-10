@@ -4,6 +4,7 @@ import { Text, Icon } from "react-native-paper";
 import { navigate } from "../navigation-ref";
 import { FlashList } from "@shopify/flash-list";
 import { useAuthStore } from "../../auth/auth-store";
+import type { StockMovement } from "../../api/client";
 
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
@@ -12,6 +13,11 @@ import { EmptyState } from "../../components/ui/EmptyState";
 import { AppChipGroup } from "../../components/ui/AppChipGroup";
 import { useStockMovementsQuery } from "../../hooks/useItems";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
+import {
+  getStockMovementDirection,
+  getStockMovementQuantity,
+  getStockMovementReferenceKind,
+} from "../../utils/items/stock-movement";
 
 const qty = (val?: string | number | null) => {
   const num = Number(val ?? 0);
@@ -100,7 +106,7 @@ const getMovementStyle = (type: string) => {
 
 export function StockMovementHistory() {
   const [filterType, setFilterType] = useState<string | undefined>(undefined);
-  const [selectedMovement, setSelectedMovement] = useState<any | null>(null);
+  const [selectedMovement, setSelectedMovement] = useState<StockMovement | null>(null);
   const user = useAuthStore((s) => s.user);
   const isOwner = user?.role === "OWNER";
   const { data: movements, isLoading, isFetching, refetch } = useStockMovementsQuery(undefined, filterType);
@@ -113,8 +119,6 @@ export function StockMovementHistory() {
     { label: "ADJUST", value: "MANUAL_ADJUSTMENT" },
     { label: "DAMAGE", value: "DAMAGE_LOSS" },
   ];
-
-  const List = FlashList as any;
 
   return (
     <Screen edges={["top", "left", "right"]} scroll={false}>
@@ -140,14 +144,14 @@ export function StockMovementHistory() {
             <ActivityIndicator size="large" color={colors.primary} />
           </View>
         ) : (
-          <List
+          <FlashList
             data={movements}
-            keyExtractor={(item: any) => item.id}
+            keyExtractor={(item: StockMovement) => item.id}
             onRefresh={refetch}
             refreshing={isFetching}
-            renderItem={({ item: move }: { item: any }) => {
-              const hasIn = Number(move.quantityIn || 0) > 0;
-              const quantity = hasIn ? move.quantityIn : move.quantityOut;
+            renderItem={({ item: move }: { item: StockMovement }) => {
+              const direction = getStockMovementDirection(move);
+              const quantity = getStockMovementQuantity(move);
               const dateStr = new Date(move.createdAt).toLocaleDateString("en-IN", {
                 day: "numeric",
                 month: "short",
@@ -161,14 +165,15 @@ export function StockMovementHistory() {
               // Reference logic
               let referenceLabel = "Internal Entry";
               let referenceIcon = "file-document-outline";
-              if (move.sale) {
-                referenceLabel = `Invoice #${move.sale.saleNumber}`;
+              const referenceKind = getStockMovementReferenceKind(move.referenceType);
+              if (referenceKind === "SALE") {
+                referenceLabel = move.sale?.saleNumber ? `Invoice #${move.sale.saleNumber}` : "Linked sale";
                 referenceIcon = "receipt";
-              } else if (move.deliveryMemo) {
-                referenceLabel = `DM #${move.deliveryMemo.dmNumber}`;
+              } else if (referenceKind === "DM") {
+                referenceLabel = move.deliveryMemo?.dmNumber ? `DM #${move.deliveryMemo.dmNumber}` : "Linked delivery memo";
                 referenceIcon = "truck-delivery";
-              } else if (move.order) {
-                referenceLabel = `Order #${move.order.orderNumber}`;
+              } else if (referenceKind === "ORDER") {
+                referenceLabel = move.order?.orderNumber ? `Order #${move.order.orderNumber}` : "Linked order";
                 referenceIcon = "cart-outline";
               }
 
@@ -224,7 +229,7 @@ export function StockMovementHistory() {
                           styles.qtyText,
                           { color: mvStyle.textColor }
                         ]}>
-                          {hasIn ? "+" : "-"}{qty(quantity)}
+                          {direction === "in" ? "+" : direction === "out" ? "-" : ""}{qty(quantity)}
                         </Text>
                       </View>
                       {isOwner && (
@@ -278,10 +283,11 @@ export function StockMovementHistory() {
             </View>
 
             {selectedMovement && (() => {
-              const qtyIn = Number(selectedMovement.quantityIn || 0);
-              const qtyOut = Number(selectedMovement.quantityOut || 0);
-              const isEntryIn = qtyIn > 0;
-              const qtyVal = isEntryIn ? qtyIn : qtyOut;
+              const direction = getStockMovementDirection(selectedMovement);
+              const quantity = getStockMovementQuantity(selectedMovement);
+              const referenceKind = getStockMovementReferenceKind(selectedMovement.referenceType);
+              const referenceId = selectedMovement.referenceId;
+              const quantityColor = direction === "in" ? colors.success : direction === "out" ? colors.danger : colors.textSecondary;
 
               return (
                 <View style={styles.modalBody}>
@@ -314,8 +320,10 @@ export function StockMovementHistory() {
 
                   <View style={styles.modalDetailRow}>
                     <Text style={styles.detailLabel}>Quantity Changed</Text>
-                    <Text style={[styles.detailValue, { color: isEntryIn ? colors.success : colors.danger, fontWeight: fontWeight.black }]}>
-                      {isEntryIn ? "+" : "-"}{qty(qtyVal)} {selectedMovement.item?.unit || ""}
+                    <Text
+                      style={[styles.detailValue, { color: quantityColor, fontWeight: fontWeight.black }]}
+                    >
+                      {direction === "in" ? "+" : direction === "out" ? "−" : ""}{qty(quantity)} {selectedMovement.item?.unit || ""}
                     </Text>
                   </View>
 
@@ -349,7 +357,7 @@ export function StockMovementHistory() {
                     </View>
                   ) : null}
 
-                  {selectedMovement.referenceType === "SALE" && selectedMovement.sale && (
+                  {referenceKind === "SALE" && referenceId ? (
                     <Pressable
                       style={({ pressed }) => [
                         styles.linkRow,
@@ -357,20 +365,22 @@ export function StockMovementHistory() {
                       ]}
                       onPress={() => {
                         setSelectedMovement(null);
-                        navigate("SaleDetail", { id: selectedMovement.referenceId });
+                        navigate("SaleDetail", { id: referenceId });
                       }}
                     >
                       <View style={styles.linkLeft}>
                         <Icon source="receipt" size={20} color={colors.primary} />
                         <Text style={styles.linkLabel}>
-                          View Sale: #{selectedMovement.sale.saleNumber}
+                          {selectedMovement.sale?.saleNumber
+                            ? `View Sale #${selectedMovement.sale.saleNumber}`
+                            : "View sale details"}
                         </Text>
                       </View>
                       <Icon source="chevron-right" size={20} color={colors.primary} />
                     </Pressable>
-                  )}
+                  ) : null}
 
-                  {selectedMovement.referenceType === "DM" && selectedMovement.deliveryMemo && (
+                  {referenceKind === "DM" && referenceId ? (
                     <Pressable
                       style={({ pressed }) => [
                         styles.linkRow,
@@ -378,20 +388,22 @@ export function StockMovementHistory() {
                       ]}
                       onPress={() => {
                         setSelectedMovement(null);
-                        navigate("DeliveryMemoDetail", { id: selectedMovement.referenceId });
+                        navigate("DeliveryMemoDetail", { id: referenceId });
                       }}
                     >
                       <View style={styles.linkLeft}>
                         <Icon source="file-document-outline" size={20} color={colors.primary} />
                         <Text style={styles.linkLabel}>
-                          View Delivery Memo: #{selectedMovement.deliveryMemo.dmNumber}
+                          {selectedMovement.deliveryMemo?.dmNumber
+                            ? `View Delivery Memo #${selectedMovement.deliveryMemo.dmNumber}`
+                            : "View delivery memo details"}
                         </Text>
                       </View>
                       <Icon source="chevron-right" size={20} color={colors.primary} />
                     </Pressable>
-                  )}
+                  ) : null}
 
-                  {selectedMovement.referenceType === "ORDER" && selectedMovement.order && (
+                  {referenceKind === "ORDER" && referenceId ? (
                     <Pressable
                       style={({ pressed }) => [
                         styles.linkRow,
@@ -399,18 +411,20 @@ export function StockMovementHistory() {
                       ]}
                       onPress={() => {
                         setSelectedMovement(null);
-                        navigate("OrderDetail", { orderId: selectedMovement.referenceId });
+                        navigate("OrderDetail", { orderId: referenceId });
                       }}
                     >
                       <View style={styles.linkLeft}>
                         <Icon source="package-variant-closed" size={20} color={colors.primary} />
                         <Text style={styles.linkLabel}>
-                          View Order: #{selectedMovement.order.orderNumber}
+                          {selectedMovement.order?.orderNumber
+                            ? `View Order #${selectedMovement.order.orderNumber}`
+                            : "View order details"}
                         </Text>
                       </View>
                       <Icon source="chevron-right" size={20} color={colors.primary} />
                     </Pressable>
-                  )}
+                  ) : null}
                 </View>
               );
             })()}

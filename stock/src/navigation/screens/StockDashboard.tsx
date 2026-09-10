@@ -55,7 +55,7 @@ const StockCard = memo(function StockCard({
 }) {
   const min    = getSafeMin(record);
   const health = getHealth(record);
-  const cat    = (record.item as any)?.category?.name as string | undefined;
+  const cat    = record.item.category?.name;
 
   return (
     <Pressable
@@ -157,8 +157,6 @@ export function StockDashboard() {
   const [activeTab, setActiveTab] = useState<TabKey>("all");
 
   const listRef = useRef<FlashListRef<StockLevel>>(null);
-  const TypedFlashList = FlashList as any;
-
   const stockQuery = useCurrentStockQuery(undefined, { enabled: Boolean(activeShopId) });
 
   if (!activeShopId) {
@@ -280,7 +278,7 @@ export function StockDashboard() {
         {stockQuery.isLoading ? (
           <SkeletonList count={6} itemHeight={100} />
         ) : (
-          <TypedFlashList
+          <FlashList
             ref={listRef}
             data={filtered}
             keyExtractor={(r: StockLevel) => r.item.id}

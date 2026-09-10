@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
-import { Alert, Pressable, View, StyleSheet, ActivityIndicator, KeyboardAvoidingView, Platform, Modal, Dimensions } from "react-native";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { Alert, Pressable, View, StyleSheet, Modal } from "react-native";
+import { useQueryClient } from "@tanstack/react-query";
 import { useRoute } from "@react-navigation/native";
 import { Divider, Icon, Text, TextInput } from "react-native-paper";
 import { requestPermissionsAsync, Contact, ContactField } from "expo-contacts";
@@ -8,21 +8,12 @@ import { cleanPhoneNumber, isValidMobile } from "../../utils/items/validation";
 import { FlashList } from "@shopify/flash-list";
 import { useDebounce } from "use-debounce";
 
-import { 
-  createCustomer, 
-  Customer, 
-  fetchCustomer, 
-  fetchCustomerOutstanding, 
-  fetchCustomerPriceHistory, 
-  updateCustomer 
-} from "../../api/client";
+import { type Customer } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
-import { useShopStore } from "../../auth/shop-store";
 import { Screen } from "../../components/Screen";
 import { AppHeader } from "../../components/ui/AppHeader";
 import { AppSearchBar } from "../../components/ui/AppSearchBar";
 import { Section } from "../../components/ui/Section";
-import { StatusPill } from "../../components/ui/StatusPill";
 import { CustomerCard } from "../../components/domain/customers/CustomerCard";
 import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../theme";
 import { SkeletonList } from "../../components/ui/SkeletonCard";
@@ -30,14 +21,25 @@ import { EmptyState } from "../../components/ui/EmptyState";
 import { Button } from "../../components/ui/Button";
 import { navigate, goBack } from "../navigation-ref";
 import { useNetworkStatus } from "../../hooks/useNetworkStatus";
-import { requireActiveShopId } from "../../hooks/useActiveShop";
 import { useCustomersQuery, useCreateCustomerMutation, useDeleteCustomerMutation, useUpdateCustomerMutation } from "../../hooks/useCustomers";
-import { AppKeyboardAvoidingView } from "../../components/ui/AppKeyboardAvoidingView";
 import { KeyboardAwareScreen } from "../../components/keyboard/KeyboardAwareScreen";
 import { triggerSuccessHaptic } from "../../utils/haptics";
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 const internetRequiredMessage = "Internet connection required. Please connect to the internet to complete this action.";
+const getErrorMessage = (error: unknown, fallback: string) => error instanceof Error ? error.message : fallback;
+
+type DevicePhoneNumber = {
+  label?: string | null;
+  number?: string | null;
+};
+
+type DeviceContact = {
+  id: string;
+  name: string;
+  company: string;
+  phoneNumbers: DevicePhoneNumber[];
+};
 
 export function CustomerList() {
   const network = useNetworkStatus();
@@ -147,9 +149,7 @@ export function CustomerList() {
 }
 
 export function AddEditCustomer() {
-  const token = useAuthStore((state) => state.token);
   const user = useAuthStore((state) => state.user);
-  const activeShopId = useShopStore((state) => state.activeShopId);
   const route = useRoute();
   const queryClient = useQueryClient();
   const network = useNetworkStatus();
@@ -174,7 +174,7 @@ export function AddEditCustomer() {
   });
 
   const [contactsModalVisible, setContactsModalVisible] = useState(false);
-  const [deviceContacts, setDeviceContacts] = useState<any[]>([]);
+  const [deviceContacts, setDeviceContacts] = useState<DeviceContact[]>([]);
   const [contactsSearch, setContactsSearch] = useState("");
   const [loadingContacts, setLoadingContacts] = useState(false);
 
@@ -193,17 +193,17 @@ export function AddEditCustomer() {
       ]);
       
       const resolved = contactsList.map((c) => ({
-        id: c.id,
+        id: String(c.id),
         name: c.fullName || "",
         company: c.company || "",
         phoneNumbers: c.phones || [],
       }));
 
-      const sorted = resolved.sort((a: any, b: any) => (a.name || "").localeCompare(b.name || ""));
+      const sorted = resolved.sort((a, b) => a.name.localeCompare(b.name));
       setDeviceContacts(sorted);
       setContactsModalVisible(true);
-    } catch (err: any) {
-      Alert.alert("Error", err.message || "Failed to load device contacts.");
+    } catch (error: unknown) {
+      Alert.alert("Error", getErrorMessage(error, "Failed to load device contacts."));
     } finally {
       setLoadingContacts(false);
     }
@@ -215,12 +215,12 @@ export function AddEditCustomer() {
     return deviceContacts.filter(
       (c) =>
         (c.name || "").toLowerCase().includes(q) ||
-        (c.phoneNumbers || []).some((p: any) => (p.number || "").includes(q))
+        c.phoneNumbers.some((phone) => (phone.number || "").includes(q))
     );
   }, [deviceContacts, contactsSearch]);
 
-  const selectContact = (contact: any) => {
-    const phoneNumbers = contact.phoneNumbers || [];
+  const selectContact = (contact: DeviceContact) => {
+    const phoneNumbers = contact.phoneNumbers;
     if (phoneNumbers.length === 0) {
       Alert.alert("Invalid Contact", "Selected contact does not have any phone numbers configured.");
       return;
@@ -229,12 +229,15 @@ export function AddEditCustomer() {
       Alert.alert(
         "Select Phone Number",
         `Choose a number to import for ${contact.name || "this contact"}:`,
-        phoneNumbers.map((p: any) => ({
-          text: `${p.label || "Phone"}: ${p.number}`,
-          onPress: () => {
-            importContactWithPhone(contact, p.number);
-          }
-        })).concat([{ text: "Cancel", style: "cancel" }])
+        [
+          ...phoneNumbers.map((phone) => ({
+            text: `${phone.label || "Phone"}: ${phone.number || ""}`,
+            onPress: () => {
+              importContactWithPhone(contact, phone.number || "");
+            },
+          })),
+          { text: "Cancel", style: "cancel" as const },
+        ],
       );
     } else {
       const primaryNumber = phoneNumbers[0]?.number || "";
@@ -242,7 +245,7 @@ export function AddEditCustomer() {
     }
   };
 
-  const importContactWithPhone = (contact: any, rawPhone: string) => {
+  const importContactWithPhone = (contact: DeviceContact, rawPhone: string) => {
     const cleanedPhone = cleanPhoneNumber(rawPhone);
     setForm((prev) => ({
       ...prev,
@@ -297,8 +300,8 @@ export function AddEditCustomer() {
           queryClient.invalidateQueries({ queryKey: ["sale"] });
           goBack();
         },
-        onError: (err: any) => {
-          Alert.alert("Error", err.message || "Failed to update customer");
+        onError: (error: unknown) => {
+          Alert.alert("Error", getErrorMessage(error, "Failed to update customer"));
         }
       });
     } else {
@@ -306,8 +309,8 @@ export function AddEditCustomer() {
         onSuccess: () => {
           goBack();
         },
-        onError: (err: any) => {
-          Alert.alert("Error", err.message || "Failed to create customer");
+        onError: (error: unknown) => {
+          Alert.alert("Error", getErrorMessage(error, "Failed to create customer"));
         }
       });
     }
@@ -453,13 +456,10 @@ export function AddEditCustomer() {
           </View>
 
           <View style={{ flex: 1 }}>
-            {(() => {
-              const List = FlashList as any;
-              return (
-                <List
+                <FlashList
                   data={filteredContacts}
-                  keyExtractor={(item: any) => item.id}
-                  renderItem={({ item }: any) => {
+                  keyExtractor={(item: DeviceContact) => item.id}
+                  renderItem={({ item }: { item: DeviceContact }) => {
                     const phone = item.phoneNumbers?.[0]?.number || "No phone";
                     const initials = (item.name || "C")[0].toUpperCase();
                     return (
@@ -492,8 +492,6 @@ export function AddEditCustomer() {
                   }
                   contentContainerStyle={styles.contactsListContent}
                 />
-              );
-            })()}
           </View>
         </Screen>
       </Modal>

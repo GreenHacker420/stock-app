@@ -1,5 +1,5 @@
-import { Fragment, useMemo, useState, useRef } from "react";
-import { View, StyleSheet, ScrollView, Alert, Dimensions, Pressable, Modal } from "react-native";
+import { Fragment, useMemo, useState } from "react";
+import { View, StyleSheet, Alert, Dimensions, Pressable, Modal, type LayoutChangeEvent } from "react-native";
 import { Image } from "expo-image";
 import { Text, Divider, Icon } from "react-native-paper";
 import { useRoute } from "@react-navigation/native";
@@ -27,7 +27,7 @@ import { Screen } from "../../../components/Screen";
 import { AppHeader } from "../../../components/ui/AppHeader";
 import { SkeletonList } from "../../../components/ui/SkeletonCard";
 import { EmptyState } from "../../../components/ui/EmptyState";
-import { InfoRow } from "../../../components/ui/InfoRow";
+import { InfoRow, type InfoRowTone } from "../../../components/ui/InfoRow";
 import { Button } from "../../../components/ui/Button";
 import { StockMovementRow } from "../../../components/domain/stock/StockMovementRow";
 import { StockTransferDialog } from "../../../components/items/StockTransferDialog";
@@ -40,6 +40,32 @@ import { navigate } from "../../navigation-ref";
 import { money } from "../../../utils/items/display";
 import { STOCK_MOVEMENT_PERMISSION, hasPermission } from "../../../utils/items/permissions";
 import { ItemDetailRouteParams, ItemStockResponse, PriceChangeHistoryEntry, StockMovementEntry } from "../../../types/items";
+import {
+  formatStockMovementQuantity,
+  getStockMovementDirection,
+  getStockMovementQuantity,
+  getStockMovementReferenceKind,
+} from "../../../utils/items/stock-movement";
+
+const getErrorMessage = (error: unknown, fallback: string) => error instanceof Error ? error.message : fallback;
+
+const getMovementReferenceLabel = (movement: StockMovementEntry) => {
+  const kind = getStockMovementReferenceKind(movement.referenceType);
+  if (kind === "SALE") return movement.sale?.saleNumber ? `Sale #${movement.sale.saleNumber}` : "Linked sale";
+  if (kind === "DM") return movement.deliveryMemo?.dmNumber ? `DM #${movement.deliveryMemo.dmNumber}` : "Linked delivery memo";
+  if (kind === "ORDER") return movement.order?.orderNumber ? `Order #${movement.order.orderNumber}` : "Linked order";
+  return movement.reason || "Inventory entry";
+};
+
+const getMovementIcon = (movement: StockMovementEntry) => {
+  const kind = getStockMovementReferenceKind(movement.referenceType);
+  if (kind === "SALE") return "receipt-text-outline";
+  if (kind === "DM") return "truck-delivery-outline";
+  if (kind === "ORDER") return "package-variant-closed";
+  if (getStockMovementDirection(movement) === "in") return "arrow-down-bold-box-outline";
+  if (getStockMovementDirection(movement) === "out") return "arrow-up-bold-box-outline";
+  return "swap-horizontal";
+};
 
 
 export function ItemDetail() {
@@ -59,7 +85,7 @@ export function ItemDetail() {
     },
   });
 
-  const onCardLayout = (e: any) => {
+  const onCardLayout = (e: LayoutChangeEvent) => {
     const { y, height } = e.nativeEvent.layout;
     setCardLayout({ y, height });
   };
@@ -84,8 +110,6 @@ export function ItemDetail() {
     );
     return { opacity };
   });
-
-  const scrollViewRef = useRef<any>(null);
 
   const HERO_HEIGHT = 220;
   const MORPH_START = 50;
@@ -169,6 +193,14 @@ export function ItemDetail() {
   const movementsQuery = useStockMovementsQuery(itemId, undefined, {
     enabled: activeTab === "stock",
   });
+  const movements = movementsQuery.data ?? [];
+  const movementTotals = useMemo(() => movements.reduce(
+    (totals, movement) => ({
+      stockIn: totals.stockIn + Number(movement.quantityIn || 0),
+      stockOut: totals.stockOut + Number(movement.quantityOut || 0),
+    }),
+    { stockIn: 0, stockOut: 0 },
+  ), [movements]);
 
   const shopsQuery = useShopsQuery();
   const transferMutation = useTransferStockMutation();
@@ -224,8 +256,8 @@ export function ItemDetail() {
             movementsQuery.refetch();
           }
         },
-        onError: (err: any) => {
-          Alert.alert("Error", err?.message || "Failed to transfer stock.");
+        onError: (error: unknown) => {
+          Alert.alert("Error", getErrorMessage(error, "Failed to transfer stock."));
         },
       }
     );
@@ -288,6 +320,18 @@ export function ItemDetail() {
   const showEdit = isOwner;
   const showTransfer = canManageStock;
   const showStockEntry = canManageStock;
+  const overviewRows: Array<{ label: string; value: string; tone?: InfoRowTone }> = [
+    { label: "Available Stock", value: `${availableStock} ${itemData.unit}`, tone: availableStock <= 0 ? "red" : availableStock <= minStock ? "amber" : "green" },
+    { label: "Reserved Stock", value: `${reservedStock} ${itemData.unit}`, tone: reservedStock > 0 ? "amber" : "default" },
+    { label: "Physical Stock", value: `${physicalStock} ${itemData.unit}` },
+    { label: "Unit", value: itemData.unit },
+    { label: "Category", value: itemData.category?.name ?? "—" },
+    { label: "MRP", value: money(itemData.mrp) },
+    { label: "Selling Price", value: money(itemData.defaultSellingPrice) },
+    { label: "Min Allowed Price", value: money(itemData.minimumAllowedPrice) },
+    { label: "Purchase Price", value: money(itemData.purchasePrice) },
+    { label: "Low Stock Alert", value: `${itemData.minimumStock ?? 0} ${itemData.unit}` },
+  ];
 
   const activeUrl = imageUrls[activeImageIndex] || imageUrls[0];
 
@@ -297,7 +341,6 @@ export function ItemDetail() {
 
       <View style={{ flex: 1, position: "relative" }}>
         <Animated.ScrollView
-          ref={scrollViewRef}
           onScroll={scrollHandler}
           scrollEventThrottle={16}
           showsVerticalScrollIndicator={false}
@@ -325,20 +368,9 @@ export function ItemDetail() {
         <View style={styles.detailContent}>
           {activeTab === "overview" && (
             <View style={styles.detailCard}>
-              {[
-                { label: "Available Stock", value: `${availableStock} ${itemData.unit}`, tone: availableStock <= 0 ? "red" : availableStock <= minStock ? "amber" : "green" },
-                { label: "Reserved Stock", value: `${reservedStock} ${itemData.unit}`, tone: reservedStock > 0 ? "amber" : "default" },
-                { label: "Physical Stock", value: `${physicalStock} ${itemData.unit}` },
-                { label: "Unit", value: itemData.unit },
-                { label: "Category", value: itemData.category?.name ?? "—" },
-                { label: "MRP", value: money(itemData.mrp) },
-                { label: "Selling Price", value: money(itemData.defaultSellingPrice) },
-                { label: "Min Allowed Price", value: money(itemData.minimumAllowedPrice) },
-                { label: "Purchase Price", value: money(itemData.purchasePrice) },
-                { label: "Low Stock Alert", value: `${itemData.minimumStock ?? 0} ${itemData.unit}` },
-              ].map((row, i, arr) => (
+              {overviewRows.map((row, i, arr) => (
                 <Fragment key={row.label}>
-                  <InfoRow label={row.label} value={row.value} tone={row.tone as any} style={styles.detailRow} />
+                  <InfoRow label={row.label} value={row.value} tone={row.tone} style={styles.detailRow} />
                   {i < arr.length - 1 && <Divider style={styles.rowDivider} />}
                 </Fragment>
               ))}
@@ -346,36 +378,48 @@ export function ItemDetail() {
           )}
 
           {activeTab === "stock" && (
-            <View style={styles.detailCard}>
+            <View style={styles.movementSection}>
+              <View style={styles.movementSummary}>
+                <View style={styles.movementSummaryItem}>
+                  <Text style={styles.movementSummaryLabel}>STOCK IN</Text>
+                  <Text style={[styles.movementSummaryValue, { color: colors.success }]}>+{movementTotals.stockIn}</Text>
+                </View>
+                <View style={styles.movementSummaryDivider} />
+                <View style={styles.movementSummaryItem}>
+                  <Text style={styles.movementSummaryLabel}>STOCK OUT</Text>
+                  <Text style={[styles.movementSummaryValue, { color: colors.danger }]}>−{movementTotals.stockOut}</Text>
+                </View>
+                <View style={styles.movementSummaryDivider} />
+                <View style={styles.movementSummaryItem}>
+                  <Text style={styles.movementSummaryLabel}>ENTRIES</Text>
+                  <Text style={styles.movementSummaryValue}>{movements.length}</Text>
+                </View>
+              </View>
+
+              <View style={styles.detailCard}>
               {movementsQuery.isLoading ? (
                 <SkeletonList count={4} itemHeight={52} />
-              ) : !(movementsQuery.data as StockMovementEntry[] | undefined)?.length ? (
+              ) : !movements.length ? (
                 <EmptyState icon="transfer" title="No stock movements" subtitle="Stock entries will appear here." />
               ) : (
-                (movementsQuery.data as StockMovementEntry[]).map((m, i, arr) => {
-                  const quantityIn = Number(m.quantityIn || 0);
-                  const quantityOut = Number(m.quantityOut || 0);
-                  const isEntryIn = quantityIn > 0;
-                  const quantityVal = isEntryIn ? quantityIn : quantityOut;
+                movements.map((movement) => {
+                  const direction = getStockMovementDirection(movement);
 
                   return (
-                    <Fragment key={m.id}>
-                      <Pressable 
-                        onPress={() => setSelectedMovement(m)}
-                        style={({ pressed }) => pressed && { opacity: 0.7 }}
-                      >
-                        <StockMovementRow
-                          title={getMovementTypeLabel(m.movementType)}
-                          date={new Date(m.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
-                          quantity={`${isEntryIn ? "+" : "-"}${quantityVal} ${itemData.unit}`}
-                          tone={isEntryIn ? "green" : "red"}
-                        />
-                      </Pressable>
-                      {i < arr.length - 1 && <Divider style={styles.rowDivider} />}
-                    </Fragment>
+                    <StockMovementRow
+                      key={movement.id}
+                      title={getMovementTypeLabel(movement.movementType)}
+                      subtitle={getMovementReferenceLabel(movement)}
+                      date={new Date(movement.createdAt).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "numeric", minute: "2-digit" })}
+                      quantity={formatStockMovementQuantity(movement, itemData.unit)}
+                      tone={direction === "in" ? "green" : direction === "out" ? "red" : "neutral"}
+                      icon={getMovementIcon(movement)}
+                      onPress={() => setSelectedMovement(movement)}
+                    />
                   );
                 })
               )}
+              </View>
             </View>
           )}
 
@@ -483,14 +527,15 @@ export function ItemDetail() {
       <Modal
         visible={!!selectedMovement}
         transparent
-        animationType="fade"
+        animationType="slide"
         onRequestClose={() => setSelectedMovement(null)}
       >
         <Pressable 
           style={styles.modalOverlay} 
           onPress={() => setSelectedMovement(null)}
         >
-          <View style={styles.modalContentCard}>
+          <Pressable style={styles.modalContentCard} onPress={(event) => event.stopPropagation()}>
+            <View style={styles.sheetHandle} />
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Ledger Entry Details</Text>
               <Pressable 
@@ -502,10 +547,12 @@ export function ItemDetail() {
             </View>
 
             {selectedMovement && (() => {
-              const qtyIn = Number(selectedMovement.quantityIn || 0);
-              const qtyOut = Number(selectedMovement.quantityOut || 0);
-              const isEntryIn = qtyIn > 0;
-              const qtyVal = isEntryIn ? qtyIn : qtyOut;
+              const direction = getStockMovementDirection(selectedMovement);
+              const quantity = getStockMovementQuantity(selectedMovement);
+              const referenceKind = getStockMovementReferenceKind(selectedMovement.referenceType);
+              const referenceId = selectedMovement.referenceId;
+              const quantityColor = direction === "in" ? colors.success : direction === "out" ? colors.danger : colors.textSecondary;
+              const quantityPrefix = direction === "in" ? "+" : direction === "out" ? "−" : "";
 
               return (
                 <View style={styles.modalBody}>
@@ -518,8 +565,10 @@ export function ItemDetail() {
 
                   <View style={styles.modalDetailRow}>
                     <Text style={styles.detailLabel}>Quantity Changed</Text>
-                    <Text style={[styles.detailValue, { color: isEntryIn ? colors.success : colors.danger, fontWeight: fontWeight.black }]}>
-                      {isEntryIn ? "+" : "-"}{qtyVal} {itemData?.unit || ""}
+                    <Text
+                      style={[styles.detailValue, { color: quantityColor, fontWeight: fontWeight.black }]}
+                    >
+                      {quantityPrefix}{quantity} {itemData?.unit || ""}
                     </Text>
                   </View>
 
@@ -553,7 +602,7 @@ export function ItemDetail() {
                     </View>
                   ) : null}
 
-                  {selectedMovement.referenceType === "SALE" && (selectedMovement as any).sale && (
+                  {referenceKind === "SALE" && referenceId ? (
                     <Pressable
                       style={({ pressed }) => [
                         styles.linkRow,
@@ -561,20 +610,22 @@ export function ItemDetail() {
                       ]}
                       onPress={() => {
                         setSelectedMovement(null);
-                        navigate("SaleDetail", { id: selectedMovement.referenceId! });
+                        navigate("SaleDetail", { id: referenceId });
                       }}
                     >
                       <View style={styles.linkLeft}>
                         <Icon source="receipt" size={20} color={colors.primary} />
                         <Text style={styles.linkLabel}>
-                          View Sale: #{(selectedMovement as any).sale.saleNumber}
+                          {selectedMovement.sale?.saleNumber
+                            ? `View Sale #${selectedMovement.sale.saleNumber}`
+                            : "View sale details"}
                         </Text>
                       </View>
                       <Icon source="chevron-right" size={20} color={colors.primary} />
                     </Pressable>
-                  )}
+                  ) : null}
 
-                  {selectedMovement.referenceType === "DM" && (selectedMovement as any).deliveryMemo && (
+                  {referenceKind === "DM" && referenceId ? (
                     <Pressable
                       style={({ pressed }) => [
                         styles.linkRow,
@@ -582,20 +633,22 @@ export function ItemDetail() {
                       ]}
                       onPress={() => {
                         setSelectedMovement(null);
-                        navigate("DeliveryMemoDetail", { id: selectedMovement.referenceId! });
+                        navigate("DeliveryMemoDetail", { id: referenceId });
                       }}
                     >
                       <View style={styles.linkLeft}>
                         <Icon source="file-document-outline" size={20} color={colors.primary} />
                         <Text style={styles.linkLabel}>
-                          View Delivery Memo: #{(selectedMovement as any).deliveryMemo.dmNumber}
+                          {selectedMovement.deliveryMemo?.dmNumber
+                            ? `View Delivery Memo #${selectedMovement.deliveryMemo.dmNumber}`
+                            : "View delivery memo details"}
                         </Text>
                       </View>
                       <Icon source="chevron-right" size={20} color={colors.primary} />
                     </Pressable>
-                  )}
+                  ) : null}
 
-                  {selectedMovement.referenceType === "ORDER" && (selectedMovement as any).order && (
+                  {referenceKind === "ORDER" && referenceId ? (
                     <Pressable
                       style={({ pressed }) => [
                         styles.linkRow,
@@ -603,22 +656,24 @@ export function ItemDetail() {
                       ]}
                       onPress={() => {
                         setSelectedMovement(null);
-                        navigate("OrderDetail", { orderId: selectedMovement.referenceId! });
+                        navigate("OrderDetail", { orderId: referenceId });
                       }}
                     >
                       <View style={styles.linkLeft}>
                         <Icon source="package-variant-closed" size={20} color={colors.primary} />
                         <Text style={styles.linkLabel}>
-                          View Order: #{(selectedMovement as any).order.orderNumber}
+                          {selectedMovement.order?.orderNumber
+                            ? `View Order #${selectedMovement.order.orderNumber}`
+                            : "View order details"}
                         </Text>
                       </View>
                       <Icon source="chevron-right" size={20} color={colors.primary} />
                     </Pressable>
-                  )}
+                  ) : null}
                 </View>
               );
             })()}
-          </View>
+          </Pressable>
         </Pressable>
       </Modal>
     </Screen>
@@ -638,6 +693,40 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
     overflow: "hidden",
     ...shadow.sm,
+  },
+  movementSection: {
+    gap: spacing.md,
+  },
+  movementSummary: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: colors.surface,
+    borderRadius: radius.xl,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingVertical: spacing.md,
+    ...shadow.sm,
+  },
+  movementSummaryItem: {
+    flex: 1,
+    alignItems: "center",
+    gap: 3,
+  },
+  movementSummaryDivider: {
+    width: 1,
+    height: 28,
+    backgroundColor: colors.border,
+  },
+  movementSummaryLabel: {
+    color: colors.textMuted,
+    fontSize: 9,
+    fontWeight: fontWeight.black,
+    letterSpacing: 0.6,
+  },
+  movementSummaryValue: {
+    color: colors.textPrimary,
+    fontSize: fontSize.md,
+    fontWeight: fontWeight.black,
   },
   detailRow: {
     flexDirection: "row",
@@ -773,19 +862,25 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(255, 255, 255, 0.96)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: spacing.xl,
+    backgroundColor: "rgba(15, 23, 42, 0.42)",
+    justifyContent: "flex-end",
   },
   modalContentCard: {
     width: "100%",
     backgroundColor: colors.surface,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
+    borderTopLeftRadius: radius.xxl,
+    borderTopRightRadius: radius.xxl,
     overflow: "hidden",
+    paddingBottom: spacing.xl,
     ...shadow.lg,
+  },
+  sheetHandle: {
+    width: 42,
+    height: 4,
+    borderRadius: radius.full,
+    backgroundColor: colors.border,
+    alignSelf: "center",
+    marginTop: spacing.sm,
   },
   modalHeader: {
     flexDirection: "row",

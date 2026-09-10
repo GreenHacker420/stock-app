@@ -3,10 +3,12 @@ import { Text } from "react-native-paper";
 
 import { colors, fontSize, fontWeight, spacing } from "../../theme";
 
+export type InfoRowTone = "default" | "green" | "amber" | "red";
+
 type InfoRowProps = {
   label: string;
   value?: string | number | null;
-  tone?: "default" | "green" | "amber" | "red";
+  tone?: InfoRowTone;
   style?: StyleProp<ViewStyle>;
 };
 
