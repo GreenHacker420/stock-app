@@ -310,6 +310,13 @@ export interface UpdateItemPayload extends Partial<CreateItemPayload> {
   adjustmentStock?: number;
 }
 
+export type CreateItemResult = Item | {
+  isRequest: true;
+  requestId: string;
+  status: "PENDING";
+  message: string;
+};
+
 export interface CreateSalePayload {
   shopId: string;
   customerId?: string;
@@ -626,7 +633,7 @@ export async function fetchItems(
 }
 
 export async function createItem(token: string, data: CreateItemPayload) {
-  return apiRequest<Item>("/items", { method: "POST", token, body: JSON.stringify(data) });
+  return apiRequest<CreateItemResult>("/items", { method: "POST", token, body: JSON.stringify(data) });
 }
 
 export async function updateItem(token: string, id: string, data: UpdateItemPayload) {

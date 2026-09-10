@@ -181,6 +181,58 @@ test.describe("ShopControl ERP Debt Ledger Integration Tests", () => {
     assert.strictEqual(finalStock[0].currentQuantity, 15);
   });
 
+  test("2b. Staff Item Creation Approval Creates Product And Opening Stock Together", async () => {
+    const requested = await itemService.createItem(staff, {
+      shopId: shop.id,
+      name: "Staff Requested Product",
+      sku: "STAFF-REQ-1",
+      unit: "box",
+      defaultSellingPrice: 250,
+      minimumStock: 2,
+      initialStock: 7,
+    });
+
+    assert.strictEqual(requested.isRequest, true);
+    assert.strictEqual(requested.status, "PENDING");
+    assert.strictEqual(
+      await prisma.item.count({ where: { shopId: shop.id, sku: "STAFF-REQ-1" } }),
+      0,
+      "staff submission must not create the item before approval",
+    );
+
+    const approved = await approvalService.respondToRequest(owner, requested.requestId, {
+      status: "APPROVED",
+    });
+
+    assert.strictEqual(approved.status, "APPROVED");
+    assert.strictEqual(approved.item.name, "Staff Requested Product");
+    const openingMovement = await prisma.stockLedger.findFirst({
+      where: { shopId: shop.id, itemId: approved.item.id, movementType: "OPENING_STOCK" },
+    });
+    assert.ok(openingMovement);
+    assert.strictEqual(Number(openingMovement.quantityIn), 7);
+    assert.strictEqual(openingMovement.createdById, staff.id);
+    assert.strictEqual(openingMovement.approvedById, owner.id);
+
+    const rejectedRequest = await itemService.createItem(staff, {
+      shopId: shop.id,
+      name: "Rejected Staff Product",
+      sku: "STAFF-REQ-REJECT",
+      unit: "pcs",
+      defaultSellingPrice: 50,
+      initialStock: 3,
+    });
+    await approvalService.respondToRequest(owner, rejectedRequest.requestId, {
+      status: "REJECTED",
+      rejectedReason: "Duplicate catalog entry",
+    });
+    assert.strictEqual(
+      await prisma.item.count({ where: { shopId: shop.id, sku: "STAFF-REQ-REJECT" } }),
+      0,
+      "rejected requests must create neither product nor opening stock",
+    );
+  });
+
   test("3. Staff Rate Change Request Approval Flow", async () => {
     // A. Create an item first
     const item = await itemService.createItem(owner, {

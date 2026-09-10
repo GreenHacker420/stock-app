@@ -7,11 +7,13 @@ import { generateEmbedding } from "../utils/embeddings.js";
 import { uploadProductImageAsset } from "./upload.service.js";
 import { buildMergedItemPatch, getItemMergeCompatibilityIssue } from "./item-merge.js";
 import { createDomainEvent, enqueueDomainEvent, enqueueManyDomainEvents } from "./domain-event.service.js";
+import { createApprovalRequest } from "./approval-request.service.js";
 import {
   bestEffortInvalidateForDomainEvent,
+  invalidateDomainReadCache,
   readThroughDomainCache,
 } from "../cache/domain-read-cache.js";
-import { DIMENSION_PATTERNS, SEARCH_PATTERNS } from "../utils/regex";
+import { DIMENSION_PATTERNS, SEARCH_PATTERNS } from "../utils/regex.ts";
 
 // ---------------------------------------------------------------------------
 // Permission helpers
@@ -682,20 +684,13 @@ export async function deleteCategory(user, id) {
 }
 
 // ---------------------------------------------------------------------------
-// createItem — OWNER only
+// createItem — owners create directly; staff submit for approval
 // ---------------------------------------------------------------------------
 
-export async function createItem(user, data) {
-  await assertShopAccess(user, data.shopId);
-  assertCanManageItems(user);
-
-  // Whitelist — never spread raw request body into Prisma
+async function prepareItemCreation(data, db = prisma) {
   const itemData = pickItemCreateFields(data);
-
-  // Validate prices
   validatePrices(itemData);
 
-  // Validate initialStock
   const openingStock = data.initialStock !== undefined ? Number(data.initialStock) : 0;
   if (!Number.isFinite(openingStock) || openingStock < 0) {
     throw new ApiError(400, "initialStock must be a non-negative number");
@@ -703,113 +698,250 @@ export async function createItem(user, data) {
   if (Array.isArray(data.bundleComponents) && data.bundleComponents.length > 0 && openingStock > 0) {
     throw new ApiError(400, "Virtual bundle products do not hold opening stock. Add stock to component products instead.");
   }
-
   if (itemData.minimumStock !== undefined && Number(itemData.minimumStock) < 0) {
     throw new ApiError(400, "minimumStock must be a non-negative number");
   }
 
-  // Category must belong to this shop
   if (itemData.categoryId) {
-    const category = await prisma.itemCategory.findUnique({ where: { id: itemData.categoryId } });
+    const category = await db.itemCategory.findUnique({ where: { id: itemData.categoryId } });
     if (!category || category.shopId !== itemData.shopId) {
       throw new ApiError(400, "Category does not belong to this shop");
     }
   }
-
-  // Brand must belong to this shop
   if (itemData.brandId) {
-    const brand = await prisma.itemBrand.findUnique({ where: { id: itemData.brandId } });
+    const brand = await db.itemBrand.findUnique({ where: { id: itemData.brandId } });
     if (!brand || brand.shopId !== itemData.shopId) {
       throw new ApiError(400, "Brand does not belong to this shop");
     }
   }
 
+  const bundleComponents = await normalizeBundleComponents(db, itemData.shopId, data.bundleComponents);
+  return { itemData, openingStock, bundleComponents };
+}
+
+async function createItemRecord(tx, { itemData, openingStock, bundleComponents, embedding, requestedBy, approvedById }) {
+  const item = await tx.item.create({ data: itemData });
+  await replaceBundleComponents(tx, item.id, bundleComponents);
+
+  if (embedding) {
+    const vectorString = `[${embedding.join(",")}]`;
+    await tx.$executeRaw`UPDATE "Item" SET embedding = ${vectorString}::vector WHERE id = ${item.id}`;
+  }
+
+  if (openingStock > 0) {
+    await tx.stockLedger.create({
+      data: {
+        shopId: item.shopId,
+        itemId: item.id,
+        movementType: "OPENING_STOCK",
+        quantityIn: openingStock,
+        quantityOut: 0,
+        referenceType: "ADJUSTMENT",
+        reason: "Initial opening stock during item creation",
+        createdById: requestedBy.id,
+        approvedById,
+      },
+    });
+  }
+
+  if (itemData.defaultSellingPrice) {
+    await tx.itemPriceHistory.create({
+      data: {
+        itemId: item.id,
+        oldPrice: 0,
+        newPrice: itemData.defaultSellingPrice,
+        priceType: "SELLING",
+        changedById: requestedBy.id,
+      },
+    });
+  }
+
+  await tx.auditLog.create({
+    data: {
+      userId: requestedBy.id,
+      shopId: item.shopId,
+      action: AuditAction.CREATED,
+      entityType: EntityType.ITEM,
+      entityId: item.id,
+      newValueJson: item,
+      reason: approvedById === requestedBy.id ? undefined : "Created after owner approval",
+    },
+  });
+
+  const event = createDomainEvent({
+    shopId: item.shopId,
+    entity: "item",
+    action: "created",
+    entityId: item.id,
+    actorUserId: requestedBy.id,
+    actorRole: requestedBy.role,
+    visibility: { owners: true, staff: true },
+  });
+  await enqueueDomainEvent(tx, event);
+
+  const createdItem = await tx.item.findUnique({
+    where: { id: item.id },
+    include: {
+      bundleComponents: {
+        include: { componentItem: { select: { id: true, name: true, sku: true, unit: true } } },
+        orderBy: { createdAt: "asc" },
+      },
+    },
+  });
+  return { item: createdItem, event };
+}
+
+export async function createItem(user, data) {
+  await assertShopAccess(user, data.shopId);
+  const prepared = await prepareItemCreation(data);
+
+  if (user.role === "STAFF") {
+    const request = await prisma.$transaction(async (tx) => {
+      const approval = await createApprovalRequest(tx, {
+        shopId: data.shopId,
+        type: "ITEM_CREATION",
+        entityType: EntityType.SHOP,
+        entityId: data.shopId,
+        payloadJson: {
+          ...prepared.itemData,
+          initialStock: prepared.openingStock,
+          bundleComponents: prepared.bundleComponents ?? [],
+        },
+        reason: `Create product: ${prepared.itemData.name}`,
+        requestedById: user.id,
+      });
+      await tx.auditLog.create({
+        data: {
+          userId: user.id,
+          shopId: data.shopId,
+          action: AuditAction.ENTRY_REQUESTED,
+          entityType: EntityType.APPROVAL_REQUEST,
+          entityId: approval.id,
+          newValueJson: approval,
+          reason: approval.reason,
+        },
+      });
+      return approval;
+    });
+
+    return {
+      isRequest: true,
+      requestId: request.id,
+      status: request.status,
+      message: "Product and opening stock submitted for owner approval.",
+    };
+  }
+
+  assertCanManageItems(user);
+
   // Generate embedding (failures are non-fatal — item still gets created)
   let embedding = null;
   try {
-    embedding = await generateEmbedding(itemData.name);
+    embedding = await generateEmbedding(prepared.itemData.name);
   } catch {
     embedding = null;
   }
 
-  const result = await prisma.$transaction(async (tx) => {
-    const item = await tx.item.create({ data: itemData });
-    const bundleComponents = await normalizeBundleComponents(tx, item.shopId, data.bundleComponents, item.id);
-    await replaceBundleComponents(tx, item.id, bundleComponents);
-
-    // Use $executeRaw tagged template — no $executeRawUnsafe
-    if (embedding) {
-      const vectorString = `[${embedding.join(",")}]`;
-      await tx.$executeRaw`UPDATE "Item" SET embedding = ${vectorString}::vector WHERE id = ${item.id}`;
-    }
-
-    // Opening stock ledger entry (owner approved automatically)
-    if (openingStock > 0) {
-      await tx.stockLedger.create({
-        data: {
-          shopId: item.shopId,
-          itemId: item.id,
-          movementType: "OPENING_STOCK",
-          quantityIn: openingStock,
-          quantityOut: 0,
-          referenceType: "ADJUSTMENT",
-          reason: "Initial opening stock during item creation",
-          createdById: user.id,
-          approvedById: user.id,
-        },
-      });
-    }
-
-    // Initial price history
-    if (itemData.defaultSellingPrice) {
-      await tx.itemPriceHistory.create({
-        data: {
-          itemId: item.id,
-          oldPrice: 0,
-          newPrice: itemData.defaultSellingPrice,
-          priceType: "SELLING",
-          changedById: user.id,
-        },
-      });
-    }
-
-    // Audit log inside the transaction — atomic with the item creation
-    await tx.auditLog.create({
-      data: {
-        userId: user.id,
-        shopId: item.shopId,
-        action: AuditAction.CREATED,
-        entityType: EntityType.ITEM,
-        entityId: item.id,
-        newValueJson: item,
-      },
-    });
-
-    const event = createDomainEvent({
-      shopId: item.shopId,
-      entity: "item",
-      action: "created",
-      entityId: item.id,
-      actorUserId: user.id,
-      actorRole: user.role,
-      visibility: { owners: true, staff: true },
-    });
-    await enqueueDomainEvent(tx, event);
-
-    const createdItem = await tx.item.findUnique({
-      where: { id: item.id },
-      include: {
-        bundleComponents: {
-          include: { componentItem: { select: { id: true, name: true, sku: true, unit: true } } },
-          orderBy: { createdAt: "asc" },
-        },
-      },
-    });
-    return { item: createdItem, event };
-  });
+  const result = await prisma.$transaction((tx) => createItemRecord(tx, {
+    ...prepared,
+    embedding,
+    requestedBy: user,
+    approvedById: user.id,
+  }));
 
   await bestEffortInvalidateForDomainEvent(result.event);
   return { ...result.item, bundleComponents: formatBundleComponents(result.item.bundleComponents) };
+}
+
+export async function respondToItemCreationRequest(user, id, { status, rejectedReason }) {
+  if (user.role !== "OWNER") throw new ApiError(403, "Owner access required");
+
+  const request = await prisma.approvalRequest.findUnique({ where: { id } });
+  if (!request || request.type !== "ITEM_CREATION") throw new ApiError(404, "Item creation request not found");
+  await assertShopAccess(user, request.shopId);
+  if (request.status !== "PENDING") throw new ApiError(400, "Request is already processed");
+
+  let prepared = null;
+  let embedding = null;
+  if (status === "APPROVED") {
+    if (request.payloadJson?.shopId !== request.shopId) throw new ApiError(400, "Approval payload shop mismatch");
+    prepared = await prepareItemCreation(request.payloadJson);
+    try {
+      embedding = await generateEmbedding(prepared.itemData.name);
+    } catch {
+      embedding = null;
+    }
+  }
+
+  const result = await prisma.$transaction(async (tx) => {
+    const claimed = await tx.approvalRequest.updateMany({
+      where: { id, status: "PENDING" },
+      data: {
+        status,
+        approvedById: user.id,
+        approvedAt: new Date(),
+        rejectedReason: status === "REJECTED" ? rejectedReason : null,
+      },
+    });
+    if (claimed.count !== 1) throw new ApiError(400, "Request is already processed");
+
+    let created = null;
+    if (status === "APPROVED") {
+      const requestedBy = await tx.user.findUnique({
+        where: { id: request.requestedById },
+        select: { id: true, role: true },
+      });
+      if (!requestedBy) throw new ApiError(400, "Requesting staff member no longer exists");
+      created = await createItemRecord(tx, {
+        ...prepared,
+        embedding,
+        requestedBy,
+        approvedById: user.id,
+      });
+    }
+
+    const updated = await tx.approvalRequest.findUnique({ where: { id } });
+    await tx.auditLog.create({
+      data: {
+        userId: user.id,
+        shopId: request.shopId,
+        action: status === "APPROVED" ? AuditAction.APPROVED : AuditAction.REJECTED,
+        entityType: EntityType.APPROVAL_REQUEST,
+        entityId: id,
+        oldValueJson: request,
+        newValueJson: updated,
+        reason: rejectedReason,
+      },
+    });
+    await enqueueDomainEvent(tx, createDomainEvent({
+      shopId: request.shopId,
+      entity: "approval",
+      action: status.toLowerCase(),
+      entityId: id,
+      actorUserId: user.id,
+      actorRole: user.role,
+      visibility: { owners: false, staff: false, targetUserIds: [request.requestedById] },
+      notification: {
+        sendPush: true,
+        title: status === "APPROVED" ? "Product request approved" : "Product request rejected",
+        body: status === "APPROVED"
+          ? `${request.payloadJson.name} and its opening stock were added to the catalog.`
+          : `${request.payloadJson.name} was not added${rejectedReason ? `: ${rejectedReason}` : "."}`,
+        severity: status === "APPROVED" ? "success" : "warning",
+        deepLink: `stock://approvals/${id}`,
+      },
+    }));
+    return { approval: updated, created };
+  });
+
+  if (result.created?.event) await bestEffortInvalidateForDomainEvent(result.created.event);
+  await invalidateDomainReadCache({ shopId: request.shopId, domains: ["approvals", "items"] });
+  return {
+    ...result.approval,
+    item: result.created?.item
+      ? { ...result.created.item, bundleComponents: formatBundleComponents(result.created.item.bundleComponents) }
+      : undefined,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1173,7 +1305,9 @@ export async function batchDeleteItems(user, { shopId, itemIds }) {
 
 export async function uploadItemImage(user, data, file) {
   await assertShopAccess(user, data.shopId);
-  assertCanManageItems(user);
+  if (user.role !== "OWNER" && data.itemId) {
+    throw new ApiError(403, "Staff can upload photos only for new product requests");
+  }
 
   let categoryPath = "uncategorised";
   if (data.categoryId) {

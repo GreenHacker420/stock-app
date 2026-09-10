@@ -2,7 +2,7 @@ import { Router } from "express";
 import { z } from "zod";
 import * as itemController from "../controllers/item.controller.js";
 import { requireAuth } from "../middleware/auth.middleware.js";
-import { requirePermission } from "../middleware/rbac.middleware.js";
+import { requireAnyPermission, requirePermission } from "../middleware/rbac.middleware.js";
 import { validate } from "../middleware/validate.js";
 import { PERMISSIONS } from "../utils/permissions.js";
 import multer from "multer";
@@ -150,10 +150,15 @@ router.delete("/brands/:id", requirePermission(PERMISSIONS.ITEM_UPDATE), validat
 
 // ITEMS
 router.get("/", requirePermission(PERMISSIONS.ITEM_VIEW), validate(listSchema), itemController.listItems);
-router.post("/", requirePermission(PERMISSIONS.ITEM_CREATE), validate(createItemSchema), itemController.createItem);
+router.post(
+  "/",
+  requireAnyPermission(PERMISSIONS.ITEM_CREATE, PERMISSIONS.ITEM_CREATE_REQUEST),
+  validate(createItemSchema),
+  itemController.createItem,
+);
 router.post(
   "/image",
-  requirePermission(PERMISSIONS.ITEM_CREATE),
+  requireAnyPermission(PERMISSIONS.ITEM_CREATE, PERMISSIONS.ITEM_CREATE_REQUEST),
   imageUpload.single("file"),
   validate(uploadItemImageSchema),
   itemController.uploadItemImage,

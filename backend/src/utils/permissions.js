@@ -10,6 +10,7 @@ export const PERMISSIONS = {
   CUSTOMER_UPDATE: "customer:update",
 
   ITEM_CREATE: "item:create",
+  ITEM_CREATE_REQUEST: "item:create_request",
   ITEM_VIEW: "item:view",
   ITEM_UPDATE: "item:update",
 
@@ -70,7 +71,8 @@ export const STAFF_PERMISSIONS = [
   PERMISSIONS.CUSTOMER_VIEW,
   PERMISSIONS.CUSTOMER_CREATE,
   PERMISSIONS.ITEM_VIEW,          // staff can VIEW catalog
-  // ITEM_CREATE and ITEM_UPDATE intentionally excluded – owner only
+  PERMISSIONS.ITEM_CREATE_REQUEST, // staff submissions require owner approval
+  // ITEM_CREATE and ITEM_UPDATE intentionally excluded – direct catalog writes are owner only
   PERMISSIONS.STOCK_VIEW,
   PERMISSIONS.STOCK_CREATE_MOVEMENT, // routed through approval in bulkStockEntry
   PERMISSIONS.CASH_SESSION_OPEN,

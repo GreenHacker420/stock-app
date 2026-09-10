@@ -582,7 +582,7 @@ const sharedStackScreens = {
     options: { title: "Items" },
   },
   AddEditItem: {
-    screen: ownerOnlyScreen(AddEditItem),
+    screen: AddEditItem,
     options: { title: "Add/edit item" },
   },
   ItemDetail: {

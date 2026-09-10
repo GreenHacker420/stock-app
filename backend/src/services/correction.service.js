@@ -1,7 +1,7 @@
 import prisma from "../lib/db.js";
 import { ApiError } from "../utils/ApiError.js";
 import { EntityType, ApprovalType, AuditAction } from "../generated/prisma/index.js";
-import { createApprovalRequest } from "./approval.service.js";
+import { createApprovalRequest } from "./approval-request.service.js";
 import { assertShopAccess } from "../middleware/shopAccess.middleware.js";
 import { reverseLedgerEntry } from "./customer-ledger.service.js";
 import { createDomainEvent, enqueueManyDomainEvents, enqueueDomainEvent } from "./domain-event.service.js";

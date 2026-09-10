@@ -835,15 +835,13 @@ export function ItemList() {
                   icon="package-variant-closed"
                   title="No items found"
                   subtitle="Adjust filters or add a new product."
-                  action={
-                    isOwner ? (
-                      <Button
-                        label="Add Product"
-                        icon="plus"
-                        onPress={() => navigate("AddEditItem", search.trim() ? { initialName: search.trim() } : undefined)}
-                      />
-                    ) : undefined
-                  }
+                  action={(
+                    <Button
+                      label={isOwner ? "Add Product" : "Request Product"}
+                      icon="plus"
+                      onPress={() => navigate("AddEditItem", search.trim() ? { initialName: search.trim() } : undefined)}
+                    />
+                  )}
                 />
               )
             }
@@ -853,7 +851,7 @@ export function ItemList() {
       )}
 
       {/* FAB */}
-      {isOwner && !hasPendingDrafts && (
+      {!hasPendingDrafts && (
         <Pressable
           onPress={() => navigate("AddEditItem", search.trim() ? { initialName: search.trim() } : undefined)}
           style={({ pressed }) => [

@@ -1,10 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useAuthStore } from "../auth/auth-store";
 import { useShopStore } from "../auth/shop-store";
-import { apiRequest, fetchNotifications, Notification } from "../api/client";
+import { apiRequest } from "../api/client";
 import { refreshReadModelDomains } from "../local/read-model/read-model-coordinator";
 
 export const GENERIC_APPROVAL_SUPPORTED_TYPES = new Set([
+  "ITEM_CREATION",
   "STOCK_ENTRY",
   "STOCK_ADJUSTMENT",
   "STOCK_REQUEST",
@@ -204,54 +205,9 @@ export function useStaffApprovalsQuery() {
         }
       }
 
-      // 2. If STAFF, query /notifications (since /approvals is 403 for Staff)
+      // 2. Staff can read only their own approval requests.
       try {
-        const notifs = await fetchNotifications(token, { shopId: activeShopId });
-        const requests = (notifs || []).filter((n: Notification) => {
-          const ev = (n.triggerEvent || "").toUpperCase();
-          const msg = (n.message || "").toLowerCase();
-          const ent = (n.entityType || "").toUpperCase();
-
-          return (
-            ev.includes("STOCK") ||
-            ev.includes("REQUEST") ||
-            ev.includes("APPROVAL") ||
-            ev.includes("CORRECTION") ||
-            ev.includes("RATE") ||
-            ent.includes("STOCK") ||
-            ent.includes("APPROVAL") ||
-            msg.includes("stock") ||
-            msg.includes("request") ||
-            msg.includes("approval") ||
-            msg.includes("restock") ||
-            msg.includes("bulk")
-          );
-        }).map((n: Notification) => {
-          const msgLower = (n.message || "").toLowerCase();
-          const isApproved = msgLower.includes("approved") || n.triggerEvent === "APPROVAL_RESOLVED";
-          const isRejected = msgLower.includes("rejected");
-          const status = isApproved ? "APPROVED" : isRejected ? "REJECTED" : "PENDING";
-
-          // Extract request type from message brackets e.g. "(STOCK_ENTRY)" -> "STOCK_ENTRY"
-          let requestType = "STOCK_ENTRY";
-          const bracketMatch = n.message.match(/\(([A-Z_]+)\)/);
-          if (bracketMatch && bracketMatch[1]) {
-            requestType = bracketMatch[1];
-          } else if (n.triggerEvent && n.triggerEvent !== "APPROVAL_REQUESTED" && n.triggerEvent !== "APPROVAL_RESOLVED") {
-            requestType = n.triggerEvent;
-          }
-
-          return {
-            id: n.id,
-            type: requestType,
-            action: requestType,
-            status,
-            createdAt: n.createdAt,
-            reason: n.message,
-            payloadJson: (n as any).metadata || (n as any).payloadJson || (n as any).requestedChangeJson || {},
-            requestedBy: { name: user?.name || "Staff" },
-          };
-        });
+        const requests = await apiRequest<any[]>(`/approvals?shopId=${activeShopId}`, { token });
 
         if (activeShopId) writeVerificationsSnapshot(activeShopId, user?.role || "STAFF", requests);
         return requests;

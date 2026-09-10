@@ -263,6 +263,7 @@ enum ApprovalStatus {
 }
 
 enum ApprovalType {
+  ITEM_CREATION
   STOCK_ENTRY
   STOCK_ADJUSTMENT
   DAMAGE_ENTRY

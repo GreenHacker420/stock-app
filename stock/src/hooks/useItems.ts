@@ -230,7 +230,12 @@ export function useCreateItemMutation() {
   return useMutation({
     mutationFn: (data: Omit<CreateItemPayload, "shopId">) =>
       createItem(token ?? "", { ...data, shopId: requireActiveShopId(activeShopId) }),
-    onSuccess: async () => {
+    onSuccess: async (result) => {
+      if ("isRequest" in result && result.isRequest) {
+        queryClient.invalidateQueries({ queryKey: ["staff-verifications", activeShopId] });
+        queryClient.invalidateQueries({ queryKey: ["verifications", activeShopId] });
+        return;
+      }
       queryClient.invalidateQueries({ queryKey: ["items"] });
       if (activeShopId) {
         queryClient.invalidateQueries({ queryKey: ["item-summary", activeShopId] });

@@ -8,7 +8,6 @@ import { z } from "zod";
 const router = Router();
 
 router.use(requireAuth);
-router.use(requireOwner);
 
 const querySchema = z.object({
   query: z.object({
@@ -34,8 +33,8 @@ const bulkRespondSchema = z.object({
 });
 
 router.get("/", validate(querySchema), approvalController.listRequests);
-router.post("/bulk-respond", validate(bulkRespondSchema), approvalController.bulkRespond);
+router.post("/bulk-respond", requireOwner, validate(bulkRespondSchema), approvalController.bulkRespond);
 router.get("/:id", approvalController.getRequest);
-router.post("/:id/respond", validate(respondSchema), approvalController.respond);
+router.post("/:id/respond", requireOwner, validate(respondSchema), approvalController.respond);
 
 export default router;

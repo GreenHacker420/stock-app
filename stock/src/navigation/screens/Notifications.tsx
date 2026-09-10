@@ -478,6 +478,17 @@ export function Notifications() {
       return renderStockDetails(item);
     }
 
+    if (approvalType === "ITEM_CREATION") {
+      return (
+        <View style={styles.genericBody}>
+          <Text style={styles.actionText}>{payload.name || "New product"}</Text>
+          <Text style={styles.notes}>
+            SKU: {payload.sku || "None"} · Opening stock: {Number(payload.initialStock || 0)} {payload.unit || "pcs"}
+          </Text>
+        </View>
+      );
+    }
+
     if (approvalType.includes("RATE") || approvalType.includes("PRICE")) {
       const targetId = item.itemId || payload.itemId;
       const itemObj = targetId ? itemsMap.get(targetId) : null;

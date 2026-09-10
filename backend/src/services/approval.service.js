@@ -6,63 +6,25 @@ import { createDomainEvent, enqueueDomainEvent, enqueueManyDomainEvents } from "
 import { EntityType, AuditAction } from "../generated/prisma/index.js";
 import * as rateChangeService from "./rateChange.service.js";
 import * as correctionService from "./correction.service.js";
+import * as itemService from "./item.service.js";
 import { readThroughDomainCache, invalidateDomainReadCache } from "../cache/domain-read-cache.js";
-
-export async function createApprovalRequest(tx, { shopId, type, entityType, entityId, payloadJson, reason, requestedById, targetAdminId }) {
-  const request = await tx.approvalRequest.create({
-    data: {
-      shopId,
-      type,
-      entityType,
-      entityId,
-      payloadJson,
-      reason,
-      requestedById,
-      status: "PENDING",
-    },
-    include: { requestedBy: { select: { id: true, name: true } } },
-  });
-
-  const visibility = targetAdminId
-    ? { owners: false, staff: false, targetUserIds: [targetAdminId] }
-    : { owners: true, staff: false };
-
-  await enqueueDomainEvent(tx, createDomainEvent({
-    shopId,
-    entity: "approval",
-    action: "created",
-    entityId: request.id,
-    actorUserId: requestedById,
-    actorRole: "STAFF",
-    visibility,
-    notification: {
-      sendPush: true,
-      title: "New approval request",
-      body: `New approval request (${type}) from ${request.requestedBy.name}`,
-      severity: "warning",
-      deepLink: `stock://approvals/${request.id}`,
-    },
-  }));
-
-  await invalidateDomainReadCache({ shopId, domains: ["approvals"] });
-
-  return request;
-}
+export { createApprovalRequest } from "./approval-request.service.js";
 
 export async function listApprovalRequests(user, { shopId, status, type }) {
   await assertShopAccess(user, shopId);
-  if (user.role !== "OWNER") throw new ApiError(403, "Owner access required");
+  const requestedById = user.role === "OWNER" ? undefined : user.id;
 
   return readThroughDomainCache({
     shopId,
     domain: "approvals",
-    query: { status, type },
+    query: { status, type, requestedById },
     loader: () =>
       prisma.approvalRequest.findMany({
         where: {
           shopId,
           status: status || undefined,
           type: type || undefined,
+          requestedById,
         },
         include: {
           requestedBy: { select: { id: true, name: true } },
@@ -84,7 +46,9 @@ export async function getApprovalRequest(user, id) {
 
   if (!request) throw new ApiError(404, "Approval request not found");
   await assertShopAccess(user, request.shopId);
-  if (user.role !== "OWNER") throw new ApiError(403, "Owner access required");
+  if (user.role !== "OWNER" && request.requestedById !== user.id) {
+    throw new ApiError(403, "You can only view your own approval requests");
+  }
 
   return request;
 }
@@ -95,6 +59,11 @@ export async function respondToRequest(user, id, { status, rejectedReason }) {
   const request = await prisma.approvalRequest.findUnique({ where: { id } });
   if (!request) throw new ApiError(404, "Request not found");
   if (request.status !== "PENDING") throw new ApiError(400, "Request is already processed");
+  await assertShopAccess(user, request.shopId);
+
+  if (request.type === "ITEM_CREATION") {
+    return itemService.respondToItemCreationRequest(user, id, { status, rejectedReason });
+  }
 
   if (request.type === "RATE_CHANGE") {
     const res = status === "APPROVED"

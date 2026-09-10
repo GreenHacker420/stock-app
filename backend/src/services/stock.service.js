@@ -4,7 +4,7 @@ import { ApiError } from "../utils/ApiError.js";
 import { writeAuditLog } from "../utils/auditLog.js";
 import { notifyShopOwner } from "./notification.service.js";
 import { qty, ZERO } from "../utils/money.js";
-import { createApprovalRequest } from "./approval.service.js";
+import { createApprovalRequest } from "./approval-request.service.js";
 import { EntityType, AuditAction } from "../generated/prisma/index.js";
 import { createDomainEvent, enqueueDomainEvent, enqueueManyDomainEvents } from "./domain-event.service.js";
 

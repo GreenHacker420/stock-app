@@ -62,6 +62,8 @@ export function AddEditItem() {
   const navigation = useNavigation<any>();
   const params = route.params as AddEditItemRouteParams | undefined;
   const itemId = params?.itemId;
+  const user = useAuthStore((s) => s.user);
+  const isOwner = user?.role === "OWNER";
 
   const categoriesQuery = useCategoriesQuery();
   const categories: ItemCategory[] = categoriesQuery.data ?? [];
@@ -70,7 +72,7 @@ export function AddEditItem() {
   const itemsQuery = useItemsQuery({ limit: 500 });
   const availableItems: Item[] = itemsQuery.data?.items ?? [];
 
-  const itemQuery = useItemQuery(itemId, { enabled: !!itemId });
+  const itemQuery = useItemQuery(itemId, { enabled: !!itemId && isOwner });
   const existingItem = itemQuery.data;
 
   const createMutation = useCreateItemMutation();
@@ -697,8 +699,16 @@ export function AddEditItem() {
           ...basePayload,
           initialStock: initialStock ?? 0,
         };
-        await createMutation.mutateAsync(payload);
+        const createResult = await createMutation.mutateAsync(payload);
         savedRef.current = true;
+        if ("isRequest" in createResult && createResult.isRequest) {
+          Alert.alert(
+            "Submitted for Approval",
+            `${basePayload.name} and ${initialStock ?? 0} ${basePayload.unit} opening stock will be created together after owner approval.`,
+            [{ text: "OK", onPress: afterSuccess || goBack }],
+          );
+          return true;
+        }
         if (afterSuccess) {
           afterSuccess();
         } else {
@@ -829,6 +839,20 @@ export function AddEditItem() {
     );
   }
 
+  if (itemId && !isOwner) {
+    return (
+      <Screen edges={["top", "left", "right"]}>
+        <AppHeader title="Access Denied" fallbackRoute="ItemList" />
+        <EmptyState
+          icon="lock-outline"
+          title="Owner approval required"
+          subtitle="Staff can request new products, but only owners can edit existing catalog items."
+          action={<Button label="Back to Catalog" onPress={() => navigate("ItemList")} />}
+        />
+      </Screen>
+    );
+  }
+
   if (itemId && itemQuery.isError) {
     return (
       <Screen edges={["top", "left", "right"]}>
@@ -870,8 +894,8 @@ export function AddEditItem() {
   return (
     <Screen edges={["top", "left", "right"]}>
       <AppHeader
-        title={existingItem ? "Edit Product" : "New Product"}
-        subtitle={existingItem ? "Update product details" : "Add to your catalogue"}
+        title={existingItem ? "Edit Product" : isOwner ? "New Product" : "Request Product"}
+        subtitle={existingItem ? "Update product details" : isOwner ? "Add to your catalogue" : "Submit product and opening stock for approval"}
         fallbackRoute="ItemList"
         onBack={() => requestLeave(goBack)}
         onRequestShopSwitch={requestShopSwitch}
@@ -1063,7 +1087,9 @@ export function AddEditItem() {
                 <View style={styles.aeiInfoTip}>
                   <Icon source="information-outline" size={14} color={colors.info} />
                   <Text style={styles.aeiInfoTipText}>
-                    Enter the starting stock quantity here to initialize it directly.
+                    {isOwner
+                      ? "Enter the starting stock quantity here to initialize it directly."
+                      : "Opening stock will be created with the product after owner approval."}
                   </Text>
                 </View>
               </>
@@ -1162,13 +1188,13 @@ export function AddEditItem() {
 
           <View style={styles.saveButtonsRow}>
             <Button
-              label={existingItem ? "Save Changes" : "Create Product"}
+              label={existingItem ? "Save Changes" : isOwner ? "Create Product" : "Request Approval"}
               onPress={() => handleSave(false)}
               loading={isPending}
               disabled={!isValid || isPending}
               style={{ flex: 1 }}
             />
-            {!existingItem && (
+            {!existingItem && isOwner && (
               <Button
                 label="Save & Add Another"
                 onPress={() => handleSave(true)}
@@ -1190,7 +1216,7 @@ export function AddEditItem() {
           setShowCatPicker(false);
         }}
         onDismiss={() => setShowCatPicker(false)}
-        onCreateNew={async (name) => {
+        onCreateNew={isOwner ? async (name) => {
           try {
             const newCat = await createCategoryMutation.mutateAsync(name);
             setForm((f) => ({ ...f, categoryId: newCat.id }));
@@ -1198,7 +1224,7 @@ export function AddEditItem() {
           } catch (err: any) {
             Alert.alert("Failed to Create Category", err?.message || "Something went wrong.");
           }
-        }}
+        } : undefined}
       />
 
       <BrandPickerSheet
@@ -1210,7 +1236,7 @@ export function AddEditItem() {
           setShowBrandPicker(false);
         }}
         onDismiss={() => setShowBrandPicker(false)}
-        onCreateNew={async (name) => {
+        onCreateNew={isOwner ? async (name) => {
           try {
             const newBrand = await createBrandMutation.mutateAsync(name);
             setForm((f) => ({ ...f, brandId: newBrand.id }));
@@ -1218,7 +1244,7 @@ export function AddEditItem() {
           } catch (err: any) {
             Alert.alert("Failed to Create Brand", err?.message || "Something went wrong.");
           }
-        }}
+        } : undefined}
       />
 
       <Modal visible={scannerVisible} animationType="slide" onRequestClose={() => setScannerVisible(false)}>

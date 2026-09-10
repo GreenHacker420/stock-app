@@ -119,6 +119,7 @@ export function VerificationQueue() {
               const approvalType = item.type || item.action || item.entityType || "APPROVAL";
               const canApproveHere = GENERIC_APPROVAL_SUPPORTED_TYPES.has(approvalType);
               const isStockType = approvalType.includes("STOCK") || approvalType.includes("DAMAGE");
+              const isItemCreation = approvalType === "ITEM_CREATION";
 
               return (
                 <VerificationCard
@@ -150,7 +151,14 @@ export function VerificationQueue() {
                     </>
                   ) : undefined}
                 >
-                  {isStockType ? renderStockEntryDetails(item) : (
+                  {isStockType ? renderStockEntryDetails(item) : isItemCreation ? (
+                    <View style={styles.genericBody}>
+                      <Text style={styles.actionText}>{item.payloadJson?.name || "New product"}</Text>
+                      <Text style={styles.notes}>
+                        SKU: {item.payloadJson?.sku || "None"} · Opening stock: {Number(item.payloadJson?.initialStock || 0)} {item.payloadJson?.unit || "pcs"}
+                      </Text>
+                    </View>
+                  ) : (
                     <View style={styles.genericBody}>
                       <Text style={styles.actionText}>{approvalType.replace(/_/g, " ")}</Text>
                     </View>

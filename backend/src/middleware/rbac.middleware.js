@@ -21,6 +21,18 @@ export const requirePermission = (...requiredPermissions) => (req, _res, next) =
   return next();
 };
 
+export const requireAnyPermission = (...allowedPermissions) => (req, _res, next) => {
+  if (!req.user) {
+    return next(new ApiError(401, "Authentication required"));
+  }
+
+  if (req.user.role === "OWNER" || allowedPermissions.some((permission) => req.user.permissions.includes(permission))) {
+    return next();
+  }
+
+  return next(new ApiError(403, "You do not have permission for this action"));
+};
+
 export const requireOwner = (req, _res, next) => {
   if (!req.user) {
     return next(new ApiError(401, "Authentication required"));
