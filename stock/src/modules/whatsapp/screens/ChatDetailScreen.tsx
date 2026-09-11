@@ -328,6 +328,7 @@ export const ChatDetailScreen = () => {
     integrationId,
   } = useWhatsAppScope();
   const token = useAuthStore((state) => state.token);
+  const role = useAuthStore((state) => state.user?.role);
   const queryClient = useQueryClient();
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
@@ -430,12 +431,13 @@ export const ChatDetailScreen = () => {
     if (navigation.canGoBack()) {
       navigation.goBack();
     } else {
-      navigation.navigate("WhatsAppChats", {
-        shopId: activeShopId,
-        integrationId,
-      });
+      if (role === "OWNER") {
+        navigation.navigate("OwnerTabs" as any, { screen: "WhatsApp" });
+      } else {
+        navigation.navigate("StaffTabs" as any, { screen: "StaffHome" });
+      }
     }
-  }, [navigation, activeShopId, integrationId]);
+  }, [navigation, role]);
 
   useEffect(() => {
     const onHardwareBack = () => {

@@ -39,10 +39,10 @@ let registrationInFlight: Promise<string | null> | null = null;
 
 setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldShowBanner: true,
+    shouldShowAlert: false,
+    shouldShowBanner: false,
     shouldShowBadge: true,
-    shouldPlaySound: true,
+    shouldPlaySound: false,
     shouldSetBadge: false,
     shouldShowList: true,
   }),
@@ -136,7 +136,6 @@ export const FCMManager = {
           importance: AndroidImportance.MAX,
           vibrationPattern: [0, 500, 200, 500],
           lightColor: "#F59E0B",
-          sound: "default",
           enableLights: true,
           enableVibrate: true,
           showBadge: true,

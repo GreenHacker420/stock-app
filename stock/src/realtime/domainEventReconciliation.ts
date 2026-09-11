@@ -1,6 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query";
 import { apiRequest } from "../api/client";
-import { handleDomainEvent, type DomainEvent } from "./domainEvents";
+import { handleDomainEvent, invalidateForDomainEventsBatch, type DomainEvent } from "./domainEvents";
 import { getDomainEventCursor, setDomainEventCursor } from "./domainEventCursor";
 import {
   getReadModelReconciliationCursor,
@@ -120,13 +120,20 @@ async function runReconciliation(
 
       console.log("[reconcile] processing", events.length, "events for shop", shopId, "cursor:", cursor ?? "none");
 
+      const handledEvents: DomainEvent[] = [];
       for (const event of events) {
         if (event?.shopId !== shopId) continue;
         if (event.entity === "waMessage" || event.entity === "waConversation") {
           await persistWhatsAppDomainEvent(event);
         }
-        handleDomainEvent(queryClient, event, currentDeviceId);
+        const handled = handleDomainEvent(queryClient, event, currentDeviceId, { skipInvalidation: true });
+        if (handled) {
+          handledEvents.push(event);
+        }
       }
+
+      // Invalidate distinct queries affected by this batch ONCE to avoid refetch storms
+      invalidateForDomainEventsBatch(queryClient, handledEvents);
 
       const domains = getReadModelDomainsForBatch(events.filter((event) => event?.shopId === shopId));
       if (domains.length > 0) {

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import test from "node:test";
 
 const expectedMounts = [
@@ -28,12 +29,15 @@ const expectedMounts = [
 ];
 
 test("registers every application router through the central route registry", async () => {
-  const source = await readFile(new URL("../routes/index.js", import.meta.url), "utf8");
+  const routeIndexPath = existsSync(new URL("../routes/index.ts", import.meta.url))
+    ? new URL("../routes/index.ts", import.meta.url)
+    : new URL("../routes/index.js", import.meta.url);
+  const source = await readFile(routeIndexPath, "utf8");
 
   for (const prefix of expectedMounts) {
     assert.match(source, new RegExp(`\\["${prefix.replaceAll("/", "\\/")}",\\s*\\w+Routes\\]`));
   }
-  assert.match(source, /export function mountAppRoutes\(app\)/);
+  assert.match(source, /export function mountAppRoutes\(app(?::\s*Application)?\)/);
   assert.match(source, /app\.use\(prefix, router\)/);
 });
 

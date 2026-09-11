@@ -284,7 +284,12 @@ export function invalidateForDomainEvent(queryClient: QueryClient, event: Domain
   }
 }
 
-export function handleDomainEvent(queryClient: QueryClient, event: DomainEvent, currentDeviceId?: string | null) {
+export function handleDomainEvent(
+  queryClient: QueryClient,
+  event: DomainEvent,
+  currentDeviceId?: string | null,
+  options?: { skipInvalidation?: boolean },
+) {
   if (!event?.eventId || hasSeenDomainEvent(event.eventId)) return false;
 
   // Skip processing if event was originated by the current device to avoid duplicate local updates
@@ -298,6 +303,98 @@ export function handleDomainEvent(queryClient: QueryClient, event: DomainEvent, 
     return false;
   }
 
-  invalidateForDomainEvent(queryClient, event);
+  if (event.entity === "waMessage" || event.entity === "waConversation") {
+    patchWhatsAppEvent(queryClient, event);
+    return true;
+  }
+
+  if (!options?.skipInvalidation) {
+    invalidateForDomainEvent(queryClient, event);
+  }
   return true;
+}
+
+export function invalidateForDomainEventsBatch(queryClient: QueryClient, events: DomainEvent[]) {
+  if (!events.length) return;
+  const uniqueKeyMap = new Map<string, unknown[]>();
+  const addKey = (key: unknown[]) => {
+    uniqueKeyMap.set(JSON.stringify(key), key);
+  };
+
+  for (const event of events) {
+    const shopId = event.shopId;
+    if (event.entity === "sale") {
+      addKey(["sales", shopId]);
+      addKey(["sale", event.entityId]);
+      addKey(["owner-dashboard", { shopId }]);
+      addKey(["staff-today-summary", shopId]);
+      addKey(["customers", shopId]);
+    } else if (event.entity === "payment") {
+      addKey(["payments", shopId]);
+      addKey(["owner-dashboard", { shopId }]);
+      addKey(["staff-today-summary", shopId]);
+      addKey(["customers", shopId]);
+      addKey(["current-cash-session", shopId]);
+      addKey(["cash-sessions", shopId]);
+    } else if (event.entity === "customerLedgerEntry" || event.entity === "customer") {
+      addKey(["customer-ledger"]);
+      addKey(["customer-ledger-summary"]);
+      addKey(["customer-outstanding"]);
+      addKey(["customers", shopId]);
+      if (event.entity === "customer") addKey(["customer", event.entityId]);
+    } else if (event.entity === "stock" || event.entity === "item") {
+      addKey(["items", shopId]);
+      addKey(["current-stock", shopId]);
+      addKey(["stock-movements", shopId]);
+      addKey(["owner-dashboard", { shopId }]);
+    } else if (event.entity === "category") {
+      addKey(["categories", shopId]);
+      addKey(["items", shopId]);
+    } else if (event.entity === "shop" || event.entity === "staff") {
+      addKey(["shops"]);
+      addKey(["me"]);
+      if (event.entity === "staff") addKey(["staff"]);
+    } else if (event.entity === "attendance") {
+      addKey(["attendance"]);
+      addKey(["attendance-infinite"]);
+      addKey(["staff-today-summary", shopId]);
+      addKey(["owner-dashboard", { shopId }]);
+    } else if (event.entity === "expense") {
+      addKey(["expenses", shopId]);
+      addKey(["current-cash-session", shopId]);
+      addKey(["cash-sessions", shopId]);
+      addKey(["owner-dashboard", { shopId }]);
+    } else if (event.entity === "dailySummary") {
+      addKey(["daily-summary"]);
+      addKey(["daily-summaries"]);
+      addKey(["owner-dashboard", { shopId }]);
+    } else if (event.entity === "deliveryMemo") {
+      addKey(["delivery-memos", shopId]);
+      addKey(["owner-dashboard", { shopId }]);
+      addKey(["customers", shopId]);
+    } else if (event.entity === "order") {
+      addKey(["orders", shopId]);
+      addKey(["order", event.entityId]);
+      addKey(["owner-dashboard", { shopId }]);
+    } else if (event.entity === "cashSession") {
+      addKey(["current-cash-session", shopId]);
+      addKey(["cash-sessions", shopId]);
+      addKey(["owner-dashboard", { shopId }]);
+    } else if (event.entity === "approval" || event.entity === "notification") {
+      addKey(["notifications"]);
+      addKey(["verifications", shopId]);
+      addKey(["staff-verifications", shopId]);
+      addKey(["rate-change-requests"]);
+      addKey(["correction-requests"]);
+    }
+
+    for (const key of event.queryKeys || []) {
+      if (key === "dashboard") addKey(["owner-dashboard", { shopId }]);
+      if (key === "notifications") addKey(["notifications"]);
+    }
+  }
+
+  for (const queryKey of uniqueKeyMap.values()) {
+    void queryClient.invalidateQueries({ queryKey });
+  }
 }

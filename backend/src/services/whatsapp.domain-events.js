@@ -11,6 +11,7 @@ export async function enqueueWhatsAppDomainEvent(tx, {
   sourceDeviceId = null,
   actorUserId = "system:whatsapp",
   idempotencyKey = null,
+  visibility = { owners: true, staff: false },
   patch,
   notification,
 }) {
@@ -31,6 +32,7 @@ export async function enqueueWhatsAppDomainEvent(tx, {
     integrationId: resolvedIntegration?.id || null,
     phoneNumberId: resolvedIntegration?.phoneNumberId || null,
     conversationId,
+    visibility,
     patch,
     notification,
   });
