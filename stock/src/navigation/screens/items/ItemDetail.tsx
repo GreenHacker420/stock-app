@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { View, StyleSheet, Alert, Dimensions, Pressable, Modal, type LayoutChangeEvent } from "react-native";
 import { Image } from "expo-image";
 import { Text, Divider, Icon } from "react-native-paper";
@@ -74,6 +74,7 @@ export function ItemDetail() {
   const [activeTab, setActiveTab] = useState<ItemDetailTabId>("overview");
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [previewImageUrl, setPreviewImageUrl] = useState<string | null>(null);
+  const [failedImageUrls, setFailedImageUrls] = useState<Set<string>>(() => new Set());
   const insets = useSafeAreaInsets();
 
   const [cardLayout, setCardLayout] = useState<{ y: number; height: number } | null>(null);
@@ -225,10 +226,28 @@ export function ItemDetail() {
 
   const stockData = stockQuery.data as ItemStockResponse | undefined;
   const itemData = stockData?.item;
-  const imageUrls = useMemo(() => {
+  const rawImageUrls = useMemo(() => {
     if (!itemData?.imageUrl) return [];
     return itemData.imageUrl.split(",").filter(Boolean);
   }, [itemData?.imageUrl]);
+  const imageUrls = useMemo(
+    () => rawImageUrls.filter((url) => !failedImageUrls.has(url)),
+    [failedImageUrls, rawImageUrls],
+  );
+
+  useEffect(() => {
+    setFailedImageUrls(new Set());
+    setActiveImageIndex(0);
+  }, [itemData?.imageUrl]);
+
+  const handleImageError = (url: string) => {
+    setFailedImageUrls((current) => {
+      if (current.has(url)) return current;
+      const next = new Set(current);
+      next.add(url);
+      return next;
+    });
+  };
   const physicalStock = stockData?.currentStock ?? 0;
   const reservedStock = stockData?.reservedStock ?? 0;
   const availableStock = stockData?.availableStock ?? 0;
@@ -352,6 +371,7 @@ export function ItemDetail() {
           scrollY={scrollY}
           targetLayout={targetLayout}
           onImagePress={setPreviewImageUrl}
+          onImageError={handleImageError}
         />
 
         <View onLayout={onCardLayout}>

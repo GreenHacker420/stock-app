@@ -13,9 +13,10 @@ type CachedThumbnailProps = {
   fallbackIcon?: string;
   color: string;
   style?: StyleProp<ViewStyle>;
+  onError?: () => void;
 };
 
-export function CachedThumbnail({ uri, fallbackText, fallbackIcon, color, style }: CachedThumbnailProps) {
+export function CachedThumbnail({ uri, fallbackText, fallbackIcon, color, style, onError }: CachedThumbnailProps) {
   const token = useAuthStore((state) => state.token);
   const [failed, setFailed] = useState(false);
   const resolvedUri = uri
@@ -41,7 +42,10 @@ export function CachedThumbnail({ uri, fallbackText, fallbackIcon, color, style 
           cachePolicy="memory-disk"
           transition={120}
           recyclingKey={resolvedUri}
-          onError={() => setFailed(true)}
+          onError={() => {
+            setFailed(true);
+            onError?.();
+          }}
         />
       ) : fallbackIcon ? (
         <Icon source={fallbackIcon} size={28} color={color} />

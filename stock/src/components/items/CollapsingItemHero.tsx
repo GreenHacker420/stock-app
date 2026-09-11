@@ -1,15 +1,14 @@
 import { View, StyleSheet, ScrollView, Dimensions, Pressable } from "react-native";
-import { Image } from "expo-image";
 import Animated, {
   useAnimatedStyle,
   interpolate,
   Extrapolation,
   SharedValue,
 } from "react-native-reanimated";
+import { Icon, Text } from "react-native-paper";
 
-import { spacing } from "../../theme";
-
-const AnimatedExpoImage = Animated.createAnimatedComponent(Image);
+import { colors, fontSize, fontWeight, spacing } from "../../theme";
+import { CachedThumbnail } from "../ui/CachedThumbnail";
 
 type CollapsingItemHeroProps = {
   imageUrls: string[];
@@ -18,6 +17,7 @@ type CollapsingItemHeroProps = {
   scrollY: SharedValue<number>;
   targetLayout: { x: number; y: number; width: number; height: number } | null;
   onImagePress: (url: string) => void;
+  onImageError: (url: string) => void;
 };
 
 
@@ -32,6 +32,7 @@ export function CollapsingItemHero({
   scrollY,
   targetLayout,
   onImagePress,
+  onImageError,
 }: CollapsingItemHeroProps) {
   const screenWidth = Dimensions.get("window").width;
 
@@ -51,7 +52,15 @@ export function CollapsingItemHero({
   });
 
   if (imageUrls.length === 0) {
-    return null;
+    return (
+      <View style={styles.emptyHero} accessibilityLabel="No product image available">
+        <View style={styles.emptyIcon}>
+          <Icon source="package-variant-closed" size={34} color={colors.textMuted} />
+        </View>
+        <Text style={styles.emptyTitle}>No product image</Text>
+        <Text style={styles.emptySubtitle}>Image unavailable</Text>
+      </View>
+    );
   }
 
   return (
@@ -83,7 +92,14 @@ export function CollapsingItemHero({
                 pressed && { opacity: 0.9 },
               ]}
             >
-              <Image source={{ uri: url }} style={styles.carouselImage} contentFit="cover" />
+              <CachedThumbnail
+                uri={url}
+                fallbackText="No image"
+                fallbackIcon="package-variant-closed"
+                color={colors.textMuted}
+                style={styles.carouselImage}
+                onError={() => onImageError(url)}
+              />
             </Pressable>
           ))}
         </ScrollView>
@@ -126,6 +142,31 @@ const styles = StyleSheet.create({
   carouselImage: {
     width: "100%",
     height: "100%",
+  },
+  emptyHero: {
+    height: HERO_HEIGHT,
+    width: "100%",
+    backgroundColor: colors.surfaceOffset,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: spacing.xs,
+  },
+  emptyIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 20,
+    backgroundColor: colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  emptyTitle: {
+    color: colors.textSecondary,
+    fontSize: fontSize.sm,
+    fontWeight: fontWeight.bold,
+  },
+  emptySubtitle: {
+    color: colors.textMuted,
+    fontSize: fontSize.xs,
   },
   dotsRow: {
     position: "absolute",

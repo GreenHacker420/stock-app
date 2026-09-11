@@ -7,7 +7,6 @@ import {
   uploadBuffer,
   createUploadSession,
   getObjectDownloadUrl,
-  getObjectThumbnailUrl,
   verifyObject,
   deleteObject,
 } from "../lib/storage-manager.js";
@@ -535,16 +534,6 @@ export async function streamAssetFile(assetId, res) {
 
   res.setHeader("Cache-Control", "no-store");
 
-  if (asset.storageProvider === "ONEDRIVE") {
-    const thumbnailUrl = await getObjectThumbnailUrl({
-      key: asset.storageKey,
-      provider: asset.storageProvider,
-      externalId: asset.externalId,
-      size: "large",
-    });
-    if (thumbnailUrl) return res.redirect(302, thumbnailUrl);
-  }
-
   const delivery = await getObjectDownloadUrl({
     key: asset.storageKey,
     bucket: asset.storageBucket,
@@ -579,15 +568,6 @@ export async function streamAssetThumbnail(user, { assetId, shopId }, res) {
   }
 
   res.setHeader("Cache-Control", "private, max-age=300");
-  if (asset.storageProvider === "ONEDRIVE") {
-    const thumbnailUrl = await getObjectThumbnailUrl({
-      key: asset.storageKey,
-      provider: asset.storageProvider,
-      externalId: asset.externalId,
-      size: "large",
-    });
-    if (thumbnailUrl) return res.redirect(302, thumbnailUrl);
-  }
 
   const delivery = await getObjectDownloadUrl({
     key: asset.storageKey,

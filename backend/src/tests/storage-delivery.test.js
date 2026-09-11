@@ -41,6 +41,13 @@ test("OneDrive delivery never creates anonymous sharing links", () => {
   assert.ok(!src.includes("/createLink"));
 });
 
+test("asset delivery avoids expiring OneDrive transform thumbnail URLs", () => {
+  const src = read("services/upload.service.js");
+
+  assert.ok(!src.includes("getObjectThumbnailUrl"));
+  assert.ok(src.includes("already-expired mediap.svc.ms thumbnail URL"));
+});
+
 test("public asset route is restricted to ready product images", () => {
   const src = read("services/upload.service.js");
 
