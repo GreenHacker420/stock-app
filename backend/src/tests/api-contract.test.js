@@ -441,7 +441,7 @@ test("expense status enum matches backend", () => {
 });
 
 test("routes index registers all route prefixes", () => {
-  const indexSrc = fs.readFileSync(path.join(ROUTES_DIR, "index.js"), "utf8");
+  const indexSrc = fs.readFileSync(path.join(ROUTES_DIR, "index.ts"), "utf8");
   const expectedPrefixes = [
     '"/auth"', '"/users"', '"/shops"', '"/customers"', '"/items"',
     '"/stock"', '"/cash-sessions"', '"/orders"', '"/sales"',

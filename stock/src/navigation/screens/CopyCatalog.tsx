@@ -14,6 +14,7 @@ import { goBack } from "../navigation-ref";
 import { Shop, fetchCategories, fetchItems, Item } from "../../api/client";
 import { filterAndRankItems } from "../../utils/search";
 import { useAuthStore } from "../../auth/auth-store";
+import { normalizeProductImageUrl } from "../../utils/assetImageUrl";
 
 export function CopyCatalog() {
   const { data: shops, isLoading: loadingShops } = useShopsQuery();
@@ -277,7 +278,7 @@ export function CopyCatalog() {
                       {filteredSourceItems.map((item) => {
                         const isSelected = selectedItemIds.includes(item.id);
                         const firstImageUrl = item.imageUrl
-                          ? item.imageUrl.split(",")[0].trim()
+                          ? normalizeProductImageUrl(item.imageUrl.split(",")[0].trim())
                           : null;
                         return (
                           <Pressable

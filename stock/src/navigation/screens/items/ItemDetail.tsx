@@ -39,6 +39,7 @@ import { colors, spacing, radius, fontSize, fontWeight, shadow } from "../../../
 import { navigate } from "../../navigation-ref";
 import { money } from "../../../utils/items/display";
 import { STOCK_MOVEMENT_PERMISSION, hasPermission } from "../../../utils/items/permissions";
+import { normalizeProductImageUrl } from "../../../utils/assetImageUrl";
 import { ItemDetailRouteParams, ItemStockResponse, PriceChangeHistoryEntry, StockMovementEntry } from "../../../types/items";
 import {
   formatStockMovementQuantity,
@@ -228,7 +229,10 @@ export function ItemDetail() {
   const itemData = stockData?.item;
   const rawImageUrls = useMemo(() => {
     if (!itemData?.imageUrl) return [];
-    return itemData.imageUrl.split(",").filter(Boolean);
+    return itemData.imageUrl
+      .split(",")
+      .filter(Boolean)
+      .map(normalizeProductImageUrl);
   }, [itemData?.imageUrl]);
   const imageUrls = useMemo(
     () => rawImageUrls.filter((url) => !failedImageUrls.has(url)),

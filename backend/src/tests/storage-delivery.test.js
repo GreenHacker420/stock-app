@@ -45,7 +45,26 @@ test("asset delivery avoids expiring OneDrive transform thumbnail URLs", () => {
   const src = read("services/upload.service.js");
 
   assert.ok(!src.includes("getObjectThumbnailUrl"));
-  assert.ok(src.includes("already-expired mediap.svc.ms thumbnail URL"));
+  assert.ok(src.includes("getObjectDownloadUrl"));
+});
+
+test("Cloudflare asset origin resolves OneDrive URLs just in time", () => {
+  const service = read("services/media-origin.service.ts");
+  const routes = read("routes/media-origin.routes.ts");
+
+  assert.ok(service.includes("getObjectDownloadUrl"));
+  assert.ok(service.includes('visibility: "public"'));
+  assert.ok(service.includes("externalId: asset.externalId"));
+  assert.ok(routes.includes("timingSafeEqual"));
+  assert.ok(!service.includes("getOneDriveThumbnailUrl"));
+});
+
+test("asset URL parser keeps product links attached after CDN migration", async () => {
+  const { extractAssetIdsFromImageUrl } = await import("../lib/asset-url.ts");
+  const assetId = "asset-with-special/chars";
+  const cdnUrl = `https://assets.evergreenclassic.in/a/${encodeURIComponent(assetId)}/thumbnail.webp?v=42`;
+
+  assert.deepEqual(extractAssetIdsFromImageUrl(cdnUrl), [assetId]);
 });
 
 test("public asset route is restricted to ready product images", () => {

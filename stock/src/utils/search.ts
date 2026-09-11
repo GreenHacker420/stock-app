@@ -24,7 +24,8 @@ export function calculateMatchScore(
   text: string | null | undefined,
   query: string
 ): SearchScore {
-  if (!text || !query) return { matched: false, score: 0 };
+  if (!query.trim()) return { matched: true, score: 1 };
+  if (!text) return { matched: false, score: 0 };
   const rawText = normalizeSearchText(text);
   const rawQuery = normalizeSearchText(query);
   if (!rawQuery) return { matched: true, score: 1.0 };

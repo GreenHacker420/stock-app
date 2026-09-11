@@ -11,6 +11,7 @@ import {
 } from "react-native";
 import { Text, Icon, TextInput } from "react-native-paper";
 import { Image } from "expo-image";
+import { normalizeProductImageUrl } from "../../../utils/assetImageUrl";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { requestCameraPermissionsAsync, launchCameraAsync, requestMediaLibraryPermissionsAsync, launchImageLibraryAsync } from "expo-image-picker";
@@ -1001,7 +1002,7 @@ export function AddEditItem() {
                 {/* 1. Render currently uploaded images */}
                 {imageUrls.map((url, idx) => (
                   <View key={`uploaded-${idx}`} style={styles.thumbnailWrapper}>
-                    <Image source={{ uri: url }} style={styles.thumbnailImage} />
+                    <Image source={{ uri: normalizeProductImageUrl(url) }} style={styles.thumbnailImage} />
                     <Pressable
                       style={styles.thumbnailDeleteBtn}
                       onPress={() => {

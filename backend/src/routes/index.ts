@@ -22,8 +22,10 @@ import whatsappRoutes from "./whatsapp.routes.js";
 import syncRoutes from "./sync.routes.js";
 import attendanceRoutes from "./attendance.routes.js";
 import uploadRoutes from "./upload.routes.js";
+import mediaOriginRoutes from "./media-origin.routes.js";
+import type { Application, Router } from "express";
 
-export const appRoutes = [
+export const appRoutes: ReadonlyArray<readonly [string, Router]> = [
   ["/auth", authRoutes],
   ["/users", userRoutes],
   ["/shops", shopRoutes],
@@ -51,9 +53,10 @@ export const appRoutes = [
   ["/assets", uploadRoutes],
   ["/uploads", uploadRoutes],
   ["/api/uploads", uploadRoutes],
+  ["/api/media/internal", mediaOriginRoutes],
 ];
 
-export function mountAppRoutes(app) {
+export function mountAppRoutes(app: Application): void {
   for (const [prefix, router] of appRoutes) {
     app.use(prefix, router);
   }

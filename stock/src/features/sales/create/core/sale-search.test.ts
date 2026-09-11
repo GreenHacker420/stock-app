@@ -2,8 +2,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { filterAndRankCustomers, filterAndRankItems } from "../../../../utils/search";
+import { filterAndRankCustomers, filterAndRankItems, smartMatchSearch } from "../../../../utils/search";
 import { getMatchRanges } from "../../../../utils/highlight";
+
+test("blank search matches every option so picker lists are visible before typing", () => {
+  assert.equal(smartMatchSearch("HP", ""), true);
+  assert.equal(smartMatchSearch("Computer Accessories", "   "), true);
+});
 
 test("multi-word product search requires every token and ranks the full name first", () => {
   const products = [

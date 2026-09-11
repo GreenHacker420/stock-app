@@ -6,6 +6,7 @@ import { Icon, Text } from "react-native-paper";
 import { fontSize, fontWeight } from "../../theme";
 import { API_BASE_URL } from "../../api/client";
 import { useAuthStore } from "../../auth/auth-store";
+import { normalizeProductImageUrl } from "../../utils/assetImageUrl";
 
 type CachedThumbnailProps = {
   uri?: string | null;
@@ -19,10 +20,11 @@ type CachedThumbnailProps = {
 export function CachedThumbnail({ uri, fallbackText, fallbackIcon, color, style, onError }: CachedThumbnailProps) {
   const token = useAuthStore((state) => state.token);
   const [failed, setFailed] = useState(false);
-  const resolvedUri = uri
-    ? uri.startsWith("http://") || uri.startsWith("https://") || uri.startsWith("file://") || uri.startsWith("data:")
-      ? uri
-      : `${API_BASE_URL.replace(/\/+$/, "")}${uri.startsWith("/") ? "" : "/"}${uri}`
+  const normalizedUri = uri ? normalizeProductImageUrl(uri) : null;
+  const resolvedUri = normalizedUri
+    ? normalizedUri.startsWith("http://") || normalizedUri.startsWith("https://") || normalizedUri.startsWith("file://") || normalizedUri.startsWith("data:")
+      ? normalizedUri
+      : `${API_BASE_URL.replace(/\/+$/, "")}${normalizedUri.startsWith("/") ? "" : "/"}${normalizedUri}`
     : null;
 
   useEffect(() => setFailed(false), [resolvedUri]);

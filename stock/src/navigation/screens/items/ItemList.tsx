@@ -31,6 +31,7 @@ import { STOCK_MOVEMENT_PERMISSION, hasPermission } from "../../../utils/items/p
 import { parseAmount } from "../../../utils/items/validation";
 import { KeyboardAwareListScrollComponent } from "../../../components/keyboard/KeyboardAwareListScrollComponent";
 import { MutationOverlay } from "../../../components/feedback/MutationOverlay";
+import { normalizeProductImageUrl } from "../../../utils/assetImageUrl";
 
 const money = (value?: string | number | null) => `₹${Number(value ?? 0).toLocaleString("en-IN")}`;
 const FlashListAny = FlashList as any;
@@ -824,7 +825,7 @@ export function ItemList() {
                 onSavePrices={(prices) => handleSavePrices(item.id, prices.mrp, prices.defaultSellingPrice)}
                 onSaveStock={(stockState) => handleSaveStock(item.id, stockState.adjustment, stockByItem.get(item.id) ?? 0)}
                 onCancelInline={() => { setEditingItemId(null); setEditingMode(null); }}
-                onPressImage={setPreviewImageUrl}
+                onPressImage={(url) => setPreviewImageUrl(normalizeProductImageUrl(url))}
               />
             )}
             ListEmptyComponent={
