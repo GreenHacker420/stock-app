@@ -95,7 +95,7 @@ jobs:
               const paths = router?.stack.filter((layer) => layer.route).map((layer) => layer.route.path) ?? [];
               if (!paths.includes("/onboarding/sessions")) process.exit(1);
               if (!paths.includes("/assets/:assetId")) process.exit(1);
-              if (!appRoutes.some(([prefix]) => prefix === "/media/internal")) process.exit(1);
+              if (!appRoutes.some(([prefix]) => prefix === "/media/internal" || prefix === "/api/media/internal")) process.exit(1);
               process.exit(0);
             '
             docker compose run --rm --no-deps shop-backend chromium --version
@@ -135,7 +135,7 @@ jobs:
               const paths = router?.stack.filter((layer) => layer.route).map((layer) => layer.route.path) ?? [];
               if (!paths.includes("/onboarding/sessions")) process.exit(1);
               if (!paths.includes("/assets/:assetId")) process.exit(1);
-              if (!appRoutes.some(([prefix]) => prefix === "/media/internal")) process.exit(1);
+              if (!appRoutes.some(([prefix]) => prefix === "/media/internal" || prefix === "/api/media/internal")) process.exit(1);
               process.exit(0);
             '
             docker exec shop-backend chromium --version

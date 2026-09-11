@@ -53,6 +53,7 @@ export const appRoutes: ReadonlyArray<readonly [string, Router]> = [
   ["/assets", uploadRoutes],
   ["/uploads", uploadRoutes],
   ["/api/uploads", uploadRoutes],
+  ["/media/internal", mediaOriginRoutes],
   ["/api/media/internal", mediaOriginRoutes],
 ];
 
