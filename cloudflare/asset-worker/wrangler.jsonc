@@ -1,0 +1,35 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "evergreen-assets-worker",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-11",
+  "compatibility_flags": ["nodejs_compat"],
+  // Plain-text vars (no secrets). Secret bindings are set with:
+  //   npx wrangler secret put ASSET_ORIGIN_TOKEN_V2
+  // and must match the ASSET_ORIGIN_TOKEN env var on shop-api backend.
+  "vars": {
+    // shop-api owns the shop media database (OneDrive item IDs live here)
+    "ORIGIN_API_BASE_URL": "https://shop-api.evergreenclassic.in",
+    "CANONICAL_HOST": "assets.evergreenclassic.in",
+    "ENVIRONMENT": "production"
+  },
+  "routes": [
+    {
+      "pattern": "assets.evergreenclassic.in/*",
+      "zone_name": "evergreenclassic.in"
+    },
+    {
+      "pattern": "assets.evergreenclassic.in",
+      "custom_domain": true
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "invocation_logs": true,
+      "persist": true
+    }
+  }
+}

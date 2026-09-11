@@ -1,0 +1,14 @@
+{
+  "name": "evergreen-assets-worker",
+  "private": true,
+  "scripts": {
+    "check": "tsc --noEmit && wrangler deploy --dry-run",
+    "deploy": "wrangler deploy",
+    "types": "wrangler types"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.2",
+    "typescript": "^7.0.2",
+    "wrangler": "^4.131.0"
+  }
+}

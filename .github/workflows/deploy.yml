@@ -89,12 +89,13 @@ jobs:
             docker compose run --rm shop-backend npx prisma migrate deploy
 
             echo "🧪 Preflight-checking routes and Chromium in the new image..."
-            docker compose run --rm --no-deps shop-backend node --input-type=module -e '
-              import { appRoutes } from "./src/routes/index.js";
+            docker compose run --rm --no-deps shop-backend node --import tsx --input-type=module -e '
+              import { appRoutes } from "./src/routes/index.ts";
               const router = appRoutes.find(([prefix]) => prefix === "/whatsapp")?.[1];
               const paths = router?.stack.filter((layer) => layer.route).map((layer) => layer.route.path) ?? [];
               if (!paths.includes("/onboarding/sessions")) process.exit(1);
               if (!paths.includes("/assets/:assetId")) process.exit(1);
+              if (!appRoutes.some(([prefix]) => prefix === "/media/internal")) process.exit(1);
               process.exit(0);
             '
             docker compose run --rm --no-deps shop-backend chromium --version
@@ -128,12 +129,13 @@ jobs:
             RUNNING_IMAGE="$(docker inspect shop-backend --format '{{.Config.Image}}')"
             test "$RUNNING_IMAGE" = "$EXPECTED_IMAGE"
 
-            docker exec shop-backend node --input-type=module -e '
-              import { appRoutes } from "./src/routes/index.js";
+            docker exec shop-backend node --import tsx --input-type=module -e '
+              import { appRoutes } from "./src/routes/index.ts";
               const router = appRoutes.find(([prefix]) => prefix === "/whatsapp")?.[1];
               const paths = router?.stack.filter((layer) => layer.route).map((layer) => layer.route.path) ?? [];
               if (!paths.includes("/onboarding/sessions")) process.exit(1);
               if (!paths.includes("/assets/:assetId")) process.exit(1);
+              if (!appRoutes.some(([prefix]) => prefix === "/media/internal")) process.exit(1);
               process.exit(0);
             '
             docker exec shop-backend chromium --version

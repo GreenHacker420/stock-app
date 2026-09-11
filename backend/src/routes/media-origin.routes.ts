@@ -15,10 +15,9 @@ function hasValidWorkerSecret(req: Request): boolean {
   const provided = req.get("x-asset-origin-token") || req.get("x-asset-gateway-secret");
   if (!expected || !provided) return false;
 
-  const expectedBytes = Buffer.from(expected);
-  const providedBytes = Buffer.from(provided);
-  return expectedBytes.length === providedBytes.length
-    && crypto.timingSafeEqual(expectedBytes, providedBytes);
+  const expectedDigest = crypto.createHash("sha256").update(expected).digest();
+  const providedDigest = crypto.createHash("sha256").update(provided).digest();
+  return crypto.timingSafeEqual(expectedDigest, providedDigest);
 }
 
 router.use((req, _res, next) => {
